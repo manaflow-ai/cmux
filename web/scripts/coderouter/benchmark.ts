@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-export {};
+import { pathToFileURL } from "node:url";
 
 type Sample = {
   readonly durationMs: number;
@@ -26,48 +26,67 @@ type Percentiles = {
   readonly max: number;
 };
 
-const args = parseArgs(process.argv.slice(2));
-const origin = args.origin ?? "https://coderouter.dev";
-const samples = positiveInteger(args.samples ?? "30", "samples");
-const timeoutMs = positiveInteger(args.timeout ?? "15000", "timeout");
-const routeToken = args.token ?? process.env.CODEROUTER_ROUTE_TOKEN;
-const targets = [
-  { name: "landing", path: "/", expected: [200] },
-  { name: "cli_config", path: "/api/cli/config", expected: [200] },
-  {
-    name: "models_unauthenticated",
-    path: "/v1/models",
-    expected: routeToken ? [200, 503] : [401],
-    authorization: routeToken,
-  },
-];
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) await main();
 
-const output: BenchmarkResult[] = [];
-for (const target of targets) {
-  const url = new URL(target.path, origin).toString();
-  const collected: Sample[] = [];
-  // Warm DNS, TLS, CDN, and function artifacts before retaining measurements.
-  await requestSample(url, target.authorization, timeoutMs).catch(() => null);
-  for (let index = 0; index < samples; index += 1) {
-    collected.push(await requestSample(url, target.authorization, timeoutMs));
-  }
-  const result = summarize(target.name, url, collected);
-  output.push(result);
-  if (!collected.every((sample) => target.expected.includes(sample.status))) {
-    console.error(
-      `${target.name}: unexpected status; expected ${target.expected.join("/ ")}`,
+async function main(): Promise<void> {
+  const args = parseArgs(process.argv.slice(2));
+  const origin = normalizeOrigin(args.origin ?? "https://coderouter.dev");
+  const samples = positiveInteger(args.samples ?? "30", "samples");
+  const timeoutMs = positiveInteger(args.timeout ?? "15000", "timeout");
+  const routeToken = args.token ??
+    (isApprovedTokenOrigin(origin)
+      ? process.env.CODEROUTER_ROUTE_TOKEN
+      : undefined);
+  if (
+    process.env.CODEROUTER_ROUTE_TOKEN &&
+    !args.token &&
+    !isApprovedTokenOrigin(origin)
+  ) {
+    throw new Error(
+      "Refusing to send the environment route token to an unapproved origin.",
     );
-    process.exitCode = 1;
   }
-}
+  const targets = [
+    { name: "landing", path: "/", expected: [200] },
+    { name: "cli_config", path: "/api/cli/config", expected: [200] },
+    {
+      name: "models_unauthenticated",
+      path: "/v1/models",
+      expected: routeToken ? [200, 503] : [401],
+      authorization: routeToken,
+    },
+  ];
 
-console.log(JSON.stringify({
-  schemaVersion: 1,
-  measuredAt: new Date().toISOString(),
-  origin,
-  network: "client_to_edge",
-  results: output,
-}, null, 2));
+  const output: BenchmarkResult[] = [];
+  for (const target of targets) {
+    const url = new URL(target.path, origin).toString();
+    const collected: Sample[] = [];
+    // Warm DNS, TLS, CDN, and function artifacts before retaining measurements.
+    await requestSample(url, target.authorization, timeoutMs).catch(() => null);
+    for (let index = 0; index < samples; index += 1) {
+      collected.push(await requestSample(url, target.authorization, timeoutMs));
+    }
+    const result = summarize(target.name, url, collected);
+    output.push(result);
+    if (!collected.every((sample) => target.expected.includes(sample.status))) {
+      console.error(
+        `${target.name}: unexpected status; expected ${target.expected.join("/ ")}`,
+      );
+      process.exitCode = 1;
+    }
+  }
+
+  console.log(JSON.stringify({
+    schemaVersion: 1,
+    measuredAt: new Date().toISOString(),
+    origin,
+    network: "client_to_edge",
+    results: output,
+  }, null, 2));
+}
 
 async function requestSample(
   url: string,
@@ -92,45 +111,51 @@ async function requestSample(
   };
 }
 
-function summarize(
+export function summarize(
   name: string,
   url: string,
   samples: readonly Sample[],
 ): BenchmarkResult {
-  const timingNames = new Set(
-    samples.flatMap((sample) => Object.keys(sample.serverTiming)),
-  );
+  const statusCounts = new Map<number, number>();
+  const timingValues = new Map<string, number[]>();
+  const durations: number[] = [];
+  let successful = 0;
+  for (const sample of samples) {
+    durations.push(sample.durationMs);
+    if (sample.status < 500) successful += 1;
+    statusCounts.set(sample.status, (statusCounts.get(sample.status) ?? 0) + 1);
+    for (const [name, value] of Object.entries(sample.serverTiming)) {
+      const values = timingValues.get(name) ?? [];
+      values.push(value);
+      timingValues.set(name, values);
+    }
+  }
   return {
     name,
     url,
     samples: samples.length,
-    successful: samples.filter((sample) => sample.status < 500).length,
+    successful,
     statusCounts: Object.fromEntries(
-      [...new Set(samples.map((sample) => sample.status))]
-        .sort()
-        .map((status) => [
-          String(status),
-          samples.filter((sample) => sample.status === status).length,
-        ]),
+      [...statusCounts.entries()]
+        .sort(([left], [right]) => left - right)
+        .map(([status, count]) => [String(status), count]),
     ),
-    latencyMs: percentiles(samples.map((sample) => sample.durationMs)),
+    latencyMs: percentiles(durations),
     serverTimingMs: Object.fromEntries(
-      [...timingNames].sort().map((timing) => [
+      [...timingValues.entries()].sort(([left], [right]) =>
+        left.localeCompare(right)
+      ).map(([timing, values]) => [
         timing,
-        percentiles(
-          samples
-            .map((sample) => sample.serverTiming[timing])
-            .filter((value): value is number => value !== undefined),
-        ),
+        percentiles(values),
       ]),
     ),
   };
 }
 
-function parseServerTiming(value: string | null): Record<string, number> {
+export function parseServerTiming(value: string | null): Record<string, number> {
   if (!value) return {};
   const parsed: Record<string, number> = {};
-  for (const entry of value.split(",")) {
+  for (const entry of splitOutsideQuotes(value)) {
     const [name, ...parameters] = entry.trim().split(";");
     if (!name) continue;
     const duration = parameters
@@ -139,6 +164,32 @@ function parseServerTiming(value: string | null): Record<string, number> {
     if (duration) parsed[name] = Number(duration);
   }
   return parsed;
+}
+
+function splitOutsideQuotes(value: string): string[] {
+  const entries: string[] = [];
+  let current = "";
+  let quoted = false;
+  let escaped = false;
+  for (const character of value) {
+    if (escaped) {
+      current += character;
+      escaped = false;
+    } else if (character === "\\" && quoted) {
+      current += character;
+      escaped = true;
+    } else if (character === "\"") {
+      current += character;
+      quoted = !quoted;
+    } else if (character === "," && !quoted) {
+      entries.push(current);
+      current = "";
+    } else {
+      current += character;
+    }
+  }
+  entries.push(current);
+  return entries;
 }
 
 function percentiles(values: readonly number[]): Percentiles {
@@ -167,12 +218,17 @@ function round(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-function parseArgs(values: readonly string[]): Record<string, string> {
+export function parseArgs(values: readonly string[]): Record<string, string> {
   const parsed: Record<string, string> = {};
+  const supported = new Set(["origin", "samples", "timeout", "token"]);
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index]!;
     if (!value.startsWith("--")) throw new Error(`Unexpected argument: ${value}`);
     const [inlineKey, inlineValue] = value.slice(2).split("=", 2);
+    if (!inlineKey || !supported.has(inlineKey)) {
+      throw new Error("Unsupported benchmark option.");
+    }
+    if (inlineKey in parsed) throw new Error("Duplicate benchmark option.");
     const next = values[index + 1];
     if (inlineValue !== undefined) {
       parsed[inlineKey!] = inlineValue;
@@ -184,6 +240,29 @@ function parseArgs(values: readonly string[]): Record<string, string> {
     }
   }
   return parsed;
+}
+
+export function normalizeOrigin(value: string): string {
+  const parsed = new URL(value);
+  const loopback = parsed.hostname === "localhost" ||
+    parsed.hostname === "127.0.0.1" ||
+    parsed.hostname === "::1";
+  if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && loopback)) {
+    throw new Error("Benchmark origin must use HTTPS except on loopback.");
+  }
+  if (
+    parsed.username || parsed.password || parsed.search || parsed.hash ||
+    parsed.pathname !== "/"
+  ) {
+    throw new Error(
+      "Benchmark origin cannot contain credentials, a path, query, or fragment.",
+    );
+  }
+  return parsed.origin;
+}
+
+function isApprovedTokenOrigin(origin: string): boolean {
+  return origin === "https://coderouter.dev";
 }
 
 function positiveInteger(value: string, name: string): number {

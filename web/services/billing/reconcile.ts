@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/nextjs";
-import { asc } from "drizzle-orm";
+import { asc, inArray, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 
 import { cloudDb } from "../../db/client";
@@ -30,6 +30,7 @@ type BillingReconcileDependencies = {
   readonly list?: (limit: number) => Promise<readonly SubscriptionSnapshot[]>;
   readonly retrieve?: (id: string) => Promise<Stripe.Subscription>;
   readonly apply?: (subscription: Stripe.Subscription) => Promise<unknown>;
+  readonly markChecked?: (ids: readonly string[]) => Promise<void>;
   readonly captureError?: (
     error: unknown,
     context: Record<string, string | number | boolean>,
@@ -58,6 +59,7 @@ export async function reconcileStripeSubscriptions(
     ((id) => stripe().subscriptions.retrieve(id));
   const apply = dependencies.apply ?? ((subscription) =>
     applySubscriptionUpdate(subscription));
+  const markChecked = dependencies.markChecked ?? markSubscriptionsChecked;
   const captureError = dependencies.captureError ?? captureCoderouterError;
   const rows = await list(limit + 1);
   const snapshots = rows.slice(0, limit);
@@ -89,6 +91,9 @@ export async function reconcileStripeSubscriptions(
       }
     },
   );
+  if (snapshots.length > 0) {
+    await markChecked(snapshots.map((snapshot) => snapshot.id));
+  }
 
   const result = {
     checked: snapshots.length,
@@ -117,8 +122,19 @@ async function listSubscriptionSnapshots(
       currentPeriodEnd: stripeSubscriptions.currentPeriodEnd,
     })
     .from(stripeSubscriptions)
-    .orderBy(asc(stripeSubscriptions.updatedAt))
+    .orderBy(
+      sql`${stripeSubscriptions.lastReconciledAt} asc nulls first`,
+      asc(stripeSubscriptions.id),
+    )
     .limit(limit);
+}
+
+async function markSubscriptionsChecked(ids: readonly string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await cloudDb()
+    .update(stripeSubscriptions)
+    .set({ lastReconciledAt: sql`now()` })
+    .where(inArray(stripeSubscriptions.id, [...ids]));
 }
 
 function hasDrift(

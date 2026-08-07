@@ -33,6 +33,11 @@ describe("Stripe subscription reconciliation", () => {
   test("checks remote subscriptions concurrently and repairs only drift", async () => {
     let inFlight = 0;
     let peak = 0;
+    let started = 0;
+    let releaseBoth!: () => void;
+    const bothStarted = new Promise<void>((resolve) => {
+      releaseBoth = resolve;
+    });
     const applied: string[] = [];
     const result = await reconcileStripeSubscriptions({}, {
       list: async () => [
@@ -53,7 +58,9 @@ describe("Stripe subscription reconciliation", () => {
       retrieve: async (id) => {
         inFlight += 1;
         peak = Math.max(peak, inFlight);
-        await new Promise((resolve) => setTimeout(resolve, 5));
+        started += 1;
+        if (started === 2) releaseBoth();
+        await bothStarted;
         inFlight -= 1;
         return id === "sub_drift"
           ? subscription(id, "canceled")
@@ -63,6 +70,7 @@ describe("Stripe subscription reconciliation", () => {
         applied.push(remote.id);
         return { scope: "user", stackUserId: "ignored", isActive: false };
       },
+      markChecked: async () => {},
     });
 
     expect(peak).toBe(2);
@@ -89,6 +97,7 @@ describe("Stripe subscription reconciliation", () => {
       apply: async () => {
         applied = true;
       },
+      markChecked: async () => {},
     });
     expect(applied).toBe(false);
     expect(result.drifted).toBe(1);
@@ -108,6 +117,7 @@ describe("Stripe subscription reconciliation", () => {
         throw new Error("provider unavailable");
       },
       captureError: (_error, context) => contexts.push(context),
+      markChecked: async () => {},
     });
     expect(result.failed).toBe(1);
     expect(contexts).toEqual([{
@@ -134,8 +144,36 @@ describe("Stripe subscription reconciliation", () => {
         },
       ],
       retrieve: async (id) => subscription(id),
+      markChecked: async () => {},
     });
     expect(result.checked).toBe(1);
     expect(result.truncated).toBe(true);
+  });
+
+  test("advances every checked row so a later batch can rotate in", async () => {
+    const remaining = ["sub_one", "sub_two"];
+    const checked: string[] = [];
+    const list = async (limit: number) =>
+      remaining.slice(0, limit).map((id) => ({
+        id,
+        status: "active",
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: new Date(1_800_000_000_000),
+      }));
+    const markChecked = async (ids: readonly string[]) => {
+      checked.push(...ids);
+      for (const id of ids) remaining.splice(remaining.indexOf(id), 1);
+    };
+    const dependencies = {
+      list,
+      retrieve: async (id: string) => subscription(id),
+      markChecked,
+    };
+
+    expect((await reconcileStripeSubscriptions({ limit: 1 }, dependencies)).truncated)
+      .toBe(true);
+    expect((await reconcileStripeSubscriptions({ limit: 1 }, dependencies)).truncated)
+      .toBe(false);
+    expect(checked).toEqual(["sub_one", "sub_two"]);
   });
 });

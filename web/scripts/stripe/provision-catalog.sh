@@ -81,8 +81,11 @@ stripe_get() {
 stripe_post() {
   local path="$1"
   shift
+  # POST mutations are not automatically retried without a stable Stripe
+  # idempotency key. A failed operator run safely re-discovers completed
+  # catalog objects before attempting a new mutation.
   printf 'Authorization: Bearer %s\n' "$STRIPE_PROVISION_KEY" |
-    curl -fsS --connect-timeout 5 --max-time 30 --retry 2 --retry-all-errors \
+    curl -fsS --connect-timeout 5 --max-time 30 \
       --header @- -X POST "$@" "${STRIPE_API_BASE}${path}"
 }
 
