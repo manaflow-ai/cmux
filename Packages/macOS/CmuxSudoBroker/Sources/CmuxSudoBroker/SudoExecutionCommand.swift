@@ -19,6 +19,8 @@ struct SudoExecutionCommand: Sendable, Equatable {
                 "/dev/null",
                 "/usr/bin/sudo",
                 "-k",
+                "-p",
+                SudoAuthenticationOutputDetector.passwordPrompt,
                 "/bin/bash",
                 approvedScriptURL.path,
             ],

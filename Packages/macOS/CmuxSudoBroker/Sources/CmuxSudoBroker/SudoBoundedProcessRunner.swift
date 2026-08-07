@@ -3,7 +3,7 @@ import Foundation
 
 struct SudoBoundedProcessRunner: Sendable {
     private let spawner: any SudoProcessSpawning
-    private let exitWaiter: SudoProcessExitWaiter
+    private let executionWaiter: SudoExecutionEventWaiter
     private let terminator: SudoProcessTreeTerminator
     private let now: @Sendable () -> Date
 
@@ -14,7 +14,10 @@ struct SudoBoundedProcessRunner: Sendable {
         now: @Sendable @escaping () -> Date = { .now }
     ) {
         self.spawner = spawner
-        exitWaiter = SudoProcessExitWaiter(inspector: inspector)
+        executionWaiter = SudoExecutionEventWaiter(
+            inspector: inspector,
+            outputDetector: SudoAuthenticationOutputDetector()
+        )
         terminator = SudoProcessTreeTerminator(inspector: inspector, signaler: signaler)
         self.now = now
     }
@@ -28,22 +31,23 @@ struct SudoBoundedProcessRunner: Sendable {
         deadline: Date
     ) -> SudoProcessOutcome {
         let timeout = max(0, deadline.timeIntervalSince(now()))
-        let survivors = exitWaiter.survivors(
-            among: [process.identity],
-            after: timeout
-        )
-        if survivors.isEmpty {
+        switch executionWaiter.wait(for: process, after: timeout) {
+        case .exited:
             return reap(process.identity.processIdentifier)
+        case .authenticationFailed:
+            return .authenticationFailed(
+                cleanupSurvivors: terminateAndReap(process)
+            )
+        case .timedOut:
+            return .timedOut(cleanupSurvivors: terminateAndReap(process))
         }
-
-        let cleanupSurvivors = terminator.terminate(root: process.identity)
-        if !cleanupSurvivors.contains(where: { $0 == process.identity }) {
-            _ = reap(process.identity.processIdentifier)
-        }
-        return .timedOut(cleanupSurvivors: cleanupSurvivors)
     }
 
     func terminate(_ process: SudoSpawnedProcess) -> [SudoProcessIdentity] {
+        terminateAndReap(process)
+    }
+
+    private func terminateAndReap(_ process: SudoSpawnedProcess) -> [SudoProcessIdentity] {
         let survivors = terminator.terminate(root: process.identity)
         if !survivors.contains(process.identity) {
             _ = reap(process.identity.processIdentifier)

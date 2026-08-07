@@ -241,6 +241,14 @@ public struct SudoExecutionRunner {
                 errorCode: .executionInterrupted,
                 note: messages.executionInterrupted
             )
+        case .authenticationFailed(let survivors):
+            let cleanupFailed = !survivors.isEmpty
+            return SudoResult(
+                id: requestID,
+                status: .failed,
+                errorCode: cleanupFailed ? .processCleanupFailed : .authenticationFailed,
+                note: cleanupFailed ? messages.cleanupFailed : messages.authenticationFailed
+            )
         case .timedOut(let survivors):
             return SudoResult(
                 id: requestID,

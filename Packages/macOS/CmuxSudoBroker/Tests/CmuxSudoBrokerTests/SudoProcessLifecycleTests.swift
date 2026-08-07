@@ -88,7 +88,7 @@ struct SudoProcessLifecycleTests {
             executableURL: URL(fileURLWithPath: "/usr/bin/script"),
             arguments: [
                 "/usr/bin/script", "-q", "/dev/null", "/bin/sh", "-c",
-                "printf 'Password:'; sleep 30",
+                "printf '\(SudoAuthenticationOutputDetector.passwordPrompt)'; sleep 30",
             ],
             currentDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
             outputURL: fixture.paths.results.appendingPathComponent("pty-password.out")
@@ -100,8 +100,10 @@ struct SudoProcessLifecycleTests {
             deadline: Date.now.addingTimeInterval(1)
         )
 
-        if case .timedOut = outcome {
-            Issue.record("password fallback remained blocked until the execution deadline")
+        if case .authenticationFailed(let survivors) = outcome {
+            #expect(survivors.isEmpty)
+        } else {
+            Issue.record("password fallback did not produce an authentication failure")
         }
         #expect(!inspector.isRunning(process.identity))
     }

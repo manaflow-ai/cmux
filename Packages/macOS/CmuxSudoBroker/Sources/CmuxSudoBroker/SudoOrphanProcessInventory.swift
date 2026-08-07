@@ -13,9 +13,13 @@ struct SudoOrphanProcessInventory: Sendable {
         let expectedArguments: Set<[String]> = [
             [
                 "/usr/bin/script", "-q", "/dev/null", "/usr/bin/sudo", "-k",
+                "-p", SudoAuthenticationOutputDetector.passwordPrompt,
                 "/bin/bash", path,
             ],
-            ["/usr/bin/sudo", "-k", "/bin/bash", path],
+            [
+                "/usr/bin/sudo", "-k", "-p",
+                SudoAuthenticationOutputDetector.passwordPrompt, "/bin/bash", path,
+            ],
             ["/bin/bash", path],
         ]
         return inspector.allProcessIdentifiers().compactMap { processIdentifier in
