@@ -18,6 +18,14 @@ extension TerminalController {
                 data: nil
             )
         }
+        let ownerPID = transientAttentionPositiveInt(params["ppid"])
+        if params["ppid"] != nil, ownerPID == nil {
+            return .err(
+                code: "invalid_params",
+                message: "feed.attention.begin ppid must be a positive process id",
+                data: nil
+            )
+        }
         let subtitle = transientAttentionString(params["subtitle"], maxBytes: 512) ?? ""
         let body = transientAttentionString(params["body"], maxBytes: 4_096) ?? ""
         let active = FeedCoordinator.shared.beginTransientBlockingAttention(
@@ -26,6 +34,7 @@ extension TerminalController {
             requestId: requestId,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
+            ownerPID: ownerPID,
             title: title,
             subtitle: subtitle,
             body: body
@@ -62,5 +71,15 @@ extension TerminalController {
     private func transientAttentionUUID(_ rawValue: Any?) -> UUID? {
         guard let value = transientAttentionString(rawValue, maxBytes: 64) else { return nil }
         return UUID(uuidString: value)
+    }
+
+    private func transientAttentionPositiveInt(_ rawValue: Any?) -> Int? {
+        guard !(rawValue is Bool),
+              let number = rawValue as? NSNumber,
+              number.int64Value > 0,
+              number.int64Value <= Int64(Int32.max) else {
+            return nil
+        }
+        return Int(number.int64Value)
     }
 }

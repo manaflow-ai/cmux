@@ -369,6 +369,7 @@ struct ClaudeHookWriteAmplificationTests {
         var environment = Harness.hookEnvironment(context: context)
         environment["CMUX_WORKSPACE_ID"] = workspaceId
         environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_CLAUDE_PID"] = "4242"
 
         func runHook(subcommand: String, eventName: String) -> Harness.ProcessRunResult {
             let result = Harness.runHookProcess(
@@ -395,6 +396,7 @@ struct ClaudeHookWriteAmplificationTests {
                 return false
             }
             return params["request_id"] as? String == toolUseId
+                && params["ppid"] as? Int == 4242
         })
         #expect(!needsInputCommands.contains { $0.hasPrefix("set_agent_lifecycle ") })
         #expect(!needsInputCommands.contains { $0.hasPrefix("set_status ") })

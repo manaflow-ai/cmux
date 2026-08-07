@@ -16,11 +16,12 @@ extension CMUXCLI {
         toolUseId: String?,
         workspaceId: String,
         surfaceId: String,
+        ownerPID: Int?,
         title: String,
         subtitle: String,
         body: String
     ) {
-        _ = try? client.sendV2(method: "feed.attention.begin", params: [
+        var params: [String: Any] = [
             "source": "claude",
             "session_id": sessionId,
             "request_id": claudeBlockingAttentionRequestId(toolUseId: toolUseId),
@@ -29,7 +30,11 @@ extension CMUXCLI {
             "title": title,
             "subtitle": subtitle,
             "body": body,
-        ])
+        ]
+        if let ownerPID, ownerPID > 0 {
+            params["ppid"] = ownerPID
+        }
+        _ = try? client.sendV2(method: "feed.attention.begin", params: params)
     }
 
     func endClaudeBlockingAttention(

@@ -890,6 +890,87 @@ struct FeedCoordinatorTests {
             store.entry(for: firstKey) == nil,
             "orphaned transient requests must not grow the Feed registry without a bound"
         )
+        #expect(store.removeValues(workspaceId: target.workspaceId).count == 256)
+    }
+
+    @Test @MainActor
+    func transientAttentionStoreExpiresAndRemovesEntriesByOwner() async {
+        let expiredEntries = AsyncStream.makeStream(
+            of: FeedTransientAttentionStore.Entry.self
+        )
+        let store = FeedTransientAttentionStore(
+            clock: ImmediateFeedAttentionClock(),
+            retentionDuration: .seconds(1),
+            expirationHandler: { entry in
+                expiredEntries.continuation.yield(entry)
+            }
+        )
+        let firstWorkspaceId = UUID()
+        let secondWorkspaceId = UUID()
+        let firstTarget = FeedCoordinator.AttentionTarget(
+            workspaceId: firstWorkspaceId,
+            panelId: UUID(),
+            statusKey: "claude_code"
+        )
+        let secondTarget = FeedCoordinator.AttentionTarget(
+            workspaceId: secondWorkspaceId,
+            panelId: UUID(),
+            statusKey: "claude_code"
+        )
+        let expiringKey = FeedTransientAttentionStore.Key(
+            source: "claude",
+            sessionId: "expiring-session",
+            requestId: "expiring-request"
+        )
+        store.insert(
+            FeedTransientAttentionStore.Entry(
+                target: firstTarget,
+                notificationCorrelationKey: "expiring-notification",
+                ownerPID: 101
+            ),
+            for: expiringKey
+        )
+
+        var iterator = expiredEntries.stream.makeAsyncIterator()
+        let expired = await iterator.next()
+        #expect(expired?.ownerPID == 101)
+        #expect(store.entry(for: expiringKey) == nil)
+        expiredEntries.continuation.finish()
+
+        let pidKey = FeedTransientAttentionStore.Key(
+            source: "claude",
+            sessionId: "pid-session",
+            requestId: "pid-request"
+        )
+        let workspaceKey = FeedTransientAttentionStore.Key(
+            source: "claude",
+            sessionId: "workspace-session",
+            requestId: "workspace-request"
+        )
+        store.insert(
+            FeedTransientAttentionStore.Entry(
+                target: firstTarget,
+                notificationCorrelationKey: "pid-notification",
+                ownerPID: 202
+            ),
+            for: pidKey
+        )
+        store.insert(
+            FeedTransientAttentionStore.Entry(
+                target: secondTarget,
+                notificationCorrelationKey: "workspace-notification",
+                ownerPID: 303
+            ),
+            for: workspaceKey
+        )
+
+        #expect(store.removeValues(ownerPID: 202).map(\.ownerPID) == [202])
+        #expect(store.entry(for: pidKey) == nil)
+        #expect(
+            store.removeValues(workspaceId: secondWorkspaceId)
+                .map(\.notificationCorrelationKey) == ["workspace-notification"]
+        )
+        #expect(store.entry(for: workspaceKey) == nil)
     }
 
     static func resetFeedCoordinatorTestHooks() {
@@ -907,6 +988,29 @@ struct FeedCoordinatorTests {
             DispatchQueue.main.sync(execute: reset)
         }
     }
+}
+
+private struct ImmediateFeedAttentionClock: Clock {
+    struct Instant: InstantProtocol {
+        let offset: Duration
+
+        func advanced(by duration: Duration) -> Instant {
+            Instant(offset: offset + duration)
+        }
+
+        func duration(to other: Instant) -> Duration {
+            other.offset - offset
+        }
+
+        static func < (lhs: Instant, rhs: Instant) -> Bool {
+            lhs.offset < rhs.offset
+        }
+    }
+
+    var now: Instant { Instant(offset: .zero) }
+    var minimumResolution: Duration { .zero }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {}
 }
 
 private func waitForFeedTestSignal(

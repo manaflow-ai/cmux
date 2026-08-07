@@ -25358,13 +25358,6 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
-            if let sessionId = parsedInput.sessionId {
-                endClaudeBlockingAttentionForTurnBoundary(
-                    client: client,
-                    sessionId: sessionId,
-                    record: mappedSession
-                )
-            }
             let consumedSession = try? sessionStore.consume(
                 sessionId: parsedInput.sessionId,
                 workspaceId: liveEndTarget.workspaceId,
@@ -25375,6 +25368,11 @@ struct CMUXCLI {
             // consumedSession, so isCurrent can treat consumedSession.sessionId
             // as current only when the consumed session was the active one.
             if let consumedSession {
+                endClaudeBlockingAttentionForTurnBoundary(
+                    client: client,
+                    sessionId: consumedSession.sessionId,
+                    record: consumedSession
+                )
                 // App-visible cleanup targets the live owner of the session's
                 // pane when the resolver answered authoritatively; the
                 // consumed record's address is the fallback. Store-side calls
@@ -25616,6 +25614,7 @@ struct CMUXCLI {
                         toolUseId: toolUseId,
                         workspaceId: workspaceId,
                         surfaceId: existingSurfaceId,
+                        ownerPID: claudePid,
                         title: title,
                         subtitle: waitingSubtitle,
                         body: needsInputBody

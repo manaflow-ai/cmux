@@ -68,7 +68,11 @@ final class FeedCoordinator: @unchecked Sendable {
     /// Request identity for transient (non-Feed-card) blockers lives in a
     /// focused companion type; the shared attention refcount above remains the
     /// sole owner of visible lifecycle/status mutations.
-    @MainActor let transientAttentionStore = FeedTransientAttentionStore()
+    @MainActor lazy var transientAttentionStore = FeedTransientAttentionStore(
+        expirationHandler: { [weak self] entry in
+            self?.concludeTransientBlockingAttention(entry)
+        }
+    )
 
     private init() {}
 
@@ -110,6 +114,7 @@ final class FeedCoordinator: @unchecked Sendable {
             Task { @MainActor in
                 guard let self else { return }
                 self.store?.expireItems(forPpid: ppid)
+                self.endTransientBlockingAttention(ownerPID: ppid)
                 self.pidWatchers[ppid]?.cancel()
                 self.pidWatchers.removeValue(forKey: ppid)
             }
