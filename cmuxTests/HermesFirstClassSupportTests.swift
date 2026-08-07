@@ -294,6 +294,47 @@ struct HermesFirstClassSupportTests {
         #expect(revalidated.agentProcessIDs.isEmpty)
     }
 
+    @Test("Quit watchdog fallback uses the cached Hermes index without process revalidation")
+    func quitWatchdogFallbackUsesCachedHermesIndexWithoutProcessRevalidation() throws {
+        let fixture = try makeFixture { [StateRow("watchdog-session", cwd: $0.path)] }
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let processID = Int(Int32.max) - 9_532
+        let identity = AgentPIDProcessIdentity(pid: pid_t(processID), startSeconds: 700, startMicroseconds: 800)
+        try writeHermesHookStore(
+            fixture: fixture,
+            sessionID: "watchdog-session",
+            processID: processID,
+            identity: identity,
+            executablePath: fixture.hermesExecutable,
+            arguments: [fixture.hermesExecutable, "--resume", "watchdog-session"]
+        )
+        let cached = try loadHookBackedHermesIndex(
+            fixture: fixture,
+            processID: processID,
+            identity: identity,
+            liveProcess: CmuxTopProcessArguments(
+                arguments: [fixture.hermesExecutable, "--resume", "watchdog-session"],
+                environment: hermesEnvironment(fixture).merging([
+                    "CMUX_WORKSPACE_ID": fixture.workspaceID.uuidString,
+                    "CMUX_SURFACE_ID": fixture.panelID.uuidString,
+                ]) { _, incoming in incoming }
+            )
+        )
+
+        let resumeIndexes = ProcessDetectedResumeIndexes.cached(
+            restorableAgentIndex: cached
+        )
+        let preserved = try #require(
+            resumeIndexes.restorableAgentIndex.entry(
+                workspaceId: fixture.workspaceID,
+                panelId: fixture.panelID
+            )
+        )
+
+        #expect(preserved.processLiveness == .running)
+        #expect(preserved.agentProcessIDs == [processID])
+    }
+
     @Test("Fresh synchronous lifecycle load discovers a Hermes hook session missing from the cache")
     func freshSynchronousLifecycleLoadDiscoversNewHermesSession() throws {
         let fixture = try makeFixture { [StateRow("new-hook-session", cwd: $0.path)] }

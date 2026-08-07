@@ -316,6 +316,13 @@ struct TerminalSurfaceCommandShimPermissionsTests {
             [.modificationDate: aliasDirectoryModificationDate],
             ofItemAtPath: aliasDirectory.path
         )
+        #expect(
+            try capturedArguments(
+                from: firstAliasShim,
+                logURL: invocationLog,
+                workingDirectoryURL: root
+            ) == ["-p", "audit", "--continue"]
+        )
         let refreshed = try #require(
             await TerminalSurface.installAgentCommandShimsIfPossible(
                 wrapperDirectoryURL: wrapperDirectory,
