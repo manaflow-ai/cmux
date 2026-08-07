@@ -1332,6 +1332,96 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexStopSkipsDetachedAutoNameForManualWorkspaceWithoutReplayableTitle() throws {
+        let context = try makeClaudeHookContext(name: "codex-manual-no-auto-title")
+        defer { context.cleanup() }
+
+        let sessionId = "codex-manual-no-auto-title-session"
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context)
+        let prompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"Investigate auth"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let unexpectedDetachedProbe = expectation(description: "detached auto-name child probe")
+        unexpectedDetachedProbe.isInverted = true
+        let commandStart = startManualWorkspaceAutoNamingProbeServer(
+            context: context,
+            expectedProbeCount: 2,
+            expectation: unexpectedDetachedProbe
+        )
+        let stop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"Done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        wait(for: [unexpectedDetachedProbe], timeout: 1)
+
+        let stopCommands = Array(context.state.snapshot().dropFirst(commandStart))
+        XCTAssertEqual(
+            autoNamingProbeRequestCount(in: stopCommands),
+            1,
+            "A manual workspace with no stored auto title should perform only the parent setting probe, saw \(stopCommands)"
+        )
+    }
+
+    func testCodexStopKeepsDetachedAutoNameForManualWorkspaceWithReplayableTitle() throws {
+        let context = try makeClaudeHookContext(name: "codex-manual-auto-title")
+        defer { context.cleanup() }
+
+        let sessionId = "codex-manual-auto-title-session"
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context)
+        let prompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"Investigate auth"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+        try updateAgentHookSession(
+            sessionId,
+            sessionStoreSuffix: "codex",
+            context: context
+        ) { session in
+            session["autoNameLastTitle"] = "Investigate auth"
+            session["autoNameLastLineCount"] = 500
+            session["autoNameLastNamedAt"] = Date().timeIntervalSince1970 - 60
+        }
+
+        let detachedProbe = expectation(description: "detached auto-name child probe")
+        let commandStart = startManualWorkspaceAutoNamingProbeServer(
+            context: context,
+            expectedProbeCount: 2,
+            expectation: detachedProbe
+        )
+        let stop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"Done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        wait(for: [detachedProbe], timeout: 5)
+
+        let stopCommands = Array(context.state.snapshot().dropFirst(commandStart))
+        XCTAssertGreaterThanOrEqual(
+            autoNamingProbeRequestCount(in: stopCommands),
+            2,
+            "A stored auto title must keep the detached reconciliation path available under a manual workspace, saw \(stopCommands)"
+        )
+    }
+
     func testCodexPromptSubmitDoesNotRefreshTerminalLastTurnDiffBaseline() throws {
         let context = try makeClaudeHookContext(name: "codex-prompt-baseline")
         defer { context.cleanup() }
@@ -10163,6 +10253,40 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }, onListenerClosed: {})
     }
 
+    /// Starts the normal agent-hook socket responder while making auto-naming
+    /// report a manual workspace. Returns the request offset for this pass.
+    private func startManualWorkspaceAutoNamingProbeServer(
+        context: ClaudeHookContext,
+        expectedProbeCount: Int,
+        expectation: XCTestExpectation
+    ) -> Int {
+        let state = context.state
+        let commandStart = state.snapshot().count
+        let once = CLIMockOnceFlag()
+        CLIMockAcceptLoopRegistry.shared.start(listenerFD: context.listenerFD, onConnection: { clientFD in
+            defer { Darwin.close(clientFD) }
+            cliMockServeLineFramedConnection(clientFD: clientFD) { line in
+                state.append(line)
+                guard let payload = self.jsonObject(line),
+                      let id = payload["id"] as? String,
+                      payload["method"] as? String == "workspace.set_auto_title",
+                      let params = payload["params"] as? [String: Any],
+                      params["probe"] as? Bool == true else {
+                    return self.agentHookMockResponse(line: line, context: context)
+                }
+                let passCommands = Array(state.snapshot().dropFirst(commandStart))
+                if self.autoNamingProbeRequestCount(in: passCommands) >= expectedProbeCount {
+                    once.fulfill(expectation)
+                }
+                return self.v2Response(id: id, ok: true, result: [
+                    "enabled": true,
+                    "workspace_user_owned": true,
+                ])
+            }
+        }, onListenerClosed: {})
+        return commandStart
+    }
+
     private func agentHookMockResponse(line: String, context: ClaudeHookContext) -> String {
         guard let payload = jsonObject(line) else {
             return "OK"
@@ -10285,7 +10409,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         context: ClaudeHookContext,
         mutation: (inout [String: Any]) -> Void
     ) throws {
-        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        try updateAgentHookSession(
+            sessionId,
+            sessionStoreSuffix: "claude",
+            context: context,
+            mutation: mutation
+        )
+    }
+
+    private func updateAgentHookSession(
+        _ sessionId: String,
+        sessionStoreSuffix: String,
+        context: ClaudeHookContext,
+        mutation: (inout [String: Any]) -> Void
+    ) throws {
+        let stateURL = context.root.appendingPathComponent("\(sessionStoreSuffix)-hook-sessions.json")
         var state = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
         )
@@ -10380,6 +10518,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 return nil
             }
             return params
+        }
+    }
+
+    private func autoNamingProbeRequestCount(in commands: [String]) -> Int {
+        commands.reduce(into: 0) { count, line in
+            guard let payload = jsonObject(line),
+                  payload["method"] as? String == "workspace.set_auto_title",
+                  let params = payload["params"] as? [String: Any],
+                  params["probe"] as? Bool == true else {
+                return
+            }
+            count += 1
         }
     }
 
