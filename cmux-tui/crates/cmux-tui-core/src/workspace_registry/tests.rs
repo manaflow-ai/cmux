@@ -253,6 +253,29 @@ fn terminal_host_reset_holds_structured_live_marker_lock() {
 
 #[cfg(unix)]
 #[test]
+fn reset_rejects_unpublished_terminal_host_publication() {
+    let root = temp_root("reset-rejects-unpublished-terminal-host");
+    let session = "reset-rejects-unpublished-terminal-host";
+    drop(WorkspaceRegistry::open(&root, session).unwrap());
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    crate::terminal_host_runtime::prepare_terminal_host_publication_lock(&host_root).unwrap();
+    let _publication =
+        crate::terminal_host_runtime::acquire_terminal_host_publication_lock(&host_root).unwrap();
+
+    let preview = resetter.preview(session).unwrap();
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(error.to_string().contains("live or unverified hosts"), "{error:#}");
+    assert!(session_dir.exists(), "reset removed session state during host publication");
+    assert!(host_root.exists(), "reset removed terminal-host state during host publication");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn session_guard_rejects_symlinked_lock_directory() {
     use std::os::unix::fs::symlink;
 

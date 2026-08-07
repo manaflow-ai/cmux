@@ -48,6 +48,7 @@ pub(crate) const CONTROL_RESPONSE_TIMEOUT: std::time::Duration = std::time::Dura
 const HOST_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const HOST_CONNECT_RETRY_WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
 const HOST_CONNECT_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
+const TERMINAL_HOST_PUBLICATION_LOCK_FILE: &str = ".publication.lock";
 // Keep live PTY backpressure independent from the extra headroom needed by
 // one maximum Resized + Colors + targeted acknowledgement transition.
 const MAX_HOST_CLIENT_OUTPUT_QUEUED_BYTES: usize = 8 * 1024 * 1024;
@@ -1579,7 +1580,7 @@ mod unix {
         kitty_graphics_limits: KittyGraphicsLimits,
         terminal_id: TerminalId,
     ) -> anyhow::Result<HostAttachment> {
-        prepare_private_dir(root)?;
+        prepare_terminal_host_publication_lock(root)?;
         let owner_token = CapabilityToken::random()?;
         let terminal_hex = encode_hex(terminal_id.as_bytes());
         // macOS limits sockaddr_un paths to roughly one hundred bytes and
@@ -3545,6 +3546,135 @@ mod unix {
         }
     }
 
+    pub(crate) struct TerminalHostResetLock {
+        file: File,
+    }
+
+    pub(crate) struct TerminalHostPublicationLock {
+        file: File,
+    }
+
+    pub(crate) fn prepare_terminal_host_publication_lock(root: &Path) -> anyhow::Result<()> {
+        prepare_private_dir(root)?;
+        let path = terminal_host_publication_lock_path(root);
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+            .open(&path)
+            .with_context(|| format!("create terminal-host publication lock {}", path.display()))?;
+        validate_terminal_host_publication_lock(root, &path, &file)?;
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+        file.sync_all()?;
+        File::open(root)?.sync_all()?;
+        Ok(())
+    }
+
+    pub(crate) fn acquire_terminal_host_reset_lock(
+        root: &Path,
+    ) -> anyhow::Result<TerminalHostResetLock> {
+        let path = terminal_host_publication_lock_path(root);
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+            .open(&path)
+            .with_context(|| format!("open terminal-host publication lock {}", path.display()))?;
+        validate_terminal_host_publication_lock(root, &path, &file)?;
+        lock_terminal_host_publication_file(&file, libc::LOCK_EX | libc::LOCK_NB).with_context(
+            || format!("terminal host state has live or unverified hosts: {}", root.display()),
+        )?;
+        validate_terminal_host_publication_lock(root, &path, &file)?;
+        Ok(TerminalHostResetLock { file })
+    }
+
+    pub(crate) fn acquire_terminal_host_publication_lock(
+        root: &Path,
+    ) -> anyhow::Result<TerminalHostPublicationLock> {
+        let path = terminal_host_publication_lock_path(root);
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+            .open(&path)
+            .with_context(|| format!("open terminal-host publication lock {}", path.display()))?;
+        validate_terminal_host_publication_lock(root, &path, &file)?;
+        lock_terminal_host_publication_file(&file, libc::LOCK_SH)
+            .with_context(|| format!("lock terminal-host publication lock {}", path.display()))?;
+        validate_terminal_host_publication_lock(root, &path, &file)?;
+        Ok(TerminalHostPublicationLock { file })
+    }
+
+    fn terminal_host_publication_lock_path(root: &Path) -> PathBuf {
+        root.join(TERMINAL_HOST_PUBLICATION_LOCK_FILE)
+    }
+
+    fn validate_terminal_host_publication_lock(
+        root: &Path,
+        path: &Path,
+        file: &File,
+    ) -> anyhow::Result<()> {
+        let root_metadata = fs::metadata(root)
+            .with_context(|| format!("inspect terminal-host root {}", root.display()))?;
+        let path_metadata = fs::symlink_metadata(path).with_context(|| {
+            format!("inspect terminal-host publication lock {}", path.display())
+        })?;
+        if !path_metadata.file_type().is_file()
+            || path_metadata.uid() != root_metadata.uid()
+            || path_metadata.mode() & 0o077 != 0
+            || path_metadata.nlink() != 1
+        {
+            anyhow::bail!("terminal-host publication lock is unsafe: {}", path.display());
+        }
+        let file_metadata = file.metadata()?;
+        if path_metadata.dev() != file_metadata.dev() || path_metadata.ino() != file_metadata.ino()
+        {
+            anyhow::bail!(
+                "terminal-host publication lock changed while opening: {}",
+                path.display()
+            );
+        }
+        Ok(())
+    }
+
+    fn lock_terminal_host_publication_file(
+        file: &File,
+        operation: libc::c_int,
+    ) -> anyhow::Result<()> {
+        loop {
+            // SAFETY: flock only observes or changes the advisory lock on this
+            // valid descriptor.
+            if unsafe { libc::flock(file.as_raw_fd(), operation) } == 0 {
+                return Ok(());
+            }
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(error.into());
+        }
+    }
+
+    impl Drop for TerminalHostResetLock {
+        fn drop(&mut self) {
+            // SAFETY: flock only changes the advisory lock on this valid descriptor.
+            let _ = unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
+        }
+    }
+
+    impl Drop for TerminalHostPublicationLock {
+        fn drop(&mut self) {
+            // SAFETY: flock only changes the advisory lock on this valid descriptor.
+            let _ = unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
+        }
+    }
+
     struct HostServiceGuard {
         shared: Arc<HostShared>,
         endpoint: PathBuf,
@@ -3669,6 +3799,10 @@ mod unix {
             supports_set_defaults: true,
             supports_clear_history: true,
         };
+        let record_root = Path::new(&launch.record_path)
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("terminal-host record has no parent directory"))?;
+        let _publication_lock = acquire_terminal_host_publication_lock(record_root)?;
         let lease =
             HostLivenessLease::acquire(liveness_path(Path::new(&launch.record_path), &record))?;
         let mut guard = HostServiceGuard {
@@ -6728,7 +6862,8 @@ mod unix {
 #[cfg(unix)]
 pub(crate) use unix::{
     ControlResponses, DecodedHostResize, DeferredCellPixelResolution,
-    adopt_terminal_host_with_kitty_limits, decode_host_resize_payload_for_version,
+    acquire_terminal_host_reset_lock, adopt_terminal_host_with_kitty_limits,
+    decode_host_resize_payload_for_version,
 };
 #[cfg(unix)]
 pub use unix::{
@@ -6737,6 +6872,10 @@ pub use unix::{
     load_terminal_host_exit_records, load_terminal_host_records, remove_stale_terminal_host_record,
     serve_terminal_host_stdio, terminal_host_exit_record, terminal_host_record_liveness,
     terminal_host_root, validate_terminal_host_exit_record, validate_terminal_host_record,
+};
+#[cfg(all(unix, test))]
+pub(crate) use unix::{
+    acquire_terminal_host_publication_lock, prepare_terminal_host_publication_lock,
 };
 
 #[cfg(not(unix))]
@@ -6747,6 +6886,16 @@ pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
 #[cfg(not(unix))]
 pub fn isolate_terminal_host_process_fds() -> anyhow::Result<()> {
     Ok(())
+}
+
+#[cfg(not(unix))]
+pub(crate) struct TerminalHostResetLock;
+
+#[cfg(not(unix))]
+pub(crate) fn acquire_terminal_host_reset_lock(
+    _root: &Path,
+) -> anyhow::Result<TerminalHostResetLock> {
+    anyhow::bail!("terminal host liveness cannot be verified on this platform")
 }
 
 #[cfg(not(unix))]

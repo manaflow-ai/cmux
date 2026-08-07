@@ -470,6 +470,13 @@ impl PersistentSessionStateResetter {
             &pending_reset_dirs,
             confirm_reset,
         )?;
+        let _terminal_host_reset_lock = if terminal_host_root_exists {
+            Some(crate::terminal_host_runtime::acquire_terminal_host_reset_lock(
+                &terminal_host_root,
+            )?)
+        } else {
+            None
+        };
         let _terminal_host_reset_leases = if terminal_host_root_exists {
             prepare_terminal_host_root_for_reset(&terminal_host_root)?
         } else {
