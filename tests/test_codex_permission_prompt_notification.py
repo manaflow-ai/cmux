@@ -61,6 +61,7 @@ def run_feed_hook_capture(
     event: str,
     raw_response_delay: float = 0,
     socket_password: str | None = None,
+    surface_delivery_target: tuple[str, str] | None = None,
 ) -> tuple[dict, list, float]:
     """Runs `cmux hooks feed --source codex` and returns (stdout JSON,
     ordered received frames, elapsed seconds)."""
@@ -71,7 +72,12 @@ def run_feed_hook_capture(
     env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
     if socket_password is not None:
         env["CMUX_SOCKET_PASSWORD"] = socket_password
-    with FakeCmuxSocket(socket_path, None, raw_response_delay=raw_response_delay) as fake:
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        raw_response_delay=raw_response_delay,
+        surface_delivery_target=surface_delivery_target,
+    ) as fake:
         started = time.monotonic()
         result = subprocess.run(
             [
@@ -242,6 +248,42 @@ def test_permission_notification_survives_slow_authentication(
         )
 
 
+def test_permission_notification_targets_rehomed_pane(cli_path: str, root: Path) -> None:
+    """On restored remote panes the ambient env IDs are snapshot aliases;
+    the relay remaps IDs only inside JSON requests, so a V1 command built
+    from ambient IDs would target a stale pane. The hook must resolve the
+    live identity through `agent.resolve_delivery_target` and address the
+    notification to the answer, not the ambient identities."""
+    live_workspace = "99999999-9999-9999-9999-999999999999"
+    live_surface = "88888888-8888-8888-8888-888888888888"
+    _, frames, _ = run_feed_hook_capture(
+        cli_path,
+        root / "cmux-rehome.sock",
+        "PermissionRequest",
+        surface_delivery_target=(live_workspace, live_surface),
+    )
+    resolve_frame = next(
+        (frame for frame in frames if frame.get("method") == "agent.resolve_delivery_target"),
+        None,
+    )
+    if resolve_frame is None:
+        raise AssertionError(f"hook did not probe the live delivery target: {frames!r}")
+    if resolve_frame.get("params", {}).get("surface_id") != FAKE_SURFACE_ID:
+        raise AssertionError(f"probe must carry the ambient surface identity: {resolve_frame!r}")
+    expected = (
+        f"notify_target_async {live_workspace} {live_surface} "
+        "Codex|Permission|shell needs approval|c=needs-permission;p=0"
+    )
+    commands = raw_commands(frames)
+    if expected not in commands:
+        raise AssertionError(
+            f"notification did not target the re-homed pane: {commands!r}"
+        )
+    stale = [c for c in commands if c.startswith(f"notify_target_async {FAKE_WORKSPACE_ID}")]
+    if stale:
+        raise AssertionError(f"notification used stale ambient identities: {stale!r}")
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -259,6 +301,7 @@ def main() -> int:
             test_pre_tool_use_sends_no_attention_command(cli_path, root)
             test_permission_notification_is_acknowledged_before_hook_returns(cli_path, root)
             test_permission_notification_survives_slow_authentication(cli_path, root)
+            test_permission_notification_targets_rehomed_pane(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")
             return 1

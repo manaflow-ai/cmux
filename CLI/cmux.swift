@@ -32690,63 +32690,10 @@ export default CMUXSessionRestore;
         }
     }
 
-    /// How long the feed hook waits for the app to acknowledge a
-    /// native-approval-prompt notify/clear before giving up and returning.
+    /// The absolute deadline for the whole native-approval-prompt attention
+    /// delivery (connect, authentication, live-target resolution, and the
+    /// acknowledged send) before the feed hook gives up and returns.
     static let feedAttentionAcknowledgeTimeoutSeconds: TimeInterval = 2
-
-    /// Sends the pane-attention command (permission notify / resolved
-    /// clear) request/response on its own bounded connection, AWAITING the
-    /// app's `OK`.
-    ///
-    /// Awaiting the attention line is what makes cross-process hook
-    /// ordering real: one-way writes return before the app's detached
-    /// per-connection worker has enqueued the mutation, so a completed
-    /// hook process is no proof its clear was applied — a delayed clear
-    /// could then erase a NEWER request's live notification (#9592's
-    /// silence, reintroduced). Codex runs these feed hooks synchronously,
-    /// so blocking this process until the app acknowledges the mutation
-    /// (same request/response contract Claude's and Hermes' hooks use for
-    /// `clear_notifications`/`notify_target_async`) guarantees the next
-    /// hook's process starts only after this mutation is in the app's
-    /// ordered lane. Failures never propagate: the hook always returns
-    /// `{}` after the bounded wait, and the feed frame travels on a
-    /// separate bounded connection so no implicit (unbounded) relay
-    /// reconnect can outlive the agent's hook budget.
-    private func sendAcknowledgedFeedAttention(
-        socketPath: String,
-        attentionLine: String,
-        socketPassword: String?
-    ) {
-        // One absolute deadline across connect, authentication, and the
-        // acknowledged send. This line is the essential payload — unlike the
-        // fast-fail telemetry lane's 50 ms bounds, the budget must survive a
-        // relay-backed connection's multi-round-trip HMAC handshake, or
-        // remote terminals silently lose the permission notification and the
-        // agent blocks unannounced (#9592 again).
-        let deadline = Date().addingTimeInterval(Self.feedAttentionAcknowledgeTimeoutSeconds)
-        func remainingBudget() -> TimeInterval {
-            max(deadline.timeIntervalSinceNow, 0.05)
-        }
-        let attentionClient = SocketClient(path: socketPath)
-        defer { attentionClient.close() }
-        do {
-            try attentionClient.connectWithoutRetry(responseTimeout: remainingBudget())
-            try authenticateClientIfNeeded(
-                attentionClient,
-                explicitPassword: socketPassword,
-                socketPath: socketPath,
-                responseTimeout: remainingBudget(),
-                deadline: deadline
-            )
-        } catch {
-            return
-        }
-        _ = try? attentionClient.send(
-            command: attentionLine,
-            responseTimeout: remainingBudget(),
-            deadline: deadline
-        )
-    }
 
     private func sendFeedTelemetry(
         client: SocketClient,
@@ -34711,30 +34658,136 @@ export default CMUXSessionRestore;
 
     // MARK: - Feed (workstream) hook bridge
 
-    /// Builds the pane-attention command (permission notify / resolved
-    /// clear) for a classified feed event via the shared, unit-tested
-    /// builder — see
-    /// ``FeedEventClassifier/nativeApprovalPromptAttentionCommand``.
-    /// Identities come from the feed event first, then the pane
-    /// environment; a missing/non-UUID identity yields `nil` (advisory,
-    /// never fails the hook). The notification carries the same
-    /// `needs-permission` meta the generic agent `notification` hook uses,
-    /// so it gates under "Agent Needs Permission" exactly like Claude's
-    /// permission_prompt.
-    private func nativeApprovalPromptAttentionCommand(
+    /// Delivers the pane-attention command (permission notify / resolved
+    /// clear) for a classified feed event: resolves the LIVE pane identity,
+    /// builds the command via the shared, unit-tested builder
+    /// (``FeedEventClassifier/nativeApprovalPromptAttentionCommand``), and
+    /// sends it request/response, AWAITING the app's `OK`.
+    ///
+    /// Live-identity resolution uses the same alias-safe
+    /// `agent.resolve_delivery_target` `{surface_id}` re-home probe Claude's
+    /// hooks use: on a restored remote pane the ambient env IDs are snapshot
+    /// aliases, and the relay remaps IDs only inside JSON requests — a plain
+    /// V1 command built from ambient IDs would target a stale pane. The
+    /// probe's request IS remapped, so the app answers with live identities;
+    /// when it is unsupported or fails, the ambient identities are the
+    /// fallback (correct for local panes).
+    ///
+    /// Awaiting the attention line is what makes cross-process hook ordering
+    /// real: one-way writes return before the app's detached per-connection
+    /// worker has enqueued the mutation, so a completed hook process is no
+    /// proof its clear was applied — a delayed clear could then erase a
+    /// NEWER request's live notification (#9592's silence, reintroduced).
+    /// Codex runs these feed hooks synchronously, so blocking this process
+    /// until the app acknowledges the mutation (same request/response
+    /// contract Claude's and Hermes' hooks use) guarantees the next hook's
+    /// process starts only after this mutation is in the app's ordered lane.
+    ///
+    /// Everything runs under ONE absolute deadline spanning connect,
+    /// authentication, resolution, and the acknowledged send: this line is
+    /// the essential payload, and the budget must survive a relay-backed
+    /// connection's multi-round-trip handshake — unlike the telemetry
+    /// lane's deliberate 50 ms fast-fail bounds. Failures never propagate:
+    /// the hook always returns `{}` after the bounded wait.
+    private func deliverNativeApprovalPromptAttention(
         classification: FeedEventClassification,
         source: String,
         toolName: String,
         eventDict: [String: Any],
-        env: [String: String]
-    ) -> String? {
-        FeedEventClassifier.nativeApprovalPromptAttentionCommand(
+        env: [String: String],
+        client: SocketClient?,
+        socketPath: String?,
+        socketPassword: String?
+    ) {
+        let ambientWorkspaceId = (eventDict["workspace_id"] as? String) ?? env["CMUX_WORKSPACE_ID"]
+        let ambientSurfaceId = (eventDict["surface_id"] as? String) ?? env["CMUX_SURFACE_ID"]
+        let deadline = Date().addingTimeInterval(Self.feedAttentionAcknowledgeTimeoutSeconds)
+        func remainingBudget() -> TimeInterval {
+            max(deadline.timeIntervalSinceNow, 0.05)
+        }
+
+        var ownedClient: SocketClient?
+        defer { ownedClient?.close() }
+        let activeClient: SocketClient
+        if let client {
+            activeClient = client
+        } else if let socketPath {
+            let attentionClient = SocketClient(path: socketPath)
+            do {
+                try attentionClient.connectWithoutRetry(responseTimeout: remainingBudget())
+                try authenticateClientIfNeeded(
+                    attentionClient,
+                    explicitPassword: socketPassword,
+                    socketPath: socketPath,
+                    responseTimeout: remainingBudget(),
+                    deadline: deadline
+                )
+            } catch {
+                attentionClient.close()
+                return
+            }
+            ownedClient = attentionClient
+            activeClient = attentionClient
+        } else {
+            return
+        }
+
+        let liveTarget = resolvedAttentionDeliveryTarget(
+            workspaceId: ambientWorkspaceId,
+            surfaceId: ambientSurfaceId,
+            client: activeClient,
+            deadline: deadline
+        )
+        guard let attentionLine = FeedEventClassifier.nativeApprovalPromptAttentionCommand(
             classification: classification,
             displayName: Self.agentDef(named: source)?.displayName ?? source,
             toolName: toolName,
-            workspaceId: (eventDict["workspace_id"] as? String) ?? env["CMUX_WORKSPACE_ID"],
-            surfaceId: (eventDict["surface_id"] as? String) ?? env["CMUX_SURFACE_ID"]
+            workspaceId: liveTarget?.workspaceId ?? ambientWorkspaceId,
+            surfaceId: liveTarget?.surfaceId ?? ambientSurfaceId
+        ) else { return }
+        _ = try? activeClient.send(
+            command: attentionLine,
+            responseTimeout: remainingBudget(),
+            deadline: deadline
         )
+    }
+
+    /// The `{surface_id}` live-pane probe backing
+    /// ``deliverNativeApprovalPromptAttention``. Only a `source == "surface"`
+    /// answer with a live workspace UUID counts; anything else falls back to
+    /// the ambient identities.
+    private func resolvedAttentionDeliveryTarget(
+        workspaceId: String?,
+        surfaceId: String?,
+        client: SocketClient,
+        deadline: Date
+    ) -> (workspaceId: String, surfaceId: String)? {
+        guard let surfaceRaw = surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              UUID(uuidString: surfaceRaw) != nil else {
+            return nil
+        }
+        var params: [String: Any] = ["surface_id": surfaceRaw]
+        if let workspaceRaw = workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           UUID(uuidString: workspaceRaw) != nil {
+            params["workspace_id"] = workspaceRaw
+        }
+        guard let payload = try? client.sendV2(
+                method: "agent.resolve_delivery_target",
+                params: params,
+                responseTimeout: max(deadline.timeIntervalSinceNow, 0.05)
+              ),
+              (payload["source"] as? String) == "surface",
+              let liveWorkspaceId = (payload["workspace_id"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              UUID(uuidString: liveWorkspaceId) != nil else {
+            return nil
+        }
+        let liveSurfaceId = (payload["surface_id"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let liveSurfaceId, UUID(uuidString: liveSurfaceId) != nil {
+            return (liveWorkspaceId, liveSurfaceId)
+        }
+        return (liveWorkspaceId, surfaceRaw)
     }
 
     /// Reads an agent hook JSON payload from stdin, forwards it to the
@@ -34951,22 +35004,12 @@ export default CMUXSessionRestore;
             // Codex-style agents block in their own approval UI while this
             // (telemetry) event is their only signal, so the permission-prompt
             // notification — and the clear once execution proceeds — ride
-            // alongside the feed frame.
-            let promptLine = nativeApprovalPromptAttentionCommand(
-                classification: classification,
-                source: source,
-                toolName: toolName,
-                eventDict: eventDict,
-                env: env
-            )
-            // The attention signal goes FIRST and is AWAITED (bounded): the
-            // app must acknowledge the notify/clear before this synchronous
-            // hook returns and codex fires its next event, or a delayed
-            // clear could erase a newer request's live notification. The
-            // feed frame stays one-way best-effort telemetry on its own
-            // bounded connection — a relay-backed `send` closes its socket
-            // after the acknowledged command, and an implicit reconnect
-            // inside `sendOneWay` is not bounded by the write timeout.
+            // alongside the feed frame. The attention signal goes FIRST and
+            // is AWAITED (bounded); the feed frame stays one-way best-effort
+            // telemetry on its own bounded connection — a relay-backed `send`
+            // closes its socket after the acknowledged command, and an
+            // implicit reconnect inside `sendOneWay` is not bounded by the
+            // write timeout.
             //
             // Known accepted residual: codex's fire-and-forget prompt-submit
             // worker clears the pane at turn start from a DETACHED process.
@@ -34976,19 +35019,19 @@ export default CMUXSessionRestore;
             // (`hooks codex notification`) has always had. Fencing clears by
             // origin time is a cross-layer protocol change deliberately out
             // of scope here.
-            if let promptLine {
-                if let client {
-                    _ = try? client.send(
-                        command: promptLine,
-                        responseTimeout: Self.feedAttentionAcknowledgeTimeoutSeconds
-                    )
-                } else if let socketPath {
-                    sendAcknowledgedFeedAttention(
-                        socketPath: socketPath,
-                        attentionLine: promptLine,
-                        socketPassword: socketPassword
-                    )
-                }
+            let sendsAttention = classification.notifiesNativeApprovalPrompt
+                || classification.clearsNativeApprovalPrompt
+            if sendsAttention {
+                deliverNativeApprovalPromptAttention(
+                    classification: classification,
+                    source: source,
+                    toolName: toolName,
+                    eventDict: eventDict,
+                    env: env,
+                    client: client,
+                    socketPath: socketPath,
+                    socketPassword: socketPassword
+                )
                 let telemetrySocketPath = socketPath ?? client?.socketPath
                 if let telemetrySocketPath {
                     sendBestEffortFeedTelemetry(
