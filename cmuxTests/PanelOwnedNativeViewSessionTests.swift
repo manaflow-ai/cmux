@@ -251,7 +251,7 @@ struct PanelOwnedNativeViewSessionTests {
 }
 
 @MainActor
-@Suite("PDF preview sharing")
+@Suite("PDF preview sharing", .serialized)
 struct FilePreviewPDFSharingTests {
     private final class SharingPickerProbe: NSSharingServicePicker {
         let sharedItems: [Any]
@@ -331,6 +331,7 @@ struct FilePreviewPDFSharingTests {
         )
         window.isReleasedWhenClosed = false
         window.contentView = container
+        window.makeKeyAndOrderFront(nil)
         container.layoutSubtreeIfNeeded()
         defer { window.close() }
 
@@ -463,6 +464,7 @@ struct FilePreviewPDFSharingTests {
         )
         window.isReleasedWhenClosed = false
         window.contentView = container
+        window.makeKeyAndOrderFront(nil)
         container.layoutSubtreeIfNeeded()
         defer { window.close() }
 
@@ -493,7 +495,8 @@ struct FilePreviewPDFSharingTests {
         in window: NSWindow,
         willDispatch: (NSEvent.EventType) -> Void
     ) throws {
-        window.orderFront(nil)
+        window.makeKeyAndOrderFront(nil)
+        window.contentView?.layoutSubtreeIfNeeded()
         let pointInWindow = button.convert(
             NSPoint(x: button.bounds.midX, y: button.bounds.midY),
             to: nil
@@ -522,7 +525,9 @@ struct FilePreviewPDFSharingTests {
             pressure: 0
         ))
 
-        #expect(window.contentView?.hitTest(pointInWindow) === button)
+        let contentView = try #require(window.contentView)
+        let pointInContentView = contentView.convert(pointInWindow, from: nil)
+        #expect(contentView.hitTest(pointInContentView) === button)
         willDispatch(.leftMouseDown)
         window.sendEvent(mouseDown)
         willDispatch(.leftMouseUp)
