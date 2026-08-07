@@ -76,6 +76,7 @@ extension SessionRestorableAgentSnapshot {
             sessionId: sessionId,
             launchCommand: launchCommand,
             resolvedWorkingDirectory: effectiveWorkingDirectory,
+            discardRecordedCwdOptions: workingDirectorySelection.discardsRecordedCwdOptions,
             registrationOverride: registration,
             includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
             observedPermissionMode: permissionMode

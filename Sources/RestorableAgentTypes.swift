@@ -218,6 +218,16 @@ enum RestorableAgentWorkingDirectorySelection: Sendable {
     /// Use only the supplied cwd; an explicit `nil` must remain `nil`.
     case exact(String?)
 
+    /// Whether captured argv cwd options must be discarded instead of value-matched.
+    var discardsRecordedCwdOptions: Bool {
+        switch self {
+        case .recordedFallback:
+            false
+        case .exact:
+            true
+        }
+    }
+
     func resolved(
         snapshotWorkingDirectory: String?,
         launchWorkingDirectory: String?
