@@ -174,6 +174,32 @@ fn reset_accepts_restored_session_without_writer_lock() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn reset_accepts_partial_session_without_registry() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_root("reset-partial-without-registry");
+    let session = "reset-partial-without-registry";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join("partial-sidecar"), b"partial").unwrap();
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(host_root.join("stale-host-sidecar"), b"stale").unwrap();
+
+    let preview = resetter.preview(session).unwrap();
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(reset.removed_session_state);
+    assert!(reset.removed_terminal_hosts);
+    assert!(!session_dir.exists());
+    assert!(!host_root.exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn reset_keeps_staged_dir_when_private_rename_sync_fails() {
     let root = temp_root("reset-rename-sync-fails");
@@ -195,6 +221,34 @@ fn reset_keeps_staged_dir_when_private_rename_sync_fails() {
     assert_eq!(pending[0].kind, PendingSessionResetKind::Session);
     assert!(pending[0].path.join(WORKSPACE_REGISTRY_FILE).exists());
     assert_eq!(fs::read(pending[0].path.join("sidecar")).unwrap(), b"previewed");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_delete_rejects_file_added_after_manifest_check() {
+    let root = temp_root("reset-delete-rejects-late-file");
+    let session = "reset-delete-rejects-late-file";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    let expected_fingerprint =
+        session_reset_target_fingerprint(&session_dir, &mut ResetFingerprintBudget::default())
+            .unwrap();
+    let late = session_dir.join("aaa-late");
+    *RESET_DELETE_AFTER_MANIFEST_FILE.lock().unwrap() = Some((session_dir.clone(), late.clone()));
+
+    let error = remove_reset_dir_all(
+        &session_dir,
+        "workspace session state",
+        "session",
+        &expected_fingerprint,
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("reset path changed during reset"), "{error:#}");
+    assert_eq!(fs::read(late).unwrap(), b"late");
     fs::remove_dir_all(root).unwrap();
 }
 

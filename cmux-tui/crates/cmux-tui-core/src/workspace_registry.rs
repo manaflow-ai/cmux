@@ -445,12 +445,6 @@ impl PersistentSessionStateResetter {
         {
             return Ok(reset);
         }
-        if lock_session_dir_exists {
-            let db_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
-            if !db_path.is_file() {
-                anyhow::bail!("workspace session state path has no registry");
-            }
-        }
         let lease = if lock_session_dir_exists {
             SessionLease::acquire_existing(&session_dir.join("writer.lock"))?
         } else {
@@ -516,19 +510,28 @@ impl PersistentSessionStateResetter {
                 PendingSessionResetKind::Session => "workspace session state",
                 PendingSessionResetKind::TerminalHosts => "terminal host state",
             };
-            ensure_reset_dir_fingerprint(&reset_dir.path, "pending", expected_fingerprint)?;
-            remove_reset_dir_all(&reset_dir.path, label)?;
+            remove_reset_dir_all(&reset_dir.path, label, "pending", expected_fingerprint)?;
             match reset_dir.kind {
                 PendingSessionResetKind::Session => reset.removed_session_state = true,
                 PendingSessionResetKind::TerminalHosts => reset.removed_terminal_hosts = true,
             }
         }
         if let Some(reset_dir) = session_reset_dir {
-            remove_reset_dir_all(&reset_dir, "workspace session state")?;
+            remove_reset_dir_all(
+                &reset_dir,
+                "workspace session state",
+                "session",
+                &confirmation.session_fingerprint,
+            )?;
             reset.removed_session_state = true;
         }
         if let Some(reset_dir) = terminal_host_reset_dir {
-            remove_reset_dir_all(&reset_dir, "terminal host state")?;
+            remove_reset_dir_all(
+                &reset_dir,
+                "terminal host state",
+                "terminal-hosts",
+                &confirmation.terminal_host_fingerprint,
+            )?;
             reset.removed_terminal_hosts = true;
         }
         cleanup_session_guard_after_reset(root, session_name, &session_guard);
@@ -604,6 +607,12 @@ struct ResetConfirmationSnapshot {
     session_fingerprint: String,
     terminal_host_fingerprint: String,
     pending_reset_dir_fingerprints: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResetDirectoryManifest {
+    fingerprint: String,
+    entries: HashSet<String>,
 }
 
 fn pending_session_reset_dirs(
@@ -860,6 +869,14 @@ fn reset_dir_fingerprint(
     path: &Path,
     budget: &mut ResetFingerprintBudget,
 ) -> anyhow::Result<String> {
+    Ok(reset_dir_manifest(label, path, budget)?.fingerprint)
+}
+
+fn reset_dir_manifest(
+    label: &str,
+    path: &Path,
+    budget: &mut ResetFingerprintBudget,
+) -> anyhow::Result<ResetDirectoryManifest> {
     let mut entries = Vec::new();
     collect_reset_path_fingerprints(
         path,
@@ -870,7 +887,8 @@ fn reset_dir_fingerprint(
         &mut entries,
     )?;
     entries.sort();
-    Ok(format!("{label}:{}", entries.join(",")))
+    let fingerprint = format!("{label}:{}", entries.join(","));
+    Ok(ResetDirectoryManifest { fingerprint, entries: entries.into_iter().collect() })
 }
 
 #[derive(Default)]
@@ -1014,9 +1032,28 @@ fn reset_metadata_device(_metadata: &fs::Metadata) -> Option<u64> {
 }
 
 #[cfg(unix)]
-fn remove_reset_dir_all(path: &Path, label: &str) -> anyhow::Result<()> {
+fn remove_reset_dir_all(
+    path: &Path,
+    label: &str,
+    fingerprint_label: &str,
+    expected_fingerprint: &str,
+) -> anyhow::Result<()> {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
+    let mut budget = ResetFingerprintBudget::default();
+    let manifest = reset_dir_manifest(fingerprint_label, path, &mut budget)?;
+    if manifest.fingerprint != expected_fingerprint {
+        anyhow::bail!("reset path changed during reset: {}", path.display());
+    }
+    #[cfg(test)]
+    {
+        let mut injected_file = RESET_DELETE_AFTER_MANIFEST_FILE.lock().unwrap();
+        if injected_file.as_ref().is_some_and(|(target, _)| target == path) {
+            let (_, file_path) = injected_file.take().unwrap();
+            fs::write(&file_path, b"late")
+                .with_context(|| format!("write injected reset file {}", file_path.display()))?;
+        }
+    }
     let directory = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW)
@@ -1029,7 +1066,15 @@ fn remove_reset_dir_all(path: &Path, label: &str) -> anyhow::Result<()> {
     }
     let root_device = metadata.dev();
     let root_inode = metadata.ino();
-    remove_reset_dir_children_from_handle(&directory, path, label, root_device)?;
+    remove_reset_dir_children_from_handle(
+        &directory,
+        path,
+        Path::new("."),
+        label,
+        root_device,
+        &manifest.entries,
+        fingerprint_label == "terminal-hosts",
+    )?;
     let current = fs::symlink_metadata(path)
         .with_context(|| format!("inspect {label} {}", path.display()))?;
     if !current.file_type().is_dir() || current.dev() != root_device || current.ino() != root_inode
@@ -1043,8 +1088,11 @@ fn remove_reset_dir_all(path: &Path, label: &str) -> anyhow::Result<()> {
 fn remove_reset_dir_children_from_handle(
     directory: &File,
     display_path: &Path,
+    relative_path: &Path,
     label: &str,
     root_device: u64,
+    expected_entries: &HashSet<String>,
+    ignore_terminal_host_publication_lock: bool,
 ) -> anyhow::Result<()> {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::MetadataExt;
@@ -1054,6 +1102,7 @@ fn remove_reset_dir_children_from_handle(
 
     for child_name in children {
         let child_display = display_path.join(&child_name);
+        let child_relative = relative_path.join(&child_name);
         let child_stat = match reset_child_stat(directory.as_raw_fd(), &child_name, &child_display)
         {
             Ok(child_stat) => child_stat,
@@ -1068,6 +1117,15 @@ fn remove_reset_dir_children_from_handle(
         };
         let child_device = reset_stat_device(&child_stat);
         ensure_reset_device_boundary(&child_display, Some(root_device), Some(child_device))?;
+        ensure_reset_manifest_entry(
+            directory.as_raw_fd(),
+            &child_name,
+            &child_relative,
+            &child_display,
+            &child_stat,
+            expected_entries,
+            ignore_terminal_host_publication_lock,
+        )?;
         if reset_stat_is_dir(&child_stat) {
             let child_directory =
                 open_reset_child_dir(directory.as_raw_fd(), &child_name, &child_display)?;
@@ -1083,8 +1141,11 @@ fn remove_reset_dir_children_from_handle(
             remove_reset_dir_children_from_handle(
                 &child_directory,
                 &child_display,
+                &child_relative,
                 label,
                 root_device,
+                expected_entries,
+                ignore_terminal_host_publication_lock,
             )?;
             let current = reset_child_stat(directory.as_raw_fd(), &child_name, &child_display)?;
             if !reset_stat_is_dir(&current)
@@ -1104,6 +1165,93 @@ fn remove_reset_dir_children_from_handle(
         }
     }
     Ok(())
+}
+
+#[cfg(unix)]
+fn ensure_reset_manifest_entry(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::OsStr,
+    relative_path: &Path,
+    display_path: &Path,
+    stat: &libc::stat,
+    expected_entries: &HashSet<String>,
+    ignore_terminal_host_publication_lock: bool,
+) -> anyhow::Result<()> {
+    if ignore_terminal_host_publication_lock
+        && relative_path == Path::new(".").join(TERMINAL_HOST_PUBLICATION_LOCK_FILE)
+    {
+        return Ok(());
+    }
+    let mut budget = ResetFingerprintBudget::default();
+    let entry = reset_child_fingerprint_entry(
+        parent_fd,
+        name,
+        relative_path,
+        display_path,
+        stat,
+        &mut budget,
+    )?;
+    if expected_entries.contains(&entry) {
+        return Ok(());
+    }
+    anyhow::bail!("reset path changed during reset: {}", display_path.display());
+}
+
+#[cfg(unix)]
+fn reset_child_fingerprint_entry(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::OsStr,
+    relative_path: &Path,
+    display_path: &Path,
+    stat: &libc::stat,
+    budget: &mut ResetFingerprintBudget,
+) -> anyhow::Result<String> {
+    let mut fingerprint = reset_stat_metadata_fingerprint(stat);
+    if reset_stat_is_file(stat) {
+        fingerprint.push_str(";sha256=");
+        fingerprint.push_str(&reset_child_file_content_sha256(
+            parent_fd,
+            name,
+            display_path,
+            stat,
+            budget,
+        )?);
+    }
+    Ok(format!("{}={fingerprint}", relative_path.display()))
+}
+
+#[cfg(unix)]
+fn reset_child_file_content_sha256(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+    expected: &libc::stat,
+    budget: &mut ResetFingerprintBudget,
+) -> anyhow::Result<String> {
+    let mut file = open_reset_child_file(parent_fd, name, display_path)?;
+    let opened = file
+        .metadata()
+        .with_context(|| format!("inspect reset file {}", display_path.display()))?;
+    if reset_metadata_fingerprint(&opened) != reset_stat_metadata_fingerprint(expected) {
+        anyhow::bail!("reset path changed during fingerprint: {}", display_path.display());
+    }
+    let mut hash = Sha256::new();
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let read = file.read(&mut buffer).with_context(|| {
+            format!("read reset file for fingerprint {}", display_path.display())
+        })?;
+        if read == 0 {
+            break;
+        }
+        budget.add_file_bytes(display_path, read as u64)?;
+        hash.update(&buffer[..read]);
+    }
+    let current = reset_child_stat(parent_fd, name, display_path)?;
+    if reset_stat_metadata_fingerprint(&current) != reset_stat_metadata_fingerprint(expected) {
+        anyhow::bail!("reset path changed during fingerprint: {}", display_path.display());
+    }
+    Ok(hex_sha256(hash.finalize().into()))
 }
 
 #[cfg(unix)]
@@ -1161,6 +1309,36 @@ fn reset_dir_child_names(
         names.push(std::ffi::OsStr::from_bytes(name).to_os_string());
     }
     Ok(names)
+}
+
+#[cfg(unix)]
+fn open_reset_child_file(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+) -> anyhow::Result<File> {
+    use std::os::fd::FromRawFd;
+
+    let name = reset_child_c_string(name, display_path)?;
+    loop {
+        // SAFETY: openat reads a nul-terminated child name relative to a valid parent directory fd.
+        let fd = unsafe {
+            libc::openat(
+                parent_fd,
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+            )
+        };
+        if fd >= 0 {
+            // SAFETY: openat returned a new owned file descriptor.
+            return Ok(unsafe { File::from_raw_fd(fd) });
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(error).with_context(|| format!("open reset file {}", display_path.display()));
+    }
 }
 
 #[cfg(unix)]
@@ -1258,6 +1436,43 @@ fn reset_stat_is_dir(stat: &libc::stat) -> bool {
 }
 
 #[cfg(unix)]
+fn reset_stat_is_file(stat: &libc::stat) -> bool {
+    stat.st_mode & libc::S_IFMT == libc::S_IFREG
+}
+
+#[cfg(unix)]
+fn reset_stat_metadata_fingerprint(stat: &libc::stat) -> String {
+    let kind = if reset_stat_is_dir(stat) {
+        "dir"
+    } else if reset_stat_is_file(stat) {
+        "file"
+    } else if stat.st_mode & libc::S_IFMT == libc::S_IFLNK {
+        "symlink"
+    } else {
+        "other"
+    };
+    format!(
+        "{kind}:dev={},ino={},mode={},len={},mtime={}.{}",
+        reset_stat_device(stat),
+        reset_stat_inode(stat),
+        stat.st_mode,
+        stat.st_size,
+        reset_stat_mtime_seconds(stat),
+        reset_stat_mtime_nanoseconds(stat)
+    )
+}
+
+#[cfg(unix)]
+fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
+    stat.st_mtime
+}
+
+#[cfg(unix)]
+fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
+    stat.st_mtime_nsec
+}
+
+#[cfg(unix)]
 fn reset_stat_device(stat: &libc::stat) -> u64 {
     stat.st_dev as u64
 }
@@ -1268,7 +1483,13 @@ fn reset_stat_inode(stat: &libc::stat) -> u64 {
 }
 
 #[cfg(not(unix))]
-fn remove_reset_dir_all(path: &Path, label: &str) -> anyhow::Result<()> {
+fn remove_reset_dir_all(
+    path: &Path,
+    label: &str,
+    fingerprint_label: &str,
+    expected_fingerprint: &str,
+) -> anyhow::Result<()> {
+    ensure_reset_dir_fingerprint(path, fingerprint_label, expected_fingerprint)?;
     fs::remove_dir_all(path).with_context(|| format!("remove {label} {}", path.display()))
 }
 
@@ -3786,6 +4007,9 @@ const SESSION_GUARD_COORDINATOR_RETRY: std::time::Duration = std::time::Duration
 const TERMINAL_HOST_PUBLICATION_LOCK_FILE: &str = ".publication.lock";
 #[cfg(test)]
 static RESET_RENAME_SYNC_FAILURE_ROOT: std::sync::Mutex<Option<PathBuf>> =
+    std::sync::Mutex::new(None);
+#[cfg(test)]
+static RESET_DELETE_AFTER_MANIFEST_FILE: std::sync::Mutex<Option<(PathBuf, PathBuf)>> =
     std::sync::Mutex::new(None);
 
 fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
