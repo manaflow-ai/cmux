@@ -12,18 +12,12 @@ import Testing
 #endif
 
 struct WindowAppearanceSnapshotPaneBackgroundTests {
-    /// Verifies late OSC 11 changes reuse a cutout configured before AppKit's first display pass.
+    /// Verifies late OSC 11 changes paint through ordinary out-of-process layer compositing.
     @MainActor
-    @Test func lateOSCOverrideUsesPredisplaySharedBackdropCutout() throws {
+    @Test func lateOSCOverrideUsesPaneLayerWithoutCoreImageFilters() throws {
         let bounds = NSRect(x: 0, y: 0, width: 320, height: 180)
         let host = GhosttySurfaceScrollView(surfaceView: GhosttyNSView(frame: bounds))
         host.frame = bounds
-
-        let cutoutBeforeDisplay = try #require(sharedBackdropCutout(in: host))
-        #expect(cutoutBeforeDisplay.superview === host)
-        #expect(cutoutBeforeDisplay.layerUsesCoreImageFilters)
-        #expect(cutoutBeforeDisplay.compositingFilter is TerminalSharedBackdropCutoutFilter)
-        #expect(cutoutBeforeDisplay.isHidden)
 
         let contentView = NSView(frame: bounds)
         contentView.addSubview(host)
@@ -37,18 +31,26 @@ struct WindowAppearanceSnapshotPaneBackgroundTests {
         host.layoutSubtreeIfNeeded()
         host.displayIfNeeded()
 
+        let paneBackground = try #require(
+            host.subviews.first { $0 is TerminalPaneBackgroundView } as? TerminalPaneBackgroundView
+        )
+        #expect(!usesInProcessCoreImageCompositing(in: host))
+
         host.setBackgroundColor(
             try #require(NSColor(hex: "#EEF5F8")),
             clearsSharedWindowBackdrop: true
         )
 
-        let activeCutout = try #require(sharedBackdropCutout(in: host))
-        #expect(activeCutout === cutoutBeforeDisplay)
-        #expect(!activeCutout.isHidden)
+        let paintedColor = try #require(paneBackground.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))
+        #expect(paintedColor.hexString(includeAlpha: true) == "#EEF5F8FF")
+        #expect(paneBackground.layer?.isOpaque == true)
+        #expect(!usesInProcessCoreImageCompositing(in: host))
 
         host.setBackgroundColor(.clear, clearsSharedWindowBackdrop: false)
-        #expect(cutoutBeforeDisplay.isHidden)
-        #expect(cutoutBeforeDisplay.superview === host)
+        let resetColor = try #require(paneBackground.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))
+        #expect(resetColor.alphaComponent == 0)
+        #expect(paneBackground.layer?.isOpaque == false)
+        #expect(!usesInProcessCoreImageCompositing(in: host))
     }
 
     /// Verifies pane-local OSC colors paint the surface without replacing the shared window root.
@@ -86,9 +88,10 @@ struct WindowAppearanceSnapshotPaneBackgroundTests {
     }
 
     @MainActor
-    private func sharedBackdropCutout(in host: NSView) -> TerminalSharedBackdropCutoutView? {
-        host.subviews.first { $0 is TerminalSharedBackdropCutoutView }
-            as? TerminalSharedBackdropCutoutView
+    private func usesInProcessCoreImageCompositing(in view: NSView) -> Bool {
+        view.layerUsesCoreImageFilters
+            || view.compositingFilter != nil
+            || view.subviews.contains(where: usesInProcessCoreImageCompositing)
     }
 
     private func makeSnapshot(
