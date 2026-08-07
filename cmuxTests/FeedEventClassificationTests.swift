@@ -434,6 +434,29 @@ struct AgentTurnSettlementTests {
         #expect(liveness == .exited)
     }
 
+    @Test func unreadablePresentProcessGenerationRemainsUnknown() {
+        let expectedGeneration = AgentPIDProcessIdentity(
+            pid: 42,
+            startSeconds: 100,
+            startMicroseconds: 200
+        )
+
+        #expect(
+            AgentTurnProcessLiveness.reconcile(
+                currentGeneration: nil,
+                expectedGeneration: expectedGeneration,
+                processPresence: .present
+            ) == .unknown
+        )
+        #expect(
+            AgentTurnProcessLiveness.reconcile(
+                currentGeneration: nil,
+                expectedGeneration: nil,
+                processPresence: .unknown
+            ) == .unknown
+        )
+    }
+
     @Test func supersededEndCannotClearOrTerminateNewerTurn() {
         let freshness = AgentTurnSettlementReconciler().classifyTurnFreshness(
             incomingTurnId: "turn-old",

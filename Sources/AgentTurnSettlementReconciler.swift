@@ -28,12 +28,30 @@ extension AgentTurnProcessLiveness {
         }
         let processID = pid_t(pid)
         let currentGeneration = AgentPIDProcessIdentity(pid: processID)
-        if let expectedStartSeconds, let expectedStartMicroseconds {
-            let expectedGeneration = AgentPIDProcessIdentity(
+        let expectedGeneration = if let expectedStartSeconds,
+            let expectedStartMicroseconds {
+            AgentPIDProcessIdentity(
                 pid: processID,
                 startSeconds: expectedStartSeconds,
                 startMicroseconds: expectedStartMicroseconds
             )
+        } else {
+            nil
+        }
+        return reconcile(
+            currentGeneration: currentGeneration,
+            expectedGeneration: expectedGeneration,
+            processPresence: PIDPresence.current(pid: processID)
+        )
+    }
+
+    /// Reconciles independently observed identity and presence evidence.
+    static func reconcile(
+        currentGeneration: AgentPIDProcessIdentity?,
+        expectedGeneration: AgentPIDProcessIdentity?,
+        processPresence _: PIDPresence
+    ) -> Self {
+        if let expectedGeneration {
             return currentGeneration == expectedGeneration ? .live : .exited
         }
         return currentGeneration == nil ? .exited : .live

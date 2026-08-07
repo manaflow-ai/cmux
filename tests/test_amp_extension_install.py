@@ -299,6 +299,9 @@ const makeThread = (id, initialState = "running", deferInitialGet = false) => {
       }
       resolveInitialGet(value);
       resolveInitialGet = null;
+    },
+    observerCount() {
+      return observers.size;
     }
   };
 };
@@ -481,6 +484,69 @@ if (raceSettled.cmux_turn_boundary !== "settled") {
   throw new Error(
     `Amp native-state race did not settle: ${JSON.stringify(raceSettled)}`
   );
+}
+const originalSetTimeout = globalThis.setTimeout;
+globalThis.setTimeout = (callback, delay, ...args) => originalSetTimeout(
+  callback,
+  Math.min(Number(delay) || 0, 5),
+  ...args
+);
+try {
+  const hangingThread = makeThread(
+    "T-amp-native-state-hang",
+    "running",
+    true
+  );
+  const hangingCtx = { thread: hangingThread };
+  const hangingStart = handlers.get("agent.start")({
+    thread: hangingThread,
+    message: "native state never resolves",
+    id: "msg-hang"
+  }, hangingCtx);
+  const startOutcome = await Promise.race([
+    hangingStart.then(() => "returned"),
+    new Promise((resolve) => originalSetTimeout(
+      () => resolve("timed-out"),
+      100
+    ))
+  ]);
+  if (startOutcome !== "returned") {
+    throw new Error("a hanging native get() blocked agent.start indefinitely");
+  }
+
+  const beforeHangingEnd = stopCalls().length;
+  const hangingEnd = handlers.get("agent.end")({
+    thread: hangingThread,
+    message: "native state never resolves",
+    id: "msg-hang",
+    status: "done",
+    messages: []
+  }, hangingCtx);
+  const endOutcome = await Promise.race([
+    hangingEnd.then(() => "returned"),
+    new Promise((resolve) => originalSetTimeout(
+      () => resolve("timed-out"),
+      100
+    ))
+  ]);
+  if (endOutcome !== "returned") {
+    throw new Error("a hanging native get() blocked agent.end indefinitely");
+  }
+  if (stopCalls().length !== beforeHangingEnd + 1) {
+    throw new Error("the hanging native state emitted a false settled boundary");
+  }
+
+  await new Promise((resolve) => originalSetTimeout(resolve, 50));
+  if (hangingThread.observerCount() !== 0) {
+    throw new Error("a silent native subscription outlived its bounded lease");
+  }
+  const afterLeaseExpiry = stopCalls().length;
+  hangingThread.setState("idle");
+  if (stopCalls().length !== afterLeaseExpiry) {
+    throw new Error("an expired native-state observer retained turn ownership");
+  }
+} finally {
+  globalThis.setTimeout = originalSetTimeout;
 }
 """
         settlement_script = root / "settlement-check.mjs"
