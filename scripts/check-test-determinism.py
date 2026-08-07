@@ -1132,6 +1132,31 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/assigned-request-alias.ts",
+            'const url = "https://api.openai.com/v1/items"; '
+            'const request = new Request(url); await fetch(request)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/assigned-request-alias.py",
+            'url = "https://api.openai.com/v1/items"; '
+            'request = Request(url); urlopen(request)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/assigned-config-alias.ts",
+            'const url = "https://api.openai.com/v1/items"; '
+            'const config = { method: "GET", url }; await axios(config)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/assigned-transitive-alias.ts",
+            'const url = "https://api.openai.com/v1/items"; '
+            'const request = new Request(url); const options = { request }; '
+            'await fetch(options)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/assigned-property.ts",
             'config.url = "https://api.openai.com/v1/items"; '
             'await fetch(config.url)\n',
@@ -1404,6 +1429,24 @@ def _self_test() -> int:
             "web/tests/n17s.ts",
             'config.url = "https://cmux.com/docs/api"; '
             'config.url = "http://127.0.0.1:4321"; fetch(config.url)\n',
+        ),
+        (
+            "web/tests/n17t.ts",
+            'let url = "https://cmux.com/docs/api"; '
+            'url = "http://127.0.0.1:4321"; '
+            'const request = new Request(url); fetch(request)\n',
+        ),
+        (
+            "web/tests/n17u.ts",
+            'const url = "https://cmux.com/docs/api"; '
+            'let request = new Request(url); '
+            'request = new Request("http://127.0.0.1:4321"); fetch(request)\n',
+        ),
+        (
+            "web/tests/n17v.ts",
+            'const url = "https://cmux.com/docs/api"; '
+            'const request = new Request("http://127.0.0.1:4321"); '
+            'fetch(request); render(url)\n',
         ),
         (
             "web/tests/n18.ts",
