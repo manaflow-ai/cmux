@@ -1035,12 +1035,12 @@ final class WindowBrowserHostView: NSView {
     }
     private func splitDividerRegions() -> [DividerRegion] {
         guard let rootView = dividerSearchRootView() else {
-            cachedSplitDividerRegions = []
-            cachedSplitDividerRootView = nil
+            invalidateSplitDividerRegionCache()
             return []
         }
         if let regions = cachedSplitDividerRegions,
            cachedSplitDividerRootView === rootView,
+           splitDividerCacheInvalidator.isHierarchyCurrent(for: rootView),
            PortalSplitDividerRegion.allLive(regions) {
             return regions
         }
@@ -1050,7 +1050,7 @@ final class WindowBrowserHostView: NSView {
         splitDividerCacheInvalidator.observe(
             rootView: rootView,
             geometryViews: collected.geometryObservedViews,
-            structureViews: collected.structureObservedViews
+            hierarchyNodes: collected.hierarchyNodes
         ) { [weak self] in
             guard let self else { return }
             self.invalidateSplitDividerRegionCache()

@@ -491,22 +491,29 @@ struct PortalHitTestingPerformanceTests {
     }
 
     @Test
-    func hierarchyMutationInvalidatesAfterPureSubviewReorder() {
-        let rootView = NSView(frame: .zero)
-        let firstView = NSView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+    func hierarchyMutationInvalidatesAfterPureSubviewReorder() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let rootView = try #require(window.contentView)
+        let firstView = NSSplitView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
         let secondView = NSView(frame: NSRect(x: 1, y: 0, width: 1, height: 1))
         rootView.addSubview(firstView)
         rootView.addSubview(secondView)
 
-        var callbackCount = 0
         let invalidator = PortalSplitDividerCacheInvalidator()
+        let collected = PortalSplitDividerRegion.collect(in: rootView)
         invalidator.observe(
             rootView: rootView,
-            geometryViews: [],
-            structureViews: []
-        ) {
-            callbackCount += 1
-        }
+            geometryViews: collected.geometryObservedViews,
+            hierarchyNodes: collected.hierarchyNodes
+        ) {}
+        #expect(invalidator.isHierarchyCurrent(for: rootView))
 
         rootView.sortSubviews({ lhs, rhs, _ in
             if lhs.frame.minX == rhs.frame.minX { return .orderedSame }
@@ -514,7 +521,7 @@ struct PortalHitTestingPerformanceTests {
         }, context: nil)
 
         #expect(rootView.subviews.first === secondView)
-        #expect(callbackCount == 1)
+        #expect(!invalidator.isHierarchyCurrent(for: rootView))
         withExtendedLifetime(invalidator) {}
     }
 

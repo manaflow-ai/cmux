@@ -1546,7 +1546,9 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D0C658660000000000000004 /* PortalSplitDividerCacheInvalidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C658660000000000000003 /* PortalSplitDividerCacheInvalidator.swift */; };
 		D0C658660000000000000002 /* PortalSplitDividerRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C658660000000000000001 /* PortalSplitDividerRegion.swift */; };
 		D0B10008A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10009A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift */; };
-		D5ABCBB88D85477FA6D8D08B /* PortalViewHierarchyMutationHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2F1C5A776AF414C8925A80D /* PortalViewHierarchyMutationHub.swift */; };
+		D0C658660000000000000006 /* PortalViewHierarchyMutationRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C658660000000000000005 /* PortalViewHierarchyMutationRegistration.swift */; };
+		D5ABCBB88D85477FA6D8D08B /* PortalViewHierarchyMutationTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2F1C5A776AF414C8925A80D /* PortalViewHierarchyMutationTracker.swift */; };
+		D0C658660000000000000008 /* PortalViewHierarchyNodeState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C658660000000000000007 /* PortalViewHierarchyNodeState.swift */; };
 		B79500310000000000000001 /* PortLsofScanResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500310000000000000002 /* PortLsofScanResult.swift */; };
 		B79500030000000000000001 /* PortScanCoordination.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500030000000000000002 /* PortScanCoordination.swift */; };
 		B79500070000000000000001 /* PortScanner+PanelKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500070000000000000002 /* PortScanner+PanelKey.swift */; };
@@ -4195,7 +4197,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D0C658660000000000000003 /* PortalSplitDividerCacheInvalidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalSplitDividerCacheInvalidator.swift; sourceTree = "<group>"; };
 		D0C658660000000000000001 /* PortalSplitDividerRegion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalSplitDividerRegion.swift; sourceTree = "<group>"; };
 		D0B10009A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalTabDragRoutingTests.swift; sourceTree = "<group>"; };
-		A2F1C5A776AF414C8925A80D /* PortalViewHierarchyMutationHub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalViewHierarchyMutationHub.swift; sourceTree = "<group>"; };
+		D0C658660000000000000005 /* PortalViewHierarchyMutationRegistration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalViewHierarchyMutationRegistration.swift; sourceTree = "<group>"; };
+		A2F1C5A776AF414C8925A80D /* PortalViewHierarchyMutationTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalViewHierarchyMutationTracker.swift; sourceTree = "<group>"; };
+		D0C658660000000000000007 /* PortalViewHierarchyNodeState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalViewHierarchyNodeState.swift; sourceTree = "<group>"; };
 		B79500310000000000000002 /* PortLsofScanResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortLsofScanResult.swift; sourceTree = "<group>"; };
 		B79500030000000000000002 /* PortScanCoordination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScanCoordination.swift; sourceTree = "<group>"; };
 		B79500070000000000000002 /* PortScanner+PanelKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortScanner+PanelKey.swift"; sourceTree = "<group>"; };
@@ -6352,7 +6356,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001531 /* TerminalWindowPortal.swift */,
 				D0C658660000000000000003 /* PortalSplitDividerCacheInvalidator.swift */,
 				D0C658660000000000000001 /* PortalSplitDividerRegion.swift */,
-				A2F1C5A776AF414C8925A80D /* PortalViewHierarchyMutationHub.swift */,
+				D0C658660000000000000007 /* PortalViewHierarchyNodeState.swift */,
+				D0C658660000000000000005 /* PortalViewHierarchyMutationRegistration.swift */,
+				A2F1C5A776AF414C8925A80D /* PortalViewHierarchyMutationTracker.swift */,
 				C750500000000000000000B2 /* TerminalSurfaceRuntimeWiring.swift */,
 				606600020000000000000002 /* WindowTerminalHostViewHitTesting.swift */,
 				D0B10007A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift */,
@@ -9483,7 +9489,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B79500210000000000000001 /* PIDPresence.swift in Sources */,
 				D0C658660000000000000004 /* PortalSplitDividerCacheInvalidator.swift in Sources */,
 				D0C658660000000000000002 /* PortalSplitDividerRegion.swift in Sources */,
-				D5ABCBB88D85477FA6D8D08B /* PortalViewHierarchyMutationHub.swift in Sources */,
+				D0C658660000000000000006 /* PortalViewHierarchyMutationRegistration.swift in Sources */,
+				D5ABCBB88D85477FA6D8D08B /* PortalViewHierarchyMutationTracker.swift in Sources */,
+				D0C658660000000000000008 /* PortalViewHierarchyNodeState.swift in Sources */,
 				B79500310000000000000001 /* PortLsofScanResult.swift in Sources */,
 				B79500030000000000000001 /* PortScanCoordination.swift in Sources */,
 				B79500070000000000000001 /* PortScanner+PanelKey.swift in Sources */,

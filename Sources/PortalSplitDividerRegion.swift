@@ -98,14 +98,6 @@ final class PortalSplitDividerRegion {
         regions.allSatisfy(\.isLive)
     }
 
-    /// Returns whether a newly inserted or removed subtree can change the set
-    /// of divider regions. This runs once at the hierarchy-mutation boundary,
-    /// never on the pointer-event path.
-    static func containsSplitView(in view: NSView) -> Bool {
-        if view is NSSplitView { return true }
-        return view.subviews.contains { containsSplitView(in: $0) }
-    }
-
     var hitRectInWindow: NSRect {
         rectInWindow
             .insetBy(dx: -Self.dividerHitExpansion, dy: -Self.dividerHitExpansion)
@@ -147,18 +139,19 @@ final class PortalSplitDividerRegion {
     static func collect(
         in rootView: NSView,
         hostView: NSView? = nil
-    ) -> (regions: [PortalSplitDividerRegion], geometryObservedViews: [NSView], structureObservedViews: [NSView]) {
+    ) -> (
+        regions: [PortalSplitDividerRegion],
+        geometryObservedViews: [NSView],
+        hierarchyNodes: [(view: NSView, containsSplitView: Bool)]
+    ) {
         var regions: [PortalSplitDividerRegion] = []
         var geometryObservedViews: [NSView] = []
         var geometryObservedIds = Set<ObjectIdentifier>()
-        var structureObservedViews: [NSView] = []
-        var structureObservedIds = Set<ObjectIdentifier>()
+        var hierarchyNodes: [(view: NSView, containsSplitView: Bool)] = []
         var ancestorStack: [NSView] = []
         appendObserved(rootView, to: &geometryObservedViews, ids: &geometryObservedIds)
-        appendObserved(rootView, to: &structureObservedViews, ids: &structureObservedIds)
         for subview in rootView.subviews {
             appendObserved(subview, to: &geometryObservedViews, ids: &geometryObservedIds)
-            appendObserved(subview, to: &structureObservedViews, ids: &structureObservedIds)
         }
         collect(
             in: rootView,
@@ -168,12 +161,12 @@ final class PortalSplitDividerRegion {
             into: &regions,
             geometryObservedViews: &geometryObservedViews,
             geometryObservedIds: &geometryObservedIds,
-            structureObservedViews: &structureObservedViews,
-            structureObservedIds: &structureObservedIds
+            hierarchyNodes: &hierarchyNodes
         )
-        return (regions, geometryObservedViews, structureObservedViews)
+        return (regions, geometryObservedViews, hierarchyNodes)
     }
 
+    @discardableResult
     private static func collect(
         in view: NSView,
         hostView: NSView?,
@@ -182,21 +175,16 @@ final class PortalSplitDividerRegion {
         into result: inout [PortalSplitDividerRegion],
         geometryObservedViews: inout [NSView],
         geometryObservedIds: inout Set<ObjectIdentifier>,
-        structureObservedViews: inout [NSView],
-        structureObservedIds: inout Set<ObjectIdentifier>
-    ) {
+        hierarchyNodes: inout [(view: NSView, containsSplitView: Bool)]
+    ) -> Bool {
         let isHidden = ancestorHidden || view.isHidden
+        var containsSplitView = view is NSSplitView
 
         if let splitView = view as? NSSplitView {
             for ancestor in ancestorStack {
                 appendObserved(ancestor, to: &geometryObservedViews, ids: &geometryObservedIds)
-                appendObserved(ancestor, to: &structureObservedViews, ids: &structureObservedIds)
             }
             appendObserved(splitView, to: &geometryObservedViews, ids: &geometryObservedIds)
-            appendObserved(splitView, to: &structureObservedViews, ids: &structureObservedIds)
-            for arrangedSubview in splitView.arrangedSubviews {
-                appendObserved(arrangedSubview, to: &structureObservedViews, ids: &structureObservedIds)
-            }
             if !isHidden {
                 appendDividerRegions(for: splitView, hostView: hostView, into: &result)
             }
@@ -206,7 +194,7 @@ final class PortalSplitDividerRegion {
         defer { ancestorStack.removeLast() }
 
         for subview in view.subviews {
-            collect(
+            if collect(
                 in: subview,
                 hostView: hostView,
                 ancestorHidden: isHidden,
@@ -214,10 +202,13 @@ final class PortalSplitDividerRegion {
                 into: &result,
                 geometryObservedViews: &geometryObservedViews,
                 geometryObservedIds: &geometryObservedIds,
-                structureObservedViews: &structureObservedViews,
-                structureObservedIds: &structureObservedIds
-            )
+                hierarchyNodes: &hierarchyNodes
+            ) {
+                containsSplitView = true
+            }
         }
+        hierarchyNodes.append((view: view, containsSplitView: containsSplitView))
+        return containsSplitView
     }
 
     private static func appendObserved(_ view: NSView, to observedViews: inout [NSView], ids: inout Set<ObjectIdentifier>) {

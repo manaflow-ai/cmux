@@ -372,12 +372,12 @@ final class WindowTerminalHostView: NSView {
 
     private func splitDividerRegions() -> [DividerRegion] {
         guard let window, let rootView = window.contentView else {
-            cachedSplitDividerRegions = []
-            cachedSplitDividerRootView = nil
+            invalidateSplitDividerRegionCache()
             return []
         }
         if let regions = cachedSplitDividerRegions,
            cachedSplitDividerRootView === rootView,
+           splitDividerCacheInvalidator.isHierarchyCurrent(for: rootView),
            PortalSplitDividerRegion.allLive(regions) {
             return regions
         }
@@ -387,7 +387,7 @@ final class WindowTerminalHostView: NSView {
         splitDividerCacheInvalidator.observe(
             rootView: rootView,
             geometryViews: collected.geometryObservedViews,
-            structureViews: collected.structureObservedViews
+            hierarchyNodes: collected.hierarchyNodes
         ) { [weak self] in
             guard let self else { return }
             self.invalidateSplitDividerRegionCache()
