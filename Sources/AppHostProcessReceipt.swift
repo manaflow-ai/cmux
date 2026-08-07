@@ -154,7 +154,7 @@ enum AppHostProcessReceipt {
         }
     }
 
-    private static func setAttemptLeaseLock(_ descriptor: Int32, blocking: Bool) -> Int32 {
+    nonisolated private static func setAttemptLeaseLock(_ descriptor: Int32, blocking: Bool) -> Int32 {
         var lock = flock()
         lock.l_start = 0
         lock.l_len = 0
@@ -164,7 +164,7 @@ enum AppHostProcessReceipt {
         return Darwin.fcntl(descriptor, blocking ? F_SETLKW : F_SETLK, &lock)
     }
 
-    private static func watchAttemptLease(_ descriptor: Int32) {
+    nonisolated private static func watchAttemptLease(_ descriptor: Int32) {
         Thread.detachNewThread {
             while setAttemptLeaseLock(descriptor, blocking: true) != 0 {
                 if errno == EINTR {
