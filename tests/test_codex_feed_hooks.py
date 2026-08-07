@@ -3601,6 +3601,39 @@ def test_codex_post_tool_use_oversize_payload_is_dropped_before_decode(cli_path:
         raise AssertionError(f"oversize Codex PostToolUse should not send feed.push: {frame!r}")
 
 
+def test_cursor_post_tool_use_oversize_payload_is_dropped_before_decode(
+    cli_path: str,
+    root: Path,
+) -> None:
+    payload = {
+        "session_id": "cursor-session",
+        "generation_id": "cursor-turn-oversize-post-tool",
+        "cwd": "/tmp/project",
+        "event": "postToolUse",
+        "tool_name": "Shell",
+        "tool_input": {"command": "python3 very_noisy.py"},
+        "tool_output": "x" * (1024 * 1024 + 128),
+    }
+
+    stdout, frame = run_feed_hook_optional_frame(
+        cli_path,
+        root / "cmux-cursor-oversize-posttool.sock",
+        payload,
+        None,
+        source="cursor",
+    )
+    if stdout != {}:
+        raise AssertionError(
+            "oversize Cursor postToolUse should fall back to empty output: "
+            f"{stdout!r}"
+        )
+    if frame is not None:
+        raise AssertionError(
+            "oversize Cursor postToolUse should not send feed.push: "
+            f"{frame!r}"
+        )
+
+
 def test_codex_lifecycle_oversize_payload_is_dropped_before_decode(cli_path: str, root: Path) -> None:
     payload = {
         "session_id": "codex-session",
@@ -5299,6 +5332,10 @@ def main() -> int:
             test_codex_post_tool_use_redacts_tool_output(cli_path, root)
             test_codex_post_tool_use_accepts_native_event_label(cli_path, root)
             test_codex_post_tool_use_oversize_payload_is_dropped_before_decode(cli_path, root)
+            test_cursor_post_tool_use_oversize_payload_is_dropped_before_decode(
+                cli_path,
+                root,
+            )
             test_codex_lifecycle_oversize_payload_is_dropped_before_decode(cli_path, root)
             test_codex_post_tool_use_keeps_cwd_from_tool_input(cli_path, root)
             test_codex_post_tool_use_without_response_keeps_request_input(cli_path, root)

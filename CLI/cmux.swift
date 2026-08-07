@@ -35511,24 +35511,17 @@ export default CMUXSessionRestore;
 
         let commandEvent = optionValue(commandArgs, name: "--event")
 
-        // Read stdin. Claude, Codex, and the other agents all pipe hook JSON
-        // through stdin; unknown inputs fall through to `{}`. Codex lifecycle
-        // payloads and Pi's compacted terminal batches are bounded before JSON
-        // decoding without changing other agents' actionable hook reads.
-        let stdinData: Data
-        let feedHookStdinLimit: Int? = switch source {
-        case "codex": Self.feedHookMaxStdinBytes
+        // Read stdin. Every agent pipes untrusted hook JSON through stdin, so
+        // bound it before JSON decoding. Pi's compacted batches use their
+        // tighter protocol-specific limit; every other source shares the
+        // general Feed hook ceiling.
+        let feedHookStdinLimit: Int = switch source {
         case "pi": Self.piFeedHookMaxStdinBytes
-        default: nil
+        default: Self.feedHookMaxStdinBytes
         }
-        if let feedHookStdinLimit {
-            guard let boundedData = Self.readBoundedFeedHookStdin(maxBytes: feedHookStdinLimit) else {
-                print("{}")
-                return
-            }
-            stdinData = boundedData
-        } else {
-            stdinData = FileHandle.standardInput.readDataToEndOfFile()
+        guard let stdinData = Self.readBoundedFeedHookStdin(maxBytes: feedHookStdinLimit) else {
+            print("{}")
+            return
         }
         guard !stdinData.isEmpty,
               let stdinObj = try? JSONSerialization.jsonObject(with: stdinData) as? [String: Any]
