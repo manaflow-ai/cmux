@@ -245,7 +245,8 @@ _NETWORK_VERB = re.compile(
 # Shell-string launchers evaluate their first argument as source.
 _SHELL_CALL_LAUNCHER = re.compile(
     r"""(?x)
-    \bos\.system\s*\(
+    \bos\.(?:system|popen)\s*\(
+  | \bsubprocess\.get(?:status)?output\s*\(
   | \b(?:exec|execSync|execaCommand|execaCommandSync)\s*\(
     """
 )
