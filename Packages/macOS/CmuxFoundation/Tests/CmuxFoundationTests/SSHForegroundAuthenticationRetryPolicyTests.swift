@@ -1179,6 +1179,85 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func rollbackUsesOneSnapshotAndDeduplicatesProcessGroups(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-rollback-snapshot-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let started = "Thu_Jan_1_00:00:00_1970"
+        let processIDs = 101...164
+        let groupJournal = processIDs
+            .map { "11 \($0) 1 \(started)" }
+            .joined(separator: "\n") + "\n"
+        let currentSnapshot = processIDs
+            .map { "\($0) 7 11 T Thu Jan 1 00:00:00 1970" }
+            .joined(separator: "\n") + "\n"
+        try groupJournal.write(
+            to: root.appendingPathComponent("signaled.groups"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try currentSnapshot.write(
+            to: root.appendingPathComponent("current"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_now_millis() { printf '1000\n'; }
+        cmux_ssh_auth_take_process_snapshot_until() {
+          printf x >> "$CMUX_TEST_SNAPSHOT_CALLS"
+          /bin/cp "$CMUX_TEST_CURRENT" "$1"
+        }
+        cmux_ssh_auth_identity() {
+          printf x >> "$CMUX_TEST_IDENTITY_CALLS"
+          printf '1|11|Thu_Jan_1_00:00:00_1970\n'
+        }
+        kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
+        : > "$CMUX_TEST_SIGNALED_PIDS"
+        : > "$CMUX_TEST_FROZEN"
+        : > "$CMUX_TEST_SIGNALS"
+        cmux_ssh_auth_process_snapshot="$CMUX_TEST_SNAPSHOT"
+        cmux_ssh_auth_resume_groups="$CMUX_TEST_RESUME_GROUPS"
+        cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
+        cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
+        cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_resume_signaled_processes || exit 99
+        test "$(/usr/bin/wc -c < "$CMUX_TEST_SNAPSHOT_CALLS" | \\
+          /usr/bin/tr -d '[:space:]')" -eq 1 || exit 98
+        test ! -s "$CMUX_TEST_IDENTITY_CALLS" || exit 97
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALS" | \\
+          /usr/bin/tr -d '[:space:]')" -eq 1 || exit 96
+        /usr/bin/grep -Fqx -- '-CONT -- -11' "$CMUX_TEST_SIGNALS" || exit 95
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_CURRENT": root.appendingPathComponent("current").path,
+                "CMUX_TEST_FROZEN": root.appendingPathComponent("frozen").path,
+                "CMUX_TEST_IDENTITY_CALLS": root.appendingPathComponent("identity-calls").path,
+                "CMUX_TEST_INDIVIDUALS": root.appendingPathComponent("individuals").path,
+                "CMUX_TEST_RESUME_GROUPS": root.appendingPathComponent("groups.resume").path,
+                "CMUX_TEST_SIGNALED_GROUPS": root.appendingPathComponent("signaled.groups").path,
+                "CMUX_TEST_SIGNALED_PIDS": root.appendingPathComponent("signaled.pids").path,
+                "CMUX_TEST_SIGNALS": root.appendingPathComponent("signals").path,
+                "CMUX_TEST_SNAPSHOT": root.appendingPathComponent("snapshot").path,
+                "CMUX_TEST_SNAPSHOT_CALLS": root.appendingPathComponent("snapshot-calls").path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func emptyFrozenProcessSetRequiresNoForce() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
