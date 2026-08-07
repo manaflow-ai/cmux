@@ -1,0 +1,31 @@
+{
+  "result": "blocked",
+  "reason": "No GitHub Actions macOS runner was assigned within either 900-second cloud-mac provisioning window.",
+  "attempts": [
+    {
+      "run_id": 31148006838,
+      "run_url": "https://github.com/manaflow-ai/cmux-loader/actions/runs/31148006838",
+      "job_id": 92771503212,
+      "runner_label": "blacksmith-6vcpu-macos-26",
+      "observed_status": "queued",
+      "runner_name": "",
+      "action": "timed out; cancellation requested"
+    },
+    {
+      "run_id": 31148877428,
+      "run_url": "https://github.com/manaflow-ai/cmux-loader/actions/runs/31148877428",
+      "job_id": 92774164331,
+      "runner_label": "blacksmith-6vcpu-macos-15",
+      "observed_status": "queued",
+      "runner_name": "",
+      "action": "timed out; cancellation requested"
+    }
+  ],
+  "verification": {
+    "xctest_cases": 216,
+    "swift_testing_cases": 7,
+    "failures": 0,
+    "warnings_observed": 0
+  }
+}
+
