@@ -119,6 +119,16 @@ public final class MobileSimulatorStreamSurfaceState: Identifiable {
         streamStatus = .starting
     }
 
+    /// A `locked` start rejection is an authoritative per-connection answer:
+    /// another phone holds the panel's control lock, so any ownership this
+    /// connection remembers from an earlier start no longer stands. Clearing
+    /// it keeps the input guards consistent with the locked overlay instead
+    /// of leaving text and hardware controls live underneath it.
+    public func markLockedByOtherConnection() {
+        isOwnedByCurrentConnection = false
+        streamStatus = .locked
+    }
+
     public func didReceive(
         _ frame: MobileSimulatorFrameEvent,
         payloadBytes: Int

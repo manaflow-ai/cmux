@@ -36,6 +36,7 @@ extension MobileShellComposite {
         guard connectionState == .connected,
               supportsSimulatorStream,
               let client = remoteClient else {
+            settleFailedMobileSimulatorStreamStart(panelID: panelID)
             recordSimulatorStream(
                 panelID: panelID,
                 state: .startFailed,
@@ -68,7 +69,7 @@ extension MobileShellComposite {
                 activeSessions: startedMobileSimulatorPanelIDs.count
             )
         } catch MobileShellConnectionError.rpcError(let code, _) where code == "locked" {
-            simulatorStreamStore?.state(for: panelID)?.streamStatus = .locked
+            simulatorStreamStore?.state(for: panelID)?.markLockedByOtherConnection()
             recordSimulatorStream(panelID: panelID, state: .locked, ownership: .otherConnection)
         } catch {
             settleFailedMobileSimulatorStreamStart(panelID: panelID)
@@ -80,11 +81,11 @@ extension MobileShellComposite {
         }
     }
 
-    /// Rolls the optimistic `.starting` from `simulatorStreamWillStart` back
-    /// to `.idle` when no descriptor was accepted, so a failed start cannot
-    /// park the pane on a spinner forever. Per-panel serialization guarantees
-    /// at most one start attempt is in flight, so a stale response can never
-    /// settle a newer attempt.
+    /// Rolls the optimistic `.starting` (set by panel activation and by
+    /// `simulatorStreamWillStart`) back to `.idle` when no descriptor was
+    /// accepted, so a failed start cannot park the pane on a spinner forever.
+    /// Per-panel serialization guarantees at most one start attempt is in
+    /// flight, so a stale response can never settle a newer attempt.
     private func settleFailedMobileSimulatorStreamStart(panelID: String) {
         guard let state = simulatorStreamStore?.state(for: panelID),
               state.streamStatus == .starting else { return }

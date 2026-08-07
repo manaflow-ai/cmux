@@ -189,6 +189,25 @@ import Testing
         #expect(state?.isControlHandshakePending == false)
     }
 
+    /// A `locked` start rejection means another phone owns the panel; the
+    /// ownership remembered from an earlier successful start must not keep
+    /// text and hardware controls live underneath the locked overlay.
+    @Test func lockedRejectionClearsStaleOwnership() {
+        let store = MobileSimulatorStreamStore()
+        store.replaceSimulatorPanels(in: "workspace-1", with: [simulatorDescriptor()])
+        store.activate(panelID: "sim-1", in: "workspace-1")
+        store.simulatorStreamDidStart(
+            simulatorDescriptor(ownerConnectionID: "phone", isOwnedByCurrentConnection: true)
+        )
+        let state = store.state(for: "sim-1")
+        #expect(state?.isOwnedByCurrentConnection == true)
+
+        state?.markLockedByOtherConnection()
+
+        #expect(state?.isOwnedByCurrentConnection == false)
+        #expect(state?.streamStatus == .locked)
+    }
+
     private func simulatorDescriptor(
         ownerConnectionID: String? = nil,
         isOwnedByCurrentConnection: Bool? = true
