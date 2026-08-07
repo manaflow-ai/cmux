@@ -522,9 +522,23 @@ await handlers.get("tool.result")({
   status: "done",
   output: "unrelated work finished"
 }, otherCtx);
-if (stopCalls().length !== completionCount + 1) {
+if (stopCalls().length !== completionCount + 2) {
   throw new Error(
-    "a settled Amp sibling published shared completion while another thread remained active"
+    "a settled Amp sibling was retained behind another active thread"
+  );
+}
+const siblingSettlement = JSON.parse(stopCalls().at(-1).stdin);
+if (
+  siblingSettlement.cmux_turn_boundary !== "settled" ||
+  siblingSettlement.cmux_active_background_work_count !== 0 ||
+  siblingSettlement.cmux_active_sibling_turn_count !== 1 ||
+  siblingSettlement.turn_id !== provisional.turn_id ||
+  siblingSettlement.session_id !== "T-amp-other-thread"
+) {
+  throw new Error(
+    `Amp did not settle the exact sibling while preserving aggregate work: ${
+      JSON.stringify(siblingSettlement)
+    }`
   );
 }
 const finalCompletionCount = stopCalls().length;
@@ -553,31 +567,18 @@ if (
   );
 }
 thread.setState("idle");
-if (stopCalls().length !== finalCompletionCount + 3) {
+if (stopCalls().length !== finalCompletionCount + 2) {
   throw new Error(
-    `Amp did not flush both exact settlements after every thread drained: ${
+    `Amp did not settle the final thread after every thread drained: ${
       JSON.stringify(globalThis.__cmuxAmpSpawnCalls)
     }`
   );
 }
-const [deferredSiblingSettlement, finalSettlement] = stopCalls()
-  .slice(-2)
-  .map((call) => JSON.parse(call.stdin));
-if (
-  deferredSiblingSettlement.cmux_turn_boundary !== "settled" ||
-  deferredSiblingSettlement.cmux_active_background_work_count !== 0 ||
-  deferredSiblingSettlement.turn_id !== provisional.turn_id ||
-  deferredSiblingSettlement.session_id !== "T-amp-other-thread"
-) {
-  throw new Error(
-    `Amp lost the deferred sibling's exact settlement: ${
-      JSON.stringify(deferredSiblingSettlement)
-    }`
-  );
-}
+const finalSettlement = JSON.parse(stopCalls().at(-1).stdin);
 if (
   finalSettlement.cmux_turn_boundary !== "settled" ||
   finalSettlement.cmux_active_background_work_count !== 0 ||
+  finalSettlement.cmux_active_sibling_turn_count !== 0 ||
   finalSettlement.turn_id !== finalProvisional.turn_id ||
   finalSettlement.session_id !== "T-amp-settlement-test"
 ) {
