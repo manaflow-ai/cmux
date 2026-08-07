@@ -64,7 +64,8 @@ struct SidebarAppKitRowCellTests {
         customDescription: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
         metadataBlocks: [SidebarMetadataBlock] = [],
-        shortcutHintText: String? = nil
+        shortcutHintText: String? = nil,
+        isMarkdownExpanded: Bool = false
     ) -> SidebarWorkspaceRowModel {
         let resolvedSettings = settings
             ?? SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!)
@@ -101,7 +102,7 @@ struct SidebarAppKitRowCellTests {
             editingChecklistItemId: nil,
             todoControlsEnabled: false,
             isMetadataExpanded: false,
-            isMarkdownExpanded: false
+            isMarkdownExpanded: isMarkdownExpanded
         )
     }
 
@@ -630,7 +631,7 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func accessibilityLinkSurvivesSelectedRowReconfigurationWithoutResizing() throws {
+    func accessibilityLinkIdentitySurvivesSelectedRowReconfigurationWithoutResizing() throws {
         let workspaceID = UUID()
         let url = try #require(URL(string: "https://cmux.com"))
         let initialModel = Self.makeModel(
@@ -646,10 +647,10 @@ struct SidebarAppKitRowCellTests {
         let window = Self.layoutCell(cell, model: initialModel)
         let textView = try #require(Self.descriptionTextView(in: cell, showing: url.absoluteString))
         let initialTextFrame = textView.frame
-        let staleLink = try #require(
+        let originalLink = try #require(
             Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
         )
-        #expect(!staleLink.accessibilityFrameInParentSpace().isEmpty)
+        #expect(!originalLink.accessibilityFrameInParentSpace().isEmpty)
 
         let selectedModel = Self.makeModel(
             workspaceId: workspaceID,
@@ -680,22 +681,146 @@ struct SidebarAppKitRowCellTests {
                 $0.accessibilityURL() == url
             }
         )
-        #expect(currentLink !== staleLink)
+        #expect(currentLink === originalLink)
         #expect(!currentLink.accessibilityFrameInParentSpace().isEmpty)
-        #expect(!staleLink.accessibilityPerformPress())
         #expect(openedURL == nil)
         #expect(currentLink.accessibilityPerformPress())
         #expect(openedURL == url)
         _ = window
     }
 
-    private static func metadataBlock(_ markdown: String) -> SidebarMetadataBlock {
+    @Test
+    func changedThenClearedAccessibilityLinkReplacesAndInvalidatesProxy() throws {
+        let workspaceID = UUID()
+        let initialURL = try #require(URL(string: "https://one.example"))
+        let replacementURL = try #require(URL(string: "https://two.example"))
+        let initialModel = Self.makeModel(
+            workspaceId: workspaceID,
+            customDescription: "[cmux](\(initialURL.absoluteString))"
+        )
+        var openedURL: URL?
+        let cell = Self.configuredCell(
+            model: initialModel,
+            onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+        )
+        let window = Self.layoutCell(cell, model: initialModel)
+        let textView = try #require(Self.descriptionTextView(in: cell, showing: "cmux"))
+        let initialTextFrame = textView.frame
+        let initialLink = try #require(Self.accessibilityLinks(in: textView).first)
+
+        let replacementModel = Self.makeModel(
+            workspaceId: workspaceID,
+            settings: initialModel.settings,
+            customDescription: "[cmux](\(replacementURL.absoluteString))"
+        )
+        cell.configure(
+            model: replacementModel,
+            actions: Self.makeActions(
+                model: replacementModel,
+                onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+            ),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        #expect(textView.frame == initialTextFrame)
+        cell.layoutSubtreeIfNeeded()
+
+        let replacementLink = try #require(
+            Self.accessibilityLinks(in: textView).first {
+                $0.accessibilityURL() == replacementURL
+            }
+        )
+        #expect(replacementLink !== initialLink)
+        #expect(!replacementLink.accessibilityFrameInParentSpace().isEmpty)
+        #expect(!initialLink.accessibilityPerformPress())
+        #expect(initialLink.accessibilityFrameInParentSpace().isEmpty)
+        #expect(replacementLink.accessibilityPerformPress())
+        #expect(openedURL == replacementURL)
+
+        let clearedModel = Self.makeModel(
+            workspaceId: workspaceID,
+            settings: initialModel.settings,
+            customDescription: nil
+        )
+        cell.configure(
+            model: clearedModel,
+            actions: Self.makeActions(
+                model: clearedModel,
+                onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+            ),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        #expect(textView.isHidden)
+        #expect(Self.accessibilityLinks(in: textView).isEmpty)
+        #expect(!replacementLink.accessibilityPerformPress())
+        #expect(replacementLink.accessibilityFrameInParentSpace().isEmpty)
+        _ = window
+    }
+
+    private static func metadataBlock(_ markdown: String, key: String = "notes") -> SidebarMetadataBlock {
         SidebarMetadataBlock(
-            key: "notes",
+            key: key,
             markdown: markdown,
             priority: 0,
             timestamp: Date(timeIntervalSince1970: 0)
         )
+    }
+
+    @Test
+    func pooledMetadataLinkInvalidatesWhenItsBlockIsHidden() throws {
+        let workspaceID = UUID()
+        let firstBlock = Self.metadataBlock(
+            "[first](https://one.example)",
+            key: "first"
+        )
+        let secondURL = try #require(URL(string: "https://two.example"))
+        let secondBlock = Self.metadataBlock(
+            "[second](\(secondURL.absoluteString))",
+            key: "second"
+        )
+        let expandedModel = Self.makeModel(
+            workspaceId: workspaceID,
+            metadataBlocks: [firstBlock, secondBlock],
+            isMarkdownExpanded: true
+        )
+        var openedURL: URL?
+        let cell = Self.configuredCell(
+            model: expandedModel,
+            onOpenStatusURL: { openedURL = $0 }
+        )
+        let window = Self.layoutCell(cell, model: expandedModel)
+        let pooledTextView = try #require(
+            Self.descriptionTextView(in: cell, showing: "second")
+        )
+        let pooledLink = try #require(
+            Self.accessibilityLinks(in: pooledTextView).first {
+                $0.accessibilityURL() == secondURL
+            }
+        )
+
+        let shrunkModel = Self.makeModel(
+            workspaceId: workspaceID,
+            settings: expandedModel.settings,
+            metadataBlocks: [firstBlock],
+            isMarkdownExpanded: true
+        )
+        cell.configure(
+            model: shrunkModel,
+            actions: Self.makeActions(model: shrunkModel, onOpenStatusURL: { openedURL = $0 }),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+
+        #expect(pooledTextView.isHidden)
+        #expect(Self.accessibilityLinks(in: pooledTextView).isEmpty)
+        #expect(!pooledLink.accessibilityPerformPress())
+        #expect(pooledLink.accessibilityFrameInParentSpace().isEmpty)
+        #expect(openedURL == nil)
+        _ = window
     }
 
     /// The metadata markdown blocks render through the same row-owned text
