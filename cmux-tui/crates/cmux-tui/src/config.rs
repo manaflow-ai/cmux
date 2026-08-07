@@ -122,7 +122,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 #[cfg(all(test, unix))]
 use std::process::{Command, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::BrowserMode;
 use cmux_tui_core::SidebarPluginOptions;
@@ -2698,45 +2698,81 @@ fn parse_ghostty_defaults_with_theme_dirs(text: &str, theme_dirs: &[PathBuf]) ->
 }
 
 fn parse_ghostty_defaults_from_path(path: &Path, theme_dirs: &[PathBuf]) -> Option<DefaultColors> {
-    let mut loaded = HashSet::new();
     let mut theme_mode = None;
     let mut theme_candidates = Vec::new();
-    let overrides = parse_ghostty_config_file(
-        path,
-        theme_dirs,
-        &mut loaded,
-        &mut theme_mode,
-        &mut theme_candidates,
-    )?;
+    let overrides = parse_ghostty_config_file(path, &mut theme_mode, &mut theme_candidates)?;
     let mut defaults = resolve_ghostty_theme_defaults(&theme_candidates, theme_dirs, theme_mode);
     overlay_ghostty_defaults(&mut defaults, overrides);
     Some(defaults)
 }
 
+const GHOSTTY_CONFIG_MAX_FILES: usize = 64;
+const GHOSTTY_CONFIG_MAX_DEPTH: usize = 16;
+const GHOSTTY_CONFIG_MAX_BYTES: u64 = 1024 * 1024;
+const GHOSTTY_CONFIG_PARSE_DEADLINE: Duration = Duration::from_millis(250);
+
+struct PendingGhosttyConfig {
+    path: PathBuf,
+    depth: usize,
+}
+
 fn parse_ghostty_config_file(
     path: &Path,
-    theme_dirs: &[PathBuf],
-    loaded: &mut HashSet<PathBuf>,
     theme_mode: &mut Option<GhosttyThemeMode>,
     theme_candidates: &mut Vec<GhosttyThemeCandidate>,
 ) -> Option<DefaultColors> {
-    let text = std::fs::read_to_string(path).ok()?;
-    let identity = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    if !loaded.insert(identity) {
-        return Some(DefaultColors::default());
-    }
-    let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
-    let parsed = parse_ghostty_config_text(&text, Some(base_dir), theme_mode, theme_candidates);
-    *theme_mode = parsed.theme_mode;
-    let mut overrides = parsed.overrides;
-    for include in parsed.config_files.into_iter().filter_map(|include| include.resolve(base_dir)) {
-        if let Some(included) =
-            parse_ghostty_config_file(&include, theme_dirs, loaded, theme_mode, theme_candidates)
+    let started_at = Instant::now();
+    let mut stack = vec![PendingGhosttyConfig { path: path.to_path_buf(), depth: 0 }];
+    let mut loaded = HashSet::new();
+    let mut files_loaded = 0usize;
+    let mut bytes_loaded = 0u64;
+    let mut loaded_root = false;
+    let mut overrides = DefaultColors::default();
+
+    while let Some(pending) = stack.pop() {
+        if started_at.elapsed() > GHOSTTY_CONFIG_PARSE_DEADLINE {
+            break;
+        }
+        if pending.depth > GHOSTTY_CONFIG_MAX_DEPTH || files_loaded >= GHOSTTY_CONFIG_MAX_FILES {
+            continue;
+        }
+        let metadata = match std::fs::metadata(&pending.path) {
+            Ok(metadata) if metadata.file_type().is_file() => metadata,
+            _ if pending.depth == 0 => return None,
+            _ => continue,
+        };
+        if bytes_loaded.saturating_add(metadata.len()) > GHOSTTY_CONFIG_MAX_BYTES {
+            if pending.depth == 0 && files_loaded == 0 {
+                return None;
+            }
+            continue;
+        }
+        let identity = pending.path.canonicalize().unwrap_or_else(|_| pending.path.clone());
+        if !loaded.insert(identity) {
+            continue;
+        }
+        let text = match std::fs::read_to_string(&pending.path) {
+            Ok(text) => text,
+            Err(_) if pending.depth == 0 && files_loaded == 0 => return None,
+            Err(_) => continue,
+        };
+        bytes_loaded = bytes_loaded.saturating_add(text.len() as u64);
+        files_loaded += 1;
+        loaded_root |= pending.depth == 0;
+
+        let base_dir = pending.path.parent().unwrap_or_else(|| Path::new("."));
+        let parsed = parse_ghostty_config_text(&text, Some(base_dir), theme_mode, theme_candidates);
+        *theme_mode = parsed.theme_mode;
+        overlay_ghostty_defaults(&mut overrides, parsed.overrides);
+
+        for include in
+            parsed.config_files.into_iter().rev().filter_map(|include| include.resolve(base_dir))
         {
-            overlay_ghostty_defaults(&mut overrides, included);
+            stack.push(PendingGhosttyConfig { path: include, depth: pending.depth + 1 });
         }
     }
-    Some(overrides)
+
+    loaded_root.then_some(overrides)
 }
 
 struct ParsedGhosttyConfig {
@@ -3930,6 +3966,132 @@ mod tests {
         assert_eq!(defaults.fg, Some(Rgb { r: 0x11, g: 0x12, b: 0x13 }));
         assert_eq!(defaults.bg, Some(Rgb { r: 0x14, g: 0x15, b: 0x16 }));
         assert_eq!(defaults.palette[1], Some(Rgb { r: 0x17, g: 0x18, b: 0x19 }));
+    }
+
+    #[test]
+    fn ghostty_config_file_skips_non_regular_includes() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-nonregular-include-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ghostty_dir = dir.join("ghostty");
+        std::fs::create_dir_all(ghostty_dir.join("not-a-file")).unwrap();
+        std::fs::write(
+            ghostty_dir.join("config"),
+            "config-file = not-a-file\n\
+             config-file = colors.conf\n",
+        )
+        .unwrap();
+        std::fs::write(ghostty_dir.join("colors.conf"), "foreground = #010203\n").unwrap();
+
+        let defaults = parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[])
+            .expect("config parses");
+
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+    }
+
+    #[test]
+    fn ghostty_config_file_depth_limit_bounds_include_chain() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-depth-limit-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ghostty_dir = dir.join("ghostty");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        for index in 0..=(GHOSTTY_CONFIG_MAX_DEPTH + 2) {
+            let color = 0x10 + index as u8;
+            let include = if index < GHOSTTY_CONFIG_MAX_DEPTH + 2 {
+                format!("config-file = file{}.conf\n", index + 1)
+            } else {
+                String::new()
+            };
+            std::fs::write(
+                ghostty_dir.join(format!("file{index}.conf")),
+                format!("foreground = #{color:02x}{color:02x}{color:02x}\n{include}"),
+            )
+            .unwrap();
+        }
+
+        let defaults = parse_ghostty_defaults_from_path(&ghostty_dir.join("file0.conf"), &[])
+            .expect("config parses");
+
+        let _ = std::fs::remove_dir_all(dir);
+        let color = 0x10 + GHOSTTY_CONFIG_MAX_DEPTH as u8;
+
+        assert_eq!(defaults.fg, Some(Rgb { r: color, g: color, b: color }));
+    }
+
+    #[test]
+    fn ghostty_config_file_count_limit_bounds_broad_include_graph() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-file-count-limit-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ghostty_dir = dir.join("ghostty");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        let include_count = GHOSTTY_CONFIG_MAX_FILES + 2;
+        let mut root = String::new();
+        for index in 0..include_count {
+            root.push_str(&format!("config-file = colors{index}.conf\n"));
+            let color = 0x10 + index as u8;
+            std::fs::write(
+                ghostty_dir.join(format!("colors{index}.conf")),
+                format!("foreground = #{color:02x}{color:02x}{color:02x}\n"),
+            )
+            .unwrap();
+        }
+        std::fs::write(ghostty_dir.join("config"), root).unwrap();
+
+        let defaults = parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[])
+            .expect("config parses");
+
+        let _ = std::fs::remove_dir_all(dir);
+        let expected_index = GHOSTTY_CONFIG_MAX_FILES - 2;
+        let color = 0x10 + expected_index as u8;
+
+        assert_eq!(defaults.fg, Some(Rgb { r: color, g: color, b: color }));
+    }
+
+    #[test]
+    fn ghostty_config_file_size_limit_skips_oversized_includes() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-size-limit-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ghostty_dir = dir.join("ghostty");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        std::fs::write(
+            ghostty_dir.join("config"),
+            "config-file = small.conf\n\
+             config-file = large.conf\n\
+             config-file = later.conf\n",
+        )
+        .unwrap();
+        std::fs::write(ghostty_dir.join("small.conf"), "foreground = #010203\n").unwrap();
+        std::fs::write(
+            ghostty_dir.join("large.conf"),
+            "background = #a0a1a2\n".repeat((GHOSTTY_CONFIG_MAX_BYTES as usize / 20) + 1),
+        )
+        .unwrap();
+        std::fs::write(ghostty_dir.join("later.conf"), "background = #040506\n").unwrap();
+
+        let defaults = parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[])
+            .expect("config parses");
+
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }));
     }
 
     #[test]
