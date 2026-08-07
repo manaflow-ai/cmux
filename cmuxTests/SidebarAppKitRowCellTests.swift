@@ -811,6 +811,35 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func accessibilityLinkFrameResolvesOnDemandBeforeViewLayout() throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let source = NSAttributedString(
+            string: "cmux",
+            attributes: [.link: url]
+        )
+        let attributed = try AttributedString(
+            source,
+            including: AttributeScopes.AppKitAttributes.self
+        )
+        let textView = SidebarRowTextView(lines: 1)
+        textView.frame = NSRect(x: 0, y: 0, width: 240, height: 30)
+        textView.configureAttributedText(
+            attributed,
+            font: .systemFont(ofSize: 12),
+            color: .labelColor,
+            linkColor: .linkColor
+        )
+
+        let accessibilityLink = try #require(
+            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
+        )
+        let frame = accessibilityLink.accessibilityFrameInParentSpace()
+
+        #expect(!frame.isEmpty)
+        #expect(textView.bounds.contains(frame))
+    }
+
+    @Test
     func changedThenClearedAccessibilityLinkReplacesAndInvalidatesProxy() throws {
         let workspaceID = UUID()
         let initialURL = try #require(URL(string: "https://one.example"))
