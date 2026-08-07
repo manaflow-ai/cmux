@@ -298,7 +298,7 @@ struct SidebarEmptyAreaWindowDragTests {
 
     /// Feeds a fixed script of events in place of the real tracking pump so the
     /// loop is exercised without a run loop.
-    private static func pump(_ events: [NSEvent]) -> (NSWindow) -> NSEvent? {
+    private static func pump(_ events: [NSEvent]) -> @MainActor (NSWindow) -> NSEvent? {
         var remaining = events
         return { _ in remaining.isEmpty ? nil : remaining.removeFirst() }
     }

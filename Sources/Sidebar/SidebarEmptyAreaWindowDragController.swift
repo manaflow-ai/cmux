@@ -12,7 +12,7 @@ import AppKit
 @MainActor
 struct SidebarEmptyAreaWindowDragController {
     private let dragThreshold: CGFloat
-    private let nextEvent: (NSWindow) -> NSEvent?
+    private let nextEvent: @MainActor (NSWindow) -> NSEvent?
 
     /// Creates a controller with its pointer threshold and event source.
     ///
@@ -20,7 +20,7 @@ struct SidebarEmptyAreaWindowDragController {
     /// resolves into either movement or a mouse-up.
     init(
         dragThreshold: CGFloat = 4,
-        nextEvent: @escaping (NSWindow) -> NSEvent? = { window in
+        nextEvent: @escaping @MainActor (NSWindow) -> NSEvent? = { window in
             window.nextEvent(
                 matching: [.leftMouseDragged, .leftMouseUp],
                 until: .distantFuture,
