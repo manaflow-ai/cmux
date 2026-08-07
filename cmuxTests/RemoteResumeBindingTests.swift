@@ -600,7 +600,7 @@ struct RemoteResumeBindingTests {
 
     @Test
     func persistentBindingOnlyRestoreTracksStartupCommandUntilPromptReturns() throws {
-        let fixture = try makeRelayedFixture()
+        let fixture = try makeRelayedFixture(verifyingPromptNotificationCleanup: true)
         let suiteName = "cmux-remote-resume-lifecycle-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
@@ -764,7 +764,9 @@ struct RemoteResumeBindingTests {
         }
     }
 
-    private func makeRelayedFixture() throws -> (
+    private func makeRelayedFixture(
+        verifyingPromptNotificationCleanup: Bool = false
+    ) throws -> (
         snapshot: SessionWorkspaceSnapshot,
         workspaceID: UUID,
         surfaceID: UUID,
@@ -778,7 +780,12 @@ struct RemoteResumeBindingTests {
         let app = AppDelegate()
         let windowID = UUID()
         let window = makeMainWindow(id: windowID)
+        let notificationStore = TerminalNotificationStore.shared
+        let previousNotificationStore = app.notificationStore
+        let previousNotifications = notificationStore.notifications
         defer {
+            notificationStore.replaceNotificationsForTesting(previousNotifications)
+            app.notificationStore = previousNotificationStore
             TerminalController.shared.setActiveTabManager(nil)
             app.unregisterMainWindowContextForTesting(windowId: windowID)
             AppDelegate.shared = previousAppDelegate
@@ -900,22 +907,55 @@ struct RemoteResumeBindingTests {
             panelId: surfaceID,
             lifecycle: .unknown
         )
+        let remoteRuntimeKey = "codex.session-remote-7989"
         workspace.recordAgentPID(
-            key: "codex.session-remote-7989",
+            key: remoteRuntimeKey,
             pid: .max,
             panelId: surfaceID,
             refreshPorts: false
         )
+
+        // A remote hook PID belongs to the SSH host. The periodic local PID
+        // sweep must preserve its exact-session ownership key until the remote
+        // prompt or terminal lifecycle authoritatively consumes it.
+        #expect(!workspace.clearStaleAgentPIDs(refreshPorts: false))
+        #expect(workspace.agentPIDKeysByPanelId[surfaceID]?.contains(remoteRuntimeKey) == true)
 
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
         #expect(
             snapshot.panels.first { $0.id == surfaceID }?.terminal?.wasAgentRunning == true
         )
 
+        if verifyingPromptNotificationCleanup {
+            app.notificationStore = notificationStore
+            notificationStore.replaceNotificationsForTesting([
+                TerminalNotification(
+                    id: UUID(),
+                    tabId: workspace.id,
+                    surfaceId: surfaceID,
+                    title: "Remote agent",
+                    subtitle: "",
+                    body: "Needs input",
+                    createdAt: Date(),
+                    isRead: false
+                ),
+            ])
+            #expect(notificationStore.hasUnreadNotification(
+                forTabId: workspace.id,
+                surfaceId: surfaceID
+            ))
+        }
+
         // SessionEnd can consume its hook record while surface.resume.clear
         // fails. Keep the binding armed to model that failure and prove the
         // later prompt callback prevents a dead agent from being auto-resumed.
         workspace.updatePanelShellActivityState(panelId: surfaceID, state: .promptIdle)
+        if verifyingPromptNotificationCleanup {
+            #expect(!notificationStore.hasUnreadNotification(
+                forTabId: workspace.id,
+                surfaceId: surfaceID
+            ))
+        }
         let promptSnapshot = workspace.sessionSnapshot(includeScrollback: false)
         let promptTerminal = try #require(
             promptSnapshot.panels.first { $0.id == surfaceID }?.terminal

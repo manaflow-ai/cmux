@@ -190,6 +190,20 @@ extension DockSocketLifecycleTests {
         )
         #expect(runningTerminal.wasAgentRunning == true)
 
+        // A remote PID cannot be probed in the Mac process table. Moving the
+        // connected terminal through the Dock boundary must preserve the
+        // session-scoped hook key instead of classifying that PID as exited.
+        let roundTripped = try #require(store.detachSurface(panelId: panel.id))
+        #expect(roundTripped.agentRuntime?.agentPIDKeys.contains(runtimeKey) == true)
+        #expect(roundTripped.resumeBinding?.checkpointId == "remote-session")
+        #expect(
+            store.attachDetachedSurface(
+                roundTripped,
+                inPane: rootPane,
+                focus: false
+            ) == panel.id
+        )
+
         // Model a failed SessionEnd binding clear: the exact auto-resume
         // binding and lifecycle record remain, but the shell's prompt callback
         // is authoritative evidence that the agent command ended.
