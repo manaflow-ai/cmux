@@ -522,21 +522,9 @@ await handlers.get("tool.result")({
   status: "done",
   output: "unrelated work finished"
 }, otherCtx);
-if (stopCalls().length !== completionCount + 2) {
+if (stopCalls().length !== completionCount + 1) {
   throw new Error(
-    "the newer concurrent thread did not publish its settled boundary"
-  );
-}
-const concurrentSettled = JSON.parse(stopCalls().at(-1).stdin);
-if (
-  concurrentSettled.cmux_turn_boundary !== "settled" ||
-  concurrentSettled.cmux_active_background_work_count !== 0 ||
-  concurrentSettled.turn_id !== provisional.turn_id
-) {
-  throw new Error(
-    `a settled Amp session inherited another session's background work: ${
-      JSON.stringify(concurrentSettled)
-    }`
+    "a settled Amp sibling published shared completion while another thread remained active"
   );
 }
 const finalCompletionCount = stopCalls().length;
@@ -565,21 +553,38 @@ if (
   );
 }
 thread.setState("idle");
-if (stopCalls().length !== finalCompletionCount + 2) {
+if (stopCalls().length !== finalCompletionCount + 3) {
   throw new Error(
-    `Amp did not emit one final settled completion: ${
+    `Amp did not flush both exact settlements after every thread drained: ${
       JSON.stringify(globalThis.__cmuxAmpSpawnCalls)
     }`
   );
 }
-const settled = JSON.parse(stopCalls().at(-1).stdin);
+const [deferredSiblingSettlement, finalSettlement] = stopCalls()
+  .slice(-2)
+  .map((call) => JSON.parse(call.stdin));
 if (
-  settled.cmux_turn_boundary !== "settled" ||
-  settled.cmux_active_background_work_count !== 0 ||
-  settled.turn_id !== finalProvisional.turn_id
+  deferredSiblingSettlement.cmux_turn_boundary !== "settled" ||
+  deferredSiblingSettlement.cmux_active_background_work_count !== 0 ||
+  deferredSiblingSettlement.turn_id !== provisional.turn_id ||
+  deferredSiblingSettlement.session_id !== "T-amp-other-thread"
 ) {
   throw new Error(
-    `Amp did not publish final settlement after every thread drained: ${JSON.stringify(settled)}`
+    `Amp lost the deferred sibling's exact settlement: ${
+      JSON.stringify(deferredSiblingSettlement)
+    }`
+  );
+}
+if (
+  finalSettlement.cmux_turn_boundary !== "settled" ||
+  finalSettlement.cmux_active_background_work_count !== 0 ||
+  finalSettlement.turn_id !== finalProvisional.turn_id ||
+  finalSettlement.session_id !== "T-amp-settlement-test"
+) {
+  throw new Error(
+    `Amp did not publish the final thread's exact settlement: ${
+      JSON.stringify(finalSettlement)
+    }`
   );
 }
 const racedThread = makeThread(
