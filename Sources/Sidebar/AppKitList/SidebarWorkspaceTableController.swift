@@ -1630,8 +1630,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private func clearDropViewActions(in container: SidebarWorkspaceTableContainerView) {
         let reorder = container.reorderDropView
-        reorder.targets = []
-        reorder.targetsDidUpdate()
+        reorder.suspendPresentation()
         reorder.isValidDrag = { false }
         reorder.updateDrag = { _, _ in false }
         reorder.performDropAtPoint = { _, _ in false }
