@@ -335,7 +335,8 @@ impl ClientState {
                 > MAX_NATIVE_RENDER_EVENT_BYTES
         {
             events.clear();
-            self.native_render_event_bytes = 0;
+            self.native_render_event_bytes =
+                self.native_render_event_lease.as_ref().map_or(0, |event| event.payload.len());
             return false;
         }
         self.native_render_event_bytes =
@@ -384,7 +385,8 @@ impl ClientState {
         if let Some(events) = self.native_render_events.as_mut() {
             events.clear();
         }
-        self.native_render_event_bytes = 0;
+        self.native_render_event_bytes =
+            self.native_render_event_lease.as_ref().map_or(0, |event| event.payload.len());
         Ok(())
     }
 
@@ -2065,14 +2067,8 @@ mod tests {
         let mut state =
             ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
         state.enable_native_render_events();
-        assert!(state.push_native_render_event(
-            NativeRenderEventKind::Bytes,
-            80,
-            24,
-            vec![0; 1],
-        ));
-        state.native_render_event_lease =
-            state.native_render_events.as_mut().unwrap().pop_front();
+        assert!(state.push_native_render_event(NativeRenderEventKind::Bytes, 80, 24, vec![0; 1],));
+        state.native_render_event_lease = state.native_render_events.as_mut().unwrap().pop_front();
         state.prepare_handshake(test_terminal_id()).unwrap();
         assert!(state.native_render_event_lease.is_some());
         assert!(!state.push_native_render_event(
