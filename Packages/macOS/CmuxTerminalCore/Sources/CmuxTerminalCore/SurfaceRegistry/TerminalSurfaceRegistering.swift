@@ -58,6 +58,25 @@ public protocol TerminalSurfaceRegistering: AnyObject, Sendable {
     /// The registered surface with the given id, if it is still alive.
     func surface(id: UUID) -> (any TerminalSurfacing)?
 
+    /// The current registered surface that owns a terminal-process generation.
+    ///
+    /// A token belonging to a superseded registration does not resolve until
+    /// that registration becomes the current owner of its stable surface id
+    /// again.
+    func surface(
+        terminalLifecycleID: UUID
+    ) -> (any TerminalSurfacing)?
+
+    /// Atomically returns the current surface only when both identities match.
+    ///
+    /// Validation and retrieval happen inside one synchronization boundary so
+    /// callers cannot admit a retired process generation and then retrieve its
+    /// replacement.
+    func surface(
+        id: UUID,
+        terminalLifecycleID: UUID
+    ) -> (any TerminalSurfacing)?
+
     /// Whether the current surface owns a reported terminal-process generation.
     ///
     /// A `nil` generation retains compatibility with callers that can only

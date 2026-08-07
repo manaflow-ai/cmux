@@ -33,6 +33,10 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     // the route index from extending a surface lifetime.
     nonisolated(unsafe) private var currentSurfaceNodesByID:
         [UUID: TerminalSurfaceRegistryWeakNode] = [:]
+    // SAFETY: every read and write is guarded by `lock`; weak nodes prevent
+    // lifecycle lookup from extending any registered surface lifetime.
+    nonisolated(unsafe) private var surfaceNodesByTerminalLifecycleID:
+        [UUID: TerminalSurfaceRegistryWeakNode] = [:]
     // SAFETY: every access is guarded by `lock`.
     nonisolated(unsafe) private var runtimeSurfaceOwners: [UInt: UUID] = [:]
     // SAFETY: every access is guarded by `lock`.
@@ -76,8 +80,9 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
                 incrementalTraversalNodes[identity],
            existingNode.isRegistered,
            existingNode.surface === surface {
+            clearTerminalLifecycleIndex(for: existingNode)
             existingNode.terminalLifecycleID = terminalLifecycleID
-            currentSurfaceNodesByID[surface.id] = existingNode
+            setCurrentSurfaceNode(existingNode)
             surfaceFocusPlacements[surface.id] =
                 surface.focusPlacement
             generation &+= 1
@@ -87,7 +92,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
             incrementalTraversalNodes.removeValue(
                 forKey: identity
             ) {
-            unlinkIncrementalTraversalNode(replacedNode)
+            removeRegisteredNode(replacedNode)
         }
         let node = TerminalSurfaceRegistryWeakNode(
             surface: surface,
@@ -97,7 +102,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         incrementalTraversalHead?.previous = node
         incrementalTraversalHead = node
         incrementalTraversalNodes[identity] = node
-        currentSurfaceNodesByID[surface.id] = node
+        setCurrentSurfaceNode(node)
         surfaceFocusPlacements[surface.id] = surface.focusPlacement
         generation &+= 1
     }
@@ -118,7 +123,9 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
               node.surface === surface else {
             return terminalLifecycleID
         }
+        clearTerminalLifecycleIndex(for: node)
         node.terminalLifecycleID = terminalLifecycleID
+        surfaceNodesByTerminalLifecycleID[terminalLifecycleID] = node
         return terminalLifecycleID
     }
 
@@ -132,9 +139,9 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         if let node = incrementalTraversalNodes.removeValue(
             forKey: ObjectIdentifier(surface)
         ) {
-            unlinkIncrementalTraversalNode(node)
-            if currentSurfaceNodesByID[surfaceId] === node {
-                currentSurfaceNodesByID.removeValue(forKey: surfaceId)
+            let wasCurrent = currentSurfaceNodesByID[surfaceId] === node
+            removeRegisteredNode(node)
+            if wasCurrent {
                 _ = currentSurface(id: surfaceId)
             }
         }
@@ -186,6 +193,33 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         return object
     }
 
+    /// The current surface authenticated by a terminal-process generation.
+    public func surface(
+        terminalLifecycleID: UUID
+    ) -> (any TerminalSurfacing)? {
+        lock.lock()
+        let object = currentSurface(
+            terminalLifecycleID: terminalLifecycleID,
+            matchingSurfaceID: nil
+        )
+        lock.unlock()
+        return object
+    }
+
+    /// Atomically retrieves the current surface when both identities match.
+    public func surface(
+        id: UUID,
+        terminalLifecycleID: UUID
+    ) -> (any TerminalSurfacing)? {
+        lock.lock()
+        let object = currentSurface(
+            terminalLifecycleID: terminalLifecycleID,
+            matchingSurfaceID: id
+        )
+        lock.unlock()
+        return object
+    }
+
     /// Whether a current surface is registered for `id` and, when supplied,
     /// owns the terminal-process generation.
     ///
@@ -205,9 +239,13 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     ) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        guard let node = currentSurfaceNode(id: id) else { return false }
-        guard let terminalLifecycleID else { return true }
-        return node.terminalLifecycleID == terminalLifecycleID
+        guard let terminalLifecycleID else {
+            return currentSurfaceNode(id: id) != nil
+        }
+        return currentSurface(
+            terminalLifecycleID: terminalLifecycleID,
+            matchingSurfaceID: id
+        ) != nil
     }
 
     /// Whether the surface with the given id is placed in the right-sidebar
@@ -317,12 +355,12 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         traversal.cursor = node.next
         guard node.isRegistered, let surface = node.surface else {
             if node.isRegistered {
-                if incrementalTraversalNodes[node.identity] === node {
-                    incrementalTraversalNodes.removeValue(
-                        forKey: node.identity
-                    )
+                let wasCurrent =
+                    currentSurfaceNodesByID[node.surfaceID] === node
+                removeRegisteredNode(node)
+                if wasCurrent {
+                    _ = currentSurfaceNode(id: node.surfaceID)
                 }
-                unlinkIncrementalTraversalNode(node)
             }
             return TerminalSurfaceRegistryIncrementalVisit(
                 surface: nil
@@ -339,6 +377,36 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         currentSurfaceNode(id: id)?.surface
     }
 
+    /// Returns a retained current surface for one child generation.
+    /// Callers must hold `lock`.
+    private func currentSurface(
+        terminalLifecycleID: UUID,
+        matchingSurfaceID: UUID?
+    ) -> (any TerminalSurfacing)? {
+        guard let node = surfaceNodesByTerminalLifecycleID[
+                  terminalLifecycleID
+              ],
+              node.isRegistered,
+              node.terminalLifecycleID == terminalLifecycleID,
+              matchingSurfaceID == nil
+                || node.surfaceID == matchingSurfaceID else {
+            return nil
+        }
+        guard let surface = node.surface else {
+            let surfaceID = node.surfaceID
+            let wasCurrent = currentSurfaceNodesByID[surfaceID] === node
+            removeRegisteredNode(node)
+            if wasCurrent {
+                _ = currentSurfaceNode(id: surfaceID)
+            }
+            return nil
+        }
+        guard currentSurfaceNode(id: node.surfaceID) === node else {
+            return nil
+        }
+        return surface
+    }
+
     /// Returns the most recently registered live node with `id`.
     /// Callers must hold `lock`.
     private func currentSurfaceNode(
@@ -347,20 +415,82 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         if let node = currentSurfaceNodesByID[id],
            node.isRegistered,
            node.surface != nil {
+            setCurrentSurfaceNode(node)
             return node
+        }
+        if let node = currentSurfaceNodesByID[id] {
+            if node.isRegistered, node.surface == nil {
+                removeRegisteredNode(node)
+            } else {
+                clearCurrentSurfaceIndex(for: node)
+            }
         }
         var node = incrementalTraversalHead
         while let current = node {
+            let next = current.next
+            if current.isRegistered, current.surface == nil {
+                removeRegisteredNode(current)
+                node = next
+                continue
+            }
             if current.isRegistered,
-               let surface = current.surface,
-               surface.id == id {
-                currentSurfaceNodesByID[id] = current
+               current.surfaceID == id {
+                setCurrentSurfaceNode(current)
                 return current
             }
-            node = current.next
+            node = next
         }
         currentSurfaceNodesByID.removeValue(forKey: id)
         return nil
+    }
+
+    /// Makes `node` the current registration for its stable surface identity.
+    /// Callers must hold `lock`.
+    private func setCurrentSurfaceNode(
+        _ node: TerminalSurfaceRegistryWeakNode
+    ) {
+        currentSurfaceNodesByID[node.surfaceID] = node
+        surfaceNodesByTerminalLifecycleID[
+            node.terminalLifecycleID
+        ] = node
+    }
+
+    /// Removes `node` from the current-owner index without unlinking it.
+    /// Callers must hold `lock`.
+    private func clearCurrentSurfaceIndex(
+        for node: TerminalSurfaceRegistryWeakNode
+    ) {
+        if currentSurfaceNodesByID[node.surfaceID] === node {
+            currentSurfaceNodesByID.removeValue(forKey: node.surfaceID)
+        }
+    }
+
+    /// Removes `node`'s generation index only when it still owns that entry.
+    /// Callers must hold `lock`.
+    private func clearTerminalLifecycleIndex(
+        for node: TerminalSurfaceRegistryWeakNode
+    ) {
+        if surfaceNodesByTerminalLifecycleID[
+            node.terminalLifecycleID
+        ] === node {
+            surfaceNodesByTerminalLifecycleID.removeValue(
+                forKey: node.terminalLifecycleID
+            )
+        }
+    }
+
+    /// Drops every registry index for `node` and unlinks its weak-list entry.
+    /// Callers must hold `lock`.
+    private func removeRegisteredNode(
+        _ node: TerminalSurfaceRegistryWeakNode
+    ) {
+        guard node.isRegistered else { return }
+        if incrementalTraversalNodes[node.identity] === node {
+            incrementalTraversalNodes.removeValue(forKey: node.identity)
+        }
+        clearCurrentSurfaceIndex(for: node)
+        clearTerminalLifecycleIndex(for: node)
+        unlinkIncrementalTraversalNode(node)
     }
 
     private func unlinkIncrementalTraversalNode(

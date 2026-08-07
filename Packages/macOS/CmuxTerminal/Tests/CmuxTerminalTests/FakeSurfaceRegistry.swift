@@ -4,68 +4,71 @@ import CmuxTerminalCore
 @testable import CmuxTerminal
 
 final class FakeSurfaceRegistry: @unchecked Sendable, TerminalSurfaceRegistering {
-    private final class WeakSurface {
-        weak var value: (any TerminalSurfacing)?
+    private let backing = TerminalSurfaceRegistry()
 
-        init(_ value: any TerminalSurfacing) {
-            self.value = value
-        }
-    }
-
-    private var runtimeSurfaceOwners: [UInt: UUID] = [:]
-    private var surfacesByID: [UUID: WeakSurface] = [:]
-    private var terminalLifecycleIDsBySurfaceID: [UUID: UUID] = [:]
-
-    var topologyGeneration: UInt64 { 0 }
+    var topologyGeneration: UInt64 { backing.topologyGeneration }
     func register(
         _ surface: any TerminalSurfacing,
         terminalLifecycleID: UUID
     ) {
-        surfacesByID[surface.id] = WeakSurface(surface)
-        terminalLifecycleIDsBySurfaceID[surface.id] = terminalLifecycleID
+        backing.register(
+            surface,
+            terminalLifecycleID: terminalLifecycleID
+        )
     }
     func advanceTerminalLifecycle(
         for surface: any TerminalSurfacing
     ) -> UUID {
-        let terminalLifecycleID = UUID()
-        if surfacesByID[surface.id]?.value === surface {
-            terminalLifecycleIDsBySurfaceID[surface.id] = terminalLifecycleID
-        }
-        return terminalLifecycleID
+        backing.advanceTerminalLifecycle(for: surface)
     }
     func unregister(_ surface: any TerminalSurfacing) {
-        guard surfacesByID[surface.id]?.value === surface else { return }
-        surfacesByID.removeValue(forKey: surface.id)
-        terminalLifecycleIDsBySurfaceID.removeValue(forKey: surface.id)
+        backing.unregister(surface)
     }
     func registerRuntimeSurface(_ surface: ghostty_surface_t, ownerId: UUID) {
-        runtimeSurfaceOwners[UInt(bitPattern: surface)] = ownerId
+        backing.registerRuntimeSurface(surface, ownerId: ownerId)
     }
     func unregisterRuntimeSurface(_ surface: ghostty_surface_t, ownerId: UUID) {
-        let key = UInt(bitPattern: surface)
-        if runtimeSurfaceOwners[key] == ownerId {
-            runtimeSurfaceOwners.removeValue(forKey: key)
-        }
+        backing.unregisterRuntimeSurface(surface, ownerId: ownerId)
     }
     func runtimeSurfaceOwnerId(_ surface: ghostty_surface_t) -> UUID? {
-        runtimeSurfaceOwners[UInt(bitPattern: surface)]
+        backing.runtimeSurfaceOwnerId(surface)
     }
     func surface(id: UUID) -> (any TerminalSurfacing)? {
-        surfacesByID[id]?.value
+        backing.surface(id: id)
+    }
+    func surface(
+        terminalLifecycleID: UUID
+    ) -> (any TerminalSurfacing)? {
+        backing.surface(terminalLifecycleID: terminalLifecycleID)
+    }
+    func surface(
+        id: UUID,
+        terminalLifecycleID: UUID
+    ) -> (any TerminalSurfacing)? {
+        backing.surface(
+            id: id,
+            terminalLifecycleID: terminalLifecycleID
+        )
     }
     func isCurrentSurface(
         id: UUID,
         terminalLifecycleID: UUID?
     ) -> Bool {
-        guard surfacesByID[id]?.value != nil else { return false }
-        guard let terminalLifecycleID else { return true }
-        return terminalLifecycleIDsBySurfaceID[id] == terminalLifecycleID
+        backing.isCurrentSurface(
+            id: id,
+            terminalLifecycleID: terminalLifecycleID
+        )
     }
-    func isRightSidebarDockSurface(id: UUID) -> Bool { false }
-    func updateFocusPlacement(id: UUID, _ placement: TerminalSurfaceFocusPlacement) {}
+    func isRightSidebarDockSurface(id: UUID) -> Bool {
+        backing.isRightSidebarDockSurface(id: id)
+    }
+    func updateFocusPlacement(
+        id: UUID,
+        _ placement: TerminalSurfaceFocusPlacement
+    ) {
+        backing.updateFocusPlacement(id: id, placement)
+    }
     func allSurfaces() -> [any TerminalSurfacing] {
-        surfacesByID.values.compactMap(\.value).sorted {
-            $0.id.uuidString < $1.id.uuidString
-        }
+        backing.allSurfaces()
     }
 }

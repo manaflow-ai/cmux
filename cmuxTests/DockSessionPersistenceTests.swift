@@ -439,19 +439,21 @@ struct DockSessionPersistenceTests {
     @Test("Reopened Dock terminal accepts the replacement shell's initial prompt")
     @MainActor
     func reopenedTerminalAcceptsReplacementShellInitialPrompt() throws {
-        let history = ClosedItemHistoryStore(loadPersisted: false)
         let workspaceID = UUID()
-        let store = DockSplitStore(
-            workspaceId: workspaceID,
-            baseDirectoryProvider: { "/tmp" },
-            terminalTitleUpdateCoalescer: NotificationBurstCoalescer(
-                schedule: { _, _ in
-                    {}
-                }
-            ),
-            closedItemHistoryStore: history
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let store = manager.makeWindowDockStore(
+            windowId: workspaceID
         )
-        defer { store.closeAllPanels() }
+        let history = store.closedItemHistoryStore
+        let controller = TerminalController.shared
+        let previousManager = controller
+            .activeTabManagerForCallerNotification()
+        controller.setActiveTabManager(manager)
+        defer {
+            controller.setActiveTabManager(previousManager)
+            store.closeAllPanels()
+            manager.tabs.forEach { $0.teardownAllPanels() }
+        }
 
         let paneID = try #require(store.bonsplitController.allPaneIds.first)
         let panelID = try #require(
@@ -466,7 +468,6 @@ struct DockSessionPersistenceTests {
             store.panels[panelID] as? TerminalPanel
         )
         let originalLifecycleID = originalTerminal.surface.terminalLifecycleId
-        let controller = TerminalController.shared
         controller.socketFastPathState.removeShellActivity(panelIds: [panelID])
         defer {
             controller.socketFastPathState.removeShellActivity(panelIds: [panelID])

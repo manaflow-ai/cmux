@@ -587,12 +587,10 @@ class TabManager: ObservableObject {
                             return
                         }
                     }
-                    if workspace._dockSplit?.applyTerminalTitleChange(change) == true {
-                        return
-                    }
                 }
-                _ = windowDockTitleRoutingStores.object(
-                    forKey: change.tabId as NSUUID
+                _ = dockSplitStore(
+                    ownerID: change.tabId,
+                    containingPanel: change.surfaceId
                 )?.applyTerminalTitleChange(change)
             }
         })
@@ -1052,6 +1050,29 @@ class TabManager: ObservableObject {
             store,
             forKey: windowId as NSUUID
         )
+        return store
+    }
+
+    /// Resolves a Dock panel through the owner's keyed store instead of the
+    /// process-wide weak store collection. `ownerID` is either a workspace id
+    /// or a window-Dock id; containment rejects stale owner bindings and panel
+    /// ids that have already moved elsewhere.
+    func dockSplitStore(
+        ownerID: UUID,
+        containingPanel panelID: UUID
+    ) -> DockSplitStore? {
+        if let workspace = workspacesById[ownerID],
+           workspace.owningTabManager === self,
+           let store = workspace._dockSplit,
+           store.containsPanel(panelID) {
+            return store
+        }
+        guard let store = windowDockTitleRoutingStores.object(
+                  forKey: ownerID as NSUUID
+              ),
+              store.containsPanel(panelID) else {
+            return nil
+        }
         return store
     }
 

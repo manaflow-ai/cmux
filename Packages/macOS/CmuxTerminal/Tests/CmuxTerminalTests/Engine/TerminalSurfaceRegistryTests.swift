@@ -65,6 +65,17 @@ struct TerminalSurfaceRegistryTests {
         let surface = FakeSurface()
         registry.register(surface)
         #expect(registry.surface(id: surface.id) === surface)
+        #expect(registry.surface(
+            terminalLifecycleID: surface.terminalLifecycleID
+        ) === surface)
+        #expect(registry.surface(
+            id: surface.id,
+            terminalLifecycleID: surface.terminalLifecycleID
+        ) === surface)
+        #expect(registry.surface(
+            id: UUID(),
+            terminalLifecycleID: surface.terminalLifecycleID
+        ) == nil)
         #expect(registry.surface(id: UUID()) == nil)
     }
 
@@ -133,6 +144,16 @@ struct TerminalSurfaceRegistryTests {
                 terminalLifecycleID: first.terminalLifecycleID
             )
         )
+        #expect(registry.surface(
+            terminalLifecycleID: first.terminalLifecycleID
+        ) == nil)
+        #expect(registry.surface(
+            id: sharedId,
+            terminalLifecycleID: first.terminalLifecycleID
+        ) == nil)
+        #expect(registry.surface(
+            terminalLifecycleID: replacement.terminalLifecycleID
+        ) === replacement)
 
         registry.unregister(first)
         #expect(registry.surface(id: sharedId) === replacement)
@@ -156,6 +177,13 @@ struct TerminalSurfaceRegistryTests {
             id: surface.id,
             terminalLifecycleID: replacementLifecycleID
         ))
+        #expect(registry.surface(
+            terminalLifecycleID: surface.terminalLifecycleID
+        ) == nil)
+        #expect(registry.surface(
+            id: surface.id,
+            terminalLifecycleID: replacementLifecycleID
+        ) === surface)
     }
 
     @Test func unregisteringNewestSharedIdRegistrationRestoresPreviousOwner() {
@@ -181,17 +209,79 @@ struct TerminalSurfaceRegistryTests {
                 terminalLifecycleID: replacement.terminalLifecycleID
             )
         )
+        #expect(registry.surface(
+            terminalLifecycleID: first.terminalLifecycleID
+        ) === first)
+        #expect(registry.surface(
+            terminalLifecycleID: replacement.terminalLifecycleID
+        ) == nil)
+    }
+
+    @Test func reregisteringSurfaceReplacesItsLifecycleIndex() {
+        let registry = TerminalSurfaceRegistry()
+        let surface = FakeSurface()
+        let originalLifecycleID = surface.terminalLifecycleID
+        let replacementLifecycleID = UUID()
+        registry.register(surface)
+
+        registry.register(
+            surface,
+            terminalLifecycleID: replacementLifecycleID
+        )
+
+        #expect(registry.surface(
+            terminalLifecycleID: originalLifecycleID
+        ) == nil)
+        #expect(registry.surface(
+            terminalLifecycleID: replacementLifecycleID
+        ) === surface)
+        #expect(registry.surface(
+            id: surface.id,
+            terminalLifecycleID: replacementLifecycleID
+        ) === surface)
     }
 
     @Test func evictsDeallocatedSurfaces() {
         let registry = TerminalSurfaceRegistry()
         var surface: FakeSurface? = FakeSurface()
         let id = surface!.id
+        let terminalLifecycleID = surface!.terminalLifecycleID
         registry.register(surface!)
         surface = nil
         // Weak table: a deallocated surface must stop resolving.
         #expect(registry.surface(id: id) == nil)
+        #expect(registry.surface(
+            terminalLifecycleID: terminalLifecycleID
+        ) == nil)
+        #expect(registry.surface(
+            id: id,
+            terminalLifecycleID: terminalLifecycleID
+        ) == nil)
         #expect(registry.allSurfaces().isEmpty)
+    }
+
+    @Test func weakReplacementEvictionRestoresPreviousLifecycleOwner() {
+        let registry = TerminalSurfaceRegistry()
+        let sharedID = UUID()
+        let first = FakeSurface(id: sharedID)
+        var replacement: FakeSurface? = FakeSurface(id: sharedID)
+        let replacementLifecycleID = replacement!.terminalLifecycleID
+        registry.register(first)
+        registry.register(replacement!)
+
+        replacement = nil
+
+        #expect(registry.surface(
+            terminalLifecycleID: first.terminalLifecycleID
+        ) === first)
+        #expect(registry.surface(
+            id: sharedID,
+            terminalLifecycleID: first.terminalLifecycleID
+        ) === first)
+        #expect(registry.surface(
+            terminalLifecycleID: replacementLifecycleID
+        ) == nil)
+        #expect(registry.surface(id: sharedID) === first)
     }
 
     @Test func allSurfacesIsSortedByIdString() {

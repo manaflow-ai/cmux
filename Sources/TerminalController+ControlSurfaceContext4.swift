@@ -2,6 +2,7 @@ import AppKit
 import CmuxRemoteSession
 import Bonsplit
 import CmuxControlSocket
+import CmuxTerminal
 import Foundation
 import CmuxWorkspaces
 
@@ -157,7 +158,27 @@ extension TerminalController {
             return .explicit(surfaceID: requestedSurfaceID, published: shouldPublish)
         }
 
-        guard let tab = controlTabForSidebarMutation(id: workspaceID) else {
+        let resolvedWorkspaceID: UUID
+        if let terminalLifecycleID {
+            guard let reportingSurface = GhosttyApp.terminalSurfaceRegistry
+                      .surface(
+                          terminalLifecycleID: terminalLifecycleID
+                      ) as? TerminalSurface else {
+                return .pending
+            }
+            // Workspace-scoped remote relays omit `surface_id` because the
+            // focused target can differ from the process that authenticated
+            // the report. The reporting surface's live binding is the owner
+            // authority; its lifecycle token must not be compared with the
+            // inferred target's lifecycle.
+            resolvedWorkspaceID = reportingSurface.tabId
+        } else {
+            resolvedWorkspaceID = workspaceID
+        }
+
+        guard let tab = controlTabForSidebarMutation(
+                  id: resolvedWorkspaceID
+              ) else {
             return .pending
         }
         let validSurfaceIds = Set(tab.panels.keys)
@@ -173,7 +194,7 @@ extension TerminalController {
         controlApplyScopedShellActivityState(
             workspaceID: tab.id,
             surfaceID: surfaceId,
-            terminalLifecycleID: terminalLifecycleID,
+            terminalLifecycleID: nil,
             state: state
         )
         return .pending

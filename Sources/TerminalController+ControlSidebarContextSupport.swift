@@ -156,38 +156,46 @@ extension TerminalController {
         state: PanelShellActivityState
     ) -> Bool {
         let registry = GhosttyApp.terminalSurfaceRegistry
-        if terminalLifecycleID != nil,
-           !registry.isCurrentSurface(
-               id: surfaceID,
-               terminalLifecycleID: terminalLifecycleID
-           ) {
-            return false
+        let registeredSurface: TerminalSurface?
+        if let terminalLifecycleID {
+            guard let currentSurface = registry.surface(
+                      id: surfaceID,
+                      terminalLifecycleID: terminalLifecycleID
+                  ) as? TerminalSurface else {
+                return false
+            }
+            registeredSurface = currentSurface
+        } else {
+            registeredSurface = registry.surface(id: surfaceID)
+                as? TerminalSurface
         }
-        let registeredSurface = registry
-            .surface(id: surfaceID) as? TerminalSurface
         // A live surface keeps its registry workspace binding current when it
         // moves, while the already-running child process cannot rewrite the
         // CMUX_WORKSPACE_ID it inherited at launch. Route by the authoritative
         // live binding so telemetry follows Dock/workspace transfers.
-        let currentWorkspaceID = registeredSurface?.tabId ?? workspaceID
+        let ownerID = registeredSurface?.tabId ?? workspaceID
+        let routingManager = AppDelegate.shared?.tabManagerFor(tabId: ownerID)
+            ?? AppDelegate.shared?.tabManagerFor(windowId: ownerID)
+            ?? tabManager
 
         if registeredSurface?.focusPlacement == .rightSidebarDock,
-           let dock = DockSplitStore.liveStore(containingPanel: surfaceID) {
+           let dock = routingManager?.dockSplitStore(
+               ownerID: ownerID,
+               containingPanel: surfaceID
+           ) {
             dock.updatePanelShellActivityState(panelId: surfaceID, state: state)
             return true
         }
 
-        guard let tabManager = AppDelegate.shared?.tabManagerFor(
-                  tabId: currentWorkspaceID
-              ),
-              let workspace = tabManager.tabs.first(where: {
-                  $0.id == currentWorkspaceID
+        guard let routingManager,
+              let workspace = routingManager.tabs.first(where: {
+                  $0.id == ownerID
               }),
               workspace.panels[surfaceID] != nil else {
             return false
         }
-        tabManager.updateSurfaceShellActivity(
-            tabId: currentWorkspaceID,
+        routingManager.updateSurfaceShellActivity(
+            tabId: ownerID,
             surfaceId: surfaceID,
             state: state
         )
