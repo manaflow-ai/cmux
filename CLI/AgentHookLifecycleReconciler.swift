@@ -9,7 +9,7 @@ struct AgentHookLifecycleReconciler {
         case running
         case notification
         case terminalNotification
-        case stop
+        case stop(publishesCompletionNotification: Bool)
         case ignore
         case rejectStaleProcess
     }
@@ -29,8 +29,10 @@ struct AgentHookLifecycleReconciler {
         case "idle":
             let outcome = Self.normalized(payload?["turn_outcome"])
             switch outcome {
-            case "done", "complete", "completed", "cancelled", "canceled", "interrupted":
-                return .stop
+            case "done", "complete", "completed":
+                return .stop(publishesCompletionNotification: true)
+            case "cancelled", "canceled", "interrupted":
+                return .stop(publishesCompletionNotification: false)
             case "error", "failed":
                 return .terminalNotification
             default:
