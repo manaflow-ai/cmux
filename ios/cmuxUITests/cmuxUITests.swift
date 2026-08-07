@@ -3202,13 +3202,16 @@ final class cmuxUITests: XCTestCase {
         for cycle in 1...2 {
             tap(app.buttons["MobileSurfaceDeckPaneMap"], in: app)
             XCTAssertTrue(
-                waitForPaneMap(overlay, in: app, toBeActive: true),
+                waitForPaneMap(overlay, in: app, toBeActive: true, timeout: 8),
                 "Pane map must open from the surface deck (cycle \(cycle))"
             )
             XCTAssertEqual(app.state, .runningForeground)
             tap(app.buttons["MobilePaneMapTile-terminal-build"], in: app)
+            // Returning to the terminal re-presents its full-screen cover and
+            // rebuilds the terminal subtree, which takes several seconds on a
+            // saturated CI runner; this is a liveness check, not a latency one.
             XCTAssertTrue(
-                waitForPaneMap(overlay, in: app, toBeActive: false),
+                waitForPaneMap(overlay, in: app, toBeActive: false, timeout: 15),
                 "Tapping a tile must return to the terminal (cycle \(cycle))"
             )
             XCTAssertEqual(app.state, .runningForeground)
