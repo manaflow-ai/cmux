@@ -1,22 +1,84 @@
 import AppKit
 import ObjectiveC
 
+private typealias PortalSubviewComparator = @convention(c) (
+    NSView,
+    NSView,
+    UnsafeMutableRawPointer?
+) -> ComparisonResult
+
 private extension NSView {
-    @objc func cmux_portalDidAddSubview(_ subview: NSView) {
-        cmux_portalDidAddSubview(subview)
+    @objc(cmux_portalAddSubview:)
+    func cmux_portalAddSubview(_ subview: NSView) {
+        cmux_portalAddSubview(subview)
         PortalSplitDividerCacheInvalidator.viewHierarchyDidMutate(
             parentView: self,
-            changedSubview: subview
+            changedSubviews: [subview]
         )
     }
 
-    @objc func cmux_portalWillRemoveSubview(_ subview: NSView) {
-        // Notify while the child still identifies the hierarchy it is leaving.
+    @objc(cmux_portalAddSubview:positioned:relativeTo:)
+    func cmux_portalAddSubview(
+        _ subview: NSView,
+        positioned place: NSWindow.OrderingMode,
+        relativeTo otherView: NSView?
+    ) {
+        cmux_portalAddSubview(subview, positioned: place, relativeTo: otherView)
         PortalSplitDividerCacheInvalidator.viewHierarchyDidMutate(
             parentView: self,
-            changedSubview: subview
+            changedSubviews: [subview]
         )
-        cmux_portalWillRemoveSubview(subview)
+    }
+
+    @objc(cmux_portalSetSubviews:)
+    func cmux_portalSetSubviews(_ newSubviews: [NSView]) {
+        let oldSubviews = subviews
+        cmux_portalSetSubviews(newSubviews)
+        PortalSplitDividerCacheInvalidator.viewHierarchyDidMutate(
+            parentView: self,
+            changedSubviews: oldSubviews + newSubviews
+        )
+    }
+
+    @objc func cmux_portalRemoveFromSuperview() {
+        let oldSuperview = superview
+        cmux_portalRemoveFromSuperview()
+        if let oldSuperview {
+            PortalSplitDividerCacheInvalidator.viewHierarchyDidMutate(
+                parentView: oldSuperview,
+                changedSubviews: [self]
+            )
+        }
+    }
+
+    @objc func cmux_portalRemoveFromSuperviewWithoutNeedingDisplay() {
+        let oldSuperview = superview
+        cmux_portalRemoveFromSuperviewWithoutNeedingDisplay()
+        if let oldSuperview {
+            PortalSplitDividerCacheInvalidator.viewHierarchyDidMutate(
+                parentView: oldSuperview,
+                changedSubviews: [self]
+            )
+        }
+    }
+
+    @objc func cmux_portalReplaceSubview(_ oldView: NSView, with newView: NSView) {
+        cmux_portalReplaceSubview(oldView, with: newView)
+        PortalSplitDividerCacheInvalidator.viewHierarchyDidMutate(
+            parentView: self,
+            changedSubviews: [oldView, newView]
+        )
+    }
+
+    @objc func cmux_portalSortSubviews(
+        _ compare: PortalSubviewComparator,
+        context: UnsafeMutableRawPointer?
+    ) {
+        cmux_portalSortSubviews(compare, context: context)
+        PortalSplitDividerCacheInvalidator.viewHierarchyDidMutate(
+            parentView: self,
+            changedSubviews: []
+        )
     }
 }
 
@@ -24,30 +86,41 @@ private extension NSView {
 final class PortalSplitDividerCacheInvalidator {
     private static let hierarchyMutationHubAssociationKey = NSObject()
 
-    /// AppKit does not document `subviews` as KVO-compliant, but it does provide
-    /// these callbacks for every hierarchy insertion and removal. Hook the base
-    /// implementations once so active portal caches can invalidate at mutation
-    /// time instead of walking the entire view tree on every pointer event.
+    /// AppKit does not document `subviews` as KVO-compliant. Hook every public
+    /// hierarchy mutation entrypoint once so active portal caches invalidate at
+    /// mutation time instead of walking the view tree on every pointer event.
     private static let installViewHierarchyMutationHooks: Void = {
-        guard let originalDidAddSubview = class_getInstanceMethod(
-            NSView.self,
-            #selector(NSView.didAddSubview(_:))
-        ), let hookedDidAddSubview = class_getInstanceMethod(
-            NSView.self,
-            #selector(NSView.cmux_portalDidAddSubview(_:))
-        ), let originalWillRemoveSubview = class_getInstanceMethod(
-            NSView.self,
-            #selector(NSView.willRemoveSubview(_:))
-        ), let hookedWillRemoveSubview = class_getInstanceMethod(
-            NSView.self,
-            #selector(NSView.cmux_portalWillRemoveSubview(_:))
-        ) else {
-            assertionFailure("Unable to install portal view-hierarchy mutation hooks")
-            return
-        }
+        let selectorPairs: [(original: Selector, replacement: Selector)] = [
+            (#selector(NSView.addSubview(_:)), #selector(NSView.cmux_portalAddSubview(_:))),
+            (
+                #selector(NSView.addSubview(_:positioned:relativeTo:)),
+                #selector(NSView.cmux_portalAddSubview(_:positioned:relativeTo:))
+            ),
+            (#selector(setter: NSView.subviews), #selector(NSView.cmux_portalSetSubviews(_:))),
+            (#selector(NSView.removeFromSuperview), #selector(NSView.cmux_portalRemoveFromSuperview)),
+            (
+                #selector(NSView.removeFromSuperviewWithoutNeedingDisplay),
+                #selector(NSView.cmux_portalRemoveFromSuperviewWithoutNeedingDisplay)
+            ),
+            (
+                #selector(NSView.replaceSubview(_:with:)),
+                #selector(NSView.cmux_portalReplaceSubview(_:with:))
+            ),
+            (#selector(NSView.sortSubviews(_:context:)), #selector(NSView.cmux_portalSortSubviews(_:context:))),
+        ]
 
-        method_exchangeImplementations(originalDidAddSubview, hookedDidAddSubview)
-        method_exchangeImplementations(originalWillRemoveSubview, hookedWillRemoveSubview)
+        var methodPairs: [(original: Method, replacement: Method)] = []
+        for selectors in selectorPairs {
+            guard let original = class_getInstanceMethod(NSView.self, selectors.original),
+                  let replacement = class_getInstanceMethod(NSView.self, selectors.replacement) else {
+                assertionFailure("Unable to install portal view-hierarchy mutation hook for \(selectors.original)")
+                return
+            }
+            methodPairs.append((original, replacement))
+        }
+        for methods in methodPairs {
+            method_exchangeImplementations(methods.original, methods.replacement)
+        }
     }()
 
     // Observer tokens are assigned/cleared from main-thread AppKit paths. Swift
@@ -75,9 +148,13 @@ final class PortalSplitDividerCacheInvalidator {
         invalidate()
         let geometryViews = Self.uniqueViews(geometryViews)
         let subviewObservedViews = Self.uniqueViews(geometryViews + structureViews)
+        let hierarchyStructureViews = Self.uniqueViews([rootView] + subviewObservedViews)
         hierarchyMutationRootView = rootView
         hierarchyMutationOnChange = onChange
-        Self.hierarchyMutationHub(for: rootView, createIfNeeded: true)?.add(self)
+        Self.hierarchyMutationHub(for: rootView, createIfNeeded: true)?.add(
+            self,
+            structureViews: hierarchyStructureViews
+        )
 
         for view in geometryViews {
             // These NSView flags are shared; do not restore them per observer or
@@ -120,6 +197,9 @@ final class PortalSplitDividerCacheInvalidator {
     }
 
     func invalidate() {
+        if let hierarchyMutationRootView {
+            Self.hierarchyMutationHub(for: hierarchyMutationRootView, createIfNeeded: false)?.remove(self)
+        }
         hierarchyMutationRootView = nil
         hierarchyMutationOnChange = nil
         invalidateObservations()
@@ -127,29 +207,37 @@ final class PortalSplitDividerCacheInvalidator {
 
     /// Ignores stale weak registrations left on roots this invalidator no longer observes.
     func viewHierarchyDidMutate(in rootView: NSView) {
-        guard hierarchyMutationRootView === rootView else { return }
-        hierarchyMutationOnChange?()
+        guard hierarchyMutationRootView === rootView,
+              let onChange = hierarchyMutationOnChange else { return }
+        invalidate()
+        onChange()
     }
 
     /// Routes a hierarchy mutation only to cache owners whose roots contain the
     /// changed parent. Relevance is classified once even when several portals
     /// share a root, avoiding process-wide observer fanout and repeated scans.
-    fileprivate static func viewHierarchyDidMutate(parentView: NSView, changedSubview: NSView) {
+    fileprivate static func viewHierarchyDidMutate(parentView: NSView, changedSubviews: [NSView]) {
         var hubs: [PortalViewHierarchyMutationHub] = []
         var ancestor: NSView? = parentView
         while let view = ancestor {
-            if let hub = hierarchyMutationHub(for: view, createIfNeeded: false) {
+            if let hub = hierarchyMutationHub(for: view, createIfNeeded: false),
+               hub.hasActiveCaches {
                 hubs.append(hub)
             }
             ancestor = view.superview
         }
 
-        guard !hubs.isEmpty,
-              parentView is NSSplitView || PortalSplitDividerRegion.containsSplitView(in: changedSubview) else {
-            return
-        }
-        for hub in hubs {
-            hub.notify()
+        guard !hubs.isEmpty else { return }
+        let parentIsSplitView = parentView is NSSplitView
+        let structureObservations = hubs.map { $0.observesStructure(of: parentView) }
+        let changedSubtreeContainsSplitView =
+            !parentIsSplitView &&
+            structureObservations.contains(false) &&
+            changedSubviews.contains { PortalSplitDividerRegion.containsSplitView(in: $0) }
+        for (hub, observesParent) in zip(hubs, structureObservations) {
+            if parentIsSplitView || changedSubtreeContainsSplitView || observesParent {
+                hub.notify()
+            }
         }
     }
 

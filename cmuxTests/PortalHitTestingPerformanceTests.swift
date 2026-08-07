@@ -54,6 +54,11 @@ struct PortalHitTestingPerformanceTests {
         }
     }
 
+    private final class NonForwardingHierarchyCallbackView: NSView {
+        override func didAddSubview(_ subview: NSView) {}
+        override func willRemoveSubview(_ subview: NSView) {}
+    }
+
     private final class SplitDelegate: NSObject, NSSplitViewDelegate {}
 
     private func makeMouseEvent(type: NSEvent.EventType, at locationInWindow: NSPoint, window: NSWindow) -> NSEvent {
@@ -333,7 +338,7 @@ struct PortalHitTestingPerformanceTests {
         let contentView = try #require(window.contentView)
         let outerContainer = NSView(frame: contentView.bounds)
         contentView.addSubview(outerContainer)
-        let innerContainer = NSView(frame: outerContainer.bounds)
+        let innerContainer = NonForwardingHierarchyCallbackView(frame: outerContainer.bounds)
         outerContainer.addSubview(innerContainer)
 
         let hostedView = CapturingView(frame: contentView.bounds)
@@ -345,9 +350,9 @@ struct PortalHitTestingPerformanceTests {
         let warmEvent = makeMouseEvent(type: .mouseMoved, at: warmPointInWindow, window: window)
         #expect(host.performHitTest(at: host.convert(warmPointInWindow, from: nil), currentEvent: warmEvent) === hostedView)
 
-        // The inner container is two levels below the content root and holds no split
-        // when the cache warms up, so nothing observes it. A split inserted there later
-        // must still invalidate the cached (empty) divider regions.
+        // The inner container is two levels below the content root, holds no split
+        // when the cache warms up, and intentionally omits `super` in AppKit's
+        // hierarchy callbacks. A split inserted there must still invalidate the cache.
         let insertedSplitView = CountingSplitView(frame: innerContainer.bounds)
         insertedSplitView.isVertical = true
         let insertedSplitDelegate = SplitDelegate()
@@ -367,6 +372,8 @@ struct PortalHitTestingPerformanceTests {
     @Test
     func hierarchyMutationClassificationDoesNotFanOutPerCache() {
         let rootView = NSView(frame: .zero)
+        let unobservedContainer = NSView(frame: .zero)
+        rootView.addSubview(unobservedContainer)
         var callbackCount = 0
         let invalidators = (0..<128).map { _ in
             let invalidator = PortalSplitDividerCacheInvalidator()
@@ -387,7 +394,7 @@ struct PortalHitTestingPerformanceTests {
         insertedSubtree.addSubview(NSSplitView(frame: .zero))
         let readsBeforeInsertion = insertedSubtree.subviewReadCount
 
-        rootView.addSubview(insertedSubtree)
+        unobservedContainer.addSubview(insertedSubtree)
 
         #expect(callbackCount == invalidators.count)
         #expect(
@@ -395,6 +402,34 @@ struct PortalHitTestingPerformanceTests {
             "A relevant subtree should be classified once per root, not once per active cache."
         )
         withExtendedLifetime(invalidators) {}
+    }
+
+    @Test
+    func hierarchyMutationInvalidatesAfterPureSubviewReorder() {
+        let rootView = NSView(frame: .zero)
+        let firstView = NSView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+        let secondView = NSView(frame: NSRect(x: 1, y: 0, width: 1, height: 1))
+        rootView.addSubview(firstView)
+        rootView.addSubview(secondView)
+
+        var callbackCount = 0
+        let invalidator = PortalSplitDividerCacheInvalidator()
+        invalidator.observe(
+            rootView: rootView,
+            geometryViews: [],
+            structureViews: []
+        ) {
+            callbackCount += 1
+        }
+
+        rootView.sortSubviews({ lhs, rhs, _ in
+            if lhs.frame.minX == rhs.frame.minX { return .orderedSame }
+            return lhs.frame.minX < rhs.frame.minX ? .orderedDescending : .orderedAscending
+        }, context: nil)
+
+        #expect(rootView.subviews.first === secondView)
+        #expect(callbackCount == 1)
+        withExtendedLifetime(invalidator) {}
     }
 
     @Test
