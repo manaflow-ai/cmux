@@ -24,7 +24,7 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
             path: path,
             provenance: provenance,
             lastReferencedSeq: lastReferencedSeq,
-            captureAuthorization: Self.authorization(provenance: provenance, sequence: lastReferencedSeq)
+            captureAuthorization: provenance.captureAuthorization(sequence: lastReferencedSeq)
         )
     }
 
@@ -161,53 +161,19 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
             canonicalPathByLexicalPath[path] = canonicalPath
         }
         let previous = byPath[canonicalPath]
+        let candidateAuthorization = provenance.captureAuthorization(sequence: seq)
+        let captureAuthorization: ChatArtifactCaptureAuthorization?
+        if let previousAuthorization = previous?.captureAuthorization,
+           let candidateAuthorization {
+            captureAuthorization = previousAuthorization.latest(with: candidateAuthorization)
+        } else {
+            captureAuthorization = previous?.captureAuthorization ?? candidateAuthorization
+        }
         byPath[canonicalPath] = ChatArtifactIndexedReference(
             path: canonicalPath,
-            provenance: Self.higherPrecedence(previous?.provenance, provenance),
+            provenance: previous?.provenance.preferred(over: provenance) ?? provenance,
             lastReferencedSeq: max(previous?.lastReferencedSeq ?? Int.min, seq),
-            captureAuthorization: Self.latestAuthorization(
-                previous?.captureAuthorization,
-                Self.authorization(provenance: provenance, sequence: seq)
-            )
+            captureAuthorization: captureAuthorization
         )
-    }
-
-    private static func authorization(
-        provenance: ChatArtifactProvenance,
-        sequence: Int
-    ) -> ChatArtifactCaptureAuthorization? {
-        switch provenance {
-        case .created: .created(sequence: sequence)
-        case .attached: .attached(sequence: sequence)
-        case .referenced: nil
-        }
-    }
-
-    private static func latestAuthorization(
-        _ lhs: ChatArtifactCaptureAuthorization?,
-        _ rhs: ChatArtifactCaptureAuthorization?
-    ) -> ChatArtifactCaptureAuthorization? {
-        guard let lhs else { return rhs }
-        guard let rhs else { return lhs }
-        if lhs.sequence != rhs.sequence {
-            return lhs.sequence > rhs.sequence ? lhs : rhs
-        }
-        return higherPrecedence(lhs.provenance, rhs.provenance) == lhs.provenance ? lhs : rhs
-    }
-
-    private static func higherPrecedence(
-        _ lhs: ChatArtifactProvenance?,
-        _ rhs: ChatArtifactProvenance
-    ) -> ChatArtifactProvenance {
-        guard let lhs else { return rhs }
-        return Self.rank(lhs) <= Self.rank(rhs) ? lhs : rhs
-    }
-
-    private static func rank(_ provenance: ChatArtifactProvenance) -> Int {
-        switch provenance {
-        case .created: 0
-        case .attached: 1
-        case .referenced: 2
-        }
     }
 }

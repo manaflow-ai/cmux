@@ -2,14 +2,6 @@ import Foundation
 
 /// Identifies shell redirection targets without guessing command-specific flag semantics.
 struct ShellArtifactMutationPathDetector: Sendable {
-    private enum Token: Equatable {
-        case word(String)
-        case outputRedirect
-        case appendRedirect
-        case readWriteRedirect
-        case boundary
-    }
-
     func paths(in command: String) -> [String] {
         let tokens = tokenize(command)
         return paths(in: tokens)
@@ -27,7 +19,7 @@ struct ShellArtifactMutationPathDetector: Sendable {
         return paths(in: tokens)
     }
 
-    private func paths(in tokens: [Token]) -> [String] {
+    private func paths(in tokens: [ShellArtifactMutationToken]) -> [String] {
         var paths: [String] = []
         var seen: Set<String> = []
 
@@ -84,8 +76,8 @@ struct ShellArtifactMutationPathDetector: Sendable {
         return false
     }
 
-    private func tokenize(_ command: String) -> [Token] {
-        var tokens: [Token] = []
+    private func tokenize(_ command: String) -> [ShellArtifactMutationToken] {
+        var tokens: [ShellArtifactMutationToken] = []
         var word = ""
         var quote: Character?
         var escaped = false
@@ -183,7 +175,10 @@ struct ShellArtifactMutationPathDetector: Sendable {
         return tokens
     }
 
-    private func nextWord(after index: Int, in tokens: [Token]) -> String? {
+    private func nextWord(
+        after index: Int,
+        in tokens: [ShellArtifactMutationToken]
+    ) -> String? {
         guard index + 1 < tokens.count else { return nil }
         for token in tokens[(index + 1)...] {
             switch token {
