@@ -31,6 +31,12 @@ case "${0##*/}" in
       printf 'ci-console\n'
       exit 0
     fi
+    if [ "${1:-}" = "-f" ] \
+      && [ "${2:-}" = "%Su" ] \
+      && [ "${3:-}" = "${CMUX_FAKE_UNTRUSTED_SCOPE_PATH:-}" ]; then
+      printf 'untrusted-local-user\n'
+      exit 0
+    fi
     exec /usr/bin/stat "$@"
     ;;
   id)
@@ -54,7 +60,13 @@ case "${0##*/}" in
       esac
     done
     case "${1:-}" in
-      true|chown|chmod) exit 0 ;;
+      true) exit 0 ;;
+      chown|chmod)
+        if [ -n "${CMUX_FAKE_MUTATION_LOG:-}" ]; then
+          printf '%s\n' "$*" >> "$CMUX_FAKE_MUTATION_LOG"
+        fi
+        exit 0
+        ;;
       *) exec "$@" ;;
     esac
     ;;
@@ -181,6 +193,46 @@ grep -Fq "Confirmed app-host cleanup target:" "$TMP_DIR/success.log" || {
 # Repeating cleanup with the same published identity is idempotent.
 run_cleanup > "$TMP_DIR/already-absent.log"
 grep -Fq "already absent" "$TMP_DIR/already-absent.log"
+
+prepare_scope
+rm -f -- "$CMUX_APP_HOST_CONFIRMATION_FILE"
+: > "$TMP_DIR/unauthenticated-mutations.log"
+set +e
+PATH="$FAKE_BIN:$PATH" \
+CMUX_FAKE_MUTATION_LOG="$TMP_DIR/unauthenticated-mutations.log" \
+  bash "$ROOT_DIR/scripts/ci/run-in-console-session.sh" \
+    scripts/ci/cleanup-app-host-home.sh \
+    > "$TMP_DIR/unauthenticated-cleanup.log" 2>&1
+unauthenticated_cleanup_status=$?
+set -e
+if [ "$unauthenticated_cleanup_status" -ne 1 ] \
+  || [ -s "$TMP_DIR/unauthenticated-mutations.log" ]; then
+  cat "$TMP_DIR/unauthenticated-cleanup.log"
+  cat "$TMP_DIR/unauthenticated-mutations.log"
+  echo "FAIL: console cleanup mutated a scope before authenticating it"
+  exit 1
+fi
+discard_corrupted_scope_fixture
+
+prepare_scope
+: > "$TMP_DIR/untrusted-owner-mutations.log"
+set +e
+PATH="$FAKE_BIN:$PATH" \
+CMUX_FAKE_MUTATION_LOG="$TMP_DIR/untrusted-owner-mutations.log" \
+CMUX_FAKE_UNTRUSTED_SCOPE_PATH="$CMUX_APP_HOST_HOME" \
+  bash "$ROOT_DIR/scripts/ci/run-in-console-session.sh" \
+    scripts/ci/cleanup-app-host-home.sh \
+    > "$TMP_DIR/untrusted-owner-cleanup.log" 2>&1
+untrusted_owner_status=$?
+set -e
+if [ "$untrusted_owner_status" -ne 1 ] \
+  || [ -s "$TMP_DIR/untrusted-owner-mutations.log" ]; then
+  cat "$TMP_DIR/untrusted-owner-cleanup.log"
+  cat "$TMP_DIR/untrusted-owner-mutations.log"
+  echo "FAIL: console cleanup took ownership of an untrusted scope"
+  exit 1
+fi
+run_cleanup >/dev/null
 
 prepare_scope
 real_confirmation="$CMUX_APP_HOST_CLEANUP_CONFIRMATION"
