@@ -144,6 +144,8 @@ import Testing
         )
         await store.loadPairedMacs()
         let computer = try #require(store.pairedMacs.first)
+        let scope = try #require(await store.currentScopeSnapshot())
+        let scopeKey = store.pairedMacScopeKey(scope)
 
         store.requestHideStoredPairedMacEntries(
             representativeID: computer.id,
@@ -161,6 +163,7 @@ import Testing
         await hiddenStore.releaseDelayedHideSave()
         await task.value
         #expect(store.hiddenComputers.isEmpty)
+        #expect(await hiddenStore.load(scope: scopeKey).isEmpty)
     }
 
     @Test func teamChangeCancelsInFlightComputerVisibilityMutation() async throws {
@@ -190,6 +193,8 @@ import Testing
         )
         await store.loadPairedMacs()
         let computer = try #require(store.pairedMacs.first)
+        let scope = try #require(await store.currentScopeSnapshot())
+        let scopeKey = store.pairedMacScopeKey(scope)
 
         store.requestHideStoredPairedMacEntries(
             representativeID: computer.id,
@@ -208,6 +213,7 @@ import Testing
         await hiddenStore.releaseDelayedHideSave()
         await task.value
         #expect(store.hiddenComputers.isEmpty)
+        #expect(await hiddenStore.load(scope: scopeKey).isEmpty)
     }
 
     @Test func rawDeviceIDMarkerMatchingExistingRowSurvivesMigration() async throws {
