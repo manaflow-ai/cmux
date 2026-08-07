@@ -1238,6 +1238,11 @@ struct BrowserPanelView: View {
                     isDownloading: panel.isDownloading,
                     iconPointSize: chromeMetrics.navigationIconFontSize,
                     hitSize: addressBarButtonHitSize,
+                    // The window scheme (read outside the addressBar's
+                    // browserChromeColorScheme override) — the downloads
+                    // popover panel is drawn with the window appearance, not
+                    // the page-derived chrome scheme.
+                    hostColorScheme: colorScheme,
                     onOpen: { panel.openDownload($0) },
                     onReveal: { panel.revealDownloadInFinder($0) },
                     onClear: { panel.clearRecentDownloads() }

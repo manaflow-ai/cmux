@@ -11,6 +11,12 @@ struct BrowserDownloadsToolbarButton: View {
     let isDownloading: Bool
     let iconPointSize: CGFloat
     let hitSize: CGFloat
+    /// Color scheme of the hosting window. The omnibar forces the browser
+    /// chrome scheme (derived from the web page's theme color) into its
+    /// environment, and popover content inherits it — but NSPopover draws its
+    /// translucent panel with the window's appearance. Re-injecting the window
+    /// scheme keeps labels/icons readable against the panel (#9341).
+    let hostColorScheme: ColorScheme
     let onOpen: (BrowserDownloadRecord) -> Void
     let onReveal: (BrowserDownloadRecord) -> Void
     let onClear: () -> Void
@@ -85,6 +91,7 @@ struct BrowserDownloadsToolbarButton: View {
                 onReveal: onReveal,
                 onClear: onClear
             )
+            .environment(\.colorScheme, hostColorScheme)
         }
     }
 }
