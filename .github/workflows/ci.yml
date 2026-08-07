@@ -922,6 +922,25 @@ jobs:
             -only-testing:cmuxTests/NotificationScrollRestoreRecoveryTests \
             test
 
+      - name: Run settings file-store no-op persistence regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The broad app-host suite tolerates expected failures and can stop
+          # after an app-host crash. Keep the settings persistence regression
+          # non-tolerant so a no-op UserDefaults write cannot pass the shard.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests \
+            test
+
       - name: Run unit tests
         run: |
           set -euo pipefail
@@ -1036,13 +1055,11 @@ jobs:
           fi
 
           if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
-              echo "All failures are expected, treating as pass"
-            else
-              echo "Unexpected test failures detected"
-              exit 1
-            fi
+            # Expected failures are normalized inside run_unit_test_batch. Any
+            # remaining non-zero status is a real batch failure or an incomplete
+            # run with no trustworthy summary and must stay red.
+            echo "App-host unit-test batch failed with status ${EXIT_CODE}"
+            exit "$EXIT_CODE"
           fi
 
       - name: Run bundled Ghostty theme picker helper regression
