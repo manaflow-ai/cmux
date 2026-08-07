@@ -31,7 +31,7 @@ actor TestDialingIrohEndpoint: CmxIrohEndpoint {
     func connect(
         to address: CmxIrohEndpointAddress,
         alpn _: Data
-    ) throws -> any CmxIrohConnection {
+    ) async throws -> any CmxIrohConnection {
         dialedAddresses.append(address)
         guard !dialResults.isEmpty else {
             throw TestIrohTransportError.unsupported
@@ -41,6 +41,9 @@ actor TestDialingIrohEndpoint: CmxIrohEndpoint {
             return connection
         case let .failure(error):
             throw error
+        case .hang:
+            try await Task.sleep(for: .seconds(3600))
+            throw TestIrohTransportError.unsupported
         }
     }
 

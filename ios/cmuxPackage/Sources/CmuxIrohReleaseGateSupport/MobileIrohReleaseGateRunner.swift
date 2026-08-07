@@ -49,7 +49,9 @@ final class MobileIrohReleaseGateRunner {
             } else {
                 scenario = .standard
             }
-            guard scenario == .standard || mode == .relayOnly else { return nil }
+            guard scenario == .standard
+                || scenario == .coldStartDial
+                || mode == .relayOnly else { return nil }
             self.mode = mode
             self.scenario = scenario
             self.reportURL = cachesDirectory.appendingPathComponent(Self.reportFilename)
@@ -168,6 +170,7 @@ final class MobileIrohReleaseGateRunner {
                 Self.postReportReadyNotification()
             },
             timeout: configuration.scenario == .standard
+                || configuration.scenario == .coldStartDial
                 ? Self.standardTimeout
                 : Self.extendedTimeout
         )
@@ -501,6 +504,10 @@ final class MobileIrohReleaseGateRunner {
     ) -> Bool {
         switch scenario {
         case .standard:
+            return true
+        case .coldStartDial:
+            // The launch-to-usable deadline is enforced by the orchestrator
+            // script; the report only proves the session was genuinely usable.
             return true
         case .relayRollover:
             return probe.relayCredentialRolloverVerified

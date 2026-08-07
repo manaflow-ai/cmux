@@ -62,6 +62,57 @@ struct CmxIrohHostRuntimeTests {
         await runtime.stop()
     }
 
+    @Test("automatic startup publishes relay-ready hints, not the bootstrap snapshot")
+    func automaticStartupPublishesRelayReadyHints() async throws {
+        let fixture = try HostRuntimeFixture()
+        let now = Date()
+        let readyBinding = try HostRuntimeFixture.binding(
+            endpointID: fixture.endpointID.endpointID,
+            publicHintObservedAt: now,
+            publicHintExpiresAt: now.addingTimeInterval(30 * 60)
+        )
+        let readyDiscovery = try HostRuntimeFixture.discovery(
+            binding: readyBinding,
+            relays: HostRuntimeFixture.relayURLs,
+            revision: 2
+        )
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        // The broker's bootstrap round returns a binding with no usable path
+        // hints (the endpoint has not attached to its home relay yet); the
+        // post-attach round returns the relay-hinted binding. Relay token
+        // issuance is the earliest moment the endpoint can come online.
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            subsequentRegistrationBindings: [readyBinding],
+            subsequentDiscoveries: [readyDiscovery]
+        )
+        let routes = HostRuntimeRouteRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() },
+            handleRoute: { binding, pathHints in
+                await routes.record(binding: binding, pathHints: pathHints)
+            },
+            handleRelayCredential: { _, _ in await endpoint.emit(.online) }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.observedRelayIssueCount() == 1)
+        let published = await routes.values()
+        let firstHints = try #require(published.first?.pathHints)
+        #expect(
+            firstHints.contains { $0.kind == .relayURL },
+            "the binding advertised at activation must carry post-relay-attach hints"
+        )
+        #expect(await broker.observedRegistrationCount() == 2)
+        await runtime.stop()
+    }
+
     @Test
     func unavailableRelayPolicyStillAllowsDirectDiscovery() async throws {
         let fixture = try HostRuntimeFixture()

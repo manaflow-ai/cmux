@@ -67,7 +67,9 @@ extension MobileShellComposite {
         var unrefreshedExpiryDisconnectVerified = false
 
         switch scenario {
-        case .standard:
+        case .standard, .coldStartDial:
+            // Cold-start proves the same usable-session legs as standard;
+            // its timing assertion lives at the orchestrator script layer.
             try await verifyReversibleWorkspaceRename(
                 workspace: workspace,
                 marker: marker

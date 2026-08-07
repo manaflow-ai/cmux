@@ -10,6 +10,16 @@ import Testing
 @MainActor
 struct MobileIrohReleaseGateRunnerTests {
     @Test
+    func coldStartDialScenarioIsAdmittedWithAutomaticMode() throws {
+        let configuration = try temporaryConfiguration(
+            mode: .automatic,
+            scenario: .coldStartDial
+        )
+        #expect(configuration.scenario == .coldStartDial)
+        #expect(configuration.mode == .automatic)
+    }
+
+    @Test
     func taskRestartReusesOneRunAndOneReportWrite() async throws {
         let configuration = try temporaryConfiguration(mode: .relayOnly)
         let probeStarted = AsyncStream<Void>.makeStream(

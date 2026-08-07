@@ -176,6 +176,8 @@ extension CmxIrohClientSessionError: DiagnosticFailureProviding {
             .identityMismatch
         case .admissionDenied:
             .admissionDenied
+        case .dialTimedOut:
+            .timedOut
         case .alreadyClosed, .notConnected, .unexpectedEndOfStream:
             .connectionClosed
         case .invalidAdmissionFrame, .invalidMaximumByteCount,
