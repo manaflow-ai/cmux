@@ -66,40 +66,154 @@ extension SSHForegroundAuthenticationRetryPolicy {
           /usr/bin/perl -MTime::HiRes=alarm -e '
             use strict;
             use warnings;
+            use Errno qw(ESRCH);
             my $timeout_millis = shift;
+            my $owned_group = shift;
+            my $caller_group = shift;
+            my $owned_records = shift;
             exit 1 unless defined($timeout_millis) &&
               $timeout_millis =~ /\A[1-9][0-9]*\z/;
+            exit 1 unless defined($owned_group) && $owned_group =~ /\A[0-9]+\z/;
+            exit 1 unless defined($caller_group) && $caller_group =~ /\A[0-9]+\z/;
+            exit 1 unless defined($owned_records) && length($owned_records) > 0;
             local $SIG{ALRM} = sub { exit 124 };
             alarm($timeout_millis / 1000);
 
-            # One bounded kernel-table read supplies every durable process
-            # identity. SYS_proc_info(2) returns microsecond start timestamps,
-            # unlike the one-second value formatted by ps lstart.
-            my $pid_buffer = "\0" x (4 * 131_072);
-            my $pid_bytes = syscall(
-              336, 1, 1, 0, 0, $pid_buffer, length($pid_buffer)
-            );
-            exit 1 if $pid_bytes <= 0 || $pid_bytes >= length($pid_buffer) ||
-              ($pid_bytes % 4) != 0;
+            # Query only the isolated authentication group, previously owned
+            # identities, and their descendants. Candidate groups are then
+            # expanded solely to prove whether every member is owned. This
+            # keeps cleanup proportional to its process tree instead of every
+            # process on the machine.
+            my $PROC_PGRP_ONLY = 2;
+            my $PROC_PPID_ONLY = 6;
+            my $MAX_OWNED = 4096;
+            my $MAX_RELATED = 8192;
+            my $pid_buffer_bytes = 4 * ($MAX_RELATED + 1);
             my %state = (1 => "I", 2 => "R", 3 => "S", 4 => "T", 5 => "Z");
-            for my $pid (unpack("L<*", substr($pid_buffer, 0, $pid_bytes))) {
-              next if $pid == 0;
+
+            my $list_pids = sub {
+              my ($type, $value) = @_;
+              my $pid_buffer = "\0" x $pid_buffer_bytes;
+              my $pid_bytes = syscall(
+                336, 1, $type, $value, 0, $pid_buffer, length($pid_buffer)
+              );
+              die "bounded proc list failed" if $pid_bytes < 0 ||
+                $pid_bytes >= length($pid_buffer) || ($pid_bytes % 4) != 0;
+              my %seen;
+              return grep { $_ != 0 && !$seen{$_}++ }
+                unpack("L<*", substr($pid_buffer, 0, $pid_bytes));
+            };
+
+            my $read_info = sub {
+              my ($pid) = @_;
               my $buffer = "\0" x 136;
               my $size = syscall(336, 2, $pid, 3, 0, $buffer, 136);
-              next unless $size == 136;
+              return undef unless $size == 136;
               my $status = unpack("L<", substr($buffer, 4, 4));
               my $observed_pid = unpack("L<", substr($buffer, 12, 4));
               my $parent = unpack("L<", substr($buffer, 16, 4));
               my $group = unpack("L<", substr($buffer, 100, 4));
               my $seconds = unpack("Q<", substr($buffer, 120, 8));
               my $microseconds = unpack("Q<", substr($buffer, 128, 8));
-              next if $observed_pid != $pid || $group == 0 || $seconds == 0 ||
+              return undef if $observed_pid != $pid || $group == 0 || $seconds == 0 ||
                 $microseconds >= 1_000_000;
-              my $state = $state{$status} // "U";
-              print "$pid $parent $group $state K_${seconds}_${microseconds}\n";
+              return {
+                pid => $pid,
+                parent => $parent,
+                group => $group,
+                state => ($state{$status} // "U"),
+                started => "K_${seconds}_${microseconds}",
+              };
+            };
+
+            my $relevant_info = sub {
+              my ($pid) = @_;
+              my $info = $read_info->($pid);
+              return $info if defined($info);
+              $! = 0;
+              my $alive = kill 0, $pid;
+              return undef if !$alive && $! == ESRCH;
+              die "cannot inspect live related process";
+            };
+
+            my %prior;
+            open(my $owned_file, "<", $owned_records) or exit 1;
+            while (my $line = <$owned_file>) {
+              my @fields = split(/\s+/, $line);
+              my ($pid, $group, $started) = @fields[0, 2, 3];
+              next unless defined($pid) && defined($group) && defined($started);
+              next unless $pid =~ /\A[1-9][0-9]*\z/ &&
+                $group =~ /\A[1-9][0-9]*\z/ &&
+                $started =~ /\A[A-Za-z0-9_:]+\z/;
+              $prior{$pid} = "$group|$started";
+              die "too many prior owned processes" if keys(%prior) > $MAX_OWNED;
+            }
+            close($owned_file) or exit 1;
+
+            my %owned;
+            my @queue;
+            my $add_owned = sub {
+              my ($info) = @_;
+              return unless defined($info) && $info->{state} ne "Z";
+              return if exists($owned{$info->{pid}});
+              die "owned process tree exceeds bound" if keys(%owned) >= $MAX_OWNED;
+              $owned{$info->{pid}} = $info;
+              push @queue, $info->{pid};
+            };
+
+            for my $pid (sort { $a <=> $b } keys(%prior)) {
+              my $info = $relevant_info->($pid);
+              next unless defined($info);
+              next unless "$info->{group}|$info->{started}" eq $prior{$pid};
+              $add_owned->($info);
+            }
+            if ($owned_group != 0) {
+              for my $pid ($list_pids->($PROC_PGRP_ONLY, $owned_group)) {
+                my $info = $relevant_info->($pid);
+                next unless defined($info) && $info->{group} == $owned_group;
+                $add_owned->($info);
+              }
+            }
+
+            for (my $index = 0; $index < @queue; $index++) {
+              my $parent = $queue[$index];
+              for my $pid ($list_pids->($PROC_PPID_ONLY, $parent)) {
+                my $info = $relevant_info->($pid);
+                next unless defined($info) && $info->{parent} == $parent;
+                $add_owned->($info);
+              }
+            }
+
+            my %related = %owned;
+            my %candidate_groups;
+            for my $info (values(%owned)) {
+              my $group = $info->{group};
+              $candidate_groups{$group} = 1
+                if $group != 0 && $group != $caller_group;
+            }
+            for my $group (sort { $a <=> $b } keys(%candidate_groups)) {
+              for my $pid ($list_pids->($PROC_PGRP_ONLY, $group)) {
+                my $info = $relevant_info->($pid);
+                next unless defined($info) && $info->{group} == $group &&
+                  $info->{state} ne "Z";
+                if (!exists($related{$pid})) {
+                  die "related process set exceeds bound"
+                    if keys(%related) >= $MAX_RELATED;
+                  $related{$pid} = $info;
+                }
+              }
+            }
+
+            for my $pid (sort { $a <=> $b } keys(%related)) {
+              my $info = $related{$pid};
+              print "$pid $info->{parent} $info->{group} $info->{state} " .
+                "$info->{started}\n";
             }
             alarm(0);
           ' "$cmux_ssh_auth_snapshot_remaining" \
+            "${cmux_ssh_auth_owned_group:-0}" \
+            "${cmux_ssh_auth_caller_group:-0}" \
+            "$cmux_ssh_auth_owned_processes" \
             > "$cmux_ssh_auth_snapshot_output" 2>/dev/null
         }
 

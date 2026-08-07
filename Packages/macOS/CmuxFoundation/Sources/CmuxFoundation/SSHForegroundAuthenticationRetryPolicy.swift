@@ -417,7 +417,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "$cmux_ssh_auth_stale_lock/publisher" \
             "$cmux_ssh_auth_stale_lock/publisher.new" \
             "$cmux_ssh_auth_stale_lock/generation" \
-            "$cmux_ssh_auth_stale_lock/generation.new" 2>/dev/null || true
+            "$cmux_ssh_auth_stale_lock/generation.new" \
+            "$cmux_ssh_auth_stale_lock/pending" \
+            "$cmux_ssh_auth_stale_lock/pending.new" 2>/dev/null || true
           /bin/rmdir "$cmux_ssh_auth_stale_lock" 2>/dev/null
         }
 
@@ -1234,14 +1236,192 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           CMUX_SSH_AUTH_RECOVERY_CLAIM_RECORD=
         }
 
+        cmux_ssh_auth_recovery_queue_has_work_locked() {
+          cmux_ssh_auth_recovery_pending_read=$(cmux_ssh_auth_recovery_read_index \
+            "$cmux_ssh_auth_recovery_root/read.index")
+          cmux_ssh_auth_recovery_pending_write=$(cmux_ssh_auth_recovery_read_index \
+            "$cmux_ssh_auth_recovery_root/write.index")
+          if [ "$cmux_ssh_auth_recovery_pending_read" -lt \
+            "$cmux_ssh_auth_recovery_pending_write" ]; then return 0; fi
+          [ "$cmux_ssh_auth_recovery_pending_read" = \
+            "$cmux_ssh_auth_recovery_pending_write" ] && \
+            [ -s "$cmux_ssh_auth_recovery_root/queue.$cmux_ssh_auth_recovery_pending_read" ]
+        }
+
         cmux_ssh_schedule_failed_auth_group_recovery() {
           if ! command -v cmux_ssh_resume_failed_auth_group_reapers \
             >/dev/null 2>&1; then return 0; fi
+
+          # Claim one per-user recovery worker before forking. A live worker
+          # coalesces duplicate schedule requests; the pending marker preserves
+          # a wake-up when another queue segment arrives during its bounded pass.
+          cmux_ssh_auth_recovery_lock || return 0
+          cmux_ssh_auth_recovery_sweep_lock="$cmux_ssh_auth_recovery_root/sweep.lock"
+          if [ -L "$cmux_ssh_auth_recovery_sweep_lock" ]; then
+            cmux_ssh_auth_recovery_unlock
+            return 0
+          fi
+          if [ -d "$cmux_ssh_auth_recovery_sweep_lock" ]; then
+            if cmux_ssh_auth_recorded_process_is_live \
+                "$cmux_ssh_auth_recovery_sweep_lock/owner" || \
+              cmux_ssh_auth_recorded_process_is_live \
+                "$cmux_ssh_auth_recovery_sweep_lock/publisher"; then
+              cmux_ssh_auth_recovery_sweep_generation=$(/bin/cat -- \
+                "$cmux_ssh_auth_recovery_sweep_lock/generation" 2>/dev/null || true)
+              case "$cmux_ssh_auth_recovery_sweep_generation" in
+                ????????????????????????????????)
+                  case "$cmux_ssh_auth_recovery_sweep_generation" in
+                    *[!A-Fa-f0-9]*) ;;
+                    *)
+                      printf '%s\n' "$cmux_ssh_auth_recovery_sweep_generation" \
+                        > "$cmux_ssh_auth_recovery_sweep_lock/pending.new" \
+                        2>/dev/null && \
+                        /bin/mv -f -- \
+                          "$cmux_ssh_auth_recovery_sweep_lock/pending.new" \
+                          "$cmux_ssh_auth_recovery_sweep_lock/pending" \
+                          2>/dev/null || true
+                      ;;
+                  esac
+                  ;;
+              esac
+              cmux_ssh_auth_recovery_unlock
+              return 0
+            fi
+            cmux_ssh_auth_reclaim_stale_reaper_lock \
+              "$cmux_ssh_auth_recovery_sweep_lock" || {
+                cmux_ssh_auth_recovery_unlock
+                return 0
+              }
+          fi
+          (umask 077; /bin/mkdir "$cmux_ssh_auth_recovery_sweep_lock") \
+            2>/dev/null || {
+              cmux_ssh_auth_recovery_unlock
+              return 0
+            }
+          cmux_ssh_auth_recovery_sweep_generation=$(/usr/bin/uuidgen \
+            2>/dev/null | /usr/bin/awk '{ gsub(/-/, ""); print }')
+          if [ "${#cmux_ssh_auth_recovery_sweep_generation}" -ne 32 ]; then
+            /bin/rmdir "$cmux_ssh_auth_recovery_sweep_lock" 2>/dev/null || true
+            cmux_ssh_auth_recovery_unlock
+            return 0
+          fi
+          case "$cmux_ssh_auth_recovery_sweep_generation" in
+            *[!A-Fa-f0-9]*)
+              /bin/rmdir "$cmux_ssh_auth_recovery_sweep_lock" 2>/dev/null || true
+              cmux_ssh_auth_recovery_unlock
+              return 0
+              ;;
+          esac
+          if ! printf '%s\n' "$cmux_ssh_auth_recovery_sweep_generation" \
+              > "$cmux_ssh_auth_recovery_sweep_lock/generation.new" 2>/dev/null || ! \
+            /bin/mv -f -- \
+              "$cmux_ssh_auth_recovery_sweep_lock/generation.new" \
+              "$cmux_ssh_auth_recovery_sweep_lock/generation" 2>/dev/null || ! \
+            cmux_ssh_auth_publish_current_worker \
+              "$cmux_ssh_auth_recovery_sweep_lock/publisher"; then
+            /bin/rm -f -- "$cmux_ssh_auth_recovery_sweep_lock/generation" \
+              "$cmux_ssh_auth_recovery_sweep_lock/generation.new" \
+              "$cmux_ssh_auth_recovery_sweep_lock/publisher" \
+              "$cmux_ssh_auth_recovery_sweep_lock/publisher.new" 2>/dev/null || true
+            /bin/rmdir "$cmux_ssh_auth_recovery_sweep_lock" 2>/dev/null || true
+            cmux_ssh_auth_recovery_unlock
+            return 0
+          fi
           (
+            # Background children inherit the parent flock's open-file
+            # description. Close it before waiting for the owner publication.
+            exec 9>&-
             trap - EXIT HUP INT TERM
+            cmux_ssh_auth_recovery_sweep_owner_attempt=0
+            while [ ! -s "$cmux_ssh_auth_recovery_sweep_lock/owner" ] && \
+              [ "$cmux_ssh_auth_recovery_sweep_owner_attempt" -lt 100 ]; do
+              /bin/sleep 0.01
+              cmux_ssh_auth_recovery_sweep_owner_attempt=$((
+                cmux_ssh_auth_recovery_sweep_owner_attempt + 1
+              ))
+            done
+            if ! cmux_ssh_auth_reaper_generation_is_current \
+                "$cmux_ssh_auth_recovery_sweep_lock" \
+                "$cmux_ssh_auth_recovery_sweep_generation" || ! \
+              cmux_ssh_auth_reaper_owner_matches_generation \
+                "$cmux_ssh_auth_recovery_sweep_lock" \
+                "$cmux_ssh_auth_recovery_sweep_generation"; then
+              exit 0
+            fi
+            trap 'cmux_ssh_auth_release_reaper_lock_if_current \
+              "$cmux_ssh_auth_recovery_sweep_lock" \
+              "$cmux_ssh_auth_recovery_sweep_generation" 1 \
+              >/dev/null 2>&1 || true' EXIT
             cmux_ssh_resume_failed_auth_group_reapers \
               </dev/null >/dev/null 2>&1
+            cmux_ssh_auth_recovery_sweep_reschedule=0
+            if cmux_ssh_auth_recovery_lock; then
+              if cmux_ssh_auth_reaper_generation_is_current \
+                  "$cmux_ssh_auth_recovery_sweep_lock" \
+                  "$cmux_ssh_auth_recovery_sweep_generation" && \
+                cmux_ssh_auth_reaper_owner_matches_generation \
+                  "$cmux_ssh_auth_recovery_sweep_lock" \
+                  "$cmux_ssh_auth_recovery_sweep_generation"; then
+                cmux_ssh_auth_recovery_sweep_pending=$(/bin/cat -- \
+                  "$cmux_ssh_auth_recovery_sweep_lock/pending" \
+                  2>/dev/null || true)
+                if [ "$cmux_ssh_auth_recovery_sweep_pending" = \
+                    "$cmux_ssh_auth_recovery_sweep_generation" ] && \
+                  cmux_ssh_auth_recovery_queue_has_work_locked; then
+                  cmux_ssh_auth_recovery_sweep_reschedule=1
+                fi
+                /bin/rm -f -- "$cmux_ssh_auth_recovery_sweep_lock/owner" \
+                  "$cmux_ssh_auth_recovery_sweep_lock/owner.new" \
+                  "$cmux_ssh_auth_recovery_sweep_lock/publisher" \
+                  "$cmux_ssh_auth_recovery_sweep_lock/publisher.new" \
+                  "$cmux_ssh_auth_recovery_sweep_lock/generation" \
+                  "$cmux_ssh_auth_recovery_sweep_lock/generation.new" \
+                  "$cmux_ssh_auth_recovery_sweep_lock/pending" \
+                  "$cmux_ssh_auth_recovery_sweep_lock/pending.new" \
+                  2>/dev/null || true
+                /bin/rmdir "$cmux_ssh_auth_recovery_sweep_lock" 2>/dev/null || true
+              fi
+              cmux_ssh_auth_recovery_unlock
+            fi
+            trap - EXIT HUP INT TERM
+            if [ "$cmux_ssh_auth_recovery_sweep_reschedule" = 1 ]; then
+              cmux_ssh_schedule_failed_auth_group_recovery
+            fi
           ) &
+          cmux_ssh_auth_recovery_sweep_pid=$!
+          cmux_ssh_auth_recovery_sweep_identity=$(cmux_ssh_auth_stable_identity \
+            "$cmux_ssh_auth_recovery_sweep_pid")
+          cmux_ssh_auth_recovery_sweep_owner="reaper-v1|$cmux_ssh_auth_recovery_sweep_generation|$cmux_ssh_auth_recovery_sweep_pid|$cmux_ssh_auth_recovery_sweep_identity"
+          if [ -z "$cmux_ssh_auth_recovery_sweep_identity" ] || ! \
+            cmux_ssh_auth_reaper_generation_is_current \
+              "$cmux_ssh_auth_recovery_sweep_lock" \
+              "$cmux_ssh_auth_recovery_sweep_generation" || ! \
+            printf '%s\n' "$cmux_ssh_auth_recovery_sweep_owner" \
+              > "$cmux_ssh_auth_recovery_sweep_lock/owner.new" 2>/dev/null || ! \
+            /bin/mv -f -- "$cmux_ssh_auth_recovery_sweep_lock/owner.new" \
+              "$cmux_ssh_auth_recovery_sweep_lock/owner" 2>/dev/null || ! \
+            cmux_ssh_auth_reaper_owner_matches_generation \
+              "$cmux_ssh_auth_recovery_sweep_lock" \
+              "$cmux_ssh_auth_recovery_sweep_generation"; then
+            /bin/kill -KILL "$cmux_ssh_auth_recovery_sweep_pid" \
+              >/dev/null 2>&1 || true
+            wait "$cmux_ssh_auth_recovery_sweep_pid" 2>/dev/null || true
+            /bin/rm -f -- "$cmux_ssh_auth_recovery_sweep_lock/owner" \
+              "$cmux_ssh_auth_recovery_sweep_lock/owner.new" \
+              "$cmux_ssh_auth_recovery_sweep_lock/publisher" \
+              "$cmux_ssh_auth_recovery_sweep_lock/publisher.new" \
+              "$cmux_ssh_auth_recovery_sweep_lock/generation" \
+              "$cmux_ssh_auth_recovery_sweep_lock/generation.new" \
+              "$cmux_ssh_auth_recovery_sweep_lock/pending" \
+              "$cmux_ssh_auth_recovery_sweep_lock/pending.new" \
+              2>/dev/null || true
+            /bin/rmdir "$cmux_ssh_auth_recovery_sweep_lock" 2>/dev/null || true
+            cmux_ssh_auth_recovery_unlock
+            return 0
+          fi
+          /bin/rm -f -- "$cmux_ssh_auth_recovery_sweep_lock/publisher" \
+            "$cmux_ssh_auth_recovery_sweep_lock/publisher.new" 2>/dev/null || true
+          cmux_ssh_auth_recovery_unlock
           return 0
         }
 
