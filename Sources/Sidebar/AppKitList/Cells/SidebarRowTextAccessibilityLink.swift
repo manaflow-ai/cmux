@@ -30,14 +30,20 @@ final class SidebarRowTextAccessibilityLink: NSAccessibilityElement {
     }
 
     /// Routes assistive-technology activation through the row's shared link action.
-    override func accessibilityPerformPress() -> Bool {
-        owner?.openLink(url) ?? false
+    nonisolated override func accessibilityPerformPress() -> Bool {
+        // AppKit invokes synchronous accessibility callbacks on its UI
+        // executor, but this Objective-C override imports as nonisolated.
+        MainActor.assumeIsolated {
+            owner?.openLink(url) ?? false
+        }
     }
 
     /// Resolves geometry only when an accessibility client asks for it, so
     /// ordinary sidebar layout does not instantiate a TextKit stack per link.
-    override func accessibilityFrameInParentSpace() -> NSRect {
-        owner?.accessibilityFrame(forLinkRange: characterRange) ?? .zero
+    nonisolated override func accessibilityFrameInParentSpace() -> NSRect {
+        MainActor.assumeIsolated {
+            owner?.accessibilityFrame(forLinkRange: characterRange) ?? .zero
+        }
     }
 
     /// Detaches a proxy that no longer represents the owner's current text.
