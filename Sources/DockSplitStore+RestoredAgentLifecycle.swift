@@ -50,20 +50,27 @@ extension DockSplitStore {
             break
         }
         if state == .promptIdle {
-            clearRemoteAgentRuntimeAfterShellPrompt(panelId: panelId)
+            clearRemoteAgentRuntime(panelId: panelId)
         }
     }
 
-    /// A remote shell prompt consumes the detached session runtime before a
-    /// later unrelated command can reuse its binding/lifecycle evidence.
-    private func clearRemoteAgentRuntimeAfterShellPrompt(panelId: UUID) {
+    /// Consumes remote agent runtime after its prompt or terminal lifecycle
+    /// proves that no agent command still owns the PTY.
+    func clearRemoteAgentRuntime(panelId: UUID) {
         guard var transfer = detachedSurfaceTransfersByPanelId[panelId],
               transfer.isRemoteTerminal else {
             return
         }
+        let hadRuntime = agentRuntimeByPanelId[panelId] != nil || transfer.agentRuntime != nil
         agentRuntimeByPanelId.removeValue(forKey: panelId)
         transfer.agentRuntime = nil
         setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
+        if hadRuntime {
+            AppDelegate.shared?.notificationStore?.clearNotifications(
+                forTabId: workspaceId,
+                surfaceId: panelId
+            )
+        }
     }
 
     /// Keeps a Workspace-owned restore boundary coherent while its live panel
@@ -210,6 +217,7 @@ extension DockSplitStore {
     @discardableResult
     func recordAgentPID(key: String, pid: pid_t, panelId: UUID) -> Bool {
         var didReplaceRuntime = false
+        let storesLocalProcess = detachedSurfaceTransfersByPanelId[panelId]?.isRemoteTerminal != true
         mutateAgentRuntime(panelId: panelId) { runtime in
             if Self.isStructuredAgentHookPIDKey(key, runtime: runtime) {
                 let staleKeys = runtime.agentPIDKeys.filter {
@@ -224,10 +232,15 @@ extension DockSplitStore {
                 }
                 didReplaceRuntime = !staleKeys.isEmpty
             }
-            runtime.agentPIDs[key] = pid
-            if let identity = Workspace.agentPIDProcessIdentity(pid: pid) {
-                runtime.agentPIDProcessIdentities[key] = identity
+            if storesLocalProcess {
+                runtime.agentPIDs[key] = pid
+                if let identity = Workspace.agentPIDProcessIdentity(pid: pid) {
+                    runtime.agentPIDProcessIdentities[key] = identity
+                } else {
+                    runtime.agentPIDProcessIdentities.removeValue(forKey: key)
+                }
             } else {
+                runtime.agentPIDs.removeValue(forKey: key)
                 runtime.agentPIDProcessIdentities.removeValue(forKey: key)
             }
             runtime.agentPIDKeys.insert(key)

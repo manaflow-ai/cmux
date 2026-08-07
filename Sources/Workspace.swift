@@ -5043,7 +5043,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         if state == .promptIdle {
             if isRemoteTerminalSurface(panelId) {
-                clearRemoteAgentRuntimeAfterShellPrompt(panelId: panelId)
+                clearRemoteAgentRuntime(panelId: panelId)
             } else {
                 _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true)
             }
@@ -6746,6 +6746,12 @@ final class Workspace: Identifiable, ObservableObject {
             relayPort {
             return false
         }
+        var shouldClearRemoteAgentRuntime = false
+        defer {
+            if shouldClearRemoteAgentRuntime {
+                clearRemoteAgentRuntime(panelId: surfaceId)
+            }
+        }
         let recordedLifecycleTombstone: Bool
         if let terminalLifecycleID {
             if recordLifecycleTombstone {
@@ -6777,6 +6783,7 @@ final class Workspace: Identifiable, ObservableObject {
             endedPendingConnection = nil
         }
         if cleanupTransferredRemoteConnectionIfNeeded(surfaceId: surfaceId, relayPort: relayPort) {
+            shouldClearRemoteAgentRuntime = true
             invalidateReportedSurfaceTTYRuntime(panelId: surfaceId)
             surfaceRegistry.remoteTTYReportOriginWorkspaceIDs.removeValue(forKey: surfaceId)
             return true
@@ -6789,12 +6796,14 @@ final class Workspace: Identifiable, ObservableObject {
                 allowUntracked: allowUntracked
               ) else {
             let didEnd = endedPendingConnection != nil || recordedLifecycleTombstone
+            shouldClearRemoteAgentRuntime = didEnd
             if didEnd {
                 invalidateReportedSurfaceTTYRuntime(panelId: surfaceId)
                 surfaceRegistry.remoteTTYReportOriginWorkspaceIDs.removeValue(forKey: surfaceId)
             }
             return didEnd
         }
+        shouldClearRemoteAgentRuntime = true
         invalidateReportedSurfaceTTYRuntime(panelId: surfaceId)
         let preservesRemotePTYSession = configuration.preserveAfterTerminalExit
         let previousPresentedDirectory = presentedCurrentDirectory
@@ -9866,7 +9875,10 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
         }
-        adoptDetachedAgentRuntimeState(detached.agentRuntime)
+        adoptDetachedAgentRuntimeState(
+            detached.agentRuntime,
+            treatsPIDsAsRemote: detached.isRemoteTerminal
+        )
         if let markdownPanel = detached.panel as? MarkdownPanel,
            panelSubscriptions[markdownPanel.id] == nil {
             installMarkdownPanelSubscription(markdownPanel)

@@ -56,6 +56,9 @@ extension Workspace {
         panelId: UUID,
         currentProcessIdentity: (Int) -> AgentPIDProcessIdentity?
     ) -> Set<AgentPIDProcessIdentity> {
+        // A hook running inside a remote terminal reports a PID from the SSH
+        // host. Never compare that opaque value with this Mac's process table.
+        guard !isRemoteTerminalSurface(panelId) else { return [] }
         // Claude's `claude_code` key identifies only a panel, not a session, so it
         // cannot prove that a live process supersedes this cached session generation.
         guard kind != .claude else { return [] }
@@ -176,11 +179,13 @@ extension Workspace {
         )
         var didClearOtherStructuredAgentRuntime = false
         if let panelId { didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key) }
-        let processIdentity = Self.agentPIDProcessIdentity(pid: pid)
-        agentPIDs[key] = pid
+        let storesLocalProcess = panelId.map { !isRemoteTerminalSurface($0) } ?? true
+        let storedPID: pid_t? = storesLocalProcess ? pid : nil
+        let processIdentity = storesLocalProcess ? Self.agentPIDProcessIdentity(pid: pid) : nil
+        agentPIDs[key] = storedPID
         agentPIDProcessIdentitiesByKey[key] = processIdentity
         if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
-        if previous.pid != pid || previous.panelId != panelId || previous.identity != processIdentity {
+        if previous.pid != storedPID || previous.panelId != panelId || previous.identity != processIdentity {
             for changedPanelId in (previous.panelId == panelId ? [panelId] : [previous.panelId, panelId]).compactMap({ $0 }) {
                 AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
             }
@@ -192,7 +197,11 @@ extension Workspace {
     @discardableResult
     func clearStaleAgentPIDs(refreshPorts: Bool = true) -> Bool {
         var didChange = false
-        for (key, pid) in agentPIDs where !isRecordedAgentPIDLive(key: key, pid: pid) {
+        for (key, pid) in agentPIDs {
+            if let panelId = agentPIDPanelIdsByKey[key], isRemoteTerminalSurface(panelId) {
+                continue
+            }
+            guard !isRecordedAgentPIDLive(key: key, pid: pid) else { continue }
             if clearAgentPID(key: key, clearStatus: true, refreshPorts: false) {
                 didChange = true
             }
@@ -206,6 +215,9 @@ extension Workspace {
 
     @discardableResult
     func clearStaleAgentPIDs(panelId: UUID, refreshPorts: Bool = true) -> Bool {
+        // Remote PID values are owned and retired by their terminal lifecycle;
+        // they are not inspectable through this Mac's process table.
+        guard !isRemoteTerminalSurface(panelId) else { return false }
         let keys = agentPIDKeysByPanelId[panelId] ?? []
         var didChange = false
         for key in keys {
@@ -241,10 +253,9 @@ extension Workspace {
         }
     }
 
-    /// A remote shell prompt proves that no agent command still owns the PTY.
-    /// Consume every session-scoped runtime key before another shell command
-    /// can make stale lifecycle state look live again.
-    func clearRemoteAgentRuntimeAfterShellPrompt(panelId: UUID) {
+    /// Consumes remote agent runtime after its prompt or terminal lifecycle
+    /// proves that no agent command still owns the PTY.
+    func clearRemoteAgentRuntime(panelId: UUID) {
         let keys = agentPIDKeysByPanelId[panelId] ?? []
         var didChange = false
         for key in keys {
@@ -263,6 +274,10 @@ extension Workspace {
         }
         if didChange {
             refreshTrackedAgentPorts()
+            AppDelegate.shared?.notificationStore?.clearNotifications(
+                forTabId: id,
+                surfaceId: panelId
+            )
         }
     }
 
@@ -371,7 +386,10 @@ extension Workspace {
         // Preserve the published snapshot until PortScanner reconciles the new
         // process tree; eagerly clearing here made every PID refresh flicker.
         let remainingAgentRoots = Set(agentPIDs.compactMap { key, pid -> AgentPortRootIdentity? in
-            guard pid > 0 else { return nil }
+            guard pid > 0,
+                  agentPIDPanelIdsByKey[key].map({ !isRemoteTerminalSurface($0) }) ?? true else {
+                return nil
+            }
             return AgentPortRootIdentity(
                 pid: Int(pid),
                 processIdentity: agentPIDProcessIdentitiesByKey[key]
@@ -406,21 +424,30 @@ extension Workspace {
         return didChange
     }
 
-    func adoptDetachedAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) {
+    func adoptDetachedAgentRuntimeState(
+        _ runtimeState: DetachedAgentRuntimeState?,
+        treatsPIDsAsRemote: Bool = false
+    ) {
         guard let runtimeState else { return }
         for (statusKey, statusEntry) in runtimeState.statusEntries {
             statusEntries[statusKey] = statusEntry
         }
         var didAdoptAgentPID = false
-        for (key, pid) in runtimeState.agentPIDs {
-            recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId, refreshPorts: false)
-            if let recordedIdentity = runtimeState.agentPIDProcessIdentities[key] {
-                agentPIDProcessIdentitiesByKey[key] = recordedIdentity
+        if treatsPIDsAsRemote {
+            for key in runtimeState.agentPIDKeys {
+                recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
             }
-            didAdoptAgentPID = true
-        }
-        for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
-            recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
+        } else {
+            for (key, pid) in runtimeState.agentPIDs {
+                recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId, refreshPorts: false)
+                if let recordedIdentity = runtimeState.agentPIDProcessIdentities[key] {
+                    agentPIDProcessIdentitiesByKey[key] = recordedIdentity
+                }
+                didAdoptAgentPID = true
+            }
+            for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
+                recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
+            }
         }
         for (key, lifecycle) in runtimeState.agentLifecycleStates {
             setAgentLifecycle(key: key, panelId: runtimeState.panelId, lifecycle: lifecycle)

@@ -239,6 +239,7 @@ extension DockSplitStore {
         transfer.ttyNameWasReportedByCurrentRuntime = false
         transfer.ttyReportRuntimeSurfaceGeneration = nil
         setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
+        clearRemoteAgentRuntime(panelId: panelId)
         return true
     }
 

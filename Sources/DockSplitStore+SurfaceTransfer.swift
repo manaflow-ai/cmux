@@ -142,11 +142,18 @@ extension DockSplitStore {
         // #7155 fixes.
         let cachedRuntime = agentRuntimeByPanelId[panelId] ?? preservedTransfer?.agentRuntime
         let cachedAgentPIDs = (cachedRuntime?.agentPIDs ?? [:]).filter { $0.value > 0 }
-        let agentProvenExited = !cachedAgentPIDs.isEmpty && cachedAgentPIDs.allSatisfy { key, pid in
-            if let recordedIdentity = cachedRuntime?.agentPIDProcessIdentities[key] {
-                return Workspace.agentPIDProcessIdentity(pid: pid) != recordedIdentity
+        let agentProvenExited: Bool
+        if preservedTransfer?.isRemoteTerminal == true {
+            // Remote hook PIDs belong to the SSH host. Only the authoritative
+            // terminal lifecycle can prove that their runtime ended.
+            agentProvenExited = preservedTransfer?.remoteTerminalSessionPhase == .ended
+        } else {
+            agentProvenExited = !cachedAgentPIDs.isEmpty && cachedAgentPIDs.allSatisfy { key, pid in
+                if let recordedIdentity = cachedRuntime?.agentPIDProcessIdentities[key] {
+                    return Workspace.agentPIDProcessIdentity(pid: pid) != recordedIdentity
+                }
+                return Self.dockAgentPIDHasExited(pid)
             }
-            return Self.dockAgentPIDHasExited(pid)
         }
         let cachedManagedBinding = preservedTransfer?.resolvedManagedAgentResumeBinding
         let bindingSessionWasInvalidated =
