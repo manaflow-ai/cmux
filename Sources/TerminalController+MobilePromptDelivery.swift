@@ -76,13 +76,6 @@ extension TerminalController {
         var submitted = false
         var queued = false
         if let submitKeyName {
-            if rejectIfHumanComposerBusy, agentInputScope == nil {
-                let clearResult =
-                    clearAgentPromptForMobileCompatibility(terminalPanel)
-                guard clearResult.accepted else {
-                    return mobileChatInputError(clearResult)
-                }
-            }
             // Mobile chat is an existing human-owned send surface. Preserve its
             // prior delivery behavior during a transient process-identity gap,
             // while still rejecting a tracked Mac-side draft whenever an
@@ -90,9 +83,17 @@ extension TerminalController {
             // strictly fail-closed when that scope is unavailable.
             let rejectTrackedHumanComposer =
                 rejectIfHumanComposerBusy && agentInputScope != nil
+            // The legacy pre-binding clear remains app-owned by traveling with
+            // the paste and submit key in one indivisible transaction. Generic
+            // named-key delivery would incorrectly claim human composer state.
+            let preparationKeys =
+                rejectIfHumanComposerBusy && agentInputScope == nil
+                    ? ["ctrl+a", "ctrl+k", "ctrl+u"]
+                    : []
             let result = terminalPanel.sendPromptSubmissionResult(
                 text,
                 submitKey: submitKeyName,
+                preparationKeys: preparationKeys,
                 agentInputScope: agentInputScope,
                 // Low-level mobile.terminal.paste is the human-owned composer
                 // itself. Exact-message callers such as mobile.chat.send

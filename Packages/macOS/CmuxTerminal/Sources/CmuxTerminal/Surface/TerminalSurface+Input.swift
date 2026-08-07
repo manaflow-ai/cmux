@@ -48,7 +48,7 @@ extension TerminalSurface {
     ///
     /// Generic socket/mobile input records through this same ledger below.
     /// Attributed compound submissions deliberately use
-    /// ``sendPromptSubmission(_:submitKey:rejectIfHumanComposerBusy:hookRecordingSource:hookConfirmsHumanInput:)``
+    /// ``sendPromptSubmission(_:submitKey:preparationKeys:rejectIfHumanComposerBusy:hookRecordingSource:hookConfirmsHumanInput:)``
     /// instead, so their hooks cannot consume an unowned human boundary.
     ///
     /// - Parameter mutation: The conservatively modeled composer mutation.
@@ -316,18 +316,22 @@ extension TerminalSurface {
         return .sent
     }
 
-    /// Atomically delivers one composed prompt as bracketed-paste text followed
-    /// by exactly one named submit key.
+    /// Atomically delivers one composed prompt as optional app-owned
+    /// preparation keys, bracketed-paste text, and exactly one named submit
+    /// key.
     ///
     /// Both the live and cold-surface paths preserve the transaction boundary:
     /// a cold surface queues one compound item, while a live surface performs
-    /// both Ghostty writes without suspension on the main actor. The submit key
-    /// is validated before any text is written, so unsupported keys cannot
-    /// partially apply a prompt.
+    /// every Ghostty write without suspension on the main actor. Every key is
+    /// validated before any write or queue mutation, so unsupported keys
+    /// cannot partially apply a prompt. Preparation keys are part of the
+    /// app-owned transaction and never claim human composer ownership.
     ///
     /// - Parameters:
     ///   - text: The complete prompt body to paste.
     ///   - submitKey: The agent-aware named key that commits the prompt.
+    ///   - preparationKeys: Named keys to send immediately before the prompt
+    ///     body as part of this same app-owned transaction.
     ///   - rejectIfHumanComposerBusy: Whether unconfirmed human input
     ///     rejects the transaction before any terminal write.
     ///   - hookRecordingSource: Event source to apply when the later matching
@@ -340,6 +344,7 @@ extension TerminalSurface {
     public func sendPromptSubmission(
         _ text: String,
         submitKey: String,
+        preparationKeys: [String] = [],
         rejectIfHumanComposerBusy: Bool = true,
         hookRecordingSource: String? =
             nil,
@@ -347,6 +352,12 @@ extension TerminalSurface {
     ) -> PromptSubmissionSendResult {
         let data = Data(text.utf8)
         guard let submitEvent = pendingKeyEvent(for: submitKey) else {
+            return .unknownKey
+        }
+        let preparationEvents = preparationKeys.compactMap {
+            pendingKeyEvent(for: $0)
+        }
+        guard preparationEvents.count == preparationKeys.count else {
             return .unknownKey
         }
         if rejectIfHumanComposerBusy,
@@ -364,6 +375,7 @@ extension TerminalSurface {
             }
             guard enqueuePendingSocketInput(
                 .promptSubmission(
+                    preparationKeys: preparationEvents,
                     text: data,
                     submitKey: submitEvent,
                     hookRecordingSource: hookRecordingSource,
@@ -389,6 +401,13 @@ extension TerminalSurface {
 
         didReceiveExplicitInput()
         hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
+        for preparationEvent in preparationEvents {
+            sendKeyEvent(
+                surface: liveSurface,
+                keycode: preparationEvent.keycode,
+                mods: preparationEvent.mods
+            )
+        }
         writeTextData(data, to: liveSurface)
         sendKeyEvent(
             surface: liveSurface,
@@ -1063,11 +1082,20 @@ extension TerminalSurface {
                 queuedKeys += 1
                 sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
             case .promptSubmission(
+                let preparationKeys,
                 let text,
                 let submitKey,
                 let hookRecordingSource,
                 let hookConfirmedHumanInputSnapshot
             ):
+                for preparationKey in preparationKeys {
+                    queuedKeys += 1
+                    sendKeyEvent(
+                        surface: surface,
+                        keycode: preparationKey.keycode,
+                        mods: preparationKey.mods
+                    )
+                }
                 writeTextData(text, to: surface)
                 queuedKeys += 1
                 sendKeyEvent(

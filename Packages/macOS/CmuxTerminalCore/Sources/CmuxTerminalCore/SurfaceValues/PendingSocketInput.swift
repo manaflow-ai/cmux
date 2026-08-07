@@ -10,10 +10,12 @@ public enum PendingSocketInput: Sendable {
     case processOutput(Data)
     /// A named-key press to replay.
     case key(PendingKeyEvent)
-    /// One indivisible composed prompt: bracketed-paste text followed by its
-    /// agent-aware submit key. Hook attribution is carried with the queued
-    /// transaction but is not recorded until the item is actually flushed.
+    /// One indivisible composed prompt: app-owned preparation keys followed by
+    /// bracketed-paste text and its agent-aware submit key. Hook attribution is
+    /// carried with the queued transaction but is not recorded until the item
+    /// is actually flushed.
     case promptSubmission(
+        preparationKeys: [PendingKeyEvent],
         text: Data,
         submitKey: PendingKeyEvent,
         hookRecordingSource: String?,
@@ -28,8 +30,18 @@ public enum PendingSocketInput: Sendable {
             return data.count
         case .key(let event):
             return event.queuedByteCost
-        case .promptSubmission(let text, let submitKey, _, _):
-            return text.count + submitKey.queuedByteCost
+        case .promptSubmission(
+            let preparationKeys,
+            let text,
+            let submitKey,
+            _,
+            _
+        ):
+            return preparationKeys.reduce(
+                text.count + submitKey.queuedByteCost
+            ) { byteCount, event in
+                byteCount + event.queuedByteCost
+            }
         }
     }
 }

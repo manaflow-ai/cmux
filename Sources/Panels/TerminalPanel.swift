@@ -713,13 +713,15 @@ final class TerminalPanel: Panel, ObservableObject {
         return surface.sendNamedKey(keyName)
     }
 
-    /// Delivers one complete agent prompt without touching a human-owned
-    /// TextBox draft or merging with unconfirmed physical terminal input.
-    /// Guarded callers also reject when no authoritative agent scope exists.
+    /// Delivers one complete agent prompt transaction, including any app-owned
+    /// preparation keys, without touching a human-owned TextBox draft or
+    /// merging with unconfirmed physical terminal input. Guarded callers also
+    /// reject when no authoritative agent scope exists.
     @discardableResult
     func sendPromptSubmissionResult(
         _ text: String,
         submitKey: String,
+        preparationKeys: [String] = [],
         agentInputScope: String?,
         rejectIfHumanComposerBusy: Bool,
         hookRecordingSource: String?,
@@ -741,6 +743,7 @@ final class TerminalPanel: Panel, ObservableObject {
         return surface.sendPromptSubmission(
             text,
             submitKey: submitKey,
+            preparationKeys: preparationKeys,
             rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
             hookRecordingSource: hookRecordingSource,
             hookConfirmsHumanInput: hookConfirmsHumanInput
