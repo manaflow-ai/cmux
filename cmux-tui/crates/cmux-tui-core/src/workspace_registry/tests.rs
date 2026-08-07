@@ -171,6 +171,59 @@ fn reset_errors_when_state_root_cannot_be_inspected() {
 
 #[cfg(unix)]
 #[test]
+fn terminal_host_reset_holds_structured_live_marker_lock() {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let root = temp_root("terminal-host-reset-holds-live-lock");
+    fs::create_dir_all(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+    let uid = fs::metadata(&root).unwrap().uid();
+    let terminal_id = TERMINAL_ONE;
+    let incarnation = INCARNATION_ONE;
+    let host_start_nonce = "02".repeat(32);
+    let record = crate::terminal_host_runtime::TerminalHostRecord {
+        record_version: 2,
+        terminal_id: terminal_id.to_string(),
+        incarnation: incarnation.to_string(),
+        endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
+        owner_token: "01".repeat(32),
+        host_pid: std::process::id(),
+        host_start_nonce: host_start_nonce.clone(),
+        workspace_key: String::new(),
+        supports_set_defaults: true,
+        supports_clear_history: true,
+    };
+    let record_path = record.record_path(&root);
+    let live_path = terminal_host_live_marker_path(&record_path, &record);
+    let _live_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_path)
+        .unwrap();
+    let mut record_file =
+        OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record_path).unwrap();
+    record_file.write_all(&serde_json::to_vec(&record).unwrap()).unwrap();
+    record_file.sync_all().unwrap();
+
+    let leases = prepare_terminal_host_root_for_reset(&root).unwrap();
+    assert_eq!(
+        crate::terminal_host_runtime::terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Live,
+        "reset must hold the structured live-marker lock until directory removal"
+    );
+    drop(leases);
+    assert_eq!(
+        crate::terminal_host_runtime::terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Dead
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn session_guard_rejects_symlinked_lock_directory() {
     use std::os::unix::fs::symlink;
 

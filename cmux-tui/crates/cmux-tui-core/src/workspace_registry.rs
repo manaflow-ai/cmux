@@ -470,7 +470,7 @@ impl PersistentSessionStateResetter {
             &pending_reset_dirs,
             confirm_reset,
         )?;
-        let _orphan_live_marker_leases = if terminal_host_root_exists {
+        let _terminal_host_reset_leases = if terminal_host_root_exists {
             prepare_terminal_host_root_for_reset(&terminal_host_root)?
         } else {
             Vec::new()
@@ -3291,12 +3291,14 @@ fn cleanup_session_guard_after_reset(
 }
 
 #[cfg(unix)]
-fn prepare_terminal_host_root_for_reset(root: &Path) -> anyhow::Result<Vec<OrphanLiveMarkerLease>> {
+fn prepare_terminal_host_root_for_reset(
+    root: &Path,
+) -> anyhow::Result<Vec<TerminalHostLiveMarkerLease>> {
     use std::os::unix::fs::MetadataExt;
 
     let records = crate::terminal_host_runtime::load_terminal_host_records(root)?;
     let expected_uid = fs::metadata(root)?.uid();
-    let mut orphan_live_marker_leases = Vec::new();
+    let mut live_marker_leases = Vec::new();
     let expected_live_markers = records
         .iter()
         .map(|(record_path, record)| terminal_host_live_marker_path(record_path, record))
@@ -3308,27 +3310,30 @@ fn prepare_terminal_host_root_for_reset(root: &Path) -> anyhow::Result<Vec<Orpha
         if path.extension().and_then(|value| value.to_str()) == Some("live")
             && !expected_live_markers.contains(&path)
         {
-            let Some(lease) = lock_verified_dead_orphan_live_marker(&path, expected_uid)? else {
+            let Some(lease) = lock_verified_dead_live_marker(&path, expected_uid, false)? else {
                 anyhow::bail!("terminal host state still has live or unverified hosts");
             };
-            orphan_live_marker_leases.push(lease);
+            live_marker_leases.push(lease);
         }
     }
     for (record_path, record) in &records {
         match crate::terminal_host_runtime::terminal_host_record_liveness(&record_path, &record)? {
-            TerminalHostLiveness::Dead => {}
+            TerminalHostLiveness::Dead => {
+                if record.record_version >= 2 {
+                    let marker = terminal_host_live_marker_path(record_path, record);
+                    let Some(lease) = lock_verified_dead_live_marker(&marker, expected_uid, true)?
+                    else {
+                        anyhow::bail!("terminal host state still has live or unverified hosts");
+                    };
+                    live_marker_leases.push(lease);
+                }
+            }
             TerminalHostLiveness::Live | TerminalHostLiveness::Indeterminate => {
                 anyhow::bail!("terminal host state still has live or unverified hosts");
             }
         }
     }
-    for (record_path, record) in records {
-        if !crate::terminal_host_runtime::remove_stale_terminal_host_record(&record_path, &record)?
-        {
-            anyhow::bail!("terminal host state changed during reset");
-        }
-    }
-    Ok(orphan_live_marker_leases)
+    Ok(live_marker_leases)
 }
 
 #[cfg(unix)]
@@ -3340,15 +3345,16 @@ fn terminal_host_live_marker_path(
 }
 
 #[cfg(unix)]
-struct OrphanLiveMarkerLease {
+struct TerminalHostLiveMarkerLease {
     _file: File,
 }
 
 #[cfg(unix)]
-fn lock_verified_dead_orphan_live_marker(
+fn lock_verified_dead_live_marker(
     path: &Path,
     expected_uid: u32,
-) -> anyhow::Result<Option<OrphanLiveMarkerLease>> {
+    create_if_missing: bool,
+) -> anyhow::Result<Option<TerminalHostLiveMarkerLease>> {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
@@ -3359,7 +3365,25 @@ fn lock_verified_dead_orphan_live_marker(
         .open(path)
     {
         Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && !create_if_missing => {
+            return Ok(None);
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            match OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+                .open(path)
+            {
+                Ok(file) => file,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    return lock_verified_dead_live_marker(path, expected_uid, false);
+                }
+                Err(_) => return Ok(None),
+            }
+        }
         Err(_) => return Ok(None),
     };
     let metadata = file.metadata()?;
@@ -3382,7 +3406,7 @@ fn lock_verified_dead_orphan_live_marker(
             if current.dev() != metadata.dev() || current.ino() != metadata.ino() {
                 return Ok(None);
             }
-            return Ok(Some(OrphanLiveMarkerLease { _file: file }));
+            return Ok(Some(TerminalHostLiveMarkerLease { _file: file }));
         }
         let error = std::io::Error::last_os_error();
         if error.kind() == std::io::ErrorKind::Interrupted {
