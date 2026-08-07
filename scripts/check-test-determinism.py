@@ -241,17 +241,6 @@ _NETWORK_VERB = re.compile(
     """
 )
 
-# Command-execution APIs make a quoted shell command active. Without one of
-# these on the same line, a quoted `curl https://...` is only data (for example,
-# an expected installer command rendered into HTML), not a network operation.
-_COMMAND_EXECUTOR = re.compile(
-    r"""(?x)
-    \bsubprocess\.(?:run|call|check_call|check_output|Popen)\s*\(
-  | \bos\.(?:system|popen)\s*\(
-  | \b(?:exec|execSync|spawn|spawnSync|execa|execaCommand)\s*\(
-    """
-)
-
 # Private / loopback hostnames and IPs that are NOT live network.
 _PRIVATE_HOST = re.compile(
     r"""(?xi)
@@ -351,58 +340,14 @@ def detect_assert_on_duration(line: str) -> bool:
     return has_threshold_compare or has_relational_assert
 
 
-def _quoted_ranges(line: str) -> list[tuple[int, int]]:
-    """Return half-open ranges for simple single-line string literals."""
-    ranges: list[tuple[int, int]] = []
-    quote: Optional[str] = None
-    start = 0
-    escaped = False
-
-    for index, character in enumerate(line):
-        if quote is None:
-            if character in ("'", '"', "`"):
-                quote = character
-                start = index
-            continue
-
-        if escaped:
-            escaped = False
-        elif character == "\\":
-            escaped = True
-        elif character == quote:
-            ranges.append((start, index + 1))
-            quote = None
-
-    if quote is not None:
-        ranges.append((start, len(line)))
-    return ranges
-
-
-def _match_is_quoted(match: re.Match[str], ranges: list[tuple[int, int]]) -> bool:
-    return any(start <= match.start() < end for start, end in ranges)
-
-
 def detect_live_network_host(line: str) -> bool:
     # High-precision signal only: an actual http(s):// URL with a public host that
     # is ALSO handed to a network-driving verb on the same line (fetch/axios/
-    # requests/urlopen/...). Network verbs inside a quoted string are data, not
-    # an operation, unless that string is handed to a command executor on the
-    # same line. This keeps rendered command/assertion fixtures inert while
-    # retaining coverage for subprocess.run("curl https://...") and friends.
+    # requests/urlopen/...). A URL used as a string fixture (markdown builder,
+    # canonical-URL assertion, toContain) opens no socket and is not flagged.
     # Bare quoted IPs in data structures are likewise too ambiguous to flag.
     # Loopback/private/CGNAT/RFC2606 hosts are allowed.
-    verb_matches = list(_NETWORK_VERB.finditer(line))
-    if not verb_matches:
-        return False
-    quoted_ranges = _quoted_ranges(line)
-    has_unquoted_verb = any(
-        not _match_is_quoted(match, quoted_ranges) for match in verb_matches
-    )
-    has_unquoted_executor = any(
-        not _match_is_quoted(match, quoted_ranges)
-        for match in _COMMAND_EXECUTOR.finditer(line)
-    )
-    if not has_unquoted_verb and not has_unquoted_executor:
+    if not _NETWORK_VERB.search(line):
         return False
     for match in _URL.finditer(line):
         host = match.group(1)
@@ -414,6 +359,77 @@ def detect_live_network_host(line: str) -> bool:
             continue
         return True
     return False
+
+
+def _plain_js_string_range(line: str, start: int = 0) -> Optional[tuple[int, int]]:
+    """Find one plain single/double-quoted JS string starting at ``start``."""
+    index = start
+    while index < len(line) and line[index].isspace():
+        index += 1
+    if index >= len(line) or line[index] not in ("'", '"'):
+        return None
+
+    quote = line[index]
+    escaped = False
+    for end in range(index + 1, len(line)):
+        character = line[end]
+        if escaped:
+            escaped = False
+        elif character == "\\":
+            escaped = True
+        elif character == quote:
+            return (index, end + 1)
+    return None
+
+
+def _inert_to_contain_string_range(
+    lines: list[str], idx: int, path_suffix: str
+) -> Optional[tuple[int, int]]:
+    """Return the literal range for an inert Bun/Jest ``toContain`` argument."""
+    if path_suffix not in (".ts", ".tsx", ".js", ".mjs"):
+        return None
+
+    line = lines[idx]
+    inline = re.search(r"\bexpect\s*\(.*\)\s*\.toContain\s*\(", line)
+    if inline:
+        literal_range = _plain_js_string_range(line, inline.end())
+        if literal_range is not None:
+            trailing = line[literal_range[1] :]
+            if re.fullmatch(r"\s*,?\s*\)\s*;?\s*", trailing):
+                return literal_range
+
+    literal_range = _plain_js_string_range(line)
+    if literal_range is None:
+        return None
+    if not re.fullmatch(r"\s*,?\s*", line[literal_range[1] :]):
+        return None
+
+    for previous in range(idx - 1, max(-1, idx - 4), -1):
+        if not lines[previous].strip():
+            continue
+        if re.search(
+            r"\bexpect\s*\(.*\)\s*\.toContain\s*\(\s*$", lines[previous]
+        ):
+            return literal_range
+        break
+    return None
+
+
+def _is_inert_expected_network_text(
+    lines: list[str], idx: int, path_suffix: str
+) -> bool:
+    """Whether every network token is inert text in a ``toContain`` expectation."""
+    literal_range = _inert_to_contain_string_range(lines, idx, path_suffix)
+    if literal_range is None:
+        return False
+    start, end = literal_range
+    network_tokens = [
+        *_NETWORK_VERB.finditer(lines[idx]),
+        *_URL.finditer(lines[idx]),
+    ]
+    return bool(network_tokens) and all(
+        start <= match.start() < end for match in network_tokens
+    )
 
 
 def _looks_like_ipv4(text: str) -> bool:
@@ -559,7 +575,9 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
 
         if detect_assert_on_duration(code):
             findings.append(Finding(rel_posix, line_no, RULE_ASSERT_ON_DURATION, snippet))
-        if detect_live_network_host(code):
+        if detect_live_network_host(code) and not _is_inert_expected_network_text(
+            code_lines, i, suffix
+        ):
             findings.append(Finding(rel_posix, line_no, RULE_LIVE_NETWORK_HOST, snippet))
         if detect_fixed_port_bind(code):
             findings.append(Finding(rel_posix, line_no, RULE_FIXED_PORT_BIND, snippet))
@@ -684,6 +702,36 @@ def _self_test() -> int:
         (
             "tests/curl_exec.py",
             'subprocess.run("curl -fsSL https://cmux.com/install.sh", shell=True)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/template_exec.ts",
+            'expect(`${fetch("https://api.openai.com/v1/items")}`).toBeTruthy()\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/fstring_exec.py",
+            'value = f"{requests.get(\'https://api.openai.com/v1/items\')}"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_exec.sh",
+            'value="$(curl https://api.openai.com/v1/items)"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/bash_exec.sh",
+            'bash -c "curl https://api.openai.com/v1/items"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "cmuxTests/process_exec.swift",
+            'Process.run(URL(fileURLWithPath: "/usr/bin/curl"), arguments: ["https://api.openai.com/v1/items"])\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/exec_and_expect.ts",
+            'expect(exec("curl https://api.openai.com/v1/items")).toContain("ok")\n',
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
