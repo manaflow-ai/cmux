@@ -505,12 +505,37 @@ leaseChecksDrained:
 	case <-time.After(2 * time.Second):
 		t.Fatalf("persistent daemon did not retire after its absent lease and final PTY close")
 	}
-	if logOutput := stderr.String(); !strings.Contains(
-		logOutput,
-		"reason=slot_lease_removed active_connections=0 active_sessions=0",
-	) {
-		t.Fatalf("persistent daemon exit log = %q, want slot lease removal reason and activity counts", logOutput)
+	requirePersistentDaemonAutomaticExitLog(
+		t,
+		stderr.String(),
+		persistentDaemonExitSlotLeaseRemoved,
+	)
+}
+
+func requirePersistentDaemonAutomaticExitLog(
+	t *testing.T,
+	logOutput string,
+	reason persistentDaemonExitReason,
+) {
+	t.Helper()
+	wantActivity := "reason=" + string(reason) + " active_connections=0 active_sessions=0"
+	for _, line := range strings.Split(logOutput, "\n") {
+		if !strings.Contains(line, wantActivity) {
+			continue
+		}
+		for _, field := range strings.Fields(line) {
+			if !strings.HasPrefix(field, "time=") {
+				continue
+			}
+			timestamp := strings.TrimPrefix(field, "time=")
+			if _, err := time.Parse(time.RFC3339Nano, timestamp); err != nil {
+				t.Fatalf("persistent daemon exit log timestamp %q is not RFC3339Nano: %v", timestamp, err)
+			}
+			return
+		}
+		t.Fatalf("persistent daemon exit log line %q has no time field", line)
 	}
+	t.Fatalf("persistent daemon exit log = %q, want %q", logOutput, wantActivity)
 }
 
 func TestPersistentDaemonSlotLeasePresentMatchesExactRelayPortAndSlot(t *testing.T) {

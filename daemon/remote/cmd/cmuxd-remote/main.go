@@ -1215,7 +1215,12 @@ func servePersistentDaemonWithVerifierConfig(
 		}
 		activity := persistentDaemonActivity{
 			activeConnections: atomic.LoadInt64(&activeConnections),
-			activeSessions:    hub.activeSessionCount(),
+		}
+		// Counting sessions takes the hub lock and scans the session map. A live
+		// connection already prevents automatic retirement, so inspect sessions
+		// only when their count can affect the decision.
+		if activity.activeConnections == 0 {
+			activity.activeSessions = hub.activeSessionCount()
 		}
 		var emptyIdleExpired bool
 		if config.emptyIdleTimeout > 0 {

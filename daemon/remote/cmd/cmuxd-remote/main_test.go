@@ -2065,12 +2065,11 @@ func TestPersistentDaemonServerExitsAfterEmptySlotIdleTimeout(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatalf("persistent daemon did not stop after empty idle timeout")
 	}
-	if logOutput := stderr.String(); !strings.Contains(
-		logOutput,
-		"reason=empty_idle_timeout active_connections=0 active_sessions=0",
-	) {
-		t.Fatalf("persistent daemon exit log = %q, want empty idle reason and activity counts", logOutput)
-	}
+	requirePersistentDaemonAutomaticExitLog(
+		t,
+		stderr.String(),
+		persistentDaemonExitEmptyIdleTimeout,
+	)
 }
 
 func TestRunStdioSlotRequiresPersistent(t *testing.T) {
