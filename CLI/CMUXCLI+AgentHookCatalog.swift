@@ -275,7 +275,7 @@ extension CMUXCLI {
         )
         case .claude:
             preconditionFailure(
-                "Claude Code uses its bespoke hook installer, not the generic catalog"
+                "This integration uses a dedicated hook installer"
             )
         }
     }
