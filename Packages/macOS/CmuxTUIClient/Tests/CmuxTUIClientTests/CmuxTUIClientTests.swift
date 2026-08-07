@@ -154,6 +154,78 @@ struct CmuxTUIClientTests {
         #expect(batch.hasMore)
         #expect(source.remainingEventCount == 1)
     }
+
+    @Test("Concurrent shutdown callers wait for the same operation")
+    @MainActor
+    func concurrentShutdownCallersWaitForCompletion() async {
+        let coordinator = CmuxTUIShutdownCoordinator()
+        let operationStarted = TestOneShotLatch()
+        let releaseOperation = TestOneShotLatch()
+        let secondCallStarted = TestOneShotLatch()
+        let probe = ShutdownProbe()
+
+        let first = Task { @MainActor in
+            await coordinator.run {
+                probe.operationCount += 1
+                operationStarted.open()
+                await releaseOperation.wait()
+            }
+        }
+        await operationStarted.wait()
+
+        let second = Task { @MainActor in
+            secondCallStarted.open()
+            await coordinator.run {
+                probe.operationCount += 1
+            }
+            probe.secondCallReturned = true
+        }
+        await secondCallStarted.wait()
+
+        #expect(!probe.secondCallReturned)
+        releaseOperation.open()
+        await first.value
+        await second.value
+
+        #expect(probe.secondCallReturned)
+        #expect(probe.operationCount == 1)
+
+        await coordinator.run {
+            probe.operationCount += 1
+        }
+        #expect(probe.operationCount == 1)
+    }
+}
+
+@MainActor
+private final class ShutdownProbe {
+    var operationCount = 0
+    var secondCallReturned = false
+}
+
+@MainActor
+private final class TestOneShotLatch {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { continuation in
+            if isOpen {
+                continuation.resume()
+            } else {
+                waiters.append(continuation)
+            }
+        }
+    }
+
+    func open() {
+        guard !isOpen else { return }
+        isOpen = true
+        let waiters = waiters
+        self.waiters.removeAll(keepingCapacity: false)
+        for waiter in waiters { waiter.resume() }
+    }
 }
 
 private final class RenderEventSource {
