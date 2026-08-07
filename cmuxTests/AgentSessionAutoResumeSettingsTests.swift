@@ -227,7 +227,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             )
             let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
             let remoteWorkingDirectory = "/home/dev/cmux-remote-running"
-            source.updatePanelDirectory(
+            source.updateRemotePanelDirectory(
                 panelId: sourcePanelId,
                 directory: remoteWorkingDirectory
             )
