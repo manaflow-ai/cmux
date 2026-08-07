@@ -219,8 +219,10 @@ cmux_app_host_primary_executable() {
     status=$?
   fi
   if [ "$status" -ne 0 ]; then
-    if [ "$status" -eq 1 ] && [ -z "$output" ]; then
-      return 2
+    if [ "$status" -eq 1 ]; then
+      case "$output" in
+        ""|"lsof: status error on $pid: No such process") return 2 ;;
+      esac
     fi
     echo "FAIL: lsof could not inspect app-host PID $pid" >&2
     [ -z "$output" ] || echo "$output" >&2
