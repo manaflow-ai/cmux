@@ -173,16 +173,34 @@ struct AgentHibernationTests {
         let target =
             "--tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
         let remotePID = Int32.max
+        let remoteGenerationOptions =
+            "--pid=\(remotePID) --pid-start-seconds=200 "
+            + "--pid-start-microseconds=300"
 
         expectEqual(
             TerminalController.shared.handleSocketLine(
-                "set_agent_pid codex.remote-session \(remotePID) \(target)"
+                "set_agent_pid codex.remote-session \(remotePID) \(target) "
+                    + remoteGenerationOptions
+            ),
+            "OK"
+        )
+        expectTrue(
+            TerminalController.shared.handleSocketLine(
+                "set_agent_lifecycle codex running \(target)"
+            ).contains("process generation is required")
+        )
+        expectEqual(
+            TerminalController.shared.handleSocketLine(
+                "set_agent_lifecycle codex running \(target) "
+                    + remoteGenerationOptions
             ),
             "OK"
         )
         expectEqual(
             TerminalController.shared.handleSocketLine(
-                "set_agent_lifecycle codex running \(target)"
+                "set_agent_lifecycle codex idle \(target) "
+                    + "--pid=\(remotePID) --pid-start-seconds=199 "
+                    + "--pid-start-microseconds=300"
             ),
             "OK"
         )

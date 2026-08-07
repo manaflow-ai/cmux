@@ -144,6 +144,122 @@ extension AgentNotificationRegressionTests {
         #expect(workspace.localAgentDeliveryTTYDevices.map(\.surfaceId) == [panelId])
     }
 
+    @Test("Workspace preserves concurrent sessions owned by one process generation")
+    func workspacePreservesSharedStructuredAgentGeneration() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let generation = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+
+        #expect(
+            !workspace.recordAgentPID(
+                key: "amp.thread-a",
+                pid: generation.pid,
+                panelId: panelID,
+                processIdentity: generation,
+                refreshPorts: false
+            )
+        )
+        #expect(
+            !workspace.recordAgentPID(
+                key: "amp.thread-b",
+                pid: generation.pid,
+                panelId: panelID,
+                processIdentity: generation,
+                refreshPorts: false
+            )
+        )
+        #expect(
+            workspace.agentPIDKeysByPanelId[panelID]
+                == ["amp.thread-a", "amp.thread-b"]
+        )
+        #expect(
+            workspace.setAgentLifecycle(
+                key: "amp",
+                panelId: panelID,
+                lifecycle: .running,
+                processGeneration: generation
+            )
+        )
+
+        #expect(
+            workspace.clearAgentPID(
+                key: "amp.thread-a",
+                panelId: panelID,
+                clearStatus: true,
+                refreshPorts: false
+            )
+        )
+        #expect(workspace.agentPIDs["amp.thread-b"] == generation.pid)
+        #expect(
+            workspace.agentLifecycleStatesByPanelId[panelID]?["amp"]
+                == .running
+        )
+    }
+
+    @Test("Dock preserves concurrent sessions owned by one process generation")
+    func dockPreservesSharedStructuredAgentGeneration() throws {
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let paneID = try #require(dock.bonsplitController.allPaneIds.first)
+        let panelID = try #require(
+            dock.newSurface(kind: .terminal, inPane: paneID, focus: false)
+        )
+        let generation = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+
+        #expect(
+            !dock.recordAgentPID(
+                key: "amp.thread-a",
+                pid: generation.pid,
+                panelId: panelID,
+                processIdentity: generation
+            )
+        )
+        #expect(
+            !dock.recordAgentPID(
+                key: "amp.thread-b",
+                pid: generation.pid,
+                panelId: panelID,
+                processIdentity: generation
+            )
+        )
+        #expect(
+            dock.agentRuntimeByPanelId[panelID]?.agentPIDKeys
+                == ["amp.thread-a", "amp.thread-b"]
+        )
+        #expect(
+            dock.setAgentLifecycle(
+                key: "amp",
+                panelId: panelID,
+                lifecycle: .running,
+                processGeneration: generation
+            )
+        )
+
+        #expect(
+            dock.clearAgentPID(
+                key: "amp.thread-a",
+                panelId: panelID,
+                clearStatus: true
+            )
+        )
+        #expect(
+            dock.agentRuntimeByPanelId[panelID]?
+                .agentPIDs["amp.thread-b"] == generation.pid
+        )
+        #expect(
+            dock.agentRuntimeByPanelId[panelID]?
+                .agentLifecycleStates["amp"] == .running
+        )
+    }
+
     @Test("Live PID routing and runtime mutations include a Dock-owned terminal")
     func liveTTYBindingsAndRuntimeMutationsIncludeDockOwnedTerminal() throws {
         let fixture = try makeFixture()
