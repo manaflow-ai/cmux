@@ -27,7 +27,17 @@ struct CanvasPaneContentMountTests {
 
     @Test func terminalMountAppliesAttentionColorInitiallyAndOnUpdate() {
         let panel = TerminalPanel(workspaceId: UUID())
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        let size = NSSize(width: 640, height: 480)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        window.contentView = container
+        window.orderFront(nil)
         let initialColor = WorkspaceAttentionColor(configuredHex: "#FF69B4")
         let mount = CanvasPaneContentMount(
             content: .terminal(panel, .disabled),
@@ -39,9 +49,13 @@ struct CanvasPaneContentMountTests {
         )
         defer {
             mount.unmount()
+            window.contentView = nil
+            window.close()
             panel.surface.teardownSurface()
         }
 
+        window.displayIfNeeded()
+        container.layoutSubtreeIfNeeded()
         #expect(attentionStrokeHexes(in: panel.hostedView).filter { $0 == "#FF69B4" }.count >= 2)
 
         mount.updatePresentation(
@@ -54,6 +68,8 @@ struct CanvasPaneContentMountTests {
             workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: "#33AA55")
         )
 
+        window.displayIfNeeded()
+        container.layoutSubtreeIfNeeded()
         #expect(attentionStrokeHexes(in: panel.hostedView).filter { $0 == "#33AA55" }.count >= 2)
     }
 
