@@ -171,6 +171,8 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
                 env.pop(key, None)
         if hooks_disabled:
             env["CMUX_AMP_HOOKS_DISABLED"] = "1"
+        else:
+            env.pop("CMUX_AMP_HOOKS_DISABLED", None)
 
         proc = subprocess.Popen(
             [str(wrapper), *argv],

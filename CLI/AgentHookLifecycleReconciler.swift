@@ -20,14 +20,14 @@ struct AgentHookLifecycleReconciler {
         processID: Int?
     ) -> Route? {
         guard subcommand == "lifecycle" else { return nil }
-        let state = normalized(payload?["agent_state"])
+        let state = Self.normalized(payload?["agent_state"])
         switch state {
         case "running":
             return Self.processExists(processID) ? .running : .rejectStaleProcess
         case "awaiting-approval", "needs-input":
             return Self.processExists(processID) ? .notification : .rejectStaleProcess
         case "idle":
-            let outcome = normalized(payload?["turn_outcome"])
+            let outcome = Self.normalized(payload?["turn_outcome"])
             switch outcome {
             case "done", "complete", "completed", "cancelled", "canceled", "interrupted":
                 return .stop
