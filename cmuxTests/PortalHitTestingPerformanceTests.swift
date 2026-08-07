@@ -54,6 +54,24 @@ struct PortalHitTestingPerformanceTests {
         }
     }
 
+    private final class SuperviewReadCountingView: NSView {
+        private(set) var superviewReadCount = 0
+
+        override var superview: NSView? {
+            superviewReadCount += 1
+            return super.superview
+        }
+    }
+
+    private final class CursorInvalidationCountingWindow: NSWindow {
+        private(set) var cursorInvalidationCount = 0
+
+        override func invalidateCursorRects(for view: NSView) {
+            cursorInvalidationCount += 1
+            super.invalidateCursorRects(for: view)
+        }
+    }
+
     private final class NonForwardingHierarchyCallbackView: NSView {
         override func didAddSubview(_ subview: NSView) {}
         override func willRemoveSubview(_ subview: NSView) {}
@@ -370,38 +388,106 @@ struct PortalHitTestingPerformanceTests {
     }
 
     @Test
-    func hierarchyMutationClassificationDoesNotFanOutPerCache() {
-        let rootView = NSView(frame: .zero)
-        let unobservedContainer = NSView(frame: .zero)
-        rootView.addSubview(unobservedContainer)
-        var callbackCount = 0
-        let invalidators = (0..<128).map { _ in
-            let invalidator = PortalSplitDividerCacheInvalidator()
-            invalidator.observe(
-                rootView: rootView,
-                geometryViews: [],
-                structureViews: []
-            ) {
-                callbackCount += 1
-            }
-            return invalidator
+    func hierarchyMutationWorkIsBoundedAcrossCachesAndPrebuiltSubtree() throws {
+        let window = CursorInvalidationCountingWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let rootView = try #require(window.contentView)
+        let outerContainer = NSView(frame: rootView.bounds)
+        let unobservedContainer = NSView(frame: outerContainer.bounds)
+        outerContainer.addSubview(unobservedContainer)
+        rootView.addSubview(outerContainer)
+
+        let hosts = (0..<128).map { _ in
+            let host = WindowTerminalHostView(frame: rootView.bounds)
+            host.addSubview(CapturingView(frame: host.bounds))
+            rootView.addSubview(host)
+            return host
+        }
+        let warmPointInWindow = rootView.convert(NSPoint(x: 20, y: 20), to: nil)
+        let warmEvent = makeMouseEvent(type: .mouseMoved, at: warmPointInWindow, window: window)
+        for host in hosts {
+            #expect(host.performHitTest(at: host.convert(warmPointInWindow, from: nil), currentEvent: warmEvent) != nil)
         }
 
-        let insertedSubtree = SubviewReadCountingView(frame: .zero)
-        for _ in 0..<1_000 {
-            insertedSubtree.addSubview(NSView(frame: .zero))
+        let insertedSubtree = SubviewReadCountingView(frame: unobservedContainer.bounds)
+        let scaleContainers = (0..<1_000).map { _ in SubviewReadCountingView(frame: .zero) }
+        for scaleContainer in scaleContainers {
+            insertedSubtree.addSubview(scaleContainer)
         }
-        insertedSubtree.addSubview(NSSplitView(frame: .zero))
-        let readsBeforeInsertion = insertedSubtree.subviewReadCount
+        let splitView = CountingSplitView(frame: insertedSubtree.bounds)
+        splitView.isVertical = true
+        let splitDelegate = SplitDelegate()
+        splitView.delegate = splitDelegate
+        splitView.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 200, height: insertedSubtree.bounds.height)))
+        splitView.addSubview(NSView(frame: NSRect(x: 201, y: 0, width: 119, height: insertedSubtree.bounds.height)))
+        insertedSubtree.addSubview(splitView)
+
+        let subtreeReadsBeforeInsertion = insertedSubtree.subviewReadCount
+            + scaleContainers.reduce(0) { $0 + $1.subviewReadCount }
+        let cursorInvalidationsBeforeInsertion = window.cursorInvalidationCount
 
         unobservedContainer.addSubview(insertedSubtree)
 
-        #expect(callbackCount == invalidators.count)
+        let subtreeReadsAfterInsertion = insertedSubtree.subviewReadCount
+            + scaleContainers.reduce(0) { $0 + $1.subviewReadCount }
         #expect(
-            insertedSubtree.subviewReadCount - readsBeforeInsertion <= 2,
-            "A relevant subtree should be classified once per root, not once per active cache."
+            subtreeReadsAfterInsertion - subtreeReadsBeforeInsertion <= 2,
+            "A hierarchy mutation must not recursively inspect a prebuilt subtree."
         )
-        withExtendedLifetime(invalidators) {}
+        #expect(
+            window.cursorInvalidationCount - cursorInvalidationsBeforeInsertion <= 2,
+            "One hierarchy mutation must not synchronously notify every active portal cache."
+        )
+
+        let dividerPointInWindow = splitView.convert(
+            NSPoint(x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5), y: splitView.bounds.midY),
+            to: nil
+        )
+        let dividerEvent = makeMouseEvent(type: .mouseMoved, at: dividerPointInWindow, window: window)
+        let firstHost = try #require(hosts.first)
+        #expect(firstHost.performHitTest(
+            at: firstHost.convert(dividerPointInWindow, from: nil),
+            currentEvent: dividerEvent
+        ) == nil)
+        withExtendedLifetime(splitDelegate) {}
+    }
+
+    @Test
+    func hierarchyMutationHooksGateBeforeWalkingAnUnrelatedWindow() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let rootView = try #require(window.contentView)
+        var parent: NSView = rootView
+        let scaleContainers = (0..<1_000).map { _ in SuperviewReadCountingView(frame: .zero) }
+        for scaleContainer in scaleContainers {
+            parent.addSubview(scaleContainer)
+            parent = scaleContainer
+        }
+
+        // Constructing an invalidator installs the process-wide AppKit hooks, but
+        // this window intentionally has no active portal cache.
+        let invalidator = PortalSplitDividerCacheInvalidator()
+        let readsBeforeInsertion = scaleContainers.reduce(0) { $0 + $1.superviewReadCount }
+
+        parent.addSubview(NSView(frame: .zero))
+
+        #expect(
+            scaleContainers.reduce(0) { $0 + $1.superviewReadCount } - readsBeforeInsertion <= 1,
+            "A mutation in an unrelated window must return after its constant-time tracker lookup."
+        )
+        withExtendedLifetime(invalidator) {}
     }
 
     @Test
