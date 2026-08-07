@@ -110,6 +110,7 @@ final class TerminalTextView: NSTextView {
             text = nil
         }
         guard let text, !text.isEmpty else { return }
+        guard isInputReady else { return }
         unmarkText()
         submit?(.bytes(Data(text.utf8)))
     }

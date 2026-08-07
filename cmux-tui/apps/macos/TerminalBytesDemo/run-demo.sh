@@ -66,7 +66,7 @@ cleanup() {
   if [[ "$WORKSPACE" == ws_* && -S "$MUX_SOCKET" ]]; then
     "$CMUX_TUI" --socket "$MUX_SOCKET" workspace "$WORKSPACE" close --json \
       >/dev/null 2>&1
-    for _ in $(seq 1 50); do
+    for ((attempt = 1; attempt <= 50; attempt++)); do
       if ! "$CMUX_TUI" --socket "$MUX_SOCKET" workspace "$WORKSPACE" show --json \
         >/dev/null 2>&1; then
         break
@@ -136,7 +136,7 @@ echo "Starting isolated ephemeral Iroh daemon in $DEMO_ROOT"
 DAEMON_PID=$!
 
 ready=0
-for _ in $(seq 1 300); do
+for ((attempt = 1; attempt <= 300; attempt++)); do
   if ! kill -0 "$DAEMON_PID" 2>/dev/null; then
     echo "The demo daemon exited during startup:" >&2
     sed -n '1,160p' "$DAEMON_LOG" >&2
@@ -193,7 +193,7 @@ CMUX_TERMINAL_AUTOCONNECT=1 \
 APP_PID=$!
 
 claimed=0
-for _ in $(seq 1 900); do
+for ((attempt = 1; attempt <= 900; attempt++)); do
   if ! kill -0 "$APP_PID" 2>/dev/null; then
     echo "The app exited before claiming its invitation." >&2
     exit 1

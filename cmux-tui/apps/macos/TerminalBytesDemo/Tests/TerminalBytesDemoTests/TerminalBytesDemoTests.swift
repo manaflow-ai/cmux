@@ -27,6 +27,11 @@ final class TerminalBytesDemoTests: XCTestCase {
         terminal.submit = {
             delivered.append($0)
         }
+        terminal.insertText(
+            "discarded while disconnected",
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        XCTAssertTrue(delivered.isEmpty)
         terminal.isInputReady = true
         terminal.pasteboardText = { "貼り付け" }
 
