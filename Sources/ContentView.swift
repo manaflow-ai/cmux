@@ -2676,14 +2676,6 @@ struct ContentView: View {
         )
         var view = AnyView(
             ZStack(alignment: .topLeading) {
-                WindowBackdropLayer(
-                    role: .windowRoot,
-                    snapshot: appearance,
-                    rendersBackdrop: backdropPlan.hostingPhase != .opaqueRootBackdrop
-                )
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-
                 contentAndSidebarLayout(appearance: appearance)
 
                 WorkspaceTitlebarModeLayer {

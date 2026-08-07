@@ -3960,7 +3960,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             layer.isOpaque = false
             CATransaction.commit()
         }
-        terminalSurface?.hostedView.setBackgroundColor(color)
+        terminalSurface?.hostedView.setBackgroundColor(
+            color,
+            excludesSharedRootBackdrop: fillPlan.excludesSharedRootBackdrop
+        )
         if GhosttyApp.shared.backgroundLogEnabled {
             let signature = "\(fillPlan.usesHostLayerFill ? color.hexString() : "transparent-host"):\(String(format: "%.3f", color.alphaComponent)):\(fillPlan.logBackdropLabel)"
             if signature != lastLoggedSurfaceBackgroundSignature {
@@ -8162,6 +8165,8 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private let backgroundView: TerminalPaneBackgroundView
+    private(set) var excludesSharedRootBackdrop = false
+    var sharedRootBackdropExclusionDidChange: (() -> Void)?
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
     let surfaceView: GhosttyNSView
@@ -9263,14 +9268,23 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.onTriggerFlash = handler
     }
 
-    /// Applies the pane-local terminal fill above the shared root backdrop layer.
-    func setBackgroundColor(_ color: NSColor) {
-        guard let layer = backgroundView.layer else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.backgroundColor = color.cgColor
-        layer.isOpaque = color.alphaComponent >= 1.0
-        CATransaction.commit()
+    /// Applies the pane-local terminal fill and records shared-root ownership.
+    func setBackgroundColor(
+        _ color: NSColor,
+        excludesSharedRootBackdrop: Bool = false
+    ) {
+        let didChangeExclusion = self.excludesSharedRootBackdrop != excludesSharedRootBackdrop
+        self.excludesSharedRootBackdrop = excludesSharedRootBackdrop
+        if let layer = backgroundView.layer {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.backgroundColor = color.cgColor
+            layer.isOpaque = color.alphaComponent >= 1.0
+            CATransaction.commit()
+        }
+        if didChangeExclusion {
+            sharedRootBackdropExclusionDidChange?()
+        }
         // The viewport border strokes the window-chrome separator color, which tracks the
         // terminal background/theme. Repaint it when the background changes (e.g. theme
         // switch) so a connected iOS device's visible-area border stays in sync.

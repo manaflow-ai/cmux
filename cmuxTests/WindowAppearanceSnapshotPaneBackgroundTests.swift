@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxWorkspaces
+import QuartzCore
 import SwiftUI
 import Testing
 
@@ -95,6 +96,83 @@ struct WindowAppearanceSnapshotPaneBackgroundTests {
         #expect(!usesInProcessCoreImageCompositing(in: host))
     }
 
+    /// Verifies portal geometry and visibility remain the root mask's source of truth.
+    @MainActor
+    @Test func portalReconcilesRootExclusionOnMoveResetAndHide() throws {
+        let bounds = NSRect(x: 0, y: 0, width: 360, height: 180)
+        let contentView = NSView(frame: bounds)
+        let window = NSWindow(
+            contentRect: bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = contentView
+        let backdropController = AppWindowChromeComposition().backdropController
+        _ = backdropController.apply(
+            plan: WindowBackdropPlan(
+                hostingPhase: .transparentRootBackdrop,
+                windowBackgroundColor: .clear,
+                windowIsOpaque: false,
+                rootPolicy: .ghosttyTerminalBackdrop(
+                    color: .systemPurple,
+                    opacity: 0.42,
+                    renderingMode: .windowHostBackdrop
+                ),
+                glass: nil,
+                shouldApplyGhosttyCompositorBlur: false
+            ),
+            to: window
+        )
+
+        let themeFrame = try #require(contentView.superview)
+        themeFrame.layoutSubtreeIfNeeded()
+        let root = try #require(
+            themeFrame.subviews.first { $0 is WindowRootBackdropView } as? WindowRootBackdropView
+        )
+        let anchor = NSView(frame: NSRect(x: 30, y: 35, width: 80, height: 60))
+        contentView.addSubview(anchor)
+        let hosted = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(origin: .zero, size: anchor.bounds.size))
+        )
+        hosted.setBackgroundColor(
+            .systemOrange.withAlphaComponent(0.42),
+            excludesSharedRootBackdrop: true
+        )
+        let portal = WindowTerminalPortal(window: window)
+        defer { portal.tearDown() }
+        portal.bind(hostedView: hosted, to: anchor, visibleInUI: true)
+
+        let initialPoint = anchor.convert(
+            NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY),
+            to: nil
+        )
+        #expect(!(try rootMaskShowsBackdrop(atWindowPoint: initialPoint, in: root)))
+
+        anchor.frame.origin.x += 150
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(in: window)
+        defer { TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window) }
+        portal.synchronizeHostedViewForAnchor(anchor)
+        let movedPoint = anchor.convert(
+            NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY),
+            to: nil
+        )
+        #expect(try rootMaskShowsBackdrop(atWindowPoint: initialPoint, in: root))
+        #expect(!(try rootMaskShowsBackdrop(atWindowPoint: movedPoint, in: root)))
+
+        hosted.setBackgroundColor(.clear, excludesSharedRootBackdrop: false)
+        #expect(try rootMaskShowsBackdrop(atWindowPoint: movedPoint, in: root))
+
+        hosted.setBackgroundColor(
+            .systemOrange.withAlphaComponent(0.42),
+            excludesSharedRootBackdrop: true
+        )
+        #expect(!(try rootMaskShowsBackdrop(atWindowPoint: movedPoint, in: root)))
+
+        portal.hideEntry(forHostedId: ObjectIdentifier(hosted))
+        #expect(try rootMaskShowsBackdrop(atWindowPoint: movedPoint, in: root))
+    }
+
     /// Verifies pane-local OSC colors paint the surface without replacing the shared window root.
     @Test func surfaceOSCOverrideUsesHostFillAndKeepsSharedWindowRootDefault() throws {
         let snapshot = makeSnapshot(
@@ -117,6 +195,7 @@ struct WindowAppearanceSnapshotPaneBackgroundTests {
 
         #expect(fillPlan.owner == .surfaceHostLayer)
         #expect(fillPlan.hostLayerColor.hexString(includeAlpha: true) == "#E6BE78FF")
+        #expect(!fillPlan.excludesSharedRootBackdrop)
         #expect(windowRoot.source == "defaultBackground(surfaceOverrideLocal)")
         #expect(windowRoot.overrideHex == "#E6BE78")
         #expect(windowRoot.snapshot.terminalBackgroundColor.hexString() == "#272822")
@@ -128,11 +207,50 @@ struct WindowAppearanceSnapshotPaneBackgroundTests {
         )
     }
 
+    /// Verifies fractional pane fills exclude the root while the opaque threshold does not.
+    @Test func surfaceOSCOverrideExclusionTracksOpaqueHostingThreshold() throws {
+        let override = try #require(NSColor(hex: "#E6BE78"))
+        let defaultBackground = try #require(NSColor(hex: "#272822"))
+        let translucent = TerminalSurfaceBackgroundFillPlan.resolve(
+            renderingMode: .windowHostBackdrop,
+            surfaceBackgroundColor: override,
+            defaultBackgroundColor: defaultBackground,
+            backgroundOpacity: 0.42,
+            sharesWindowBackdrop: true,
+            usesBonsplitPaneBackdrop: false
+        )
+        let effectivelyOpaque = TerminalSurfaceBackgroundFillPlan.resolve(
+            renderingMode: .windowHostBackdrop,
+            surfaceBackgroundColor: override,
+            defaultBackgroundColor: defaultBackground,
+            backgroundOpacity: 0.999,
+            sharesWindowBackdrop: true,
+            usesBonsplitPaneBackdrop: false
+        )
+
+        #expect(translucent.excludesSharedRootBackdrop)
+        #expect(abs(translucent.hostLayerColor.alphaComponent - 0.42) < 0.0001)
+        #expect(!effectivelyOpaque.excludesSharedRootBackdrop)
+        #expect(abs(effectivelyOpaque.hostLayerColor.alphaComponent - 1) < 0.0001)
+    }
+
     @MainActor
     private func usesInProcessCoreImageCompositing(in view: NSView) -> Bool {
         view.layerUsesCoreImageFilters
             || view.compositingFilter != nil
             || view.subviews.contains(where: usesInProcessCoreImageCompositing)
+    }
+
+    @MainActor
+    private func rootMaskShowsBackdrop(
+        atWindowPoint point: NSPoint,
+        in root: WindowRootBackdropView
+    ) throws -> Bool {
+        root.superview?.layoutSubtreeIfNeeded()
+        root.layoutSubtreeIfNeeded()
+        let mask = try #require(root.layer?.mask as? CAShapeLayer)
+        let path = try #require(mask.path)
+        return path.contains(root.convert(point, from: nil), using: .evenOdd)
     }
 
     private func makeSnapshot(

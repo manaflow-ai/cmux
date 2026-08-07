@@ -1,14 +1,25 @@
 import AppKit
 import QuartzCore
 
-/// Layer-backed opaque-window fill installed below the hosting and portal trees.
+/// Layer-backed window fill installed below the hosting and portal trees.
 @MainActor
 final class WindowRootBackdropView: NSView {
+    private let exclusionMaskLayer = CAShapeLayer()
+    private weak var installedReferenceView: NSView?
+    private var installationConstraints: [NSLayoutConstraint] = []
+    private var exclusionRectsInWindow: [NSRect] = []
+    private var backdropColorIsOpaque = false
+    private var hasVisibleExclusions = false
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         identifier = NSUserInterfaceItemIdentifier("cmux.windowRootBackdrop")
         wantsLayer = true
         layer?.masksToBounds = true
+        exclusionMaskLayer.fillRule = .evenOdd
+        exclusionMaskLayer.fillColor = NSColor.black.cgColor
+        layer?.mask = exclusionMaskLayer
+        rebuildExclusionMask()
     }
 
     @available(*, unavailable)
@@ -17,31 +28,178 @@ final class WindowRootBackdropView: NSView {
     }
 
     override var isOpaque: Bool {
-        layer?.isOpaque ?? false
+        backdropColorIsOpaque && !hasVisibleExclusions
+    }
+
+    override func layout() {
+        super.layout()
+        rebuildExclusionMask()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        rebuildExclusionMask()
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }
 
-    /// Applies the resolved opaque root policy without enabling Core Image compositing.
-    func apply(policy: WindowBackdropPolicy) {
+    /// Installs the root below the resolver's content reference.
+    func install(in target: WindowContentOverlayInstallationTarget) {
+        let needsReinstallation =
+            superview !== target.container || installedReferenceView !== target.reference
+        var didChangeInstallation = false
+        if needsReinstallation {
+            NSLayoutConstraint.deactivate(installationConstraints)
+            installationConstraints.removeAll()
+            removeFromSuperview()
+            translatesAutoresizingMaskIntoConstraints = false
+            target.container.addSubview(self, positioned: .below, relativeTo: target.reference)
+            installationConstraints = [
+                topAnchor.constraint(equalTo: target.reference.topAnchor),
+                bottomAnchor.constraint(equalTo: target.reference.bottomAnchor),
+                leadingAnchor.constraint(equalTo: target.reference.leadingAnchor),
+                trailingAnchor.constraint(equalTo: target.reference.trailingAnchor),
+            ]
+            NSLayoutConstraint.activate(installationConstraints)
+            installedReferenceView = target.reference
+            didChangeInstallation = true
+        } else if let rootIndex = target.container.subviews.firstIndex(of: self),
+                  let referenceIndex = target.container.subviews.firstIndex(of: target.reference),
+                  rootIndex > referenceIndex {
+            target.container.addSubview(self, positioned: .below, relativeTo: target.reference)
+            didChangeInstallation = true
+        }
+
+        guard didChangeInstallation else { return }
+        needsLayout = true
+        rebuildExclusionMask()
+    }
+
+    /// Applies the resolved root policy without enabling Core Image compositing.
+    func apply(
+        policy: WindowBackdropPolicy,
+        hostingPhase: WindowBackdropHostingPhase
+    ) {
         let color: NSColor
         switch policy {
         case let .ghosttyTerminalBackdrop(backgroundColor, opacity, _):
             let clampedOpacity = WindowAppearanceSnapshot.clampedOpacity(Double(opacity))
             let backdropColor = backgroundColor.withAlphaComponent(clampedOpacity)
-            color = clampedOpacity >= 1
-                ? backdropColor
-                : WindowChromeColorResolver().compositedColor(backdropColor, over: .windowBackgroundColor)
+            color = hostingPhase == .opaqueRootBackdrop
+                ? WindowChromeColorResolver().compositedColor(backdropColor, over: .windowBackgroundColor)
+                : backdropColor
         case .sidebarMaterial, .clear:
             color = .clear
         }
 
+        backdropColorIsOpaque = color.alphaComponent >= 1
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer?.backgroundColor = color.cgColor
-        layer?.isOpaque = color.alphaComponent >= 1
+        layer?.isOpaque = isOpaque
         CATransaction.commit()
+    }
+
+    /// Replaces the pane rectangles that must reveal the layer below this root.
+    func updateExclusionRectsInWindow(_ rects: [NSRect]) {
+        let normalized = rects
+            .map(\.standardized)
+            .filter(Self.isFiniteVisibleRect)
+            .sorted(by: Self.rectSortsBefore)
+        guard normalized != exclusionRectsInWindow else { return }
+        exclusionRectsInWindow = normalized
+        rebuildExclusionMask()
+    }
+
+    private func rebuildExclusionMask() {
+        guard let rootLayer = layer else { return }
+        let localRects: [NSRect]
+        if window == nil {
+            localRects = []
+        } else {
+            localRects = exclusionRectsInWindow.compactMap { rectInWindow in
+                let localRect = convert(rectInWindow, from: nil).standardized
+                let clipped = localRect.intersection(bounds)
+                return Self.isFiniteVisibleRect(clipped) ? clipped : nil
+            }
+        }
+        let unionRects = Self.exactRectangleUnion(localRects)
+        let path = CGMutablePath()
+        if Self.isFiniteVisibleRect(bounds) {
+            path.addRect(bounds)
+        }
+        for rect in unionRects {
+            path.addRect(rect)
+        }
+
+        hasVisibleExclusions = !unionRects.isEmpty
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        exclusionMaskLayer.frame = rootLayer.bounds
+        exclusionMaskLayer.path = path
+        rootLayer.isOpaque = isOpaque
+        CATransaction.commit()
+    }
+
+    /// Decomposes a rectangle union into non-overlapping horizontal slabs.
+    private static func exactRectangleUnion(_ rects: [NSRect]) -> [NSRect] {
+        let rects = rects.map(\.standardized).filter(isFiniteVisibleRect)
+        guard !rects.isEmpty else { return [] }
+
+        let yEdges = Array(Set(rects.flatMap { [$0.minY, $0.maxY] })).sorted()
+        var unionRects: [NSRect] = []
+        for index in 0..<(yEdges.count - 1) {
+            let minY = yEdges[index]
+            let maxY = yEdges[index + 1]
+            guard maxY > minY else { continue }
+
+            let spans = rects
+                .filter { $0.minY < maxY && $0.maxY > minY }
+                .map { (minX: $0.minX, maxX: $0.maxX) }
+                .sorted {
+                    $0.minX == $1.minX ? $0.maxX < $1.maxX : $0.minX < $1.minX
+                }
+            guard var current = spans.first else { continue }
+
+            for span in spans.dropFirst() {
+                if span.minX <= current.maxX {
+                    current.maxX = max(current.maxX, span.maxX)
+                } else {
+                    unionRects.append(NSRect(
+                        x: current.minX,
+                        y: minY,
+                        width: current.maxX - current.minX,
+                        height: maxY - minY
+                    ))
+                    current = span
+                }
+            }
+            unionRects.append(NSRect(
+                x: current.minX,
+                y: minY,
+                width: current.maxX - current.minX,
+                height: maxY - minY
+            ))
+        }
+        return unionRects
+    }
+
+    private static func isFiniteVisibleRect(_ rect: NSRect) -> Bool {
+        rect.origin.x.isFinite &&
+            rect.origin.y.isFinite &&
+            rect.size.width.isFinite &&
+            rect.size.height.isFinite &&
+            !rect.isNull &&
+            rect.width > 0 &&
+            rect.height > 0
+    }
+
+    private static func rectSortsBefore(_ lhs: NSRect, _ rhs: NSRect) -> Bool {
+        if lhs.minY != rhs.minY { return lhs.minY < rhs.minY }
+        if lhs.minX != rhs.minX { return lhs.minX < rhs.minX }
+        if lhs.maxY != rhs.maxY { return lhs.maxY < rhs.maxY }
+        return lhs.maxX < rhs.maxX
     }
 }

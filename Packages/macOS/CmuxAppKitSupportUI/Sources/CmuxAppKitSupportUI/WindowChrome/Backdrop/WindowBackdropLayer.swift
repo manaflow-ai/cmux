@@ -5,32 +5,16 @@ import AppKit
 public struct WindowBackdropLayer: View {
     private let role: WindowBackdropRole
     private let snapshot: WindowAppearanceSnapshot
-    private let rendersBackdrop: Bool
 
     /// Creates a backdrop layer for a chrome role.
-    ///
-    /// - Parameters:
-    ///   - role: Chrome surface whose policy the layer renders.
-    ///   - snapshot: Resolved appearance for the current render pass.
-    ///   - rendersBackdrop: Whether this SwiftUI layer owns the backdrop for this pass.
-    public init(
-        role: WindowBackdropRole,
-        snapshot: WindowAppearanceSnapshot,
-        rendersBackdrop: Bool = true
-    ) {
+    public init(role: WindowBackdropRole, snapshot: WindowAppearanceSnapshot) {
         self.role = role
         self.snapshot = snapshot
-        self.rendersBackdrop = rendersBackdrop
     }
 
     /// Rendered backdrop body.
-    @ViewBuilder
     public var body: some View {
-        if rendersBackdrop {
-            backdrop(for: snapshot.policy(for: role))
-        } else {
-            Color.clear
-        }
+        backdrop(for: snapshot.policy(for: role))
     }
 
     @ViewBuilder

@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import Testing
 
 @testable import CmuxAppKitSupportUI
@@ -53,7 +54,7 @@ import Testing
         #expect(updatedRoot.layer?.isOpaque == true)
     }
 
-    @Test func transparentRootBackdropRemovesOpaqueRootAndAppliesGhosttyBlurWhenRequested() throws {
+    @Test func transparentRootBackdropReusesRootAndPreservesFractionalAlpha() throws {
         let dependencies = FakeBackdropDependencies()
         let controller = WindowBackdropController(dependencies: dependencies)
         let window = makeWindow()
@@ -70,7 +71,11 @@ import Testing
                 hostingPhase: .transparentRootBackdrop,
                 windowBackgroundColor: .clear,
                 windowIsOpaque: false,
-                rootPolicy: .clear,
+                rootPolicy: .ghosttyTerminalBackdrop(
+                    color: .systemPurple,
+                    opacity: 0.42,
+                    renderingMode: .windowHostBackdrop
+                ),
                 glass: nil,
                 shouldApplyGhosttyCompositorBlur: true
             ),
@@ -83,11 +88,22 @@ import Testing
         #expect(dependencies.appliedBlurWindows.first === window)
         #expect(!window.isOpaque)
         #expect(window.backgroundColor == .clear)
-        #expect(installedRoot.superview == nil)
-        #expect(!((window.contentView?.superview?.subviews.contains { $0 is WindowRootBackdropView }) ?? false))
+        let contentView = try #require(window.contentView)
+        let themeFrame = try #require(contentView.superview)
+        let transparentRoot = try #require(
+            themeFrame.subviews.first { $0 is WindowRootBackdropView } as? WindowRootBackdropView
+        )
+        let color = try #require(
+            transparentRoot.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))
+        )
+        #expect(transparentRoot === installedRoot)
+        #expect(abs(color.alphaComponent - 0.42) < 0.0001)
+        #expect(transparentRoot.layer?.isOpaque == false)
+        #expect(!transparentRoot.layerUsesCoreImageFilters)
+        #expect(transparentRoot.compositingFilter == nil)
     }
 
-    @Test func windowGlassPlanRemovesOpaqueRootAndAppliesInjectedGlassEffect() throws {
+    @Test func windowGlassPlanMovesSameRootBelowGlassForegroundContent() throws {
         let dependencies = FakeBackdropDependencies()
         dependencies.glass.applyResult = true
         let controller = WindowBackdropController(dependencies: dependencies)
@@ -100,13 +116,26 @@ import Testing
         dependencies.glass.removeCallCount = 0
         dependencies.resetBlurWindowNumbers.removeAll()
         let tintColor = NSColor.systemBlue.withAlphaComponent(0.4)
+        let glassContainer = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+        let glassReference = NSView(frame: glassContainer.bounds)
+        glassContainer.addSubview(glassReference)
+        let themeFrame = try #require(window.contentView?.superview)
+        themeFrame.addSubview(glassContainer)
+        dependencies.glass.portalInstallationTargetResult = WindowContentOverlayInstallationTarget(
+            container: glassContainer,
+            reference: glassReference
+        )
 
         let result = controller.apply(
             plan: WindowBackdropPlan(
                 hostingPhase: .windowGlass,
                 windowBackgroundColor: .white.withAlphaComponent(0.001),
                 windowIsOpaque: false,
-                rootPolicy: .clear,
+                rootPolicy: .ghosttyTerminalBackdrop(
+                    color: .systemPurple,
+                    opacity: 0.35,
+                    renderingMode: .windowHostBackdrop
+                ),
                 glass: WindowBackdropGlassPlan(tintColor: tintColor, style: .clear),
                 shouldApplyGhosttyCompositorBlur: false
             ),
@@ -123,15 +152,75 @@ import Testing
         #expect(dependencies.resetBlurWindowNumbers.count == 1)
         #expect(dependencies.appliedBlurWindows.isEmpty)
         #expect(!window.isOpaque)
-        #expect(installedRoot.superview == nil)
-        #expect(!((window.contentView?.superview?.subviews.contains { $0 is WindowRootBackdropView }) ?? false))
+        let glassRoot = try #require(
+            glassContainer.subviews.first { $0 is WindowRootBackdropView } as? WindowRootBackdropView
+        )
+        let rootIndex = try #require(glassContainer.subviews.firstIndex { $0 === glassRoot })
+        let referenceIndex = try #require(glassContainer.subviews.firstIndex { $0 === glassReference })
+        let color = try #require(glassRoot.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))
+        #expect(glassRoot === installedRoot)
+        #expect(rootIndex < referenceIndex)
+        #expect(abs(color.alphaComponent - 0.35) < 0.0001)
+
+        dependencies.glass.portalInstallationTargetResult = nil
+        _ = controller.apply(plan: makeOpaqueRootPlan(color: .systemGreen), to: window)
+        let restoredRoot = try #require(
+            window.contentView?.superview?.subviews.first { $0 is WindowRootBackdropView }
+                as? WindowRootBackdropView
+        )
+        #expect(restoredRoot === installedRoot)
     }
 
-    private func makeWindow() -> NSWindow {
+    @Test func rootMaskUsesExactUnionForOverlappingPaneExclusions() throws {
+        let dependencies = FakeBackdropDependencies()
+        let controller = WindowBackdropController(dependencies: dependencies)
+        let window = makeWindow(styleMask: [.borderless])
+        _ = controller.apply(
+            plan: WindowBackdropPlan(
+                hostingPhase: .transparentRootBackdrop,
+                windowBackgroundColor: .clear,
+                windowIsOpaque: false,
+                rootPolicy: .ghosttyTerminalBackdrop(
+                    color: .systemPurple,
+                    opacity: 0.42,
+                    renderingMode: .windowHostBackdrop
+                ),
+                glass: nil,
+                shouldApplyGhosttyCompositorBlur: false
+            ),
+            to: window
+        )
+
+        let contentView = try #require(window.contentView)
+        let themeFrame = try #require(contentView.superview)
+        themeFrame.layoutSubtreeIfNeeded()
+        let root = try #require(
+            themeFrame.subviews.first { $0 is WindowRootBackdropView } as? WindowRootBackdropView
+        )
+        root.layoutSubtreeIfNeeded()
+        let first = NSRect(x: 20, y: 15, width: 50, height: 40)
+        let second = NSRect(x: 45, y: 30, width: 50, height: 35)
+        controller.updateRootBackdropExclusions(
+            [root.convert(first, to: nil), root.convert(second, to: nil)],
+            in: window
+        )
+
+        let mask = try #require(root.layer?.mask as? CAShapeLayer)
+        let path = try #require(mask.path)
+        #expect(mask.fillRule == .evenOdd)
+        #expect(path.contains(NSPoint(x: 5, y: 5), using: .evenOdd))
+        #expect(!path.contains(NSPoint(x: 25, y: 20), using: .evenOdd))
+        #expect(!path.contains(NSPoint(x: 50, y: 40), using: .evenOdd))
+        #expect(!path.contains(NSPoint(x: 90, y: 60), using: .evenOdd))
+    }
+
+    private func makeWindow(
+        styleMask: NSWindow.StyleMask = [.titled, .closable]
+    ) -> NSWindow {
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
         let window = NSWindow(
             contentRect: contentView.bounds,
-            styleMask: [.titled, .closable],
+            styleMask: styleMask,
             backing: .buffered,
             defer: false
         )
