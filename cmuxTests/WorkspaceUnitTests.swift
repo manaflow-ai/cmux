@@ -7486,7 +7486,6 @@ final class WorkspaceMountPolicyTests: XCTestCase {
             selected: b,
             pinnedIds: [],
             orderedTabIds: orderedTabIds,
-            isCycleHot: false,
             maxMounted: WorkspaceMountPlan.maxMountedWorkspaces
         ).mountedWorkspaceIds
 
@@ -7504,7 +7503,6 @@ final class WorkspaceMountPolicyTests: XCTestCase {
             selected: c,
             pinnedIds: [],
             orderedTabIds: orderedTabIds,
-            isCycleHot: false,
             maxMounted: 2
         ).mountedWorkspaceIds
 
@@ -7520,7 +7518,6 @@ final class WorkspaceMountPolicyTests: XCTestCase {
             selected: nil,
             pinnedIds: [],
             orderedTabIds: [a],
-            isCycleHot: false,
             maxMounted: 2
         ).mountedWorkspaceIds
 
@@ -7537,7 +7534,6 @@ final class WorkspaceMountPolicyTests: XCTestCase {
             selected: b,
             pinnedIds: [],
             orderedTabIds: orderedTabIds,
-            isCycleHot: false,
             maxMounted: 2
         ).mountedWorkspaceIds
 
@@ -7554,48 +7550,10 @@ final class WorkspaceMountPolicyTests: XCTestCase {
             selected: nil,
             pinnedIds: [],
             orderedTabIds: orderedTabIds,
-            isCycleHot: false,
             maxMounted: 0
         ).mountedWorkspaceIds
 
         XCTAssertEqual(next, [a])
-    }
-
-    func testCycleHotModeKeepsOnlySelectedWhenNoPinnedHandoff() {
-        let a = UUID()
-        let b = UUID()
-        let c = UUID()
-        let d = UUID()
-        let orderedTabIds: [UUID] = [a, b, c, d]
-
-        let next = WorkspaceMountPlan(
-            current: [a],
-            selected: c,
-            pinnedIds: [],
-            orderedTabIds: orderedTabIds,
-            isCycleHot: true,
-            maxMounted: WorkspaceMountPlan.maxMountedWorkspacesDuringCycle
-        ).mountedWorkspaceIds
-
-        XCTAssertEqual(next, [c])
-    }
-
-    func testCycleHotModeRespectsMaxMountedLimit() {
-        let a = UUID()
-        let b = UUID()
-        let c = UUID()
-        let orderedTabIds: [UUID] = [a, b, c]
-
-        let next = WorkspaceMountPlan(
-            current: [a, b, c],
-            selected: b,
-            pinnedIds: [],
-            orderedTabIds: orderedTabIds,
-            isCycleHot: true,
-            maxMounted: 2
-        ).mountedWorkspaceIds
-
-        XCTAssertEqual(next, [b])
     }
 
     func testPinnedIdsAreRetainedAcrossReconcile() {
@@ -7609,28 +7567,10 @@ final class WorkspaceMountPolicyTests: XCTestCase {
             selected: c,
             pinnedIds: [a],
             orderedTabIds: orderedTabIds,
-            isCycleHot: false,
             maxMounted: 2
         ).mountedWorkspaceIds
 
         XCTAssertEqual(next, [c, a])
-    }
-
-    func testCycleHotModeKeepsRetiringWorkspaceWhenPinned() {
-        let a = UUID()
-        let b = UUID()
-        let orderedTabIds: [UUID] = [a, b]
-
-        let next = WorkspaceMountPlan(
-            current: [a],
-            selected: b,
-            pinnedIds: [a],
-            orderedTabIds: orderedTabIds,
-            isCycleHot: true,
-            maxMounted: WorkspaceMountPlan.maxMountedWorkspacesDuringCycle
-        ).mountedWorkspaceIds
-
-        XCTAssertEqual(next, [b, a])
     }
 }
 

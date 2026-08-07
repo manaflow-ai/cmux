@@ -6121,7 +6121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func unregisterMainWindowContext(for window: NSWindow) -> MainWindowContext? {
         guard let removed = contextForMainTerminalWindow(window, reindex: false) else { return nil }
-        removed.teardownWindowDock()
+        removed.teardownWindowOwnedWork()
         let removedKeys = mainWindowContexts.compactMap { key, value in
             value === removed ? key : nil
         }
@@ -6136,7 +6136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // Internal (not private): see notifyMainWindowContextsDidChange.
     func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
-        context.teardownWindowDock()
+        context.teardownWindowOwnedWork()
         let contextKeys = mainWindowContexts.compactMap { key, value in
             value === context ? key : nil
         }

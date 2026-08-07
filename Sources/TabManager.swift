@@ -194,6 +194,7 @@ class TabManager: ObservableObject {
     // side effects in didSet).
     let workspaces = WorkspacesModel<Workspace>()
     private(set) var workspacesById: [UUID: Workspace] = [:]
+    let workspaceSwitchCoordinator = WorkspaceSwitchCoordinator()
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
@@ -226,7 +227,6 @@ class TabManager: ObservableObject {
     /// Set by `restoreSessionSnapshot` to suppress side-effects (like auto-
     /// expanding a group on focus) that would mutate restored state mid-restore.
     private var isRestoringSessionSnapshot: Bool = false
-    @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
@@ -258,6 +258,23 @@ class TabManager: ObservableObject {
     /// Legacy `@Published selectedTabId` willSet; `selectedTabId` still
     /// reads the old value here, exactly like the original property observer.
     func selectedWorkspaceIdWillChange(to newValue: UUID?) {
+        if !isRestoringSessionSnapshot {
+            let terminalTarget = newValue
+                .flatMap { workspacesById[$0] }
+                .flatMap { $0.focusedTerminalInputTarget() }
+            workspaceSwitchCoordinator.selectionWillCommit(
+                from: selectedTabId,
+                to: newValue,
+                targetSurfaceID: terminalTarget?.surfaceID,
+                targetTerminalView: terminalTarget?.panel.hostedView.surfaceView,
+                targetRendererPresented:
+                    terminalTarget?.panel.surface.isRendererPresented == true,
+                targetRenderedFrameSequence:
+                    terminalTarget?.panel.hostedView.surfaceView.renderedFrameSequence ?? 0
+            )
+        } else {
+            workspaceSwitchCoordinator.cancel()
+        }
         objectWillChange.send()
         selectedTabIdPublisher.send(newValue)
 #if DEBUG
@@ -291,6 +308,12 @@ class TabManager: ObservableObject {
     /// chain, run synchronously after storage changed.
     func selectedWorkspaceIdDidChange(from oldValue: UUID?) {
             guard selectedTabId != oldValue else { return }
+            defer {
+                workspaceSwitchCoordinator.selectionDidCommit(
+                    from: oldValue,
+                    to: selectedTabId
+                )
+            }
             pendingProjectedNotificationFocusRequestID = nil
             if !isRestoringSessionSnapshot {
                 workspaces.expandWorkspaceGroupForSelectionIfNeeded()
@@ -424,8 +447,6 @@ class TabManager: ObservableObject {
         focusHistoryNavigation.shouldRecordFocusHistory
     }
     private var selectionSideEffectsGeneration: UInt64 = 0
-    private var workspaceCycleGeneration: UInt64 = 0
-    private var workspaceCycleCooldownTask: Task<Void, Never>?
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
     var sidebarSelectedWorkspaceIds: Set<UUID> { sidebarMultiSelection.selectedWorkspaceIds }
     private var currentWindowTabBarLeadingInset: CGFloat?
@@ -651,7 +672,6 @@ class TabManager: ObservableObject {
             NotificationCenter.default.removeObserver(observer)
         }
         observers.removeAll()
-        workspaceCycleCooldownTask?.cancel()
         agentPIDSweepTimer?.cancel()
         // The sidebar git/PR services cancel their own poll, probe, snapshot,
         // and refresh tasks in their deinits; they deallocate with this
@@ -3621,7 +3641,6 @@ class TabManager: ObservableObject {
         let nextId = tabs[nextIndex].id
         debugPrepareWorkspaceSwitch("next", from: currentId, to: nextId)
 #endif
-        activateWorkspaceCycleHotWindow()
         selectWorkspaceId(
             tabs[nextIndex].id,
             notificationDismissalContext: .explicitWorkspaceResume
@@ -3641,7 +3660,6 @@ class TabManager: ObservableObject {
         let prevId = tabs[prevIndex].id
         debugPrepareWorkspaceSwitch("prev", from: currentId, to: prevId)
 #endif
-        activateWorkspaceCycleHotWindow()
         selectWorkspaceId(
             tabs[prevIndex].id,
             notificationDismissalContext: .explicitWorkspaceResume
@@ -3660,67 +3678,6 @@ class TabManager: ObservableObject {
             to: workspaceId,
             isKnownWorkspace: tabs.contains(where: { $0.id == workspaceId })
         )
-    }
-
-    private func activateWorkspaceCycleHotWindow() {
-        workspaceCycleGeneration &+= 1
-        let generation = workspaceCycleGeneration
-#if DEBUG
-        let switchId = debugWorkspaceSwitchId
-        let switchDtMs = debugWorkspaceSwitchStartTime > 0
-            ? (CACurrentMediaTime() - debugWorkspaceSwitchStartTime) * 1000
-            : 0
-#endif
-        if !isWorkspaceCycleHot {
-            isWorkspaceCycleHot = true
-#if DEBUG
-            cmuxDebugLog(
-                "ws.hot.on id=\(switchId) gen=\(generation) dt=\(Self.debugMsText(switchDtMs))"
-            )
-#endif
-        }
-
-        let hadPendingCooldown = workspaceCycleCooldownTask != nil
-        workspaceCycleCooldownTask?.cancel()
-#if DEBUG
-        if hadPendingCooldown {
-            cmuxDebugLog(
-                "ws.hot.cancelPrev id=\(switchId) gen=\(generation) dt=\(Self.debugMsText(switchDtMs))"
-            )
-        }
-#endif
-        workspaceCycleCooldownTask = Task { [weak self, generation] in
-            do {
-                try await Task.sleep(nanoseconds: 220_000_000)
-            } catch {
-#if DEBUG
-                await MainActor.run {
-                    guard let self else { return }
-                    let dtMs = self.debugWorkspaceSwitchStartTime > 0
-                        ? (CACurrentMediaTime() - self.debugWorkspaceSwitchStartTime) * 1000
-                        : 0
-                    cmuxDebugLog(
-                        "ws.hot.cooldownCanceled id=\(self.debugWorkspaceSwitchId) gen=\(generation) dt=\(Self.debugMsText(dtMs))"
-                    )
-                }
-#endif
-                return
-            }
-            await MainActor.run {
-                guard let self else { return }
-                guard self.workspaceCycleGeneration == generation else { return }
-#if DEBUG
-                let dtMs = self.debugWorkspaceSwitchStartTime > 0
-                    ? (CACurrentMediaTime() - self.debugWorkspaceSwitchStartTime) * 1000
-                    : 0
-                cmuxDebugLog(
-                    "ws.hot.off id=\(self.debugWorkspaceSwitchId) gen=\(generation) dt=\(Self.debugMsText(dtMs))"
-                )
-#endif
-                self.isWorkspaceCycleHot = false
-                self.workspaceCycleCooldownTask = nil
-            }
-        }
     }
 
 #if DEBUG
@@ -3759,7 +3716,7 @@ class TabManager: ObservableObject {
         cmuxDebugLog(
             "ws.switch.begin id=\(debugWorkspaceSwitchId) trigger=\(trigger) " +
             "from=\(Self.debugShortWorkspaceId(from)) to=\(Self.debugShortWorkspaceId(to)) " +
-            "hot=\(isWorkspaceCycleHot ? 1 : 0) tabs=\(tabs.count)"
+            "tabs=\(tabs.count)"
         )
     }
 
@@ -6202,9 +6159,6 @@ extension TabManager {
         focusHistoryNavigation.reset()
         focusHistoryRevision &+= 1
         pendingWorkspaceUnfocusTarget = nil
-        workspaceCycleCooldownTask?.cancel()
-        workspaceCycleCooldownTask = nil
-        isWorkspaceCycleHot = false
         selectionSideEffectsGeneration &+= 1
         browserModel.clearRecentlyClosedBrowserPanels()
 
