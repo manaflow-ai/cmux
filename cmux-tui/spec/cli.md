@@ -1,6 +1,6 @@
 # Public CLI
 
-`cmux` exposes `cmux.protocol/1` as a noun-first CLI. The public command
+`cmux` exposes `cmux.protocol/2` as a noun-first CLI. The public command
 tree uses the same resource hierarchy and operation catalog as the handwritten
 SDKs. The private protocol-v10 command set is available only through the
 explicit `raw command` escape.
@@ -52,7 +52,7 @@ supplied ancestor is checked for containment before the operation runs.
 
 Run `cmux <resource> --help` for its exact paths and flags. Parser tests
 map every operational one-shot command and parameter in
-[`resource-operations-v1.json`](resource-operations-v1.json) to a public path.
+[`resource-operations-v2.json`](resource-operations-v2.json) to a public path.
 Sensitive renderer grants and connection-owned stream/viewer controls remain
 SDK and raw-only.
 
@@ -184,7 +184,7 @@ tab <selector> show|rename|move|focus|close
 tab <selector> terminal|browser ...
 
 terminal list
-terminal <selector> show|write|keys|mouse|copy|move|attach|close
+terminal <selector> show|write|keys|mouse|copy|move|project|attach|close
 terminal <selector> focus <in|out>
 terminal <selector> screen read|wait
 terminal <selector> state read
@@ -211,6 +211,10 @@ provider authority install
 ```
 
 Workspace creation starts with one terminal unless `--empty` is present.
+`terminal <selector> project` requires destination `--workspace`, `--screen`,
+`--pane`, and `--index` values and creates an unfocused tab placement. Tab,
+pane, screen, and workspace closes detach PTY views; only `terminal close`
+ends the session-owned process and removes all of its placements.
 `client <selector> metadata set` leaves an omitted field unchanged and clears
 one passed as null. A non-null name or kind preserves its exact value, contains
 at most 64 Unicode scalars, and contains no Unicode `Cc` control scalar.
@@ -249,7 +253,7 @@ cmux raw operation <dotted.name> [--params-json <object>]
 cmux raw command --request-json <private-protocol-object>
 ```
 
-`raw operation` sends a generic `cmux.protocol/1` request. Known operations
+`raw operation` sends a generic `cmux.protocol/2` request. Known operations
 still use their catalog class. `raw command` sends a private protocol-v10
 object and has no compatibility promise.
 

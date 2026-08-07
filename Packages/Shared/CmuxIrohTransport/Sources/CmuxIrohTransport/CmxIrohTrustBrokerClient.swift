@@ -25,6 +25,24 @@ public struct CmxIrohBrokerCredentials: Sendable, CustomStringConvertible,
     public var debugDescription: String { description }
 }
 
+/// One authenticated account and credential pair captured atomically.
+///
+/// Platform auth coordinators map their native session snapshot into this
+/// transport-owned value so account pinning and exactly-once rejection
+/// recovery stay identical on macOS and iOS.
+public struct CmxIrohAccountCredentialSnapshot: Sendable {
+    public let accountID: String
+    public let credentials: CmxIrohBrokerCredentials
+
+    public init(
+        accountID: String,
+        credentials: CmxIrohBrokerCredentials
+    ) {
+        self.accountID = accountID
+        self.credentials = credentials
+    }
+}
+
 /// Supplies the short-lived Stack credentials required by native API calls.
 ///
 /// The ONLY construction input is `credentialPair`, which must return BOTH
@@ -49,13 +67,85 @@ public struct CmxIrohBrokerTokenSource: Sendable {
     /// Both tokens from ONE snapshot, so a request can never mix an old access
     /// token with a rotated refresh token.
     public let credentialPair: @Sendable () async throws -> CmxIrohBrokerCredentials?
+    /// Replaces a pair the broker just rejected as unauthorized.
+    ///
+    /// A pair that was coherent at capture can still be rejected when another
+    /// lane rotates the session between capture and server validation (the
+    /// wake-time RPC force refresh, most commonly). Live sources force-mint
+    /// through their session owner and return the replacement pair; frozen
+    /// pinned sources (sign-out revocation) return nil so a destructive flow
+    /// never silently switches credentials. The client retries the rejected
+    /// request at most once with the recovered pair.
+    public let recoveredCredentialPair:
+        @Sendable (_ rejected: CmxIrohBrokerCredentials) async throws
+            -> CmxIrohBrokerCredentials?
 
     public init(
-        credentialPair: @escaping @Sendable () async throws -> CmxIrohBrokerCredentials?
+        credentialPair: @escaping @Sendable () async throws -> CmxIrohBrokerCredentials?,
+        recoveredCredentialPair: @escaping @Sendable (
+            _ rejected: CmxIrohBrokerCredentials
+        ) async throws -> CmxIrohBrokerCredentials? = { _ in nil }
     ) {
         self.credentialPair = credentialPair
+        self.recoveredCredentialPair = recoveredCredentialPair
         self.accessToken = { try await credentialPair()?.accessToken }
         self.refreshToken = { try await credentialPair()?.refreshToken }
+    }
+
+    /// Builds a live token source pinned to one account.
+    ///
+    /// A rejected pair first re-reads the atomic session snapshot. If another
+    /// lane already rotated it, that newer pair is reused. Otherwise the
+    /// platform auth owner is asked to refresh once, followed by one final
+    /// account-pinned snapshot. Account switches and missing sessions fail
+    /// closed throughout.
+    public static func accountPinned(
+        to expectedAccountID: String,
+        snapshot: @escaping @Sendable () async throws
+            -> CmxIrohAccountCredentialSnapshot?,
+        forceRefresh: @escaping @Sendable () async throws -> Void
+    ) -> Self {
+        Self(
+            credentialPair: {
+                guard let captured = try await snapshot(),
+                      captured.accountID == expectedAccountID else {
+                    return nil
+                }
+                return captured.credentials
+            },
+            recoveredCredentialPair: { rejected in
+                do {
+                    if let captured = try await snapshot(),
+                       captured.accountID == expectedAccountID,
+                       captured.credentials.accessToken != rejected.accessToken {
+                        return captured.credentials
+                    }
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    // A transient snapshot read can still be repaired by the
+                    // one explicit refresh below.
+                }
+                do {
+                    try await forceRefresh()
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    return nil
+                }
+                let refreshed: CmxIrohAccountCredentialSnapshot?
+                do {
+                    refreshed = try await snapshot()
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    return nil
+                }
+                guard let refreshed,
+                      refreshed.accountID == expectedAccountID else { return nil }
+                return refreshed.credentials
+            }
+        )
     }
 }
 
@@ -78,6 +168,8 @@ struct CmxIrohURLSessionTransport: CmxIrohHTTPTransport {
 }
 
 /// Authenticated client for endpoint registration, discovery, grants, and relay tokens.
+private struct DiscoverySnapshotChanged: Error {}
+
 public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private struct ConnectivitySyncRequest: Encodable {
         let protocolVersion: Int
@@ -403,6 +495,24 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     }
 
     private func discoverAllPages() async throws -> CmxIrohDiscoveryResponse {
+        for attempt in 0 ..< 3 {
+            do {
+                return try await discoverSnapshotAttempt()
+            } catch is DiscoverySnapshotChanged {
+                if attempt == 2 {
+                    throw CmxIrohTrustBrokerClientError.invalidResponse
+                }
+                // Older brokers expose discovery as optimistic pages. Restart
+                // immediately from page one when an account mutation makes
+                // those pages disagree. The next request captures the newly
+                // committed revision, so a timing delay would add no safety.
+                continue
+            }
+        }
+        throw CmxIrohTrustBrokerClientError.invalidResponse
+    }
+
+    private func discoverSnapshotAttempt() async throws -> CmxIrohDiscoveryResponse {
         var bindings: [CmxIrohBrokerBinding] = []
         var bindingIDs: Set<String> = []
         var seenCursors: Set<String> = []
@@ -419,12 +529,18 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             if let cursor {
                 queryItems.append(URLQueryItem(name: "cursor", value: cursor))
             }
-            let page: CmxIrohDiscoveryPage = try await performRequest(
-                path: "api/devices/iroh",
-                method: "GET",
-                body: nil,
-                queryItems: queryItems
-            )
+            let page: CmxIrohDiscoveryPage
+            do {
+                page = try await performRequest(
+                    path: "api/devices/iroh",
+                    method: "GET",
+                    body: nil,
+                    queryItems: queryItems
+                )
+            } catch let error as CmxIrohTrustBrokerClientError
+                where cursor != nil && Self.isStaleDiscoveryCursor(error) {
+                throw DiscoverySnapshotChanged()
+            }
             if let first {
                 guard page.discovery.routeContractVersion == first.routeContractVersion,
                       page.discovery.revision == first.revision,
@@ -432,7 +548,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
                       page.discovery.lanRendezvous == first.lanRendezvous,
                       page.discovery.grantVerificationKeys
                         == first.grantVerificationKeys else {
-                    throw CmxIrohTrustBrokerClientError.invalidResponse
+                    throw DiscoverySnapshotChanged()
                 }
             } else {
                 first = page.discovery
@@ -462,6 +578,13 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             lanRendezvous: first.lanRendezvous,
             grantVerificationKeys: first.grantVerificationKeys
         )
+    }
+
+    private static func isStaleDiscoveryCursor(
+        _ error: CmxIrohTrustBrokerClientError
+    ) -> Bool {
+        guard case let .rejected(statusCode, code) = error else { return false }
+        return statusCode == 409 && code == "discovery_cursor_stale"
     }
 
     private func sendUngated<Response: Decodable & Sendable, Body: Encodable>(
@@ -518,8 +641,55 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         guard let pair = capturedPair else {
             throw CmxIrohTrustBrokerClientError.missingAuthentication
         }
-        let accessToken = pair.accessToken
-        let refreshToken = pair.refreshToken
+        do {
+            return try await performAuthenticatedRequest(
+                path: path,
+                method: method,
+                body: body,
+                queryItems: queryItems,
+                credentials: pair
+            )
+        } catch let error as CmxIrohTrustBrokerClientError
+            where Self.isUnauthorizedRejection(error) {
+            // A pair that was coherent at capture can be rejected when another
+            // lane rotated the session before the server validated it. Recover
+            // ONCE with a pair minted after the rejection; a second rejection
+            // is authoritative and propagates.
+            let recovered: CmxIrohBrokerCredentials?
+            do {
+                recovered = try await tokenSource.recoveredCredentialPair(pair)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                throw CmxIrohTrustBrokerClientError.connectivity
+            }
+            guard let recovered else { throw error }
+            return try await performAuthenticatedRequest(
+                path: path,
+                method: method,
+                body: body,
+                queryItems: queryItems,
+                credentials: recovered
+            )
+        }
+    }
+
+    private static func isUnauthorizedRejection(
+        _ error: CmxIrohTrustBrokerClientError
+    ) -> Bool {
+        guard case let .rejected(statusCode, _) = error else { return false }
+        return statusCode == 401
+    }
+
+    private func performAuthenticatedRequest<Response: Decodable & Sendable>(
+        path: String,
+        method: String,
+        body: Data?,
+        queryItems: [URLQueryItem],
+        credentials: CmxIrohBrokerCredentials
+    ) async throws -> Response {
+        let accessToken = credentials.accessToken
+        let refreshToken = credentials.refreshToken
         guard Self.isSafeHeaderValue(accessToken), Self.isSafeHeaderValue(refreshToken) else {
             throw CmxIrohTrustBrokerClientError.invalidAuthentication
         }

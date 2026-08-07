@@ -36,6 +36,36 @@ import Testing
         #expect(coordinator.currentUser == nil)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func sessionIdentityStreamPublishesSignInAndImmediateSignOut() async throws {
+        let user = CMUXAuthUser(
+            id: "u1",
+            primaryEmail: "a@b.com",
+            displayName: "A"
+        )
+        let (coordinator, _) = makeCoordinator(
+            client: FakeAuthClient(user: user)
+        )
+        var identities = coordinator.authenticatedSessionIdentities()
+            .makeAsyncIterator()
+
+        let initial = await identities.next()
+        #expect(initial != nil)
+        #expect(initial! == nil)
+
+        try await coordinator.signInWithPassword(
+            email: "a@b.com",
+            password: "pw"
+        )
+        let signedIn = try #require(await identities.next())
+        #expect(signedIn?.accountID == user.id)
+
+        await coordinator.signOut()
+        let signedOut = await identities.next()
+        #expect(signedOut != nil)
+        #expect(signedOut! == nil)
+    }
+
     @Test func passwordSignInAuthenticatesAndCaches() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let client = FakeAuthClient(user: user)
@@ -48,6 +78,31 @@ import Testing
         #expect(store.bool(forKey: "has_tokens"))
         let recorded = await client.signedInWithCredential
         #expect(recorded?.email == "a@b.com")
+    }
+
+    @Test func emptyAccountIDNeverPublishesAnAuthenticatedIdentity() async throws {
+        let user = CMUXAuthUser(
+            id: "",
+            primaryEmail: "a@b.com",
+            displayName: "A"
+        )
+        let (coordinator, _) = makeCoordinator(
+            client: FakeAuthClient(user: user)
+        )
+
+        try await coordinator.signInWithPassword(
+            email: "a@b.com",
+            password: "pw"
+        )
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.authenticatedSessionIdentity == nil)
+        #expect(!coordinator.isAuthenticatedSessionIdentityCurrent(
+            AuthenticatedSessionIdentity(
+                generation: coordinator.authSessionGeneration,
+                accountID: ""
+            )
+        ))
     }
 
     @Test func everyAuthSessionTransitionClosesBeforeTheNextSessionPublishes() async throws {

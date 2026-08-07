@@ -132,17 +132,33 @@ extension CmxIrohHostRuntime {
         try validateLocalBinding(registration.binding, endpointID: expectedEndpointID)
         let discovery: CmxIrohDiscoveryResponse
         do {
-            if let embedded = registration.discovery {
+            if let embedded = registration.discovery,
+               registration.discoveryComplete == true {
                 guard let snapshotRevision = embedded.revision,
                       let registrationRevision = registration.revision,
                       snapshotRevision == registrationRevision,
                       snapshotRevision >= (authoritativeDiscovery?.revision ?? 0) else {
                     throw CmxIrohTrustBrokerClientError.invalidResponse
                 }
-                authoritativeDiscovery = embedded
-                discovery = embedded
+                if embedded.bindings.contains(where: {
+                    $0.bindingID == registration.binding.bindingID
+                }) {
+                    authoritativeDiscovery = embedded
+                    discovery = embedded
+                } else {
+                    // Legacy registration responses embed only the first
+                    // discovery page. Once an account has enough dev builds,
+                    // the binding just registered can land on a later page.
+                    // Resolve the complete snapshot instead of misclassifying
+                    // pagination as a replaced local identity.
+                    discovery = try await discoverAuthoritatively(
+                        minimumRevision: registration.revision
+                    )
+                }
             } else {
-                discovery = try await discoverAuthoritatively()
+                discovery = try await discoverAuthoritatively(
+                    minimumRevision: registration.revision
+                )
             }
         } catch {
             return try cachedPolicy(
@@ -190,10 +206,15 @@ extension CmxIrohHostRuntime {
         )
     }
 
-    func discoverAuthoritatively() async throws -> CmxIrohDiscoveryResponse {
+    func discoverAuthoritatively(
+        minimumRevision: UInt64? = nil
+    ) async throws -> CmxIrohDiscoveryResponse {
         let discovery = try await CmxAuthoritativeDiscoveryResolver(
             broker: broker
-        ).resolve(cached: authoritativeDiscovery)
+        ).resolve(
+            cached: authoritativeDiscovery,
+            minimumRevision: minimumRevision
+        )
         authoritativeDiscovery = discovery
         return discovery
     }
@@ -459,7 +480,10 @@ extension CmxIrohHostRuntime {
             await handleRoute(policy.binding, policy.routePathHints)
             try requireCurrent(revision)
             if let routeRevision = discovery.revision {
-                await connectivityEngine.didInstallRouteRevision(routeRevision)
+                await connectivityEngine.didInstallRouteRevision(
+                    routeRevision,
+                    routes: discovery
+                )
             }
             scheduleLANPublication(
                 binding: policy.binding,

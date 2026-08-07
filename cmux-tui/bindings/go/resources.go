@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/wirev1"
+	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/wirev2"
 )
 
 type MachineSnapshot struct {
@@ -420,8 +420,11 @@ func (s TabSnapshot) MarshalJSON() ([]byte, error) {
 }
 
 type TerminalSnapshot struct {
-	ID        TerminalID           `json:"id"`
-	TabID     TabID                `json:"tab_id"`
+	ID    TerminalID `json:"id"`
+	TabID *TabID     `json:"tab_id"`
+	// legacyoptional lets protocol-1 decoders synthesize this field while
+	// encoding/json continues to emit it for current peers.
+	TabIDs    []TabID              `json:"tab_ids,legacyoptional"`
 	Title     string               `json:"title"`
 	CWD       *string              `json:"cwd,omitempty"`
 	Cols      uint16               `json:"cols"`
@@ -897,15 +900,15 @@ func (r resourceRoute) withSidebarView(value Selector[SidebarViewID]) resourceRo
 }
 func (r resourceRoute) params() map[string]any {
 	result := make(map[string]any, 12)
-	addSelector(result, wirev1.FieldMachine, r.machine)
-	addSelector(result, wirev1.FieldSession, r.session)
-	addSelector(result, wirev1.FieldWorkspace, r.workspace)
-	addSelector(result, wirev1.FieldScreen, r.screen)
-	addSelector(result, wirev1.FieldPane, r.pane)
-	addSelector(result, wirev1.FieldTab, r.tab)
-	addSelector(result, wirev1.FieldTerminal, r.terminal)
-	addSelector(result, wirev1.FieldBrowser, r.browser)
-	addSelector(result, wirev1.FieldClient, r.connectedClient)
+	addSelector(result, wirev2.FieldMachine, r.machine)
+	addSelector(result, wirev2.FieldSession, r.session)
+	addSelector(result, wirev2.FieldWorkspace, r.workspace)
+	addSelector(result, wirev2.FieldScreen, r.screen)
+	addSelector(result, wirev2.FieldPane, r.pane)
+	addSelector(result, wirev2.FieldTab, r.tab)
+	addSelector(result, wirev2.FieldTerminal, r.terminal)
+	addSelector(result, wirev2.FieldBrowser, r.browser)
+	addSelector(result, wirev2.FieldClient, r.connectedClient)
 	addSelector(result, "pairing_request", r.pairingRequest)
 	addSelector(result, "frontend_projection", r.projection)
 	addSelector(result, "sidebar_view", r.sidebarView)
@@ -1118,7 +1121,7 @@ func (p *FrontendProjection) cache(value FrontendProjectionSnapshot) error {
 
 func (m *Machine) Refresh(ctx context.Context) (MachineSnapshot, error) {
 	var snapshot MachineSnapshot
-	if err := m.client.readResource(ctx, wirev1.MachineGet, m.route.params(), &snapshot); err != nil {
+	if err := m.client.readResource(ctx, wirev2.MachineGet, m.route.params(), &snapshot); err != nil {
 		return MachineSnapshot{}, err
 	}
 	m.mu.Lock()
@@ -1128,7 +1131,7 @@ func (m *Machine) Refresh(ctx context.Context) (MachineSnapshot, error) {
 }
 func (s *Session) Refresh(ctx context.Context) (SessionSnapshot, error) {
 	var snapshot SessionSnapshot
-	if err := s.client.readResource(ctx, wirev1.SessionGet, s.route.params(), &snapshot); err != nil {
+	if err := s.client.readResource(ctx, wirev2.SessionGet, s.route.params(), &snapshot); err != nil {
 		return SessionSnapshot{}, err
 	}
 	s.mu.Lock()
@@ -1138,7 +1141,7 @@ func (s *Session) Refresh(ctx context.Context) (SessionSnapshot, error) {
 }
 func (w *Workspace) Refresh(ctx context.Context) (WorkspaceSnapshot, error) {
 	var snapshot WorkspaceSnapshot
-	if err := w.client.readResource(ctx, wirev1.WorkspaceGet, w.route.params(), &snapshot); err != nil {
+	if err := w.client.readResource(ctx, wirev2.WorkspaceGet, w.route.params(), &snapshot); err != nil {
 		return WorkspaceSnapshot{}, err
 	}
 	w.mu.Lock()
@@ -1148,7 +1151,7 @@ func (w *Workspace) Refresh(ctx context.Context) (WorkspaceSnapshot, error) {
 }
 func (s *Screen) Refresh(ctx context.Context) (ScreenSnapshot, error) {
 	var snapshot ScreenSnapshot
-	if err := s.client.readResource(ctx, wirev1.ScreenGet, s.route.params(), &snapshot); err != nil {
+	if err := s.client.readResource(ctx, wirev2.ScreenGet, s.route.params(), &snapshot); err != nil {
 		return ScreenSnapshot{}, err
 	}
 	s.mu.Lock()
@@ -1158,7 +1161,7 @@ func (s *Screen) Refresh(ctx context.Context) (ScreenSnapshot, error) {
 }
 func (p *Pane) Refresh(ctx context.Context) (PaneSnapshot, error) {
 	var snapshot PaneSnapshot
-	if err := p.client.readResource(ctx, wirev1.PaneGet, p.route.params(), &snapshot); err != nil {
+	if err := p.client.readResource(ctx, wirev2.PaneGet, p.route.params(), &snapshot); err != nil {
 		return PaneSnapshot{}, err
 	}
 	p.mu.Lock()
@@ -1168,7 +1171,7 @@ func (p *Pane) Refresh(ctx context.Context) (PaneSnapshot, error) {
 }
 func (t *Tab) Refresh(ctx context.Context) (TabSnapshot, error) {
 	var snapshot TabSnapshot
-	if err := t.client.readResource(ctx, wirev1.TabGet, t.route.params(), &snapshot); err != nil {
+	if err := t.client.readResource(ctx, wirev2.TabGet, t.route.params(), &snapshot); err != nil {
 		return TabSnapshot{}, err
 	}
 	t.mu.Lock()
@@ -1178,7 +1181,7 @@ func (t *Tab) Refresh(ctx context.Context) (TabSnapshot, error) {
 }
 func (t *Terminal) Refresh(ctx context.Context) (TerminalSnapshot, error) {
 	var snapshot TerminalSnapshot
-	if err := t.client.readResource(ctx, wirev1.TerminalGet, t.route.params(), &snapshot); err != nil {
+	if err := t.client.readResource(ctx, wirev2.TerminalGet, t.route.params(), &snapshot); err != nil {
 		return TerminalSnapshot{}, err
 	}
 	t.mu.Lock()
@@ -1188,7 +1191,7 @@ func (t *Terminal) Refresh(ctx context.Context) (TerminalSnapshot, error) {
 }
 func (b *Browser) Refresh(ctx context.Context) (BrowserSnapshot, error) {
 	var snapshot BrowserSnapshot
-	if err := b.client.readResource(ctx, wirev1.BrowserGet, b.route.params(), &snapshot); err != nil {
+	if err := b.client.readResource(ctx, wirev2.BrowserGet, b.route.params(), &snapshot); err != nil {
 		return BrowserSnapshot{}, err
 	}
 	b.mu.Lock()
@@ -1197,7 +1200,7 @@ func (b *Browser) Refresh(ctx context.Context) (BrowserSnapshot, error) {
 	return snapshot, nil
 }
 
-func (c *Client) readResource(ctx context.Context, operation wirev1.Operation, params map[string]any, target any) error {
+func (c *Client) readResource(ctx context.Context, operation wirev2.Operation, params map[string]any, target any) error {
 	var raw json.RawMessage
 	if err := c.do(ctx, operation, params, "", &raw); err != nil {
 		return err
@@ -1323,7 +1326,7 @@ func validateRequiredJSON(
 			}
 			optional := false
 			for _, option := range parts[1:] {
-				if option == "omitempty" || option == "omitzero" {
+				if option == "omitempty" || option == "omitzero" || option == "legacyoptional" {
 					optional = true
 				}
 			}

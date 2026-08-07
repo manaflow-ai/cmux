@@ -37,7 +37,7 @@ from .models import Cursor, StreamEnd, StreamItem
 from .transport import JsonLineConnection
 
 
-PROTOCOL = "cmux.protocol/1"
+PROTOCOL = "cmux.protocol/2"
 MAX_REQUEST_BYTES = 4 * 1024 * 1024
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 MAX_STREAM_MESSAGES = 256
@@ -123,6 +123,7 @@ class _Pending:
     value: Optional[Mapping[str, Any]] = None
     error: Optional[BaseException] = None
     on_resource_error: Optional[Callable[[], None]] = None
+    abandoned_result_decoder: Optional[Callable[[Any], Any]] = None
     abandoned_error: Optional[BaseException] = None
     response_received: bool = False
     cleanup_started: bool = False
@@ -408,6 +409,7 @@ class ProtocolConnection:
         _on_dispatched: Optional[Callable[[], None]] = None,
         _on_send_error: Optional[Callable[[BaseException], None]] = None,
         _on_resource_error: Optional[Callable[[], None]] = None,
+        _abandoned_result_decoder: Optional[Callable[[Any], Any]] = None,
         _bounded_dispatch: bool = False,
         _dispatch_guard: Optional[Callable[[], bool]] = None,
         _skip_request_cleanup_gate: bool = False,
@@ -448,6 +450,7 @@ class ProtocolConnection:
         pending = _Pending(
             threading.Event(),
             on_resource_error=_on_resource_error,
+            abandoned_result_decoder=_abandoned_result_decoder,
         )
         claimed_dispatch = False
         with self._request_cleanup_condition:
@@ -625,6 +628,7 @@ class ProtocolConnection:
                 with self._lock:
                     response_received = pending.response_received
                     response_error = pending.error
+                    response_value = pending.value
                 if not response_received:
                     if response_error is not None:
                         raise response_error
@@ -632,6 +636,15 @@ class ProtocolConnection:
                         "request cancellation did not receive the completed "
                         "target response"
                     )
+                if response_error is None:
+                    if response_value is None:
+                        raise ProtocolError(
+                            "request cancellation received no completed "
+                            "target response value"
+                        )
+                    result = _decode_response(response_value)
+                    if pending.abandoned_result_decoder is not None:
+                        pending.abandoned_result_decoder(result)
         except BaseException as error:
             if not self.closed:
                 failure: BaseException
@@ -873,18 +886,21 @@ class ProtocolConnection:
                 response_error = error
             request_id = envelope["id"]
             assert isinstance(request_id, str)
+            # Response state, wakeup, and route removal are published under
+            # one lock so a simultaneous local deadline cannot observe an
+            # absent route before the typed response is available.
             with self._lock:
-                pending = self._pending.pop(request_id, None)
+                pending = self._pending.get(request_id)
                 if pending is not None:
                     pending.response_received = True
-            if pending is not None:
-                if response_error is not None:
-                    if pending.on_resource_error is not None:
-                        pending.on_resource_error()
-                    pending.error = response_error
-                else:
-                    pending.value = envelope
-                pending.event.set()
+                    if response_error is not None:
+                        if pending.on_resource_error is not None:
+                            pending.on_resource_error()
+                        pending.error = response_error
+                    else:
+                        pending.value = envelope
+                    pending.event.set()
+                    self._pending.pop(request_id, None)
             return
         if envelope_type in {"stream_item", "stream_end"}:
             raw_stream_id = envelope.get("stream_id")

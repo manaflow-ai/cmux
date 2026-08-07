@@ -1,4 +1,4 @@
-import type { Id, Layout } from "cmux/browser";
+import type { Id, Layout } from "cmux/raw";
 
 export type PaneLayoutView =
   | { type: "pane"; pane: Id }

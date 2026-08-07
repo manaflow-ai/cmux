@@ -184,16 +184,17 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
         replacePanels(in: workspaceID, with: descriptors)
     }
 
+    /// Registers a panel the Mac just created on the phone's behalf, so it can
+    /// be activated and streamed before any discovery refresh lands.
+    /// - Parameter descriptor: The descriptor returned by the create request.
+    public func browserPanelCreated(_ descriptor: MobileBrowserPanelDescriptor) {
+        upsertPanel(descriptor)
+    }
+
     /// Reconciles the descriptor returned by a successful start request.
     /// - Parameter descriptor: The descriptor accepted by the Mac.
     public func browserStreamDidStart(_ descriptor: MobileBrowserPanelDescriptor) {
-        var descriptors = panels(in: descriptor.workspaceID)
-        if let index = descriptors.firstIndex(where: { $0.panelID == descriptor.panelID }) {
-            descriptors[index] = descriptor
-        } else {
-            descriptors.append(descriptor)
-        }
-        replacePanels(in: descriptor.workspaceID, with: descriptors)
+        upsertPanel(descriptor)
         guard let state = statesByPanel[descriptor.panelID] else { return }
         state.connectionStatus = .connected
         if state.streamStatus != .streaming {
@@ -313,6 +314,16 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
             descriptorsByWorkspace[workspaceID] = descriptors.filter { $0.panelID != event.panelID }
         }
         return event.panelID
+    }
+
+    private func upsertPanel(_ descriptor: MobileBrowserPanelDescriptor) {
+        var descriptors = panels(in: descriptor.workspaceID)
+        if let index = descriptors.firstIndex(where: { $0.panelID == descriptor.panelID }) {
+            descriptors[index] = descriptor
+        } else {
+            descriptors.append(descriptor)
+        }
+        replacePanels(in: descriptor.workspaceID, with: descriptors)
     }
 
     private func installDialog(_ dialog: MobileBrowserDialogEvent) {
