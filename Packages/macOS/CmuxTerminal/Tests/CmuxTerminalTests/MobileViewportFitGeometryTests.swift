@@ -36,6 +36,18 @@ struct MobileViewportFitGeometryTests {
         #expect(font == 7.5)
     }
 
+    @Test func narrowPaneForMobileViewerShrinksBelowLegibilityFloor() {
+        // A narrow Mac pane (e.g. a half-screen window) mirroring a wide phone in
+        // landscape needs a sub-6pt runtime font to fit the phone's full column
+        // grant. The Mac is not being read here — the viewer is on the phone — so
+        // fitting must shrink past the old 6pt legibility floor to grant the
+        // phone's full width instead of letterboxing it. 300px / (90 cols * 10px)
+        // = 1/3, so the target is base(12) * 1/3 = 4pt, below the old floor.
+        let font = geometry(paneWidthPx: 300, paneHeightPx: 10_000, cellWidthPx: 10, cellHeightPx: 20)
+            .targetFontPointSize(baseFontPointSize: 12, currentFontPointSize: 12, columns: 90, rows: 24)
+        #expect(font == 4)
+    }
+
     @Test func floorClampAndPerAxisFallbackCapTheGrant() {
         let target = geometry(paneWidthPx: 300, paneHeightPx: 120, cellWidthPx: 10, cellHeightPx: 20)
             .targetFontPointSize(

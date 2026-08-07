@@ -1,27 +1,21 @@
 public import CmuxCore
 public import Dispatch
-internal import Darwin
 internal import Foundation
 
-/// Shares one daemon proxy tunnel per remote transport across all
-/// subscribers: entries are keyed by the configuration's transport key, each
-/// subscriber holds a ``RemoteProxyLease``, and the entry restarts its tunnel
-/// with exponential backoff (3s doubling, capped at 60s) until the last lease
-/// is released.
+/// Shares one daemon proxy tunnel per remote transport across all subscribers.
+/// Each subscriber holds a ``RemoteProxyLease``; the entry restarts its tunnel
+/// with exponential backoff until the last lease is released and its final
+/// in-flight ready-tunnel operation returns.
 ///
-/// Faithful lift of the legacy `WorkspaceRemoteProxyBroker` minus its
-/// `static let shared` singleton: the app constructs one instance and injects
-/// it (``RemoteProxyBrokering``) into each remote session controller.
-///
+/// The app injects one instance into each remote session controller.
 /// Isolation design: every mutable property (`entries` and the per-entry
 /// state) is confined to the private serial `queue`. Mutators are the public
 /// API (caller threads bridged with the legacy blocking `queue.sync`,
 /// load-bearing because session controllers need synchronous results and the
 /// initial `acquire` update must be delivered before it returns), lease
 /// releases (hopped onto `queue`), tunnel failure callbacks (hopped onto
-/// `queue`), and restart-backoff task wakeups (hopped onto `queue`). An actor
-/// would make the synchronous `acquire`/PTY contracts impossible without
-/// semaphores. `@unchecked Sendable` because `@Sendable` restart tasks and
+/// `queue`), and restart-backoff task wakeups. An actor would make synchronous
+/// `acquire`/PTY contracts impossible without semaphores. `@unchecked Sendable` because `@Sendable` restart tasks and
 /// tunnel callbacks capture `self`; queue confinement is the safety argument.
 ///
 /// Deliberate delta from the legacy broker: the restart backoff used
@@ -41,6 +35,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         var restartRetryCount = 0
         var ptyLifecycleSnapshot: RemotePTYLifecycleSnapshot?
         var subscribers: [UUID: @Sendable (RemoteProxyBrokerUpdate) -> Void] = [:]
+        var activeReadyTunnelOperationCount = 0
 
         init(configuration: WorkspaceRemoteConfiguration, remotePath: String) {
             self.configuration = configuration
@@ -52,8 +47,11 @@ public final class RemoteProxyBroker: @unchecked Sendable {
     private let clock: any RemoteProxyRetryClock
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.proxy-broker", qos: .utility)
     private var entries: [String: Entry] = [:]
-    private var ptyLifecycleOwners: [RemotePTYLifecycleKey: String] = [:]
+    private var ptyLifecycleOwnership = RemotePTYLifecycleOwnershipRegistry()
 
+    var currentPTYLifecycleByAttachment: [RemotePTYAttachmentKey: RemotePTYLifecycleKey] {
+        queue.sync { ptyLifecycleOwnership.currentByAttachment }
+    }
     /// Creates a broker.
     ///
     /// - Parameters:
@@ -119,7 +117,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
 
     /// Closes a persistent PTY session through the ready tunnel.
     ///
-    /// The broker queue is used only to retain the tunnel; the potentially
+    /// The broker queue is used only to pin the tunnel; the potentially
     /// blocking cleanup runs after that queue is released.
     ///
     /// - Parameters:
@@ -131,12 +129,9 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         sessionID: String,
         deadline: DispatchTime
     ) throws {
-        let tunnel = try queue.sync {
-            let key = Self.transportKey(for: configuration)
-            guard let tunnel = entries[key]?.tunnel else { throw Self.ptyTunnelNotReadyError() }
-            return tunnel
+        try withReadyTunnel(configuration: configuration) { tunnel in
+            try tunnel.closePTY(sessionID: sessionID, deadline: deadline)
         }
-        try tunnel.closePTY(sessionID: sessionID, deadline: deadline)
     }
 
     /// Returns the shared lifecycle for one logical PTY attach generation.
@@ -178,20 +173,97 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             } else {
                 throw Self.ptyTunnelNotReadyError()
             }
-            ptyLifecycleOwners.removeValue(
-                forKey: RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
-            )
+            let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+            ptyLifecycleOwnership.acknowledge(lifecycleKey)
         }
     }
 
-    /// Enqueues retirement against the exact transport that accepted this
-    /// lifecycle, surviving coordinator shutdown without blocking its caller.
-    public func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) {
+    /// Returns the broker-owned transport attachment for a current generation.
+    public func currentPTYLifecycleOwner(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleOwner? {
         let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+        // Lifecycle ownership is part of the broker's existing queue-confined
+        // registry; this one-shot readiness lookup does not cross into UI work.
+        return queue.sync {
+            ptyLifecycleOwnership.currentOwner(lifecycleKey)
+        }
+    }
+
+    /// Returns the broker owner that a wrapper-end callback must match.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    /// - Returns: The owner that must still match at claim time, or `nil` when
+    ///   the lifecycle is unknown.
+    public func ptyLifecycleOwnerForWrapperEnd(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleWrapperEndOwner? {
+        let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+        return queue.sync {
+            ptyLifecycleOwnership.ownerForWrapperEnd(lifecycleKey)
+        }
+    }
+
+    /// Claims a generation and enqueues retirement against its exact ownership.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    /// - Returns: The exact retired ownership, or `nil` when it is unknown.
+    @discardableResult
+    public func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleWrapperEndClaim? {
+        claimPTYLifecycleAfterWrapperEnd(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID,
+            expectedOwner: nil
+        )
+    }
+
+    /// Claims a generation only if its ownership still matches the caller's
+    /// already-validated transport and attachment.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    ///   - expectedOwner: The transport and attachment validated by the caller.
+    /// - Returns: The exact retired ownership, or `nil` if ownership changed.
+    @discardableResult
+    public func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String,
+        expectedOwner: RemotePTYLifecycleWrapperEndOwner
+    ) -> RemotePTYLifecycleWrapperEndClaim? {
+        claimPTYLifecycleAfterWrapperEnd(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID,
+            expectedOwner: Optional(expectedOwner)
+        )
+    }
+
+    private func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String,
+        expectedOwner: RemotePTYLifecycleWrapperEndOwner?
+    ) -> RemotePTYLifecycleWrapperEndClaim? {
+        let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+        // Claiming must stay ordered with the broker's other queue-confined
+        // lifecycle mutations; cleanup is enqueued only after this sync returns.
+        let claim = queue.sync {
+            ptyLifecycleOwnership.claimAfterWrapperEnd(
+                lifecycleKey,
+                expectedOwner: expectedOwner
+            )
+        }
+        guard let claim else { return nil }
         queue.async { [weak self] in
-            guard let self,
-                  let ownerKey = self.ptyLifecycleOwners.removeValue(forKey: lifecycleKey),
-                  let entry = self.entries[ownerKey] else { return }
+            guard let self, let entry = self.entries[claim.transportKey] else { return }
             if let tunnel = entry.tunnel {
                 _ = tunnel.acknowledgePTYLifecycleIfKnown(
                     sessionID: lifecycleKey.sessionID,
@@ -205,6 +277,19 @@ public final class RemoteProxyBroker: @unchecked Sendable {
                 entry.ptyLifecycleSnapshot = snapshot
             }
         }
+        return claim
+    }
+
+    /// Claims a generation and reports whether it was current.
+    @discardableResult
+    public func acknowledgePTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String
+    ) -> Bool {
+        claimPTYLifecycleAfterWrapperEnd(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID
+        )?.wasCurrent == true
     }
 
     /// Resizes a PTY attachment through the ready tunnel.
@@ -256,6 +341,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             let ownerKey = Self.transportKey(for: configuration)
             guard let tunnel = entries[ownerKey]?.tunnel else { throw Self.ptyTunnelNotReadyError() }
             let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+            let attachmentKey = RemotePTYAttachmentKey(transportKey: ownerKey, attachmentID: attachmentID)
             let endpoint = try tunnel.startPTYBridge(
                 sessionID: sessionID,
                 lifecycleID: lifecycleID,
@@ -265,11 +351,18 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             ) { [weak self] in
                 guard let self else { return }
                 self.queue.async {
-                    guard self.ptyLifecycleOwners[lifecycleKey] == ownerKey else { return }
-                    self.ptyLifecycleOwners.removeValue(forKey: lifecycleKey)
+                    self.ptyLifecycleOwnership.recordEnded(
+                        lifecycleKey: lifecycleKey,
+                        transportKey: ownerKey,
+                        attachmentKey: attachmentKey
+                    )
                 }
             }
-            ptyLifecycleOwners[lifecycleKey] = ownerKey
+            ptyLifecycleOwnership.register(
+                lifecycleKey: lifecycleKey,
+                transportKey: ownerKey,
+                attachmentKey: attachmentKey
+            )
             return endpoint
         }
     }
@@ -278,13 +371,32 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         configuration: WorkspaceRemoteConfiguration,
         _ body: (any RemoteProxyTunneling) throws -> T
     ) throws -> T {
-        try queue.sync {
+        let (key, entry, tunnel) = try queue.sync {
             let key = Self.transportKey(for: configuration)
             guard let entry = entries[key], let tunnel = entry.tunnel else {
                 throw Self.ptyTunnelNotReadyError()
             }
-            return try body(tunnel)
+            entry.activeReadyTunnelOperationCount += 1
+            return (key, entry, tunnel)
         }
+        defer {
+            queue.sync {
+                finishReadyTunnelOperationLocked(key: key, entry: entry)
+            }
+        }
+        return try body(tunnel)
+    }
+
+    private func finishReadyTunnelOperationLocked(key: String, entry: Entry) {
+        guard entry.activeReadyTunnelOperationCount > 0 else { return }
+        entry.activeReadyTunnelOperationCount -= 1
+        guard entry.activeReadyTunnelOperationCount == 0,
+              entry.subscribers.isEmpty,
+              let currentEntry = entries[key],
+              currentEntry === entry else {
+            return
+        }
+        teardownEntryLocked(key: key, entry: entry)
     }
 
     internal func release(key: String, subscriberID: UUID) {
@@ -292,6 +404,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             guard let self, let entry = self.entries[key] else { return }
             entry.subscribers.removeValue(forKey: subscriberID)
             guard entry.subscribers.isEmpty else { return }
+            guard entry.activeReadyTunnelOperationCount == 0 else { return }
             self.teardownEntryLocked(key: key, entry: entry)
         }
     }
@@ -405,7 +518,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         cancelRestartLocked(entry)
         stopEntryRuntimeLocked(entry, preservePTYLifecycle: false)
         entries.removeValue(forKey: key)
-        ptyLifecycleOwners = ptyLifecycleOwners.filter { $0.value != key }
+        ptyLifecycleOwnership.removeAll(forTransportKey: key)
     }
 
     private func stopEntryRuntimeLocked(_ entry: Entry, preservePTYLifecycle: Bool) {
@@ -435,47 +548,6 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         NSError(domain: "cmux.remote.pty", code: 40, userInfo: [
             NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
         ])
-    }
-
-    /// Binds an ephemeral loopback TCP socket to discover a free port (pure
-    /// Darwin socket utility; no broker state).
-    private static func allocateLoopbackPort() -> Int? {
-        for _ in 0..<8 {
-            let fd = socket(AF_INET, SOCK_STREAM, 0)
-            guard fd >= 0 else { return nil }
-            defer { close(fd) }
-
-            var yes: Int32 = 1
-            setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
-
-            var addr = sockaddr_in()
-            addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-            addr.sin_family = sa_family_t(AF_INET)
-            addr.sin_port = in_port_t(0)
-            addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-
-            let bindResult = withUnsafePointer(to: &addr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
-                }
-            }
-            guard bindResult == 0 else { continue }
-
-            var bound = sockaddr_in()
-            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
-            let nameResult = withUnsafeMutablePointer(to: &bound) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    getsockname(fd, sockaddrPtr, &len)
-                }
-            }
-            guard nameResult == 0 else { continue }
-
-            let port = Int(UInt16(bigEndian: bound.sin_port))
-            if port > 0 && port <= 65535 {
-                return port
-            }
-        }
-        return nil
     }
 
     private static func retrySuffix(delay: TimeInterval) -> String {

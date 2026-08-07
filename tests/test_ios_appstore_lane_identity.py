@@ -4,14 +4,18 @@
 from __future__ import annotations
 
 import base64
+import http.server
 import json
 import os
 import plistlib
+import re
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
+import threading
+import urllib.parse
 import zipfile
 from pathlib import Path
 
@@ -23,6 +27,8 @@ APPSTORE_APP_ID = f"{TEAM_ID}.{APPSTORE_BUNDLE_ID}"
 BETA_BUNDLE_ID = "dev.cmux.app.beta"
 BETA_APP_ID = f"{TEAM_ID}.{BETA_BUNDLE_ID}"
 ASC_APP_ID = "6783338052"
+ASC_VERSION_ID = "version-1.0.0"
+ASC_BUILD_ID = "build-1.0.0"
 IDENTITY = f"Apple Distribution: Manaflow, Inc. ({TEAM_ID})"
 APPSTORE_MARKETING_VERSION = "1.0.0"
 BETA_MARKETING_VERSION = "1.0.4"
@@ -55,6 +61,7 @@ def _profile_plist(
             "com.apple.developer.team-identifier": TEAM_ID,
             "get-task-allow": False,
             "aps-environment": "production",
+            "com.apple.developer.usernotifications.time-sensitive": True,
             "com.apple.developer.applesignin": ["Default"],
             "keychain-access-groups": [app_id],
         },
@@ -69,6 +76,7 @@ def _write_executable(path: Path, body: str) -> None:
 def _install_fake_tools(fakebin: Path) -> None:
     fakebin.mkdir(parents=True, exist_ok=True)
     common = f"""
+import os
 import plistlib
 from pathlib import Path
 
@@ -90,9 +98,13 @@ APPSTORE_PROFILE = {_profile_plist()!r}
 BETA_PROFILE = {_profile_plist(BETA_BUNDLE_ID, "cmux Beta Distribution Test")!r}
 
 def profile_for_bundle(bundle_id):
-    if bundle_id == BETA_BUNDLE_ID:
-        return BETA_PROFILE
-    return APPSTORE_PROFILE
+    source = BETA_PROFILE if bundle_id == BETA_BUNDLE_ID else APPSTORE_PROFILE
+    if os.environ.get("CMUX_FAKE_PROFILE_MISSING_TIME_SENSITIVE") != "1":
+        return source
+    profile = dict(source)
+    profile["Entitlements"] = dict(source["Entitlements"])
+    profile["Entitlements"].pop("com.apple.developer.usernotifications.time-sensitive", None)
+    return profile
 
 def bundle_id_for_target(path):
     target = Path(path)
@@ -160,6 +172,10 @@ if command.startswith("Print "):
     value = get(plist, command.removeprefix("Print ").strip())
     if isinstance(value, (dict, list)):
         sys.stdout.buffer.write(plistlib.dumps(value, fmt=plistlib.FMT_XML))
+    elif isinstance(value, bool):
+        # Match /usr/libexec/PlistBuddy exactly. Python's default `True` /
+        # `False` spelling would make the signing gate fail only in tests.
+        print("true" if value else "false")
     else:
         print(value)
     raise SystemExit(0)
@@ -292,6 +308,7 @@ if "archive" in args:
     bundle_id = setting("PRODUCT_BUNDLE_IDENTIFIER=")
     build_number = setting("CURRENT_PROJECT_VERSION=") or "1"
     marketing_version = setting("MARKETING_VERSION=") or {BETA_MARKETING_VERSION!r}
+    crash_reporting_enabled = setting("CMUX_CRASH_REPORTING_ENABLED=") or "YES"
     app = archive / "Products" / "Applications" / "cmux.app"
     write_plist(
         archive / "Info.plist",
@@ -306,11 +323,15 @@ if "archive" in args:
     write_plist(
         app / "Info.plist",
         {{
+            "CFBundleExecutable": "cmux",
             "CFBundleIdentifier": bundle_id,
             "CFBundleVersion": build_number,
             "CFBundleShortVersionString": marketing_version,
+            "CMUXCrashReportingEnabled": crash_reporting_enabled,
         }},
     )
+    # upload-testflight.sh refuses archives without dSYM bundles.
+    (archive / "dSYMs" / "cmux.app.dSYM" / "Contents").mkdir(parents=True, exist_ok=True)
     sys.exit(0)
 
 if "-exportArchive" in args:
@@ -324,12 +345,26 @@ if "-exportArchive" in args:
     payload_root = export_path / "Payload"
     app = payload_root / "cmux.app"
     write_plist(app / "Info.plist", archived_info)
+    if os.environ.get("CMUX_FAKE_EMBED_INVALID_FRAMEWORK_SHELL") == "1":
+        write_plist(
+            app / "Frameworks" / "Iroh.framework" / "Info.plist",
+            {{
+                "CFBundleIdentifier": "computer.iroh.Iroh",
+                "CFBundlePackageType": "FMWK",
+            }},
+        )
     profile_marker = "beta profile" if bundle_id == BETA_BUNDLE_ID else "fake profile"
     (app / "embedded.mobileprovision").write_text(profile_marker, encoding="utf-8")
+    # upload-testflight.sh refuses IPAs without Symbols/*.symbols.
+    symbols_root = export_path / "Symbols"
+    symbols_root.mkdir(parents=True, exist_ok=True)
+    (symbols_root / "cmux.symbols").write_text("fake symbols", encoding="utf-8")
     ipa = export_path / "cmux.ipa"
     ipa.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(ipa, "w") as zf:
         for item in payload_root.rglob("*"):
+            zf.write(item, item.relative_to(export_path))
+        for item in symbols_root.rglob("*"):
             zf.write(item, item.relative_to(export_path))
     sys.exit(0)
 
@@ -375,7 +410,7 @@ if args[:3] == ["find-identity", "-v", "-p"]:
     print(f'  1) ABCDEF "{{IDENTITY}}"')
     sys.exit(0)
 if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
-    profile = APPSTORE_PROFILE
+    profile = profile_for_bundle(APPSTORE_BUNDLE_ID)
     if "-i" in args:
         source = Path(args[args.index("-i") + 1])
         if source.exists():
@@ -383,7 +418,7 @@ if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
             if b"legacy profile" in body:
                 profile = LEGACY_PROFILE
             elif b"beta profile" in body:
-                profile = BETA_PROFILE
+                profile = profile_for_bundle(BETA_BUNDLE_ID)
     sys.stdout.buffer.write(plist_bytes(profile))
     sys.exit(0)
 if args and args[0] == "find-certificate":
@@ -417,6 +452,10 @@ if args[:2] == ["apps", "view"]:
             }
         }
     }))
+    sys.exit(0)
+
+if args[:2] == ["versions", "list"]:
+    print(json.dumps({"data": [{"id": "version-1.0.0"}]}))
     sys.exit(0)
 
 sys.exit(0)
@@ -489,12 +528,15 @@ def _bump_patch(version: str) -> str:
 def _write_fake_archive(path: Path, *, bundle_id: str, build_number: str, marketing_version: str) -> None:
     app = path / "Products" / "Applications" / "cmux.app"
     info = {
+        "CFBundleExecutable": "cmux",
         "CFBundleIdentifier": bundle_id,
         "CFBundleVersion": build_number,
         "CFBundleShortVersionString": marketing_version,
     }
     (path).mkdir(parents=True, exist_ok=True)
     app.mkdir(parents=True, exist_ok=True)
+    # upload-testflight.sh refuses archives without dSYM bundles.
+    (path / "dSYMs" / "cmux.app.dSYM" / "Contents").mkdir(parents=True, exist_ok=True)
     (path / "Info.plist").write_bytes(
         _plist_bytes(
             {
@@ -592,6 +634,10 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
         f"MARKETING_VERSION={APPSTORE_MARKETING_VERSION}" not in archive_call,
         "beta archive command does not stamp the App Store marketing version",
     )
+    _check(
+        "CMUX_CRASH_REPORTING_ENABLED=YES" in archive_call,
+        "beta archive keeps crash reporting enabled",
+    )
 
     export_options = plistlib.loads((tmp / "ExportOptions.plist").read_bytes())
     profiles = export_options.get("provisioningProfiles", {})
@@ -611,6 +657,78 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
     _check(
         info.get("CFBundleShortVersionString") == BETA_MARKETING_VERSION,
         "final signed beta IPA keeps the beta marketing version",
+    )
+
+
+def test_upload_strips_framework_without_valid_executable(tmp: Path, fakebin: Path) -> None:
+    env = _base_env(tmp, fakebin)
+    env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
+    env["CMUX_FAKE_EMBED_INVALID_FRAMEWORK_SHELL"] = "1"
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "upload-testflight.sh"),
+            "--lane",
+            "beta",
+            "--signing",
+            "manual",
+            "--export-only",
+            "--build-number",
+            "20260710041753",
+        ],
+        env=env,
+        tmp=tmp,
+    )
+    _check(result.returncode == 0, "upload strips an invalid embedded framework shell")
+    _check(
+        "stripping embedded framework without a valid dynamic-library executable "
+        "(<executable missing>)" in result.stdout,
+        "upload reports why the invalid framework shell was stripped",
+    )
+    ipa_line = next(line for line in result.stdout.splitlines() if line.startswith("IPA_PATH="))
+    ipa_path = Path(ipa_line.removeprefix("IPA_PATH="))
+    with zipfile.ZipFile(ipa_path) as zf:
+        ipa_entries = zf.namelist()
+    _check(
+        not any(
+            entry.startswith("Payload/cmux.app/Frameworks/Iroh.framework/")
+            for entry in ipa_entries
+        ),
+        "final signed IPA omits the stripped framework shell",
+    )
+
+
+def test_upload_rejects_profile_without_time_sensitive_push_capability(
+    tmp: Path,
+    fakebin: Path,
+) -> None:
+    env = _base_env(tmp, fakebin)
+    env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
+    env["CMUX_FAKE_PROFILE_MISSING_TIME_SENSITIVE"] = "1"
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "upload-testflight.sh"),
+            "--lane",
+            "beta",
+            "--signing",
+            "manual",
+            "--export-only",
+            "--build-number",
+            "20260710041754",
+        ],
+        env=env,
+        tmp=tmp,
+        log_failure=False,
+    )
+
+    _check(
+        result.returncode != 0,
+        "upload refuses a signed push build whose profile dropped time-sensitive delivery",
+    )
+    _check(
+        "com.apple.developer.usernotifications.time-sensitive" in result.stderr,
+        "upload names the missing time-sensitive entitlement",
     )
 
 
@@ -697,6 +815,48 @@ def test_upload_beta_auto_version_uses_checked_in_beta_floor(tmp: Path, fakebin:
     )
 
 
+def test_external_beta_upload_fails_without_group_assignment_credentials(
+    tmp: Path,
+    fakebin: Path,
+) -> None:
+    env = _base_env(tmp, fakebin)
+    for key in (
+        "ASC_APP_ID",
+        "ASC_API_KEY_ID",
+        "ASC_API_ISSUER_ID",
+        "ASC_API_KEY_PATH",
+        "ASC_API_KEY_P8_BASE64",
+    ):
+        env.pop(key, None)
+    env["APPLE_ID"] = "release@example.invalid"
+    env["APPLE_APP_SPECIFIC_PASSWORD"] = "test-password"
+    env["APPLE_PROVIDER_PUBLIC_ID"] = "test-provider"
+    env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
+
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "upload-testflight.sh"),
+            "--lane",
+            "beta",
+            "--external",
+            "--skip-notes",
+            "--signing",
+            "manual",
+        ],
+        env=env,
+        tmp=tmp,
+        log_failure=False,
+    )
+
+    _check(result.returncode != 0, "external beta upload fails when group assignment cannot run")
+    _check(
+        "external TestFlight distribution requires configured App Store Connect credentials"
+        in result.stderr,
+        "external beta upload explains the missing distribution credentials",
+    )
+
+
 def test_bump_ios_version_accepts_trailing_appstore_lane(tmp: Path, fakebin: Path) -> None:
     isolated_repo = _copy_isolated_ios_version_repo(tmp / "isolated-version")
     config = isolated_repo / "ios" / "Config" / "Shared.xcconfig"
@@ -766,6 +926,10 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         "archive command does not stamp the beta marketing version",
     )
     _check(
+        "CMUX_CRASH_REPORTING_ENABLED=NO" in archive_call,
+        "App Store archive disables crash reporting",
+    )
+    _check(
         all("PRODUCT_BUNDLE_IDENTIFIER=com.cmuxterm.app" not in call for call in archive_call),
         "archive command does not stamp the retired com.cmuxterm.app id",
     )
@@ -786,6 +950,10 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     _check(
         info.get("CFBundleShortVersionString") == APPSTORE_MARKETING_VERSION,
         "final signed IPA keeps the App Store marketing version",
+    )
+    _check(
+        info.get("CMUXCrashReportingEnabled") == "NO",
+        "final signed IPA disables crash reporting",
     )
 
 
@@ -902,20 +1070,372 @@ def test_validate_appstore_release_requires_numeric_app_id(tmp: Path, fakebin: P
     _check("must be numeric" in bad_result.stderr, "validation helper explains that --app must be numeric")
 
 
+def test_validate_appstore_release_uses_device_screenshot_directories(
+    tmp: Path, fakebin: Path
+) -> None:
+    screenshots = tmp / "screenshots"
+    iphone = screenshots / "en-US" / "iphone"
+    ipad = screenshots / "en-US" / "ipad"
+    iphone.mkdir(parents=True)
+    ipad.mkdir(parents=True)
+    (iphone / "01-workspaces.png").write_bytes(b"iphone")
+    (ipad / "01-workspaces.png").write_bytes(b"ipad")
+
+    env = _base_env(tmp, fakebin)
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "validate-app-store-release.sh"),
+            "--app",
+            ASC_APP_ID,
+            "--version",
+            APPSTORE_MARKETING_VERSION,
+            "--screenshots-dir",
+            str(screenshots),
+            "--screenshot-device-type",
+            "IPHONE_69",
+            "--screenshot-device-type",
+            "IPAD_PRO_3GEN_129",
+        ],
+        env=env,
+        tmp=tmp,
+        log_failure=False,
+    )
+    _check(result.returncode == 0, "App Store validation accepts the canonical screenshot layout")
+
+    asc_calls = [
+        json.loads(line)
+        for line in (tmp / "asc.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    screenshot_calls = [call for call in asc_calls if call[:2] == ["screenshots", "validate"]]
+    paths_by_device = {
+        call[call.index("--device-type") + 1]: call[call.index("--path") + 1]
+        for call in screenshot_calls
+    }
+    _check(
+        paths_by_device.get("IPHONE_69") == str(iphone),
+        "iPhone validation targets the directory containing iPhone images",
+    )
+    _check(
+        paths_by_device.get("IPAD_PRO_3GEN_129") == str(ipad),
+        "iPad validation targets the directory containing iPad images",
+    )
+
+
+def test_validate_appstore_release_prepares_content_rights_and_build(
+    tmp: Path, fakebin: Path
+) -> None:
+    env = _base_env(tmp, fakebin)
+    env["ASC_APP_ID"] = ASC_APP_ID
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "validate-app-store-release.sh"),
+            "--build-id",
+            ASC_BUILD_ID,
+            "--prepare-submission",
+        ],
+        env=env,
+        tmp=tmp,
+        log_failure=False,
+    )
+    _check(result.returncode == 0, "App Store validation helper prepares submission state")
+
+    asc_log = tmp / "asc.jsonl"
+    asc_calls = [
+        json.loads(line)
+        for line in asc_log.read_text(encoding="utf-8").splitlines()
+    ] if asc_log.exists() else []
+    content_rights_call = next(
+        (call for call in asc_calls if call[:2] == ["apps", "update"]),
+        None,
+    )
+    attach_build_call = next(
+        (call for call in asc_calls if call[:2] == ["versions", "attach-build"]),
+        None,
+    )
+    validate_call = next(
+        (call for call in asc_calls if call and call[0] == "validate"),
+        None,
+    )
+    _check(
+        content_rights_call == [
+            "apps",
+            "update",
+            "--id",
+            ASC_APP_ID,
+            "--content-rights",
+            "USES_THIRD_PARTY_CONTENT",
+        ],
+        "submission preparation declares that cmux accesses user-controlled third-party content",
+    )
+    _check(
+        attach_build_call == [
+            "versions",
+            "attach-build",
+            "--version-id",
+            ASC_VERSION_ID,
+            "--build",
+            ASC_BUILD_ID,
+        ],
+        "submission preparation attaches the selected build to version 1.0.0",
+    )
+    if content_rights_call and attach_build_call and validate_call:
+        _check(
+            asc_calls.index(content_rights_call) < asc_calls.index(validate_call)
+            and asc_calls.index(attach_build_call) < asc_calls.index(validate_call),
+            "submission state is prepared before canonical readiness validation",
+        )
+    else:
+        _check(False, "submission state is prepared before canonical readiness validation")
+
+
+def test_bootstrap_appstore_availability_creates_all_territories_once(tmp: Path) -> None:
+    tmp.mkdir(parents=True, exist_ok=True)
+    requests: list[tuple[str, str, dict[str, object] | None]] = []
+    availability_created = False
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: object) -> None:
+            pass
+
+        def _write_json(self, status: int, body: dict[str, object]) -> None:
+            payload = json.dumps(body).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def do_GET(self) -> None:
+            nonlocal availability_created
+            parsed = urllib.parse.urlsplit(self.path)
+            requests.append(("GET", self.path, None))
+            _check(
+                self.headers.get("Authorization", "").startswith("Bearer "),
+                "availability bootstrap authenticates every API request",
+            )
+            if parsed.path == f"/v1/apps/{ASC_APP_ID}/appAvailabilityV2":
+                body: dict[str, object] = {
+                    "data": (
+                        {"type": "appAvailabilities", "id": "availability-1"}
+                        if availability_created
+                        else None
+                    )
+                }
+                self._write_json(200, body)
+                return
+            if parsed.path == "/v1/territories":
+                if urllib.parse.parse_qs(parsed.query).get("cursor") == ["next"]:
+                    self._write_json(
+                        200,
+                        {
+                            "data": [{"type": "territories", "id": "JPN"}],
+                            "links": {},
+                        },
+                    )
+                    return
+                host, port = self.server.server_address
+                self._write_json(
+                    200,
+                    {
+                        "data": [
+                            {"type": "territories", "id": "USA"},
+                            {"type": "territories", "id": "CAN"},
+                        ],
+                        "links": {
+                            "next": f"http://{host}:{port}/v1/territories?cursor=next"
+                        },
+                    },
+                )
+                return
+            self._write_json(404, {"errors": [{"code": "NOT_FOUND"}]})
+
+        def do_POST(self) -> None:
+            nonlocal availability_created
+            length = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(length))
+            requests.append(("POST", self.path, body))
+            if self.path != "/v2/appAvailabilities":
+                self._write_json(404, {"errors": [{"code": "NOT_FOUND"}]})
+                return
+            data = body.get("data", {})
+            relationships = data.get("relationships", {})
+            territory_relationship = relationships.get("territoryAvailabilities", {})
+            linkage = territory_relationship.get("data", [])
+            included = body.get("included", [])
+            linkage_ids = {
+                item.get("id") for item in linkage if isinstance(item, dict)
+            }
+            included_ids = {
+                item.get("id") for item in included if isinstance(item, dict)
+            }
+            if (
+                linkage_ids != included_ids
+                or not linkage_ids
+                or not all(
+                    isinstance(item_id, str)
+                    and re.fullmatch(r"\$\{local-[a-z0-9-]+\}", item_id)
+                    for item_id in linkage_ids
+                )
+            ):
+                self._write_json(
+                    409,
+                    {"errors": [{"code": "ENTITY_ERROR.INCLUDED.INVALID_ID"}]},
+                )
+                return
+            availability_created = True
+            self._write_json(
+                201,
+                {"data": {"type": "appAvailabilities", "id": "availability-1"}},
+            )
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        key_path = tmp / "AuthKey_TEST.p8"
+        openssl = shutil.which("openssl")
+        _check(openssl is not None, "availability test found OpenSSL")
+        key_result = subprocess.run(
+            [
+                openssl or "openssl",
+                "ecparam",
+                "-name",
+                "prime256v1",
+                "-genkey",
+                "-noout",
+                "-out",
+                str(key_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        _check(key_result.returncode == 0, "availability test generated an ES256 key")
+        env = os.environ.copy()
+        env.update(
+            {
+                "ASC_API_KEY_ID": "TESTKEY123",
+                "ASC_API_ISSUER_ID": "00000000-0000-0000-0000-000000000000",
+                "ASC_API_KEY_PATH": str(key_path),
+                "ASC_TIMEOUT_SECONDS": "120",
+                "CMUX_ASC_API_BASE_URL": f"http://127.0.0.1:{server.server_port}",
+            }
+        )
+        command = [
+            sys.executable,
+            str(ROOT / "ios" / "scripts" / "asc_bootstrap_app_availability.py"),
+            "--app",
+            ASC_APP_ID,
+        ]
+        first = subprocess.run(command, env=env, capture_output=True, text=True, check=False)
+        if first.returncode != 0:
+            print(first.stdout)
+            print(first.stderr, file=sys.stderr)
+        _check(first.returncode == 0, "availability bootstrap creates initial availability")
+
+        post_requests = [request for request in requests if request[0] == "POST"]
+        _check(len(post_requests) == 1, "availability bootstrap creates exactly one record")
+        payload = post_requests[0][2] if post_requests else {}
+        data = payload.get("data", {}) if isinstance(payload, dict) else {}
+        attributes = data.get("attributes", {}) if isinstance(data, dict) else {}
+        relationships = data.get("relationships", {}) if isinstance(data, dict) else {}
+        territory_relationship = (
+            relationships.get("territoryAvailabilities", {})
+            if isinstance(relationships, dict)
+            else {}
+        )
+        linkage = (
+            territory_relationship.get("data", [])
+            if isinstance(territory_relationship, dict)
+            else []
+        )
+        included = payload.get("included", []) if isinstance(payload, dict) else []
+        _check(
+            attributes.get("availableInNewTerritories") is True,
+            "availability includes future App Store territories",
+        )
+        _check(
+            {item.get("id") for item in linkage if isinstance(item, dict)}
+            == {"${local-usa}", "${local-can}", "${local-jpn}"},
+            "availability links every current territory",
+        )
+        _check(
+            len(included) == 3
+            and all(
+                isinstance(item, dict)
+                and item.get("attributes", {}).get("available") is True
+                and item.get("attributes", {}).get("preOrderEnabled") is False
+                for item in included
+            ),
+            "every territory is immediately available without pre-order",
+        )
+
+        second = subprocess.run(command, env=env, capture_output=True, text=True, check=False)
+        _check(second.returncode == 0, "availability bootstrap is idempotent")
+        _check(
+            len([request for request in requests if request[0] == "POST"]) == 1,
+            "existing availability is not created again",
+        )
+
+        requests_before_invalid_timeout = len(requests)
+        invalid_timeout_env = env.copy()
+        invalid_timeout_env["ASC_TIMEOUT_SECONDS"] = "invalid"
+        invalid_timeout = subprocess.run(
+            command,
+            env=invalid_timeout_env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        _check(
+            invalid_timeout.returncode != 0
+            and "ASC_TIMEOUT_SECONDS must be an integer" in invalid_timeout.stderr,
+            "availability bootstrap validates the configured API timeout",
+        )
+        _check(
+            len(requests) == requests_before_invalid_timeout,
+            "invalid timeout configuration fails before an API request",
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
         tmp = Path(temp_dir)
         fakebin = tmp / "bin"
         _install_fake_tools(fakebin)
         test_upload_beta_lane_uses_beta_marketing_version(tmp / "beta-upload-test", fakebin)
+        test_upload_strips_framework_without_valid_executable(
+            tmp / "beta-framework-strip-test", fakebin
+        )
+        test_upload_rejects_profile_without_time_sensitive_push_capability(
+            tmp / "beta-time-sensitive-gate-test", fakebin
+        )
         test_upload_beta_archive_path_accepts_marketing_version_override(tmp / "beta-archive-override-test", fakebin)
         test_upload_beta_auto_version_uses_checked_in_beta_floor(tmp / "beta-auto-version-test", fakebin)
+        test_external_beta_upload_fails_without_group_assignment_credentials(
+            tmp / "beta-external-credentials-test", fakebin
+        )
         test_bump_ios_version_accepts_trailing_appstore_lane(tmp / "version-bump-test", fakebin)
         test_upload_appstore_lane_uses_production_bundle_id(tmp / "upload-test", fakebin)
         test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp / "upload-live-test", fakebin)
         test_profile_installer_accepts_production_profile_by_default(tmp / "profile-test", fakebin)
         test_profile_installer_ignores_stale_primary_secret(tmp / "profile-stale-test", fakebin)
         test_validate_appstore_release_requires_numeric_app_id(tmp / "validate-test", fakebin)
+        test_validate_appstore_release_uses_device_screenshot_directories(
+            tmp / "validate-screenshots-test", fakebin
+        )
+        test_validate_appstore_release_prepares_content_rights_and_build(
+            tmp / "prepare-submission-test", fakebin
+        )
+        test_bootstrap_appstore_availability_creates_all_territories_once(
+            tmp / "availability-bootstrap-test"
+        )
 
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s)")

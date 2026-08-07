@@ -39,9 +39,9 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
-        NSLog("cmux.push registration failed: %@", error.localizedDescription)
         let nsError = error as NSError
         Task { @MainActor in
+            await pushCoordinator?.handleDeviceTokenFailure()
             analytics?.capture("ios_push_token_registration_failed", [
                 "stage": .string("apns"),
                 "error_code": .int(nsError.code),
@@ -92,7 +92,8 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
         await pushCoordinator?.handleTap(
             workspaceId: ids.workspaceId,
             surfaceId: ids.surfaceId,
-            macDeviceId: ids.macDeviceId
+            macDeviceId: ids.macDeviceId,
+            retargetsToLiveSurfaceOwner: ids.retargetsToLiveSurfaceOwner
         )
         await pushCoordinator?.handleDismiss(
             notificationId: Self.notificationID(from: request),
@@ -145,12 +146,13 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
 
     private nonisolated static func cmuxIDs(
         from userInfo: [AnyHashable: Any]
-    ) -> (workspaceId: String?, surfaceId: String?, macDeviceId: String?) {
-        guard let cmux = userInfo["cmux"] as? [String: Any] else { return (nil, nil, nil) }
+    ) -> (workspaceId: String?, surfaceId: String?, macDeviceId: String?, retargetsToLiveSurfaceOwner: Bool) {
+        guard let cmux = userInfo["cmux"] as? [String: Any] else { return (nil, nil, nil, true) }
         return (
             cmux["workspaceId"] as? String,
             cmux["surfaceId"] as? String,
-            cmux["macDeviceId"] as? String
+            cmux["macDeviceId"] as? String,
+            cmux["retargetsToLiveSurfaceOwner"] as? Bool ?? true
         )
     }
 

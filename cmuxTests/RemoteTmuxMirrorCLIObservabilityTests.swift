@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import AppKit
 import Bonsplit
 import CmuxControlSocket
@@ -301,7 +302,8 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         #expect(respawn == .respawnFailed(surfaceID))
         #expect(TerminalController.shared.controlSurfaceClose(
             routing: routing,
-            surfaceID: surfaceID
+            surfaceID: surfaceID,
+            hasSurfaceIDParam: true
         ) == .closeFailed(surfaceID))
     }
 

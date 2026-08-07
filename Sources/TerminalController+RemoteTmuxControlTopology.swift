@@ -71,6 +71,63 @@ extension TerminalController {
         return nil
     }
 
+    /// Reorders the workspace-owned tab behind a control-plane surface. Remote
+    /// pane surfaces project to their tmux-window container, while the response
+    /// preserves the advertised surface identity supplied by the caller.
+    func controlSurfaceReorder(
+        surfaceID: UUID,
+        inputs: ControlSurfaceReorderInputs,
+        requestedFocus: Bool
+    ) -> ControlSurfaceReorderResolution {
+        let focus = v2FocusAllowed(requested: requestedFocus)
+        guard let tabManager = controlTabManager(surfaceID: surfaceID),
+              let ws = tabManager.tabs.first(where: {
+                  $0.controlReorderContainerPanelID(for: surfaceID) != nil
+              }),
+              let sourcePanelID = ws.controlReorderContainerPanelID(for: surfaceID),
+              let sourcePane = ws.paneId(forPanelId: sourcePanelID),
+              let windowID = v2ResolveWindowId(tabManager: tabManager) else {
+            return .surfaceNotFound(surfaceID)
+        }
+
+        let targetIndex: Int
+        if let index = inputs.index {
+            // The CLI sends a final tab position; reorderSurface takes a bonsplit insertion gap.
+            // Moving a tab to a higher slot must target index + 1 so the gap lands after the tab
+            // currently occupying that slot; otherwise a move to sourceIndex + 1 is a silent no-op.
+            guard let currentIndex = ws.indexInPane(forPanelId: sourcePanelID) else { return .reorderFailed }
+            targetIndex = index > currentIndex ? index + 1 : index
+        } else if let beforeSurfaceID = inputs.beforeSurfaceID {
+            guard let anchorPanelID = ws.controlReorderContainerPanelID(for: beforeSurfaceID),
+                  let anchorPane = ws.paneId(forPanelId: anchorPanelID),
+                  anchorPane == sourcePane,
+                  let anchorIndex = ws.indexInPane(forPanelId: anchorPanelID) else {
+                return .anchorNotInSamePane
+            }
+            targetIndex = anchorIndex
+        } else if let afterSurfaceID = inputs.afterSurfaceID {
+            guard let anchorPanelID = ws.controlReorderContainerPanelID(for: afterSurfaceID),
+                  let anchorPane = ws.paneId(forPanelId: anchorPanelID),
+                  anchorPane == sourcePane,
+                  let anchorIndex = ws.indexInPane(forPanelId: anchorPanelID) else {
+                return .anchorNotInSamePane
+            }
+            targetIndex = anchorIndex + 1
+        } else {
+            return .reorderFailed
+        }
+
+        guard ws.reorderSurface(panelId: sourcePanelID, toIndex: targetIndex, focus: focus) else {
+            return .reorderFailed
+        }
+        return .reordered(
+            windowID: windowID,
+            workspaceID: ws.id,
+            paneID: sourcePane.id,
+            surfaceID: surfaceID
+        )
+    }
+
     func controlPaneList(
         workspace: Workspace,
         tabManager: TabManager
@@ -296,6 +353,7 @@ extension TerminalController {
                 }
             }
             let terminalPanel = panel as? TerminalPanel
+            let simulatorPanel = panel as? SimulatorPanel
             return [ControlSurfaceSummary(
                 surfaceID: panel.id,
                 typeRawValue: panel.panelType.rawValue,
@@ -317,7 +375,12 @@ extension TerminalController {
                 isTerminal: terminalPanel != nil,
                 resumeBinding: terminalPanel != nil
                     ? controlResumeBinding(from: workspace.surfaceResumeBinding(panelId: panel.id))
-                    : nil
+                    : nil,
+                simulatorDeviceID: simulatorPanel?.selectedDeviceID,
+                simulatorRuntimeIdentifier: simulatorPanel?.selectedRuntimeIdentifier,
+                simulatorDeviceTypeIdentifier: simulatorPanel?.selectedDeviceTypeIdentifier,
+                simulatorDeviceName: simulatorPanel?.selectedDeviceName,
+                simulatorDeviceState: simulatorPanel?.selectedDeviceState
             )]
         }
     }

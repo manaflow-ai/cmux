@@ -1,8 +1,15 @@
 import Foundation
 
+/// The address shape used to reach an attach route.
 public enum CmxAttachEndpoint: Equatable, Sendable {
+    /// The maximum number of reachability hints accepted for one Iroh peer.
+    public static let maximumIrohPathHintCount = 16
+
+    /// A direct host and TCP port.
     case hostPort(host: String, port: Int)
-    case peer(id: String, relayHint: String?, directAddrs: [String], relayURL: String?)
+    /// An authenticated Iroh identity plus untrusted reachability hints.
+    case peer(identity: CmxIrohPeerIdentity, pathHints: [CmxIrohPathHint])
+    /// A URL-based transport endpoint.
     case url(String)
 }
 
@@ -15,6 +22,7 @@ extension CmxAttachEndpoint: Codable {
         case relayHint = "relay_hint"
         case directAddrs = "direct_addrs"
         case relayURL = "relay_url"
+        case pathHints = "path_hints"
         case url
     }
 
@@ -24,6 +32,7 @@ extension CmxAttachEndpoint: Codable {
         case url
     }
 
+    /// Decodes and validates an attach endpoint.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let type = try container.decode(EndpointType.self, forKey: .type)
@@ -34,17 +43,31 @@ extension CmxAttachEndpoint: Codable {
                 port: container.decode(Int.self, forKey: .port)
             )
         case .peer:
-            self = try .peer(
-                id: container.decode(String.self, forKey: .id),
-                relayHint: container.decodeIfPresent(String.self, forKey: .relayHint),
-                directAddrs: container.decodeIfPresent([String].self, forKey: .directAddrs) ?? [],
-                relayURL: container.decodeIfPresent(String.self, forKey: .relayURL)
+            let identity = try CmxIrohPeerIdentity(
+                endpointID: try container.decode(String.self, forKey: .id)
             )
+            if let pathHints = try container.decodeIfPresent(
+                [CmxIrohPathHint].self,
+                forKey: .pathHints
+            ) {
+                self = .peer(identity: identity, pathHints: pathHints)
+            } else {
+                self = try .peer(
+                    id: identity.endpointID,
+                    relayHint: try container.decodeIfPresent(String.self, forKey: .relayHint),
+                    directAddrs: try container.decodeIfPresent(
+                        [String].self,
+                        forKey: .directAddrs
+                    ) ?? [],
+                    relayURL: try container.decodeIfPresent(String.self, forKey: .relayURL)
+                )
+            }
         case .url:
             self = try .url(container.decode(String.self, forKey: .url))
         }
     }
 
+    /// Encodes the endpoint while omitting unsafe legacy Iroh hint forms.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
@@ -52,9 +75,35 @@ extension CmxAttachEndpoint: Codable {
             try container.encode(EndpointType.hostPort, forKey: .type)
             try container.encode(host, forKey: .host)
             try container.encode(port, forKey: .port)
-        case let .peer(id, relayHint, directAddrs, relayURL):
+        case let .peer(identity, pathHints):
             try container.encode(EndpointType.peer, forKey: .type)
-            try container.encode(id, forKey: .id)
+            try container.encode(identity.endpointID, forKey: .id)
+            // Encoding is deterministic: wall-clock freshness is applied by
+            // the caller's disclosure/persistence boundary. Structurally
+            // unsafe inert legacy values are never re-emitted.
+            let wireSafePathHints = pathHints.filter(\.isSafeForCurrentWireFormat)
+            if !wireSafePathHints.isEmpty {
+                try container.encode(wireSafePathHints, forKey: .pathHints)
+            }
+
+            // Legacy fields cannot represent observation or expiry metadata.
+            // Downgrade only timeless safe hints, otherwise an expired/future
+            // path would be promoted indefinitely for an older consumer.
+            let legacySafePathHints = wireSafePathHints.filter {
+                $0.observedAt == nil && $0.expiresAt == nil
+            }
+            let relayHint = legacySafePathHints.first {
+                $0.kind == .relayIdentifier
+            }?.value
+            // Legacy `direct_addrs` cannot carry expiry, privacy, or network
+            // profile. Emitting private fallbacks there would silently promote
+            // them for old clients, so only public primary addresses downgrade.
+            let directAddrs = legacySafePathHints
+                .filter { $0.kind == .directAddress && $0.use == .primary }
+                .map(\.value)
+            let relayURL = legacySafePathHints.first {
+                $0.kind == .relayURL
+            }?.value
             try container.encodeIfPresent(relayHint, forKey: .relayHint)
             if !directAddrs.isEmpty {
                 try container.encode(directAddrs, forKey: .directAddrs)
@@ -67,12 +116,21 @@ extension CmxAttachEndpoint: Codable {
     }
 }
 
+/// Validation failures for attach-route endpoints.
 public enum CmxAttachRouteError: Error, Equatable, Sendable {
+    /// A host/port route has an empty host.
     case emptyHost
+    /// An Iroh peer route has an empty peer identity.
     case emptyPeerID
+    /// An Iroh direct-address hint is empty.
     case emptyPeerAddress
+    /// A URL or relay hint is empty.
     case emptyURL
+    /// A host/port route uses a port outside the valid TCP range.
     case invalidPort(Int)
+    /// A peer route exceeded ``CmxAttachEndpoint/maximumIrohPathHintCount``.
+    case tooManyPeerPathHints(actual: Int, maximum: Int)
+    /// The endpoint shape does not match its declared transport kind.
     case endpointMismatch(kind: CmxAttachTransportKind, endpoint: CmxAttachEndpoint)
 }
 
@@ -112,6 +170,7 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
         try validate()
     }
 
+    /// Validates that the endpoint shape and route kind agree.
     public func validate() throws {
         switch endpoint {
         case let .hostPort(host, port):
@@ -121,18 +180,26 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
             guard (1...65535).contains(port) else {
                 throw CmxAttachRouteError.invalidPort(port)
             }
-        case let .peer(id, _, directAddrs, relayURL):
-            guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        case let .peer(identity, pathHints):
+            guard !identity.endpointID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw CmxAttachRouteError.emptyPeerID
             }
-            for address in directAddrs {
-                guard !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    throw CmxAttachRouteError.emptyPeerAddress
-                }
+            guard pathHints.count <= CmxAttachEndpoint.maximumIrohPathHintCount else {
+                throw CmxAttachRouteError.tooManyPeerPathHints(
+                    actual: pathHints.count,
+                    maximum: CmxAttachEndpoint.maximumIrohPathHintCount
+                )
             }
-            if let relayURL {
-                guard !relayURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    throw CmxAttachRouteError.emptyURL
+            for pathHint in pathHints {
+                do {
+                    try pathHint.validate()
+                } catch CmxIrohPathHintError.emptyValue {
+                    switch pathHint.kind {
+                    case .directAddress:
+                        throw CmxAttachRouteError.emptyPeerAddress
+                    case .relayIdentifier, .relayURL:
+                        throw CmxAttachRouteError.emptyURL
+                    }
                 }
             }
         case let .url(url):
@@ -148,6 +215,7 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
             throw CmxAttachRouteError.endpointMismatch(kind: kind, endpoint: endpoint)
         }
     }
+
 }
 
 public enum CmxAttachTicketError: Error, Equatable, Sendable {
@@ -276,7 +344,7 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         self.version = version
         self.workspaceID = workspaceID
         self.terminalID = terminalID
-        self.macDeviceID = macDeviceID
+        self.macDeviceID = cmxCanonicalDeviceID(macDeviceID)
         self.macDisplayName = macDisplayName
         self.macUserEmail = macUserEmail
         self.macUserID = macUserID
@@ -342,8 +410,61 @@ public protocol CmxByteTransport: Sendable {
     func close() async
 }
 
+/// Optional privacy-safe identity for the exact native connection underneath a
+/// byte transport.
+///
+/// Release gates use this to prove that credential refresh did not replace a
+/// live transport. The value is process-local and must never be persisted or
+/// sent to a server.
+public protocol CmxByteTransportContinuityIdentifying: CmxByteTransport {
+    /// Returns a process-local identifier for the currently connected native
+    /// transport, or `nil` before connection or after teardown.
+    func transportContinuityID() async -> UInt64?
+}
+
+/// A privacy-safe handle that waits for one exact native transport to close.
+///
+/// The handle captures the transport generation at creation time, so callers
+/// can retain it across owner teardown without accidentally observing a later
+/// replacement connection.
+public struct CmxTransportClosureObservation: Sendable {
+    private let waitUntilClosedOperation: @Sendable () async -> Void
+
+    public init(waitUntilClosed: @escaping @Sendable () async -> Void) {
+        self.waitUntilClosedOperation = waitUntilClosed
+    }
+
+    public func waitUntilClosed() async {
+        await waitUntilClosedOperation()
+    }
+}
+
+/// Optional close notification for the exact native transport currently
+/// installed underneath a byte transport.
+public protocol CmxByteTransportClosureObserving: CmxByteTransport {
+    func transportClosureObservation() async -> CmxTransportClosureObservation?
+}
+
+/// Independently framed server-event bytes delivered outside the RPC control stream.
+public typealias CmxIndependentEventByteStream = AsyncThrowingStream<Data, any Error>
+
+/// Opens the one bounded event byte stream associated with an exact transport intent.
+public typealias CmxIndependentEventByteStreamProvider = @Sendable (
+    CmxByteTransportRequest
+) async throws -> CmxIndependentEventByteStream
+
 public protocol CmxByteTransportFactory: Sendable {
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport
+    func makeTransport(for request: CmxByteTransportRequest) throws -> any CmxByteTransport
+}
+
+extension CmxByteTransportFactory {
+    /// Compatibility path for transports whose peer intent is fully represented by the route.
+    public func makeTransport(
+        for request: CmxByteTransportRequest
+    ) throws -> any CmxByteTransport {
+        try makeTransport(for: request.route)
+    }
 }
 
 public protocol CmxRouteAwareByteTransportFactory: CmxByteTransportFactory {
@@ -390,5 +511,14 @@ public struct CmxRouteTransportFactory: CmxRouteAwareByteTransportFactory {
             throw CmxRouteTransportFactoryError.unsupportedRouteKind(route.kind)
         }
         return try factory.makeTransport(for: route)
+    }
+
+    public func makeTransport(
+        for request: CmxByteTransportRequest
+    ) throws -> any CmxByteTransport {
+        guard let factory = factories[request.route.kind] else {
+            throw CmxRouteTransportFactoryError.unsupportedRouteKind(request.route.kind)
+        }
+        return try factory.makeTransport(for: request)
     }
 }

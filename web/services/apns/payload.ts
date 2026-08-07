@@ -9,8 +9,10 @@ export const APNS_HOSTS: Record<ApnsEnvironment, string> = {
 };
 
 /** APNs host for a stored token's environment (defaults to production). */
-export function apnsHostForEnvironment(environment: string): string {
-  return environment === "sandbox" ? APNS_HOSTS.sandbox : APNS_HOSTS.production;
+export function apnsHostForEnvironment(environment: string): string | null {
+  if (environment === "sandbox") return APNS_HOSTS.sandbox;
+  if (environment === "production") return APNS_HOSTS.production;
+  return null;
 }
 
 export interface ApnsNotificationInput {
@@ -25,6 +27,8 @@ export interface ApnsNotificationInput {
   readonly body: string;
   readonly workspaceId?: string | null;
   readonly surfaceId?: string | null;
+  /** Whether a tap may resolve the surface outside `workspaceId`. */
+  readonly retargetsToLiveSurfaceOwner?: boolean;
   readonly macDeviceId?: string | null;
   /**
    * Stable Mac-side notification id. Surfaced in the payload as
@@ -33,6 +37,10 @@ export interface ApnsNotificationInput {
    * so a later Mac→iOS dismiss can target this exact delivered banner.
    */
   readonly notificationId?: string | null;
+  /** Opaque logical-source-event id used for safe diagnostics and retries. */
+  readonly correlationId?: string | null;
+  /** Absolute APNs expiry in Unix seconds. */
+  readonly expirationEpochSeconds?: number | null;
   /** The dismissed notification ids carried by a `dismiss` push. */
   readonly dismissedIds?: readonly string[];
   /**
@@ -42,8 +50,7 @@ export interface ApnsNotificationInput {
    * untouched.
    */
   readonly badgeCount?: number | null;
-  /** When true, replace real terminal text with a generic fallback. Keep the
-   * fallback literal until device tokens carry client localization capability. */
+  /** When true, replace real terminal text with generic APNs localization keys. */
   readonly hideContent?: boolean;
 }
 
@@ -57,23 +64,27 @@ export interface ApnsNotificationInput {
 export const CMUX_APNS_CATEGORY = "cmux.terminal";
 
 /**
- * Build the APNs JSON payload. Adds `cmux.workspaceId`/`cmux.surfaceId`/
- * `cmux.macDeviceId`/`cmux.notificationId` custom keys so a tapped notification
- * can deep-link to the right terminal on the right Mac and a swipe can be
- * dismiss-synced, sets the dismiss-action `category`, and marks the alert
- * time-sensitive (the app holds that
- * entitlement).
+ * Build the APNs JSON payload. Adds the workspace/surface ids, live-owner
+ * retargeting provenance, Mac id, and notification id under `cmux` so a tap
+ * can deep-link without crossing a confined workspace boundary and a swipe can
+ * be dismiss-synced. Also sets the dismiss-action `category` and marks the
+ * alert time-sensitive (the app holds that entitlement).
  */
 export function buildApnsPayload(input: ApnsNotificationInput): Record<string, unknown> {
   if (input.kind === "dismiss") return buildDismissPayload(input);
   const hidden = input.hideContent === true;
-  const title = hidden ? "cmux" : input.title.trim() || "cmux";
-  const body = hidden ? "An agent needs your attention" : input.body;
+  const title = input.title.trim() || "cmux";
+  const body = input.body;
   const subtitle = hidden ? undefined : input.subtitle?.trim() || undefined;
 
-  const alert: Record<string, string> = { title };
-  if (subtitle) alert.subtitle = subtitle;
-  if (body) alert.body = body;
+  const alert: Record<string, string> = hidden
+    ? {
+        "title-loc-key": "push.generic.title",
+        "loc-key": "push.generic.body",
+      }
+    : { title };
+  if (!hidden && subtitle) alert.subtitle = subtitle;
+  if (!hidden && body) alert.body = body;
 
   const aps: Record<string, unknown> = {
     alert,
@@ -83,11 +94,15 @@ export function buildApnsPayload(input: ApnsNotificationInput): Record<string, u
   };
   if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
 
-  const cmux: Record<string, string> = {};
+  const cmux: Record<string, string | boolean> = {};
   if (input.workspaceId) cmux.workspaceId = input.workspaceId;
   if (input.surfaceId) cmux.surfaceId = input.surfaceId;
+  if (typeof input.retargetsToLiveSurfaceOwner === "boolean") {
+    cmux.retargetsToLiveSurfaceOwner = input.retargetsToLiveSurfaceOwner;
+  }
   if (input.macDeviceId) cmux.macDeviceId = input.macDeviceId;
   if (input.notificationId) cmux.notificationId = input.notificationId;
+  if (input.correlationId) cmux.correlationId = input.correlationId;
 
   return Object.keys(cmux).length > 0 ? { aps, cmux } : { aps };
 }
@@ -106,7 +121,11 @@ export function buildApnsPayload(input: ApnsNotificationInput): Record<string, u
 function buildDismissPayload(input: ApnsNotificationInput): Record<string, unknown> {
   const aps: Record<string, unknown> = { "content-available": 1 };
   if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
-  return { aps, cmux: { dismissedIds: [...(input.dismissedIds ?? [])] } };
+  const cmux: Record<string, unknown> = {
+    dismissedIds: [...(input.dismissedIds ?? [])],
+  };
+  if (input.correlationId) cmux.correlationId = input.correlationId;
+  return { aps, cmux };
 }
 
 /**

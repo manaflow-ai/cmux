@@ -85,7 +85,8 @@ fn fake_cdp_flat_sessions_correlation_events_and_screencast_ack() {
         write_json(&mut ws, &json!({"id": ack["id"], "result": {}}));
     });
 
-    let (event_tx, event_rx) = std::sync::mpsc::channel();
+    let (event_tx, event_rx) =
+        std::sync::mpsc::sync_channel(cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY);
     let client =
         CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
     let target_id = client.create_target("https://example.test").unwrap();
@@ -127,6 +128,8 @@ fn fake_cdp_flat_sessions_correlation_events_and_screencast_ack() {
             assert_eq!(frame.data_b64, "iVBORw0KGgo=");
             assert_eq!(frame.css_width, 640);
             assert_eq!(frame.css_height, 480);
+            assert_eq!(frame.image_width, 640);
+            assert_eq!(frame.image_height, 480);
             assert_eq!(frame.ack_id, 42);
         }
         other => panic!("unexpected event: {other:?}"),
@@ -158,7 +161,8 @@ fn fake_cdp_activate_target_then_bring_page_to_front() {
         write_json(&mut ws, &json!({"id": front["id"], "result": {}}));
     });
 
-    let (event_tx, _event_rx) = std::sync::mpsc::channel();
+    let (event_tx, _event_rx) =
+        std::sync::mpsc::sync_channel(cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY);
     let client =
         CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
     client.activate_target("target-1", "session-1").unwrap();
@@ -186,7 +190,8 @@ fn fake_cdp_dispatches_button_none_mouse_move_without_click_count() {
         write_json(&mut ws, &json!({"id": request["id"], "result": {}}));
     });
 
-    let (event_tx, _event_rx) = std::sync::mpsc::channel();
+    let (event_tx, _event_rx) =
+        std::sync::mpsc::sync_channel(cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY);
     let client =
         CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
     client.dispatch_mouse_event("session-1", "mouseMoved", 22.0, 18.0, Some("none"), None).unwrap();

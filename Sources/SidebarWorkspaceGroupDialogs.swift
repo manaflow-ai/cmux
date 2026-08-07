@@ -36,7 +36,7 @@ func presentSidebarWorkspaceGroupRenamePrompt(
         input.selectText(nil)
     }
 
-    let response = runCmuxModalAlert(alert)
+    let response = alert.runCmuxModal()
     guard response == .alertFirstButtonReturn else { return }
     tabManager.renameWorkspaceGroup(groupId: groupId, name: input.stringValue)
 }
@@ -94,5 +94,5 @@ func confirmDeleteWorkspaceGroup(groupName: String, memberCount: Int) -> Bool {
     if let cancelButton = alert.buttons.dropFirst().first {
         cancelButton.keyEquivalent = "\u{1b}"
     }
-    return runCmuxModalAlert(alert) == .alertFirstButtonReturn
+    return alert.runCmuxModal() == .alertFirstButtonReturn
 }

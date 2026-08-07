@@ -73,44 +73,23 @@ struct RemoteRouteSpec: Equatable {
         )
     }
 
-    /// Whether a signed-in phone could authenticate to this host from the
-    /// registry. Manual routes are stored as `.tailscale`, and the iOS attach
-    /// path (`MobileShellRouteAuthPolicy.routeAllowsStackAuth`) only sends the
-    /// Stack token over a `.tailscale` route whose host is a Tailscale address:
-    /// a CGNAT `100.64.0.0/10` IP or a `*.ts.net` MagicDNS name. Any other host
-    /// (LAN IP, bare hostname, Tailscale IPv6 ULA) would show in the device list
-    /// but fail to connect with `insecureManualRoute`. This mirrors that policy;
-    /// keep the two in sync. (`MobileShellRouteAuthPolicy` is in a mobile-only
-    /// package the macOS CLI/app entry does not link, so the predicate is
-    /// reimplemented here rather than imported.)
+    /// Whether this route is a numeric Tailscale peer target safe to persist.
+    ///
+    /// A `*.ts.net` value is accepted as CLI input but is not attachable yet.
+    /// ``RemotesClient`` must first match it to one authenticated local
+    /// Tailscale status record and replace it with that record's numeric peer
+    /// address. This keeps DNS names out of the iOS bearer transport entirely.
     var isTailscaleAttachable: Bool {
-        let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        // A *.ts.net MagicDNS name, but only when the whole string is a valid
-        // DNS hostname (no spaces, scheme, port, or path); a loose suffix check
-        // would accept undialable junk like "bad host.ts.net".
-        if normalized.hasSuffix(".ts.net"), Self.isValidDNSHostname(normalized) {
-            return true
+        CmxTailscalePeerAddress(host) != nil
+    }
+
+    /// Whether this route is a syntactically valid fully qualified MagicDNS input.
+    var isTailscaleMagicDNSInput: Bool {
+        var normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.hasSuffix("."), normalized.count > 1 {
+            normalized.removeLast()
         }
-        // CGNAT 100.64.0.0/10: first octet 100, second octet 64...127, dotted
-        // quad with all-decimal octets in 0...255.
-        let parts = normalized.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count == 4 else { return false }
-        let octets = parts.compactMap { part -> Int? in
-            // Canonical dotted decimal only: a single "0" or no leading zero.
-            // Rejects leading-zero spellings like "0100" that a libc resolver
-            // would read as octal, so a route this marks Tailscale-safe can't
-            // actually dial a different (non-Tailscale) address.
-            guard !part.isEmpty,
-                  part.utf8.allSatisfy({ (48...57).contains($0) }),
-                  part == "0" || part.first != "0",
-                  let value = Int(part),
-                  (0...255).contains(value) else {
-                return nil
-            }
-            return value
-        }
-        guard octets.count == 4 else { return false }
-        return octets[0] == 100 && (64...127).contains(octets[1])
+        return normalized.hasSuffix(".ts.net") && Self.isValidDNSHostname(normalized)
     }
 
     /// A syntactically valid DNS hostname: 1-253 chars, dot-separated labels of

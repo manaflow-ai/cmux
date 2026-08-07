@@ -1,7 +1,10 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { getTableName } from "drizzle-orm";
 
 import {
+  accountAnalyticsForwardLeases,
   accountDeletionTombstones,
+  accountMutationLeases,
   cloudVmBaseGenerations,
   cloudVmBases,
   cloudVmBillingGrants,
@@ -9,7 +12,9 @@ import {
   cloudVmSessions,
   cloudVmUsageEvents,
   cloudVms,
+  deviceTokens,
   devices,
+  proWelcomeFulfillments,
   stripeCustomers,
   stripeSubscriptions,
   subrouterTenants,
@@ -26,8 +31,17 @@ process.env.CMUX_FEEDBACK_RATE_LIMIT_ID ??= "test-feedback-rate-limit";
 process.env.STACK_SECRET_SERVER_KEY ??= "test-stack-secret";
 process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "00000000-0000-4000-8000-000000000000";
 process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ??= "test-stack-publishable";
+process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN ??=
+  "0123456789abcdef0123456789abcdef-test";
+process.env.SUBROUTER_ALLOWED_TEAM_IDS ??= "*";
+process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS ??= "0";
+process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS ??= "10000";
 
 const ACCOUNT_USER_ID = "account-user-1";
+const originalPostHogPersonalApiKey = process.env.POSTHOG_PERSONAL_API_KEY;
+const originalPostHogApiHost = process.env.POSTHOG_API_HOST;
+const originalPostHogEnvironmentId = process.env.POSTHOG_ENVIRONMENT_ID;
+const originalPostHogProjectId = process.env.POSTHOG_PROJECT_ID;
 const stackModule = await import("../app/lib/stack");
 const realGetStackServerApp = stackModule.getStackServerApp;
 const realIsStackConfigured = stackModule.isStackConfigured;
@@ -47,8 +61,6 @@ const storageModule = await import("../services/vault/storage");
 const realDeleteObject = storageModule.deleteObject;
 const vaultUsageModule = await import("../services/vault/usage");
 const realWithVaultUserQuotaLock = vaultUsageModule.withVaultUserQuotaLock;
-const subrouterClientModule = await import("../services/subrouter/client");
-const realCreateSubrouterClientFromEnv = subrouterClientModule.createSubrouterClientFromEnv;
 const vmErrorsModule = await import("../services/vms/errors");
 const workflowsModule = await import("../services/vms/workflows");
 const realDestroyVm = workflowsModule.destroyVm;
@@ -66,12 +78,22 @@ type StackList =
 
 const deleteStackUser = mock(async () => {
   routeEvents.push("stack-delete");
+  accountLifecycleEvents.push("stack-delete");
   if (stackDeleteError) throw stackDeleteError;
 });
 const updateStackUser = mock(async () => {
   routeEvents.push("metadata-update");
 });
 const getUser = mock(async () => stackUser(stackUserIds.shift()));
+let authoritativeAccessToken = "access-token";
+let stackAuthJsonError: Error | null = null;
+const getAuthJson = mock(async () => {
+  if (stackAuthJsonError) throw stackAuthJsonError;
+  return {
+    accessToken: authoritativeAccessToken,
+    refreshToken: "refresh-token",
+  };
+});
 const transaction = mock(async (...args: unknown[]) => {
   const [callback] = args as [(tx: MockTransaction) => Promise<void>];
   routeEvents.push("transaction");
@@ -81,6 +103,10 @@ const transactionSelect = mock(() => {
   let selectedTable: unknown = null;
   const rows = () => {
     if (selectedTable === accountDeletionTombstones) return nextTransactionTombstoneSelectResult();
+    if (selectedTable === accountAnalyticsForwardLeases) return nextTransactionAnalyticsLeaseSelectResult();
+    if (selectedTable === accountMutationLeases) {
+      return nextTransactionMutationLeaseSelectResult();
+    }
     if (
       selectedTable === vaultSnapshots ||
       selectedTable === vaultUploadGrants ||
@@ -111,6 +137,19 @@ const transactionSelect = mock(() => {
 });
 const transactionExecute = mock(async () => {
   routeEvents.push("transaction-lock");
+});
+const transactionDeleteRows = mock((table: unknown) => {
+  if (table === accountMutationLeases) {
+    return { where: async () => undefined };
+  }
+  if (table === accountAnalyticsForwardLeases) {
+    return {
+      where: async () => {
+        routeEvents.push("analytics-lease-cleanup");
+      },
+    };
+  }
+  return deleteRows(table);
 });
 const deleteRows = mock((table: unknown) => {
   deletedTables.push(table);
@@ -247,17 +286,40 @@ const updateSubscription = mock(async (...args: unknown[]) => {
 const removeTester = mock(async (...args: unknown[]) => {
   const [email] = args as [string];
   routeEvents.push(`testflight-remove:${email}`);
+  const sequenceError = removeTesterErrors.shift();
+  if (sequenceError) throw sequenceError;
   if (removeTesterError) throw removeTesterError;
 });
 const captureAscError = mock((..._args: unknown[]) => {
   routeEvents.push("testflight-error");
 });
-const revokeTenant = mock(async (...args: unknown[]) => {
-  const [tenantId] = args as [string];
-  routeEvents.push(`subrouter-revoke:${tenantId}`);
-  const sequenceError = subrouterRevokeErrors.shift();
-  if (sequenceError) throw sequenceError;
-  if (subrouterRevokeError) throw subrouterRevokeError;
+const realFetch = globalThis.fetch;
+const postHogDeleteFetch = mock(async (...args: unknown[]) => {
+  const fetchArgs = args as Parameters<typeof fetch>;
+  const [input, init] = fetchArgs;
+  if (String(input).includes("/admin/tenants/") && String(input).endsWith("/revoke")) {
+    legacySubrouterRevokeRequests.push(fetchArgs);
+    const tenantId = decodeURIComponent(
+      new URL(String(input)).pathname.split("/").at(-2) ?? "",
+    );
+    accountLifecycleEvents.push(`legacy-subrouter-revoke:${tenantId}`);
+    return Response.json({ ok: legacySubrouterRevokeStatus < 400 }, {
+      status: legacySubrouterRevokeStatus,
+    });
+  }
+  if (String(input).endsWith("/_subrouter/auth/stack/tenant")) {
+    hostedTenantDeleteRequests.push(fetchArgs);
+    const body = JSON.parse(String(init?.body)) as { readonly teamId?: unknown };
+    accountLifecycleEvents.push(`subrouter-delete:${String(body.teamId)}`);
+    await beforeHostedTenantDeleteResponse?.();
+    return Response.json(hostedTenantDeleteResponse, {
+      status: hostedTenantDeleteStatus,
+    });
+  }
+  routeEvents.push("posthog-delete");
+  postHogDeleteRequests.push(fetchArgs);
+  if (postHogDeleteError) throw postHogDeleteError;
+  return new Response(JSON.stringify(postHogDeleteResponse), { status: postHogDeleteStatus });
 });
 
 let deletedTableCount = 0;
@@ -269,11 +331,14 @@ let tombstoneUpdates: unknown[] = [];
 let tombstoneCompleteError: unknown = null;
 let tombstoneCleanupIncompleteError: unknown = null;
 let routeEvents: string[] = [];
+let accountLifecycleEvents: string[] = [];
 let stackDeleteError: unknown = null;
 let stackUserIds: Array<string | undefined> = [];
 let selectResults: unknown[][] = [];
 let transactionSelectResults: unknown[][] = [];
 let transactionTombstoneSelectResults: unknown[][] = [];
+let transactionAnalyticsLeaseSelectResults: unknown[][] = [];
+let transactionMutationLeaseSelectResults: unknown[][] = [];
 let deletedVaultObjects: string[] = [];
 let vaultDeleteError: unknown = null;
 let postStackVaultDeleteError: unknown = null;
@@ -288,6 +353,7 @@ let stripeDeleteCustomerError: unknown = null;
 let stripeUpdateCustomerError: unknown = null;
 let stripeUpdateSubscriptionError: unknown = null;
 let removeTesterError: unknown = null;
+let removeTesterErrors: unknown[] = [];
 let destroyVmFailureProviderIds = new Set<string>();
 let destroyVmFailureErrorsByProviderId = new Map<string, unknown>();
 let destroyVmAfterProviderErrorsByProviderId = new Map<string, unknown>();
@@ -295,14 +361,29 @@ let listedPersonalVmIds: ListedAccountVm[] = [];
 let listedPersonalVmIdsByBillingTeam: Record<string, ListedAccountVm[]> = {};
 let revokeIdentityLeasesError: unknown = null;
 let revokedIdentityLeaseCount = 2;
-let subrouterClientCreateError: unknown = null;
-let subrouterRevokeError: unknown = null;
-let subrouterRevokeErrors: unknown[] = [];
 let stackUserSelectedTeam: unknown = null;
 let stackUserTeams: StackList = [];
+let stackUserClientReadOnlyMetadata: unknown = { cmuxPlan: "pro" };
 let useAccountRouteStubs = false;
 let lastRevokeIdentityCall: { readonly userId: string; readonly afterBatch?: unknown } | null = null;
 let vaultLockUsers: string[] = [];
+let postHogDeleteRequests: Parameters<typeof fetch>[] = [];
+let hostedTenantDeleteRequests: Parameters<typeof fetch>[] = [];
+let legacySubrouterRevokeRequests: Parameters<typeof fetch>[] = [];
+let legacySubrouterRevokeStatus = 200;
+let legacyTenantRows: Array<{ readonly tenantId: string }> = [];
+let hostedTenantDeleteStatus = 200;
+let hostedTenantDeleteResponse: unknown = { ok: true, deleted: true };
+let beforeHostedTenantDeleteResponse: (() => Promise<void>) | null = null;
+let postHogDeleteError: unknown = null;
+let postHogDeleteStatus = 202;
+let postHogDeleteResponse: unknown = {
+  persons_found: 1,
+  persons_deleted: 1,
+  events_queued_for_deletion: true,
+  recordings_queued_for_deletion: true,
+  deletion_errors: [],
+};
 const originalConsoleError = console.error;
 const consoleError = mock(() => {});
 
@@ -351,7 +432,7 @@ type SelectResult = Promise<unknown[]> & {
 const mockTransaction: MockTransaction = {
   select: transactionSelect,
   execute: transactionExecute,
-  delete: deleteRows,
+  delete: transactionDeleteRows,
   insert: insertRows,
   update: updateRows,
 };
@@ -368,6 +449,14 @@ function nextTransactionTombstoneSelectResult(): unknown[] {
   return transactionTombstoneSelectResults.shift() ?? [];
 }
 
+function nextTransactionAnalyticsLeaseSelectResult(): unknown[] {
+  return transactionAnalyticsLeaseSelectResults.shift() ?? [];
+}
+
+function nextTransactionMutationLeaseSelectResult(): unknown[] {
+  return transactionMutationLeaseSelectResults.shift() ?? [];
+}
+
 function chainableSelectResult(rows: unknown[]): SelectResult {
   const result = Promise.resolve(rows) as SelectResult;
   Object.defineProperties(result, {
@@ -376,6 +465,32 @@ function chainableSelectResult(rows: unknown[]): SelectResult {
     offset: { value: () => result },
   });
   return result;
+}
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
+
+function expectPostHogAccountDeleteRequest(): void {
+  expect(postHogDeleteRequests).toHaveLength(1);
+  const [url, init] = postHogDeleteRequests[0]!;
+  expect(String(url)).toBe("https://posthog.test/api/environments/env-244066/persons/bulk_delete/");
+  expect(init?.method).toBe("POST");
+  expect(init?.headers).toEqual({
+    "Authorization": "Bearer test-posthog-personal-api-key",
+    "Content-Type": "application/json",
+  });
+  expect(JSON.parse(String(init?.body))).toEqual({
+    distinct_ids: [ACCOUNT_USER_ID],
+    delete_events: true,
+    delete_recordings: true,
+    keep_person: false,
+  });
+  expect(init?.signal).toBeInstanceOf(AbortSignal);
 }
 
 const mockDb = {
@@ -387,6 +502,9 @@ const mockDb = {
         return {
           where: (condition: unknown) => {
             selectedWhere.push({ table: selectedTable, condition });
+            if (selectedTable === subrouterTenants) {
+              return chainableSelectResult(legacyTenantRows);
+            }
             return chainableSelectResult(nextSelectResult());
           },
           innerJoin: () => ({
@@ -406,7 +524,7 @@ const mockDb = {
 
 mock.module("../app/lib/stack", () => ({
   ...stackModule,
-  getStackServerApp: () => useAccountRouteStubs ? { getUser } : realGetStackServerApp(),
+  getStackServerApp: () => useAccountRouteStubs ? { getUser, getAuthJson } : realGetStackServerApp(),
   isStackConfigured: () => useAccountRouteStubs ? true : realIsStackConfigured(),
 }));
 
@@ -458,8 +576,7 @@ mock.module("../services/asc/client", () => ({
 mock.module("../services/asc/testflight", () => ({
   ...ascTestflightModule,
   removeTester: ((...args: Parameters<typeof realRemoveTester>) => {
-    const [email] = args;
-    if (useAccountRouteStubs) return removeTester(email);
+    if (useAccountRouteStubs) return removeTester(...args);
     return realRemoveTester(...args);
   }) as typeof realRemoveTester,
 }));
@@ -470,17 +587,6 @@ mock.module("../services/errors", () => ({
     if (useAccountRouteStubs) return captureAscError(...args);
     return realCaptureAscError(...args);
   }) as typeof realCaptureAscError,
-}));
-
-mock.module("../services/subrouter/client", () => ({
-  ...subrouterClientModule,
-  createSubrouterClientFromEnv: () => {
-    if (!useAccountRouteStubs) return realCreateSubrouterClientFromEnv();
-    if (subrouterClientCreateError) throw subrouterClientCreateError;
-    return {
-        revokeTenant,
-      };
-  },
 }));
 
 mock.module("../services/vms/workflows", () => ({
@@ -519,6 +625,12 @@ afterAll(() => {
 
 beforeEach(() => {
   console.error = consoleError as typeof console.error;
+  globalThis.fetch = postHogDeleteFetch as typeof fetch;
+  process.env.POSTHOG_PERSONAL_API_KEY = "test-posthog-personal-api-key";
+  process.env.POSTHOG_API_HOST = "https://posthog.test";
+  process.env.POSTHOG_ENVIRONMENT_ID = "env-244066";
+  process.env.SUBROUTER_BASE_URL = "https://subrouter.cmux.dev";
+  process.env.SUBROUTER_ADMIN_TOKEN = "test-legacy-subrouter-admin";
   consoleError.mockClear();
   deleteStackUser.mockClear();
   updateStackUser.mockClear();
@@ -526,6 +638,7 @@ beforeEach(() => {
   transaction.mockClear();
   transactionSelect.mockClear();
   transactionExecute.mockClear();
+  transactionDeleteRows.mockClear();
   deleteRows.mockClear();
   insertRows.mockClear();
   updateRows.mockClear();
@@ -541,7 +654,7 @@ beforeEach(() => {
   updateSubscription.mockClear();
   removeTester.mockClear();
   captureAscError.mockClear();
-  revokeTenant.mockClear();
+  postHogDeleteFetch.mockClear();
   deletedTableCount = 0;
   deletedTables = [];
   deletedWhere = [];
@@ -551,11 +664,19 @@ beforeEach(() => {
   tombstoneCompleteError = null;
   tombstoneCleanupIncompleteError = null;
   routeEvents = [];
+  accountLifecycleEvents = [];
   stackDeleteError = null;
   stackUserIds = [];
+  authoritativeAccessToken = "access-token";
+  stackAuthJsonError = null;
+  getAuthJson.mockClear();
+  process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN =
+    "0123456789abcdef0123456789abcdef-test";
   selectResults = [[], [], [], [], [], []];
   transactionSelectResults = [];
   transactionTombstoneSelectResults = [];
+  transactionAnalyticsLeaseSelectResults = [];
+  transactionMutationLeaseSelectResults = [];
   deletedVaultObjects = [];
   vaultDeleteError = null;
   postStackVaultDeleteError = null;
@@ -570,6 +691,7 @@ beforeEach(() => {
   stripeUpdateCustomerError = null;
   stripeUpdateSubscriptionError = null;
   removeTesterError = null;
+  removeTesterErrors = [];
   destroyVmFailureProviderIds = new Set();
   destroyVmFailureErrorsByProviderId = new Map();
   destroyVmAfterProviderErrorsByProviderId = new Map();
@@ -578,19 +700,55 @@ beforeEach(() => {
   revokeIdentityLeasesError = null;
   revokedIdentityLeaseCount = 2;
   lastRevokeIdentityCall = null;
-  subrouterClientCreateError = null;
-  subrouterRevokeError = null;
-  subrouterRevokeErrors = [];
   stackUserSelectedTeam = null;
   stackUserTeams = [];
+  stackUserClientReadOnlyMetadata = { cmuxPlan: "pro" };
   vaultLockUsers = [];
+  postHogDeleteRequests = [];
+  hostedTenantDeleteRequests = [];
+  legacySubrouterRevokeRequests = [];
+  legacySubrouterRevokeStatus = 200;
+  legacyTenantRows = [];
+  hostedTenantDeleteStatus = 200;
+  hostedTenantDeleteResponse = { ok: true, deleted: true };
+  beforeHostedTenantDeleteResponse = null;
+  postHogDeleteError = null;
+  postHogDeleteStatus = 202;
+  postHogDeleteResponse = {
+    persons_found: 1,
+    persons_deleted: 1,
+    events_queued_for_deletion: true,
+    recordings_queued_for_deletion: true,
+    deletion_errors: [],
+  };
 });
 
 afterEach(() => {
   console.error = originalConsoleError;
+  globalThis.fetch = realFetch;
+  restoreEnv("POSTHOG_PERSONAL_API_KEY", originalPostHogPersonalApiKey);
+  restoreEnv("POSTHOG_API_HOST", originalPostHogApiHost);
+  restoreEnv("POSTHOG_ENVIRONMENT_ID", originalPostHogEnvironmentId);
+  restoreEnv("POSTHOG_PROJECT_ID", originalPostHogProjectId);
 });
 
 describe("account deletion route", () => {
+  test("returns retryable service unavailable when Stack token refresh fails", async () => {
+    stackAuthJsonError = new Error("Stack refresh unavailable");
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expect(transaction).not.toHaveBeenCalled();
+    expect(postHogDeleteRequests).toHaveLength(0);
+    expect(hostedTenantDeleteRequests).toHaveLength(0);
+  });
+
   test("requires native auth headers", async () => {
     const response = await DELETE(new Request("https://cmux.test/api/account", { method: "DELETE" }));
 
@@ -627,10 +785,11 @@ describe("account deletion route", () => {
       providerVmId: "personal-vm-2",
       provider: "freestyle",
     }));
-    expect(transaction).toHaveBeenCalledTimes(3);
+    expect(transaction).toHaveBeenCalledTimes(4);
     expect(deletedTableCount).toBeGreaterThan(10);
     expect(deletedTables).toContain(cloudVmBillingGrants);
     expect(deletedTables).toContain(devices);
+    expect(deletedTables).toContain(proWelcomeFulfillments);
     const nonStripeUpdates = updatedRows.filter(({ table }) =>
       table !== stripeSubscriptions && table !== stripeCustomers
     );
@@ -658,11 +817,35 @@ describe("account deletion route", () => {
     ]);
     expect(cancelledStripeSubscriptions).toEqual(["sub_user_active"]);
     expect(deletedStripeCustomers).toEqual(["cus_user"]);
+    expectPostHogAccountDeleteRequest();
     expect(updateStackUser).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
     });
     expect(getUser).toHaveBeenCalledTimes(1);
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
+    expect(hostedTenantDeleteRequests).toHaveLength(1);
+    const [tenantDeleteUrl, tenantDeleteInit] = hostedTenantDeleteRequests[0]!;
+    expect(String(tenantDeleteUrl)).toBe(
+      "https://staging.sr.cmux.com/_subrouter/auth/stack/tenant",
+    );
+    expect(new Headers(tenantDeleteInit?.headers).get("authorization")).toBe(
+      "Bearer access-token",
+    );
+    expect(
+      new Headers(tenantDeleteInit?.headers).get(
+        "x-subrouter-tenant-delete-token",
+      ),
+    ).toBe("0123456789abcdef0123456789abcdef-test");
+    expect(JSON.parse(String(tenantDeleteInit?.body))).toEqual({
+      teamId: "account-user-1",
+    });
+    expect(deletedTables.map((table) => getTableName(table as never))).toContain(
+      "subrouter_tenants",
+    );
+    expect(accountLifecycleEvents).toEqual([
+      "subrouter-delete:account-user-1",
+      "stack-delete",
+    ]);
     const completedTombstone = tombstoneUpdates.find((update) =>
       Boolean(
         update &&
@@ -690,6 +873,10 @@ describe("account deletion route", () => {
       "transaction",
       "transaction-lock",
       "tombstone-upsert",
+      "transaction",
+      "transaction-lock",
+      "analytics-lease-cleanup",
+      "posthog-delete",
       "metadata-update",
       "stripe-cancel",
       "stripe-delete-customer",
@@ -709,6 +896,439 @@ describe("account deletion route", () => {
       "transaction",
       "transaction-lock",
     ]);
+  });
+
+  test("blocks cmux row deletion while a phone push delivery lease is active", async () => {
+    listedPersonalVmIds = [];
+    transactionSelectResults = [
+      [],
+      [{ deliveryLeaseUntil: new Date(Date.now() + 30_000) }],
+    ];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(409);
+    const body = await response.json() as {
+      error: string;
+      retryable: boolean;
+      retryAfterSeconds: number;
+      destroyedVms: number;
+    };
+    expect(body).toMatchObject({
+      error: "account_delete_push_delivery_in_progress",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expect(body.retryAfterSeconds).toBeGreaterThan(0);
+    expect(body.retryAfterSeconds).toBeLessThanOrEqual(30);
+    expect(response.headers.get("retry-after"))
+      .toBe(String(body.retryAfterSeconds));
+    expect(deletedTables).not.toContain(deviceTokens);
+    expect(deleteStackUser).not.toHaveBeenCalled();
+  });
+
+  test("blocks Stack deletion when PostHog account analytics deletion fails", async () => {
+    postHogDeleteStatus = 500;
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expectPostHogAccountDeleteRequest();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(routeEvents).toContain("posthog-delete");
+    expect(routeEvents).not.toContain("stack-delete");
+    expect(routeEvents).not.toContain("metadata-update");
+    expect(routeEvents).not.toContain("stripe-cancel");
+    expect(routeEvents).not.toContain("revoke-identities");
+    expect(routeEvents).not.toContain("destroy-vm");
+    expect(routeEvents).not.toContain("vault-delete");
+    expect(tombstoneUpdates.some((values) =>
+      (values as { readonly status?: unknown; readonly errorMessage?: unknown }).status === "failed" &&
+      (values as { readonly errorMessage?: unknown }).errorMessage === "Error: PostHog account deletion failed with status 500"
+    )).toBe(true);
+  });
+
+  test("keeps Stack identity retryable while hosted tenant requests drain", async () => {
+    hostedTenantDeleteStatus = 202;
+    hostedTenantDeleteResponse = { ok: false, deletionPending: true };
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 2,
+    });
+    expect(hostedTenantDeleteRequests).toHaveLength(1);
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(accountLifecycleEvents).toEqual([
+      "subrouter-delete:account-user-1",
+    ]);
+  });
+
+  test("keeps Stack identity when hosted tenant deletion is unconfirmed", async () => {
+    hostedTenantDeleteResponse = { ok: true };
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 2,
+    });
+    expect(hostedTenantDeleteRequests).toHaveLength(1);
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(accountLifecycleEvents).toEqual([
+      "subrouter-delete:account-user-1",
+    ]);
+  });
+
+  test("keeps the active deletion lease while hosted deletion is in flight", async () => {
+    let signalHostedDeleteStarted!: () => void;
+    let releaseHostedDelete!: () => void;
+    const hostedDeleteStarted = new Promise<void>((resolve) => {
+      signalHostedDeleteStarted = resolve;
+    });
+    const hostedDeleteReleased = new Promise<void>((resolve) => {
+      releaseHostedDelete = resolve;
+    });
+    beforeHostedTenantDeleteResponse = async () => {
+      signalHostedDeleteStarted();
+      await hostedDeleteReleased;
+    };
+
+    const deletion = DELETE(accountDeletionRequest());
+    try {
+      await hostedDeleteStarted;
+      expect(tombstoneUpdates.some((values) =>
+        (values as { readonly status?: unknown }).status === "hosted_delete_pending"
+      )).toBe(false);
+    } finally {
+      releaseHostedDelete();
+    }
+
+    const response = await deletion;
+    expect(response.status).toBe(200);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+  });
+
+  test("checkpoints bounded hosted tenant deletion and resumes with fresh auth", async () => {
+    stackUserTeams = [
+      stackTeam("team-personal-1", [ACCOUNT_USER_ID]),
+      stackTeam("team-personal-2", [ACCOUNT_USER_ID]),
+      stackTeam("team-personal-3", [ACCOUNT_USER_ID]),
+    ];
+    authoritativeAccessToken = "first-access";
+
+    const pending = await DELETE(accountDeletionRequest());
+
+    expect(pending.status).toBe(503);
+    expect(await pending.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 2,
+    });
+    expect(hostedTenantDeleteRequests.map(([, init]) => ({
+      authorization: new Headers(init?.headers).get("authorization"),
+      teamId: (JSON.parse(String(init?.body)) as { readonly teamId: string }).teamId,
+    }))).toEqual([
+      { authorization: "Bearer first-access", teamId: ACCOUNT_USER_ID },
+      { authorization: "Bearer first-access", teamId: "team-personal-1" },
+    ]);
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(hostedTenantDeleteRequests.every(([, init]) =>
+      init?.signal instanceof AbortSignal
+    )).toBe(true);
+
+    transactionTombstoneSelectResults = [[{
+      userIdHash: "existing-hash",
+      status: "hosted_delete_pending",
+      updatedAt: new Date(),
+      hostedSubrouterDeletedTeamIds: [ACCOUNT_USER_ID, "team-personal-1"],
+    }]];
+    authoritativeAccessToken = "refreshed-access";
+
+    const completed = await DELETE(accountDeletionRequest());
+
+    expect(completed.status).toBe(200);
+    expect(await completed.json()).toEqual({ ok: true, destroyedVms: 2 });
+    expect(hostedTenantDeleteRequests.slice(2).map(([, init]) => ({
+      authorization: new Headers(init?.headers).get("authorization"),
+      teamId: (JSON.parse(String(init?.body)) as { readonly teamId: string }).teamId,
+    }))).toEqual([
+      { authorization: "Bearer refreshed-access", teamId: "team-personal-2" },
+      { authorization: "Bearer refreshed-access", teamId: "team-personal-3" },
+    ]);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+  });
+
+  test("uses the refreshed Stack token for hosted tenant deletion", async () => {
+    authoritativeAccessToken = "refreshed-access";
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(hostedTenantDeleteRequests).toHaveLength(1);
+    expect(new Headers(hostedTenantDeleteRequests[0]?.[1]?.headers).get("authorization")).toBe(
+      "Bearer refreshed-access",
+    );
+  });
+
+  test("retires mapped legacy and hosted tenants before deleting the Stack user", async () => {
+    listedPersonalVmIds = [];
+    revokedIdentityLeaseCount = 0;
+    legacyTenantRows = [{ tenantId: "legacy-personal" }];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(legacySubrouterRevokeRequests).toHaveLength(1);
+    const [legacyUrl, legacyInit] = legacySubrouterRevokeRequests[0]!;
+    expect(String(legacyUrl)).toBe(
+      "https://subrouter.cmux.dev/admin/tenants/legacy-personal/revoke",
+    );
+    expect(new Headers(legacyInit?.headers).get("authorization")).toBe(
+      "Bearer test-legacy-subrouter-admin",
+    );
+    expect(hostedTenantDeleteRequests).toHaveLength(1);
+    expect(accountLifecycleEvents.indexOf("legacy-subrouter-revoke:legacy-personal"))
+      .toBeLessThan(accountLifecycleEvents.indexOf("stack-delete"));
+    expect(accountLifecycleEvents.indexOf("subrouter-delete:account-user-1"))
+      .toBeLessThan(accountLifecycleEvents.indexOf("stack-delete"));
+  });
+
+  test("checkpoints bounded legacy tenant retirement and resumes without replay", async () => {
+    legacyTenantRows = [
+      { tenantId: "legacy-1" },
+      { tenantId: "legacy-2" },
+      { tenantId: "legacy-3" },
+    ];
+
+    const pending = await DELETE(accountDeletionRequest());
+
+    expect(pending.status).toBe(503);
+    expect(await pending.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 2,
+    });
+    expect(legacySubrouterRevokeRequests.map(([url]) => String(url))).toEqual([
+      "https://subrouter.cmux.dev/admin/tenants/legacy-1/revoke",
+      "https://subrouter.cmux.dev/admin/tenants/legacy-2/revoke",
+    ]);
+    expect(hostedTenantDeleteRequests).toHaveLength(0);
+    expect(deleteStackUser).not.toHaveBeenCalled();
+
+    transactionTombstoneSelectResults = [[{
+      userIdHash: "existing-hash",
+      status: "legacy_delete_pending",
+      updatedAt: new Date(),
+      legacySubrouterRetiredTenantIds: ["legacy-1", "legacy-2"],
+      hostedSubrouterDeletedTeamIds: [],
+    }]];
+
+    const completed = await DELETE(accountDeletionRequest());
+
+    expect(completed.status).toBe(200);
+    expect(legacySubrouterRevokeRequests.slice(2).map(([url]) => String(url))).toEqual([
+      "https://subrouter.cmux.dev/admin/tenants/legacy-3/revoke",
+    ]);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+  });
+
+  test("validates legacy tenant retirement before destructive account cleanup", async () => {
+    legacyTenantRows = [{ tenantId: "legacy-personal" }];
+    delete process.env.SUBROUTER_ADMIN_TOKEN;
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(postHogDeleteRequests).toHaveLength(0);
+    expect(hostedTenantDeleteRequests).toHaveLength(0);
+    expect(legacySubrouterRevokeRequests).toHaveLength(0);
+    expect(updateStackUser).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+  });
+
+  test("fails before mutation when hosted tenant deletion is missing in a managed deployment", async () => {
+    const originalVercel = process.env.VERCEL;
+    const originalVercelEnv = process.env.VERCEL_ENV;
+    try {
+      process.env.VERCEL = "1";
+      process.env.VERCEL_ENV = "production";
+      delete process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN;
+
+      const response = await DELETE(accountDeletionRequest());
+
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: "account_delete_failed" });
+      expect(postHogDeleteRequests).toHaveLength(0);
+      expect(hostedTenantDeleteRequests).toHaveLength(0);
+      expect(updateStackUser).not.toHaveBeenCalled();
+      expect(deleteStackUser).not.toHaveBeenCalled();
+    } finally {
+      restoreEnv("VERCEL", originalVercel);
+      restoreEnv("VERCEL_ENV", originalVercelEnv);
+    }
+  });
+
+  test("deletes an account when hosted Subrouter has never been enabled", async () => {
+    const originalVercel = process.env.VERCEL;
+    const originalVercelEnv = process.env.VERCEL_ENV;
+    const originalHostedUrl = process.env.SUBROUTER_HOSTED_URL;
+    try {
+      delete process.env.VERCEL;
+      delete process.env.VERCEL_ENV;
+      delete process.env.SUBROUTER_HOSTED_URL;
+      delete process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN;
+
+      const response = await DELETE(accountDeletionRequest());
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ ok: true, destroyedVms: 2 });
+      expect(hostedTenantDeleteRequests).toHaveLength(0);
+      expect(deleteStackUser).toHaveBeenCalledTimes(1);
+    } finally {
+      restoreEnv("VERCEL", originalVercel);
+      restoreEnv("VERCEL_ENV", originalVercelEnv);
+      restoreEnv("SUBROUTER_HOSTED_URL", originalHostedUrl);
+    }
+  });
+
+  test("blocks Stack deletion when PostHog reports partial deletion errors", async () => {
+    postHogDeleteResponse = {
+      persons_found: 1,
+      persons_deleted: 0,
+      events_queued_for_deletion: false,
+      recordings_queued_for_deletion: false,
+      deletion_errors: [{ distinct_id: ACCOUNT_USER_ID, error: "person delete failed" }],
+    };
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expectPostHogAccountDeleteRequest();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(routeEvents).not.toContain("stack-delete");
+    expect(routeEvents).not.toContain("metadata-update");
+    expect(routeEvents).not.toContain("destroy-vm");
+  });
+
+  test("blocks Stack deletion until PostHog queues event and recording deletion", async () => {
+    postHogDeleteResponse = {
+      persons_found: 1,
+      persons_deleted: 1,
+      events_queued_for_deletion: false,
+      recordings_queued_for_deletion: false,
+      deletion_errors: [],
+    };
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(tombstoneUpdates.some((values) =>
+      (values as { readonly analyticsDeletedAt?: unknown }).analyticsDeletedAt instanceof Date
+    )).toBe(false);
+  });
+
+  test("accepts a complete PostHog deletion response when optional deletion errors are omitted", async () => {
+    postHogDeleteResponse = {
+      persons_found: 1,
+      persons_deleted: 1,
+      events_queued_for_deletion: true,
+      recordings_queued_for_deletion: true,
+    };
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+    expect(tombstoneUpdates.some((values) =>
+      (values as { readonly analyticsDeletedAt?: unknown }).analyticsDeletedAt instanceof Date
+    )).toBe(true);
+  });
+
+  test("accepts PostHog zero matches as an already-complete deletion", async () => {
+    postHogDeleteResponse = {
+      persons_found: 0,
+      persons_deleted: 0,
+      events_queued_for_deletion: false,
+      recordings_queued_for_deletion: false,
+      deletion_errors: [],
+    };
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+    expect(tombstoneUpdates.some((values) =>
+      (values as { readonly analyticsDeletedAt?: unknown }).analyticsDeletedAt instanceof Date
+    )).toBe(true);
+  });
+
+  test("fails closed before PostHog deletion while an analytics forward lease is active", async () => {
+    transactionAnalyticsLeaseSelectResults = [[{ id: "active-forward-lease" }]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expect(postHogDeleteFetch).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).not.toHaveBeenCalled();
+    expect(destroyVm).not.toHaveBeenCalled();
+  });
+
+  test("cleans stale analytics leases and retries PostHog deletion", async () => {
+    transactionAnalyticsLeaseSelectResults = [[]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(routeEvents).toContain("analytics-lease-cleanup");
+    expect(postHogDeleteRequests).toHaveLength(1);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+  });
+
+  test("fails closed before PostHog deletion when no explicit environment is configured", async () => {
+    delete process.env.POSTHOG_ENVIRONMENT_ID;
+    delete process.env.POSTHOG_PROJECT_ID;
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(postHogDeleteFetch).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).not.toHaveBeenCalled();
+    expect(cancelSubscription).not.toHaveBeenCalled();
+    expect(removeTester).not.toHaveBeenCalled();
+    expect(revokeUserIdentityLeasesForAccountDeletion).not.toHaveBeenCalled();
+    expect(listUserVms).not.toHaveBeenCalled();
+    expect(destroyVm).not.toHaveBeenCalled();
+    expect(deleteObject).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      "account.delete.failed",
+      "Error: POSTHOG_ENVIRONMENT_ID is required for account deletion",
+    );
   });
 
   test("destroys personal VMs with the same provider id on different providers", async () => {
@@ -750,7 +1370,6 @@ describe("account deletion route", () => {
       [],
       [],
       [],
-      [{ tenantId: "tenant-team-personal" }],
     ];
 
     const response = await DELETE(accountDeletionRequest());
@@ -776,12 +1395,17 @@ describe("account deletion route", () => {
     expect(conditionColumnNames(subscriptionDelete?.condition)).toContain("stack_team_id");
     const customerDelete = deletedWhere.find((entry) => entry.table === stripeCustomers);
     expect(conditionColumnNames(customerDelete?.condition)).toContain("stack_team_id");
-    expect(revokeTenant).toHaveBeenCalledWith("tenant-team-personal");
-    expect(transactionExecute).toHaveBeenCalledTimes(5);
+    expect(transactionExecute).toHaveBeenCalledTimes(6);
     const grantDelete = deletedWhere.find((entry) => entry.table === cloudVmBillingGrants);
     expect(conditionColumnNames(grantDelete?.condition)).toContain("billing_customer_id");
     const baseDelete = deletedWhere.find((entry) => entry.table === cloudVmBases);
     expect(conditionColumnNames(baseDelete?.condition)).toContain("scope_id");
+    expect(hostedTenantDeleteRequests.map(([, init]) =>
+      JSON.parse(String(init?.body))
+    )).toEqual([
+      { teamId: "account-user-1" },
+      { teamId: "team-personal" },
+    ]);
   });
 
   test("deletes account-owned team VM rows created by another user", async () => {
@@ -836,6 +1460,26 @@ describe("account deletion route", () => {
     expect(deleteStackUser).not.toHaveBeenCalled();
   });
 
+  test("waits for an active account mutation before starting deletion", async () => {
+    transactionMutationLeaseSelectResults = [[{
+      operationId: "active-account-mutation",
+    }]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(routeEvents).not.toContain("tombstone-upsert");
+    expect(updateStackUser).not.toHaveBeenCalled();
+    expect(postHogDeleteFetch).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+  });
+
   test("returns completed when a retry sees a completed account deletion tombstone", async () => {
     transactionTombstoneSelectResults = [[{
       userIdHash: "existing-hash",
@@ -874,6 +1518,7 @@ describe("account deletion route", () => {
     expect(cancelSubscription).not.toHaveBeenCalled();
     expect(listUserVms).not.toHaveBeenCalled();
     expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(postHogDeleteFetch).not.toHaveBeenCalled();
     expect(tombstoneUpdates.some((values) =>
       (values as { readonly status?: unknown }).status === "completed"
     )).toBe(true);
@@ -915,7 +1560,7 @@ describe("account deletion route", () => {
       providerVmId: "shared-team-vm",
       provider: "freestyle",
     });
-    expect(transactionExecute).toHaveBeenCalledTimes(3);
+    expect(transactionExecute).toHaveBeenCalledTimes(4);
   });
 
   test("uses the listed Stack team when selectedTeam has no member listing", async () => {
@@ -1040,7 +1685,11 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
     expect(updateCustomer).toHaveBeenCalledWith("cus_shared", expect.objectContaining({
       metadata: expect.objectContaining({ stackUserId: "other-user" }),
     }));
@@ -1081,27 +1730,6 @@ describe("account deletion route", () => {
     expect(deleteStackUser).not.toHaveBeenCalled();
   });
 
-  test("revokes the personal Subrouter tenant before deleting local rows", async () => {
-    selectResults = [
-      [],
-      [],
-      [],
-      [],
-      [],
-      [],
-      [{ tenantId: "tenant-personal" }],
-    ];
-
-    const response = await DELETE(accountDeletionRequest());
-
-    expect(response.status).toBe(200);
-    expect(revokeTenant).toHaveBeenCalledWith("tenant-personal");
-    expect(deletedTables).toContain(subrouterTenants);
-    expect(routeEvents.indexOf("subrouter-revoke:tenant-personal")).toBeLessThan(
-      routeEvents.lastIndexOf("transaction"),
-    );
-  });
-
   test("removes TestFlight access during account deletion when ASC is configured", async () => {
     ascConfigured = true;
     listedPersonalVmIds = [];
@@ -1109,8 +1737,33 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(200);
-    expect(removeTester).toHaveBeenCalledWith("account@example.com");
+    expect(removeTester).toHaveBeenCalledWith("account@example.com", {
+      ownedLegacyGroupIDs: [],
+    });
     expect(routeEvents).toContain("testflight-remove:account@example.com");
+  });
+
+  test("keeps account deletion retryable when TestFlight cleanup partially succeeds", async () => {
+    ascConfigured = true;
+    listedPersonalVmIds = [];
+    stackUserClientReadOnlyMetadata = {
+      cmuxPlan: "pro",
+      cmuxProTestflightEnrollmentEmails: ["previous@example.com"],
+    };
+    removeTesterErrors = [null, new Error("second TestFlight removal failed")];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expect(removeTester).toHaveBeenCalledTimes(2);
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(captureAscError).toHaveBeenCalledTimes(1);
+    expect(updateStackUser).toHaveBeenCalledTimes(1);
   });
 
   test("revokes active account SSH identities before deleting cmux rows", async () => {
@@ -1132,9 +1785,13 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
     expect(deletedVaultObjects).toEqual([]);
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1163,7 +1820,7 @@ describe("account deletion route", () => {
       destroyedVms: 0,
     });
     expectIdentityRevocationHeartbeatConfigured();
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1177,11 +1834,15 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
     expectIdentityRevocationHeartbeatConfigured();
     expect(listUserVms).not.toHaveBeenCalled();
     expect(destroyVm).not.toHaveBeenCalled();
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1205,10 +1866,14 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
     expect(routeEvents.indexOf("revoke-identities")).toBeLessThan(routeEvents.indexOf("destroy-vm"));
     expect(destroyVm).toHaveBeenCalledTimes(1);
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1241,7 +1906,7 @@ describe("account deletion route", () => {
       destroyedVms: 0,
     });
     expect(routeEvents.indexOf("revoke-identities")).toBeLessThan(routeEvents.indexOf("destroy-vm"));
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1279,7 +1944,7 @@ describe("account deletion route", () => {
     }).mock.calls;
     const [destroyInput] = destroyVmCalls[0];
     expect(typeof destroyInput.afterProviderDestroy).toBe("function");
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1289,132 +1954,6 @@ describe("account deletion route", () => {
       "account.delete.partial_after_destructive_cleanup",
       "AccountDeletionDestructiveCleanupError: Failed to destroy 1 personal cloud VM",
     );
-  });
-
-  test("keeps deletion retryable after Subrouter 404 removes local tenant state", async () => {
-    listedPersonalVmIds = [];
-    revokedIdentityLeaseCount = 0;
-    selectResults = [
-      [],
-      [],
-      [],
-      [],
-      [],
-      [],
-      [{ tenantId: "tenant-personal" }],
-    ];
-    subrouterRevokeError = new subrouterClientModule.SubrouterClientError("revokeTenant", 404);
-    stackDeleteError = new Error("stack unavailable after subrouter cleanup");
-
-    const response = await DELETE(accountDeletionRequest());
-
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({
-      error: "account_delete_retryable",
-      retryable: true,
-      destroyedVms: 0,
-    });
-    expect(revokeTenant).toHaveBeenCalledWith("tenant-personal");
-    expect(deletedTables).toContain(subrouterTenants);
-    expect(transaction).toHaveBeenCalledTimes(2);
-    expect(deleteStackUser).toHaveBeenCalledTimes(1);
-    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
-      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
-    });
-    expect(updateStackUser).toHaveBeenCalledTimes(1);
-  });
-
-  test("restores Stack metadata when Subrouter revoke fails before external mutation", async () => {
-    listedPersonalVmIds = [];
-    revokedIdentityLeaseCount = 0;
-    selectResults = [
-      [],
-      [],
-      [],
-      [],
-      [],
-      [],
-      [{ tenantId: "tenant-personal" }],
-    ];
-    subrouterRevokeError = new Error("subrouter request timed out");
-
-    const response = await DELETE(accountDeletionRequest());
-
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
-    expect(revokeTenant).toHaveBeenCalledWith("tenant-personal");
-    expect(deletedTables).not.toContain(subrouterTenants);
-    expect(transaction).toHaveBeenCalledTimes(1);
-    expect(deleteStackUser).not.toHaveBeenCalled();
-    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
-      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
-    });
-    expect(updateStackUser).toHaveBeenNthCalledWith(2, {
-      clientReadOnlyMetadata: { cmuxPlan: "pro" },
-    });
-  });
-
-  test("restores Stack metadata when Subrouter 404 is followed by a pre-mutation failure", async () => {
-    listedPersonalVmIds = [];
-    revokedIdentityLeaseCount = 0;
-    selectResults = [
-      [],
-      [],
-      [],
-      [],
-      [],
-      [],
-      [{ tenantId: "tenant-missing" }, { tenantId: "tenant-timeout" }],
-    ];
-    subrouterRevokeErrors = [
-      new subrouterClientModule.SubrouterClientError("revokeTenant", 404),
-      new Error("subrouter request timed out"),
-    ];
-
-    const response = await DELETE(accountDeletionRequest());
-
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
-    expect(revokeTenant).toHaveBeenCalledWith("tenant-missing");
-    expect(revokeTenant).toHaveBeenCalledWith("tenant-timeout");
-    expect(deletedTables).not.toContain(subrouterTenants);
-    expect(deleteStackUser).not.toHaveBeenCalled();
-    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
-      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
-    });
-    expect(updateStackUser).toHaveBeenNthCalledWith(2, {
-      clientReadOnlyMetadata: { cmuxPlan: "pro" },
-    });
-  });
-
-  test("restores Stack metadata when local Subrouter configuration fails before external mutation", async () => {
-    listedPersonalVmIds = [];
-    revokedIdentityLeaseCount = 0;
-    selectResults = [
-      [],
-      [],
-      [],
-      [],
-      [],
-      [],
-      [{ tenantId: "tenant-personal" }],
-    ];
-    subrouterClientCreateError = new Error("subrouter not configured");
-
-    const response = await DELETE(accountDeletionRequest());
-
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
-    expect(revokeTenant).not.toHaveBeenCalled();
-    expect(deletedTables).not.toContain(subrouterTenants);
-    expect(transaction).toHaveBeenCalledTimes(1);
-    expect(deleteStackUser).not.toHaveBeenCalled();
-    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
-      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
-    });
-    expect(updateStackUser).toHaveBeenNthCalledWith(2, {
-      clientReadOnlyMetadata: { cmuxPlan: "pro" },
-    });
   });
 
   test("does not delete personal VM rows that gained a provider id before account row deletion", async () => {
@@ -1432,9 +1971,9 @@ describe("account deletion route", () => {
       retryable: true,
       destroyedVms: 2,
     });
-    expect(transaction).toHaveBeenCalledTimes(2);
-    expect(transactionExecute).toHaveBeenCalledTimes(2);
-    expect(transactionSelect).toHaveBeenCalledTimes(2);
+    expect(transaction).toHaveBeenCalledTimes(3);
+    expect(transactionExecute).toHaveBeenCalledTimes(3);
+    expect(transactionSelect).toHaveBeenCalledTimes(4);
     expect(deletedTableCount).toBe(0);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(consoleError).toHaveBeenCalledWith(
@@ -1570,7 +2109,7 @@ describe("account deletion route", () => {
       retryable: true,
       destroyedVms: 2,
     });
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1599,7 +2138,7 @@ describe("account deletion route", () => {
     });
     expect(cancelledStripeSubscriptions).toEqual(["sub_user_active"]);
     expect(deletedStripeCustomers).toEqual(["cus_user"]);
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1625,7 +2164,7 @@ describe("account deletion route", () => {
     expect(cancelledStripeSubscriptions).toEqual(["sub_user_active"]);
     expect(deletedStripeCustomers).toEqual(["cus_user"]);
     expect(listUserVms).not.toHaveBeenCalled();
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1650,7 +2189,7 @@ describe("account deletion route", () => {
     });
     expect(cancelledStripeSubscriptions).toEqual(["sub_user_active"]);
     expect(listUserVms).not.toHaveBeenCalled();
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1682,7 +2221,7 @@ describe("account deletion route", () => {
       providerVmId: "personal-vm-2",
       provider: "freestyle",
     }));
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1722,7 +2261,7 @@ describe("account deletion route", () => {
       providerVmId: "personal-vm-2",
       provider: "freestyle",
     }));
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1748,9 +2287,13 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
     expect(cancelSubscription).not.toHaveBeenCalled();
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1773,13 +2316,17 @@ describe("account deletion route", () => {
       retryable: true,
       destroyedVms: 2,
     });
-    expect(transaction).toHaveBeenCalledTimes(2);
+    expect(transaction).toHaveBeenCalledTimes(3);
     expect(deletedTableCount).toBeGreaterThan(10);
     expect(updateStackUser).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
     });
     expect(updateStackUser).toHaveBeenCalledTimes(1);
+    expectPostHogAccountDeleteRequest();
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
+    expect(tombstoneUpdates.some((values) =>
+      (values as { readonly analyticsDeletedAt?: unknown }).analyticsDeletedAt instanceof Date
+    )).toBe(true);
     expect(tombstoneUpdates.some((values) =>
       (values as { readonly status?: unknown; readonly errorMessage?: unknown }).status === "failed" &&
       (values as { readonly errorMessage?: unknown }).errorMessage === "Error: raw [redacted] leaked by upstream"
@@ -1788,6 +2335,10 @@ describe("account deletion route", () => {
       "transaction",
       "transaction-lock",
       "tombstone-upsert",
+      "transaction",
+      "transaction-lock",
+      "analytics-lease-cleanup",
+      "posthog-delete",
       "metadata-update",
       "revoke-identities",
       "list-vms",
@@ -1815,7 +2366,6 @@ describe("account deletion route", () => {
       [],
       [],
       [],
-      [],
       [{ id: "post-stack-session", latestObjectKey: "vault/u/account-user-1/post-stack-latest.jsonl.zst" }],
     ];
 
@@ -1828,7 +2378,7 @@ describe("account deletion route", () => {
       destroyedVms: 2,
     });
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
-    expect(transaction).toHaveBeenCalledTimes(2);
+    expect(transaction).toHaveBeenCalledTimes(3);
     expect(tombstoneUpdates.some((values) =>
       (values as { readonly status?: unknown }).status === "completed"
     )).toBe(false);
@@ -1848,7 +2398,6 @@ describe("account deletion route", () => {
     postStackVaultDeleteError = new Error("post-delete vault unavailable");
     tombstoneCleanupIncompleteError = new Error("tombstone unavailable");
     selectResults = [
-      [],
       [],
       [],
       [],
@@ -1925,7 +2474,7 @@ describe("account deletion route", () => {
     expect(await response.json()).toEqual({ ok: true, destroyedVms: 2 });
     expect(cancelledStripeSubscriptions).toEqual(["sub_user_active"]);
     expect(deletedStripeCustomers).toEqual(["cus_user"]);
-    expect(transaction).toHaveBeenCalledTimes(3);
+    expect(transaction).toHaveBeenCalledTimes(4);
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 
@@ -1955,7 +2504,7 @@ function stackUser(id = "account-user-1") {
     id,
     displayName: null,
     primaryEmail: "account@example.com",
-    clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    clientReadOnlyMetadata: stackUserClientReadOnlyMetadata,
     selectedTeam: stackUserSelectedTeam,
     listTeams: async (options?: { readonly cursor?: string; readonly limit?: number }) =>
       typeof stackUserTeams === "function" ? await stackUserTeams(options) : stackUserTeams,

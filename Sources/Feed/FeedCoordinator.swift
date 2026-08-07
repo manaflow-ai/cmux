@@ -1,10 +1,17 @@
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
+import CmuxNotifications
 import Foundation
 @preconcurrency import UserNotifications
 import CmuxSettings
 import CmuxSidebar
+
+private enum FeedEventAcceptance: Sendable {
+    case accepted(event: WorkstreamEvent, itemId: UUID)
+    case notFound
+    case unavailable
+}
 
 /// App-level coordinator that owns the shared `WorkstreamStore` and
 /// mediates between the socket thread (which processes `feed.*` V2
@@ -22,6 +29,13 @@ final class FeedCoordinator: @unchecked Sendable {
     // The store runs on the main actor. The coordinator is not isolated,
     // so it hops to main explicitly when touching the store.
     @MainActor private(set) var store: WorkstreamStore!
+    @MainActor private var userNotificationCenter: (any UserNotificationCenterServing)?
+
+    /// The bounded notification-center boundary. `install(store:)` injects it;
+    /// the shared store's service covers the pre-install window.
+    @MainActor private var resolvedUserNotificationCenter: any UserNotificationCenterServing {
+        userNotificationCenter ?? TerminalNotificationStore.shared.userNotificationCenter
+    }
 
     /// Pending blocking-hook waiters keyed by request id. The waiter owns
     /// a semaphore plus a slot for the resolved decision; the reply
@@ -40,6 +54,9 @@ final class FeedCoordinator: @unchecked Sendable {
         label: "cmux.feed.pidWatcher", qos: .utility
     )
 
+    /// Every accepted Feed path crosses this lane before insertion and `received` publication.
+    private let feedIngressDeliveryLane = FeedIngressDeliveryLane()
+
     /// In-flight blocking decisions whose needs-input overlay is currently lit,
     /// keyed by ``AttentionTarget``. Each state keeps the workspace object that
     /// was mutated when surfacing attention, so cleanup does not depend on
@@ -52,8 +69,15 @@ final class FeedCoordinator: @unchecked Sendable {
 
     /// Must be called once at app launch to install the store.
     @MainActor
-    func install(store: WorkstreamStore) {
+    func install(
+        store: WorkstreamStore,
+        userNotificationCenter: (any UserNotificationCenterServing)? = nil
+    ) {
         self.store = store
+        // Resolved here rather than as a default argument: default-argument
+        // expressions evaluate outside the method's main-actor isolation.
+        self.userNotificationCenter = userNotificationCenter
+            ?? TerminalNotificationStore.shared.userNotificationCenter
         NotificationCenter.default.post(name: Self.storeInstalledNotification, object: self)
         // Catch any pending items that were restored from disk whose
         // agent is already gone. After this, live tracking is
@@ -89,81 +113,244 @@ final class FeedCoordinator: @unchecked Sendable {
         src.resume()
     }
 
+    @MainActor
+    private func acceptOnMainActor(
+        _ event: WorkstreamEvent
+    ) -> FeedEventAcceptance {
+        switch resolveDeliveryTarget(for: [event]) {
+        case .accepted(let events):
+            guard let revalidatedEvent = events.first,
+                  let itemId = ingestRevalidatedOnMainActor(revalidatedEvent) else {
+                return .unavailable
+            }
+            return .accepted(event: revalidatedEvent, itemId: itemId)
+        case .notFound:
+            return .notFound
+        case .unavailable:
+            return .unavailable
+        }
+    }
+
+    @MainActor
+    func ingestRevalidatedOnMainActor(_ event: WorkstreamEvent) -> UUID? {
+        guard let store else { return nil }
+        store.ingest(event)
+        if let ppid = event.ppid, ppid > 0 {
+            armPidWatcher(ppid: ppid)
+        }
+        return store.items.last?.id
+    }
+
+    /// Runs synchronous acknowledged ingress on the same ordered lane as zero-wait telemetry.
+    func performAcceptedEventDelivery<Result: Sendable>(
+        for events: [WorkstreamEvent],
+        timeout: TimeInterval,
+        _ delivery: @escaping @Sendable (FeedIngressSynchronousResult<Result>) -> Void
+    ) -> Result? {
+        guard !events.isEmpty else { return nil }
+        return feedIngressDeliveryLane.perform(
+            metadata: Self.ingressMetadata(
+                for: events,
+                importance: .acknowledged
+            ),
+            timeout: timeout,
+            delivery
+        )
+    }
+
     /// Ingests a wire-frame event and, when `waitTimeout` > 0, blocks the
     /// current (non-main) thread until the item is resolved or the
     /// timeout elapses.
     func ingestBlocking(
         event: WorkstreamEvent,
-        waitTimeout: TimeInterval
+        waitTimeout: TimeInterval,
+        onAcceptedOnMainActor: @escaping @MainActor @Sendable (WorkstreamEvent) -> Void = { _ in },
+        onAccepted: @escaping @Sendable (WorkstreamEvent) -> Void = { _ in }
     ) -> IngestBlockingResult {
-        guard let requestId = event.requestId, waitTimeout > 0 else {
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    FeedCoordinator.shared.store.ingest(event)
-                    if let ppid = event.ppid, ppid > 0 {
-                        FeedCoordinator.shared.armPidWatcher(ppid: ppid)
+        ingestBlockingWithOutcome(
+            event: event,
+            waitTimeout: waitTimeout,
+            onAcceptedOnMainActor: onAcceptedOnMainActor,
+            onAccepted: onAccepted
+        ).result
+    }
+
+    /// For positive-timeout ingress, returns the authoritative accepted event
+    /// from the same synchronized acceptance that supplies the blocking result.
+    func ingestBlockingWithOutcome(
+        event: WorkstreamEvent,
+        waitTimeout: TimeInterval,
+        onAcceptedOnMainActor: @escaping @MainActor @Sendable (WorkstreamEvent) -> Void = { _ in },
+        onAccepted: @escaping @Sendable (WorkstreamEvent) -> Void = { _ in }
+    ) -> IngestBlockingOutcome {
+        if waitTimeout <= 0 {
+            guard enqueueZeroWaitAcceptance(
+                event,
+                onAcceptedOnMainActor: onAcceptedOnMainActor,
+                onAccepted: onAccepted
+            ) else {
+                return IngestBlockingOutcome(result: .unavailable, authoritativeEvent: nil)
+            }
+            return IngestBlockingOutcome(
+                result: .acknowledged(itemId: nil),
+                authoritativeEvent: nil
+            )
+        }
+        let deliveryDeadline: ContinuousClock.Instant = .now + .seconds(waitTimeout)
+        guard let requestId = event.requestId else {
+            let acceptance = performAcceptedEventDelivery(
+                for: [event],
+                timeout: waitTimeout
+            ) { result in
+                let acceptedEvent: WorkstreamEvent? = DispatchQueue.main.sync {
+                    MainActor.assumeIsolated {
+                        guard let acceptance = result.commit({
+                            guard ContinuousClock.now < deliveryDeadline else {
+                                return FeedEventAcceptance.unavailable
+                            }
+                            return FeedCoordinator.shared.acceptOnMainActor(event)
+                        }) else {
+                            return nil
+                        }
+                        guard case .accepted(let acceptedEvent, _) = acceptance else {
+                            return nil
+                        }
+                        onAcceptedOnMainActor(acceptedEvent)
+                        return acceptedEvent
                     }
                 }
+                if let acceptedEvent {
+                    onAccepted(acceptedEvent)
+                }
             }
-            return .acknowledged(itemId: nil)
+            guard let acceptance else {
+                return IngestBlockingOutcome(result: .unavailable, authoritativeEvent: nil)
+            }
+            switch acceptance {
+            case .accepted(let acceptedEvent, let itemId):
+                return IngestBlockingOutcome(
+                    result: .acknowledged(itemId: itemId),
+                    authoritativeEvent: acceptedEvent
+                )
+            case .notFound:
+                return IngestBlockingOutcome(result: .notFound, authoritativeEvent: nil)
+            case .unavailable:
+                return IngestBlockingOutcome(result: .unavailable, authoritativeEvent: nil)
+            }
         }
 
-        let semaphore = DispatchSemaphore(value: 0)
-        let waiter = PendingWaiter(semaphore: semaphore)
-
-        // Register the waiter before the store sees the event so a very
-        // fast reply can't slip through.
-        waiterLock.lock()
-        waiters[requestId] = waiter
-        waiterLock.unlock()
-
-        // Hop to main to actually insert the item + install the
-        // kqueue watcher for the agent's PID. The watcher handler
-        // caps the pending lifetime to the agent process lifetime
-        // — no polling, no leaked cards when the agent is killed.
-        let itemIdSlot = UnsafeItemIdSlot()
+        // Resolve before entering the global delivery lane so hook-session disk
+        // I/O for one agent cannot stall otherwise unrelated Feed ingress.
         let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event.hookEventName)
             ? Self.resolveAttentionTarget(event: event)
             : nil
-        DispatchQueue.main.sync {
-            MainActor.assumeIsolated {
-                FeedCoordinator.shared.store.ingest(event)
-                itemIdSlot.value = FeedCoordinator.shared.store.items.last?.id
-                if let ppid = event.ppid, ppid > 0 {
-                    FeedCoordinator.shared.armPidWatcher(ppid: ppid)
+        let semaphore = DispatchSemaphore(value: 0)
+        let waiter = PendingWaiter(semaphore: semaphore)
+
+        let acceptance = performAcceptedEventDelivery(
+            for: [event],
+            timeout: waitTimeout
+        ) { result in
+            let acceptedEvent: WorkstreamEvent? = DispatchQueue.main.sync {
+                MainActor.assumeIsolated {
+                    guard let acceptance = result.commit({
+                        guard ContinuousClock.now < deliveryDeadline else {
+                            return FeedEventAcceptance.unavailable
+                        }
+                        // Register in the commit boundary before the store sees
+                        // the event, so a fast reply cannot slip through.
+                        FeedCoordinator.shared.waiterLock.lock()
+                        FeedCoordinator.shared.waiters[requestId] = waiter
+                        FeedCoordinator.shared.waiterLock.unlock()
+                        return FeedCoordinator.shared.acceptOnMainActor(event)
+                    }) else {
+                        return nil
+                    }
+                    guard case .accepted(let acceptedEvent, _) = acceptance else {
+                        return nil
+                    }
+                    // Surface in-app attention (needs-input status + bell +
+                    // workspace elevation) for the blocking decision. This fires
+                    // regardless of app focus, unlike the desktop banner below,
+                    // so the pending decision is visible in the sidebar even
+                    // while the user is in another workspace of the same window.
+                    // The target is resolved before entering this main-thread
+                    // section so hook-session disk I/O never extends the UI
+                    // critical section.
+                    //
+                    // Publication intentionally follows the committed mutation:
+                    // a stalled callback cannot hold the synchronous result lock
+                    // past the socket caller's deadline.
+                    let liveWorkspaceId = acceptedEvent.workspaceId.flatMap {
+                        UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+                    }
+                    let liveSurfaceId = acceptedEvent.surfaceId.flatMap {
+                        UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+                    }
+                    let attentionTarget = liveWorkspaceId.map {
+                        (workspaceId: $0, surfaceId: liveSurfaceId)
+                    } ?? resolvedAttentionTarget
+                    if let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                        event: acceptedEvent,
+                        resolved: attentionTarget
+                    ) {
+                        var shouldConcludeImmediately = false
+                        FeedCoordinator.shared.waiterLock.lock()
+                        if let registeredWaiter = FeedCoordinator.shared.waiters[requestId],
+                           registeredWaiter.decision == nil {
+                            registeredWaiter.attentionTarget = target
+                        } else {
+                            // A reply raced attention publication. Its reply path
+                            // could not observe this target, so balance it here.
+                            shouldConcludeImmediately = true
+                        }
+                        FeedCoordinator.shared.waiterLock.unlock()
+                        if shouldConcludeImmediately {
+                            FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
+                        }
+                    }
+                    onAcceptedOnMainActor(acceptedEvent)
+                    #if DEBUG
+                    FeedCoordinatorTestHooks.afterBlockingEventIngested?(acceptedEvent, requestId)
+                    #endif
+                    return acceptedEvent
                 }
-                // Surface in-app attention (needs-input status + bell +
-                // workspace elevation) for the blocking decision. This fires
-                // regardless of app focus, unlike the desktop banner below,
-                // so the pending decision is visible in the sidebar even
-                // while the user is in another workspace of the same window.
-                // The target is resolved before entering this main-thread
-                // section so hook-session disk I/O never extends the UI
-                // critical section.
-                // The target is recorded on the waiter here — inside the
-                // ingest `main.sync`, before the card can render and a reply
-                // can fire — so the overlay is cleared exactly once when the
-                // decision concludes (no race with `deliverReply`).
-                if let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
-                    event: event,
-                    resolved: resolvedAttentionTarget
-                ) {
-                    FeedCoordinator.shared.waiterLock.lock()
-                    FeedCoordinator.shared.waiters[requestId]?.attentionTarget = target
-                    FeedCoordinator.shared.waiterLock.unlock()
-                }
-                #if DEBUG
-                FeedCoordinatorTestHooks.afterBlockingEventIngested?(event, requestId)
-                #endif
+            }
+            if let acceptedEvent {
+                onAccepted(acceptedEvent)
             }
         }
+        guard let acceptance else {
+            waiterLock.lock()
+            let attentionTarget = waiters.removeValue(forKey: requestId)?.attentionTarget
+            waiterLock.unlock()
+            concludeAttentionOnMain(attentionTarget)
+            cancelNotification(requestId: requestId)
+            return IngestBlockingOutcome(result: .unavailable, authoritativeEvent: nil)
+        }
 
+        let accepted: (event: WorkstreamEvent, itemId: UUID)
+        switch acceptance {
+        case .accepted(let event, let itemId):
+            accepted = (event, itemId)
+        case .notFound:
+            waiterLock.lock()
+            waiters.removeValue(forKey: requestId)
+            waiterLock.unlock()
+            return IngestBlockingOutcome(result: .notFound, authoritativeEvent: nil)
+        case .unavailable:
+            waiterLock.lock()
+            waiters.removeValue(forKey: requestId)
+            waiterLock.unlock()
+            return IngestBlockingOutcome(result: .unavailable, authoritativeEvent: nil)
+        }
         // If this is a blocking actionable event and the app window isn't
         // focused, post a native notification banner with inline action
         // buttons so the user can respond without switching windows.
-        postNotificationIfStillAwaiting(event: event, requestId: requestId)
+        postNotificationIfStillAwaiting(event: accepted.event, requestId: requestId)
 
-        let deadline: DispatchTime = .now() + waitTimeout
+        let remainingDecisionTimeout = Self.remainingIngressTime(until: deliveryDeadline)
+        let deadline: DispatchTime = .now() + max(remainingDecisionTimeout, 0)
         let waitResult = semaphore.wait(timeout: deadline)
 
         waiterLock.lock()
@@ -174,18 +361,89 @@ final class FeedCoordinator: @unchecked Sendable {
         case .success:
             if let decision = w?.decision {
                 // `deliverReply` concludes the attention overlay on resolve.
-                return .resolved(itemId: itemIdSlot.value, decision: decision)
+                return IngestBlockingOutcome(
+                    result: .resolved(itemId: accepted.itemId, decision: decision),
+                    authoritativeEvent: accepted.event
+                )
             }
             cancelNotification(requestId: requestId)
             concludeAttentionOnMain(w?.attentionTarget)
-            expireTimedOutItem(itemIdSlot.value)
-            return .timedOut(itemId: itemIdSlot.value)
+            expireTimedOutItem(accepted.itemId)
+            return IngestBlockingOutcome(
+                result: .timedOut(itemId: accepted.itemId),
+                authoritativeEvent: accepted.event
+            )
         case .timedOut:
             cancelNotification(requestId: requestId)
             concludeAttentionOnMain(w?.attentionTarget)
-            expireTimedOutItem(itemIdSlot.value)
-            return .timedOut(itemId: itemIdSlot.value)
+            expireTimedOutItem(accepted.itemId)
+            return IngestBlockingOutcome(
+                result: .timedOut(itemId: accepted.itemId),
+                authoritativeEvent: accepted.event
+            )
         }
+    }
+
+    private func enqueueZeroWaitAcceptance(
+        _ event: WorkstreamEvent,
+        onAcceptedOnMainActor: @escaping @MainActor @Sendable (WorkstreamEvent) -> Void,
+        onAccepted: @escaping @Sendable (WorkstreamEvent) -> Void
+    ) -> Bool {
+        return feedIngressDeliveryLane.enqueueZeroWait(
+            metadata: Self.ingressMetadata(
+                for: [event],
+                importance: event.zeroWaitFeedIngressImportance
+            )
+        ) { result in
+            let acceptedEvent: WorkstreamEvent? = DispatchQueue.main.sync {
+                MainActor.assumeIsolated {
+                    let accept: () -> WorkstreamEvent? = {
+                        guard case .accepted(let event, _) = FeedCoordinator.shared.acceptOnMainActor(event) else {
+                            return nil
+                        }
+                        return event
+                    }
+                    guard let result else {
+                        let acceptedEvent = accept()
+                        if let acceptedEvent {
+                            onAcceptedOnMainActor(acceptedEvent)
+                        }
+                        return acceptedEvent
+                    }
+                    var committedEvent: WorkstreamEvent?
+                    guard result.commit({
+                        committedEvent = accept()
+                    }) != nil else {
+                        return nil
+                    }
+                    if let committedEvent {
+                        onAcceptedOnMainActor(committedEvent)
+                    }
+                    return committedEvent
+                }
+            }
+            if let acceptedEvent {
+                onAccepted(acceptedEvent)
+            }
+        }
+    }
+
+    private static func ingressMetadata(
+        for events: [WorkstreamEvent],
+        importance: FeedIngressDeliveryImportance
+    ) -> FeedIngressDeliveryMetadata {
+        FeedIngressDeliveryMetadata(
+            keys: Set(events.map(\.feedIngressDeliveryKey)),
+            importance: importance
+        )
+    }
+
+    private static func remainingIngressTime(
+        until deadline: ContinuousClock.Instant
+    ) -> TimeInterval {
+        let components = ContinuousClock.now.duration(to: deadline).components
+        return TimeInterval(components.seconds)
+            + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
     }
 
     /// Concludes an attention overlay (if any) on the main actor, hopping if
@@ -278,10 +536,17 @@ final class FeedCoordinator: @unchecked Sendable {
         }
     }
 
-    enum IngestBlockingResult {
+    enum IngestBlockingResult: Sendable {
         case acknowledged(itemId: UUID?)
         case resolved(itemId: UUID?, decision: WorkstreamDecision)
         case timedOut(itemId: UUID?)
+        case notFound
+        case unavailable
+    }
+
+    struct IngestBlockingOutcome: Sendable {
+        let result: IngestBlockingResult
+        let authoritativeEvent: WorkstreamEvent?
     }
 }
 
@@ -525,12 +790,6 @@ private final class PendingWaiter: @unchecked Sendable {
     init(semaphore: DispatchSemaphore) {
         self.semaphore = semaphore
     }
-}
-
-/// Tiny box so the `DispatchQueue.main.sync` closure can mutate an
-/// `UUID?` without a capture warning.
-private final class UnsafeItemIdSlot: @unchecked Sendable {
-    var value: UUID?
 }
 
 private final class SnapshotSlot: @unchecked Sendable {
@@ -897,52 +1156,57 @@ private extension FeedCoordinator {
             trigger: nil
         )
 
-        let center = UNUserNotificationCenter.current()
-        center.getNotificationSettings { settings in
-            Task { @MainActor [weak self] in
-                guard let self, self.isAwaitingDecision(requestId: requestId) else { return }
-                switch settings.authorizationStatus {
-                case .authorized, .provisional:
+        let center = resolvedUserNotificationCenter
+        Task { @MainActor [weak self] in
+            let statusResult = await center.authorizationStatus()
+            guard let self, self.isAwaitingDecision(requestId: requestId) else { return }
+            let status: UserNotificationAuthorizationStatus
+            switch statusResult {
+            case .success(let value):
+                status = value
+            case .failure:
+                // The notification daemon is unresponsive; treat authorization
+                // as unknown and stay audible (fail-open) via local fallback.
+                self.runFallbackEffectsIfStillAwaiting(
+                    requestId: requestId,
+                    title: title,
+                    subtitle: subtitle,
+                    body: body,
+                    effects: TerminalNotificationStore.fallbackEffects(
+                        effects,
+                        authorizationState: .unknown
+                    ),
+                    runCommand: false
+                )
+                return
+            }
+            switch status {
+            case .authorized, .provisional:
+                self.addNotificationIfStillAwaiting(
+                    request: request,
+                    requestId: requestId,
+                    effects: effects
+                )
+            case .notDetermined:
+                let authorization = await center.requestAuthorization(options: [.alert, .sound])
+                guard self.isAwaitingDecision(requestId: requestId) else { return }
+                if case .success(true) = authorization {
                     self.addNotificationIfStillAwaiting(
-                        center: center,
                         request: request,
                         requestId: requestId,
                         effects: effects
                     )
-                case .notDetermined:
-                    var granted = false
-                    var requestFailed = false
-                    do {
-                        granted = try await center.requestAuthorization(options: [.alert, .sound])
-                    } catch {
+                } else {
+                    // A non-grant without an error is the user declining
+                    // the prompt just now: honor the fresh denial on this
+                    // very notification. A request failure is not a user
+                    // decision, so the fallback stays audible (fail-open).
+                    let requestFailed: Bool
+                    if case .failure = authorization {
                         requestFailed = true
-                    }
-                    guard self.isAwaitingDecision(requestId: requestId) else { return }
-                    if granted {
-                        self.addNotificationIfStillAwaiting(
-                            center: center,
-                            request: request,
-                            requestId: requestId,
-                            effects: effects
-                        )
                     } else {
-                        // A non-grant without an error is the user declining
-                        // the prompt just now: honor the fresh denial on this
-                        // very notification. A request error is not a user
-                        // decision, so the fallback stays audible (fail-open).
-                        self.runFallbackEffectsIfStillAwaiting(
-                            requestId: requestId,
-                            title: title,
-                            subtitle: subtitle,
-                            body: body,
-                            effects: TerminalNotificationStore.fallbackEffects(
-                                effects,
-                                authorizationState: requestFailed ? .unknown : .denied
-                            ),
-                            runCommand: false
-                        )
+                        requestFailed = false
                     }
-                default:
                     self.runFallbackEffectsIfStillAwaiting(
                         requestId: requestId,
                         title: title,
@@ -950,20 +1214,29 @@ private extension FeedCoordinator {
                         body: body,
                         effects: TerminalNotificationStore.fallbackEffects(
                             effects,
-                            authorizationState: TerminalNotificationStore.authorizationState(
-                                from: settings.authorizationStatus
-                            )
+                            authorizationState: requestFailed ? .unknown : .denied
                         ),
                         runCommand: false
                     )
                 }
+            case .denied, .ephemeral, .unknown:
+                self.runFallbackEffectsIfStillAwaiting(
+                    requestId: requestId,
+                    title: title,
+                    subtitle: subtitle,
+                    body: body,
+                    effects: TerminalNotificationStore.fallbackEffects(
+                        effects,
+                        authorizationState: TerminalNotificationStore.authorizationState(from: status)
+                    ),
+                    runCommand: false
+                )
             }
         }
     }
 
     @MainActor
     func addNotificationIfStillAwaiting(
-        center: UNUserNotificationCenter,
         request: UNNotificationRequest,
         requestId: String,
         effects: TerminalNotificationPolicyEffects
@@ -972,32 +1245,31 @@ private extension FeedCoordinator {
         let title = request.content.title
         let subtitle = request.content.subtitle
         let body = request.content.body
-        center.add(request) { error in
-            let didFail = error != nil
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if !self.isAwaitingDecision(requestId: requestId) {
-                    self.cancelNotification(requestId: requestId)
-                    return
-                }
-                if didFail {
-                    self.runFallbackEffectsIfStillAwaiting(
-                        requestId: requestId,
-                        title: title,
-                        subtitle: subtitle,
-                        body: body,
-                        effects: effects,
-                        runCommand: false
-                    )
-                    return
-                }
-                if effects.command {
-                    NotificationSoundSettings.runCustomCommand(
-                        title: title,
-                        subtitle: subtitle,
-                        body: body
-                    )
-                }
+        let center = resolvedUserNotificationCenter
+        Task { @MainActor [weak self] in
+            let result = await center.add(request)
+            guard let self else { return }
+            if !self.isAwaitingDecision(requestId: requestId) {
+                self.cancelNotification(requestId: requestId)
+                return
+            }
+            if case .failure = result {
+                self.runFallbackEffectsIfStillAwaiting(
+                    requestId: requestId,
+                    title: title,
+                    subtitle: subtitle,
+                    body: body,
+                    effects: effects,
+                    runCommand: false
+                )
+                return
+            }
+            if effects.command {
+                NotificationSoundSettings.runCustomCommand(
+                    title: title,
+                    subtitle: subtitle,
+                    body: body
+                )
             }
         }
     }
@@ -1022,9 +1294,12 @@ private extension FeedCoordinator {
 
     func cancelNotification(requestId: String) {
         let identifier = "feed.\(requestId)"
-        let center = UNUserNotificationCenter.current()
-        center.removePendingNotificationRequestsOffMain(withIdentifiers: [identifier])
-        center.removeDeliveredNotificationsOffMain(withIdentifiers: [identifier])
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let center = self.resolvedUserNotificationCenter
+            _ = await center.removePendingNotificationRequests(withIdentifiers: [identifier])
+            _ = await center.removeDeliveredNotifications(withIdentifiers: [identifier])
+        }
     }
 }
 
@@ -1111,6 +1386,10 @@ enum FeedSocketEncoding {
             var dict: [String: Any] = ["status": "timed_out"]
             if let itemId { dict["item_id"] = itemId.uuidString }
             return dict
+        case .notFound:
+            return ["status": "not_found"]
+        case .unavailable:
+            return ["status": "unavailable"]
         }
     }
 

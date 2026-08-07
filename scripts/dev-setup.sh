@@ -15,10 +15,8 @@
 #      "Local Network" permission prompt; click Allow.
 #   3. Build + launch the macOS dev app via reload.sh --tag <t> --launch. It
 #      auto-signs-in from ~/.secrets/cmuxterm-dev.env (DebugDogfoodCredentialResolver).
-#   4. Headlessly mint a short-TTL attach URL against the tagged socket via the
-#      local automation path (no Stack auth needed for the mint).
-#   5. Build + launch the iOS dev build, passing the URL as CMUX_DOGFOOD_ATTACH_URL
-#      so the phone auto-attaches.
+#   4. Build the iOS dev app, then let mobile-dev-launch.sh mint a target-specific
+#      ticket and launch the app. Simulator and device policies stay distinct.
 #
 # Usage:
 #   scripts/dev-setup.sh --tag grid                 # macOS + iOS, auto-pair
@@ -54,7 +52,6 @@ NO_PAIR=0
 AGENT=0
 SIMULATOR_NAME="iPhone 17"
 IOS_TARGET="simulator"   # simulator | device
-TTL_SECONDS="600"
 
 usage() { sed -n '2,40p' "$0"; }
 
@@ -89,6 +86,12 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROFILE_REPLAY="$SCRIPT_DIR/dev-profiles/replay-cli.mjs"
 # shellcheck source=scripts/lib/mobile-attach.sh
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
+
+# Validate before loading credentials, enabling the host, or starting either
+# build. The shared validator also rejects the stable instance sentinel.
+if ! cmux_attach_validate_dev_tag "$TAG"; then
+  exit 2
+fi
 
 # --- profiles: validate up front (P3) ---------------------------------------
 # Fail fast on an unknown profile name BEFORE any heavy build/launch work, so a
@@ -155,15 +158,9 @@ build_and_launch_mac() {
   "$REPO_ROOT/scripts/reload.sh" --tag "$TAG" --launch
 }
 
-# --- mint a short-TTL attach URL headlessly ---------------------------------
-# Echoes the URL on stdout. The URL is a bearer credential: callers must NOT
-# print it. Polls the mint RPC (real readiness signal) until routes are ready,
-# bounded so a never-binding listener fails instead of hanging.
-mint_attach_url() { cmux_attach_mint_url "$TAG" "$TTL_SECONDS" "$REPO_ROOT"; }
-
-# --- iOS build + launch (auto-pair via CMUX_DOGFOOD_ATTACH_URL) -------------
+# --- iOS build + target-aware launch ----------------------------------------
 build_and_launch_ios() {
-  local attach_url="${1:-}"
+  local auto_pair="${1:-0}"
   echo "==> building iOS dev app (tag: $TAG)"
   # --no-launch: build + install only. mobile-dev-launch.sh below does the launch
   # with the sign-in + auto-pair env, so a plain reload launch would be redundant
@@ -180,11 +177,9 @@ build_and_launch_ios() {
   fi
   "$REPO_ROOT/ios/scripts/reload.sh" "${ios_args[@]}"
 
-  echo "==> launching iOS dev app${attach_url:+ (auto-pairing)}"
+  echo "==> launching iOS dev app$([[ "$auto_pair" -eq 1 ]] && printf ' (auto-pairing)')"
   local launch_args=(--tag "$TAG")
-  # Express attach intent so mobile-dev-launch.sh honors the pre-minted URL we
-  # pass via CMUX_DOGFOOD_ATTACH_URL (it ignores an ambient URL without --attach).
-  if [[ -n "$attach_url" ]]; then
+  if [[ "$auto_pair" -eq 1 ]]; then
     launch_args+=(--attach)
   fi
   if [[ "$AGENT" -eq 1 ]]; then
@@ -195,9 +190,7 @@ build_and_launch_ios() {
   else
     launch_args+=(--simulator "$SIMULATOR_NAME")
   fi
-  # Pass the URL via env (CMUX_DOGFOOD_ATTACH_URL), never on the command line, so
-  # it is not visible in `ps`. mobile-dev-launch.sh injects it into the app env.
-  CMUX_DOGFOOD_ATTACH_URL="$attach_url" "$REPO_ROOT/scripts/mobile-dev-launch.sh" "${launch_args[@]}"
+  "$REPO_ROOT/scripts/mobile-dev-launch.sh" "${launch_args[@]}"
 }
 
 # --- apply environment profile(s) (P3) --------------------------------------
@@ -229,7 +222,7 @@ apply_profile() {
 }
 
 # --- orchestrate ------------------------------------------------------------
-ATTACH_URL=""
+AUTO_PAIR=0
 
 # Enable the pairing host BEFORE the macOS launch so a single build binds the
 # listener on first launch (the default is read in applicationDidFinishLaunching).
@@ -241,16 +234,8 @@ if [[ "$SURFACE" == "mac" || "$SURFACE" == "both" ]]; then
   build_and_launch_mac
 fi
 
-# Mint the attach URL when iOS is in play and pairing is on. For --surface ios
-# the Mac dev app must already be running with the pairing host enabled.
 if [[ "$NO_PAIR" -eq 0 && ( "$SURFACE" == "ios" || "$SURFACE" == "both" ) ]]; then
-  echo "==> minting attach URL against $SOCKET_PATH"
-  if ATTACH_URL="$(mint_attach_url)"; then
-    echo "==> attach URL minted (TTL ${TTL_SECONDS}s); auto-pair armed"
-  else
-    ATTACH_URL=""
-    echo "warning: could not mint an attach URL (is the Mac dev app running with the pairing host enabled, and the Local Network prompt allowed?). iOS will launch signed-in only." >&2
-  fi
+  AUTO_PAIR=1
 fi
 
 # Apply environment profile(s) BEFORE the (blocking) iOS launch. Profiles target
@@ -261,7 +246,7 @@ if [[ -n "$PROFILE" ]]; then
 fi
 
 if [[ "$SURFACE" == "ios" || "$SURFACE" == "both" ]]; then
-  build_and_launch_ios "$ATTACH_URL"
+  build_and_launch_ios "$AUTO_PAIR"
 fi
 
 echo "==> dev-setup complete (tag: $TAG, surface: $SURFACE)"

@@ -21,7 +21,7 @@ extension TabItemView {
     }
 
     private func workspaceNotificationMenuItems(_ targetIds: [UUID]) -> [TerminalNotification] {
-        notificationStore.notifications(forTabIds: targetIds)
+        snapshot.contextMenu.notifications
     }
 
     private func workspaceNotificationMenuTitle(_ notification: TerminalNotification) -> String {
@@ -48,10 +48,6 @@ extension TabItemView {
     }
 
     private func openWorkspaceContextMenuNotification(_ notification: TerminalNotification) {
-        guard AppDelegate.shared?.openTerminalNotification(notification) == true else {
-            NSSound.beep()
-            return
-        }
-        refreshWorkspaceSnapshot(force: true)
+        actions.openNotification(notification)
     }
 }

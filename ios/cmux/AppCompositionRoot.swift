@@ -1,16 +1,14 @@
 import CMUXMobileCore
 import CmuxMobileAnalytics
 import CmuxMobileCrashReporting
+import CmuxMobileDiagnostics
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTransport
+import CmuxSentryReporting
 import Foundation
 import SwiftUI
 import cmuxFeature
-
-#if DEBUG
-import CmuxMobileDiagnostics
-#endif
 
 /// Holds the de-singletonized graph the `cmuxApp` builds once at launch.
 ///
@@ -22,12 +20,18 @@ import CmuxMobileDiagnostics
 final class AppCompositionRoot {
     let runtime: CMUXMobileRuntime
     let auth: MobileAuthComposition
+    let iroh: MobileIrohRuntimeComposition
     let reachability: any ReachabilityProviding
     let pushCoordinator: MobilePushCoordinator
+    let signOutHook: MobileSignOutHook
     let analytics: MobileAnalyticsComposition
     let displaySettings: MobileDisplaySettings
-    /// First-run onboarding "seen" flag, persisted to `UserDefaults.standard`.
-    /// Built with `forceSeen` set when a UI-test mock harness or a dogfood
+    private var pushReachabilityTask: Task<Void, Never>? = nil
+    /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
+    /// the shell store (dial ordering) and the Settings/onboarding UI.
+    let connectionMethodStore: MobileConnectionMethodStore
+    /// First-run onboarding progress, persisted to `UserDefaults.standard`.
+    /// Built with `forceComplete` set when a UI-test mock harness or a dogfood
     /// auto-pair attach URL is active, so neither path is wedged behind the
     /// one-time onboarding screen.
     let onboardingStore: MobileOnboardingStore
@@ -40,19 +44,24 @@ final class AppCompositionRoot {
     /// turned off mid-session).
     let crashRevocationWatcher = MobileCrashReporter.RevocationWatcher()
 
-    #if DEBUG
-    /// The structured diagnostic log, built once here and injected into the
-    /// shell store. DEBUG-only: it backs the DEV dogfood feedback round-trip and
-    /// is not present in release builds. Its export header is stamped with the
-    /// same build identity as the string debug log so a submitted bundle proves
-    /// which reload it came from.
+    /// The bounded, structured connection log shared by the Iroh runtime and
+    /// mobile shell. It is present in release builds, but its schema accepts
+    /// only fixed categories and integer magnitudes, never terminal contents,
+    /// credentials, peer identities, addresses, or free-form errors.
     let diagnosticLog: DiagnosticLog
-    #endif
+
+    /// Bridges the diagnostic event stream into Sentry (breadcrumbs, structured
+    /// logs, and throttled failure events with the ring export attached). Held
+    /// for the process lifetime; delivery no-ops whenever the crash SDK is off
+    /// (consent revoked or crash reporting disabled for the build).
+    private let transportSentryReporter: TransportSentryReporter
 
     init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
-        reachability: any ReachabilityProviding
+        iroh: MobileIrohRuntimeComposition,
+        reachability: any ReachabilityProviding,
+        diagnosticLog: DiagnosticLog
     ) {
         #if DEBUG
         // Arm the durable debug log at launch: `.shared` is lazy, and without
@@ -62,38 +71,114 @@ final class AppCompositionRoot {
 
         self.runtime = runtime
         self.auth = auth
+        self.iroh = iroh
         self.reachability = reachability
+        self.diagnosticLog = diagnosticLog
         let telemetryConsent = UserDefaultsAnalyticsConsentProvider(defaults: .standard)
-        MobileCrashReporter.startIfEnabled(
-            consent: telemetryConsent,
-            revocationWatcher: crashRevocationWatcher
+        if Self.crashReportingEnabled {
+            MobileCrashReporter().startIfEnabled(
+                consent: telemetryConsent,
+                revocationWatcher: crashRevocationWatcher
+            )
+        }
+        // The reporter checks `SentrySDK.isEnabled` per event, so it respects
+        // both the build-level kill switch above and mid-session consent
+        // revocation (which closes the SDK) without extra plumbing.
+        let transportSentryReporter = TransportSentryReporter(
+            role: .mobileClient,
+            exportRing: { [diagnosticLog] in await diagnosticLog.export() }
         )
+        self.transportSentryReporter = transportSentryReporter
+        diagnosticLog.setEventTap { event in
+            transportSentryReporter.ingest(event)
+        }
         self.analytics = MobileAnalyticsComposition(
             apiBaseURL: auth.config.apiBaseURL,
             tokenProvider: auth.coordinator,
             consent: telemetryConsent
         )
-        self.pushCoordinator = MobilePushCoordinator(
+        let pushCoordinator = MobilePushCoordinator(
             registration: auth.pushRegistration,
-            analytics: analytics.emitter
+            analytics: analytics.emitter,
+            phoneAPIOrigin: auth.config.apiBaseURL
         )
+        self.pushCoordinator = pushCoordinator
+        self.signOutHook = MobileSignOutHook {
+            let signingOutAccountID = auth.coordinator.currentUser?.id
+            let preparation = iroh.beginSignOutPreparation()
+            return { accessToken, refreshToken in
+                await withTaskGroup(of: Void.self) { group in
+                    group.addTask {
+                        await pushCoordinator.unregisterFromServer(
+                            accountID: signingOutAccountID,
+                            accessToken: accessToken,
+                            refreshToken: refreshToken
+                        )
+                    }
+                    group.addTask {
+                        await iroh.completeSignOutAfterAuthClear(
+                            preparation,
+                            accessToken: accessToken,
+                            refreshToken: refreshToken
+                        )
+                    }
+                }
+                await diagnosticLog.clear()
+            }
+        }
         self.displaySettings = MobileDisplaySettings()
-        // Skip the one-time onboarding when a UI-test mock harness
+        self.connectionMethodStore = MobileConnectionMethodStore(defaults: .standard)
+        // Skip first-run onboarding when a UI-test mock harness
         // (`CMUX_UITEST_MOCK_DATA`/XCUITest) or a dogfood auto-pair attach URL is
         // active: those launches expect to land on sign-in / add-device / a live
-        // workspace, not behind a manual tap-through. `forceSeen` never writes the
-        // real install's persisted flag.
-        let bypassOnboarding = UITestConfig.mockDataEnabled
+        // workspace, not behind a manual tap-through. The dedicated onboarding
+        // preview remains active so its relaunch test exercises real persistence.
+        // `forceComplete` never writes the real install's persisted progress.
+        #if DEBUG
+        let onboardingPreviewEnabled = UITestConfig.onboardingPreviewEnabled
+        #else
+        let onboardingPreviewEnabled = false
+        #endif
+        let bypassOnboarding = (UITestConfig.mockDataEnabled && !onboardingPreviewEnabled)
             || UITestConfig.dogfoodAttachURL != nil
             || UITestConfig.attachURL != nil
         self.onboardingStore = MobileOnboardingStore(
             defaults: .standard,
-            forceSeen: bypassOnboarding
+            forceComplete: bypassOnboarding
         )
         self.tailscaleStatusMonitor = TailscaleStatusMonitorAdapter(monitor: TailscaleStatusMonitor())
-        #if DEBUG
-        self.diagnosticLog = DiagnosticLog(buildStamp: MobileDebugLog.buildStamp)
-        #endif
+        self.pushReachabilityTask = Task { @MainActor [weak pushCoordinator] in
+            for await _ in reachability.pathChanges() {
+                guard let pushCoordinator, !Task.isCancelled else { return }
+                guard await reachability.isOnline else { continue }
+                await pushCoordinator.networkDidBecomeReachable()
+            }
+        }
+    }
+
+    deinit {
+        pushReachabilityTask?.cancel()
+    }
+
+    /// Bundle-owned build identity used in explicit diagnostic exports.
+    /// Values come only from signed app metadata, never user input.
+    static var diagnosticBuildStamp: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let name = info["CFBundleName"] as? String ?? "cmux"
+        let version = info["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info["CFBundleVersion"] as? String ?? "?"
+        return "\(name) \(version) (\(build))"
+    }
+
+    private static var crashReportingEnabled: Bool {
+        switch Bundle.main.object(forInfoDictionaryKey: "CMUXCrashReportingEnabled") {
+        case let enabled as Bool:
+            enabled
+        case let enabled as String:
+            enabled.caseInsensitiveCompare("NO") != .orderedSame
+        default:
+            true
+        }
     }
 
     /// The most recent scene phase, so a `.active` transition is classified as a
@@ -118,6 +203,8 @@ final class AppCompositionRoot {
         let emitter = analytics.emitter
         switch phase {
         case .active:
+            iroh.didBecomeActive()
+            Task { await pushCoordinator.refreshReadiness() }
             let now = Date()
             let decision = analytics.sessionizer.resolveForeground(
                 now: now,
@@ -140,7 +227,12 @@ final class AppCompositionRoot {
             }
             emitter.capture("ios_app_foregrounded", foregroundProps)
             hasForegrounded = true
+        case .inactive:
+            // The switcher opened; a swipe-kill from here may skip the
+            // background transition entirely, so snapshot diagnostics now.
+            iroh.archiveDiagnostics()
         case .background:
+            iroh.didEnterBackground()
             let now = Date()
             analytics.sessionStore.recordBackgrounded(at: now)
             emitter.capture("ios_app_backgrounded", [:])
@@ -156,8 +248,6 @@ final class AppCompositionRoot {
             }
             // Force a flush before the OS may suspend us, so queued events survive.
             Task { await emitter.flush() }
-        case .inactive:
-            break
         @unknown default:
             break
         }

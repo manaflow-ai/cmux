@@ -30,6 +30,11 @@ public struct StoredShortcut: Sendable, Equatable, Hashable, Codable, SettingCod
     /// True when the binding fires on two consecutive strokes.
     public var hasChord: Bool { second != nil }
 
+    /// Returns the binding with both strokes using canonical persisted keys.
+    public func canonicalized() -> StoredShortcut {
+        StoredShortcut(first: first.canonicalized(), second: second?.canonicalized())
+    }
+
     // MARK: - SettingCodable
 
     public static func decodeFromUserDefaults(_ raw: Any?) -> StoredShortcut? {
@@ -42,7 +47,16 @@ public struct StoredShortcut: Sendable, Equatable, Hashable, Codable, SettingCod
     }
 
     public static func decodeFromJSON(_ raw: Any?) -> StoredShortcut? {
-        guard let raw, !(raw is NSNull) else { return nil }
+        guard let raw else { return nil }
+        if raw is NSNull { return .unbound }
+        if let string = raw as? String {
+            return parseConfig(string, allowBareFirstStroke: true)
+        }
+        if let strings = raw as? [String] {
+            return strings.isEmpty
+                ? .unbound
+                : parseConfig(strokes: strings, allowBareFirstStroke: true)
+        }
         guard let data = try? JSONSerialization.data(withJSONObject: raw, options: .fragmentsAllowed) else {
             return nil
         }

@@ -10,13 +10,14 @@ public struct SidebarSection: View {
     @State private var fontSaveFailed = false
     @State private var fontSaveTask: Task<Void, Never>?
     @State private var matchTerminal: DefaultsValueModel<Bool>
-    @State private var hideAll: DefaultsValueModel<Bool>
+    @State var hideAll: DefaultsValueModel<Bool>
     @State private var wrapTitles: DefaultsValueModel<Bool>
     @State private var showDesc: DefaultsValueModel<Bool>
     @State private var branchVerticalLayout: DefaultsValueModel<Bool>
     @State private var stackBranchDir: DefaultsValueModel<Bool>
     @State private var pathLastOnly: DefaultsValueModel<Bool>
-    @State private var showNotification: DefaultsValueModel<Bool>
+    @State var showNotification: DefaultsValueModel<Bool>
+    @State var notificationMessageLineLimit: DefaultsValueModel<Int>
     @State private var showBranchDir: DefaultsValueModel<Bool>
     @State private var showPR: DefaultsValueModel<Bool>
     @State private var watchGit: DefaultsValueModel<Bool>
@@ -45,6 +46,7 @@ public struct SidebarSection: View {
         _stackBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.stackBranchDirectory))
         _pathLastOnly = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.pathLastSegmentOnly))
         _showNotification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showNotificationMessage))
+        _notificationMessageLineLimit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationMessageLineLimit))
         _showBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showBranchDirectory))
         _showPR = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPullRequests))
         _watchGit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.watchGitStatus))
@@ -79,9 +81,7 @@ public struct SidebarSection: View {
             showDesc,
             branchVerticalLayout,
             stackBranchDir,
-            pathLastOnly,
-            showNotification,
-            showBranchDir,
+            pathLastOnly, showNotification, notificationMessageLineLimit, showBranchDir,
             showPR,
             watchGit,
             prClickable,
@@ -100,7 +100,6 @@ public struct SidebarSection: View {
         ]
         models.forEach { $0.startObserving() }
     }
-
     /// Persists a new sidebar font size, cancelling any in-flight save so a
     /// rapid sequence of slider releases only reflects the latest value (the
     /// host serializes the underlying writes; this keeps the UI state in step).
@@ -111,11 +110,9 @@ public struct SidebarSection: View {
             if !Task.isCancelled { fontSaveFailed = !saved }
         }
     }
-
     private var rightMaxWidthOverrideEnabled: Bool {
         rightMaxWidth.current.isFinite && rightMaxWidth.current > 0
     }
-
     private var rightMaxWidthOverrideBinding: Binding<Bool> {
         Binding(
             get: { rightMaxWidthOverrideEnabled },
@@ -310,15 +307,15 @@ public struct SidebarSection: View {
             SettingsCardRow(
                 configurationReview: .json("sidebar.stackBranchDirectory"),
                 String(localized: "settings.app.stackBranchDirectory", defaultValue: "Stack Branch and Directory"),
-                subtitle: stackBranchDir.current
+                subtitle: SidebarCatalogSection.stacksBranchAndDirectory(vertical: branchVerticalLayout.current, explicit: stackBranchDir.current)
                     ? String(localized: "settings.app.stackBranchDirectory.subtitleOn", defaultValue: "Branch and directory render on separate lines.")
                     : String(localized: "settings.app.stackBranchDirectory.subtitleOff", defaultValue: "Branch and directory share a single line.")
             ) {
-                Toggle("", isOn: Binding(get: { stackBranchDir.current }, set: { stackBranchDir.set($0) }))
+                Toggle("", isOn: Binding(get: { SidebarCatalogSection.stacksBranchAndDirectory(vertical: branchVerticalLayout.current, explicit: stackBranchDir.current) }, set: { stackBranchDir.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }
-            .disabled(hideAll.current)
+            .disabled(hideAll.current || branchVerticalLayout.current)
             SettingsCardDivider()
 
             SettingsCardRow(
@@ -345,6 +342,9 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            notificationMessageLineLimitRow
             SettingsCardDivider()
 
             SettingsCardRow(

@@ -43,11 +43,13 @@ extension MobileShellComposite {
         }
         if let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[surfaceID],
            endSeq >= pendingSeq {
+            cancelTerminalInputAckResubscribeRetry(surfaceID: surfaceID)
             pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
             pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
             terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
             MobileDebugLog.anchormux("sync.input_seq_caught_up surface=\(surfaceID) seq=\(endSeq)")
         }
+        resumeTerminalLaneIfSuspended(surfaceID: surfaceID)
     }
 
     func markTerminalFullReplacementObserved(surfaceID: String, seq: UInt64) {
@@ -81,6 +83,7 @@ extension MobileShellComposite {
         // content under a barrier; only the surface-destroying resets clear it.
         terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)
+        cancelTerminalInputAckResubscribeRetry(surfaceID: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         let token = UUID()
@@ -97,6 +100,30 @@ extension MobileShellComposite {
         terminalColdAttachReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)
         return token
+    }
+
+    /// Begin a fresh authoritative-replay generation while carrying forward
+    /// any output or replay work that the new generation supersedes.
+    func beginTerminalReplayBarrierCarryingReplacedWork(surfaceID: String) -> UUID {
+        let owesReplacementReplay = !(terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle ?? true)
+            || terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+            || terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil
+        let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+        if owesReplacementReplay {
+            terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
+        }
+        return replayBarrierToken
+    }
+
+    /// Supersede every older replay and output acknowledgement for a surface,
+    /// then request one authoritative replacement owned by the new barrier.
+    func requestAuthoritativeTerminalResync(surfaceID: String, reason: String) {
+        guard hasTerminalOutputSink(surfaceID: surfaceID), remoteClient != nil else { return }
+        let replayBarrierToken = beginTerminalReplayBarrierCarryingReplacedWork(surfaceID: surfaceID)
+        MobileDebugLog.anchormux(
+            "CMUX_REPLAY authoritative_resync reason=\(reason) surface=\(surfaceID)"
+        )
+        requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }
 
     func requestColdAttachTerminalReplay(surfaceID: String) {
@@ -242,6 +269,7 @@ extension MobileShellComposite {
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)
         restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: surfaceID)
+        cancelTerminalInputAckResubscribeRetry(surfaceID: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_barrier_fail_open surface=\(surfaceID) reason=\(reason)")

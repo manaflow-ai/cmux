@@ -4,6 +4,7 @@ import { Callout } from "@/app/[locale]/components/callout";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 import { baseDocsLocales } from "@/app/[locale]/components/docs-nav-items";
+import { docsChannel } from "@/app/lib/docs-channel";
 import {
   buildAlternates,
   openGraphDefaults,
@@ -21,7 +22,8 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   const { locale } = await params;
   assertSupportedLocale(locale);
   const t = await getTranslations({ locale, namespace: "docs.base" });
-  const alternates = buildAlternates(locale, "/docs/base", baseDocsLocales);
+  const path = docsChannel() === "nightly" ? "/docs/nightly/base" : "/docs/base";
+  const alternates = buildAlternates(locale, path, baseDocsLocales);
   const title = t("metaTitle");
   const description = seoDescription(locale, t("metaDescription"));
   return {

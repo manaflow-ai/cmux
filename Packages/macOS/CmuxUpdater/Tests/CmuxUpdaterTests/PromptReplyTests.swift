@@ -3,12 +3,11 @@ import Testing
 @preconcurrency import Sparkle
 @testable import CmuxUpdater
 
-/// The at-most-once prompt reply and the stale-dismissal guard it enables.
+/// The at-most-once prompt reply and causal dismissal boundaries.
 ///
-/// Sparkle's dismiss callback for a stale session can land after a fresh check has already
-/// resolved a new prompt; without the consumption bit the driver clobbered the live, unanswered
-/// prompt back to idle and the queued install hand-off silently no-oped (the same idle-ambiguity
-/// family as the NIGHTLY double-idle loop).
+/// Sparkle's identity-free dismiss callback can land after a newer prompt or download owns the
+/// UI. Prompt replies record their source at the causal boundary; the later unscoped callback is
+/// diagnostic-only and cannot mutate current state.
 @MainActor
 @Suite struct PromptReplyTests {
     private func makeItem(_ version: String) -> SUAppcastItem {
@@ -41,10 +40,10 @@ import Testing
 
         #expect(received.choices == [.install])
     }
-    /// A stale session's dismissal must not clobber a live prompt nobody has answered yet —
+    /// An old session's unscoped dismissal must not clobber a live prompt nobody has answered —
     /// exactly the late `dismissUpdateInstallation` that would otherwise cancel the freshly
     /// resolved update out from under the attempt coordinator.
-    @Test func staleDismissalDoesNotClobberUnansweredPrompt() {
+    @Test func unscopedDismissalDoesNotClobberUnansweredPrompt() {
         let model = UpdateStateModel()
         let driver = UpdateDriver(
             model: model,
@@ -53,10 +52,8 @@ import Testing
             isDevLikeBundle: false
         )
 
-        let oldReply = UpdatePromptReply { _ in }
         let freshReply = UpdatePromptReply { _ in }
 
-        driver.recordPromptDismissCallbackExpected(for: oldReply)
         model.setState(.updateAvailable(.init(appcastItem: makeItem("0.64.16"), reply: freshReply)))
         driver.dismissUpdateInstallation()
 
@@ -66,9 +63,9 @@ import Testing
         }
     }
 
-    /// An untracked Sparkle dismissal is the active UI teardown signal and must still clear a
-    /// visible prompt instead of stranding it.
-    @Test func unexpectedDismissalClearsUnansweredPrompt() {
+    /// Regression for #8368: an untracked Sparkle dismissal has no causal link to the currently
+    /// visible prompt. It must not silently clear an unanswered install opportunity.
+    @Test func unexpectedDismissalKeepsUnansweredPromptVisible() {
         let model = UpdateStateModel()
         let driver = UpdateDriver(
             model: model,
@@ -80,12 +77,15 @@ import Testing
         model.setState(.updateAvailable(.init(appcastItem: makeItem("0.64.16"), reply: { _ in })))
         driver.dismissUpdateInstallation()
 
-        #expect(model.state.isIdle)
+        guard case .updateAvailable = model.state else {
+            Issue.record("unanswered prompt was silently dismissed to \(model.state)")
+            return
+        }
     }
 
-    /// A stale dismissal arriving after the fresh prompt was confirmed must not reset active
+    /// An unscoped dismissal arriving after the fresh prompt was confirmed must not reset active
     /// progress to idle; later progress callbacks depend on the model staying in progress.
-    @Test func staleDismissalDoesNotClobberInstallProgress() {
+    @Test func unscopedDismissalDoesNotClobberInstallProgress() {
         let model = UpdateStateModel()
         let driver = UpdateDriver(
             model: model,
@@ -93,9 +93,6 @@ import Testing
             clock: SystemUpdateClock(),
             isDevLikeBundle: false
         )
-        let oldReply = UpdatePromptReply { _ in }
-
-        driver.recordPromptDismissCallbackExpected(for: oldReply)
         model.setState(.downloading(.init(cancel: {}, expectedLength: 100, progress: 10)))
         driver.dismissUpdateInstallation()
 
@@ -106,9 +103,9 @@ import Testing
         #expect(download.progress == 10)
     }
 
-    /// A stale dismissal can also land after the fresh prompt was auto-confirmed but before Sparkle
+    /// An unscoped dismissal can also land after the fresh prompt was answered but before Sparkle
     /// reports download progress. That must not tear down the live install hand-off.
-    @Test func staleDismissalDoesNotClobberInstallConfirmedPrompt() {
+    @Test func unscopedDismissalDoesNotClobberAnsweredPrompt() {
         let model = UpdateStateModel()
         let driver = UpdateDriver(
             model: model,
@@ -116,11 +113,9 @@ import Testing
             clock: SystemUpdateClock(),
             isDevLikeBundle: false
         )
-        let oldReply = UpdatePromptReply { _ in }
         let freshReply = UpdatePromptReply { _ in }
         let available = UpdateState.UpdateAvailable(appcastItem: makeItem("0.64.16"), reply: freshReply)
 
-        driver.recordPromptDismissCallbackExpected(for: oldReply)
         model.setState(.updateAvailable(available))
         available.reply(.install)
         driver.dismissUpdateInstallation()
@@ -131,9 +126,9 @@ import Testing
         }
     }
 
-    /// A normal Sparkle progress teardown still clears the model; only a known superseded prompt
-    /// dismissal may be ignored while progress is visible.
-    @Test func activeProgressDismissalClearsState() {
+    /// Sparkle's identity-free dismissal cannot terminate progress; causal progress callbacks own
+    /// their own cancellation and completion transitions.
+    @Test func unscopedDismissalPreservesActiveProgress() {
         let model = UpdateStateModel()
         let driver = UpdateDriver(
             model: model,
@@ -145,7 +140,10 @@ import Testing
         model.setState(.extracting(.init(progress: 0.5)))
         driver.dismissUpdateInstallation()
 
-        #expect(model.state.isIdle)
+        guard case .extracting = model.state else {
+            Issue.record("unscoped dismissal cleared active progress")
+            return
+        }
     }
 
     /// The current prompt's own dismissal is not stale and should still clear the prompt.
@@ -160,17 +158,20 @@ import Testing
         let reply = UpdatePromptReply { _ in }
         let available = UpdateState.UpdateAvailable(appcastItem: makeItem("0.64.16"), reply: reply)
 
-        driver.recordPromptDismissCallbackExpected(for: reply)
+        reply.onConsumed = { [weak driver] reply, choice, source in
+            driver?.handlePromptReply(reply, choice: choice, source: source)
+        }
         model.setState(.updateAvailable(available))
         available.reply(.dismiss)
+        #expect(model.state.isIdle)
         driver.dismissUpdateInstallation()
 
         #expect(model.state.isIdle)
     }
 
-    /// If the current prompt's dismiss callback arrives before an older prompt's pending stale
-    /// callback, clearing the current prompt must not spend the old prompt's marker.
-    @Test func currentPromptDismissalDoesNotConsumeOlderStaleMarker() {
+    /// A delayed action from a prompt that no longer owns the model cannot cancel the lifecycle
+    /// associated with the current prompt.
+    @Test func stalePromptReplyDoesNotNotifyLifecycleOwner() {
         let model = UpdateStateModel()
         let driver = UpdateDriver(
             model: model,
@@ -178,12 +179,44 @@ import Testing
             clock: SystemUpdateClock(),
             isDevLikeBundle: false
         )
-        let oldReply = UpdatePromptReply { _ in }
+        let eventSpy = PromptReplyEventSpy()
+        driver.eventDelegate = eventSpy
+        let staleReply = UpdatePromptReply { _ in }
+        staleReply.onConsumed = { [weak driver] reply, choice, source in
+            driver?.handlePromptReply(reply, choice: choice, source: source)
+        }
+        let currentReply = UpdatePromptReply { _ in }
+        model.setState(.updateAvailable(.init(
+            appcastItem: makeItem("0.64.16"),
+            reply: currentReply
+        )))
+
+        staleReply(.dismiss)
+
+        #expect(eventSpy.promptDismissalCount == 0)
+        guard case .updateAvailable(let available) = model.state else {
+            Issue.record("stale prompt reply cleared the current lifecycle")
+            return
+        }
+        #expect(available.reply.id == currentReply.id)
+    }
+
+    /// A causal user dismissal clears its own prompt but cannot authorize a later identity-free
+    /// dismissal to clear unrelated progress.
+    @Test func userPromptDismissalDoesNotAuthorizeLaterUnscopedDismissal() {
+        let model = UpdateStateModel()
+        let driver = UpdateDriver(
+            model: model,
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false
+        )
         let currentReply = UpdatePromptReply { _ in }
         let available = UpdateState.UpdateAvailable(appcastItem: makeItem("0.64.16"), reply: currentReply)
 
-        driver.recordPromptDismissCallbackExpected(for: oldReply)
-        driver.recordPromptDismissCallbackExpected(for: currentReply)
+        currentReply.onConsumed = { [weak driver] reply, choice, source in
+            driver?.handlePromptReply(reply, choice: choice, source: source)
+        }
         model.setState(.updateAvailable(available))
         available.reply(.dismiss)
         driver.dismissUpdateInstallation()
@@ -199,9 +232,8 @@ import Testing
         #expect(download.progress == 10)
     }
 
-    /// If a superseded prompt's Sparkle dismissal arrives while an error is visible, it is drained
-    /// there; it must not make a later real progress dismissal look stale.
-    @Test func promptDismissIgnoredByErrorDoesNotLeakToNextProgress() {
+    /// Identity-free dismissal callbacks cannot mutate either a visible error or later progress.
+    @Test func unscopedDismissalPreservesErrorAndLaterProgress() {
         let model = UpdateStateModel()
         let driver = UpdateDriver(
             model: model,
@@ -209,8 +241,6 @@ import Testing
             clock: SystemUpdateClock(),
             isDevLikeBundle: false
         )
-        let oldReply = UpdatePromptReply { _ in }
-        driver.recordPromptDismissCallbackExpected(for: oldReply)
         model.setState(.error(.init(
             error: NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.installDidNotStartCode),
             retry: {},
@@ -226,11 +256,13 @@ import Testing
         model.setState(.extracting(.init(progress: 0.5)))
         driver.dismissUpdateInstallation()
 
-        #expect(model.state.isIdle)
+        guard case .extracting = model.state else {
+            Issue.record("unscoped dismissal cleared later progress")
+            return
+        }
     }
 
-    /// A real user download cancel still clears progress immediately; the stale dismissal guard
-    /// only prevents old Sparkle sessions from clearing a still-active progress state.
+    /// A real user download cancel still clears progress immediately at its causal callback.
     @Test func downloadCancelClearsProgress() {
         let model = UpdateStateModel()
         let driver = UpdateDriver(
@@ -250,8 +282,9 @@ import Testing
         #expect(model.state.isIdle)
     }
 
-    /// Once the prompt is answered, its own dismissal passes through and clears the state.
-    @Test func answeredPromptDismissalClearsState() {
+    /// Regression for #8368: after the user accepts an install, a Sparkle dismissal arriving
+    /// before `showDownloadInitiated` must not hide the only visible evidence of that attempt.
+    @Test func acceptedInstallDismissalKeepsAttemptVisible() {
         let model = UpdateStateModel()
         let driver = UpdateDriver(
             model: model,
@@ -262,9 +295,11 @@ import Testing
 
         let available = UpdateState.UpdateAvailable(appcastItem: makeItem("0.64.16"), reply: { _ in })
         model.setState(.updateAvailable(available))
-        available.reply(.install)
+        model.setState(.startingDownload)
+        available.reply.consume(.install, source: .installAttempt)
         driver.dismissUpdateInstallation()
 
-        #expect(model.state.isIdle)
+        #expect(model.showsPill)
+        #expect(model.state == .startingDownload)
     }
 }

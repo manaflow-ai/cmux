@@ -1,60 +1,37 @@
-public import CmuxMobileAnalytics
+public import CMUXMobileCore
+import CmuxSentryReporting
 import Foundation
 public import Sentry
 
 /// Starts Sentry-backed crash reporting for the iOS app.
 ///
 /// ``MobileCrashReporter`` intentionally reuses
-/// ``CmuxMobileAnalytics/AnalyticsConsentProviding`` so crash telemetry and
-/// analytics obey one opt-out source. No custom iOS breadcrumbs or messages are
-/// sent in this first pass: `sendDefaultPii` is disabled, and reports are
-/// limited to crash, watchdog, MetricKit, app-hang, stack, and device context
-/// until the macOS scrubber can be moved to a shared package.
+/// ``CMUXMobileCore/AnalyticsConsentProviding`` so crash telemetry and
+/// analytics obey one opt-out source. `sendDefaultPii` is disabled and every
+/// outgoing event, breadcrumb, and structured log is redacted by the shared
+/// `SentryEventScrubber` (CmuxSentryReporting) before it leaves the device.
+/// Structured logs are enabled so the transport diagnostics bridge can emit
+/// searchable connection telemetry; swizzling and automatic network capture
+/// stay off because URLSession traffic in this app carries auth.
 public struct MobileCrashReporter {
-    /// Creates a mobile crash reporter.
-    public init() {}
+    private let transportSessionController: any MobileCrashTransportSessionControlling
+    private let cachePurger: SentryCachePurger
+    private let scrubber = SentryEventScrubber()
 
-    /// Starts crash reporting with a default ``MobileCrashReporter`` instance.
-    ///
-    /// - Parameters:
-    ///   - consent: The shared analytics/crash telemetry opt-out gate.
-    ///   - arguments: Process arguments used to gate the DEBUG-only test crash.
-    ///     Defaults to `ProcessInfo.processInfo.arguments`.
-    ///   - start: The Sentry start function. Tests inject this closure so they
-    ///     can assert the consent gate without starting the real SDK.
-    ///   - crash: The DEBUG-only test crash function. Tests inject this closure
-    ///     with `--cmux-test-crash` so they can assert trigger gating without
-    ///     crashing the test process.
-    public static func startIfEnabled(
-        consent: any AnalyticsConsentProviding,
-        arguments: [String] = ProcessInfo.processInfo.arguments,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        notificationCenter: NotificationCenter = .default,
-        revocationWatcher: RevocationWatcher,
-        start: (Options) -> Void = { SentrySDK.start(options: $0) },
-        close: @escaping @Sendable () -> Void = { SentrySDK.close() },
-        purgeCache: @escaping @Sendable () -> Void = { Self.purgeSentryCache() },
-        crash: () -> Void = { SentrySDK.crash() }
-    ) {
-        Self().startIfEnabled(
-            consent: consent,
-            arguments: arguments,
-            environment: environment,
-            notificationCenter: notificationCenter,
-            revocationWatcher: revocationWatcher,
-            start: start,
-            close: close,
-            purgeCache: purgeCache,
-            crash: crash
+    /// Creates a mobile crash reporter.
+    public init() {
+        self.init(
+            transportSessionController: MobileCrashTransportSessionController(),
+            cachePurger: SentryCachePurger()
         )
     }
 
-    /// Builds the mobile Sentry options with a default ``MobileCrashReporter`` instance.
-    ///
-    /// - Returns: A fully configured Sentry ``Options`` value suitable for
-    ///   `SentrySDK.start(options:)`.
-    public static func makeOptions() -> Options {
-        Self().makeOptions()
+    init(
+        transportSessionController: any MobileCrashTransportSessionControlling,
+        cachePurger: SentryCachePurger = SentryCachePurger()
+    ) {
+        self.transportSessionController = transportSessionController
+        self.cachePurger = cachePurger
     }
 
     /// Starts crash reporting when the shared telemetry consent gate is enabled.
@@ -63,6 +40,8 @@ public struct MobileCrashReporter {
     ///   - consent: The shared analytics/crash telemetry opt-out gate.
     ///   - arguments: Process arguments used to gate the DEBUG-only test crash.
     ///     Defaults to `ProcessInfo.processInfo.arguments`.
+    ///   - prepareLocale: Process-locale initialization performed before Sentry
+    ///     starts any background work.
     ///   - start: The Sentry start function. Tests inject this closure so they
     ///     can assert the consent gate without starting the real SDK.
     ///   - crash: The DEBUG-only test crash function. Tests inject this closure
@@ -74,61 +53,79 @@ public struct MobileCrashReporter {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         notificationCenter: NotificationCenter = .default,
         revocationWatcher: RevocationWatcher,
-        start: (Options) -> Void = { SentrySDK.start(options: $0) },
+        prepareLocale: () -> Void = {
+            _ = Locale.current
+            _ = NSLocale.preferredLanguages
+        },
+        start: @escaping (Options) -> Void = { SentrySDK.start(options: $0) },
         close: @escaping @Sendable () -> Void = { SentrySDK.close() },
-        purgeCache: @escaping @Sendable () -> Void = { Self.purgeSentryCache() },
-        crash: () -> Void = { SentrySDK.crash() }
+        purgeCache: (@Sendable () -> Void)? = nil,
+        crash: @escaping () -> Void = { SentrySDK.crash() }
     ) {
-        guard consent.isTelemetryEnabled else {
-            // A crash captured during an earlier opted-out window must never
-            // upload after a later re-opt-in: with consent off, any envelopes
-            // Sentry persisted before the opt-out landed are deleted.
-            purgeCache()
-            return
-        }
         // Never report from test runs: unit-test hosts, XCUITest
         // app-under-test launches (which do NOT get XCTestConfigurationFilePath;
         // they carry other XCTest markers or this repo's CMUX_UITEST_ keys),
         // and CI sessions would all send deliberate crashes and hangs to the
         // shared Sentry project.
-        guard !Self.isTestRun(environment: environment) else { return }
+        guard !isTestRun(environment: environment) else { return }
+        // Foundation lazily initializes process locale through setlocale().
+        // Sentry also starts a background `sentry-init` thread that reads
+        // locale environment state. Completing Foundation's initialization on
+        // the composition-root actor first prevents that thread from racing
+        // libghostty's own locale initialization when its first surface mounts.
+        prepareLocale()
+        let cachePurger = self.cachePurger
+        let purgeCache = purgeCache ?? { cachePurger.purge() }
 
-        let options = makeOptions()
-        // Consent is re-read per event, mirroring the analytics emitter's
-        // per-capture gate: flipping sendAnonymousTelemetry off mid-session
-        // drops every subsequent envelope (crash, hang, MetricKit) without
-        // requiring a relaunch.
-        options.beforeSend = { event in
-            consent.isTelemetryEnabled ? event : nil
+        let startReporting = {
+            let options = makeOptions()
+            // Sentry's close() always flushes. A dedicated transport session
+            // lets revocation cancel queued and in-flight requests before close
+            // attempts that flush; a zero timeout prevents shutdown waiting.
+            options.urlSession = transportSessionController.makeSession()
+            options.shutdownTimeInterval = 0
+            // Consent is re-read per envelope, mirroring the analytics
+            // emitter's per-capture gate: flipping sendAnonymousTelemetry off
+            // mid-session drops every subsequent envelope (crash, hang,
+            // MetricKit, structured log) without requiring a relaunch. Events
+            // and logs that do ship are scrubbed last-mile.
+            let scrubber = self.scrubber
+            options.beforeSend = { event in
+                consent.isTelemetryEnabled ? scrubber.scrub(event) : nil
+            }
+            options.beforeSendLog = { log in
+                consent.isTelemetryEnabled ? scrubber.scrub(log) : nil
+            }
+            start(options)
+
+            #if DEBUG
+            if arguments.contains(Self.debugCrashArgument) {
+                crash()
+            }
+            #endif
         }
-        start(options)
-        // Mid-session revocation fails closed at the SDK level too: the crash
-        // handlers stop persisting reports and cached envelopes are deleted, so
-        // nothing captured after (or pending from before) the opt-out can ever
-        // leave the device. Re-enabling takes effect on the next launch.
+        let stopReporting = {
+            // Cancel transport first. Sentry's close() always asks its transport
+            // to flush, even with a zero timeout, so invalidating the dedicated
+            // session is what prevents queued or in-flight envelopes from
+            // crossing the consent boundary.
+            transportSessionController.invalidateAndCancel()
+            purgeCache()
+            close()
+            purgeCache()
+        }
+
+        // Keep monitoring both consent directions for the process lifetime.
+        // This starts Sentry immediately after a mid-session opt-in and closes
+        // it after opt-out, while transition tracking prevents defaults churn
+        // from initializing or closing the SDK more than once.
         revocationWatcher.arm(
             consent: consent,
             notificationCenter: notificationCenter,
-            onRevoke: {
-                // Purge BEFORE close: close() flushes pending envelopes to the
-                // network, so persisted opted-out data must be gone first. The
-                // second purge removes anything close() persisted while
-                // draining its in-memory queue. Events close() flushes are
-                // dropped by the consent beforeSend gate; the only residual is
-                // an envelope already serialized into the in-memory transport
-                // queue at the instant of revocation, which the public SDK API
-                // cannot cancel.
-                purgeCache()
-                close()
-                purgeCache()
-            }
+            onEnable: startReporting,
+            onRevoke: stopReporting,
+            onInitiallyDisabled: purgeCache
         )
-
-        #if DEBUG
-        if arguments.contains(Self.debugCrashArgument) {
-            crash()
-        }
-        #endif
     }
 
     /// Builds the mobile Sentry options without starting the SDK.
@@ -152,12 +149,19 @@ public struct MobileCrashReporter {
         options.enableWatchdogTerminationTracking = true
         options.enableAppHangTracking = true
         options.appHangTimeoutInterval = 8.0
-        // Crash/device-context ONLY until the macOS scrubber moves to a shared
-        // package: there is no beforeSend scrubber here, so every default that
-        // would record or mutate app traffic stays off. Swizzling injects
-        // sentry-trace/baggage headers into URLSession requests (which carry
-        // auth in this app) and network/auto breadcrumbs record request URLs
-        // into crash envelopes; sendDefaultPii does not cover those.
+        // Structured logs power the transport diagnostics bridge
+        // (TransportSentryReporter); each log line passes the consent gate and
+        // scrubber installed in `beforeSendLog`.
+        options.enableLogs = true
+        // Manual breadcrumbs (the transport bridge's) are scrubbed last-mile.
+        // Swizzling and automatic network capture stay OFF even with the
+        // scrubber in place: swizzling injects sentry-trace/baggage headers
+        // into URLSession requests, which carry auth in this app, and that
+        // egress is not something a beforeSend hook can redact.
+        let scrubber = self.scrubber
+        options.beforeBreadcrumb = { breadcrumb in
+            scrubber.scrub(breadcrumb)
+        }
         options.enableSwizzling = false
         options.enableNetworkTracking = false
         options.enableNetworkBreadcrumbs = false
@@ -175,67 +179,10 @@ public struct MobileCrashReporter {
         return options
     }
 
-    /// Watches for the shared telemetry opt-out flipping off after Sentry has
-    /// started and closes the SDK + purges its cache exactly once. UserDefaults
-    /// changes are observed via `UserDefaults.didChangeNotification`, the same
-    /// backing store the consent provider reads.
-    public final class RevocationWatcher: @unchecked Sendable {
-        /// Owned by the app composition root (one per process); tests create
-        /// fresh instances so parallel suites cannot stomp each other.
-        public init() {}
+    /// Process-lifetime telemetry-consent watcher used by the app composition root.
+    public typealias RevocationWatcher = MobileCrashRevocationWatcher
 
-        // lint:allow lock — sanctioned carve-out: guards a token swap across
-        // the notification-delivery thread and arm callers; an actor would
-        // force async hops into the synchronous notification callback.
-        private let lock = NSLock()
-        private var token: (any NSObjectProtocol)?
-        private var center: NotificationCenter?
-
-        func arm(
-            consent: any AnalyticsConsentProviding,
-            notificationCenter: NotificationCenter,
-            onRevoke: @escaping @Sendable () -> Void
-        ) {
-            lock.lock()
-            defer { lock.unlock() }
-            if let token, let center { center.removeObserver(token) }
-            center = notificationCenter
-            token = notificationCenter.addObserver(
-                forName: UserDefaults.didChangeNotification,
-                object: nil,
-                queue: nil
-            ) { _ in
-                // Strong self on purpose: the observation (and this watcher)
-                // must stay alive until revocation fires or a re-arm replaces
-                // it; disarm breaks the center->closure->self cycle.
-                guard !consent.isTelemetryEnabled else { return }
-                self.disarm()
-                onRevoke()
-            }
-        }
-
-        private func disarm() {
-            lock.lock()
-            defer { lock.unlock() }
-            if let token, let center { center.removeObserver(token) }
-            token = nil
-            center = nil
-        }
-    }
-
-    /// Deletes Sentry's on-disk stores: the envelope cache (`Caches/io.sentry`)
-    /// AND SentryCrash's raw report store (`Caches/SentryCrash/<bundle>`), which
-    /// holds crash reports before they are converted into envelopes.
-    public static func purgeSentryCache() {
-        guard let caches = FileManager.default.urls(
-            for: .cachesDirectory,
-            in: .userDomainMask
-        ).first else { return }
-        try? FileManager.default.removeItem(at: caches.appendingPathComponent("io.sentry"))
-        try? FileManager.default.removeItem(at: caches.appendingPathComponent("SentryCrash"))
-    }
-
-    static func isTestRun(environment: [String: String]) -> Bool {
+    private func isTestRun(environment: [String: String]) -> Bool {
         for key in Self.testEnvironmentKeys where environment[key] != nil {
             return true
         }

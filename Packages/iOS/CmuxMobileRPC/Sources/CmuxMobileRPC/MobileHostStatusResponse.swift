@@ -22,6 +22,12 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
     /// which paired-Mac record the connection belongs to (reconnect-on-launch
     /// and the host switcher key on it). `nil` from older Macs.
     public let macDeviceID: String?
+    /// The Mac app instance's authoritative route tag. `nil` from older Macs
+    /// that predate per-instance route authority.
+    public let macInstanceTag: String?
+    /// Process-unique epoch for the Mac's terminal-theme revision counter.
+    /// A changed value tells iOS that low revisions belong to a new producer.
+    public let terminalThemeRevisionEpoch: String?
     /// The Mac app's marketing version, for warning-only compatibility checks.
     public let macAppVersion: String?
     /// The Mac app's build number, for warning display.
@@ -32,15 +38,22 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
     /// colors. `nil` from older Macs that predate the field, in which case the
     /// phone keeps its built-in Monokai default.
     public let theme: TerminalTheme?
+    /// Authenticated Mac-side phone-forwarding status. `nil` means the caller
+    /// could not prove same-account ownership, the Mac predates this field, or
+    /// the value was malformed. None of those states is ready.
+    public let phonePush: MobileHostPhonePushStatus?
 
     private enum CodingKeys: String, CodingKey {
         case capabilities
         case terminalFidelity = "terminal_fidelity"
         case macDisplayName = "mac_display_name"
         case macDeviceID = "mac_device_id"
+        case macInstanceTag = "mac_instance_tag"
+        case terminalThemeRevisionEpoch = "terminal_theme_revision_epoch"
         case macAppVersion = "mac_app_version"
         case macAppBuild = "mac_app_build"
         case theme
+        case phonePush = "phone_push"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -49,6 +62,9 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
         terminalFidelity = try container.decodeIfPresent(String.self, forKey: .terminalFidelity)
         macDisplayName = try container.decodeIfPresent(String.self, forKey: .macDisplayName)
         macDeviceID = try container.decodeIfPresent(String.self, forKey: .macDeviceID)
+            .map(cmxCanonicalDeviceID)
+        macInstanceTag = try container.decodeIfPresent(String.self, forKey: .macInstanceTag)
+        terminalThemeRevisionEpoch = try container.decodeIfPresent(String.self, forKey: .terminalThemeRevisionEpoch)
         macAppVersion = try container.decodeIfPresent(String.self, forKey: .macAppVersion)
         macAppBuild = try container.decodeIfPresent(String.self, forKey: .macAppBuild)
         // A present-but-malformed `theme` must not fail the whole status decode.
@@ -58,6 +74,12 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
         // leniently: a bad theme object yields `nil` and the phone keeps its
         // built-in Monokai default, exactly like an older Mac that omits it.
         theme = (try? container.decodeIfPresent(TerminalTheme.self, forKey: .theme)) ?? nil
+        // Keep an unknown future mode/account value from invalidating the
+        // transport and identity fields in the same status response.
+        phonePush = (try? container.decodeIfPresent(
+            MobileHostPhonePushStatus.self,
+            forKey: .phonePush
+        )) ?? nil
     }
 
     /// Decode a host-status response from raw JSON data.

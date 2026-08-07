@@ -81,6 +81,7 @@ def is_web_change(path: str) -> bool:
 def is_go_change(path: str) -> bool:
     return path.startswith("daemon/remote/") or path in {
         "scripts/build_remote_daemon_release_assets.sh",
+        "scripts/generate_remote_daemon_release_manifest.py",
         "tests/test_remote_daemon_release_assets.sh",
     }
 
