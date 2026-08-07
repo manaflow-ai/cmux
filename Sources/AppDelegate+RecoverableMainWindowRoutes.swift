@@ -8,12 +8,23 @@ final class RecoverableMainWindowRoute {
     let windowId: UUID
     weak var tabManager: TabManager?
     weak var window: NSWindow?
+    let sidebarState: SidebarState
+    let sidebarSelectionState: SidebarSelectionState
     let order: UInt64
 
-    init(windowId: UUID, tabManager: TabManager, window: NSWindow?, order: UInt64) {
+    init(
+        windowId: UUID,
+        tabManager: TabManager,
+        window: NSWindow?,
+        sidebarState: SidebarState,
+        sidebarSelectionState: SidebarSelectionState,
+        order: UInt64
+    ) {
         self.windowId = windowId
         self.tabManager = tabManager
         self.window = window
+        self.sidebarState = sidebarState
+        self.sidebarSelectionState = sidebarSelectionState
         self.order = order
     }
 }
@@ -29,13 +40,6 @@ private final class MainWindowRouteLedger {
     }
 }
 
-@MainActor
-private struct MainWindowRouteSnapshot {
-    let windowId: UUID
-    let tabManager: TabManager
-    let window: NSWindow?
-}
-
 private var mainWindowRouteLedgerKey: UInt8 = 0
 
 // The retire sweep is the MainWindowRouteRetiring witness: the terminal
@@ -44,6 +48,15 @@ private var mainWindowRouteLedgerKey: UInt8 = 0
 extension AppDelegate: MainWindowRouteRetiring {}
 
 extension AppDelegate {
+    struct MainWindowRouteSnapshot {
+        let windowId: UUID
+        let tabManager: TabManager
+        let window: NSWindow?
+        let sidebarState: SidebarState
+        let sidebarSelectionState: SidebarSelectionState
+        let windowDock: DockSplitStore?
+    }
+
     private var mainWindowRouteLedger: MainWindowRouteLedger {
         if let ledger = objc_getAssociatedObject(self, &mainWindowRouteLedgerKey) as? MainWindowRouteLedger {
             return ledger
@@ -70,6 +83,10 @@ extension AppDelegate {
         cachedWindow ?? windowForMainWindowId(windowId)
     }
 
+    private func recoverableWindowParticipatesInLiveTopology(_ window: NSWindow) -> Bool {
+        window.isVisible || window.isMiniaturized || NSApp.isHidden
+    }
+
     private func sortedRecoverableMainWindowRoutes() -> [RecoverableMainWindowRoute] {
         mainWindowRouteLedger.routesByWindowId.values.sorted { lhs, rhs in
             if lhs.order != rhs.order {
@@ -79,34 +96,64 @@ extension AppDelegate {
         }
     }
 
-    private func recoverableMainWindowRouteSnapshot(windowId: UUID) -> MainWindowRouteSnapshot? {
-        guard let route = mainWindowRouteLedger.routesByWindowId[windowId],
-              let manager = route.tabManager,
-              let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window) else {
+    private func recoverableMainWindowRouteSnapshot(
+        for route: RecoverableMainWindowRoute
+    ) -> MainWindowRouteSnapshot? {
+        guard let manager = route.tabManager,
+              tabManagerHasRegisteredTerminalSurface(manager),
+              let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window),
+              recoverableWindowParticipatesInLiveTopology(window) else {
             return nil
         }
-        return MainWindowRouteSnapshot(windowId: route.windowId, tabManager: manager, window: window)
+        return MainWindowRouteSnapshot(
+            windowId: route.windowId,
+            tabManager: manager,
+            window: window,
+            sidebarState: route.sidebarState,
+            sidebarSelectionState: route.sidebarSelectionState,
+            windowDock: nil
+        )
+    }
+
+    private func recoverableMainWindowRouteSnapshot(windowId: UUID) -> MainWindowRouteSnapshot? {
+        guard let route = mainWindowRouteLedger.routesByWindowId[windowId] else { return nil }
+        return recoverableMainWindowRouteSnapshot(for: route)
     }
 
     private func recoverableMainWindowRouteSnapshots() -> [MainWindowRouteSnapshot] {
         sortedRecoverableMainWindowRoutes().compactMap { route in
-            guard let manager = route.tabManager,
-                  let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window) else {
-                return nil
-            }
-            return MainWindowRouteSnapshot(windowId: route.windowId, tabManager: manager, window: window)
+            recoverableMainWindowRouteSnapshot(for: route)
         }
     }
 
-    private func liveRegisteredMainWindowRouteSnapshots() -> [MainWindowRouteSnapshot] {
-        mainWindowContexts.values.compactMap { context in
-            guard let window = context.window ?? windowForMainWindowId(context.windowId) else { return nil }
+    private func registeredMainWindowRouteSnapshots() -> [MainWindowRouteSnapshot] {
+        mainWindowContexts.values.map { context in
             return MainWindowRouteSnapshot(
                 windowId: context.windowId,
                 tabManager: context.tabManager,
-                window: window
+                window: context.window ?? windowForMainWindowId(context.windowId),
+                sidebarState: context.sidebarState,
+                sidebarSelectionState: context.sidebarSelectionState,
+                windowDock: context.existingWindowDock()
             )
         }
+    }
+
+    /// The authoritative projection for context-independent window routing and
+    /// persistence. Registered contexts win duplicate window ids; recoverable
+    /// entries must still own a live terminal surface before they participate.
+    func mainWindowRouteSnapshots() -> [MainWindowRouteSnapshot] {
+        var seenWindowIds: Set<UUID> = []
+        var snapshots: [MainWindowRouteSnapshot] = []
+        for snapshot in registeredMainWindowRouteSnapshots()
+            where seenWindowIds.insert(snapshot.windowId).inserted {
+            snapshots.append(snapshot)
+        }
+        for snapshot in recoverableMainWindowRouteSnapshots()
+            where seenWindowIds.insert(snapshot.windowId).inserted {
+            snapshots.append(snapshot)
+        }
+        return snapshots
     }
 
     func retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(reason: String) {
@@ -133,13 +180,18 @@ extension AppDelegate {
         }
     }
 
-    func rememberRecoverableMainWindowRoute(windowId: UUID, tabManager: TabManager, window: NSWindow?) {
+    func rememberRecoverableMainWindowRoute(_ context: MainWindowContext) {
+        let windowId = context.windowId
+        let tabManager = context.tabManager
+        let window = context.window
         guard let window = liveRecoverableMainWindow(windowId: windowId, cachedWindow: window) else { return }
         guard tabManagerHasRegisteredTerminalSurface(tabManager) else { return }
         mainWindowRouteLedger.routesByWindowId[windowId] = RecoverableMainWindowRoute(
             windowId: windowId,
             tabManager: tabManager,
             window: window,
+            sidebarState: context.sidebarState,
+            sidebarSelectionState: context.sidebarSelectionState,
             order: mainWindowRouteLedger.issueOrder()
         )
 #if DEBUG
@@ -158,63 +210,42 @@ extension AppDelegate {
     }
 
     func listMainWindowSummaries() -> [MainWindowSummary] {
-        var seen: Set<UUID> = []
-        var summaries = liveRegisteredMainWindowRouteSnapshots().map { snapshot in
-            seen.insert(snapshot.windowId)
+        mainWindowRouteSnapshots().compactMap { snapshot in
+            guard let window = snapshot.window else { return nil }
             return MainWindowSummary(
                 windowId: snapshot.windowId,
-                isKeyWindow: snapshot.window?.isKeyWindow ?? false,
-                isVisible: snapshot.window?.isVisible ?? false,
+                isKeyWindow: window.isKeyWindow,
+                isVisible: window.isVisible,
                 workspaceCount: snapshot.tabManager.tabs.count,
                 selectedWorkspaceId: snapshot.tabManager.selectedTabId
             )
         }
-        for snapshot in recoverableMainWindowRouteSnapshots() where seen.insert(snapshot.windowId).inserted {
-            summaries.append(
-                MainWindowSummary(
-                    windowId: snapshot.windowId,
-                    isKeyWindow: snapshot.window?.isKeyWindow ?? false,
-                    isVisible: snapshot.window?.isVisible ?? false,
-                    workspaceCount: snapshot.tabManager.tabs.count,
-                    selectedWorkspaceId: snapshot.tabManager.selectedTabId
-                )
-            )
-        }
-        return summaries
     }
 
     func tabManagerFor(windowId: UUID) -> TabManager? {
-        if let snapshot = liveRegisteredMainWindowRouteSnapshots().first(where: { $0.windowId == windowId }) {
-            return snapshot.tabManager
+        if let manager = mainWindowRouteSnapshots()
+            .first(where: { $0.windowId == windowId })?
+            .tabManager {
+            return manager
         }
-        // A registered context remains the windowId→manager authority even
-        // when its NSWindow is gone (mid-teardown) or absent (windowless test
-        // contexts); otherwise window-scoped routing silently falls back to
-        // another window's manager.
-        if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
-            return context.tabManager
-        }
-        return recoverableMainWindowRouteSnapshot(windowId: windowId)?.tabManager
+        // Live-window consumers use mainWindowRouteSnapshots(). Keep the raw
+        // ledger fallback here so teardown bookkeeping can still resolve a
+        // lingering manager after its window orders out.
+        return mainWindowRouteLedger.routesByWindowId[windowId]?.tabManager
     }
 
     func windowId(for tabManager: TabManager) -> UUID? {
-        if let windowId = mainWindowContexts.values.first(where: { $0.tabManager === tabManager })?.windowId {
-            return windowId
-        }
-        return recoverableMainWindowRouteSnapshots().first(where: { $0.tabManager === tabManager })?.windowId
+        mainWindowRouteSnapshots().first(where: { $0.tabManager === tabManager })?.windowId
     }
 
     func mainWindowContainingWorkspace(_ workspaceId: UUID) -> NSWindow? {
-        for context in mainWindowContexts.values where context.tabManager.tabs.contains(where: { $0.id == workspaceId }) {
-            if let window = context.window ?? windowForMainWindowId(context.windowId) {
-                return window
-            }
-        }
-        for snapshot in recoverableMainWindowRouteSnapshots() {
+        for snapshot in mainWindowRouteSnapshots() {
             guard snapshot.tabManager.tabs.contains(where: { $0.id == workspaceId }) else {
                 continue
             }
-            return snapshot.window
+            if let window = snapshot.window {
+                return window
+            }
         }
         return nil
     }
@@ -286,21 +317,13 @@ extension AppDelegate {
             results.append(state)
         }
 
-        let remaining = liveRegisteredMainWindowRouteSnapshots()
+        let remaining = mainWindowRouteSnapshots()
             .sorted { $0.windowId.uuidString < $1.windowId.uuidString }
-            .filter { seen.insert($0.windowId).inserted }
+            .filter { snapshot in
+                snapshot.window != nil && seen.insert(snapshot.windowId).inserted
+            }
 
         for snapshot in remaining {
-            results.append(
-                ScriptableMainWindowState(
-                    windowId: snapshot.windowId,
-                    tabManager: snapshot.tabManager,
-                    window: snapshot.window
-                )
-            )
-        }
-
-        for snapshot in recoverableMainWindowRouteSnapshots() where seen.insert(snapshot.windowId).inserted {
             results.append(
                 ScriptableMainWindowState(
                     windowId: snapshot.windowId,
@@ -314,39 +337,25 @@ extension AppDelegate {
     }
 
     func scriptableMainWindow(windowId: UUID) -> ScriptableMainWindowState? {
-        if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
-           let window = context.window ?? windowForMainWindowId(context.windowId) {
-            return ScriptableMainWindowState(
-                windowId: context.windowId,
-                tabManager: context.tabManager,
-                window: window
-            )
-        }
-        guard let snapshot = recoverableMainWindowRouteSnapshot(windowId: windowId) else { return nil }
+        guard let snapshot = mainWindowRouteSnapshots().first(where: { $0.windowId == windowId }),
+              let window = snapshot.window else { return nil }
         return ScriptableMainWindowState(
             windowId: snapshot.windowId,
             tabManager: snapshot.tabManager,
-            window: snapshot.window
+            window: window
         )
     }
 
     func scriptableMainWindowForTab(_ tabId: UUID) -> ScriptableMainWindowState? {
-        if let context = contextContainingTabId(tabId) {
-            guard let window = context.window ?? windowForMainWindowId(context.windowId) else { return nil }
-            return ScriptableMainWindowState(
-                windowId: context.windowId,
-                tabManager: context.tabManager,
-                window: window
-            )
-        }
-        for snapshot in recoverableMainWindowRouteSnapshots() {
-            guard snapshot.tabManager.tabs.contains(where: { $0.id == tabId }) else {
+        for snapshot in mainWindowRouteSnapshots() {
+            guard let window = snapshot.window,
+                  snapshot.tabManager.tabs.contains(where: { $0.id == tabId }) else {
                 continue
             }
             return ScriptableMainWindowState(
                 windowId: snapshot.windowId,
                 tabManager: snapshot.tabManager,
-                window: snapshot.window
+                window: window
             )
         }
         return nil
@@ -364,7 +373,8 @@ extension AppDelegate {
     /// One-pass `tabId -> workspace title` index across every window context.
     /// Callers can limit the projection to the workspace ids they render, keeping
     /// notification lists O(tabs + groups) rather than O(notifications × tabs).
-    /// Window contexts win, then the active `tabManager` fills any missing ids.
+    /// Registered/recoverable window routes win, then the active `tabManager`
+    /// fills any missing ids.
     /// See https://github.com/manaflow-ai/cmux/issues/5794.
     func tabTitlesByTabId(for requestedTabIds: Set<UUID>? = nil) -> [UUID: String] {
         var titles: [UUID: String] = [:]
@@ -375,8 +385,8 @@ extension AppDelegate {
             titles.merge(manager.resolvedWorkspaceDisplayTitles(for: unresolvedIds)) { current, _ in current }
         }
 
-        for context in mainWindowContexts.values {
-            appendTitles(from: context.tabManager)
+        for snapshot in mainWindowRouteSnapshots() {
+            appendTitles(from: snapshot.tabManager)
             if let requestedTabIds, titles.count == requestedTabIds.count { return titles }
         }
         if let remainingTitleSource = tabManager {
@@ -387,11 +397,8 @@ extension AppDelegate {
 
     /// Returns the `TabManager` that owns `tabId`, if any.
     func tabManagerFor(tabId: UUID) -> TabManager? {
-        if let manager = contextContainingTabId(tabId)?.tabManager {
-            return manager
-        }
-        if let manager = recoverableMainWindowRoutes()
-            .compactMap(\.tabManager)
+        if let manager = mainWindowRouteSnapshots()
+            .map(\.tabManager)
             .first(where: { $0.workspacesById[tabId] != nil }) {
             return manager
         }
