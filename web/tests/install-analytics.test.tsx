@@ -13,10 +13,13 @@ import { GET as tuiPowerShellInstall } from "../app/tui/install.ps1/route";
 describe("website install analytics", () => {
   test("renders the clean coderouter curl-install landing page", () => {
     const html = renderToStaticMarkup(<CoderouterLandingPage />);
+    const expectedCommand = [
+      "curl -fsSL",
+      "https://cmux.com/coderouter/install.sh",
+      "| sh",
+    ].join(" ");
     expect(html).toContain("keep coding when one account runs out");
-    expect(html).toContain(
-      "curl -fsSL https://cmux.com/coderouter/install.sh | sh",
-    );
+    expect(html).toContain(expectedCommand);
     expect(html).toContain("checksum verified");
     expect(html).not.toContain("rounded-");
   });
