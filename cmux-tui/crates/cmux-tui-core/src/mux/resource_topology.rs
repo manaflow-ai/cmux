@@ -2288,7 +2288,7 @@ impl Mux {
             .changes
             .iter()
             .filter_map(|change| match change {
-                ResourceChange::TombstoneTab { tab_id } => Some(tab_id),
+                ResourceChange::TombstoneTab { tab_id, .. } => Some(tab_id),
                 _ => None,
             })
             .collect::<HashSet<_>>();

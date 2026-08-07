@@ -25,6 +25,7 @@ members = [
     "crates/cmux-pty",
     "crates/cmux-remote-protocol",
     "crates/cmux-remote",
+    "crates/cmux-terminal-client",
     "crates/cmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
