@@ -96,6 +96,64 @@ struct NestedTopologyReducerTests {
         }
     }
 
+    @Test(
+        "duplicate provider creates stay idempotent after local title locks",
+        arguments: [
+            NestedNodeKind.workspace,
+            .tab,
+            .pane,
+            .agent,
+        ]
+    )
+    func duplicateCreateAfterLocalTitleLock(kind: NestedNodeKind) throws {
+        let fixture = NestedTopologyTestFixture()
+        let reducer = NestedTopologyReducer()
+        let input: (
+            nodeID: NestedNodeID,
+            duplicate: NestedTopologyEvent,
+            conflict: NestedTopologyEvent
+        ) = switch kind {
+        case .workspace:
+            (
+                fixture.id("workspace-1", kind: .workspace),
+                fixture.event(.workspaceCreated(node: fixture.workspace())),
+                fixture.event(.workspaceCreated(node: fixture.workspace(order: 7)))
+            )
+        case .tab:
+            (
+                fixture.id("tab-1", kind: .tab),
+                fixture.event(.tabCreated(node: fixture.tab())),
+                fixture.event(.tabCreated(node: fixture.tab(order: 7)))
+            )
+        case .pane:
+            (
+                fixture.id("pane-1", kind: .pane),
+                fixture.event(.paneCreated(node: fixture.pane())),
+                fixture.event(.paneCreated(node: fixture.pane(order: 7)))
+            )
+        case .agent:
+            (
+                fixture.id("agent-1", kind: .agent),
+                fixture.event(.agentCreated(node: fixture.agent())),
+                fixture.event(.agentCreated(node: fixture.agent(order: 7)))
+            )
+        }
+        let lock: NestedTopologyTitleChange = switch kind {
+        case .workspace, .pane:
+            .host(nodeID: input.nodeID, value: "Host lock")
+        case .tab, .agent:
+            .user(nodeID: input.nodeID, value: "User lock")
+        }
+        let locked = try reducer.applying(lock, to: fixture.snapshot())
+
+        let duplicated = try reducer.applying(input.duplicate, to: locked)
+
+        #expect(duplicated == locked)
+        #expect(throws: NestedTopologyError.self) {
+            try reducer.applying(input.conflict, to: locked)
+        }
+    }
+
     @Test("updates for unknown nodes request resynchronization instead of creating ghosts")
     func rejectsUnknownUpdate() throws {
         let fixture = NestedTopologyTestFixture()
