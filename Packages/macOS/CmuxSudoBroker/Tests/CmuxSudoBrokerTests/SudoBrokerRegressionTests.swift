@@ -20,7 +20,8 @@ struct SudoBrokerRegressionTests {
                 pam: TestPAMChecker(enabled: false),
                 runner: launcher,
                 recovery: TestExecutionRecovery(),
-                watcher: nil
+                watcher: nil,
+                requesterInspector: TestSudoProcessInspector()
             ),
             messages: messages
         )
@@ -53,7 +54,8 @@ struct SudoBrokerRegressionTests {
                 pam: TestPAMChecker(enabled: true),
                 runner: launcher,
                 recovery: recovery,
-                watcher: nil
+                watcher: nil,
+                requesterInspector: TestSudoProcessInspector()
             ),
             messages: messages
         )
@@ -97,7 +99,8 @@ struct SudoBrokerRegressionTests {
                 pam: TestPAMChecker(enabled: true),
                 runner: TestRunnerLauncher(),
                 recovery: TestExecutionRecovery(),
-                watcher: nil
+                watcher: nil,
+                requesterInspector: TestSudoProcessInspector()
             ),
             messages: messages
         )
@@ -222,7 +225,8 @@ struct SudoBrokerRegressionTests {
                 pam: TestPAMChecker(enabled: true),
                 runner: TestRunnerLauncher(),
                 recovery: recovery,
-                watcher: nil
+                watcher: nil,
+                requesterInspector: TestSudoProcessInspector()
             ),
             messages: messages
         )
@@ -269,7 +273,8 @@ struct SudoBrokerRegressionTests {
                 pam: TestPAMChecker(enabled: true),
                 runner: TestRunnerLauncher(),
                 recovery: recovery,
-                watcher: nil
+                watcher: nil,
+                requesterInspector: TestSudoProcessInspector()
             ),
             messages: messages
         )
@@ -314,7 +319,8 @@ struct SudoBrokerRegressionTests {
                 pam: TestPAMChecker(enabled: true),
                 runner: TestRunnerLauncher(),
                 recovery: recovery,
-                watcher: nil
+                watcher: nil,
+                requesterInspector: TestSudoProcessInspector()
             ),
             messages: messages
         )
@@ -372,7 +378,8 @@ struct SudoBrokerRegressionTests {
                 pam: TestPAMChecker(enabled: true),
                 runner: TestRunnerLauncher(),
                 recovery: recovery,
-                watcher: nil
+                watcher: nil,
+                requesterInspector: TestSudoProcessInspector()
             ),
             messages: messages
         )

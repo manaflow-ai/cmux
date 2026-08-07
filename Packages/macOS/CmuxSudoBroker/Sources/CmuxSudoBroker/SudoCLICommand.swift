@@ -161,7 +161,7 @@ public struct SudoCLICommand {
             if let result = store.result(id: request.id) {
                 return resultCode(.result(result), requestID: request.id)
             }
-            _ = try? store.settlePendingTimeout(
+            let disposition = try? store.settlePendingTimeout(
                 SudoResult(
                     id: request.id,
                     status: .failed,
@@ -169,6 +169,9 @@ public struct SudoCLICommand {
                     note: messages.resultWaitFailed
                 )
             )
+            if disposition == .approvedExecution {
+                return resultCode(.timedOut(.approvedExecution), requestID: request.id)
+            }
             throw SudoCLICommandError(message: messages.resultWaitFailed)
         }
         return resultCode(outcome, requestID: request.id)

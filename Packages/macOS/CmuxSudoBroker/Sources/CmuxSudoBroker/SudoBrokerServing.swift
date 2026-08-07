@@ -7,7 +7,7 @@ public protocol SudoBrokerServing: Sendable {
 
     /// Creates and reconciles the private spool, then begins watching it.
     ///
-    /// - Returns: Request snapshots discovered during startup.
+    /// - Returns: Every active request snapshot after startup reconciliation.
     /// - Throws: A spool or observation error that prevents safe startup.
     func start() async throws -> [SudoPendingRequest]
 
