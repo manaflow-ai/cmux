@@ -93,6 +93,7 @@ ln -s /bin/bash "$BASH32_BIN_DIR/bash"
 RUNNER_TEMP_DIR="$TMP_DIR/runner-temp"
 export RUNNER_TEMP="$RUNNER_TEMP_DIR"
 export GITHUB_ENV="$TMP_DIR/github-env"
+export GITHUB_REPOSITORY_ID=1234567
 export GITHUB_RUN_ID="910000$$"
 export GITHUB_RUN_ATTEMPT="2"
 export CMUX_APP_HOST_SHARD="4"

@@ -93,6 +93,7 @@ ln -s "$ROOT_DIR/tests/test_ci_app_host_processes.sh" "$FAKE_LSOF"
 export CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER=1
 export CMUX_APP_HOST_LSOF="$FAKE_LSOF"
 export CMUX_FAKE_LSOF_STATE="$TMP_DIR/lsof-state"
+export GITHUB_REPOSITORY_ID=1234567
 : > "$CMUX_FAKE_LSOF_STATE"
 
 # shellcheck source=scripts/ci/app-host-processes.sh
@@ -117,6 +118,10 @@ cmux_classify_app_host_scope_recovery_eligibility \
   111111111111 222222222222 2 100 300 200 100
 [ "$CMUX_APP_HOST_SCOPE_RECOVERY_ELIGIBLE" -eq 1 ] \
   || fail "exact app-host recovery grace boundary was not eligible"
+cmux_classify_app_host_scope_recovery_eligibility \
+  111111111111 222222222222 2 199 300 200 0
+[ "$CMUX_APP_HOST_SCOPE_RECOVERY_ELIGIBLE" -eq 1 ] \
+  || fail "authenticated prior owner was not immediately eligible"
 for eligibility_case in \
   "222222222222 222222222222 2 100 300 200 100" \
   "111111111111 222222222222 2 300 300 400 100" \
@@ -539,6 +544,7 @@ printf '%s|%s\n%s|%s\n%s|%s\n%s|%s\n' \
   "$current_pid" "$current_executable" \
   "$current_pid_two" "$current_executable" \
   > "$CMUX_FAKE_LSOF_STATE"
+touch -t 204001010000 "$old_confirmation_file"
 if cmux_recover_owned_app_host_attempt \
   "$current_receipt_dir" "$current_key" \
   "${current_executable%%/Build/Products/*}" \
@@ -555,8 +561,8 @@ do
     || fail "ownership preflight signaled a process before rejecting recovery"
 done
 
-# The foreign owner is responsible for its own processes. Once they are gone,
-# the current retry may terminate only its own authenticated app host.
+# The future-dated newest authority above is never eligible for a signal. Once
+# its processes are gone, the current retry may terminate only its own hosts.
 for foreign_pid in "$old_pid_one" "$old_pid_two"; do
   /bin/kill -TERM "$foreign_pid"
   wait "$foreign_pid" 2>/dev/null || true
@@ -580,10 +586,8 @@ do
     || fail "owned retry recovery removed another job or waiting scope"
 done
 
-# Once a prior-run owner is older than the grace period, the canonical
-# machine-lock holder must authenticate and terminate it instead of letting one
-# crash orphan wedge every future shard. Young foreign owners above remain a
-# zero-signal failure.
+# The canonical machine-lock holder must immediately recover an authenticated
+# prior owner. The process-free scope still observes the deletion grace period.
 spawn_process
 old_orphan_pid_one="$CMUX_TEST_SPAWNED_PID"
 spawn_process
@@ -592,7 +596,10 @@ write_receipt \
   "$old_receipt_dir" "$old_key" "$old_orphan_pid_one" "$old_executable"
 write_receipt \
   "$old_receipt_dir" "$old_key" "$old_orphan_pid_two" "$old_executable"
-touch -t 200001010000 "$old_confirmation_file"
+touch "$old_confirmation_file"
+cmux_app_host_scope_mtime "$old_confirmation_file"
+old_orphan_confirmation_mtime="$CMUX_APP_HOST_SCOPE_MTIME"
+old_orphan_recovery_now=$((old_orphan_confirmation_mtime + 1))
 old_derived_data="${old_executable%%/Build/Products/*}"
 rm -rf -- "$old_derived_data"
 printf '%s|%s (deleted)\n%s|%s (deleted)\n' \
@@ -602,7 +609,8 @@ printf '%s|%s (deleted)\n%s|%s (deleted)\n' \
 cmux_recover_owned_app_host_attempt \
   "$current_receipt_dir" "$current_key" \
   "${current_executable%%/Build/Products/*}" \
-  "$stale_runner_root" "$system_temp_root" 2000000000 86400 \
+  "$stale_runner_root" "$system_temp_root" \
+  "$old_orphan_recovery_now" 86400 \
   "$old_key" \
   || fail "authenticated old prior-run app hosts were not recovered"
 for old_orphan_pid in "$old_orphan_pid_one" "$old_orphan_pid_two"; do
@@ -611,9 +619,9 @@ for old_orphan_pid in "$old_orphan_pid_one" "$old_orphan_pid_two"; do
 done
 [ ! -e "$old_derived_data" ] \
   || fail "prior-run recovery recreated deleted DerivedData"
-for removed_path in "$old_home" "$old_receipt_dir" "$old_confirmation_file"; do
-  [ ! -e "$removed_path" ] \
-    || fail "recovered prior-run app-host scope was not reclaimed"
+for preserved_path in "$old_home" "$old_receipt_dir" "$old_confirmation_file"; do
+  [ -e "$preserved_path" ] \
+    || fail "live recovery bypassed process-free scope deletion grace"
 done
 for preserved_path in \
   "$current_home" "$current_receipt_dir" "$current_confirmation_file" \
@@ -621,6 +629,18 @@ for preserved_path in \
 do
   [ -e "$preserved_path" ] \
     || fail "prior-run recovery removed a current or waiting scope"
+done
+
+old_scope_reclaim_now=$((old_orphan_confirmation_mtime + 86400))
+cmux_recover_owned_app_host_attempt \
+  "$current_receipt_dir" "$current_key" \
+  "${current_executable%%/Build/Products/*}" \
+  "$stale_runner_root" "$system_temp_root" \
+  "$old_scope_reclaim_now" 86400 "$old_key" \
+  || fail "recovered prior-run scope was not reclaimed at the grace boundary"
+for removed_path in "$old_home" "$old_receipt_dir" "$old_confirmation_file"; do
+  [ ! -e "$removed_path" ] \
+    || fail "process-free prior-run scope survived the grace boundary"
 done
 
 # A later process-free pass reclaims an authenticated old scope, but keeps the

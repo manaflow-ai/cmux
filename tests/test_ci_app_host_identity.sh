@@ -30,6 +30,7 @@ trap cleanup EXIT
 
 export RUNNER_TEMP="$TMP_DIR/runner-temp"
 export GITHUB_ENV="$TMP_DIR/github-env"
+export GITHUB_REPOSITORY_ID="1234567"
 export GITHUB_RUN_ID="900000$$"
 export GITHUB_RUN_ATTEMPT="7"
 export CMUX_APP_HOST_SHARD="3"
@@ -50,6 +51,19 @@ source "$ISOLATION_SCRIPT"
 cmux_resolve_app_host_identity
 cmux_validate_published_app_host_identity
 cmux_validate_app_host_cleanup_confirmation
+
+original_repository_id="$GITHUB_REPOSITORY_ID"
+original_repository_key="$CMUX_RESOLVED_APP_HOST_KEY"
+GITHUB_REPOSITORY_ID=7654321
+export GITHUB_REPOSITORY_ID
+cmux_resolve_app_host_identity
+[ "$CMUX_RESOLVED_APP_HOST_KEY" != "$original_repository_key" ] || {
+  echo "FAIL: app-host identity must distinguish repositories on one runner"
+  exit 1
+}
+GITHUB_REPOSITORY_ID="$original_repository_id"
+export GITHUB_REPOSITORY_ID
+cmux_resolve_app_host_identity
 
 printf 'preserve home\n' > "$CMUX_APP_HOST_HOME/reprepare-marker"
 printf 'preserve receipts\n' > "$CMUX_APP_HOST_RECEIPT_DIR/reprepare-marker"
