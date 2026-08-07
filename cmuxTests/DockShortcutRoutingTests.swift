@@ -1028,6 +1028,7 @@ private extension DockShortcutRoutingTests {
             KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
             TerminalController.shared.setActiveTabManager(previousManager)
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             window.orderOut(nil)
             window.close()

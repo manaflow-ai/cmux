@@ -12099,11 +12099,7 @@ class TerminalController {
             newTabId = workspace.id
         }
         guard let newTabId else {
-            let message = String(
-                localized: "applescript.error.failedToCreateWorkspace",
-                defaultValue: "Failed to create workspace."
-            )
-            return "ERROR: \(message)"
+            return "ERROR: Failed to create workspace"
         }
         return "OK \(newTabId.uuidString)"
     }

@@ -148,15 +148,13 @@ extension CmuxConfigExecutor {
         }
 
         let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)
-        guard let newWorkspace = tabManager.acquireOptionalWorkspaceIfActive({
-            tabManager.addWorkspaceIfActive(
-                title: workspaceName,
-                titleSource: .auto,
-                workingDirectory: resolvedCwd,
-                workspaceEnvironment: wsDef.env ?? [:],
-                applyCreationTitleAsCustomTitle: false
-            )
-        }) else {
+        guard let newWorkspace = tabManager.addWorkspaceIfActive(
+            title: workspaceName,
+            titleSource: .auto,
+            workingDirectory: resolvedCwd,
+            workspaceEnvironment: wsDef.env ?? [:],
+            applyCreationTitleAsCustomTitle: false
+        ) else {
             return false
         }
         tabManager.setCustomTitle(tabId: newWorkspace.id, title: workspaceName, source: .auto)

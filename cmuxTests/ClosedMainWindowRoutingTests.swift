@@ -89,6 +89,13 @@ private final class NonDestructiveCloseWindow: NSWindow {
     }
 }
 
+private final class VetoingWindowCloseDelegate: NSObject, NSWindowDelegate {
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        _ = sender
+        return false
+    }
+}
+
 @MainActor
 @Suite("Closed main window routing", .serialized)
 struct ClosedMainWindowRoutingTests {
@@ -2055,6 +2062,54 @@ struct FinalCloseRoutingRegressionTests {
         return window
     }
 
+    @Test("Vetoed exact-window close rolls back history suppression")
+    func vetoedExactWindowCloseRollsBackHistorySuppression() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            _ = NSApplication.shared
+            let previousAppDelegate = AppDelegate.shared
+            let app = AppDelegate()
+            AppDelegate.shared = app
+
+            let windowId = UUID()
+            let window = makeMainWindow(id: windowId)
+            let closeDelegate = VetoingWindowCloseDelegate()
+            let manager = TabManager()
+            let workspace = try #require(manager.selectedWorkspace)
+            app.registerMainWindow(
+                window,
+                windowId: windowId,
+                tabManager: manager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: FileExplorerState()
+            )
+            window.delegate = closeDelegate
+            window.makeKeyAndOrderFront(nil)
+            defer {
+                window.delegate = nil
+                _ = app.commitMainWindowClose(window)
+                if !manager.isFinalizedForWindowClose {
+                    manager.finalizeAllWorkspacesForWindowClose()
+                }
+                window.orderOut(nil)
+                TerminalController.shared.setActiveTabManager(nil)
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            app.closeMainWindowContainingTabId(
+                workspace.id,
+                recordHistory: false
+            )
+
+            #expect(!app.hasCommittedMainWindowClose(window))
+            #expect(app.tabManagerFor(windowId: windowId) === manager)
+            #expect(!manager.isFinalizedForWindowClose)
+#if DEBUG
+            #expect(!app.isClosedWindowHistorySuppressedForTesting(windowId: windowId))
+#endif
+        }
+    }
+
     @Test("Tab close commits a windowless registered owner without closing a same-ID duplicate")
     func tabCloseCommitsWindowlessRegisteredOwnerWithoutClosingDuplicate() throws {
         _ = NSApplication.shared
@@ -2618,57 +2673,59 @@ struct WorkspaceProcessWideObserverRetirementTests {
 
     @Test("Retirement rejects queued and future feature flag publications")
     func retirementRejectsQueuedAndFutureFeatureFlagPublications() async throws {
-        let manager = TabManager()
-        let workspace = try #require(manager.selectedWorkspace)
-        defer {
-            if !manager.isFinalizedForWindowClose {
-                manager.finalizeAllWorkspacesForWindowClose()
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let manager = TabManager()
+            let workspace = try #require(manager.selectedWorkspace)
+            defer {
+                if !manager.isFinalizedForWindowClose {
+                    manager.finalizeAllWorkspacesForWindowClose()
+                }
+                workspace.teardownAllPanels()
+                workspace.teardownRemoteConnection()
             }
-            workspace.teardownAllPanels()
-            workspace.teardownRemoteConnection()
-        }
 
-        workspace.applySurfaceTabBarButtons(
-            [.newTerminal],
-            sourcePath: nil,
-            globalConfigPath: "/tmp/cmux-test-global-config.json",
-            terminalCommandSourcePaths: [:],
-            workspaceCommands: [:]
-        )
-        #expect(!workspace.bonsplitController.configuration.appearance.splitButtons.isEmpty)
+            workspace.applySurfaceTabBarButtons(
+                [.newTerminal],
+                sourcePath: nil,
+                globalConfigPath: "/tmp/cmux-test-global-config.json",
+                terminalCommandSourcePaths: [:],
+                workspaceCommands: [:]
+            )
+            #expect(!workspace.bonsplitController.configuration.appearance.splitButtons.isEmpty)
 
-        var configuration = workspace.bonsplitController.configuration
-        configuration.appearance.splitButtons = []
-        workspace.bonsplitController.configuration = configuration
-        NotificationCenter.default.post(
-            name: .cmuxFeatureFlagsDidChange,
-            object: CmuxFeatureFlags.shared
-        )
-        await drainMainActorQueue()
-        #expect(!workspace.bonsplitController.configuration.appearance.splitButtons.isEmpty)
-
-        configuration = workspace.bonsplitController.configuration
-        configuration.appearance.splitButtons = []
-        workspace.bonsplitController.configuration = configuration
-
-        // Queue one final refresh, then retire before its MainActor task can
-        // mutate a workspace whose window has already closed.
-        NotificationCenter.default.post(
-            name: .cmuxFeatureFlagsDidChange,
-            object: CmuxFeatureFlags.shared
-        )
-        workspace.retireFromOwningTabManager()
-        await drainMainActorQueue()
-        #expect(workspace.bonsplitController.configuration.appearance.splitButtons.isEmpty)
-
-        for _ in 0..<3 {
+            var configuration = workspace.bonsplitController.configuration
+            configuration.appearance.splitButtons = []
+            workspace.bonsplitController.configuration = configuration
             NotificationCenter.default.post(
                 name: .cmuxFeatureFlagsDidChange,
                 object: CmuxFeatureFlags.shared
             )
+            await drainMainActorQueue()
+            #expect(!workspace.bonsplitController.configuration.appearance.splitButtons.isEmpty)
+
+            configuration = workspace.bonsplitController.configuration
+            configuration.appearance.splitButtons = []
+            workspace.bonsplitController.configuration = configuration
+
+            // Queue one final refresh, then retire before its MainActor task can
+            // mutate a workspace whose window has already closed.
+            NotificationCenter.default.post(
+                name: .cmuxFeatureFlagsDidChange,
+                object: CmuxFeatureFlags.shared
+            )
+            workspace.retireFromOwningTabManager()
+            await drainMainActorQueue()
+            #expect(workspace.bonsplitController.configuration.appearance.splitButtons.isEmpty)
+
+            for _ in 0..<3 {
+                NotificationCenter.default.post(
+                    name: .cmuxFeatureFlagsDidChange,
+                    object: CmuxFeatureFlags.shared
+                )
+            }
+            await drainMainActorQueue()
+            #expect(workspace.bonsplitController.configuration.appearance.splitButtons.isEmpty)
         }
-        await drainMainActorQueue()
-        #expect(workspace.bonsplitController.configuration.appearance.splitButtons.isEmpty)
     }
 
     private func drainMainActorQueue() async {

@@ -179,6 +179,7 @@ struct DockRuntimeParityTests {
             defer {
                 TerminalController.shared.setActiveTabManager(previousManager)
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowID)
                 manager.tabs.forEach { $0.teardownAllPanels() }
                 window.orderOut(nil)
                 window.close()

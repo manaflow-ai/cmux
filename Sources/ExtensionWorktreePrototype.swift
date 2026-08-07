@@ -1,5 +1,6 @@
 import CmuxFoundation
 import Foundation
+import OSLog
 
 struct CmuxExtensionWorktreeCreationResult: Sendable {
     let projectRootPath: String
@@ -57,174 +58,214 @@ extension CmuxExtensionWorktreeCreationResult {
     @Sendable
 #endif
     func rollbackUnclaimedWorktree() async throws {
-        try await Task.detached(priority: .utility) {
-            let worktreeURL = URL(fileURLWithPath: worktreePath, isDirectory: true).standardizedFileURL
-            let projectRootURL = URL(fileURLWithPath: projectRootPath, isDirectory: true).standardizedFileURL
-            let artifactURL = worktreeURL
-                .appendingPathComponent(generatedArtifactRelativePath, isDirectory: false)
-                .standardizedFileURL
-            let worktreePrefix = worktreeURL.path.hasSuffix("/") ? worktreeURL.path : worktreeURL.path + "/"
-            guard artifactURL.path.hasPrefix(worktreePrefix),
-                  !generatedArtifactRelativePath.hasPrefix("/") else {
-                throw rollbackRefused("Generated artifact path escaped the worktree.")
-            }
-
-            let topLevelData = try await CmuxExtensionWorktreePrototype.runCapturingOutput(
-                "git",
-                ["-C", worktreeURL.path, "rev-parse", "--show-toplevel"],
-                failureDescription: "Could not remove the unclaimed worktree."
-            )
-            let topLevel = String(decoding: topLevelData, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let reportedTopLevelURL = URL(fileURLWithPath: topLevel, isDirectory: true).standardizedFileURL
-            guard try refersToSameFileSystemItem(worktreeURL, reportedTopLevelURL) else {
-                throw rollbackRefused("Worktree path no longer identifies the created checkout.")
-            }
-
-            let branchRef = "refs/heads/\(branchName)"
-            let checkedOutBranchData = try await CmuxExtensionWorktreePrototype.runCapturingOutput(
-                "git",
-                ["-C", worktreeURL.path, "symbolic-ref", "--quiet", "HEAD"],
-                failureDescription: "Could not remove the unclaimed worktree."
-            )
-            let checkedOutBranch = String(decoding: checkedOutBranchData, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard checkedOutBranch == branchRef else {
-                throw rollbackRefused("Worktree branch changed after creation.")
-            }
-
-            let worktreeHeadData = try await CmuxExtensionWorktreePrototype.runCapturingOutput(
-                "git",
-                ["-C", worktreeURL.path, "rev-parse", "--verify", "HEAD"],
-                failureDescription: "Could not remove the unclaimed worktree."
-            )
-            let worktreeHead = String(decoding: worktreeHeadData, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let branchHeadData = try await CmuxExtensionWorktreePrototype.runCapturingOutput(
-                "git",
-                ["-C", projectRootURL.path, "rev-parse", "--verify", branchRef],
-                failureDescription: "Could not remove the unclaimed worktree."
-            )
-            let branchHead = String(decoding: branchHeadData, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard worktreeHead == createdHead, branchHead == createdHead else {
-                throw rollbackRefused("Worktree or branch HEAD changed after creation.")
-            }
-
-            let trackedStatus = try await CmuxExtensionWorktreePrototype.runCapturingOutput(
-                "git",
-                ["-C", worktreeURL.path, "status", "--porcelain=v1", "-z", "--untracked-files=no", "--ignored=no"],
-                failureDescription: "Could not remove the unclaimed worktree."
-            )
-            guard trackedStatus.isEmpty else {
-                throw rollbackRefused("Tracked or staged worktree content changed after creation.")
-            }
-
-            let untrackedData = try await CmuxExtensionWorktreePrototype.runCapturingOutput(
-                "git",
-                ["-C", worktreeURL.path, "ls-files", "--others", "--exclude-standard", "-z"],
-                failureDescription: "Could not remove the unclaimed worktree."
-            )
-            let ignoredData = try await CmuxExtensionWorktreePrototype.runCapturingOutput(
-                "git",
-                ["-C", worktreeURL.path, "ls-files", "--others", "--ignored", "--exclude-standard", "-z"],
-                failureDescription: "Could not remove the unclaimed worktree."
-            )
-            let untrackedPaths = String(decoding: untrackedData, as: UTF8.self)
-                .split(separator: "\0")
-                .map(String.init)
-            let ignoredPaths = String(decoding: ignoredData, as: UTF8.self)
-                .split(separator: "\0")
-                .map(String.init)
-            guard (untrackedPaths + ignoredPaths).sorted() == [generatedArtifactRelativePath] else {
-                throw rollbackRefused("Untracked or ignored worktree content changed after creation.")
-            }
-
-            try validateGeneratedArtifact(at: artifactURL)
-            let artifactDirectory = artifactURL.deletingLastPathComponent()
-            let artifactDirectoryEntries = try FileManager.default.contentsOfDirectory(atPath: artifactDirectory.path)
-            guard artifactDirectoryEntries == [artifactURL.lastPathComponent] else {
-                throw rollbackRefused("Generated artifact directory contains other content.")
-            }
-
-            let worktreeLockPathData = try await CmuxExtensionWorktreePrototype.runCapturingOutput(
-                "git",
-                ["-C", worktreeURL.path, "rev-parse", "--git-path", "locked"],
-                failureDescription: "Could not remove the unclaimed worktree."
-            )
-            let worktreeLockPath = String(decoding: worktreeLockPathData, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !worktreeLockPath.isEmpty else {
-                throw rollbackRefused("Could not resolve the worktree lock path.")
-            }
-            let worktreeLockURL = worktreeLockPath.hasPrefix("/")
-                ? URL(fileURLWithPath: worktreeLockPath).standardizedFileURL
-                : worktreeURL.appendingPathComponent(worktreeLockPath).standardizedFileURL
-            guard !FileManager.default.fileExists(atPath: worktreeLockURL.path) else {
-                throw rollbackRefused("Worktree is locked.")
-            }
-
-            let artifactBackupURL = worktreeURL
-                .deletingLastPathComponent()
-                .appendingPathComponent(".cmux-rollback-\(UUID().uuidString)", isDirectory: false)
-            try FileManager.default.moveItem(at: artifactURL, to: artifactBackupURL)
-            do {
-                // Revalidate the exact object moved out of the worktree before
-                // any await or destructive cleanup. The artifact may have been
-                // replaced while the lock-path subprocess was suspended.
-                try validateGeneratedArtifact(at: artifactBackupURL)
-            } catch {
-                do {
-                    // Preserve the moved contents even when they no longer match
-                    // the generated template: they may be user edits that raced
-                    // with rollback validation.
-                    try restoreMovedGeneratedArtifact(from: artifactBackupURL, to: artifactURL)
-                } catch let restoreError {
-                    throw rollbackRefused(
-                        "Generated artifact changed during rollback and could not be restored; backup retained at "
-                            + artifactBackupURL.path + ". " + restoreError.localizedDescription
-                    )
+        do {
+            try await Task.detached(priority: .utility) {
+                let worktreeURL = URL(fileURLWithPath: worktreePath, isDirectory: true).standardizedFileURL
+                let projectRootURL = URL(fileURLWithPath: projectRootPath, isDirectory: true).standardizedFileURL
+                let artifactURL = worktreeURL
+                    .appendingPathComponent(generatedArtifactRelativePath, isDirectory: false)
+                    .standardizedFileURL
+                let worktreePrefix = worktreeURL.path.hasSuffix("/") ? worktreeURL.path : worktreeURL.path + "/"
+                guard artifactURL.path.hasPrefix(worktreePrefix),
+                      !generatedArtifactRelativePath.hasPrefix("/") else {
+                    throw rollbackRefused("Generated artifact path escaped the worktree.")
                 }
-                throw rollbackRefused("Generated artifact changed during rollback; checkout was preserved.")
-            }
 
-            do {
-                try await CmuxExtensionWorktreePrototype.run(
-                    "rmdir",
-                    [artifactDirectory.path],
+                let topLevelData = try await CmuxExtensionWorktreePrototype.runCapturingOutput(
+                    "git",
+                    ["-C", worktreeURL.path, "rev-parse", "--show-toplevel"],
                     failureDescription: "Could not remove the unclaimed worktree."
                 )
-                try await CmuxExtensionWorktreePrototype.run(
+                let topLevel = try decodedRollbackGitOutput(
+                    topLevelData,
+                    operation: "resolve worktree root"
+                )
+                let reportedTopLevelURL = URL(fileURLWithPath: topLevel, isDirectory: true).standardizedFileURL
+                guard try refersToSameFileSystemItem(worktreeURL, reportedTopLevelURL) else {
+                    throw rollbackRefused("Worktree path no longer identifies the created checkout.")
+                }
+
+                let branchRef = "refs/heads/\(branchName)"
+                let checkedOutBranchData = try await CmuxExtensionWorktreePrototype.runCapturingOutput(
                     "git",
-                    ["-C", projectRootURL.path, "worktree", "remove", worktreeURL.path],
+                    ["-C", worktreeURL.path, "symbolic-ref", "--quiet", "HEAD"],
                     failureDescription: "Could not remove the unclaimed worktree."
                 )
-                try await CmuxExtensionWorktreePrototype.run(
-                    "git",
-                    ["-C", projectRootURL.path, "update-ref", "-d", branchRef, createdHead],
-                    failureDescription: "Could not delete the unclaimed worktree branch."
+                let checkedOutBranch = try decodedRollbackGitOutput(
+                    checkedOutBranchData,
+                    operation: "resolve checked-out branch"
                 )
-            } catch let cleanupError {
-                guard FileManager.default.fileExists(atPath: worktreeURL.path) else {
-                    throw rollbackRefused(
-                        "Cleanup failed after checkout removal; generated artifact retained at "
-                            + artifactBackupURL.path + ". " + cleanupError.localizedDescription
-                    )
+                guard checkedOutBranch == branchRef else {
+                    throw rollbackRefused("Worktree branch changed after creation.")
+                }
+
+                let worktreeHeadData = try await CmuxExtensionWorktreePrototype.runCapturingOutput(
+                    "git",
+                    ["-C", worktreeURL.path, "rev-parse", "--verify", "HEAD"],
+                    failureDescription: "Could not remove the unclaimed worktree."
+                )
+                let worktreeHead = try decodedRollbackGitOutput(
+                    worktreeHeadData,
+                    operation: "resolve worktree HEAD"
+                )
+                let branchHeadData = try await CmuxExtensionWorktreePrototype.runCapturingOutput(
+                    "git",
+                    ["-C", projectRootURL.path, "rev-parse", "--verify", branchRef],
+                    failureDescription: "Could not remove the unclaimed worktree."
+                )
+                let branchHead = try decodedRollbackGitOutput(
+                    branchHeadData,
+                    operation: "resolve branch HEAD"
+                )
+                guard worktreeHead == createdHead, branchHead == createdHead else {
+                    throw rollbackRefused("Worktree or branch HEAD changed after creation.")
+                }
+
+                let trackedStatus = try await CmuxExtensionWorktreePrototype.runCapturingOutput(
+                    "git",
+                    ["-C", worktreeURL.path, "status", "--porcelain=v1", "-z", "--untracked-files=no", "--ignored=no"],
+                    failureDescription: "Could not remove the unclaimed worktree."
+                )
+                guard trackedStatus.isEmpty else {
+                    throw rollbackRefused("Tracked or staged worktree content changed after creation.")
+                }
+
+                let untrackedData = try await CmuxExtensionWorktreePrototype.runCapturingOutput(
+                    "git",
+                    ["-C", worktreeURL.path, "ls-files", "--others", "--exclude-standard", "-z"],
+                    failureDescription: "Could not remove the unclaimed worktree."
+                )
+                let ignoredData = try await CmuxExtensionWorktreePrototype.runCapturingOutput(
+                    "git",
+                    ["-C", worktreeURL.path, "ls-files", "--others", "--ignored", "--exclude-standard", "-z"],
+                    failureDescription: "Could not remove the unclaimed worktree."
+                )
+                let untrackedPaths = try decodedRollbackGitPaths(
+                    untrackedData,
+                    operation: "list untracked paths"
+                )
+                let ignoredPaths = try decodedRollbackGitPaths(
+                    ignoredData,
+                    operation: "list ignored paths"
+                )
+                guard (untrackedPaths + ignoredPaths).sorted() == [generatedArtifactRelativePath] else {
+                    throw rollbackRefused("Untracked or ignored worktree content changed after creation.")
+                }
+
+                try validateGeneratedArtifact(at: artifactURL)
+                let artifactDirectory = artifactURL.deletingLastPathComponent()
+                let artifactDirectoryEntries = try FileManager.default.contentsOfDirectory(atPath: artifactDirectory.path)
+                guard artifactDirectoryEntries == [artifactURL.lastPathComponent] else {
+                    throw rollbackRefused("Generated artifact directory contains other content.")
+                }
+
+                let worktreeLockPathData = try await CmuxExtensionWorktreePrototype.runCapturingOutput(
+                    "git",
+                    ["-C", worktreeURL.path, "rev-parse", "--git-path", "locked"],
+                    failureDescription: "Could not remove the unclaimed worktree."
+                )
+                let worktreeLockPath = try decodedRollbackGitOutput(
+                    worktreeLockPathData,
+                    operation: "resolve worktree lock path"
+                )
+                guard !worktreeLockPath.isEmpty else {
+                    throw rollbackRefused("Could not resolve the worktree lock path.")
+                }
+                let worktreeLockURL = worktreeLockPath.hasPrefix("/")
+                    ? URL(fileURLWithPath: worktreeLockPath).standardizedFileURL
+                    : worktreeURL.appendingPathComponent(worktreeLockPath).standardizedFileURL
+                guard !FileManager.default.fileExists(atPath: worktreeLockURL.path) else {
+                    throw rollbackRefused("Worktree is locked.")
+                }
+
+                let artifactBackupURL = worktreeURL
+                    .deletingLastPathComponent()
+                    .appendingPathComponent(".cmux-rollback-\(UUID().uuidString)", isDirectory: false)
+                try FileManager.default.moveItem(at: artifactURL, to: artifactBackupURL)
+                do {
+                    // Revalidate the exact object moved out of the worktree before
+                    // any await or destructive cleanup. The artifact may have been
+                    // replaced while the lock-path subprocess was suspended.
+                    try validateGeneratedArtifact(at: artifactBackupURL)
+                } catch {
+                    do {
+                        // Preserve the moved contents even when they no longer match
+                        // the generated template: they may be user edits that raced
+                        // with rollback validation.
+                        try restoreMovedGeneratedArtifact(from: artifactBackupURL, to: artifactURL)
+                    } catch let restoreError {
+                        throw rollbackRefused(
+                            "Generated artifact changed during rollback and could not be restored; backup retained at "
+                                + artifactBackupURL.path + ". " + restoreError.localizedDescription
+                        )
+                    }
+                    throw rollbackRefused("Generated artifact changed during rollback; checkout was preserved.")
                 }
 
                 do {
-                    try restoreGeneratedArtifact(from: artifactBackupURL, to: artifactURL)
-                } catch let restoreError {
-                    throw rollbackRefused(
-                        "Cleanup failed and generated artifact could not be restored; backup retained at "
-                            + artifactBackupURL.path + ". " + restoreError.localizedDescription
+                    try await CmuxExtensionWorktreePrototype.run(
+                        "rmdir",
+                        [artifactDirectory.path],
+                        failureDescription: "Could not remove the unclaimed worktree."
                     )
-                }
-                throw cleanupError
-            }
+                    try await CmuxExtensionWorktreePrototype.run(
+                        "git",
+                        ["-C", projectRootURL.path, "worktree", "remove", worktreeURL.path],
+                        failureDescription: "Could not remove the unclaimed worktree."
+                    )
+                    try await CmuxExtensionWorktreePrototype.run(
+                        "git",
+                        ["-C", projectRootURL.path, "update-ref", "-d", branchRef, createdHead],
+                        failureDescription: "Could not delete the unclaimed worktree branch."
+                    )
+                } catch let cleanupError {
+                    guard FileManager.default.fileExists(atPath: worktreeURL.path) else {
+                        throw rollbackRefused(
+                            "Cleanup failed after checkout removal; generated artifact retained at "
+                                + artifactBackupURL.path + ". " + cleanupError.localizedDescription
+                        )
+                    }
 
-            try FileManager.default.removeItem(at: artifactBackupURL)
-        }.value
+                    do {
+                        try restoreGeneratedArtifact(from: artifactBackupURL, to: artifactURL)
+                    } catch let restoreError {
+                        throw rollbackRefused(
+                            "Cleanup failed and generated artifact could not be restored; backup retained at "
+                                + artifactBackupURL.path + ". " + restoreError.localizedDescription
+                        )
+                    }
+                    throw cleanupError
+                }
+
+                try FileManager.default.removeItem(at: artifactBackupURL)
+            }.value
+        } catch let error as NSError where error.domain == "CmuxExtensionWorktreePrototype" {
+            throw error
+        } catch {
+            throw rollbackRefused(
+                "Rollback failed: \(String(describing: error))"
+            )
+        }
+    }
+
+    private func decodedRollbackGitOutput(
+        _ data: Data,
+        operation: String
+    ) throws -> String {
+        guard let output = String(bytes: data, encoding: .utf8) else {
+            throw rollbackRefused("Git returned invalid UTF-8 while attempting to \(operation).")
+        }
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func decodedRollbackGitPaths(
+        _ data: Data,
+        operation: String
+    ) throws -> [String] {
+        guard let output = String(bytes: data, encoding: .utf8) else {
+            throw rollbackRefused("Git returned invalid UTF-8 while attempting to \(operation).")
+        }
+        return output.split(separator: "\0").map(String.init)
     }
 
     private func refersToSameFileSystemItem(_ lhs: URL, _ rhs: URL) throws -> Bool {
@@ -274,13 +315,11 @@ extension CmuxExtensionWorktreeCreationResult {
     }
 
     private func rollbackRefused(_ details: String) -> NSError {
+        CmuxExtensionWorktreePrototype.logPrivateFailure(details)
         NSError(
             domain: "CmuxExtensionWorktreePrototype",
             code: 3,
-            userInfo: [
-                NSLocalizedDescriptionKey: "Could not remove the unclaimed worktree.",
-                "CmuxExtensionWorktreePrototypeDetails": details,
-            ]
+            userInfo: [NSLocalizedDescriptionKey: "Could not remove the unclaimed worktree."]
         )
     }
 }
@@ -324,51 +363,76 @@ final class CmuxExtensionProcessTermination: @unchecked Sendable {
 }
 
 enum CmuxExtensionWorktreePrototype {
+    private static let logger = Logger(
+        subsystem: "com.cmuxterm.app",
+        category: "ExtensionWorktree"
+    )
+
+    fileprivate static func logPrivateFailure(_ details: String) {
+        logger.error("Extension worktree operation failed: \(details, privacy: .private)")
+    }
+
+    private static func logPrivateDiagnostic(_ details: String) {
+        logger.debug("Extension worktree command diagnostic: \(details, privacy: .private)")
+    }
+
     static func createWorktree(projectRootPath: String) async throws -> CmuxExtensionWorktreeCreationResult {
-        try await Task.detached(priority: .userInitiated) {
-            let projectRoot = URL(fileURLWithPath: projectRootPath, isDirectory: true).standardizedFileURL
-            try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
-            try await ensureGitRepository(at: projectRoot)
-            try await ensureCmuxWorktreeDirectoryIsLocallyIgnored(projectRoot: projectRoot)
+        do {
+            return try await Task.detached(priority: .userInitiated) {
+                let projectRoot = URL(fileURLWithPath: projectRootPath, isDirectory: true).standardizedFileURL
+                try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+                try await ensureGitRepository(at: projectRoot)
+                try await ensureCmuxWorktreeDirectoryIsLocallyIgnored(projectRoot: projectRoot)
 
-            let branchName = "cmux-sidebar-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(8).lowercased())"
-            let worktreeRoot = projectRoot
-                .appendingPathComponent(".cmux", isDirectory: true)
-                .appendingPathComponent("worktrees", isDirectory: true)
-            try FileManager.default.createDirectory(at: worktreeRoot, withIntermediateDirectories: true)
-            let worktree = worktreeRoot.appendingPathComponent(branchName, isDirectory: true)
-            try await run("git", ["-C", projectRoot.path, "worktree", "add", "-b", branchName, worktree.path, "HEAD"])
-            let createdHeadData = try await runCapturingOutput(
-                "git",
-                ["-C", worktree.path, "rev-parse", "--verify", "HEAD"]
-            )
-            let createdHead = String(decoding: createdHeadData, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !createdHead.isEmpty else {
-                throw NSError(
-                    domain: "CmuxExtensionWorktreePrototype",
-                    code: 4,
-                    userInfo: [NSLocalizedDescriptionKey: "Could not create worktree."]
+                let branchName = "cmux-sidebar-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(8).lowercased())"
+                let worktreeRoot = projectRoot
+                    .appendingPathComponent(".cmux", isDirectory: true)
+                    .appendingPathComponent("worktrees", isDirectory: true)
+                try FileManager.default.createDirectory(at: worktreeRoot, withIntermediateDirectories: true)
+                let worktree = worktreeRoot.appendingPathComponent(branchName, isDirectory: true)
+                try await run("git", ["-C", projectRoot.path, "worktree", "add", "-b", branchName, worktree.path, "HEAD"])
+                let createdHeadData = try await runCapturingOutput(
+                    "git",
+                    ["-C", worktree.path, "rev-parse", "--verify", "HEAD"]
                 )
-            }
-            let generatedArtifact = try writeSampleDevServerFiles(
-                in: worktree,
-                projectName: projectRoot.lastPathComponent
-            )
+                guard let createdHead = String(bytes: createdHeadData, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                      !createdHead.isEmpty else {
+                    logPrivateFailure("Git returned an empty or non-UTF-8 worktree HEAD.")
+                    throw NSError(
+                        domain: "CmuxExtensionWorktreePrototype",
+                        code: 4,
+                        userInfo: [NSLocalizedDescriptionKey: "Could not create worktree."]
+                    )
+                }
+                let generatedArtifact = try writeSampleDevServerFiles(
+                    in: worktree,
+                    projectName: projectRoot.lastPathComponent
+                )
 
-            let port = 4_100 + abs(branchName.hashValue % 800)
-            let samplePath = shellEscaped(worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true).path)
-            return CmuxExtensionWorktreeCreationResult(
-                projectRootPath: projectRoot.path,
-                worktreePath: worktree.path,
-                branchName: branchName,
-                workspaceTitle: branchName,
-                createdHead: createdHead,
-                generatedArtifactRelativePath: generatedArtifact.relativePath,
-                generatedArtifactContents: generatedArtifact.contents,
-                setupCommand: "cd \(samplePath) && python3 -m http.server \(port)"
+                let port = 4_100 + abs(branchName.hashValue % 800)
+                let samplePath = shellEscaped(worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true).path)
+                return CmuxExtensionWorktreeCreationResult(
+                    projectRootPath: projectRoot.path,
+                    worktreePath: worktree.path,
+                    branchName: branchName,
+                    workspaceTitle: branchName,
+                    createdHead: createdHead,
+                    generatedArtifactRelativePath: generatedArtifact.relativePath,
+                    generatedArtifactContents: generatedArtifact.contents,
+                    setupCommand: "cd \(samplePath) && python3 -m http.server \(port)"
+                )
+            }.value
+        } catch let error as NSError where error.domain == "CmuxExtensionWorktreePrototype" {
+            throw error
+        } catch {
+            logPrivateFailure("Worktree creation failed: \(String(describing: error))")
+            throw NSError(
+                domain: "CmuxExtensionWorktreePrototype",
+                code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "Could not create worktree."]
             )
-        }.value
+        }
     }
 
     private static func ensureGitRepository(at projectRoot: URL) async throws {
@@ -451,7 +515,7 @@ enum CmuxExtensionWorktreePrototype {
         )
     }
 
-    fileprivate static func runCapturingOutput(
+    static func runCapturingOutput(
         _ executable: String,
         _ arguments: [String],
         failureDescription: String = "Could not create worktree."
@@ -459,26 +523,55 @@ enum CmuxExtensionWorktreePrototype {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = [executable] + arguments
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
+        let standardOutputPipe = Pipe()
+        let standardErrorPipe = Pipe()
+        process.standardOutput = standardOutputPipe
+        process.standardError = standardErrorPipe
         let termination = CmuxExtensionProcessTermination()
         process.terminationHandler = { process in
             termination.complete(process.terminationStatus)
         }
-        try process.run()
-        let outputCollector = CmuxExtensionPipeOutputCollector(fileHandle: pipe.fileHandleForReading)
+        do {
+            try process.run()
+        } catch {
+            logPrivateFailure(
+                "Could not launch \(executable): \(String(describing: error))"
+            )
+            throw NSError(
+                domain: "CmuxExtensionWorktreePrototype",
+                code: 5,
+                userInfo: [NSLocalizedDescriptionKey: failureDescription]
+            )
+        }
+        let outputCollector = CmuxExtensionPipeOutputCollector(
+            fileHandle: standardOutputPipe.fileHandleForReading
+        )
+        let errorCollector = CmuxExtensionPipeOutputCollector(
+            fileHandle: standardErrorPipe.fileHandleForReading
+        )
         let terminationStatus = await termination.wait()
         let outputData = await outputCollector.finish()
+        let errorData = await errorCollector.finish()
         guard terminationStatus == 0 else {
-            let details = String(data: outputData, encoding: .utf8) ?? "command failed"
+            let outputDetails = String(data: outputData, encoding: .utf8)
+                ?? "<non-UTF-8 stdout>"
+            let errorDetails = String(data: errorData, encoding: .utf8)
+                ?? "<non-UTF-8 stderr>"
+            logPrivateFailure(
+                "\(executable) exited with status \(terminationStatus); "
+                    + "stdout=\(outputDetails); stderr=\(errorDetails)"
+            )
             throw NSError(
                 domain: "CmuxExtensionWorktreePrototype",
                 code: Int(terminationStatus),
-                userInfo: [
-                    NSLocalizedDescriptionKey: failureDescription,
-                    "CmuxExtensionWorktreePrototypeDetails": details
-                ]
+                userInfo: [NSLocalizedDescriptionKey: failureDescription]
+            )
+        }
+        if !errorData.isEmpty {
+            let errorDetails = String(data: errorData, encoding: .utf8)
+                ?? "<non-UTF-8 stderr>"
+            logPrivateDiagnostic(
+                "\(executable) succeeded with stderr=\(errorDetails)"
             )
         }
         return outputData

@@ -364,6 +364,24 @@ extension TerminalController {
                 createdWorkspaceID: createdWorkspaceID
             )
         case .err:
+            if operationAlreadyAccepted,
+               let operationID = preparation.operationID {
+                do {
+                    _ = try await preparation.idempotencyCache
+                        .releaseUnassociatedAcceptanceAsynchronously(
+                            operationID: operationID
+                        )
+                } catch {
+                    workspaceCreateIdempotencyLogger.error(
+                        "Failed mobile task reservation rollback: \(String(describing: error), privacy: .private)"
+                    )
+                    return .err(
+                        code: "persistence_failed",
+                        message: "Workspace task could not be reserved safely",
+                        data: nil
+                    )
+                }
+            }
             return createResult
         }
     }

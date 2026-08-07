@@ -174,8 +174,8 @@ struct DockSocketLifecycleTests {
         )
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
-            // Unregistering the window context also tears down that window's Dock.
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             AppDelegate.shared = previousAppDelegate
         }
@@ -209,8 +209,8 @@ struct DockSocketLifecycleTests {
             )
             defer {
                 TerminalController.shared.setActiveTabManager(previousManager)
-                // Unregistering the window context also tears down that window's Dock.
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
                 manager.tabs.forEach { $0.teardownAllPanels() }
                 AppDelegate.shared = previousAppDelegate
             }
@@ -369,6 +369,7 @@ struct DockSocketLifecycleTests {
                     let otherWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: otherManager)
                     defer {
                         appDelegate.unregisterMainWindowContextForTesting(windowId: otherWindowId)
+                        appDelegate.forgetRecoverableMainWindowRoute(windowId: otherWindowId)
                         otherManager.tabs.forEach { $0.teardownAllPanels() }
                     }
 
@@ -534,6 +535,7 @@ struct DockSocketLifecycleTests {
                     let secondWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: secondManager)
                     defer {
                         appDelegate.unregisterMainWindowContextForTesting(windowId: secondWindowId)
+                        appDelegate.forgetRecoverableMainWindowRoute(windowId: secondWindowId)
                         secondManager.tabs.forEach { $0.teardownAllPanels() }
                     }
                     let secondWindowDock = appDelegate.windowDock(forWindowId: secondWindowId)
@@ -812,8 +814,8 @@ struct DockSocketLifecycleTests {
         window.makeKeyAndOrderFront(nil)
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
-            // Unregistering the window context also tears down that window's Dock.
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             window.orderOut(nil)
             window.close()

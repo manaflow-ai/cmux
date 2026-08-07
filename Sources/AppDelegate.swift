@@ -4696,9 +4696,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let window {
             captureWindowConfigFrame(window, reason: "sessionSnapshot")
         }
-        let dockSnapshot = mainWindowContexts.values.first(where: { context in
-            context.windowId == windowId && context.tabManager === tabManager
-        })?.windowDockSessionSnapshot(
+        let dockSnapshot = existingWindowDock(forWindowId: windowId)?.sessionSnapshot(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
             surfaceResumeBindingIndex: surfaceResumeBindingIndex
@@ -4875,6 +4873,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #if DEBUG
         let priorManagerToken = debugManagerToken(self.tabManager)
         #endif
+        let registeredContext: MainWindowContext
         if let existing = mainWindowContexts[key] {
             tabManager.window = window
             tabManager.windowId = existing.windowId
@@ -4892,6 +4891,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 existing.cmuxConfigStore = cmuxConfigStore
             }
             existing.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
+            registeredContext = existing
         } else if let existing = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
             if let existingWindow = existing.window,
                existingWindow !== window,
@@ -4931,6 +4931,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             reindexMainWindowContextIfNeeded(existing, for: window)
             existing.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
+            registeredContext = existing
         } else {
             tabManager.window = window
             tabManager.windowId = windowId
@@ -4947,8 +4948,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             mainWindowContexts[key] = context
             context.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
+            registeredContext = context
         }
         if recoverableRoute?.tabManager === tabManager {
+            if let recoveredDock = recoverableRoute?.takeWindowDock() {
+                registeredContext.adoptRecoveredWindowDock(recoveredDock)
+            }
             forgetRecoverableMainWindowRoute(windowId: windowId)
         }
         commandPaletteWindowStore.registerWindow(windowId)
@@ -6227,6 +6232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             seenContexts.insert(ObjectIdentifier(context)).inserted
         }
         var repaired: [ObjectIdentifier: MainWindowContext] = [:]
+        var indexedContextIds = Set<ObjectIdentifier>()
 
         // Exact live window identities get their canonical keys first.
         for context in contexts {
@@ -6234,13 +6240,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let key = ObjectIdentifier(window)
             guard repaired[key] == nil else { continue }
             repaired[key] = context
+            indexedContextIds.insert(ObjectIdentifier(context))
         }
 
         // A windowless context still owns its manager and window ID. Keep it
         // indexed under its own live identity so an old NSWindow address can
         // never become authority if AppKit later reuses that address.
         for context in contexts
-        where !repaired.values.contains(where: { $0 === context }) {
+        where !indexedContextIds.contains(ObjectIdentifier(context)) {
             repaired[ObjectIdentifier(context)] = context
         }
 
@@ -6308,7 +6315,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         rememberRecoverableRoute: Bool
     ) -> MainWindowContext? {
         guard mainWindowContexts.values.contains(where: { $0 === context }) else { return nil }
-        context.teardownWindowDock()
+        let sidebarSnapshot = sessionSidebarSnapshot(for: context)
+        let recoverableWindowDock: DockSplitStore?
+        if rememberRecoverableRoute {
+            recoverableWindowDock = context.detachWindowDockForContextReplacement()
+        } else {
+            context.teardownWindowDock()
+            recoverableWindowDock = nil
+        }
         let removedKeys = mainWindowContexts.compactMap { key, value in
             value === context ? key : nil
         }
@@ -6320,7 +6334,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 windowId: context.windowId,
                 tabManager: context.tabManager,
                 window: context.window,
-                sidebarSnapshot: sessionSidebarSnapshot(for: context)
+                sidebarSnapshot: sidebarSnapshot,
+                windowDock: recoverableWindowDock
             )
         } else {
             forgetRecoverableMainWindowRoute(windowId: context.windowId)
@@ -17599,6 +17614,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     return
                 }
                 exactWindow.performClose(nil)
+                if !recordHistory,
+                   !hasCommittedMainWindowClose(exactWindow) {
+                    closedWindowHistorySuppressedWindowIds.remove(windowId)
+                }
                 return
             }
             let didCommit = commitWindowlessClose()

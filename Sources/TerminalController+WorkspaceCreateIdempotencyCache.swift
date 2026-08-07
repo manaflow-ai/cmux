@@ -136,107 +136,100 @@ extension TerminalController {
         /// main actor remains available for UI and later RPCs, and concurrent
         /// accepts are ordered from the last committed snapshot.
         func acceptAsynchronously(operationID: UUID) async throws -> Bool {
-            while let pendingMutation {
-                _ = try? await pendingMutation.task.value
-                if self.pendingMutation?.id == pendingMutation.id {
-                    self.pendingMutation = nil
-                }
-            }
+            await drainPendingMutation()
             guard !completedOperationIDs.contains(operationID),
                   !unassociatedReservationIDs.contains(operationID) else {
                 return false
             }
 
-            let task = Task { @MainActor [weak self] in
-                guard let self else { return false }
-                try await retryInitialLoadAsynchronouslyIfNeeded()
-                guard !completedOperationIDs.contains(operationID),
-                      !unassociatedReservationIDs.contains(operationID) else {
+            return try await runAsPendingMutation { cache in
+                try await cache.retryInitialLoadAsynchronouslyIfNeeded()
+                guard !cache.completedOperationIDs.contains(operationID),
+                      !cache.unassociatedReservationIDs.contains(operationID) else {
                     return false
                 }
                 while true {
-                    let expectedRevision = stateRevision
-                    let nextOrder = orderByAppending(operationID)
-                    let rollbackChain = rollbackChain(for: nextOrder)
-                    try await persistenceWriter.saveOperationIDs(nextOrder)
-                    guard stateRevision != expectedRevision else {
-                        commitNewAcceptance(
-                            operationID: operationID,
-                            nextOrder: nextOrder,
-                            rollbackChain: rollbackChain,
-                            tracksUnassociatedReservation: true
-                        )
-                        return true
-                    }
+                    let expectedRevision = cache.stateRevision
+                    let nextOrder = cache.orderByAppending(operationID)
+                    let rollbackChain = cache.rollbackChain(for: nextOrder)
+                    try await cache.persistenceWriter.saveOperationIDs(nextOrder)
                     // Session restore can add an in-memory tombstone while this
                     // actor is suspended on I/O. Rebuild from that newer state
                     // and save again so the completed write cannot erase it.
+                    guard cache.stateRevision == expectedRevision else { continue }
+                    cache.commitNewAcceptance(
+                        operationID: operationID,
+                        nextOrder: nextOrder,
+                        rollbackChain: rollbackChain,
+                        tracksUnassociatedReservation: true
+                    )
+                    return true
                 }
-            }
-            let pendingID = UUID()
-            pendingMutation = (pendingID, task)
-            do {
-                let accepted = try await task.value
-                if pendingMutation?.id == pendingID { pendingMutation = nil }
-                return accepted
-            } catch {
-                if pendingMutation?.id == pendingID { pendingMutation = nil }
-                throw error
             }
         }
 
         /// Removes a durable acceptance only while it remains unassociated
         /// with a live workspace, allowing a pre-start failure to be retried.
         func releaseUnassociatedAcceptanceAsynchronously(operationID: UUID) async throws -> Bool {
+            await drainPendingMutation()
+            guard unassociatedReservationIDs.contains(operationID),
+                  workspaceIDs[operationID] == nil else {
+                return false
+            }
+
+            return try await runAsPendingMutation { cache in
+                var persistedRemoval = false
+                while true {
+                    guard cache.unassociatedReservationIDs.contains(operationID),
+                          cache.workspaceIDs[operationID] == nil else {
+                        if persistedRemoval {
+                            try await cache.persistCurrentOrderUntilStable()
+                        }
+                        return false
+                    }
+
+                    let expectedRevision = cache.stateRevision
+                    let releasePlan = cache.releasePlan(
+                        operationID: operationID,
+                        rollbackChain: cache.rollbackChainsByOperationID[operationID] ?? []
+                    )
+                    try await cache.persistenceWriter.saveOperationIDs(releasePlan.nextOrder)
+                    persistedRemoval = true
+                    guard cache.stateRevision == expectedRevision,
+                          cache.unassociatedReservationIDs.contains(operationID),
+                          cache.workspaceIDs[operationID] == nil else {
+                        continue
+                    }
+                    cache.commitRelease(operationID: operationID, plan: releasePlan)
+                    return true
+                }
+            }
+        }
+
+        private func drainPendingMutation() async {
             while let pendingMutation {
                 _ = try? await pendingMutation.task.value
                 if self.pendingMutation?.id == pendingMutation.id {
                     self.pendingMutation = nil
                 }
             }
-            guard unassociatedReservationIDs.contains(operationID),
-                  workspaceIDs[operationID] == nil else {
-                return false
-            }
+        }
 
+        private func runAsPendingMutation(
+            _ mutation: @escaping @MainActor (WorkspaceCreateIdempotencyCache) async throws -> Bool
+        ) async throws -> Bool {
             let task = Task { @MainActor [weak self] in
                 guard let self else { return false }
-                var persistedRemoval = false
-                while true {
-                    guard unassociatedReservationIDs.contains(operationID),
-                          workspaceIDs[operationID] == nil else {
-                        if persistedRemoval {
-                            try await persistCurrentOrderUntilStable()
-                        }
-                        return false
-                    }
-
-                    let expectedRevision = stateRevision
-                    let releasePlan = releasePlan(
-                        operationID: operationID,
-                        rollbackChain: rollbackChainsByOperationID[operationID] ?? []
-                    )
-                    try await persistenceWriter.saveOperationIDs(releasePlan.nextOrder)
-                    persistedRemoval = true
-                    guard stateRevision == expectedRevision,
-                          unassociatedReservationIDs.contains(operationID),
-                          workspaceIDs[operationID] == nil else {
-                        continue
-                    }
-                    commitRelease(operationID: operationID, plan: releasePlan)
-                    return true
-                }
+                return try await mutation(self)
             }
             let pendingID = UUID()
             pendingMutation = (pendingID, task)
-            do {
-                let released = try await task.value
-                if pendingMutation?.id == pendingID { pendingMutation = nil }
-                return released
-            } catch {
-                if pendingMutation?.id == pendingID { pendingMutation = nil }
-                throw error
+            defer {
+                if pendingMutation?.id == pendingID {
+                    pendingMutation = nil
+                }
             }
+            return try await task.value
         }
 
         /// Associates a live workspace after construction. This mapping is an
@@ -408,7 +401,8 @@ extension TerminalController {
                 let expectedRevision = stateRevision
                 let currentOrder = insertionOrder
                 try await persistenceWriter.saveOperationIDs(currentOrder)
-                guard stateRevision != expectedRevision else { return }
+                guard stateRevision == expectedRevision else { continue }
+                return
             }
         }
 

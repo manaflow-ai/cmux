@@ -91,8 +91,8 @@ struct WindowDockRoutingSocketTests {
         )
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
-            // Unregistering the window context also tears down that window's Dock.
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             AppDelegate.shared = previousAppDelegate
         }
@@ -177,9 +177,10 @@ struct WindowDockRoutingSocketTests {
             dockWindow.orderFront(nil)
             defer {
                 TerminalController.shared.setActiveTabManager(previousManager)
-                // Unregistering each window context also tears down its Dock.
                 appDelegate.unregisterMainWindowContextForTesting(windowId: activeWindowId)
                 appDelegate.unregisterMainWindowContextForTesting(windowId: dockWindowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: activeWindowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: dockWindowId)
                 activeManager.tabs.forEach { $0.teardownAllPanels() }
                 dockManager.tabs.forEach { $0.teardownAllPanels() }
                 activeWindow.orderOut(nil)

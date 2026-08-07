@@ -290,16 +290,14 @@ extension ContentView {
                     NSSound.beep()
                     return
                 }
-                guard let forkWorkspace = tabManager.acquireOptionalWorkspaceIfActive({
-                    tabManager.addWorkspaceIfActive(
-                        workingDirectory: launch.terminalWorkingDirectory,
-                        initialTerminalCommand: launch.initialTerminalCommand,
-                        initialTerminalInput: launch.initialTerminalInput,
-                        initialTerminalEnvironment: launch.initialTerminalEnvironment,
-                        inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
-                        autoWelcomeIfNeeded: false
-                    )
-                }) else {
+                guard let forkWorkspace = tabManager.addWorkspaceIfActive(
+                    workingDirectory: launch.terminalWorkingDirectory,
+                    initialTerminalCommand: launch.initialTerminalCommand,
+                    initialTerminalInput: launch.initialTerminalInput,
+                    initialTerminalEnvironment: launch.initialTerminalEnvironment,
+                    inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
+                    autoWelcomeIfNeeded: false
+                ) else {
                     didFork = false
                     break
                 }

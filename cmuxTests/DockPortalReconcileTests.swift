@@ -537,6 +537,7 @@ struct DockPortalReconcileTests {
             defer {
                 TerminalController.shared.setActiveTabManager(previousManager)
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
                 manager.tabs.forEach { $0.teardownAllPanels() }
                 AppDelegate.shared = previousAppDelegate
             }
@@ -576,6 +577,7 @@ struct DockPortalReconcileTests {
             defer {
                 TerminalController.shared.setActiveTabManager(previousManager)
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
                 manager.tabs.forEach { $0.teardownAllPanels() }
                 AppDelegate.shared = previousAppDelegate
             }
@@ -616,6 +618,7 @@ struct DockPortalReconcileTests {
             defer {
                 TerminalController.shared.setActiveTabManager(previousManager)
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
                 manager.tabs.forEach { $0.teardownAllPanels() }
                 AppDelegate.shared = previousAppDelegate
             }

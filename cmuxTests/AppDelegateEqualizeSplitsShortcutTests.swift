@@ -2108,6 +2108,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             appDelegate.unregisterMainWindowContextForTesting(
                 windowId: windowId
             )
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             ClosedItemHistoryStore.shared.removeAll()
             AppDelegate.shared = previousAppDelegate
         }
@@ -2815,6 +2816,12 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 windowId: activeWindowId
             )
             appDelegate.unregisterMainWindowContextForTesting(
+                windowId: closingWindowId
+            )
+            appDelegate.forgetRecoverableMainWindowRoute(
+                windowId: activeWindowId
+            )
+            appDelegate.forgetRecoverableMainWindowRoute(
                 windowId: closingWindowId
             )
             ClosedItemHistoryStore.shared.removeAll()

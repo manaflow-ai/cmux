@@ -217,6 +217,7 @@ struct PiFeedDockOwnershipTests {
             let workspace = manager.addWorkspace(select: true)
             defer {
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowID)
                 manager.tabs.forEach { $0.teardownAllPanels() }
                 appDelegate.tabManager = nil
                 AppDelegate.shared = previousAppDelegate

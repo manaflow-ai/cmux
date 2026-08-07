@@ -6,7 +6,11 @@ final class RecoverableMainWindowRoute {
     let windowId: UUID
     weak var tabManager: TabManager?
     weak var window: NSWindow?
+    /// Final live-context snapshot. While no replacement context exists, this
+    /// immutable value is the authoritative sidebar state for autosave and
+    /// close history; registration resumes authority from the new live state.
     let sidebarSnapshot: SessionSidebarSnapshot
+    private(set) var windowDock: DockSplitStore?
     let order: UInt64
 
     init(
@@ -14,13 +18,25 @@ final class RecoverableMainWindowRoute {
         tabManager: TabManager,
         window: NSWindow?,
         sidebarSnapshot: SessionSidebarSnapshot,
+        windowDock: DockSplitStore? = nil,
         order: UInt64
     ) {
         self.windowId = windowId
         self.tabManager = tabManager
         self.window = window
         self.sidebarSnapshot = sidebarSnapshot
+        self.windowDock = windowDock
         self.order = order
+    }
+
+    func takeWindowDock() -> DockSplitStore? {
+        defer { windowDock = nil }
+        return windowDock
+    }
+
+    func retireWindowDock() {
+        let dock = takeWindowDock()
+        dock?.retire()
     }
 }
 
@@ -75,15 +91,17 @@ extension AppDelegate {
     }
 
     private func pruneInactiveRecoverableMainWindowRoutes(reason: String) {
-        guard mainWindowRouteLedger.routesByWindowId.values.contains(where: { route in
-            guard let manager = route.tabManager else { return true }
-            return !tabManagerCanOwnRecoverableMainWindowRoute(manager)
-        }) else { return }
+        let inactiveWindowIds = mainWindowRouteLedger.routesByWindowId.compactMap { windowId, route in
+            guard let manager = route.tabManager else { return windowId }
+            return tabManagerCanOwnRecoverableMainWindowRoute(manager) ? nil : windowId
+        }
+        guard !inactiveWindowIds.isEmpty else { return }
 
         let before = mainWindowRouteLedger.routesByWindowId.count
-        mainWindowRouteLedger.routesByWindowId = mainWindowRouteLedger.routesByWindowId.filter { _, route in
-            guard let manager = route.tabManager else { return false }
-            return tabManagerCanOwnRecoverableMainWindowRoute(manager)
+        for windowId in inactiveWindowIds {
+            mainWindowRouteLedger.routesByWindowId
+                .removeValue(forKey: windowId)?
+                .retireWindowDock()
         }
         let after = mainWindowRouteLedger.routesByWindowId.count
 #if DEBUG
@@ -178,7 +196,8 @@ extension AppDelegate {
     }
 
     func forgetRecoverableMainWindowRoute(windowId: UUID) {
-        if mainWindowRouteLedger.routesByWindowId.removeValue(forKey: windowId) != nil {
+        if let route = mainWindowRouteLedger.routesByWindowId.removeValue(forKey: windowId) {
+            route.retireWindowDock()
 #if DEBUG
             cmuxDebugLog("recoverableRoute.forget windowId=\(String(windowId.uuidString.prefix(8)))")
 #endif
@@ -189,17 +208,29 @@ extension AppDelegate {
         windowId: UUID,
         tabManager: TabManager,
         window: NSWindow?,
-        sidebarSnapshot: SessionSidebarSnapshot
+        sidebarSnapshot: SessionSidebarSnapshot,
+        windowDock: DockSplitStore? = nil
     ) {
         pruneInactiveRecoverableMainWindowRoutes(reason: "insertion")
-        guard tabManagerCanOwnRecoverableMainWindowRoute(tabManager) else { return }
-        mainWindowRouteLedger.routesByWindowId[windowId] = RecoverableMainWindowRoute(
+        guard tabManagerCanOwnRecoverableMainWindowRoute(tabManager) else {
+            windowDock?.retire()
+            return
+        }
+        let route = RecoverableMainWindowRoute(
             windowId: windowId,
             tabManager: tabManager,
             window: window,
             sidebarSnapshot: sidebarSnapshot,
+            windowDock: windowDock,
             order: mainWindowRouteLedger.issueOrder()
         )
+        if let replacedRoute = mainWindowRouteLedger.routesByWindowId.updateValue(
+            route,
+            forKey: windowId
+        ), let replacedDock = replacedRoute.takeWindowDock(),
+           replacedDock !== windowDock {
+            replacedDock.retire()
+        }
 #if DEBUG
         cmuxDebugLog("recoverableRoute.remember windowId=\(String(windowId.uuidString.prefix(8)))")
 #endif
@@ -216,13 +247,23 @@ extension AppDelegate {
               tabManagerCanOwnRecoverableMainWindowRoute(manager) else {
             // Single-route lookups stay O(1). Full-ledger retirement belongs to
             // insertion and the coalesced lifecycle maintenance sweep.
-            mainWindowRouteLedger.routesByWindowId.removeValue(forKey: windowId)
+            mainWindowRouteLedger.routesByWindowId
+                .removeValue(forKey: windowId)?
+                .retireWindowDock()
 #if DEBUG
             cmuxDebugLog("recoverableRoute.prune reason=routeAccess removed=1 remaining=\(mainWindowRouteLedger.routesByWindowId.count)")
 #endif
             return nil
         }
         return route
+    }
+
+    func recoverableMainWindowDocks() -> [DockSplitStore] {
+        pruneInactiveRecoverableMainWindowRoutes(reason: "dockLookup")
+        return sortedRecoverableMainWindowRoutes().compactMap { route in
+            guard let dock = route.windowDock, !dock.isRetired else { return nil }
+            return dock
+        }
     }
 
     func recoverableMainWindowIdentity(forExactWindow window: NSWindow) -> (windowId: UUID, tabManager: TabManager)? {

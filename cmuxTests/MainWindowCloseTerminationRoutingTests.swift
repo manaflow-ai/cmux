@@ -141,6 +141,7 @@ struct MainWindowCloseTerminationRoutingTests {
             backing: .buffered,
             defer: false
         )
+        unknownWindow.isReleasedWhenClosed = false
         unknownWindow.identifier = ownerWindow.identifier
 
         defer {

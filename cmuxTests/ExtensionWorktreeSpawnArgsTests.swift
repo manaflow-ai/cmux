@@ -60,6 +60,35 @@ struct ExtensionWorktreeSpawnArgsTests {
         #expect(args.initialTerminalInput == nil)
     }
 
+    @Test("command capture keeps successful stderr out of stdout")
+    func commandCaptureSeparatesStandardError() async throws {
+        let output = try await CmuxExtensionWorktreePrototype.runCapturingOutput(
+            "sh",
+            ["-c", "printf 'expected'; printf 'warning' >&2"]
+        )
+
+        #expect(String(data: output, encoding: .utf8) == "expected")
+    }
+
+    @Test("command failures do not expose subprocess diagnostics")
+    func commandFailurePayloadIsSanitized() async {
+        let privateDiagnostic = "/private/worktree/secret"
+        do {
+            _ = try await CmuxExtensionWorktreePrototype.runCapturingOutput(
+                "sh",
+                ["-c", "printf '\(privateDiagnostic)' >&2; exit 7"],
+                failureDescription: "Could not create worktree."
+            )
+            Issue.record("Expected command failure")
+        } catch {
+            let error = error as NSError
+            #expect(error.domain == "CmuxExtensionWorktreePrototype")
+            #expect(error.localizedDescription == "Could not create worktree.")
+            #expect(!String(describing: error.userInfo).contains(privateDiagnostic))
+            #expect(error.userInfo["CmuxExtensionWorktreePrototypeDetails"] == nil)
+        }
+    }
+
     @Test("unclaimed worktree rollback removes checkout and branch")
     func unclaimedWorktreeRollbackRemovesCheckoutAndBranch() async throws {
         let fileManager = FileManager.default
@@ -331,6 +360,12 @@ struct ExtensionWorktreeSpawnArgsTests {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["git"] + arguments
+        var environment = ProcessInfo.processInfo.environment
+        environment["GIT_CONFIG_GLOBAL"] = "/dev/null"
+        environment["GIT_CONFIG_SYSTEM"] = "/dev/null"
+        environment["GIT_CONFIG_NOSYSTEM"] = "1"
+        environment["GIT_TERMINAL_PROMPT"] = "0"
+        process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice

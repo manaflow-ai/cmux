@@ -336,6 +336,7 @@ struct DockControlDefinitionDecodingTests {
         defer {
             TerminalController.shared.setActiveTabManager(nil)
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             AppDelegate.shared = previousAppDelegate
         }

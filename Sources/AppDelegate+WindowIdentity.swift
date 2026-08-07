@@ -7,14 +7,7 @@ extension AppDelegate {
         windowForMainWindowId(windowId)
     }
 
-    func windowForMainWindowId(_ windowId: UUID) -> NSWindow? {
-        if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
-            guard let window = context.window,
-                  !hasCommittedMainWindowClose(window) else {
-                return nil
-            }
-            return window
-        }
+    private func validatedRecoverableMainWindow(windowId: UUID) -> NSWindow? {
         guard let route = recoverableMainWindowRoute(windowId: windowId),
               let window = route.window,
               NSApp.windows.contains(where: { $0 === window }),
@@ -25,20 +18,24 @@ extension AppDelegate {
         return window
     }
 
+    func windowForMainWindowId(_ windowId: UUID) -> NSWindow? {
+        if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+            guard let window = context.window,
+                  !hasCommittedMainWindowClose(window) else {
+                return nil
+            }
+            return window
+        }
+        return validatedRecoverableMainWindow(windowId: windowId)
+    }
+
     func mainWindowForClose(windowId: UUID) -> NSWindow? {
         if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
            let window = context.window,
            !hasCommittedMainWindowClose(window) {
             return window
         }
-        guard let route = recoverableMainWindowRoute(windowId: windowId),
-              let window = route.window,
-              NSApp.windows.contains(where: { $0 === window }),
-              mainWindowId(from: window) == windowId,
-              !hasCommittedMainWindowClose(window) else {
-            return nil
-        }
-        return window
+        return validatedRecoverableMainWindow(windowId: windowId)
     }
 
     func startupPrimaryWindowIdForInitialMainWindow() -> UUID? {
