@@ -17,6 +17,7 @@ final class IrohSettingsModel {
     private(set) var diagnosticExportText = ""
     private var diagnosticReloadGeneration: UInt64 = 0
     private var connectionCheckTask: Task<Void, Never>?
+    private var connectionCheckGeneration: UInt64 = 0
 
     init(controller: (any CmxIrohSettingsControlling)?) {
         self.controller = controller
@@ -85,15 +86,23 @@ final class IrohSettingsModel {
     }
 
     func runConnectionCheck() {
-        guard let controller, !isRunningConnectionCheck else { return }
+        // Reserve ownership before the task starts so rapid calls cannot
+        // create competing tasks whose cleanup clears each other's handle.
+        guard let controller, connectionCheckTask == nil,
+              !isRunningConnectionCheck else { return }
+        connectionCheckGeneration &+= 1
+        let generation = connectionCheckGeneration
         connectionCheckTask = Task { [weak self] in
             guard let self else { return }
             await runConnectionCheckAndWait(using: controller)
-            connectionCheckTask = nil
+            if connectionCheckGeneration == generation {
+                connectionCheckTask = nil
+            }
         }
     }
 
     func cancelConnectionCheck() {
+        connectionCheckGeneration &+= 1
         connectionCheckTask?.cancel()
         connectionCheckTask = nil
     }
@@ -143,7 +152,7 @@ final class IrohSettingsModel {
     private func runConnectionCheckAndWait(
         using controller: any CmxIrohSettingsControlling
     ) async {
-        guard !isRunningConnectionCheck else { return }
+        guard !Task.isCancelled, !isRunningConnectionCheck else { return }
         isRunningConnectionCheck = true
         defer { isRunningConnectionCheck = false }
         let report = await controller.runIrohConnectionCheck()
@@ -162,9 +171,14 @@ final class IrohSettingsModel {
     ) async {
         snapshot = next
         await reloadDiagnostics(using: controller)
+        // Auto-diagnose only a diagnosed degraded entry: a connection failure
+        // in diagnostics, or a relay-configuration failure on the snapshot
+        // (relay-policy-only degradation carries no lastFailureKind).
         guard !Task.isCancelled,
               previousStatus != .degraded,
-              next.runtimeStatus == .degraded else { return }
+              next.runtimeStatus == .degraded,
+              diagnosticReport.lastFailureKind != nil
+                  || next.failureDescription != nil else { return }
         await runConnectionCheckAndWait(using: controller)
     }
 }

@@ -22,6 +22,7 @@ final class MobileIrohSettingsModel {
     )
     private var diagnosticReloadGeneration: UInt64 = 0
     private var connectionCheckTask: Task<Void, Never>?
+    private var connectionCheckGeneration: UInt64 = 0
 
     /// The durable verbose log file, offered for sharing once it exists.
     var verboseLogShareURL: URL? {
@@ -102,15 +103,22 @@ final class MobileIrohSettingsModel {
     }
 
     func runConnectionCheck() {
-        guard !isRunningConnectionCheck else { return }
+        // Reserve ownership before the task starts so rapid calls cannot
+        // create competing tasks whose cleanup clears each other's handle.
+        guard connectionCheckTask == nil, !isRunningConnectionCheck else { return }
+        connectionCheckGeneration &+= 1
+        let generation = connectionCheckGeneration
         connectionCheckTask = Task { [weak self] in
             guard let self else { return }
             await runConnectionCheckAndWait()
-            connectionCheckTask = nil
+            if connectionCheckGeneration == generation {
+                connectionCheckTask = nil
+            }
         }
     }
 
     func cancelConnectionCheck() {
+        connectionCheckGeneration &+= 1
         connectionCheckTask?.cancel()
         connectionCheckTask = nil
     }
@@ -176,7 +184,7 @@ final class MobileIrohSettingsModel {
     }
 
     private func runConnectionCheckAndWait() async {
-        guard !isRunningConnectionCheck else { return }
+        guard !Task.isCancelled, !isRunningConnectionCheck else { return }
         isRunningConnectionCheck = true
         defer { isRunningConnectionCheck = false }
         let report = await controller.runIrohConnectionCheck()
@@ -194,9 +202,14 @@ final class MobileIrohSettingsModel {
     ) async {
         snapshot = next
         await reloadDiagnostics()
+        // Auto-diagnose only a diagnosed degraded entry: a connection failure
+        // in diagnostics, or a relay-configuration failure on the snapshot
+        // (relay-policy-only degradation carries no lastFailureKind).
         guard !Task.isCancelled,
               previousStatus != .degraded,
-              next.runtimeStatus == .degraded else { return }
+              next.runtimeStatus == .degraded,
+              diagnosticReport.lastFailureKind != nil
+                  || next.failureDescription != nil else { return }
         await runConnectionCheckAndWait()
     }
 }

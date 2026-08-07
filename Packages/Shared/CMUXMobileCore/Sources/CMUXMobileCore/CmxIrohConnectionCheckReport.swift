@@ -117,7 +117,7 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
             role: role,
             transportStatus: transportStatus,
             policyStatus: policyStatus,
-            relayStatus: relayStatus,
+            relayReachability: relayReachability,
             discoveryStatus: discoveryStatus,
             sessionStatus: sessionStatus,
             failureKind: diagnostics.lastFailureKind,
@@ -130,7 +130,7 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
         role: Role,
         transportStatus: StageStatus,
         policyStatus: StageStatus,
-        relayStatus: StageStatus,
+        relayReachability: RelayReachability,
         discoveryStatus: StageStatus,
         sessionStatus: StageStatus,
         failureKind: DiagnosticFailureKind?,
@@ -140,7 +140,10 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
         if policyStatus == .failed || hasRelayConfigurationProblem {
             return .reviewRelaySettings
         }
-        if relayStatus == .failed { return .allowRelayTraffic }
+        // Corporate-allowlist advice requires a relay that was actually probed
+        // and blocked. An unavailable probe is indeterminate (inactive runtime,
+        // unreadable path hints), so it must never send users to IT.
+        if relayReachability == .unreachable { return .allowRelayTraffic }
         if transportStatus == .failed { return .refreshAccount }
         if role == .mobileClient, discoveryStatus == .failed { return .openMacApp }
         if role == .mobileClient, sessionStatus == .failed {
@@ -152,6 +155,7 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
                 return .retry
             }
         }
+        if relayReachability == .unavailable { return .retry }
         return .none
     }
 }

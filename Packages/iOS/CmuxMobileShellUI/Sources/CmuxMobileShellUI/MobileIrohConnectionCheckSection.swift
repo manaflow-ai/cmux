@@ -114,10 +114,8 @@ struct MobileIrohConnectionCheckSection: View {
                 "\(L10n.string("mobile.iroh.check.report.action", defaultValue: "Suggested Action")): \(recommendation(report.recommendation))"
             )
         }
-        if !safeRelayOrigins.isEmpty {
-            lines.append("")
-            lines.append(relayAllowlistText)
-        }
+        // Relay origins stay out of this report: the diagnostics privacy copy
+        // promises reports exclude relay URLs. Share IT Allowlist carries them.
         return lines.joined(separator: "\n")
     }
 

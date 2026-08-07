@@ -145,10 +145,8 @@ struct IrohConnectionCheckCard: View {
                 "\(String(localized: "settings.networking.check.report.action", defaultValue: "Suggested Action")): \(recommendation(report.recommendation))"
             )
         }
-        if !safeRelayOrigins.isEmpty {
-            lines.append("")
-            lines.append(relayAllowlistText)
-        }
+        // Relay origins stay out of this report: the diagnostics privacy copy
+        // promises reports exclude relay URLs. The IT allowlist carries them.
         return lines.joined(separator: "\n")
     }
 

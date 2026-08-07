@@ -91,11 +91,26 @@ struct CmxIrohConnectionCheckReportTests {
         #expect(
             unavailable.stages.first { $0.kind == .relayReachability }?.status == .failed
         )
+        #expect(unavailable.recommendation == .retry)
         #expect(notConfigured.isReady)
         #expect(
             notConfigured.stages.first { $0.kind == .relayReachability }?.status
                 == .notApplicable
         )
+    }
+
+    @Test
+    func unavailableProbeNeverAdvisesCorporateAllowlisting() {
+        // An unavailable probe means the runtime was inactive or its path
+        // hints were unreadable, not that a relay was probed and blocked.
+        let inactiveRuntime = CmxIrohConnectionCheckReport(
+            role: .macHost,
+            snapshot: snapshot(runtimeStatus: .inactive),
+            diagnostics: .empty,
+            relayReachability: .unavailable
+        )
+
+        #expect(inactiveRuntime.recommendation == .refreshAccount)
     }
 
     @Test
