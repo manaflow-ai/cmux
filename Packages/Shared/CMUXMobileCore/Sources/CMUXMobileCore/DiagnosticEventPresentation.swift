@@ -353,6 +353,14 @@ public struct DiagnosticEventPresentation: Sendable {
             localized("diagnostics.event.transportCloseAttribution", defaultValue: "Transport close attributed")
         case .transportPathEvent:
             localized("diagnostics.event.transportPathEvent", defaultValue: "Transport path changed")
+        case .browserStreamLifecycle:
+            localized("diagnostics.event.browserStreamLifecycle", defaultValue: "Browser stream lifecycle")
+        case .browserInputReplayed:
+            localized("diagnostics.event.browserInputReplayed", defaultValue: "Browser input replayed")
+        case .browserEditableFocus:
+            localized("diagnostics.event.browserEditableFocus", defaultValue: "Browser editable focus")
+        case .browserPanelCreateResolved:
+            localized("diagnostics.event.browserPanelCreateResolved", defaultValue: "Browser panel create resolved")
         }
     }
 

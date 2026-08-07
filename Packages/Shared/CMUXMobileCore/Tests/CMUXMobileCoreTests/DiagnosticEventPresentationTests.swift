@@ -159,6 +159,10 @@ import Testing
             .reachabilityChanged: "Network reachability changed",
             .transportCloseAttribution: "Transport close attributed",
             .transportPathEvent: "Transport path changed",
+            .browserStreamLifecycle: "Browser stream lifecycle",
+            .browserInputReplayed: "Browser input replayed",
+            .browserEditableFocus: "Browser editable focus",
+            .browserPanelCreateResolved: "Browser panel create resolved",
         ]
 
         #expect(Set(expected.keys) == Set(DiagnosticEventCode.allCases))
