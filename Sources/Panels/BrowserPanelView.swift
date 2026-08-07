@@ -5334,7 +5334,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         var lastSynchronizedHostGeometryRevision: UInt64 = 0
     }
 
-    final class HostContainerView: NSView {
+    class HostContainerView: NSView {
         private final class HostedInspectorSideDockContainerView: NSView {
             override init(frame frameRect: NSRect) {
                 super.init(frame: frameRect)
@@ -7149,7 +7149,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
     }
 
-    private static func installPortalAnchorView(_ anchorView: NSView, in host: NSView) {
+    static func installPortalAnchorView(_ anchorView: NSView, in host: NSView) {
         // SwiftUI can keep transient replacement hosts alive off-window during split
         // reparenting. Never let those hosts steal the shared portal anchor, or the
         // portal will bind against an anchor with no real window and WKWebView will

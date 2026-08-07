@@ -13,6 +13,39 @@ import Testing
 
 @MainActor
 @Suite struct BrowserPanelViewIdentityTests {
+    @Test func portalAnchorInstallationDefersLayoutToAppKit() throws {
+        let host = LayoutCountingBrowserHostView(
+            frame: NSRect(x: 0, y: 0, width: 480, height: 320)
+        )
+        let window = NSWindow(
+            contentRect: host.frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        host.needsLayout = true
+        host.layoutSubtreeIfNeeded()
+        host.layoutPassCount = 0
+
+        let anchor = NSView(frame: .zero)
+        WebViewRepresentable.installPortalAnchorView(anchor, in: host)
+
+        #expect(anchor.superview === host)
+        #expect(
+            host.layoutPassCount == 0,
+            "Installing the browser portal anchor during updateNSView must not synchronously re-enter AppKit layout."
+        )
+        #expect(host.needsLayout)
+
+        host.layoutSubtreeIfNeeded()
+        #expect(host.layoutPassCount == 1)
+        #expect(anchor.frame == host.bounds)
+    }
+
     @Test func replacingBrowserPanelClearsUncommittedOmnibarDraft() throws {
         let workspaceID = UUID()
         let firstPanel = BrowserPanel(workspaceId: workspaceID)
@@ -78,6 +111,16 @@ import Testing
     private func render(_ window: NSWindow) {
         window.displayIfNeeded()
         window.contentView?.layoutSubtreeIfNeeded()
+    }
+}
+
+@MainActor
+private final class LayoutCountingBrowserHostView: WebViewRepresentable.HostContainerView {
+    var layoutPassCount = 0
+
+    override func layout() {
+        layoutPassCount += 1
+        super.layout()
     }
 }
 
