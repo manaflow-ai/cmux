@@ -4097,9 +4097,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !includeScrollback else { return nil }
 
         var hasher = Hasher()
-        let routes = mainWindowRouteSnapshots().sorted { lhs, rhs in
-            lhs.windowId.uuidString < rhs.windowId.uuidString
-        }
+        let routes = orderedSessionRouteSnapshots()
         hasher.combine(routes.count)
 
         for route in routes.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot) {
@@ -4594,14 +4592,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> (snapshot: AppSessionSnapshot?, removedCrashDiagnosticState: Bool) {
-        let routes = mainWindowRouteSnapshots().sorted { lhs, rhs in
-            let lhsIsKey = lhs.window?.isKeyWindow ?? false
-            let rhsIsKey = rhs.window?.isKeyWindow ?? false
-            if lhsIsKey != rhsIsKey {
-                return lhsIsKey && !rhsIsKey
-            }
-            return lhs.windowId.uuidString < rhs.windowId.uuidString
-        }
+        let routes = orderedSessionRouteSnapshots()
         guard !routes.isEmpty else { return (nil, false) }
         let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
         var windows: [SessionWindowSnapshot] = []
@@ -4656,7 +4647,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 window: context.window ?? windowForMainWindowId(context.windowId),
                 sidebarState: context.sidebarState,
                 sidebarSelectionState: context.sidebarSelectionState,
-                windowDock: context.existingWindowDock()
+                dockState: context.existingWindowDock().map { .live($0) }
             ),
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
@@ -4694,7 +4685,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(route.sidebarState.persistedWidth))
             ),
             configFrames: windowConfigFrames[route.windowId]?.entries,
-            dock: route.windowDock?.sessionSnapshot(
+            dock: route.dockState?.sessionSnapshot(
                 includeScrollback: includeScrollback,
                 restorableAgentIndex: restorableAgentIndex,
                 surfaceResumeBindingIndex: surfaceResumeBindingIndex
@@ -5912,9 +5903,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func focusMainWindow(windowId: UUID) -> Bool {
-        guard let window = mainWindowRouteSnapshots()
-            .first(where: { $0.windowId == windowId })?
-            .window else { return false }
+        guard let window = mainWindowRouteSnapshot(windowId: windowId)?.window else { return false }
         let didFocus = mainWindowVisibilityController.focus(window, reason: .focusMainWindow)
         if didFocus {
             publishCmuxWindowLifecycle(name: "window.focused", windowId: windowId, origin: "focus_request")
@@ -6155,6 +6144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func unregisterMainWindowContext(for window: NSWindow) -> MainWindowContext? {
         guard let removed = contextForMainTerminalWindow(window, reindex: false) else { return nil }
+        rememberRecoverableMainWindowRoute(removed, purpose: .teardownOnly)
         removed.teardownWindowDock()
         let removedKeys = mainWindowContexts.compactMap { key, value in
             value === removed ? key : nil
@@ -6162,7 +6152,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in removedKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
-        rememberRecoverableMainWindowRoute(removed)
         removeMobileWorkspaceListObserverIfUnused(for: removed.tabManager)
         notifyMainWindowContextsDidChange()
         return removed
@@ -6170,6 +6159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // Internal (not private): see notifyMainWindowContextsDidChange.
     func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
+        rememberRecoverableMainWindowRoute(context, purpose: .liveRecovery)
         context.teardownWindowDock()
         let contextKeys = mainWindowContexts.compactMap { key, value in
             value === context ? key : nil
@@ -6177,7 +6167,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in contextKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
-        rememberRecoverableMainWindowRoute(context)
         removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
         notifyMainWindowContextsDidChange()
 
@@ -9544,6 +9533,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func captureMainWindowVisibilityRestoreTargetsForApplicationHide() {
         mainWindowVisibilityController.captureHiddenWindowRestoreTargets(windows: mainWindowsForVisibilityController())
+    }
+
+    func mainWindowParticipatedBeforeApplicationHide(_ window: NSWindow) -> Bool {
+        mainWindowVisibilityController.appHiddenWindowRestoreTargets.contains { $0 === window }
+    }
+
+    func discardClosedRecoverableMainWindowVisibilityState(_ window: NSWindow) {
+        mainWindowVisibilityController.discardClosedWindow(window)
     }
 
     func dismissMainWindowFromWindowChrome(_ window: NSWindow) {

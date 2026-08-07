@@ -162,6 +162,112 @@ struct ClosedMainWindowRoutingTests {
         #expect(app.focusMainWindow(windowId: windowCId))
     }
 
+    @Test("Closing visible window is never reintroduced through recovery")
+    func closingVisibleWindowIsNeverReintroducedThroughRecovery() throws {
+        _ = NSApplication.shared
+        ClosedItemHistoryStore.shared.removeAll()
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        defer {
+            ClosedItemHistoryStore.shared.removeAll()
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let survivorWindowId = UUID()
+        let closingWindowId = UUID()
+        let survivorWindow = makeMainWindow(id: survivorWindowId)
+        let closingWindow = makeMainWindow(id: closingWindowId)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: survivorWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: closingWindowId)
+            survivorWindow.orderOut(nil)
+            closingWindow.orderOut(nil)
+        }
+
+        let survivorManager = TabManager()
+        let closingManager = TabManager()
+        app.registerMainWindow(
+            survivorWindow,
+            windowId: survivorWindowId,
+            tabManager: survivorManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            closingWindow,
+            windowId: closingWindowId,
+            tabManager: closingManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        survivorWindow.makeKeyAndOrderFront(nil)
+        closingWindow.makeKeyAndOrderFront(nil)
+
+        let closingWorkspace = try #require(closingManager.selectedWorkspace)
+        let closingTerminal = try #require(closingWorkspace.focusedTerminalPanel)
+        #expect(
+            GhosttyApp.terminalSurfaceRegistry.surface(id: closingTerminal.id)
+                === closingTerminal.surface
+        )
+
+        // willClose is delivered while AppKit may still report the window as
+        // visible. Exercise that exact ordering without waiting for orderOut.
+        NotificationCenter.default.post(
+            name: NSWindow.willCloseNotification,
+            object: closingWindow
+        )
+
+        #expect(closingWindow.isVisible)
+        #expect(!app.listMainWindowSummaries().contains { $0.windowId == closingWindowId })
+        #expect(app.tabManagerFor(windowId: closingWindowId) === closingManager)
+        let snapshot = try #require(app.sessionSnapshotForTesting())
+        #expect(snapshot.windows.contains { $0.windowId == survivorWindowId })
+        #expect(!snapshot.windows.contains { $0.windowId == closingWindowId })
+    }
+
+    @Test("Recovered app-hidden window uses its per-window restore state")
+    func recoveredAppHiddenWindowUsesPerWindowRestoreState() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager()
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        window.makeKeyAndOrderFront(nil)
+        let terminal = try #require(manager.selectedWorkspace?.focusedTerminalPanel)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminal.id) === terminal.surface)
+
+        app.unregisterMainWindowContextForTesting(windowId: windowId)
+        app.captureMainWindowVisibilityRestoreTargetsForApplicationHide()
+        window.orderOut(nil)
+
+        #expect(!window.isVisible)
+        #expect(app.listMainWindowSummaries().contains { $0.windowId == windowId })
+        #expect(app.sessionSnapshotForTesting()?.windows.contains { $0.windowId == windowId } == true)
+    }
+
     @Test("Recovered visible window stays in the session snapshot")
     func recoveredVisibleWindowStaysInSessionSnapshot() throws {
         _ = NSApplication.shared
@@ -193,12 +299,14 @@ struct ClosedMainWindowRoutingTests {
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: FileExplorerState()
         )
+        let recoveredSidebarState = SidebarState(isVisible: false, persistedWidth: 287)
+        let recoveredSidebarSelectionState = SidebarSelectionState(selection: .notifications)
         app.registerMainWindow(
             recoveredWindow,
             windowId: recoveredWindowId,
             tabManager: recoveredManager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
+            sidebarState: recoveredSidebarState,
+            sidebarSelectionState: recoveredSidebarSelectionState,
             fileExplorerState: FileExplorerState()
         )
         registeredWindow.makeKeyAndOrderFront(nil)
@@ -211,10 +319,13 @@ struct ClosedMainWindowRoutingTests {
             GhosttyApp.terminalSurfaceRegistry.surface(id: recoveredTerminal.id)
                 === recoveredTerminal.surface
         )
+        let recoveredDock = app.windowDock(forWindowId: recoveredWindowId)
+        let expectedDockSnapshot = recoveredDock.sessionSnapshot(includeScrollback: false)
 
         app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
 
         #expect(app.listMainWindowSummaries().contains { $0.windowId == recoveredWindowId })
+        #expect(app.existingWindowDock(forWindowId: recoveredWindowId) == nil)
         let snapshot = try #require(app.sessionSnapshotForTesting())
         #expect(
             Set(snapshot.windows.compactMap(\.windowId))
@@ -224,6 +335,24 @@ struct ClosedMainWindowRoutingTests {
             Set(snapshot.windows.flatMap(\.tabManager.workspaces).compactMap(\.workspaceId))
                 == Set([registeredWorkspace.id, recoveredWorkspace.id])
         )
+        let recoveredWindowSnapshot = try #require(
+            snapshot.windows.first { $0.windowId == recoveredWindowId }
+        )
+        #expect(recoveredWindowSnapshot.sidebar.isVisible == false)
+        #expect(recoveredWindowSnapshot.sidebar.width == 287)
+        // The notifications overlay is retired; the persistence codec migrates
+        // either live selection to the supported tabs selection.
+        #expect(recoveredWindowSnapshot.sidebar.selection == .tabs)
+        let recoveredDockSnapshot = try #require(recoveredWindowSnapshot.dock)
+        #expect(recoveredDockSnapshot.focusedPanelId == expectedDockSnapshot.focusedPanelId)
+        #expect(recoveredDockSnapshot.panels.map(\.id) == expectedDockSnapshot.panels.map(\.id))
+        switch recoveredDockSnapshot.layout {
+        case .pane(let pane):
+            #expect(pane.panelIds.isEmpty)
+            #expect(pane.selectedPanelId == nil)
+        case .split:
+            Issue.record("Expected an empty recovered Dock pane")
+        }
     }
 }
 
