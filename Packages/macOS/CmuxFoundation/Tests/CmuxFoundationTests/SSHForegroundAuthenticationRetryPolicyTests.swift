@@ -2557,6 +2557,67 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(pids.allSatisfy { Darwin.kill($0, 0) != 0 })
     }
 
+    @Test func killedPublisherCannotStrandUnpublishedAnchor() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-unpublished-anchor-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        let pendingIdentity = groupDirectory.appendingPathComponent("identity.new")
+        let groupRecord = root.appendingPathComponent("group-record")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        #expect(Darwin.mkfifo(pendingIdentity.path, 0o600) == 0)
+        defer {
+            if let groupID = processGroupID(in: groupRecord) {
+                Darwin.kill(-groupID, SIGKILL)
+            }
+            try? fileManager.removeItem(at: root)
+        }
+
+        let policy = SSHForegroundAuthenticationRetryPolicy()
+        let classifiedAuthentication = policy.classifyingTransientFailure(
+            in: "while :; do /bin/sleep 30; done"
+        )
+        let command = """
+        ( \(classifiedAuthentication) ) &
+        cmux_test_auth_root=$!
+        cmux_test_publish_attempt=0
+        while [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/publisher.new" ] && \\
+          [ "$cmux_test_publish_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_publish_attempt=$((cmux_test_publish_attempt + 1))
+        done
+        test -s "$CMUX_SSH_AUTH_GROUP_DIR/publisher.new" || exit 99
+        test ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 98
+        /bin/cp "$CMUX_SSH_AUTH_GROUP_DIR/publisher.new" \\
+          "$CMUX_TEST_GROUP_RECORD" || exit 97
+        cmux_test_publisher=$(/usr/bin/awk -F '|' '{ print $1 }' \\
+          "$CMUX_TEST_GROUP_RECORD")
+        cmux_test_group=$(/usr/bin/awk -F '|' '{ print $2 }' \\
+          "$CMUX_TEST_GROUP_RECORD")
+        test "$cmux_test_publisher" = "$cmux_test_group" || exit 96
+        /bin/kill -KILL "$cmux_test_publisher" 2>/dev/null || exit 95
+        cmux_test_group_attempt=0
+        while /bin/kill -0 -- "-$cmux_test_group" 2>/dev/null && \\
+          [ "$cmux_test_group_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_group_attempt=$((cmux_test_group_attempt + 1))
+        done
+        /bin/kill -KILL "$cmux_test_auth_root" 2>/dev/null || true
+        wait "$cmux_test_auth_root" 2>/dev/null || true
+        if /bin/kill -0 -- "-$cmux_test_group" 2>/dev/null; then exit 94; fi
+        """
+
+        let result = try runShellCommand(command, environment: [
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+            "CMUX_TEST_GROUP_RECORD": groupRecord.path,
+        ])
+        let groupID = try #require(processGroupID(in: groupRecord))
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+        #expect(Darwin.kill(-groupID, 0) != 0)
+    }
+
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func authenticationGroupCleanupRetainsUnresolvedCancellation(shellPath: String) throws {
         let fileManager = FileManager.default
