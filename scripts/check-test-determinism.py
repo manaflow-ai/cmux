@@ -241,6 +241,17 @@ _NETWORK_VERB = re.compile(
     """
 )
 
+# Command-execution APIs make a quoted shell command active. Without one of
+# these on the same line, a quoted `curl https://...` is only data (for example,
+# an expected installer command rendered into HTML), not a network operation.
+_COMMAND_EXECUTOR = re.compile(
+    r"""(?x)
+    \bsubprocess\.(?:run|call|check_call|check_output|Popen)\s*\(
+  | \bos\.(?:system|popen)\s*\(
+  | \b(?:exec|execSync|spawn|spawnSync|execa|execaCommand)\s*\(
+    """
+)
+
 # Private / loopback hostnames and IPs that are NOT live network.
 _PRIVATE_HOST = re.compile(
     r"""(?xi)
@@ -340,14 +351,58 @@ def detect_assert_on_duration(line: str) -> bool:
     return has_threshold_compare or has_relational_assert
 
 
+def _quoted_ranges(line: str) -> list[tuple[int, int]]:
+    """Return half-open ranges for simple single-line string literals."""
+    ranges: list[tuple[int, int]] = []
+    quote: Optional[str] = None
+    start = 0
+    escaped = False
+
+    for index, character in enumerate(line):
+        if quote is None:
+            if character in ("'", '"', "`"):
+                quote = character
+                start = index
+            continue
+
+        if escaped:
+            escaped = False
+        elif character == "\\":
+            escaped = True
+        elif character == quote:
+            ranges.append((start, index + 1))
+            quote = None
+
+    if quote is not None:
+        ranges.append((start, len(line)))
+    return ranges
+
+
+def _match_is_quoted(match: re.Match[str], ranges: list[tuple[int, int]]) -> bool:
+    return any(start <= match.start() < end for start, end in ranges)
+
+
 def detect_live_network_host(line: str) -> bool:
     # High-precision signal only: an actual http(s):// URL with a public host that
     # is ALSO handed to a network-driving verb on the same line (fetch/axios/
-    # requests/urlopen/...). A URL used as a string fixture (markdown builder,
-    # canonical-URL assertion, toContain) opens no socket and is not flagged.
+    # requests/urlopen/...). Network verbs inside a quoted string are data, not
+    # an operation, unless that string is handed to a command executor on the
+    # same line. This keeps rendered command/assertion fixtures inert while
+    # retaining coverage for subprocess.run("curl https://...") and friends.
     # Bare quoted IPs in data structures are likewise too ambiguous to flag.
     # Loopback/private/CGNAT/RFC2606 hosts are allowed.
-    if not _NETWORK_VERB.search(line):
+    verb_matches = list(_NETWORK_VERB.finditer(line))
+    if not verb_matches:
+        return False
+    quoted_ranges = _quoted_ranges(line)
+    has_unquoted_verb = any(
+        not _match_is_quoted(match, quoted_ranges) for match in verb_matches
+    )
+    has_unquoted_executor = any(
+        not _match_is_quoted(match, quoted_ranges)
+        for match in _COMMAND_EXECUTOR.finditer(line)
+    )
+    if not has_unquoted_verb and not has_unquoted_executor:
         return False
     for match in _URL.finditer(line):
         host = match.group(1)
@@ -627,6 +682,11 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/curl_exec.py",
+            'subprocess.run("curl -fsSL https://cmux.com/install.sh", shell=True)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/d.py",
             "sock.connect(('8.8.8.8', 53))\n",  # bare IP -> only the fixed port is high-confidence
             {RULE_FIXED_PORT_BIND},
@@ -753,6 +813,15 @@ def _self_test() -> int:
         (
             "web/tests/n18.ts",
             'const llms = buildLlmsText("https://cmux.com")\n',
+        ),
+        # A rendered shell command is inert expected text, even though the same
+        # string contains both a network verb and a public URL.
+        (
+            "web/tests/n18b.ts",
+            'expect(html).toContain("curl -fsSL https://cmux.com/install.sh | sh")\n'
+            'expect(html).toContain(\n'
+            '  "curl -fsSL https://cmux.com/coderouter/install.sh | sh",\n'
+            ')\n',
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
         # STRING literal, not a real delay: "sleep 5" must not flag sleep-then-assert.
