@@ -2929,6 +2929,78 @@ fn platform_appearance_theme_mode() -> Option<GhosttyThemeMode> {
 
 #[cfg(not(target_os = "macos"))]
 fn platform_appearance_theme_mode() -> Option<GhosttyThemeMode> {
+    non_macos_appearance_theme_mode()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn non_macos_appearance_theme_mode() -> Option<GhosttyThemeMode> {
+    if let Some(mode) = std::env::var_os("GTK_THEME")
+        .as_deref()
+        .and_then(|value| gtk_theme_name_theme_mode(&value.to_string_lossy()))
+    {
+        return Some(mode);
+    }
+    gtk_settings_paths().into_iter().find_map(|path| {
+        let text = read_ghostty_regular_file(&path, 64 * 1024)?;
+        gtk_settings_theme_mode(&text)
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+fn gtk_settings_paths() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(config_home) = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from) {
+        roots.push(config_home);
+    }
+    if let Some(home) = platform::home_dir() {
+        roots.push(home.join(".config"));
+    }
+
+    let mut paths = Vec::new();
+    for root in roots {
+        for version in ["gtk-4.0", "gtk-3.0"] {
+            let path = root.join(version).join("settings.ini");
+            if !paths.contains(&path) {
+                paths.push(path);
+            }
+        }
+    }
+    paths
+}
+
+#[cfg(any(test, not(target_os = "macos")))]
+fn gtk_settings_theme_mode(text: &str) -> Option<GhosttyThemeMode> {
+    let mut theme_name = None;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else { continue };
+        let key = key.trim();
+        let value = value.trim().trim_matches('"');
+        match key {
+            "gtk-application-prefer-dark-theme" => match value.to_ascii_lowercase().as_str() {
+                "1" | "true" | "yes" => return Some(GhosttyThemeMode::Dark),
+                "0" | "false" | "no" => return Some(GhosttyThemeMode::Light),
+                _ => {}
+            },
+            "gtk-theme-name" => theme_name = gtk_theme_name_theme_mode(value),
+            _ => {}
+        }
+    }
+    theme_name
+}
+
+#[cfg(any(test, not(target_os = "macos")))]
+fn gtk_theme_name_theme_mode(value: &str) -> Option<GhosttyThemeMode> {
+    let value = value.to_ascii_lowercase();
+    if value.split([':', '-', '_']).any(|part| part == "dark") {
+        return Some(GhosttyThemeMode::Dark);
+    }
+    if value.split([':', '-', '_']).any(|part| part == "light") {
+        return Some(GhosttyThemeMode::Light);
+    }
     None
 }
 
@@ -4396,6 +4468,24 @@ mod tests {
         restore_env_var("COLORFGBG", old_colorfgbg);
 
         assert_eq!(mode, GhosttyThemeMode::Light);
+    }
+
+    #[test]
+    fn ghostty_non_macos_gtk_sources_detect_system_theme_mode() {
+        assert_eq!(
+            gtk_settings_theme_mode("[Settings]\ngtk-application-prefer-dark-theme=1\n"),
+            Some(GhosttyThemeMode::Dark)
+        );
+        assert_eq!(
+            gtk_settings_theme_mode("[Settings]\ngtk-application-prefer-dark-theme=false\n"),
+            Some(GhosttyThemeMode::Light)
+        );
+        assert_eq!(
+            gtk_settings_theme_mode("[Settings]\ngtk-theme-name=Adwaita-dark\n"),
+            Some(GhosttyThemeMode::Dark)
+        );
+        assert_eq!(gtk_theme_name_theme_mode("Adwaita:dark"), Some(GhosttyThemeMode::Dark));
+        assert_eq!(gtk_theme_name_theme_mode("Yaru-light"), Some(GhosttyThemeMode::Light));
     }
 
     #[test]
