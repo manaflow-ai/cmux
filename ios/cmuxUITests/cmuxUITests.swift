@@ -1210,17 +1210,27 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
 
+        // Selecting a result pushes the detail inside the search tab (system
+        // back), leaving the search session and its query intact behind it.
         tap(docsRow, in: app)
         let workspaceDetail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
         XCTAssertTrue(workspaceDetail.waitForExistence(timeout: 3))
         XCTAssertTrue(minimizedSearch.waitForNonExistence(timeout: 3))
 
-        let backButton = app.buttons["MobileWorkspaceBackButton"]
-        XCTAssertTrue(waitForHittable(backButton, timeout: 3))
-        tap(backButton, in: app)
+        let systemBack = app.navigationBars.buttons.element(boundBy: 0)
+        XCTAssertTrue(waitForHittable(systemBack, timeout: 3))
+        tap(systemBack, in: app)
+        XCTAssertNotNil(waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3))
+        XCTAssertTrue(waitForKeyboardDismissal(in: app))
+        XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
+        XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
+
+        // Leaving search for the Workspaces tab commits the draft query; the
+        // committed filter must survive a list refresh there.
+        XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
+        tap(workspacesTab, in: app)
         XCTAssertNotNil(waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3))
         XCTAssertTrue(minimizedSearch.waitForExistence(timeout: 3))
-        XCTAssertTrue(waitForKeyboardDismissal(in: app))
         XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
 
