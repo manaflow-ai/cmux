@@ -174,7 +174,7 @@ jobs:
 
       - name: cargo test
         working-directory: cmux-tui
-        run: cargo test -p cmux-terminal-client native_render_payload_copy_survives_a_concurrent_resync -- --exact
+        run: cargo test -p cmux-terminal-client frontend::tests::native_render_payload_copy_survives_a_concurrent_resync -- --exact
 
       - name: crossterm parser tests
         if: ${{ false }}
