@@ -50,9 +50,12 @@ final class FeedCoordinator: @unchecked Sendable {
     /// cancel the source. Keyed by PID so the same agent spawning
     /// multiple prompts only installs one watcher.
     @MainActor private var pidWatchers: [Int: DispatchSourceProcess] = [:]
-    private let pidWatcherQueue = DispatchQueue(
+    let pidWatcherQueue = DispatchQueue(
         label: "cmux.feed.pidWatcher", qos: .utility
     )
+    @MainActor var transientAttentionProcessWatchers: [
+        AgentPIDProcessIdentity: DispatchSourceProcess
+    ] = [:]
 
     /// Every accepted Feed path crosses this lane before insertion and `received` publication.
     private let feedIngressDeliveryLane = FeedIngressDeliveryLane()
@@ -64,6 +67,11 @@ final class FeedCoordinator: @unchecked Sendable {
     /// Main-actor isolated: read/written only from the `@MainActor` attention
     /// methods.
     @MainActor private var pendingAttentionStates: [AttentionTarget: AttentionOverlayState] = [:]
+
+    /// Request identity for transient (non-Feed-card) blockers lives in a
+    /// focused companion type; the shared attention refcount above remains the
+    /// sole owner of visible lifecycle/status mutations.
+    @MainActor lazy var transientAttentionStore = FeedTransientAttentionStore()
 
     private init() {}
 

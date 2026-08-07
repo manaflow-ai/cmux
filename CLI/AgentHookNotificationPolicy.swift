@@ -1,6 +1,6 @@
 import Foundation
 
-enum AgentHookNotificationStatus: String, Codable {
+enum AgentHookNotificationStatus: String, Codable, Equatable {
     case idle
     case needsInput
     case error

@@ -58,7 +58,7 @@ struct ClaudeHookParsedInput {
     let transcriptPath: String?
 }
 
-enum AgentHookRuntimeStatus: String, Codable {
+enum AgentHookRuntimeStatus: String, Codable, Equatable {
     case running
     case idle
     case needsInput
@@ -127,7 +127,7 @@ private func agentHookDebugSocketName(_ socketPath: String?) -> String {
 }
 #endif
 
-struct ClaudeHookSessionRecord: Codable {
+struct ClaudeHookSessionRecord: Codable, Equatable {
     var sessionId: String
     var workspaceId: String
     var surfaceId: String
@@ -142,6 +142,17 @@ struct ClaudeHookSessionRecord: Codable {
     var lastPermissionMode: String?
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
+    /// Sorted, unique Claude `tool_use_id` values for blocking tools that have
+    /// entered Needs input but have not completed. An empty array is a durable
+    /// correlation tombstone; `nil` keeps compatibility with records written
+    /// before completion correlation existed.
+    var pendingBlockingToolUseIds: [String]? = nil
+    /// FIFO payload signatures for correlated blockers. Claude omits
+    /// `tool_use_id` from PermissionRequest, so this sequence maps that later
+    /// payload back to the exact PreToolUse request without session-wide
+    /// cleanup. `nil` remains compatible with records written before payload
+    /// correlation existed.
+    var pendingBlockingToolCorrelations: [ClaudeHookSessionStore.BlockingToolCorrelation]? = nil
     var lastSubtitle: String?
     var lastBody: String?
     var lastNotificationStatus: AgentHookNotificationStatus?
@@ -178,7 +189,7 @@ struct ClaudeHookSessionRecord: Codable {
     var hadPendingBackgroundWorkAtStop: Bool?
 }
 
-struct ClaudeHookActiveSessionRecord: Codable {
+struct ClaudeHookActiveSessionRecord: Codable, Equatable {
     var sessionId: String
     var turnId: String?
     var allowsNewSessionReplacement: Bool?
@@ -653,7 +664,8 @@ final class ClaudeHookSessionStore {
         markActive: Bool = false,
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false,
-        supersedesSameProcessSession: Bool = false
+        supersedesSameProcessSession: Bool = false,
+        clearPendingBlockingTools: Bool = false
     ) throws -> [ClaudeHookSessionRecord] {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return [] }
@@ -702,6 +714,13 @@ final class ClaudeHookSessionStore {
                 hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
                 now: now
             )
+            if clearPendingBlockingTools {
+                // Preserve an empty correlated tombstone so a late completion
+                // from the finished turn cannot select legacy session-wide
+                // cleanup and overwrite attention owned by the next turn.
+                record.pendingBlockingToolUseIds = []
+                record.pendingBlockingToolCorrelations = []
+            }
             let superseded: [ClaudeHookSessionRecord]
             if supersedesSameProcessSession {
                 superseded = supersededSessionCleanupCandidates(
@@ -1512,9 +1531,14 @@ final class ClaudeHookSessionStore {
         defer { _ = flock(fd, LOCK_UN) }
 
         var state = loadUnlocked()
+        // A COW value snapshot makes read-only transactions encode nothing;
+        // changed state is serialized once below.
+        let originalState = state
         pruneExpired(&state)
         let result = try body(&state)
-        try saveUnlocked(state)
+        if state != originalState {
+            try saveUnlocked(try encoder.encode(state))
+        }
         return result
     }
 
@@ -1546,7 +1570,7 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    private func saveUnlocked(_ state: ClaudeHookSessionStoreFile) throws {
+    private func saveUnlocked(_ data: Data) throws {
         let stateURL = URL(fileURLWithPath: statePath)
         let parentURL = stateURL.deletingLastPathComponent()
         try fileManager.createDirectory(
@@ -1555,7 +1579,6 @@ final class ClaudeHookSessionStore {
             attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
         )
         try? fileManager.setAttributes([.posixPermissions: NSNumber(value: Int16(0o700))], ofItemAtPath: parentURL.path)
-        let data = try encoder.encode(state)
         let tempURL = parentURL.appendingPathComponent(".\(stateURL.lastPathComponent).\(UUID().uuidString).tmp")
         guard fileManager.createFile(atPath: tempURL.path, contents: data, attributes: [
             .posixPermissions: NSNumber(value: Int16(0o600))
@@ -3755,7 +3778,7 @@ struct CMUXCLI {
                 return
             }
             if commandArgs.first?.lowercased() == "feed" {
-                try runFeedHook(
+                _ = try runFeedHook(
                     commandArgs: Array(commandArgs.dropFirst()),
                     socketPath: resolvedSocketPath,
                     socketPassword: socketPasswordArg,
@@ -3765,7 +3788,7 @@ struct CMUXCLI {
             }
         }
         if command == "feed-hook" {
-            try runFeedHook(
+            _ = try runFeedHook(
                 commandArgs: commandArgs,
                 socketPath: resolvedSocketPath,
                 socketPassword: socketPasswordArg,
@@ -5663,7 +5686,7 @@ struct CMUXCLI {
             guard let codexDef = Self.agentDef(named: "codex") else { print("{}"); return }
             try runGenericAgentHook(def: codexDef, commandArgs: commandArgs, client: client, telemetry: cliTelemetry, socketPassword: socketPasswordArg)
         case "feed-hook": // Backwards compatibility for older installed Feed hooks. Hidden from help.
-            try runFeedHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+            _ = try runFeedHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
         case "hooks":
             try runHooksSocketCommand(commandArgs: commandArgs, client: client, telemetry: cliTelemetry, socketPassword: socketPasswordArg)
 
@@ -24881,6 +24904,11 @@ struct CMUXCLI {
                     sessionRecord: mappedSession
                 )
                 if let sessionId = parsedInput.sessionId {
+                    endClaudeBlockingAttentionForTurnBoundary(
+                        client: client,
+                        sessionId: sessionId,
+                        record: mappedSession
+                    )
                     _ = try? sessionStore.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
@@ -24896,7 +24924,8 @@ struct CMUXCLI {
                         lastBody: completion?.body,
                         hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
                         markActive: true,
-                        allowsNewSessionReplacement: true
+                        allowsNewSessionReplacement: true,
+                        clearPendingBlockingTools: true
                     )
                     publishAgentSurfaceResumeBinding(
                         client: client,
@@ -25013,6 +25042,11 @@ struct CMUXCLI {
                 return
             }
             if let sessionId = parsedInput.sessionId {
+                endClaudeBlockingAttentionForTurnBoundary(
+                    client: client,
+                    sessionId: sessionId,
+                    record: mappedSession
+                )
                 // A forked session's first hook is this prompt-submit — its
                 // SessionStart fired under the parent session id — so capture the
                 // pane's pid and launch command here the way session-start does for
@@ -25038,7 +25072,8 @@ struct CMUXCLI {
                     isRestorable: true,
                     agentLifecycle: .running,
                     markActive: true,
-                    turnId: parsedInput.turnId
+                    turnId: parsedInput.turnId,
+                    clearPendingBlockingTools: true
                 )
                 publishAgentSurfaceResumeBinding(
                     client: client,
@@ -25340,6 +25375,11 @@ struct CMUXCLI {
             // consumedSession, so isCurrent can treat consumedSession.sessionId
             // as current only when the consumed session was the active one.
             if let consumedSession {
+                endClaudeBlockingAttentionForTurnBoundary(
+                    client: client,
+                    sessionId: consumedSession.sessionId,
+                    record: consumedSession
+                )
                 // App-visible cleanup targets the live owner of the session's
                 // pane when the resolver answered authoritatively; the
                 // consumed record's address is the fallback. Store-side calls
@@ -25419,10 +25459,53 @@ struct CMUXCLI {
             print(guardResponse)
             fflush(stdout)
 
+        case "permission-request":
+            telemetry.breadcrumb("claude-hook.permission-request")
+            didSendFeedTelemetry = true
+            guard let rawObject = parsedInput.rawObject else {
+                printClaudeHookAck()
+                return
+            }
+            let toolName = firstString(in: rawObject, keys: ["tool_name", "toolName"])
+            let isBlockingTool = toolName == "AskUserQuestion" || toolName == "ExitPlanMode"
+            let terminalResponse = try runFeedHook(
+                commandArgs: ["--source", "claude"],
+                client: client,
+                telemetry: telemetry,
+                stdinObject: rawObject
+            )
+            if terminalResponse != nil,
+               isBlockingTool,
+               let sessionId = parsedInput.sessionId {
+                do {
+                    _ = try sessionStore.resolveBlockingToolPermissionRequest(
+                        sessionId: sessionId,
+                        toolUseId: extractClaudeHookToolUseId(from: rawObject),
+                        rawObject: rawObject
+                    )
+                } catch {
+                    telemetry.breadcrumb(
+                        "claude-hook.permission-request.store-error",
+                        data: ["error": String(describing: error)]
+                    )
+                }
+            }
+
         case "pre-tool-use":
             telemetry.breadcrumb("claude-hook.pre-tool-use")
-            // Clears "Needs input" status and notification when Claude resumes work
-            // (e.g. after permission grant). Runs async so it doesn't block tool execution.
+            // Older wrappers installed this command for every tool call. Keep that
+            // compatibility path transition-driven: an ordinary tool observed while
+            // the session is already running has no durable work to do. Current
+            // wrappers invoke this command only for the two blocking tools below.
+            didSendFeedTelemetry = true
+            let toolName = parsedInput.object?["tool_name"] as? String
+            let isBlockingNeedsInputTool = toolName == "AskUserQuestion" || toolName == "ExitPlanMode"
+            let usesVerboseToolStatus = UserDefaults.standard.bool(forKey: "claudeCodeVerboseStatus")
+            if !isBlockingNeedsInputTool, !usesVerboseToolStatus {
+                telemetry.breadcrumb("claude-hook.pre-tool-use.ordinary-ignored")
+                printClaudeHookAck()
+                return
+            }
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             // Skip only the pid/tty scan per tool call; the cheap
             // `{surface_id}` re-home probe stays enabled so a mid-turn pane
@@ -25443,7 +25526,6 @@ struct CMUXCLI {
             let workspaceId = resolvedTarget.workspaceId
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
-            sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
@@ -25470,14 +25552,15 @@ struct CMUXCLI {
             // Claude renders an interactive menu / plan-approval prompt and waits for
             // the user. With --dangerously-skip-permissions (permission_mode
             // "bypassPermissions") Claude fires NEITHER PermissionRequest NOR
-            // Notification for them, so this async PreToolUse is the only needs-input
+            // Notification for them, so this targeted PreToolUse is the only needs-input
             // signal — flag Needs input here and return early instead of falling
             // through to the generic ".running" tail (which would leave a tab blocked
             // on a question / plan approval looking busy and silent).
             // https://github.com/manaflow-ai/cmux/issues/6606
-            if let toolName = parsedInput.object?["tool_name"] as? String,
-               toolName == "AskUserQuestion" || toolName == "ExitPlanMode",
+            if isBlockingNeedsInputTool,
+               let toolName,
                let sessionId = parsedInput.sessionId {
+                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
                 // Save the question / plan summary in the session so the Notification
                 // handler (when it does fire) reuses it instead of the generic
                 // "Claude Code needs your attention". The question / plan text is
@@ -25505,29 +25588,24 @@ struct CMUXCLI {
                 let existingSurfaceId = resolvedSurface.isAuthoritative
                     ? surfaceId
                     : (nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId)
-                _ = try? sessionStore.upsert(
+                let toolUseId = extractClaudeHookToolUseId(from: parsedInput.rawObject)
+                try? sessionStore.recordBlockingToolNeedsInput(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: existingSurfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .needsInput,
+                    toolUseId: toolUseId,
+                    rawObject: parsedInput.rawObject,
                     lastSubtitle: waitingSubtitle,
                     lastBody: needsInputBody
                 )
-                setAgentLifecycle(
-                    client: client,
-                    key: Self.claudeCodeStatusKey,
-                    lifecycle: .needsInput,
-                    workspaceId: workspaceId,
-                    surfaceId: existingSurfaceId
-                )
                 // In bypassPermissions (--dangerously-skip-permissions) mode no
-                // PermissionRequest or Notification hook follows, so this handler must
-                // publish the FULL needs-input state (status + bell) itself. In every
-                // other mode that following hook owns the status/bell and converges on
-                // the same needs-input state, so we only set the lifecycle here —
-                // doing both would double-ring the notification.
+                // PermissionRequest or Notification hook follows. Acquire one
+                // request-keyed transient attention owner in the app; it shares
+                // Feed's refcount, so resolving this tool cannot clear a parallel
+                // permission request or another blocking tool. In every other
+                // mode PermissionRequest owns the visible attention entirely.
                 //
                 // Read permission_mode from rawObject: the compacted `object`
                 // (compactClaudeHookObject) keeps only an allowlist of keys and does
@@ -25535,34 +25613,20 @@ struct CMUXCLI {
                 let permissionMode = (parsedInput.rawObject?["permission_mode"] as? String)
                     ?? (parsedInput.rawObject?["permissionMode"] as? String)
                 if permissionMode == "bypassPermissions" {
-                    // Reuse the same localized "Needs input" value the in-app feed
-                    // overlay sets (FeedCoordinator.needsInputStatusValue) so the two
-                    // needs-input paths stay locale-consistent.
-                    _ = try? setClaudeStatus(
-                        client: client,
-                        workspaceId: workspaceId,
-                        surfaceId: existingSurfaceId,
-                        value: String(localized: "feed.status.needsInput", defaultValue: "Needs input"),
-                        icon: "bell.fill",
-                        color: "#4C8DFF",
-                        pid: claudePid
-                    )
                     let title = String(
                         localized: "cli.claude-hook.notification.title",
                         defaultValue: "Claude Code"
                     )
-                    // A question/plan-approval prompt blocks the agent on the user's
-                    // decision, so it gates under "Agent Needs Permission" like the
-                    // interactive permission_prompt path.
-                    let payload = notificationPayload(
+                    beginClaudeBlockingAttention(
+                        client: client,
+                        sessionId: sessionId,
+                        toolUseId: toolUseId,
+                        workspaceId: workspaceId,
+                        surfaceId: existingSurfaceId,
+                        owner: mappedSession,
                         title: title,
                         subtitle: waitingSubtitle,
-                        body: needsInputBody,
-                        meta: AgentHookNotifyCategory.needsPermission.metaSegment(pending: false)
-                    )
-                    _ = try? sendV1Command(
-                        "notify_target_async \(workspaceId) \(existingSurfaceId) \(payload)",
-                        client: client
+                        body: needsInputBody
                     )
                 }
                 printClaudeHookAck()
@@ -25589,7 +25653,7 @@ struct CMUXCLI {
             )
 
             let statusValue: String
-            if UserDefaults.standard.bool(forKey: "claudeCodeVerboseStatus"),
+            if usesVerboseToolStatus,
                let toolStatus = describeToolUse(parsedInput.object) {
                 statusValue = toolStatus
             } else {
@@ -25606,11 +25670,21 @@ struct CMUXCLI {
             )
             printClaudeHookAck()
 
+        case "input-resolved":
+            try runClaudeInputResolvedHook(
+                client: client,
+                telemetry: telemetry,
+                parsedInput: parsedInput,
+                sessionStore: sessionStore,
+                routing: hookRouting,
+                markFeedTelemetryHandled: { didSendFeedTelemetry = true }
+            )
+
         case "help", "--help", "-h":
             telemetry.breadcrumb("claude-hook.help")
             print(
                 """
-                cmux claude-hook <session-start|stop|session-end|notification|push-notification|prompt-submit|pre-tool-use> [--workspace <id|index>] [--surface <id|index>]
+                cmux claude-hook <session-start|stop|session-end|notification|push-notification|prompt-submit|permission-request|pre-tool-use|input-resolved> [--workspace <id|index>] [--surface <id|index>]
                 """
             )
 
@@ -25654,7 +25728,7 @@ struct CMUXCLI {
         return false
     }
 
-    private func setClaudeStatus(
+    func setClaudeStatus(
         client: SocketClient,
         workspaceId: String,
         surfaceId: String? = nil,
@@ -25670,7 +25744,7 @@ struct CMUXCLI {
         _ = try client.send(command: cmd)
     }
 
-    private func setAgentLifecycle(
+    func setAgentLifecycle(
         client: SocketClient,
         key: String,
         lifecycle: AgentHibernationLifecycleState,
@@ -34722,16 +34796,21 @@ export default CMUXSessionRestore;
     /// Designed so agents and wrappers can point a native decision hook
     /// at it and have permission/plan/question events surface in the
     /// Feed sidebar. Agent-specific lifecycle/status hooks can be
-    /// chained separately. For Claude, `hooks claude pre-tool-use` is
-    /// async status-only telemetry; blocking decisions come through
-    /// PermissionRequest.
+    /// chained separately. Claude uses targeted, ordered PreToolUse hooks for
+    /// its blocking tools; blocking decisions come through PermissionRequest.
+    ///
+    /// - Returns: The app's terminal Feed result for an acknowledged or
+    ///   resolved request, or `nil` when no terminal response was received.
     private func runFeedHook(
         commandArgs: [String],
         client: SocketClient? = nil,
         socketPath: String? = nil,
         socketPassword: String? = nil,
-        telemetry: CLISocketSentryTelemetry
-    ) throws {
+        telemetry: CLISocketSentryTelemetry,
+        // nil reads stdin; a provided dictionary, including an empty one,
+        // skips the second read after a caller already consumed stdin.
+        stdinObject: [String: Any]? = nil
+    ) throws -> [String: Any]? {
         _ = telemetry
         let source = optionValue(commandArgs, name: "--source") ?? ""
         guard !source.isEmpty else {
@@ -34742,7 +34821,7 @@ export default CMUXSessionRestore;
         // Also matches the graceful-fallback pattern of the other hooks.
         guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]?.isEmpty == false else {
             print("{}")
-            return
+            return nil
         }
 
         let commandEvent = optionValue(commandArgs, name: "--event")
@@ -34751,26 +34830,32 @@ export default CMUXSessionRestore;
         // through stdin; unknown inputs fall through to `{}`. Codex lifecycle
         // payloads and Pi's compacted terminal batches are bounded before JSON
         // decoding without changing other agents' actionable hook reads.
-        let stdinData: Data
-        let feedHookStdinLimit: Int? = switch source {
-        case "codex": Self.feedHookMaxStdinBytes
-        case "pi": Self.piFeedHookMaxStdinBytes
-        default: nil
-        }
-        if let feedHookStdinLimit {
-            guard let boundedData = Self.readBoundedFeedHookStdin(maxBytes: feedHookStdinLimit) else {
-                print("{}")
-                return
-            }
-            stdinData = boundedData
+        let stdinObj: [String: Any]
+        if let stdinObject {
+            stdinObj = stdinObject
         } else {
-            stdinData = FileHandle.standardInput.readDataToEndOfFile()
-        }
-        guard !stdinData.isEmpty,
-              let stdinObj = try? JSONSerialization.jsonObject(with: stdinData) as? [String: Any]
-        else {
-            print("{}")
-            return
+            let stdinData: Data
+            let feedHookStdinLimit: Int? = switch source {
+            case "codex": Self.feedHookMaxStdinBytes
+            case "pi": Self.piFeedHookMaxStdinBytes
+            default: nil
+            }
+            if let feedHookStdinLimit {
+                guard let boundedData = Self.readBoundedFeedHookStdin(maxBytes: feedHookStdinLimit) else {
+                    print("{}")
+                    return nil
+                }
+                stdinData = boundedData
+            } else {
+                stdinData = FileHandle.standardInput.readDataToEndOfFile()
+            }
+            guard !stdinData.isEmpty,
+                  let decoded = try? JSONSerialization.jsonObject(with: stdinData) as? [String: Any]
+            else {
+                print("{}")
+                return nil
+            }
+            stdinObj = decoded
         }
 
         // Derive the hook event name, mapped to our wire format. Claude
@@ -34801,7 +34886,7 @@ export default CMUXSessionRestore;
             env: env
         ) {
             print("{}")
-            return
+            return nil
         }
 
         // Capture the agent's PID (not our subprocess PID) so the
@@ -34821,7 +34906,7 @@ export default CMUXSessionRestore;
                 socketPassword: socketPassword
            ) {
             print(compactedFeedOutput)
-            return
+            return nil
         }
         let sessionId = firstString(
             in: stdinObj,
@@ -34928,7 +35013,7 @@ export default CMUXSessionRestore;
                 )
             }
             print("{}")
-            return
+            return nil
         }
 
         var ownedClient: SocketClient?
@@ -34965,13 +35050,13 @@ export default CMUXSessionRestore;
                     throw error
                 }
                 print("{}")
-                return
+                return nil
             }
             ownedClient = feedClient
             activeClient = feedClient
         } else {
             print("{}")
-            return
+            return nil
         }
 
         if shouldAwaitTelemetryIngestion {
@@ -35000,13 +35085,13 @@ export default CMUXSessionRestore;
                 throw error
             }
             print("{}")
-            return
+            return nil
         }
 
         if shouldAwaitTelemetryIngestion {
             let acknowledgedTarget = try validatePiFeedAcknowledgment(response)
             print(piHookResolvedTargetOutput(acknowledgedTarget))
-            return
+            return nil
         }
         guard let respData = response.data(using: .utf8),
               let respObj = try? JSONSerialization.jsonObject(with: respData) as? [String: Any],
@@ -35014,13 +35099,13 @@ export default CMUXSessionRestore;
               let result = respObj["result"] as? [String: Any]
         else {
             print("{}")
-            return
+            return nil
         }
 
         let status = result["status"] as? String ?? "acknowledged"
         if status == "resolved", let decision = result["decision"] as? [String: Any] {
             if source == "kiro", Self.emitKiroDecisionIfHandled(decision: decision) {
-                return
+                return result
             }
             let out = Self.renderAgentDecision(
                 source: source,
@@ -35031,9 +35116,10 @@ export default CMUXSessionRestore;
                 decision: decision
             )
             print(out)
-            return
+            return result
         }
         print("{}")
+        return result
     }
 
     private static let feedHookMaxStdinBytes = 1 * 1024 * 1024
@@ -35696,7 +35782,7 @@ export default CMUXSessionRestore;
         case "feed":
             telemetry.breadcrumb("hooks.feed.dispatch")
             do {
-                try runFeedHook(commandArgs: rest, client: client, telemetry: telemetry)
+                _ = try runFeedHook(commandArgs: rest, client: client, telemetry: telemetry)
                 telemetry.breadcrumb("hooks.feed.completed")
             } catch {
                 telemetry.breadcrumb("hooks.feed.failure")

@@ -1,6 +1,6 @@
 import Foundation
 
-struct ClaudeHookSessionStoreFile: Codable {
+struct ClaudeHookSessionStoreFile: Codable, Equatable {
     var version: Int = 1
     var sessions: [String: ClaudeHookSessionRecord] = [:]
     // Superseded records stay durable for retry without remaining visible to

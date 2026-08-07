@@ -61,6 +61,7 @@ extension TabManager {
     }
 
     func publishCmuxWorkspaceClosed(_ workspace: Workspace) {
+        FeedCoordinator.shared.endTransientBlockingAttention(workspaceId: workspace.id)
         CmuxEventBus.shared.publishWorkspaceClosed(
             workspaceId: workspace.id,
             title: workspace.cmuxEventWorkspaceTitle,

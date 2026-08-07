@@ -88,7 +88,11 @@ enum ClaudeHookLiveDeliveryHarness {
         resolverMethodAvailable: Bool = true,
         acknowledgesPIDResolution: Bool = true,
         resumeClearSucceeds: Bool = true,
-        resumeClearOwnsCheckpoint: Bool? = true
+        resumeClearOwnsCheckpoint: Bool? = true,
+        feedExitPlanModesByRequestId: [String: String] = [:],
+        feedTerminalStatusesByRequestId: [String: String] = [:],
+        feedExitPlanModesByPlan: [String: String] = [:],
+        feedTerminalStatusesByPlan: [String: String] = [:]
     ) -> DispatchSemaphore {
         startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = jsonObject(line),
@@ -140,6 +144,30 @@ enum ClaudeHookLiveDeliveryHarness {
                 }
                 return v2Response(id: id, ok: true, result: ["terminals": terminals])
             case "feed.push":
+                if let event = params["event"] as? [String: Any],
+                   let requestId = event["_opencode_request_id"] as? String {
+                    if let status = feedTerminalStatusesByRequestId[requestId] {
+                        return v2Response(id: id, ok: true, result: ["status": status])
+                    }
+                    if let mode = feedExitPlanModesByRequestId[requestId] {
+                        return v2Response(id: id, ok: true, result: [
+                            "status": "resolved",
+                            "decision": ["kind": "exit_plan", "mode": mode],
+                        ])
+                    }
+                    let plan = (event["tool_input"] as? [String: Any])?["plan"] as? String
+                    if let plan, let status = feedTerminalStatusesByPlan[plan] {
+                        return v2Response(id: id, ok: true, result: ["status": status])
+                    }
+                    if let plan, let mode = feedExitPlanModesByPlan[plan] {
+                        return v2Response(id: id, ok: true, result: [
+                            "status": "resolved",
+                            "decision": ["kind": "exit_plan", "mode": mode],
+                        ])
+                    }
+                }
+                return v2Response(id: id, ok: true, result: [:])
+            case "feed.attention.begin", "feed.attention.end":
                 return v2Response(id: id, ok: true, result: [:])
             case "surface.resume.set":
                 return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
@@ -181,9 +209,10 @@ enum ClaudeHookLiveDeliveryHarness {
         workspaceId: String,
         surfaceId: String,
         cwd: String,
-        pid: Int? = nil
+        pid: Int? = nil,
+        processIdentity: AgentPIDProcessIdentity? = nil
     ) throws {
-        let now = Date().timeIntervalSince1970
+        let now: TimeInterval = 4_102_444_800
         var record: [String: Any] = [
             "sessionId": sessionId,
             "workspaceId": workspaceId,
@@ -193,7 +222,13 @@ enum ClaudeHookLiveDeliveryHarness {
             "startedAt": now,
             "updatedAt": now,
         ]
-        if let pid { record["pid"] = pid }
+        if let processIdentity {
+            record["pid"] = Int(processIdentity.pid)
+            record["pidStartSeconds"] = processIdentity.startSeconds
+            record["pidStartMicroseconds"] = processIdentity.startMicroseconds
+        } else if let pid {
+            record["pid"] = pid
+        }
         let store: [String: Any] = [
             "version": 1,
             "sessions": [sessionId: record],

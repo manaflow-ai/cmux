@@ -529,7 +529,18 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         failures,
     )
     hooks = settings.get("hooks", {})
-    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest"}
+    expected_hooks = {
+        "SessionStart",
+        "Stop",
+        "SubagentStop",
+        "SessionEnd",
+        "Notification",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "PermissionRequest",
+    }
     expect(set(hooks.keys()) == expected_hooks, f"unexpected hook keys: {hooks.keys()}, expected {expected_hooks}", failures)
     for hook_name, expected_subcommand in {
         "SessionStart": "session-start",
@@ -581,22 +592,65 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
             failures,
         )
 
-    # General PreToolUse telemetry should remain async to avoid blocking tool execution.
-    pre_tool_use_hooks = [
-        hook
+    post_tool_use_failure_groups = hooks.get("PostToolUseFailure", [])
+    for hook_event_name, hook_groups in (
+        ("PostToolUse", post_tool_use_groups),
+        ("PostToolUseFailure", post_tool_use_failure_groups),
+    ):
+        for tool_name in ("AskUserQuestion", "ExitPlanMode"):
+            matching_groups = [group for group in hook_groups if group.get("matcher") == tool_name]
+            expect(
+                matching_groups,
+                f"{hook_event_name} should clear {tool_name} needs-input state, got {hook_groups}",
+                failures,
+            )
+            if matching_groups:
+                matching_hooks = matching_groups[0].get("hooks", [])
+                expect(
+                    any(
+                        hook.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude input-resolved'
+                        and hook.get("async") is not True
+                        for hook in matching_hooks
+                    ),
+                    f"{tool_name} {hook_event_name} should call the ordered input-resolved bridge, got {matching_hooks}",
+                    failures,
+                )
+
+    # Regression for #9693: ordinary tool calls must not spawn a cmux hook
+    # process. Only the two blocking tools that need the bypassPermissions
+    # fallback retain an ordered PreToolUse bridge.
+    ordinary_tool_groups = [
+        group
         for group in pre_tool_use_groups
-        for hook in group.get("hooks", [])
-        if "pre-tool-use" in hook.get("command", "")
+        if group.get("matcher") in (None, "", "*")
     ]
     expect(
-        any(h.get("async") is True for h in pre_tool_use_hooks),
-        f"PreToolUse hook should have async:true, got {pre_tool_use_hooks}",
+        not ordinary_tool_groups,
+        f"PreToolUse should not install a catch-all per-tool hook, got {ordinary_tool_groups}",
         failures,
     )
+    for tool_name in ("AskUserQuestion", "ExitPlanMode"):
+        matching_groups = [group for group in pre_tool_use_groups if group.get("matcher") == tool_name]
+        expect(
+            matching_groups,
+            f"PreToolUse should retain the {tool_name} needs-input bridge, got {pre_tool_use_groups}",
+            failures,
+        )
+        if matching_groups:
+            matching_hooks = matching_groups[0].get("hooks", [])
+            expect(
+                any(
+                    hook.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude pre-tool-use'
+                    and hook.get("async") is not True
+                    for hook in matching_hooks
+                ),
+                f"{tool_name} should call the ordered needs-input bridge, got {matching_hooks}",
+                failures,
+            )
     permission_request_hooks = hooks.get("PermissionRequest", [{}])[0].get("hooks", [{}])
     expect(
-        any(h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude' for h in permission_request_hooks),
-        f"PermissionRequest hook should call hooks feed, got {permission_request_hooks}",
+        any(h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude permission-request' for h in permission_request_hooks),
+        f"PermissionRequest hook should use the correlated Claude bridge, got {permission_request_hooks}",
         failures,
     )
     subagent_stop_hooks = hooks.get("SubagentStop", [{}])[0].get("hooks", [{}])
@@ -642,7 +696,8 @@ def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> Non
     )
     expected_hooks = {
         "SessionStart", "Stop", "SubagentStop", "SessionEnd",
-        "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest",
+        "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse",
+        "PostToolUseFailure", "PermissionRequest",
     }
     expect(
         set(settings.get("hooks", {}).keys()) == expected_hooks,

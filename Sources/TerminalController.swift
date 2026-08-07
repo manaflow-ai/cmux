@@ -2404,6 +2404,10 @@ class TerminalController {
         // feedback.open handled by ControlCommandCoordinator.
 
         // Feed (workstream): feed.jump/feed.list handled by ControlCommandCoordinator.
+        case "feed.attention.begin":
+            return v2Result(id: id, self.v2FeedTransientAttentionBegin(params: params))
+        case "feed.attention.end":
+            return v2Result(id: id, self.v2FeedTransientAttentionEnd(params: params))
         case "sidebar.custom.open":
             return v2Result(id: id, self.v2CustomSidebarOpen(params: params))
 
@@ -2648,6 +2652,8 @@ class TerminalController {
             "feed.permission.reply",
             "feed.question.reply",
             "feed.exit_plan.reply",
+            "feed.attention.begin",
+            "feed.attention.end",
             "feed.jump",
             "feed.list",
             "surface.list",

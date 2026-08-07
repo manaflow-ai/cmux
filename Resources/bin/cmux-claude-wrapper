@@ -915,13 +915,17 @@ install_cmux_node_options
 # - SessionStart/Stop/Notification: existing lifecycle hooks
 # - SessionEnd: cleanup when Claude exits (covers Ctrl+C where Stop doesn't fire)
 # - UserPromptSubmit: clears "Needs input" and sets "Running" on new prompt
-# - PreToolUse: rejects unsupported durable cron requests synchronously, then
-#   (async) clears "Needs input" / sets "Running" for ordinary tools, and flags
-#   "Needs input" for the blocking AskUserQuestion / ExitPlanMode tools. With
+# - PreToolUse: rejects unsupported durable cron requests and synchronously
+#   flags "Needs input" for the blocking AskUserQuestion / ExitPlanMode tools.
+#   There is deliberately no catch-all hook for ordinary tool calls. With
 #   --dangerously-skip-permissions (permission_mode "bypassPermissions") Claude
 #   fires no PermissionRequest/Notification for those two, so the handler also
 #   publishes the full needs-input status + bell itself. See
 #   https://github.com/manaflow-ai/cmux/issues/6606
+# - PostToolUse / PostToolUseFailure (AskUserQuestion / ExitPlanMode):
+#   synchronously clears the targeted needs-input fallback after the blocking
+#   tool finishes. Keeping both sides ordered prevents a late completion from
+#   clearing a newer prompt, including when the tool fails.
 # - PostToolUse (PushNotification): bridges Claude's PushNotification tool
 #   into a cmux notification. The tool delivers via a raw OSC desktop
 #   notification, which cmux suppresses for surfaces running a hook-integrated
@@ -929,8 +933,10 @@ install_cmux_node_options
 #   bridge is the only way its message reaches the user inside cmux. ASYNC;
 #   the handler mirrors the tool's own sent/skipped decision via
 #   tool_response.localSent.
-# - PermissionRequest: cmux hooks feed. SYNC with a 125s timeout.
-#   This is Claude Code's native blocking decision hook. Outside
+# - PermissionRequest: correlated Claude Feed bridge. SYNC with a 125s timeout.
+#   This is Claude Code's native blocking decision hook. The bridge preserves
+#   Feed's decision output and retires the matching blocking tool even when the
+#   decision denies execution (when no PostToolUse event follows). Outside
 #   bypassPermissions it covers permissions, ExitPlanMode, and AskUserQuestion
 #   without using PreToolUse denial as a side channel; under bypassPermissions it
 #   does not fire, and PreToolUse is the needs-input fallback (see above).
@@ -940,7 +946,7 @@ install_cmux_node_options
 #   timeout because it may run a summarization subprocess; it gates itself
 #   on the workspaceAutoNaming setting via a socket probe, so it is a
 #   no-op when the feature is disabled.
-HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude auto-name","timeout":120,"async":true}]}],"SubagentStop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PostToolUse":[{"matcher":"PushNotification","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude push-notification","timeout":10,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
+HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude auto-name","timeout":120,"async":true}]}],"SubagentStop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5}]},{"matcher":"ExitPlanMode","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5}]}],"PostToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude input-resolved","timeout":5}]},{"matcher":"ExitPlanMode","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude input-resolved","timeout":5}]},{"matcher":"PushNotification","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude push-notification","timeout":10,"async":true}]}],"PostToolUseFailure":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude input-resolved","timeout":5}]},{"matcher":"ExitPlanMode","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude input-resolved","timeout":5}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude permission-request","timeout":125}]}]}}'
 
 # Fold any user-provided --settings into HOOKS_JSON before launching.
 #

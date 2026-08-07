@@ -857,6 +857,142 @@ struct FeedCoordinatorTests {
         #expect(deliveries.events.map(\.requestId) == [firstEvent.requestId, secondEvent.requestId])
     }
 
+    @Test @MainActor
+    func transientAttentionStoreEvictsItsOldestEntryAtCapacity() {
+        let store = FeedTransientAttentionStore()
+        let processIdentity = AgentPIDProcessIdentity(
+            pid: 100,
+            startSeconds: 1,
+            startMicroseconds: 0
+        )
+        let target = FeedCoordinator.AttentionTarget(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            statusKey: "claude_code"
+        )
+        let firstKey = FeedTransientAttentionStore.Key(
+            source: "claude",
+            sessionId: "session-0",
+            requestId: "request-0"
+        )
+
+        for index in 0...256 {
+            let key = FeedTransientAttentionStore.Key(
+                source: "claude",
+                sessionId: "session-\(index)",
+                requestId: "request-\(index)"
+            )
+            store.insert(
+                FeedTransientAttentionStore.Entry(
+                    target: target,
+                    notificationCorrelationKey: "notification-\(index)",
+                    ownerProcessIdentity: processIdentity
+                ),
+                for: key
+            )
+        }
+
+        #expect(
+            store.entry(for: firstKey) == nil,
+            "orphaned transient requests must not grow the Feed registry without a bound"
+        )
+        #expect(store.removeValues(workspaceId: target.workspaceId).count == 256)
+    }
+
+    @Test @MainActor
+    func transientAttentionStoreScopesCleanupToOneProcessGeneration() {
+        let store = FeedTransientAttentionStore()
+        let firstWorkspaceId = UUID()
+        let secondWorkspaceId = UUID()
+        let firstTarget = FeedCoordinator.AttentionTarget(
+            workspaceId: firstWorkspaceId,
+            panelId: UUID(),
+            statusKey: "claude_code"
+        )
+        let secondTarget = FeedCoordinator.AttentionTarget(
+            workspaceId: secondWorkspaceId,
+            panelId: UUID(),
+            statusKey: "claude_code"
+        )
+        let firstGenerationKey = FeedTransientAttentionStore.Key(
+            source: "claude",
+            sessionId: "pid-session",
+            requestId: "first-generation"
+        )
+        let reusedPIDKey = FeedTransientAttentionStore.Key(
+            source: "claude",
+            sessionId: "pid-session",
+            requestId: "reused-pid"
+        )
+        let firstGeneration = AgentPIDProcessIdentity(
+            pid: 202,
+            startSeconds: 10,
+            startMicroseconds: 1
+        )
+        let reusedPIDGeneration = AgentPIDProcessIdentity(
+            pid: 202,
+            startSeconds: 11,
+            startMicroseconds: 2
+        )
+        store.insert(
+            FeedTransientAttentionStore.Entry(
+                target: firstTarget,
+                notificationCorrelationKey: "first-generation-notification",
+                ownerProcessIdentity: firstGeneration
+            ),
+            for: firstGenerationKey
+        )
+        store.insert(
+            FeedTransientAttentionStore.Entry(
+                target: secondTarget,
+                notificationCorrelationKey: "reused-pid-notification",
+                ownerProcessIdentity: reusedPIDGeneration
+            ),
+            for: reusedPIDKey
+        )
+
+        #expect(
+            store.removeValues(ownerProcessIdentity: firstGeneration)
+                .map(\.notificationCorrelationKey)
+                == ["first-generation-notification"]
+        )
+        #expect(store.entry(for: firstGenerationKey) == nil)
+        #expect(store.entry(for: reusedPIDKey) != nil)
+        #expect(
+            store.removeValues(workspaceId: secondWorkspaceId)
+                .map(\.notificationCorrelationKey) == ["reused-pid-notification"]
+        )
+        #expect(store.entry(for: reusedPIDKey) == nil)
+    }
+
+    @Test(arguments: ["ppid", "ppid_start_seconds", "ppid_start_microseconds"])
+    @MainActor
+    func transientAttentionRejectsFractionalProcessIdentityFields(
+        field: String
+    ) {
+        var params: [String: Any] = [
+            "source": "claude",
+            "session_id": "fractional-process-session",
+            "request_id": "fractional-process-request",
+            "workspace_id": UUID().uuidString,
+            "surface_id": UUID().uuidString,
+            "title": "Claude Code",
+            "ppid": 100,
+            "ppid_start_seconds": 10,
+            "ppid_start_microseconds": 1,
+        ]
+        params[field] = 1.5
+
+        let result = TerminalController.shared.v2FeedTransientAttentionBegin(
+            params: params
+        )
+        guard case .err(let code, _, _) = result else {
+            Issue.record("Expected invalid_params for fractional \(field), got \(result)")
+            return
+        }
+        #expect(code == "invalid_params")
+    }
+
     static func resetFeedCoordinatorTestHooks() {
         let reset: @Sendable () -> Void = {
             MainActor.assumeIsolated {
