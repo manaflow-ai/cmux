@@ -867,6 +867,8 @@
       "concepts": "Koncepti",
       "anchorTitle": "Sidreni radni prostor",
       "anchorDesc": "Svaku grupu posjeduje tačno jedan radni prostor koji se naziva sidro. Zaglavlje grupe u bočnoj traci predstavlja sidro — za njega ne postoji poseban red. Klikom na područje naziva u zaglavlju fokusiraju se paneli sidra; klikom na strelicu prebacuje se sklapanje.",
+      "anchorNew": "Sidro grupe je prilikom stvaranja uvijek potpuno novi radni prostor; grupisanje odabira ili stvaranje grupe nikada ne promovira neki od postojećih radnih prostora u sidro. (Kasnije zatvaranje sidra ipak promovira prvog preostalog člana grupe; pogledajte u nastavku.) Radni direktorij sidra nasljeđuje se od prvog odabranog radnog prostora pri grupisanju odabira ili od aktivnog radnog prostora pri stvaranju putem CLI-ja bez opcije --cwd.",
+      "anchorClose": "Zatvaranjem sidrenog radnog prostora zatvara se samo taj radni prostor, a prvi preostali član grupe (prvi koji se još uvijek nalazi u redoslijedu grupe) postaje novo sidro, tako da grupa i ostali članovi ostaju netaknuti (promovisani član zatim prikazuje naziv grupe kao zaglavlje). Kada je sidro jedini radni prostor grupe, grupa se uklanja. Da biste pretvorili grupu u negrupisane radne prostore, upotrijebite Razgrupiši radne prostore; da biste zatvorili svaki radni prostor u grupi, upotrijebite Obriši grupu.",
       "identityTitle": "Identitet grupe",
       "identityDesc": "Grupa ima naziv, ikonu (SF Symbol, podrazumijevano folder.fill) i opcionalnu prilagođenu boju. Oni su nezavisni od vlastitih prilagođavanja sidrenog radnog prostora. Boja i ikona sidra se prilikom kreiranja preuzimaju iz grupe, ali se nakon toga mogu razlikovati.",
       "pinningTitle": "Prikvačivanje",
@@ -1407,7 +1409,16 @@
     "changelog": {
       "title": "Zapisnik promjena",
       "metaDescription": "cmux bilješke o izdanjima i historija verzija. Nove funkcionalnosti, ispravke grešaka i promjene za nativni macOS terminal.",
-      "metaTitle": "Dnevnik promjena"
+      "metaTitle": "Dnevnik promjena",
+      "versionTitle": "cmux {version} · Dnevnik promjena",
+      "releaseNavLabel": "Izdanja oko cmux {version}",
+      "sections": {
+        "added": "Dodano",
+        "changed": "Promijenjeno",
+        "fixed": "Ispravljeno",
+        "removed": "Uklonjeno",
+        "contributors": "Doprinositelji"
+      }
     },
     "navItems": {
       "gettingStarted": "Početak rada",
@@ -3525,7 +3536,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije."
+    "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije.",
+    "signedOutNotice": "Niste prijavljeni. Prijavite se da vidite trenutni plan ili vratite postojeću kupovinu.",
+    "signedOutSignIn": "Prijavite se"
   },
   "platforms": {
     "macos": "macOS",
@@ -3559,7 +3572,6 @@
     "title": "cmux za {platform}",
     "tagline": "Chromium preglednik i radni prostor za agente, izrađeni kao jedna cjelina.",
     "logoAlt": "Ikona aplikacije cmux",
-    "portableCta": "Prijenosni ZIP",
     "featuresTitle": "Napravljeno za rad s agentima",
     "features": {
       "chromium": {
@@ -3581,7 +3593,7 @@
     },
     "installTitle": "Instalacija",
     "releaseTitle": "Izdanja i ažuriranja",
-    "releaseBody": "Ove poveznice uvijek vode do najnovijeg stabilnog izdanja na <github>GitHub Releases</github>. cmux provjerava potpisane manifeste ažuriranja prije instaliranja ažuriranja.",
+    "releaseBody": "Ove poveznice uvijek vode do najnovijeg noćnog izdanja na <github>GitHub Releases</github>. cmux provjerava potpisane manifeste ažuriranja prije instaliranja ažuriranja.",
     "sourceLink": "Pogledajte izvorni kod na GitHubu",
     "otherPlatform": "cmux za {platform}",
     "macLink": "cmux terminal za Mac",
@@ -3591,6 +3603,7 @@
       "metaDescription": "Preuzmite cmux za Windows x64: besplatan Chromium preglednik otvorenog koda i radni prostor za agente s karticama usmjerenim na zadatke i terminalskim površinama.",
       "subtitle": "Izvorna x64 verzija s Chromium karticama, cmux radnim prostorima i poznatim Windows prečicama na tastaturi.",
       "primaryCta": "Preuzmite instalacijski program (.exe)",
+      "secondaryCta": "Prijenosni ZIP",
       "requirements": "Windows 10 ili noviji · x64",
       "installBody": "Pokrenite instalacijski program i slijedite Windows upute. Odaberite prijenosni ZIP ako želite držati cmux u mapi bez instalacije na cijelom sistemu."
     },
@@ -3599,9 +3612,10 @@
       "metaTitle": "Preuzmite cmux za Linux",
       "metaDescription": "Preuzmite cmux za Linux x64: besplatan Chromium preglednik otvorenog koda i radni prostor za agente s karticama usmjerenim na zadatke i terminalskim površinama.",
       "subtitle": "Izvorna x64 verzija s Chromium karticama, cmux radnim prostorima i integriranim terminalskim površinama.",
-      "primaryCta": "Preuzmite .deb",
-      "requirements": "Debian ili Ubuntu · x64",
-      "installBody": "Preuzmite Debian paket i instalirajte ga pomoću upravitelja paketa. Odaberite prijenosni ZIP za instalaciju po korisniku i ažuriranja unutar aplikacije."
+      "primaryCta": "Preuzmite instalacijski program s automatskim ažuriranjima (.run)",
+      "secondaryCta": "Debian paket (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Jednom pokrenite instalacijski program za trenutnog korisnika. Instalirat će cmux u ~/.local bez root ovlaštenja i omogućiti potpisana ažuriranja unutar aplikacije. Ako želite da ažuriranjima upravlja vaš upravitelj paketa, umjesto toga odaberite Debian paket."
     }
   },
   "emails": {

@@ -124,8 +124,7 @@ struct SSHConfiguredRemoteCommandHostTests {
         let attachState = MockSocketServerState()
         let attachHandled = processSupport.startMockServer(
             listenerFD: listenerFD,
-            state: attachState,
-            connectionCount: 2
+            state: attachState
         ) { line in
             guard let payload = processSupport.jsonObject(line),
                   let id = payload["id"] as? String,
