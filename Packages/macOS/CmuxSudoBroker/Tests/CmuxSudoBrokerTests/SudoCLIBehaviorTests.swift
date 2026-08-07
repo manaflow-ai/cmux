@@ -35,6 +35,53 @@ struct SudoCLIBehaviorTests {
         #expect(result.errorCode == .approvalTimedOut)
         #expect(output.standardError.contains("not approved"))
     }
+
+    @Test("A result-wait failure preserves an approved execution")
+    func waitFailureReportsApprovedExecution() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let output = TestCLIOutput()
+        let now = Date.now
+        let paths = fixture.paths
+        let launcher = TestAppLauncher {
+            let store = SudoSpoolStore(paths: paths)
+            guard let pending = store.pendingRequests().first else {
+                throw CocoaError(.fileNoSuchFile)
+            }
+            _ = try store.transitionToApproved(
+                pending: pending,
+                now: now,
+                executionGraceSeconds: SudoBroker.executionGraceSeconds
+            )
+            try FileManager.default.createSymbolicLink(
+                at: store.outputURL(id: pending.request.id),
+                withDestinationURL: URL(fileURLWithPath: "/dev/null")
+            )
+        }
+        let command = SudoCLICommand(
+            store: fixture.store,
+            appBundleURL: URL(fileURLWithPath: "/Applications/cmux.app"),
+            currentDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
+            requesterIdentity: SudoProcessIdentity(
+                processIdentifier: 42,
+                startSeconds: 10,
+                startMicroseconds: 20
+            ),
+            requesterCommand: "test-agent",
+            launcher: launcher,
+            io: output.io,
+            failureMessages: .testMessages,
+            now: { now }
+        )
+
+        let exitCode = try command.run(arguments: ["run", "-t", "60", "-c", "echo ok"])
+
+        #expect(exitCode == 124)
+        #expect(output.standardError.contains("was approved"))
+        let pending = try #require(fixture.store.pendingRequests().first)
+        #expect(fixture.store.state(id: pending.request.id)?.phase == .approved)
+        #expect(fixture.store.result(id: pending.request.id) == nil)
+    }
 }
 
 private final class TestCLIOutput {

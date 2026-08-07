@@ -109,6 +109,51 @@ struct SudoBrokerRegressionTests {
         #expect(result.errorCode == .approvalTimedOut)
     }
 
+    @Test(
+        "Restart returns known pending approvals and restores their deadline",
+        .timeLimit(.minutes(1))
+    )
+    func restartReconcilesKnownPendingRequests() async throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_786_000_000)
+        let request = try fixture.enqueue(id: "restart-pending", createdAt: now)
+        let clock = TestSudoClock(date: now)
+        let broker = SudoBroker(
+            paths: fixture.paths,
+            dependencies: SudoBrokerDependencies(
+                clock: clock,
+                pam: TestPAMChecker(enabled: true),
+                runner: TestRunnerLauncher(),
+                recovery: TestExecutionRecovery(),
+                watcher: nil,
+                requesterInspector: TestSudoProcessInspector()
+            ),
+            messages: messages
+        )
+
+        let initiallyActive = try await broker.start()
+        #expect(initiallyActive.map(\.request.id) == [request.id])
+        await broker.stop()
+
+        let activeAfterRestart = try await broker.start()
+        try #require(activeAfterRestart.map(\.request.id) == [request.id])
+
+        var events = await broker.events().makeAsyncIterator()
+        await clock.advance(to: request.approvalDeadline)
+        var settled: SudoResult?
+        while let event = await events.next() {
+            guard case .settled(let result) = event, result.id == request.id else {
+                continue
+            }
+            settled = result
+            break
+        }
+
+        #expect(settled?.errorCode == .approvalTimedOut)
+        await broker.stop()
+    }
+
     @Test("Startup rejects a request whose PID generation has exited")
     func startupRejectsUnavailableRequester() async throws {
         let fixture = try SudoTestFixture()
