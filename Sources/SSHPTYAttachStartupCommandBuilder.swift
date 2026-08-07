@@ -55,7 +55,7 @@ enum SSHPTYAttachStartupCommandBuilder {
             "trap 'cmux_ssh_attach_signal_exit 143 TERM' TERM",
         ]
         if foregroundAuth != nil {
-            retryLoopSetupLines.append("cmux_ssh_resume_failed_auth_group_reapers")
+            retryLoopSetupLines.append("cmux_ssh_schedule_failed_auth_group_recovery")
         }
         let requireExistingFlag = requireExisting ? " --require-existing" : ""
         let commandB64Flag = normalized(remoteCommand).map {

@@ -302,8 +302,8 @@ struct SSHConfiguredRemoteCommandHostTests {
         #expect(!startupArtifact.contains("ssh-pty-attach"), "\(startupArtifact)")
         #expect(!startupArtifact.contains("cmux_mosh"), "\(startupArtifact)")
         #expect(
-            startupArtifact.contains("\ncmux_ssh_resume_failed_auth_group_reapers\nwhile :; do\n"),
-            "Ordinary SSH startup must drain durable failed-auth cleanup before its long-lived loop: \(startupArtifact)"
+            startupArtifact.contains("\ncmux_ssh_schedule_failed_auth_group_recovery\nwhile :; do\n"),
+            "Ordinary SSH startup must schedule durable failed-auth cleanup before its long-lived loop: \(startupArtifact)"
         )
         let configureParams = try #require(
             requests.first { $0["method"] as? String == "workspace.remote.configure" }?["params"]

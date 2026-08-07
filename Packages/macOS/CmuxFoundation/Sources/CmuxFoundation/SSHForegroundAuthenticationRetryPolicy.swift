@@ -141,8 +141,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         let publishedCleanup = terminatesPublishedGroup
             ? publishedAuthenticationCleanupShellCommand()
             : ":"
-        let recoveryDrain = "if command -v cmux_ssh_resume_failed_auth_group_reapers >/dev/null 2>&1; then cmux_ssh_resume_failed_auth_group_reapers; fi"
-        return "if [ -n \"${CMUX_SSH_AUTH_GROUP_DIR:-}\" ]; then \(publishedCleanup); if [ ! -s \"$CMUX_SSH_AUTH_GROUP_DIR/identity\" ] && [ ! -e \"$CMUX_SSH_AUTH_GROUP_DIR/cancel\" ]; then \(processGroupStateRemovalShellCommand()); /bin/rmdir \"$CMUX_SSH_AUTH_GROUP_DIR\" 2>/dev/null || true; fi; fi; CMUX_SSH_AUTH_GROUP_DIR=; export CMUX_SSH_AUTH_GROUP_DIR; \(recoveryDrain);"
+        let recoverySchedule = "if command -v cmux_ssh_schedule_failed_auth_group_recovery >/dev/null 2>&1; then cmux_ssh_schedule_failed_auth_group_recovery; fi"
+        return "if [ -n \"${CMUX_SSH_AUTH_GROUP_DIR:-}\" ]; then \(publishedCleanup); if [ ! -s \"$CMUX_SSH_AUTH_GROUP_DIR/identity\" ] && [ ! -e \"$CMUX_SSH_AUTH_GROUP_DIR/cancel\" ]; then \(processGroupStateRemovalShellCommand()); /bin/rmdir \"$CMUX_SSH_AUTH_GROUP_DIR\" 2>/dev/null || true; fi; fi; CMUX_SSH_AUTH_GROUP_DIR=; export CMUX_SSH_AUTH_GROUP_DIR; \(recoverySchedule);"
     }
 
     private func publishedAuthenticationCleanupShellCommand() -> String {
@@ -1232,6 +1232,17 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           CMUX_SSH_AUTH_RECOVERY_SEGMENT=
           CMUX_SSH_AUTH_RECOVERY_SEGMENT_INDEX=
           CMUX_SSH_AUTH_RECOVERY_CLAIM_RECORD=
+        }
+
+        cmux_ssh_schedule_failed_auth_group_recovery() {
+          if ! command -v cmux_ssh_resume_failed_auth_group_reapers \
+            >/dev/null 2>&1; then return 0; fi
+          (
+            trap - EXIT HUP INT TERM
+            cmux_ssh_resume_failed_auth_group_reapers \
+              </dev/null >/dev/null 2>&1
+          ) &
+          return 0
         }
 
         cmux_ssh_resume_failed_auth_group_reapers() (

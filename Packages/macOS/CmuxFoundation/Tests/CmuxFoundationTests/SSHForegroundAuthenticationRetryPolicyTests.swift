@@ -2619,7 +2619,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
-    @Test func completedAuthenticationCleanupDrainsLongLivedRecoveryQueue() throws {
+    @Test func completedAuthenticationCleanupSchedulesLongLivedRecoveryQueueDrain() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-cleanup-drain-\(UUID().uuidString)", isDirectory: true)
@@ -2642,8 +2642,16 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           test ! -d "$cmux_test_group" || exit 98
           cmux_test_attempt=$((cmux_test_attempt + 1))
         done
-        for cmux_test_segment in "$TMPDIR/cmux-ssh-auth-recovery"/queue.[0-9]*; do
-          if [ -e "$cmux_test_segment" ]; then exit 97; fi
+        cmux_test_drain_deadline=$(($(cmux_ssh_auth_now_millis) + 5000))
+        while :; do
+          cmux_test_queue_present=0
+          for cmux_test_segment in "$TMPDIR/cmux-ssh-auth-recovery"/queue.[0-9]*; do
+            if [ -e "$cmux_test_segment" ]; then cmux_test_queue_present=1; fi
+          done
+          if [ "$cmux_test_queue_present" -eq 0 ]; then break; fi
+          cmux_test_drain_now=$(cmux_ssh_auth_now_millis) || exit 97
+          [ "$cmux_test_drain_now" -lt "$cmux_test_drain_deadline" ] || exit 96
+          /bin/sleep 0.01
         done
         """
 
