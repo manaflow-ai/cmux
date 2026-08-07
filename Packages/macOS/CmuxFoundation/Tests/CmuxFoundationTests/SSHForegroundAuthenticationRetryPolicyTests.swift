@@ -1335,6 +1335,56 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func recoverySweepResumesPreservedUnpublishedJournal(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-unpublished-recovery-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let groupDirectory = root.appendingPathComponent(
+            "cmux-ssh-auth-group.rollback-test",
+            isDirectory: true
+        )
+        let recoveredMarker = root.appendingPathComponent("recovered")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        try Data().write(to: groupDirectory.appendingPathComponent("rollback-only"))
+        try "101 1 777 Thu_Jan_1_00:00:00_1970\n".write(
+            to: groupDirectory.appendingPathComponent("signaled.pids"),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_resume_signaled_processes() {
+          /usr/bin/grep -Fqx '101 1 777 Thu_Jan_1_00:00:00_1970' \
+            "$cmux_ssh_auth_signaled_processes" || return 1
+          : > "$CMUX_TEST_RECOVERED"
+        }
+        CMUX_SSH_AUTH_GROUP_DIR=
+        export CMUX_SSH_AUTH_GROUP_DIR
+        cmux_ssh_auth_recovery_enqueue "$CMUX_TEST_GROUP_DIR" || exit 99
+        cmux_ssh_resume_failed_auth_group_reapers || exit 98
+        test -e "$CMUX_TEST_RECOVERED" || exit 97
+        test ! -d "$CMUX_TEST_GROUP_DIR" || exit 96
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_GROUP_DIR": groupDirectory.path,
+                "CMUX_TEST_RECOVERED": recoveredMarker.path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func emptyFrozenProcessSetRequiresNoForce() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
