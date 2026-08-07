@@ -62,10 +62,15 @@ FORBIDDEN_SCHEME_ENVIRONMENT_KEYS = {
     f"TEST_RUNNER_{key}" for key in TEST_RUNNER_ENVIRONMENT_KEYS
 }
 UNSAFE_SIGNAL_PATTERN = re.compile(
-    r"(?m)^\s*(?:/bin/)?kill\s+-(?:TERM|KILL|9|15)(?:\s|$)"
+    r"(?m)^\s*(?:command\s+)?(?:(?:/usr)?/bin/)?kill\s+"
+    r"(?:--\s+)?(?:"
+    r"-(?:SIG)?(?:TERM|KILL)|-(?:9|15)|"
+    r"-s\s+(?:SIG)?(?:TERM|KILL|9|15)|"
+    r"--signal(?:=|\s+)(?:SIG)?(?:TERM|KILL|9|15)"
+    r")(?:\s|$)"
 )
 OPPORTUNISTIC_DELETION_PATTERN = re.compile(
-    r"(?m)^\s*(?:/bin/)?rm\s+-(?:rf|fr|f)\s+--(?:\s|$)"
+    r"(?m)^\s*(?:command\s+)?(?:(?:/usr)?/bin/)?rm(?:\s|$)"
 )
 
 
