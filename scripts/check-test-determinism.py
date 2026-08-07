@@ -1215,6 +1215,12 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/assigned-property-config.ts",
+            'config.url = "https://api.openai.com/v1/items"; '
+            'await axios(config)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/assigned-config.ts",
             'const cfg = { method: "GET", '
             'url: "https://api.openai.com/v1/items" }; await axios(cfg)\n',
@@ -1499,6 +1505,16 @@ def _self_test() -> int:
             'const url = "https://cmux.com/docs/api"; '
             'const request = new Request("http://127.0.0.1:4321"); '
             'fetch(request); render(url)\n',
+        ),
+        (
+            "web/tests/n17w.ts",
+            'config.url = "https://cmux.com/docs/api"; '
+            'config.url = "http://127.0.0.1:4321"; axios(config)\n',
+        ),
+        (
+            "web/tests/n17x.ts",
+            'config.url = "https://cmux.com/docs/api"; '
+            'config = { url: "http://127.0.0.1:4321" }; axios(config)\n',
         ),
         (
             "web/tests/n18.ts",
