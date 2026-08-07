@@ -2838,7 +2838,11 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(send.waitForExistence(timeout: 3))
         send.tap()
         await server.awaitTerminalPasteRequestReached()
-        XCTAssertEqual(send.label, "Sending")
+        let sending = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Sending"),
+            object: send
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [sending], timeout: 2), .completed)
 
         server.releaseTerminalPasteResponse()
         let normalSend = XCTNSPredicateExpectation(
