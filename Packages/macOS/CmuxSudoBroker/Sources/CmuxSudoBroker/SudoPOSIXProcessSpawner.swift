@@ -116,7 +116,8 @@ struct SudoPOSIXProcessSpawner: SudoProcessSpawning {
         }
         return SudoSpawnedProcess(
             identity: identity,
-            processGroupIdentifier: processIdentifier
+            processGroupIdentifier: processIdentifier,
+            outputURL: command.outputURL
         )
     }
 
