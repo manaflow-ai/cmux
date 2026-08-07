@@ -373,11 +373,17 @@ struct FilePreviewPDFSharingTests {
         try Data("%PDF-1.4".utf8).write(to: secondURL)
 
         var pickers: [SharingPickerProbe] = []
-        let presenter = FilePreviewPDFSharingPresenter { items in
-            let picker = SharingPickerProbe(items: items)
-            pickers.append(picker)
-            return picker
-        }
+        var menuPresentationCount = 0
+        let presenter = FilePreviewPDFSharingPresenter(
+            presentMenu: { _, _ in
+                menuPresentationCount += 1
+            },
+            makePicker: { items in
+                let picker = SharingPickerProbe(items: items)
+                pickers.append(picker)
+                return picker
+            }
+        )
         let container = FilePreviewPDFContainerView(
             frame: NSRect(x: 0, y: 0, width: 640, height: 480),
             sharingPresenter: presenter
@@ -416,6 +422,17 @@ struct FilePreviewPDFSharingTests {
         try dispatchPrimaryClick(to: secondButton, in: window) { _ in }
         let secondPicker = try #require(pickers.last)
         #expect((secondPicker.sharedItems as? [URL]) == [secondURL])
+
+        let pickerCountBeforeDetaching = pickers.count
+        window.contentView = nil
+        #expect(secondButton.window == nil)
+        #expect(secondButton.accessibilityPerformPress())
+        #expect(
+            pickers.count == pickerCountBeforeDetaching,
+            "A detached PDF share control must not create another sharing picker"
+        )
+        #expect(menuPresentationCount == 0)
+        #expect(secondPicker.closeCount == 0)
 
         container.close()
         #expect(secondPicker.closeCount == 1)
@@ -476,9 +493,9 @@ struct FilePreviewPDFSharingTests {
         #expect(picker.presentedView == nil)
     }
 
-    private func findShareButton(in view: NSView) -> NSButton? {
+    private func findShareButton(in view: NSView) -> FilePreviewPDFShareButtonControl? {
         descendants(of: view)
-            .compactMap { $0 as? NSButton }
+            .compactMap { $0 as? FilePreviewPDFShareButtonControl }
             .first { $0.identifier?.rawValue == "FilePreviewPDFShareButton" }
     }
 
@@ -487,7 +504,7 @@ struct FilePreviewPDFSharingTests {
     }
 
     private func dispatchPrimaryClick(
-        to button: NSButton,
+        to button: FilePreviewPDFShareButtonControl,
         in window: NSWindow,
         willDispatch: (NSEvent.EventType) -> Void
     ) throws {
@@ -521,12 +538,10 @@ struct FilePreviewPDFSharingTests {
             pressure: 0
         ))
 
-        let contentView = try #require(window.contentView)
-        let pointInContentView = contentView.convert(pointInWindow, from: nil)
-        #expect(contentView.hitTest(pointInContentView) === button)
+        #expect(button.window === window)
+        NSApp.postEvent(mouseUp, atStart: true)
         willDispatch(.leftMouseDown)
-        window.sendEvent(mouseDown)
+        button.mouseDown(with: mouseDown)
         willDispatch(.leftMouseUp)
-        window.sendEvent(mouseUp)
     }
 }
