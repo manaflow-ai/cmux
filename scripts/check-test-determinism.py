@@ -252,6 +252,25 @@ _COMMAND_LAUNCHER = re.compile(
     """
 )
 
+# Shell -c/-lc evaluates its following argument as source. Keep this separate
+# from function-call launchers because there is no parenthesis range to follow.
+_SHELL_COMMAND_LAUNCHER = re.compile(
+    r"""(?x)
+    (?<![A-Za-z0-9_.-])
+    (?:/usr/bin/env\s+)?
+    (?:/(?:usr/)?bin/)?
+    (?:bash|dash|fish|ksh|sh|zsh)
+    \s+
+    (?:-[A-Za-z]+\s+)*
+    (?:-[A-Za-z]*c[A-Za-z]*|--command)
+    \s+
+    """
+)
+
+_PYTHON_F_STRING_PREFIX = re.compile(
+    r"(?i)(?<![A-Za-z0-9_])(?:fr|rf|f)$"
+)
+
 # Private / loopback hostnames and IPs that are NOT live network.
 _PRIVATE_HOST = re.compile(
     r"""(?xi)
@@ -327,6 +346,16 @@ def _is_assertion_line(line: str) -> bool:
     return bool(_ASSERT_TOKEN.search(line) or _RAISE_IF.search(line))
 
 
+def _python_f_string_starts_at(line: str, quote_index: int) -> bool:
+    return bool(_PYTHON_F_STRING_PREFIX.search(line[:quote_index]))
+
+
+def _quote_delimiter_at(line: str, quote_index: int) -> str:
+    quote = line[quote_index]
+    triple = quote * 3
+    return triple if line.startswith(triple, quote_index) else quote
+
+
 def _executable_code_positions(line: str) -> list[bool]:
     """Return which character offsets are executable code on this source line.
 
@@ -337,27 +366,48 @@ def _executable_code_positions(line: str) -> list[bool]:
     such as ``expect(html).toContain("curl https://...")`` from looking like a
     network call while preserving the real ``fetch(...)`` case.
 
-    JavaScript template literals need one extra distinction: backtick text is
-    inert, while each ``${...}`` interpolation is executable code and may contain
-    nested strings, object literals, or template literals. This remains a
-    conservative line-level lexer, not a full language parser.
+    Interpolated strings need one extra distinction: JavaScript backtick and
+    Python f-string text is inert, while ``${...}`` and ``{...}`` replacement
+    fields are executable code and may contain nested strings, object literals,
+    or templates. This remains a conservative line-level lexer, not a full
+    language parser.
     """
     executable = [False] * len(line)
-    # Contexts are (kind, brace_depth). Only template-expression contexts use
-    # brace depth; nested quote/template contexts sit above them on the stack.
-    contexts: list[tuple[str, int]] = [("code", 0)]
+    # Contexts are (kind, brace_depth, closing_delimiter). Only interpolation
+    # contexts use brace depth; nested quote/template contexts sit above them.
+    contexts: list[tuple[str, int, str]] = [("code", 0, "")]
     index = 0
     while index < len(line):
-        kind, brace_depth = contexts[-1]
+        kind, brace_depth, delimiter = contexts[-1]
         character = line[index]
 
-        if kind in ("single-quote", "double-quote"):
-            quote = "'" if kind == "single-quote" else '"'
+        if kind == "string-text":
             if character == "\\":
                 index += 2
                 continue
-            if character == quote:
+            if line.startswith(delimiter, index):
                 contexts.pop()
+                index += len(delimiter)
+                continue
+            index += 1
+            continue
+
+        if kind == "f-string-text":
+            if character == "\\":
+                index += 2
+                continue
+            if line.startswith(delimiter, index):
+                contexts.pop()
+                index += len(delimiter)
+                continue
+            if character == "{" and index + 1 < len(line) and line[index + 1] == "{":
+                index += 2
+                continue
+            if character == "}" and index + 1 < len(line) and line[index + 1] == "}":
+                index += 2
+                continue
+            if character == "{":
+                contexts.append(("f-string-expression", 1, ""))
             index += 1
             continue
 
@@ -370,29 +420,35 @@ def _executable_code_positions(line: str) -> list[bool]:
                 index += 1
                 continue
             if character == "$" and index + 1 < len(line) and line[index + 1] == "{":
-                contexts.append(("template-expression", 1))
+                contexts.append(("template-expression", 1, ""))
                 index += 2
                 continue
             index += 1
             continue
 
         executable[index] = True
-        if character == "'":
-            executable[index] = False
-            contexts.append(("single-quote", 0))
-        elif character == '"':
-            executable[index] = False
-            contexts.append(("double-quote", 0))
+        if character in ("'", '"'):
+            quote_delimiter = _quote_delimiter_at(line, index)
+            for delimiter_index in range(index, min(index + len(quote_delimiter), len(line))):
+                executable[delimiter_index] = False
+            string_kind = (
+                "f-string-text"
+                if _python_f_string_starts_at(line, index)
+                else "string-text"
+            )
+            contexts.append((string_kind, 0, quote_delimiter))
+            index += len(quote_delimiter)
+            continue
         elif character == "`":
             executable[index] = False
-            contexts.append(("template-text", 0))
-        elif kind == "template-expression" and character == "{":
-            contexts[-1] = (kind, brace_depth + 1)
-        elif kind == "template-expression" and character == "}":
+            contexts.append(("template-text", 0, "`"))
+        elif kind in ("template-expression", "f-string-expression") and character == "{":
+            contexts[-1] = (kind, brace_depth + 1, delimiter)
+        elif kind in ("template-expression", "f-string-expression") and character == "}":
             if brace_depth == 1:
                 contexts.pop()
             else:
-                contexts[-1] = (kind, brace_depth - 1)
+                contexts[-1] = (kind, brace_depth - 1, delimiter)
         index += 1
 
     return executable
@@ -420,6 +476,28 @@ def _call_contains_offset(line: str, opening_paren: int, offset: int) -> bool:
     return depth > 0
 
 
+def _quoted_argument_contains_offset(line: str, argument_start: int, offset: int) -> bool:
+    """Whether ``offset`` remains inside the first quoted shell argument."""
+    index = argument_start
+    while index < len(line) and line[index].isspace():
+        index += 1
+    if index >= len(line) or line[index] not in ("'", '"') or offset <= index:
+        return False
+
+    quote = line[index]
+    escaped = False
+    for character in line[index + 1 : offset + 1]:
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\":
+            escaped = True
+            continue
+        if character == quote:
+            return False
+    return True
+
+
 def _is_executable_network_verb(line: str, verb_start: int) -> bool:
     if not _is_inside_string_literal(line, verb_start):
         return True
@@ -431,6 +509,14 @@ def _is_executable_network_verb(line: str, verb_start: int) -> bool:
             continue
         opening_paren = line.find("(", launcher.start(), launcher.end())
         if opening_paren != -1 and _call_contains_offset(line, opening_paren, verb_start):
+            return True
+
+    for launcher in _SHELL_COMMAND_LAUNCHER.finditer(line):
+        if launcher.start() >= verb_start:
+            break
+        if _is_inside_string_literal(line, launcher.start()):
+            continue
+        if _quoted_argument_contains_offset(line, launcher.end(), verb_start):
             return True
     return False
 
