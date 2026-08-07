@@ -1,6 +1,7 @@
 "app.title" = "cmux Native Frontend";
 "connection.title" = "Connect to cmux";
 "connection.invitation" = "Enrollment invitation";
+"connection.invitation.required" = "Enter an enrollment invitation.";
 "connection.connect" = "Connect";
 "connection.connecting" = "Connecting…";
 "connection.help" = "One encrypted connection carries resource state and every terminal stream.";

@@ -1,6 +1,7 @@
 "app.title" = "cmux ネイティブフロントエンド";
 "connection.title" = "cmux に接続";
 "connection.invitation" = "登録用の招待";
+"connection.invitation.required" = "登録用の招待を入力してください。";
 "connection.connect" = "接続";
 "connection.connecting" = "接続中…";
 "connection.help" = "1 つの暗号化接続でリソース状態とすべてのターミナルストリームを転送します。";

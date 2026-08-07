@@ -16,7 +16,6 @@ use cmux_remote::provider::{
 };
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer, ServiceStream};
 use cmux_remote_protocol::{Lane, LanePolicy, Service, ServiceControl, SessionId};
-use cmux_tui_core::apply_terminal_color_overrides;
 use cmux_tui_core::resource::TerminalPublicId;
 use cmux_tui_core::terminal_host_protocol::{
     Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MessageKind, RESIZE_ACK_CANONICAL_CHANGED, encode_frame,
@@ -24,6 +23,7 @@ use cmux_tui_core::terminal_host_protocol::{
 use cmux_tui_core::terminal_host_runtime::{
     decode_host_snapshot_payload, decode_terminal_color_overrides,
 };
+use cmux_tui_core::{apply_terminal_color_overrides, terminal_color_override_full_state};
 use ghostty_vt::{
     Callbacks, CellWidth, KeyAction, KeyEncoder, RenderState, Terminal, key_input_from_chord,
 };
@@ -143,81 +143,6 @@ struct ActiveTerminal {
     receiver_task: tokio::task::JoinHandle<()>,
     command_task: tokio::task::JoinHandle<()>,
     resize_task: tokio::task::JoinHandle<()>,
-}
-
-fn decode_terminal_color_state_as_vt(payload: &[u8]) -> Result<Vec<u8>, String> {
-    const MAXIMUM_LENGTH: usize = 8 + 3 * 3 + 2 + 256 * 4;
-    if payload.len() < 8 || payload.len() > MAXIMUM_LENGTH {
-        return Err("terminal Colors payload length is out of range".into());
-    }
-    let version = u16::from_le_bytes(payload[0..2].try_into().unwrap());
-    let flags = u16::from_le_bytes(payload[2..4].try_into().unwrap());
-    let palette_count = u16::from_le_bytes(payload[4..6].try_into().unwrap()) as usize;
-    let reserved = u16::from_le_bytes(payload[6..8].try_into().unwrap());
-    let allowed_flags = match version {
-        1 => 0b111,
-        2 if flags & 0b1000 != 0 => 0b1111,
-        2 => return Err("terminal Colors v2 is missing cursor state".into()),
-        _ => return Err("terminal Colors version is unsupported".into()),
-    };
-    if flags & !allowed_flags != 0 || reserved != 0 || palette_count > 256 {
-        return Err("terminal Colors header is invalid".into());
-    }
-    let expected = 8 + (flags & 0b111).count_ones() as usize * 3
-        + usize::from(flags & 0b1000 != 0) * 2 + palette_count * 4;
-    if payload.len() != expected {
-        return Err("terminal Colors payload is malformed".into());
-    }
-    fn rgb(payload: &[u8], offset: &mut usize) -> [u8; 3] {
-        let value = [payload[*offset], payload[*offset + 1], payload[*offset + 2]];
-        *offset += 3;
-        value
-    }
-    fn osc(output: &mut Vec<u8>, code: u16, color: [u8; 3]) {
-        output.extend_from_slice(
-            format!("\x1b]{code};rgb:{:02x}/{:02x}/{:02x}\x1b\\", color[0], color[1], color[2])
-                .as_bytes(),
-        );
-    }
-    let mut offset = 8;
-    let foreground = (flags & 1 != 0).then(|| rgb(payload, &mut offset));
-    let background = (flags & 2 != 0).then(|| rgb(payload, &mut offset));
-    let cursor = (flags & 4 != 0).then(|| rgb(payload, &mut offset));
-    let cursor_visual = if flags & 8 != 0 {
-        let style = payload[offset];
-        let blink = payload[offset + 1];
-        if !(1..=3).contains(&style) || blink > 1 {
-            return Err("terminal Colors cursor state is invalid".into());
-        }
-        offset += 2;
-        Some((style, blink != 0))
-    } else {
-        None
-    };
-    let mut palette = [None; 256];
-    for _ in 0..palette_count {
-        let index = payload[offset] as usize;
-        if palette[index].is_some() {
-            return Err("terminal Colors contains a duplicate palette index".into());
-        }
-        palette[index] = Some([payload[offset + 1], payload[offset + 2], payload[offset + 3]]);
-        offset += 4;
-    }
-    let mut output = if cursor_visual.is_some() { b"\x1b[0 q".to_vec() } else { Vec::new() };
-    if let Some(color) = foreground { osc(&mut output, 10, color); }
-    if let Some(color) = background { osc(&mut output, 11, color); }
-    if let Some(color) = cursor { osc(&mut output, 12, color); }
-    if let Some((style, blink)) = cursor_visual {
-        let value = match (style, blink) { (1, true) => 1, (1, false) => 2, (2, true) => 3,
-            (2, false) => 4, (3, true) => 5, (3, false) => 6, _ => unreachable!() };
-        output.extend_from_slice(format!("\x1b[{value} q").as_bytes());
-    }
-    for (index, color) in palette.into_iter().enumerate() {
-        if let Some(color) = color {
-            output.extend_from_slice(format!("\x1b]4;{index};rgb:{:02x}/{:02x}/{:02x}\x1b\\", color[0], color[1], color[2]).as_bytes());
-        }
-    }
-    Ok(output)
 }
 
 impl ActiveTerminal {
@@ -514,7 +439,7 @@ impl ClientState {
                 );
                 self.bootstrap_frames = self.bootstrap_frames.saturating_add(1);
                 self.render_dirty = true;
-                let native_colors = decode_terminal_color_state_as_vt(&frame.payload)?;
+                let native_colors = terminal_color_override_full_state(&colors);
                 self.continue_after_native_event(
                     NativeRenderEventKind::Bytes,
                     self.cols,
@@ -1974,7 +1899,8 @@ mod tests {
         payload.extend_from_slice(&[0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99]);
         payload.extend_from_slice(&[3, 1]);
         payload.extend_from_slice(&[5, 0xaa, 0xbb, 0xcc]);
-        let encoded = decode_terminal_color_state_as_vt(&payload).unwrap();
+        let colors = decode_terminal_color_overrides(&payload).unwrap();
+        let encoded = terminal_color_override_full_state(&colors);
         assert_eq!(
             encoded,
             b"\x1b[0 q\x1b]10;rgb:11/22/33\x1b\\\x1b]11;rgb:44/55/66\x1b\\\x1b]12;rgb:77/88/99\x1b\\\x1b[5 q\x1b]4;5;rgb:aa/bb/cc\x1b\\"
