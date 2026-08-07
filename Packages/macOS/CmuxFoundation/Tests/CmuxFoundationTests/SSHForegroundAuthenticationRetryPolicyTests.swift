@@ -1291,6 +1291,50 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func unpublishedRollbackFailurePreservesDurableJournal(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-unpublished-rollback-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let statePathFile = root.appendingPathComponent("state-path")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_now_millis() { printf '1000\n'; }
+        cmux_ssh_auth_run_cleanup_transactions() {
+          printf '%s\n' "$cmux_ssh_auth_tree_state" > "$CMUX_TEST_STATE_PATH"
+          printf '101 1 777 Thu_Jan_1_00:00:00_1970\n' \
+            > "$cmux_ssh_auth_signaled_processes"
+          return 1
+        }
+        cmux_ssh_auth_resume_signaled_processes() { return 1; }
+        if cmux_ssh_terminate_unpublished_auth_process_tree \
+          101 1 777 Thu_Jan_1_00:00:00_1970; then exit 99; fi
+        cmux_test_state=$(/bin/cat "$CMUX_TEST_STATE_PATH") || exit 98
+        test -d "$cmux_test_state" || exit 97
+        test -f "$cmux_test_state/rollback-only" || exit 96
+        /usr/bin/grep -Fqx '101 1 777 Thu_Jan_1_00:00:00_1970' \
+          "$cmux_test_state/signaled.pids" || exit 95
+        /usr/bin/grep -Fqx "$cmux_test_state" \
+          "$TMPDIR/cmux-ssh-auth-recovery/queue.0" || exit 94
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_STATE_PATH": statePathFile.path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func emptyFrozenProcessSetRequiresNoForce() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
