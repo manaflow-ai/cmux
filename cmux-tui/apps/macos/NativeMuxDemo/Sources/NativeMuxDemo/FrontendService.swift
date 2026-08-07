@@ -220,11 +220,12 @@ actor FrontendService {
     return copyFrontendCString { cmux_frontend_client_copy_diagnostics(raw, $0, $1) }
   }
 
-  func shutdown() {
+  func shutdown() async {
     stopUpdates()
     guard let raw else { return }
     self.raw = nil
-    await enqueue { cmux_frontend_client_disconnect(raw) }
+    let address = UInt(bitPattern: raw)
+    await enqueue { cmux_frontend_client_disconnect(OpaquePointer(bitPattern: address)!) }
   }
 }
 
@@ -349,11 +350,12 @@ actor TerminalHandle {
     updateGeneration &+= 1
   }
 
-  func shutdown() {
+  func shutdown() async {
     stopUpdates()
     guard let raw else { return }
     self.raw = nil
-    await enqueue { cmux_frontend_terminal_disconnect(raw) }
+    let address = UInt(bitPattern: raw)
+    await enqueue { cmux_frontend_terminal_disconnect(OpaquePointer(bitPattern: address)!) }
   }
 }
 
