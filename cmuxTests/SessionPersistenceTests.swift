@@ -13,6 +13,14 @@ import CmuxTerminal
 #endif
 
 final class SessionPersistenceTests: XCTestCase {
+    func testLegacyNotificationsSidebarSelectionRestoresTabs() {
+        XCTAssertEqual(SessionSidebarSelection.notifications.sidebarSelection, .tabs)
+    }
+
+    func testNotificationsSidebarSelectionPersistsAsTabs() {
+        XCTAssertEqual(SessionSidebarSelection(selection: .notifications), .tabs)
+    }
+
     private struct LegacyPersistedWindowGeometry: Codable {
         let frame: SessionRectSnapshot
         let display: SessionDisplaySnapshot?
