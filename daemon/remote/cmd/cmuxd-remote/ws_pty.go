@@ -248,14 +248,20 @@ type wsPTYHub struct {
 	// rather than only per connection, so one stalled same-session start cannot
 	// retain unbounded goroutines across reconnect churn.
 	sessionStartWaiterSlots chan struct{}
-	closed                  bool
-	closedCh                chan struct{}
-	nextAttachmentID        uint64
-	nextAnonymousID         uint64
-	shell                   string
-	stderr                  io.Writer
-	scrollbackLimit         int
-	sessionIdleTTL          time.Duration
+	// sessionTeardownCount keeps a session active for daemon-retirement
+	// decisions after the idle reaper removes it from sessions and until its
+	// processes and PTY files are fully torn down. sessionTeardowns lets
+	// closeAll wait for that same ownership boundary before the process exits.
+	sessionTeardownCount int
+	sessionTeardowns     sync.WaitGroup
+	closed               bool
+	closedCh             chan struct{}
+	nextAttachmentID     uint64
+	nextAnonymousID      uint64
+	shell                string
+	stderr               io.Writer
+	scrollbackLimit      int
+	sessionIdleTTL       time.Duration
 	// openPTY allocates a PTY master/slave pair. It defaults to creack/pty.Open
 	// (which opens /dev/ptmx) and exists as a field so tests can simulate a
 	// hardened devpts where allocation is denied.
@@ -1579,6 +1585,7 @@ func (h *wsPTYHub) closeAll() {
 		session.terminateProcesses()
 		session.closePTYFiles()
 	}
+	h.sessionTeardowns.Wait()
 }
 
 type wsPTYInputWriteResult struct {
@@ -1884,7 +1891,7 @@ func (session *wsPTYSession) ptyFileSnapshot() *os.File {
 func (h *wsPTYHub) activeSessionCount() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	count := 0
+	count := h.sessionTeardownCount
 	for _, session := range h.sessions {
 		if session != nil && !session.closed {
 			count++
@@ -2058,13 +2065,21 @@ func (h *wsPTYHub) cancelIdleReapLocked(session *wsPTYSession) {
 
 func (h *wsPTYHub) reapIdleSession(session *wsPTYSession) {
 	h.mu.Lock()
-	if h.sessions[session.key] != session || session.closed || len(session.attachments) > 0 {
+	if h.closed || h.sessions[session.key] != session || session.closed || len(session.attachments) > 0 {
 		h.mu.Unlock()
 		return
 	}
 	delete(h.sessions, session.key)
 	session.idleTimer = nil
+	h.sessionTeardownCount++
+	h.sessionTeardowns.Add(1)
 	h.mu.Unlock()
+	defer func() {
+		h.mu.Lock()
+		h.sessionTeardownCount--
+		h.mu.Unlock()
+		h.sessionTeardowns.Done()
+	}()
 
 	session.terminateProcesses()
 	session.closePTYFiles()
