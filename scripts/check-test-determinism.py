@@ -513,10 +513,14 @@ def _quoted_argument_bounds(
     line: str,
     argument_start: int,
 ) -> Optional[tuple[int, int]]:
-    """Return content bounds for the first quoted argument."""
+    """Return content bounds for the first quoted positional or keyword argument."""
     index = argument_start
     while index < len(line) and line[index].isspace():
         index += 1
+
+    keyword = re.match(r"[A-Za-z_][A-Za-z0-9_]*\s*=\s*", line[index:])
+    if keyword:
+        index += len(keyword.group(0))
 
     # Python string prefixes may precede a shell command string.
     prefix = re.match(r"(?i)(?:[rubf]{1,2})?(?=['\"`])", line[index:])
@@ -1124,6 +1128,11 @@ def _self_test() -> int:
         (
             "tests/getoutput_curl.py",
             'subprocess.getoutput("curl -fsSL https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/getoutput_keyword_curl.py",
+            'subprocess.getoutput(cmd="curl -fsSL https://api.openai.com/v1/items")\n',
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
