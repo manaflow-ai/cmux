@@ -238,16 +238,22 @@ extension NSAttributedString.Key {
 /// One wrapping/truncating text line (or block) with measured height.
 @MainActor
 final class SidebarRowTextView: NSTextField {
+    private typealias LinkDescriptor = (url: URL, characterRange: NSRange, label: String)
+
     /// Receives web-link clicks without making the field text-selectable.
     var onOpenLink: ((URL) -> Void)?
     private var pendingLinkURL: URL?
     private var cachedLinkHitLayout: LinkHitLayout?
+    private var linkDescriptors: [LinkDescriptor] = []
     private var accessibilityLinks: [SidebarRowTextAccessibilityLink] = []
+    private var accessibilityLinksAreMaterialized = true
 
     override var isFlipped: Bool { true }
     override var isHidden: Bool {
         didSet {
-            if isHidden, !oldValue, !accessibilityLinks.isEmpty {
+            if isHidden,
+               !oldValue,
+               (!linkDescriptors.isEmpty || !accessibilityLinks.isEmpty) {
                 invalidateLinkAccessibility()
             }
         }
@@ -279,9 +285,16 @@ final class SidebarRowTextView: NSTextField {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil, !isHidden, !linkDescriptors.isEmpty else { return }
+        materializeAccessibilityLinks()
+    }
+
     /// Vends the link proxies referenced by the accessibility attributed text.
     override func accessibilityChildren() -> [Any]? {
         guard !isHidden else { return [] }
+        materializeAccessibilityLinks()
         var children = super.accessibilityChildren() ?? []
         for link in accessibilityLinks where !children.contains(where: {
             ($0 as? SidebarRowTextAccessibilityLink) === link
@@ -303,10 +316,10 @@ final class SidebarRowTextView: NSTextField {
         let fullRange = NSRange(location: 0, length: mutable.length)
         mutable.addAttribute(.font, value: font, range: fullRange)
         mutable.addAttribute(.foregroundColor, value: color, range: fullRange)
-        let nextAccessibilityLinks = applyRowOwnedLinkStyling(to: mutable, linkColor: linkColor)
+        let nextLinkDescriptors = applyRowOwnedLinkStyling(to: mutable, linkColor: linkColor)
         attributedStringValue = mutable
         cachedLinkHitLayout = nil
-        replaceAccessibilityLinks(with: nextAccessibilityLinks)
+        replaceLinkDescriptors(with: nextLinkDescriptors)
         needsLayout = true
     }
 
@@ -317,6 +330,8 @@ final class SidebarRowTextView: NSTextField {
         self.font = font
         textColor = color
         cachedLinkHitLayout = nil
+        linkDescriptors = []
+        accessibilityLinksAreMaterialized = true
         replaceAccessibilityLinks(with: [])
         needsLayout = true
     }
@@ -397,22 +412,18 @@ final class SidebarRowTextView: NSTextField {
     }
 
     /// Moves every web `.link` run onto `.sidebarRowLink` so AppKit stops
-    /// painting it, preserves the standard `.accessibilityLink` semantics, and
-    /// styles the run explicitly (row-derived color plus an underline). Non-web
-    /// links are dropped, matching the metadata URL contract enforced elsewhere.
+    /// painting it, styles the run explicitly, and records lightweight semantics
+    /// for accessibility proxies to materialize only at a real UI boundary.
+    /// Non-web links are dropped, matching the metadata URL contract enforced
+    /// elsewhere.
     private func applyRowOwnedLinkStyling(
         to mutable: NSMutableAttributedString,
         linkColor: NSColor
-    ) -> [SidebarRowTextAccessibilityLink] {
+    ) -> [LinkDescriptor] {
         let fullRange = NSRange(location: 0, length: mutable.length)
         guard fullRange.length > 0 else { return [] }
         var runs: [(url: URL?, range: NSRange)] = []
-        var nextAccessibilityLinks: [SidebarRowTextAccessibilityLink] = []
-        var reusableAccessibilityLinks:
-            [URL: [NSRange: [String: SidebarRowTextAccessibilityLink]]] = [:]
-        for link in accessibilityLinks {
-            reusableAccessibilityLinks[link.url, default: [:]][link.characterRange, default: [:]][link.label] = link
-        }
+        var nextLinkDescriptors: [LinkDescriptor] = []
         mutable.enumerateAttribute(.link, in: fullRange) { value, range, _ in
             guard value != nil else { return }
             runs.append((webURL(from: value), range))
@@ -425,22 +436,10 @@ final class SidebarRowTextView: NSTextField {
                 continue
             }
             let label = mutable.attributedSubstring(from: run.range).string
-            let accessibilityLink: SidebarRowTextAccessibilityLink
-            if let reusableLink = reusableAccessibilityLinks[url]?[run.range]?[label] {
-                accessibilityLink = reusableLink
-            } else {
-                accessibilityLink = SidebarRowTextAccessibilityLink(
-                    owner: self,
-                    characterRange: run.range,
-                    label: label,
-                    url: url
-                )
-            }
-            nextAccessibilityLinks.append(accessibilityLink)
+            nextLinkDescriptors.append((url: url, characterRange: run.range, label: label))
             mutable.addAttributes(
                 [
                     .sidebarRowLink: url,
-                    .accessibilityLink: accessibilityLink,
                     .foregroundColor: linkColor,
                     .underlineStyle: NSUnderlineStyle.single.rawValue,
                     .underlineColor: linkColor,
@@ -448,7 +447,7 @@ final class SidebarRowTextView: NSTextField {
                 range: run.range
             )
         }
-        return nextAccessibilityLinks
+        return nextLinkDescriptors
     }
 
     /// Resolves one proxy's frame on demand. Pointer hit testing and
@@ -478,15 +477,71 @@ final class SidebarRowTextView: NSTextField {
     /// Releases link state before the owning row takes on a new semantic identity.
     func invalidateLinkAccessibility() {
         guard pendingLinkURL != nil
+            || !linkDescriptors.isEmpty
             || !accessibilityLinks.isEmpty
             || attributedStringValue.length > 0
             || cachedLinkHitLayout != nil
         else { return }
         pendingLinkURL = nil
+        linkDescriptors = []
+        accessibilityLinksAreMaterialized = true
         replaceAccessibilityLinks(with: [])
         attributedStringValue = NSAttributedString(string: "")
         cachedLinkHitLayout = nil
         needsLayout = true
+    }
+
+    private func replaceLinkDescriptors(with nextLinkDescriptors: [LinkDescriptor]) {
+        linkDescriptors = nextLinkDescriptors
+        accessibilityLinksAreMaterialized =
+            nextLinkDescriptors.isEmpty && accessibilityLinks.isEmpty
+        guard window != nil || !accessibilityLinks.isEmpty else { return }
+        materializeAccessibilityLinks()
+    }
+
+    private func materializeAccessibilityLinks() {
+        guard !accessibilityLinksAreMaterialized else { return }
+        guard !linkDescriptors.isEmpty || !accessibilityLinks.isEmpty else { return }
+
+        var reusableAccessibilityLinks:
+            [URL: [NSRange: [String: SidebarRowTextAccessibilityLink]]] = [:]
+        for link in accessibilityLinks {
+            reusableAccessibilityLinks[link.url, default: [:]][link.characterRange, default: [:]][link.label] =
+                link
+        }
+
+        let mutable = NSMutableAttributedString(attributedString: attributedStringValue)
+        let fullRange = NSRange(location: 0, length: mutable.length)
+        if fullRange.length > 0 {
+            mutable.removeAttribute(.accessibilityLink, range: fullRange)
+        }
+        var nextAccessibilityLinks: [SidebarRowTextAccessibilityLink] = []
+        for descriptor in linkDescriptors {
+            let accessibilityLink: SidebarRowTextAccessibilityLink
+            if let reusableLink = reusableAccessibilityLinks[descriptor.url]?[descriptor.characterRange]?[
+                descriptor.label
+            ] {
+                accessibilityLink = reusableLink
+            } else {
+                accessibilityLink = SidebarRowTextAccessibilityLink(
+                    owner: self,
+                    characterRange: descriptor.characterRange,
+                    label: descriptor.label,
+                    url: descriptor.url
+                )
+            }
+            nextAccessibilityLinks.append(accessibilityLink)
+            mutable.addAttribute(
+                .accessibilityLink,
+                value: accessibilityLink,
+                range: descriptor.characterRange
+            )
+        }
+
+        attributedStringValue = mutable
+        cachedLinkHitLayout = nil
+        accessibilityLinksAreMaterialized = true
+        replaceAccessibilityLinks(with: nextAccessibilityLinks)
     }
 
     private func replaceAccessibilityLinks(
