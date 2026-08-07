@@ -225,8 +225,11 @@ final class FrontendModel {
             guard selectedWorkspaceID != nil,
                   let screenID = selectedScreenID else { return [] }
             let paneIDs = Set(next.panes.filter { $0.screenID == screenID }.map(\.id))
-            let tabIDs = Set(next.tabs.filter { paneIDs.contains($0.paneID) }.map(\.contentID))
-            return Set(next.terminals.filter { tabIDs.contains($0.id) }.map(\.id))
+            let tabsByPane = Dictionary(grouping: next.tabs.filter { paneIDs.contains($0.paneID) }, by: \.paneID)
+            let activeContentIDs = Set(tabsByPane.values.compactMap { tabs in
+                (tabs.first { $0.focused } ?? tabs.first)?.contentID
+            })
+            return Set(next.terminals.map(\.id).filter { activeContentIDs.contains($0) })
         }()
         let removed = terminalControllers.keys.filter { !live.contains($0) || !visible.contains($0) }
         for id in removed {
