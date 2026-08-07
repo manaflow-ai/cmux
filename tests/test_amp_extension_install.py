@@ -487,12 +487,12 @@ await handlers.get("tool.call")({
 }, otherCtx);
 const completionCount = stopCalls().length;
 await handlers.get("agent.end")({
-  thread,
-  message: "delegate",
-  id: "msg-1",
+  thread: otherThread,
+  message: "other work",
+  id: "msg-other",
   status: "done",
   messages: []
-}, ctx);
+}, otherCtx);
 if (stopCalls().length !== completionCount + 1) {
   throw new Error("agent.end did not publish exactly one provisional boundary");
 }
@@ -508,30 +508,67 @@ if (
   );
 }
 await handlers.get("tool.result")({
-  thread: otherThread,
-  toolUseID: "tool-other",
-  tool: "Task",
-  status: "done",
-  output: "unrelated work finished"
-}, otherCtx);
-if (stopCalls().length !== completionCount + 1) {
-  throw new Error("another thread's tool result settled the pending turn");
-}
-await handlers.get("tool.result")({
   toolUseID: "tool-main",
   tool: "Task",
   status: "done",
   output: "background work finished"
 }, ctx);
 if (stopCalls().length !== completionCount + 1) {
+  throw new Error("another thread's tool result settled the pending turn");
+}
+await handlers.get("tool.result")({
+  thread: otherThread,
+  toolUseID: "tool-other",
+  tool: "Task",
+  status: "done",
+  output: "unrelated work finished"
+}, otherCtx);
+if (stopCalls().length !== completionCount + 2) {
+  throw new Error(
+    "the newer concurrent thread did not publish its settled boundary"
+  );
+}
+const concurrentSettled = JSON.parse(stopCalls().at(-1).stdin);
+if (
+  concurrentSettled.cmux_turn_boundary !== "settled" ||
+  concurrentSettled.cmux_active_background_work_count !== 1 ||
+  concurrentSettled.turn_id !== provisional.turn_id
+) {
+  throw new Error(
+    `a newer thread idled the shared Amp lifecycle while an older thread was active: ${
+      JSON.stringify(concurrentSettled)
+    }`
+  );
+}
+const finalCompletionCount = stopCalls().length;
+await handlers.get("agent.end")({
+  thread,
+  message: "delegate",
+  id: "msg-1",
+  status: "done",
+  messages: []
+}, ctx);
+if (stopCalls().length !== finalCompletionCount + 1) {
   throw new Error(
     "draining structured tools settled before Amp's native thread became idle"
   );
 }
-thread.setState("idle");
-if (stopCalls().length !== completionCount + 2) {
+const finalProvisional = JSON.parse(stopCalls().at(-1).stdin);
+if (
+  finalProvisional.cmux_turn_boundary !== "turn_end" ||
+  finalProvisional.cmux_active_background_work_count !== 0 ||
+  finalProvisional.turn_id === provisional.turn_id
+) {
   throw new Error(
-    `Amp did not emit one settled completion: ${
+    `the remaining thread did not retain its own provisional identity: ${
+      JSON.stringify(finalProvisional)
+    }`
+  );
+}
+thread.setState("idle");
+if (stopCalls().length !== finalCompletionCount + 2) {
+  throw new Error(
+    `Amp did not emit one final settled completion: ${
       JSON.stringify(globalThis.__cmuxAmpSpawnCalls)
     }`
   );
@@ -540,10 +577,10 @@ const settled = JSON.parse(stopCalls().at(-1).stdin);
 if (
   settled.cmux_turn_boundary !== "settled" ||
   settled.cmux_active_background_work_count !== 0 ||
-  settled.turn_id !== provisional.turn_id
+  settled.turn_id !== finalProvisional.turn_id
 ) {
   throw new Error(
-    `Amp did not publish explicit settlement after background work drained: ${JSON.stringify(settled)}`
+    `Amp did not publish final settlement after every thread drained: ${JSON.stringify(settled)}`
   );
 }
 const racedThread = makeThread(
