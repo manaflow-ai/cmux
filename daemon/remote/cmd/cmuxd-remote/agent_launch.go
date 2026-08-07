@@ -150,6 +150,9 @@ func runOMORelay(socketPath string, args []string, refreshAddr func() string) in
 
 // runOMOSlimRelay launches OMO Slim 2.2+ with its native cmux multiplexer.
 func runOMOSlimRelay(commandName, socketPath string, args []string, refreshAddr func() string) int {
+	rc := &rpcContext{socketPath: socketPath, refreshAddr: refreshAddr}
+
+	// Resolve the agent executable before any PATH mutation.
 	originalPath := os.Getenv("PATH")
 	opencodePath := findExecutableInPath("opencode", originalPath, "")
 	if opencodePath == "" {
@@ -157,12 +160,20 @@ func runOMOSlimRelay(commandName, socketPath string, args []string, refreshAddr 
 		return 1
 	}
 
+	// Native OMO Slim owns pane lifecycle; only inject socket/workspace context.
+	// Do not install plugins, create shadow config, or install a tmux shim.
+	launchContext, err := agentLaunchContextForInvocation(rc, omoLaunchIsNonLaunch(args))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux %s: %v\n", commandName, err)
+		return 1
+	}
+
 	os.Setenv("CMUX_SOCKET_PATH", socketPath)
 	os.Unsetenv("CMUX_SOCKET")
-	if focused := getFocusedContext(&rpcContext{socketPath: socketPath, refreshAddr: refreshAddr}); focused != nil {
-		os.Setenv("CMUX_WORKSPACE_ID", focused.workspaceId)
-		if focused.surfaceId != "" {
-			os.Setenv("CMUX_SURFACE_ID", focused.surfaceId)
+	if launchContext != nil {
+		os.Setenv("CMUX_WORKSPACE_ID", launchContext.workspaceId)
+		if launchContext.surfaceId != "" {
+			os.Setenv("CMUX_SURFACE_ID", launchContext.surfaceId)
 		}
 	}
 	if os.Getenv("OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS") == "" {

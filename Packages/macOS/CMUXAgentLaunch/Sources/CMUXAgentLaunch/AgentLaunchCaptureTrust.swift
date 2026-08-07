@@ -38,7 +38,7 @@ public enum AgentLaunchCaptureTrust {
         "kiro": ["kiro", "kiro-cli"],
         "kimi": ["kimi", "kimi-cli", "kimi-code"],
         "omp": ["omp"],
-        "opencode": ["opencode", "omo", "omo-slim", "omos", "omx", "omc"],
+        "opencode": openCodeSessionWrapperLaunchers.union(["opencode", "omx", "omc"]),
         "pi": ["pi", "omp"],
         "qoder": ["qodercli", "qoder"],
         "rovodev": ["rovodev", "rovo", "rovo-dev"],
