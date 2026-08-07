@@ -62,6 +62,8 @@ public nonisolated struct AgentLifecycleReconciliationState: Sendable {
 
     /// Starts a Feed-owned needs-input overlay.
     ///
+    /// Exact generation evidence older than the current hook is rejected.
+    ///
     /// - Parameters:
     ///   - key: The sidebar lifecycle key.
     ///   - panelId: The panel that owns the overlay.
@@ -77,6 +79,11 @@ public nonisolated struct AgentLifecycleReconciliationState: Sendable {
         var entry = entriesByPanelId[panelId]?[key]
             ?? AgentLifecycleEntry()
         entry.isBuiltIn = entry.isBuiltIn || isBuiltIn
+        if let processGeneration,
+           let hookGeneration = entry.hook?.processGeneration,
+           processGeneration < hookGeneration {
+            return nil
+        }
         guard admit(
             processGeneration: processGeneration,
             into: &entry
