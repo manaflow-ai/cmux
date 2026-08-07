@@ -374,6 +374,14 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .workspaceColors, id: "indicator", title: "Workspace Color Indicator", synonyms: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
             .init(section: .workspaceColors, id: "selection", title: "Selection Highlight", synonyms: "workspaceColors.selectionColor selected workspace color highlight background active tab"),
             .init(section: .workspaceColors, id: "badge", title: "Notification Badge", synonyms: "workspaceColors.notificationBadgeColor unread notification badge color dot count"),
+            .init(
+                section: .workspaceColors,
+                id: "pane-flash-color",
+                title: String(localized: "settings.workspaceColors.paneFlashColor", defaultValue: "Pane Flash"),
+                detailText: String(localized: "settings.workspaceColors.paneFlashColor.subtitle", defaultValue: "Color of the attention ring and pane flash when a pane needs input."),
+                paths: ["notifications.paneFlashColor"],
+                synonyms: "notifications.paneFlashColor attention ring pane flash color unread needs input"
+            ),
             .init(section: .workspaceColors, id: "palette", title: "Reset Palette", synonyms: "reset palette named colors restore built-in custom remove default"),
 
             // cmux.json
