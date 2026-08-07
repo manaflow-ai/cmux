@@ -25,6 +25,8 @@ use crate::resource::{
     BrowserPublicId, ContentPublicId, MachinePublicId, PanePublicId, ScreenPublicId,
     SessionPublicId, SplitPublicId, TabPublicId, TerminalPublicId, WorkspacePublicId,
 };
+#[cfg(unix)]
+use crate::terminal_host_runtime::TerminalHostLiveness;
 
 mod effect_store;
 mod public_projection_store;
@@ -364,6 +366,7 @@ pub struct WorkspaceRegistry {
     resource_effect_pepper: ResourceEffectPepper,
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
+    _session_guard: Option<SessionLease>,
     _lease: Option<SessionLease>,
 }
 
@@ -390,6 +393,7 @@ pub fn reset_persistent_session_state(
         anyhow::bail!("workspace state root is not a directory: {}", root.display());
     }
     platform::restrict_directory(root)?;
+    let _session_guard = acquire_session_guard(root, session_name)?;
     let _lease = if session_dir.exists() {
         if !session_dir.is_dir() {
             anyhow::bail!(
@@ -402,11 +406,6 @@ pub fn reset_persistent_session_state(
     } else {
         None
     };
-    if session_dir.exists() {
-        fs::remove_dir_all(&session_dir)
-            .with_context(|| format!("remove workspace session state {}", session_dir.display()))?;
-        reset.removed_session_state = true;
-    }
     if terminal_host_root.exists() {
         if !terminal_host_root.is_dir() {
             anyhow::bail!(
@@ -414,13 +413,21 @@ pub fn reset_persistent_session_state(
                 terminal_host_root.display()
             );
         }
+        ensure_terminal_host_root_can_reset(&terminal_host_root)?;
+    }
+    if session_dir.exists() {
+        fs::remove_dir_all(&session_dir)
+            .with_context(|| format!("remove workspace session state {}", session_dir.display()))?;
+        reset.removed_session_state = true;
+    }
+    if terminal_host_root.exists() {
+        remove_dead_terminal_host_records_for_reset(&terminal_host_root)?;
         fs::remove_dir_all(&terminal_host_root).with_context(|| {
             format!("remove terminal host state {}", terminal_host_root.display())
         })?;
         reset.removed_terminal_hosts = true;
     }
-    File::open(root)
-        .and_then(|directory| directory.sync_all())
+    platform::sync_directory(root)
         .with_context(|| format!("sync workspace state root {}", root.display()))?;
     Ok(reset)
 }
@@ -445,10 +452,12 @@ impl WorkspaceRegistry {
             ResourceEffectPepper::random()?,
             None,
             None,
+            None,
         )
     }
 
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
+        let session_guard = acquire_session_guard(root, session_name)?;
         let machine_id = load_or_create_machine_id(root)?;
         let resource_effect_pepper = load_or_create_resource_effect_pepper(root)?;
         let session_dir = root.join(session_storage_component(session_name));
@@ -471,6 +480,7 @@ impl WorkspaceRegistry {
             session_name.to_string(),
             machine_id,
             resource_effect_pepper,
+            Some(session_guard),
             Some(lease),
             Some(db_path),
         )
@@ -481,6 +491,7 @@ impl WorkspaceRegistry {
         session_name: String,
         machine_id: MachinePublicId,
         resource_effect_pepper: ResourceEffectPepper,
+        session_guard: Option<SessionLease>,
         lease: Option<SessionLease>,
         database_path: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
@@ -787,6 +798,7 @@ impl WorkspaceRegistry {
             resource_effect_pepper,
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
+            _session_guard: session_guard,
             _lease: lease,
         })
     }
@@ -2826,6 +2838,52 @@ fn transaction_terminal_revision(transaction: &Transaction<'_>) -> anyhow::Resul
 
 const MACHINE_ID_FILE: &str = "machine-id";
 const MACHINE_ID_LOCK_FILE: &str = "machine-id.lock";
+const SESSION_GUARD_DIR: &str = "session-locks";
+
+fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
+    fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
+    platform::restrict_directory(root)?;
+    let lock_dir = root.join(SESSION_GUARD_DIR);
+    fs::create_dir_all(&lock_dir)
+        .with_context(|| format!("create session lock directory {}", lock_dir.display()))?;
+    platform::restrict_directory(&lock_dir)?;
+    let lock_path = lock_dir.join(format!("{}.lock", session_storage_component(session_name)));
+    SessionLease::acquire(&lock_path)
+}
+
+#[cfg(unix)]
+fn ensure_terminal_host_root_can_reset(root: &Path) -> anyhow::Result<()> {
+    for (record_path, record) in crate::terminal_host_runtime::load_terminal_host_records(root)? {
+        match crate::terminal_host_runtime::terminal_host_record_liveness(&record_path, &record)? {
+            TerminalHostLiveness::Dead => {}
+            TerminalHostLiveness::Live | TerminalHostLiveness::Indeterminate => {
+                anyhow::bail!("terminal host state still has live or unverified hosts");
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn ensure_terminal_host_root_can_reset(_root: &Path) -> anyhow::Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn remove_dead_terminal_host_records_for_reset(root: &Path) -> anyhow::Result<()> {
+    for (record_path, record) in crate::terminal_host_runtime::load_terminal_host_records(root)? {
+        if !crate::terminal_host_runtime::remove_stale_terminal_host_record(&record_path, &record)?
+        {
+            anyhow::bail!("terminal host state changed during reset");
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn remove_dead_terminal_host_records_for_reset(_root: &Path) -> anyhow::Result<()> {
+    Ok(())
+}
 
 fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<ResourceEffectPepper> {
     fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;

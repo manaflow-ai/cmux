@@ -70,6 +70,7 @@ pub(super) struct PluginPlan {
 pub(super) struct SessionResetStatePlan {
     pub session: String,
     pub state: Option<String>,
+    pub force: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -324,15 +325,11 @@ fn parse_session(
             }
             request(ResourceOperation::SessionShutdown, selectors, flags, params)
         }
-        [selector, "reset-state"] => {
-            if !flags.boolean("force") {
-                return Err(UsageError::new("session reset-state requires --force"));
-            }
-            Ok(CommandPlan::SessionResetState(SessionResetStatePlan {
-                session: exact_session_name_for_reset(selector)?,
-                state: flags.take("state"),
-            }))
-        }
+        [selector, "reset-state"] => Ok(CommandPlan::SessionResetState(SessionResetStatePlan {
+            session: exact_session_name_for_reset(selector)?,
+            state: flags.take("state"),
+            force: flags.boolean("force"),
+        })),
         [selector, "config", "reload"] => {
             selectors.insert("session", "session", selector)?;
             request(ResourceOperation::SessionReloadConfig, selectors, flags, Map::new())
@@ -378,14 +375,11 @@ fn parse_session(
 }
 
 fn exact_session_name_for_reset(selector: &str) -> Result<String, UsageError> {
-    match Selector::parse(selector)
-        .map_err(|_| UsageError::new("session reset-state requires an exact session name"))?
-    {
+    let messages = &crate::localization::catalog().session_reset;
+    match Selector::parse(selector).map_err(|_| UsageError::new(messages.exact_name_required))? {
         Selector::Name(name) if !name.is_empty() => Ok(name),
-        Selector::Name(_) => Err(UsageError::new("session reset-state requires a non-empty name")),
-        Selector::Current | Selector::Id(_) => Err(UsageError::new(
-            "session reset-state requires an exact session name, not current or an id",
-        )),
+        Selector::Name(_) => Err(UsageError::new(messages.non_empty_name_required)),
+        Selector::Current | Selector::Id(_) => Err(UsageError::new(messages.exact_name_required)),
     }
 }
 
@@ -2210,6 +2204,7 @@ pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthority
 
 pub(super) fn run_session_reset_state(global: GlobalArgs, plan: SessionResetStatePlan) -> i32 {
     let output = global.output;
+    let messages = &crate::localization::catalog().session_reset;
     let state_root =
         match plan.state.map(PathBuf::from).or_else(cmux_tui_core::platform::workspace_state_dir) {
             Some(path) => path,
@@ -2217,7 +2212,7 @@ pub(super) fn run_session_reset_state(global: GlobalArgs, plan: SessionResetStat
                 return super::wire::print_local_error(
                     &json!({
                         "code": "session.reset_state.no_state_root",
-                        "message": "cannot determine durable state directory; pass --state <path>",
+                        "message": messages.no_state_root,
                         "details": {},
                         "retryable": false,
                     }),
@@ -2226,28 +2221,37 @@ pub(super) fn run_session_reset_state(global: GlobalArgs, plan: SessionResetStat
                 );
             }
         };
+    let session_dir = cmux_tui_core::persistent_session_state_dir(&state_root, &plan.session);
+    let terminal_host_root =
+        cmux_tui_core::terminal_host_runtime::terminal_host_root(&state_root, &plan.session);
+    if !plan.force {
+        return super::wire::print_local_success(
+            &json!({
+                "session": plan.session,
+                "state_root": state_root,
+                "session_dir": session_dir,
+                "terminal_host_root": terminal_host_root,
+                "requires_force": true,
+            }),
+            output,
+        );
+    }
     match cmux_tui_core::reset_persistent_session_state(&state_root, &plan.session) {
         Ok(reset) => super::wire::print_local_success(
             &json!({
                 "session": plan.session,
-                "state_root": state_root,
-                "session_dir": reset.session_dir,
-                "terminal_host_root": reset.terminal_host_root,
                 "removed_session_state": reset.removed_session_state,
                 "removed_terminal_hosts": reset.removed_terminal_hosts,
             }),
             output,
         ),
-        Err(error) => super::wire::print_local_error(
+        Err(_error) => super::wire::print_local_error(
             &json!({
                 "code": "session.reset_state.failed",
-                "message": format!(
-                    "failed to reset saved state for session {:?}: {error}",
-                    plan.session
-                ),
+                "message": messages.reset_failed(&plan.session),
                 "details": {
                     "session": plan.session,
-                    "state_root": state_root,
+                    "recovery": messages.retry_after_preview,
                 },
                 "retryable": false,
             }),

@@ -120,6 +120,21 @@ pub(crate) struct SessionMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct SessionResetMessages {
+    pub exact_name_required: &'static str,
+    pub non_empty_name_required: &'static str,
+    pub no_state_root: &'static str,
+    reset_failed: &'static str,
+    pub retry_after_preview: &'static str,
+}
+
+impl SessionResetMessages {
+    pub(crate) fn reset_failed(&self, session: &str) -> String {
+        self.reset_failed.replace("{session}", session)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MachineAgentMessages {
     pub help: &'static str,
     pub usage: &'static str,
@@ -859,6 +874,7 @@ pub(crate) struct Catalog {
     pub graphics: GraphicsMessages,
     pub terminal: TerminalMessages,
     pub session: SessionMessages,
+    pub session_reset: SessionResetMessages,
     pub machine_agent: MachineAgentMessages,
     pub menu: MenuMessages,
     pub shortcuts: ShortcutMessages,
@@ -944,6 +960,13 @@ static ENGLISH: Catalog = Catalog {
         operation_reconciling: "Session operation may have completed; refreshing the layout",
         operation_failed: "Session operation failed",
         operation_canceled: "Session operation was canceled",
+    },
+    session_reset: SessionResetMessages {
+        exact_name_required: "session reset-state requires an exact session name",
+        non_empty_name_required: "session reset-state requires a non-empty name",
+        no_state_root: "cannot determine durable state directory; pass --state <path>",
+        reset_failed: "could not reset saved state for session \"{session}\"; no saved state was removed",
+        retry_after_preview: "rerun without --force to inspect the scoped reset plan",
     },
     machine_agent: MachineAgentMessages {
         help: "\
@@ -1432,6 +1455,13 @@ static JAPANESE: Catalog = Catalog {
         operation_reconciling: "セッション操作が完了している可能性があります。レイアウトを更新しています",
         operation_failed: "セッション操作に失敗しました",
         operation_canceled: "セッション操作はキャンセルされました",
+    },
+    session_reset: SessionResetMessages {
+        exact_name_required: "session reset-state には正確なセッション名が必要です",
+        non_empty_name_required: "session reset-state には空でない名前が必要です",
+        no_state_root: "永続状態ディレクトリを特定できません。--state <path> を指定してください",
+        reset_failed: "セッション \"{session}\" の保存状態をリセットできませんでした。保存状態は削除されていません",
+        retry_after_preview: "--force なしで再実行してスコープ付きリセット計画を確認してください",
     },
     machine_agent: MachineAgentMessages {
         help: "\

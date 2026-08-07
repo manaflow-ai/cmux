@@ -2,7 +2,9 @@ use std::fs;
 #[cfg(unix)]
 use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
+use std::os::fd::AsRawFd;
+#[cfg(unix)]
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 #[cfg(unix)]
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
@@ -630,9 +632,33 @@ fn session_reset_state_removes_only_the_named_saved_state() {
     };
     let stale_database = session_database(stale_session);
     let kept_database = session_database(kept_session);
+    let stale_host_root =
+        cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, stale_session);
+    let kept_host_root =
+        cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, kept_session);
+    fs::create_dir_all(&stale_host_root).unwrap();
+    fs::create_dir_all(&kept_host_root).unwrap();
+    fs::write(stale_host_root.join("orphaned-sidecar"), b"stale").unwrap();
+    fs::write(kept_host_root.join("orphaned-sidecar"), b"kept").unwrap();
     let connection = rusqlite::Connection::open(&stale_database).unwrap();
     connection.execute("UPDATE meta SET value = '999' WHERE key = 'schema_version'", []).unwrap();
     drop(connection);
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", stale_session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    assert_eq!(preview["session"], stale_session);
+    assert_eq!(preview["requires_force"], true);
+    assert_eq!(preview["state_root"], state.display().to_string());
+    assert_eq!(preview["session_dir"], stale_database.parent().unwrap().display().to_string());
+    assert_eq!(preview["terminal_host_root"], stale_host_root.display().to_string());
+    assert!(stale_database.exists(), "preview removed stale database");
+    assert!(stale_host_root.exists(), "preview removed stale terminal-host state");
 
     let reset = Command::new(bin())
         .args(["session", stale_session, "reset-state", "--force", "--state"])
@@ -642,8 +668,39 @@ fn session_reset_state_removes_only_the_named_saved_state() {
         .unwrap();
     assert_success(&reset);
     assert!(!stale_database.exists(), "reset left stale database at {}", stale_database.display());
+    assert!(!stale_host_root.exists(), "reset left stale terminal-host state");
     assert!(kept_database.exists(), "reset removed another session's database");
+    assert!(kept_host_root.exists(), "reset removed another session's terminal-host state");
     drop(cmux_tui_core::WorkspaceRegistry::open(&state, stale_session).unwrap());
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_reset_state_refuses_live_terminal_host_state() {
+    let dir = unique_temp_dir("session-reset-live-host");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-live-host";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
+    let _live_host = create_live_terminal_host_record(&host_root);
+
+    let reset = Command::new(bin())
+        .args(["session", session, "reset-state", "--force", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset unexpectedly succeeded");
+    let stderr = String::from_utf8(reset.stderr).unwrap();
+    assert!(stderr.contains("could not reset saved state for session"), "{stderr}");
+    assert!(!stderr.contains(&state.display().to_string()), "{stderr}");
+    assert!(database.exists(), "reset removed the registry while a live host was present");
+    assert!(host_root.exists(), "reset removed live terminal-host state");
 
     fs::remove_dir_all(dir).unwrap();
 }
@@ -2071,6 +2128,63 @@ fn assert_success(output: &Output) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+fn find_session_database(state: &std::path::Path, session: &str) -> PathBuf {
+    fs::read_dir(state)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+        .filter(|path| path.is_file())
+        .find(|path| {
+            let connection = rusqlite::Connection::open(path).unwrap();
+            let session_id: String = connection
+                .query_row("SELECT value FROM meta WHERE key = 'session_name'", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            session_id == session
+        })
+        .expect("session database")
+}
+
+#[cfg(unix)]
+fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
+    fs::create_dir_all(root).unwrap();
+    fs::set_permissions(root, fs::Permissions::from_mode(0o700)).unwrap();
+    let terminal_id = "0000000000004000800000000000002a";
+    let incarnation = "0000000000004000800000000000002b";
+    let owner_token = "01".repeat(32);
+    let host_start_nonce = "02".repeat(32);
+    let uid = fs::metadata(root).unwrap().uid();
+    let record = cmux_tui_core::terminal_host_runtime::TerminalHostRecord {
+        record_version: 2,
+        terminal_id: terminal_id.to_string(),
+        incarnation: incarnation.to_string(),
+        endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
+        owner_token,
+        host_pid: std::process::id(),
+        host_start_nonce: host_start_nonce.clone(),
+        workspace_key: String::new(),
+        supports_set_defaults: true,
+        supports_clear_history: true,
+    };
+    let record_path = record.record_path(root);
+    let live_path = record_path.with_extension(format!("{incarnation}-{host_start_nonce}.live"));
+    let live_file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_path)
+        .unwrap();
+    assert_eq!(unsafe { libc::flock(live_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let mut record_file =
+        fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record_path).unwrap();
+    record_file.write_all(&serde_json::to_vec(&record).unwrap()).unwrap();
+    record_file.sync_all().unwrap();
+    live_file
 }
 
 fn unique_temp_dir(name: &str) -> PathBuf {

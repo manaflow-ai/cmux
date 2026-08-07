@@ -1,5 +1,9 @@
 //! Platform decisions for cmux-tui.
 
+use std::fs::File;
+#[cfg(windows)]
+use std::fs::OpenOptions;
+use std::io;
 use std::path::{Path, PathBuf};
 
 pub mod transport {
@@ -609,12 +613,29 @@ pub fn chrome_user_data_dir() -> Option<PathBuf> {
     }
 }
 
-pub fn restrict_directory(path: &Path) -> std::io::Result<()> {
+pub fn restrict_directory(path: &Path) -> io::Result<()> {
     restrict_permissions(path, 0o700)
 }
 
-pub fn restrict_file(path: &Path) -> std::io::Result<()> {
+pub fn restrict_file(path: &Path) -> io::Result<()> {
     restrict_permissions(path, 0o600)
+}
+
+pub fn sync_directory(path: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x02000000;
+        OpenOptions::new()
+            .read(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(path)?
+            .sync_all()
+    }
+    #[cfg(not(windows))]
+    {
+        File::open(path)?.sync_all()
+    }
 }
 
 pub fn is_executable_file(path: &Path) -> bool {
@@ -781,7 +802,7 @@ fn push_unique(candidates: &mut Vec<PathBuf>, path: PathBuf) {
 }
 
 #[cfg(unix)]
-fn restrict_permissions(path: &Path, mode: u32) -> std::io::Result<()> {
+fn restrict_permissions(path: &Path, mode: u32) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
