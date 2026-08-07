@@ -11,6 +11,12 @@ struct SidebarWorkspaceSnapshotBuilder {
         let usesViewportAwarePath: Bool
         let showsAgentActivity: Bool
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
+        // Effective row color (manual color, else resolved origin color). Part of
+        // the key so the cached snapshot is rebuilt when the color changes — e.g.
+        // toggling the origin-colors flag or a mirror host resolving after appear,
+        // neither of which is a Workspace @Published change that would otherwise
+        // refresh the snapshot.
+        let customColorHex: String?
     }
 
     struct VerticalBranchDirectoryLine: Equatable {
@@ -36,7 +42,12 @@ struct SidebarWorkspaceSnapshotBuilder {
         let title: String
         let customDescription: String?
         let isPinned: Bool
+        // Effective row color: the manually chosen workspace color, else the
+        // per-host origin color when that beta flag is on. Rendering reads this;
+        // affordances that only make sense for a manual color (Clear Color)
+        // check `hasManualCustomColor` instead.
         let customColorHex: String?
+        let hasManualCustomColor: Bool
         let remoteWorkspaceSidebarText: String?
         let remoteConnectionStatusText: String
         let remoteStateHelpText: String

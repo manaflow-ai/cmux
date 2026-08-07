@@ -12,6 +12,7 @@ public struct BetaFeaturesSection: View {
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
+    @State private var remoteTmuxOriginColors: DefaultsValueModel<Bool>
     @State private var workspaceTodoControls: DefaultsValueModel<Bool>
     @State private var workspaceTodosChecklistStyle: DefaultsValueModel<WorkspaceTodoChecklistStyle>
 
@@ -21,6 +22,7 @@ public struct BetaFeaturesSection: View {
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
+        _remoteTmuxOriginColors = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmuxOriginColors))
         _workspaceTodoControls = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodoControls))
         _workspaceTodosChecklistStyle = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodosChecklistStyle))
     }
@@ -43,6 +45,8 @@ public struct BetaFeaturesSection: View {
                 SettingsCardDivider()
                 remoteTmuxRow
                 SettingsCardDivider()
+                remoteTmuxOriginColorsRow
+                SettingsCardDivider()
                 workspaceTodoControlsRow
                 SettingsCardDivider()
                 workspaceTodosChecklistStyleRow
@@ -58,6 +62,7 @@ public struct BetaFeaturesSection: View {
             extensions,
             customSidebars,
             remoteTmux,
+            remoteTmuxOriginColors,
             workspaceTodoControls,
             workspaceTodosChecklistStyle,
         ]
@@ -190,6 +195,22 @@ public struct BetaFeaturesSection: View {
         }
     }
 
+    @ViewBuilder
+    private var remoteTmuxOriginColorsRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:remoteTmuxOriginColors",
+            String(localized: "settings.betaFeatures.remoteTmuxOriginColors", defaultValue: "Remote host colors"),
+            subtitle: remoteTmuxOriginColors.current
+                ? String(localized: "settings.betaFeatures.remoteTmuxOriginColors.subtitleOn", defaultValue: "Tints each remote workspace's sidebar row and tab with a stable per-host color so servers are easy to tell apart. Your manual workspace color always wins.")
+                : String(localized: "settings.betaFeatures.remoteTmuxOriginColors.subtitleOff", defaultValue: "Leaves remote workspaces without an origin color until you enable it here.")
+        ) {
+            Toggle("", isOn: Binding(get: { remoteTmuxOriginColors.current }, set: { remoteTmuxOriginColors.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaRemoteTmuxOriginColorsToggle")
+        }
+    }
 }
 
 /// Small warning callout with a yellow triangle, used at the top of
