@@ -618,15 +618,251 @@
     "cli.herdrCompat.error.launchFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Failed to launch compatibility provider at %1$@: %2$@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%1$@ の互換プロバイダーを起動できませんでした: %2$@" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to launch compatibility provider at %1$@: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ の互換プロバイダーを起動できませんでした: %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر بدء الأمر المطلوب. تأكد من تثبيته ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće pokrenuti potrebnu naredbu. Provjerite je li instalirana i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den nødvendige kommando kunne ikke startes. Kontrollér, at den er installeret, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der erforderliche Befehl konnte nicht gestartet werden. Stelle sicher, dass er installiert ist, und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo iniciar el comando requerido. Comprueba que esté instalado e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lancer la commande requise. Vérifiez qu’elle est installée, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile avviare il comando richiesto. Verifica che sia installato e riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចចាប់ផ្ដើមពាក្យបញ្ជាដែលត្រូវការបានទេ។ សូមផ្ទៀងផ្ទាត់ថាវាត្រូវបានដំឡើង ហើយព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필요한 명령을 시작할 수 없습니다. 설치되어 있는지 확인한 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke starte den nødvendige kommandoen. Kontroller at den er installert, og prøv på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się uruchomić wymaganego polecenia. Sprawdź, czy jest zainstalowane, i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível iniciar o comando necessário. Verifique se ele está instalado e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось запустить требуемую команду. Убедитесь, что она установлена, и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถเริ่มคำสั่งที่จำเป็นได้ โปรดตรวจสอบว่าได้ติดตั้งแล้วและลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gerekli komut başlatılamadı. Komutun yüklü olduğunu doğrulayıp tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося запустити потрібну команду. Переконайтеся, що її встановлено, і повторіть спробу."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法启动所需命令。请确认该命令已安装，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法啟動所需的指令。請確認已安裝該指令，然後再試一次。"
+          }
+        }
       }
     },
     "cli.herdrCompat.error.unknownCommand": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Unknown compatibility command '%@'. Supported commands: status, snapshot, list-workspaces, list-tabs, list-panes." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "不明な互換コマンド '%@' です。対応コマンド: status、snapshot、list-workspaces、list-tabs、list-panes。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown compatibility command '%@'. Supported commands: status, snapshot, list-workspaces, list-tabs, list-panes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な互換コマンド '%@' です。対応コマンド: status、snapshot、list-workspaces、list-tabs、list-panes。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمر التوافق '%1$@' غير معروف. الأوامر المدعومة: %2$@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nepoznata naredba za kompatibilnost '%1$@'. Podržane naredbe: %2$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukendt kompatibilitetskommando '%1$@'. Understøttede kommandoer: %2$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter Kompatibilitätsbefehl „%1$@“. Unterstützte Befehle: %2$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando de compatibilidad desconocido «%1$@». Comandos compatibles: %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commande de compatibilité inconnue « %1$@ ». Commandes prises en charge : %2$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando di compatibilità sconosciuto '%1$@'. Comandi supportati: %2$@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនស្គាល់ពាក្យបញ្ជាភាពឆបគ្នា '%1$@' ទេ។ ពាក្យបញ្ជាដែលគាំទ្រ៖ %2$@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 호환성 명령 '%1$@'입니다. 지원되는 명령: %2$@."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukjent kompatibilitetskommando «%1$@». Støttede kommandoer: %2$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieznane polecenie zgodności „%1$@”. Obsługiwane polecenia: %2$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando de compatibilidade desconhecido '%1$@'. Comandos compatíveis: %2$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неизвестная команда совместимости «%1$@». Поддерживаемые команды: %2$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่รู้จักคำสั่งความเข้ากันได้ '%1$@' คำสั่งที่รองรับ: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilinmeyen uyumluluk komutu '%1$@'. Desteklenen komutlar: %2$@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Невідома команда сумісності «%1$@». Підтримувані команди: %2$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知兼容命令“%1$@”。支持的命令：%2$@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的相容性指令「%1$@」。支援的指令：%2$@。"
+          }
+        }
       }
     },
     "about.appName": {
