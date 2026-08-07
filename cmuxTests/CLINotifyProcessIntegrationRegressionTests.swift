@@ -3531,6 +3531,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "RequestTTY=false",
                 "RequestTTY=false"
             ),
+            (
+                "quoted alias",
+                ["--ssh-option", "RequestTTY = \"false\""],
+                "RequestTTY = \"false\"",
+                "RequestTTY = \"false\""
+            ),
         ]
 
         for testCase in cases {

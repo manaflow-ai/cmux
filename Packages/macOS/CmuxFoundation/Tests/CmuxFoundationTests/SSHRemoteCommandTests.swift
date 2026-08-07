@@ -45,6 +45,10 @@ struct SSHRemoteCommandTests {
         #expect(disable.sshOptionsPersistingTTYRequest(in: ["RequestTTY=false"]) == [
             "RequestTTY=no",
         ])
+        #expect(enable.sshOptionsPersistingTTYRequest(in: ["RequestTTY = \"yes\""]) == [
+            "RequestTTY=force",
+        ])
+        #expect(disable.disablesTTY(in: ["RequestTTY = \"false\""]))
     }
 
     @Test("treats every argument after the separator as a literal command token")
