@@ -26,3 +26,23 @@ state.recordProcessGeneration(
 Package tests construct the domain values directly, so lifecycle ordering and
 settlement behavior can be verified without launching cmux or reading a user's
 filesystem.
+
+Native-approval owners inject their UI-specific target into the bounded active
+registry and synchronously retire every record returned by eviction or owner
+teardown:
+
+```swift
+var observations = AgentObservedAttentionRegistry<PanelAttentionTarget>(
+    maximumCount: 256
+)
+let evicted = observations.insert(
+    AgentObservedAttentionRecord(
+        key: observationKey,
+        scopeId: turnScopeID,
+        target: panelTarget
+    )
+) ?? []
+for record in evicted {
+    clearVisibleAttention(record.target)
+}
+```
