@@ -33,6 +33,7 @@ mod journal_extensions;
 mod public_projection_store;
 mod resource_store;
 mod session_journal;
+mod session_persistence_store;
 mod terminal_exit_store;
 
 use agent_projection_store::rebuild_agent_projections_from_journal;
@@ -83,6 +84,9 @@ use session_journal::{
     migrate_resource_events_to_session_journal,
 };
 pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
+use session_persistence_store::{
+    create_session_persistence_schema, rebuild_session_persistence_from_journal,
+};
 
 // Schema 9 shipped independently on the journal and multiview development
 // branches. Schema 10 shipped the journal extensions. Version 11 is the first
@@ -92,8 +96,9 @@ pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
 // binary content to journal rows. Version 14 gives resource API frontend
 // projections one owned envelope instead of storing anonymous projection JSON.
 // Version 15 adds canonical journal-derived agent state beside the
-// terminal-current compatibility projection.
-const SCHEMA_VERSION: i64 = 15;
+// terminal-current compatibility projection. Version 16 adds journal-derived
+// session persistence state machines and the default-off hibernation policy.
+const SCHEMA_VERSION: i64 = 16;
 pub(crate) const RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION: u32 = 2;
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
@@ -523,7 +528,7 @@ impl WorkspaceRegistry {
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
-            Some(9..=14) => {
+            Some(9..=15) => {
                 let tx = connection.unchecked_transaction()?;
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;
@@ -751,12 +756,14 @@ impl WorkspaceRegistry {
             let tx = connection.unchecked_transaction()?;
             create_resource_effect_schema(&tx)?;
             create_journal_extensions_schema(&tx)?;
+            create_session_persistence_schema(&tx)?;
             recover_resource_effects(&tx)?;
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
             tx.commit()?;
         }
         rebuild_agent_projections_from_journal(&connection)?;
+        rebuild_session_persistence_from_journal(&connection)?;
         let stored_name = required_meta(&connection, "session_name")?;
         if stored_name != session_name {
             anyhow::bail!(

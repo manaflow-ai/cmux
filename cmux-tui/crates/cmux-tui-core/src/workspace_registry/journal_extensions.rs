@@ -1,4 +1,5 @@
 use super::agent_projection_store::apply_agent_projection_journal_record;
+use super::session_persistence_store::apply_session_persistence_journal_record;
 use super::*;
 use crate::resource::WireDecimal;
 use crate::workspace_registry::session_journal::{
@@ -1286,6 +1287,16 @@ fn append_journal_ingress_transaction(
         &ingress.kind,
         occurred_at_ms,
         &producer,
+        &subjects,
+        &ingress.payload,
+    )?;
+    apply_session_persistence_journal_record(
+        tx,
+        sequence,
+        &ingress.kind,
+        occurred_at_ms,
+        &producer,
+        Some(&authority),
         &subjects,
         &ingress.payload,
     )?;
