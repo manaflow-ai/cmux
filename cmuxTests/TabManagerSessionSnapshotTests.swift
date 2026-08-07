@@ -83,6 +83,36 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(snapshot.selectedWorkspaceIndex)
     }
 
+    func testSessionSnapshotKeepsLocalTerminalInMixedBrokerWorkspace() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let localPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let externalPanel = try XCTUnwrap(workspace.addManualMirrorTerminalPanel(
+            title: "Broker terminal",
+            onInput: { _ in }
+        ))
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let workspaceSnapshot = try XCTUnwrap(snapshot.workspaces.first)
+        XCTAssertEqual(snapshot.workspaces.count, 1)
+        XCTAssertEqual(workspaceSnapshot.panels.map(\.id), [localPanelId])
+        XCTAssertFalse(workspaceSnapshot.panels.contains { $0.id == externalPanel.id })
+        guard case .pane(let paneLayout) = workspaceSnapshot.layout else {
+            return XCTFail("Expected the mixed workspace to retain its original pane")
+        }
+        XCTAssertEqual(paneLayout.panelIds, [localPanelId])
+        XCTAssertEqual(paneLayout.selectedPanelId, localPanelId)
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredWorkspace = try XCTUnwrap(restored.selectedWorkspace)
+        XCTAssertEqual(restoredWorkspace.panels.count, 1)
+        XCTAssertEqual(
+            (restoredWorkspace.panels[localPanelId] as? TerminalPanel)?.surface.ioMode,
+            .exec
+        )
+    }
+
     func testRestoreSessionSnapshotPreservesPersistedWorkspaceIdsAndOrder() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
