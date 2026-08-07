@@ -6,7 +6,7 @@ public struct NestedProviderKind: Codable, Comparable, Hashable, Sendable {
     /// The Herdr nested multiplexer provider.
     public static let herdr = NestedProviderKind(rawValue: "herdr")
 
-    /// Provider-defined opaque kind value preserved byte-for-byte on the wire.
+    /// Provider-defined opaque kind value.
     public let rawValue: String
 
     /// Creates a provider kind without interpreting its opaque value.
@@ -40,19 +40,19 @@ public struct NestedProviderKind: Codable, Comparable, Hashable, Sendable {
         ExactUTF8String(lhs.rawValue) < ExactUTF8String(rhs.rawValue)
     }
 
-    /// Decodes a provider kind from its byte-exact wire value.
+    /// Decodes a provider kind from its single string value.
     ///
     /// - Parameter decoder: Decoder containing the provider token.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.singleValueContainer()
-        rawValue = try container.decode(ExactUTF8String.self).value
+        rawValue = try container.decode(String.self)
     }
 
-    /// Encodes a provider kind as a byte-exact wire value.
+    /// Encodes a provider kind as its single string value.
     ///
     /// - Parameter encoder: Encoder receiving the provider token.
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.singleValueContainer()
-        try container.encode(ExactUTF8String(rawValue))
+        try container.encode(rawValue)
     }
 }

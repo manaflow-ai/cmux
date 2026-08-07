@@ -19,7 +19,7 @@ public struct NestedNodeID: Codable, Hashable, Sendable {
     /// Topology level owned by this identity.
     public let kind: NestedNodeKind
 
-    /// Provider-owned opaque node value preserved byte-for-byte on the wire.
+    /// Provider-owned opaque node value.
     public let rawID: String
 
     /// Reconstituted provider identity represented by this node ID.
@@ -81,7 +81,7 @@ public struct NestedNodeID: Codable, Hashable, Sendable {
             forKey: .providerInstanceID
         )
         kind = try container.decode(NestedNodeKind.self, forKey: .kind)
-        rawID = try container.decode(ExactUTF8String.self, forKey: .rawID).value
+        rawID = try container.decode(String.self, forKey: .rawID)
     }
 
     /// Encodes every component of the structured identity.
@@ -93,7 +93,7 @@ public struct NestedNodeID: Codable, Hashable, Sendable {
         try container.encode(providerKind, forKey: .providerKind)
         try container.encode(providerInstanceID, forKey: .providerInstanceID)
         try container.encode(kind, forKey: .kind)
-        try container.encode(ExactUTF8String(rawID), forKey: .rawID)
+        try container.encode(rawID, forKey: .rawID)
     }
 
     private enum CodingKeys: String, CodingKey {

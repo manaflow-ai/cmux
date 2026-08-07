@@ -54,7 +54,7 @@ struct NestedTopologyCodableTests {
         ])
     }
 
-    @Test("opaque protocol bytes survive Codable round trips")
+    @Test("opaque protocol bytes survive JSON and property-list round trips")
     func opaqueProtocolUTF8RoundTrip() throws {
         let leadingByteOrderMark = "\u{FEFF}"
         let provider = NestedProviderIdentity(
@@ -128,8 +128,25 @@ struct NestedTopologyCodableTests {
         #expect(decoded.panes[0].association.key == snapshot.panes[0].association.key)
         #expect(decoded.agents[0].sessionID.map(ExactUTF8String.init)
             == snapshot.agents[0].sessionID.map(ExactUTF8String.init))
-        #expect(decoded.agents[0].status == snapshot.agents[0].status)
+        #expect(ExactUTF8String(decoded.agents[0].status.providerRawValue)
+            == ExactUTF8String(snapshot.agents[0].status.providerRawValue))
         #expect(decoded == snapshot)
+
+        let propertyListData = try PropertyListEncoder().encode(snapshot)
+        let propertyListDecoded = try PropertyListDecoder().decode(
+            NestedTopologySnapshot.self,
+            from: propertyListData
+        )
+
+        #expect(propertyListDecoded.provider == snapshot.provider)
+        #expect(propertyListDecoded.capabilities == snapshot.capabilities)
+        #expect(propertyListDecoded.workspaces[0].id == workspaceID)
+        #expect(propertyListDecoded.panes[0].association.key == snapshot.panes[0].association.key)
+        #expect(propertyListDecoded.agents[0].sessionID.map(ExactUTF8String.init)
+            == snapshot.agents[0].sessionID.map(ExactUTF8String.init))
+        #expect(ExactUTF8String(propertyListDecoded.agents[0].status.providerRawValue)
+            == ExactUTF8String(snapshot.agents[0].status.providerRawValue))
+        #expect(propertyListDecoded == snapshot)
     }
 
     @Test("events round-trip as typed structured mutations")
