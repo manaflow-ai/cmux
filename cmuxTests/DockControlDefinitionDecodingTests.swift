@@ -213,11 +213,6 @@ struct DockControlDefinitionDecodingTests {
         #expect(terminal.displayTitle == "codex · issue 9337")
         #expect(store.bonsplitController.tab(tabID)?.title == "codex · issue 9337")
 
-        store.bonsplitController.updateTab(
-            tabID,
-            title: "Pinned agent",
-            hasCustomTitle: true
-        )
         NotificationCenter.default.post(
             name: .ghosttyDidSetTitle,
             object: nil,
@@ -231,12 +226,35 @@ struct DockControlDefinitionDecodingTests {
 
         for _ in 0..<10 {
             await Task.yield()
-            if terminal.displayTitle == "zsh",
+            if store.bonsplitController.tab(tabID)?.title == "zsh" { break }
+        }
+        #expect(terminal.displayTitle == "zsh")
+        #expect(store.bonsplitController.tab(tabID)?.title == "zsh")
+
+        store.bonsplitController.updateTab(
+            tabID,
+            title: "Pinned agent",
+            hasCustomTitle: true
+        )
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: GhosttyTitleChange(
+                tabId: store.workspaceId,
+                surfaceId: terminal.id,
+                title: "claude · issue 9337",
+                sourceSurfaceIdentifier: ObjectIdentifier(terminal.surface)
+            ).userInfo
+        )
+
+        for _ in 0..<10 {
+            await Task.yield()
+            if terminal.displayTitle == "claude · issue 9337",
                store.bonsplitController.tab(tabID)?.title == "Pinned agent" {
                 break
             }
         }
-        #expect(terminal.displayTitle == "zsh")
+        #expect(terminal.displayTitle == "claude · issue 9337")
         #expect(store.bonsplitController.tab(tabID)?.title == "Pinned agent")
     }
 
@@ -457,6 +475,17 @@ struct DockControlDefinitionDecodingTests {
         let cleanPanel = try terminalPanel(in: store, panelId: cleanPanelId)
         dirtyPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
         cleanPanel.surface.setNeedsConfirmCloseOverrideForTesting(false)
+        let resumeBinding = SurfaceResumeBindingSnapshot(
+            name: "tmux",
+            kind: "tmux",
+            command: "tmux attach-session -t dock-cancelled-pane",
+            cwd: "/tmp",
+            checkpointId: "dock-cancelled-pane",
+            source: "process-detected",
+            autoResume: true,
+            updatedAt: 1_999_999_999
+        )
+        store.surfaceResumeBindingsByPanelId[dirtyPanelId] = resumeBinding
         defer {
             dirtyPanel.surface.setNeedsConfirmCloseOverrideForTesting(nil)
             cleanPanel.surface.setNeedsConfirmCloseOverrideForTesting(nil)
@@ -485,6 +514,78 @@ struct DockControlDefinitionDecodingTests {
         #expect(capturedPrompt?.title == String(localized: "dialog.closePane.title", defaultValue: "Close pane?"))
         #expect(capturedPrompt?.message == expectedMessage)
         #expect(capturedPrompt?.acceptCmdD == false)
+        #expect(store.containsPanel(dirtyPanelId))
+        #expect(store.surfaceResumeBindingsByPanelId[dirtyPanelId] == resumeBinding)
+    }
+
+    @Test("Cancelled Dock tab close preserves its live resume binding")
+    @MainActor
+    func cancelledDockTabClosePreservesResumeBinding() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            defer {
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let workspace = try #require(manager.tabs.first)
+            let store = workspace.dockSplit
+            let rootPane = try #require(
+                store.bonsplitController.allPaneIds.first
+            )
+            let panelId = try #require(
+                store.newSurface(
+                    kind: .terminal,
+                    inPane: rootPane,
+                    focus: true
+                )
+            )
+            let terminal = try terminalPanel(
+                in: store,
+                panelId: panelId
+            )
+            terminal.surface.setNeedsConfirmCloseOverrideForTesting(true)
+            defer {
+                terminal.surface.setNeedsConfirmCloseOverrideForTesting(nil)
+            }
+
+            let resumeBinding = SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach-session -t dock-cancelled-tab",
+                cwd: "/tmp",
+                checkpointId: "dock-cancelled-tab",
+                source: "process-detected",
+                autoResume: true,
+                updatedAt: 1_999_999_999
+            )
+            store.surfaceResumeBindingsByPanelId[panelId] = resumeBinding
+
+            let promptHandled = AsyncStream<Void>.makeStream()
+            var promptCount = 0
+            manager.confirmCloseHandler = { _, _, _ in
+                promptCount += 1
+                promptHandled.continuation.yield()
+                promptHandled.continuation.finish()
+                return false
+            }
+
+            #expect(!store.closePanel(panelId))
+            for await _ in promptHandled.stream {
+                break
+            }
+
+            #expect(promptCount == 1)
+            #expect(store.containsPanel(panelId))
+            #expect(
+                store.surfaceResumeBindingsByPanelId[panelId] ==
+                    resumeBinding
+            )
+        }
     }
 
     @Test("Dock browser closes when WebKit requests close")

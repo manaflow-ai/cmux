@@ -5,7 +5,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Open typed union for protocol-v1 session event items. */
+/** Open typed union for protocol-v2 session event items. */
 public sealed interface SessionEvent permits
         SessionEvent.Snapshot, SessionEvent.Delta, SessionEvent.Unknown {
     String kind();

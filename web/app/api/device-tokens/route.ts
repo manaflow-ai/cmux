@@ -3,8 +3,10 @@
 // user explicitly opts in on their device, so presence == "wants phone pushes".
 
 import { and, count, eq, ne, sql } from "drizzle-orm";
+import { env } from "../../env";
 import { cloudDb } from "../../../db/client";
 import { deviceTokens } from "../../../db/schema";
+import { resolveApnsProviderConfiguration } from "../../../services/apns/config";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
 import { unauthorized, verifyRequest } from "../../../services/vms/auth";
 import { withApnsApiRoute } from "../../../services/apns/routeHandler";
@@ -52,17 +54,36 @@ async function registerDeviceToken(request: Request): Promise<Response> {
 
   const db = cloudDb();
 
-  let registered: boolean;
+  let registration: {
+    limitReached: boolean;
+    deliveryBusyRetryAfterSeconds?: number;
+  };
   try {
-    registered = await db.transaction(async (tx) => {
+    registration = await db.transaction(async (tx) => {
       await assertAccountDeletionUserMutationAllowed(tx, user.id);
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 2))`);
 
       const [existingToken] = await tx
-        .select({ userId: deviceTokens.userId })
+        .select({
+          userId: deviceTokens.userId,
+          deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil,
+        })
         .from(deviceTokens)
         .where(eq(deviceTokens.deviceToken, deviceToken))
-        .limit(1);
+        .limit(1)
+        .for("update");
+
+      const deliveryLeaseUntilMs =
+        existingToken?.deliveryLeaseUntil?.getTime() ?? 0;
+      if (deliveryLeaseUntilMs > Date.now()) {
+        return {
+          limitReached: false,
+          deliveryBusyRetryAfterSeconds: Math.max(
+            1,
+            Math.ceil((deliveryLeaseUntilMs - Date.now()) / 1_000),
+          ),
+        };
+      }
 
       if (existingToken?.userId !== user.id) {
         const [registrationCount] = await tx
@@ -70,7 +91,12 @@ async function registerDeviceToken(request: Request): Promise<Response> {
           .from(deviceTokens)
           .where(and(eq(deviceTokens.userId, user.id), ne(deviceTokens.deviceToken, deviceToken)));
         if (Number(registrationCount?.total ?? 0) >= MAX_DEVICE_TOKENS_PER_USER) {
-          return false;
+          // Never guess that an old-looking token is dead. Only an APNs
+          // terminal response proves that and the send route prunes it there.
+          // Re-registering a known current token still succeeds above; a new
+          // token receives a typed repair rather than silently evicting a
+          // potentially live device.
+          return { limitReached: true };
         }
       }
 
@@ -94,7 +120,7 @@ async function registerDeviceToken(request: Request): Promise<Response> {
           },
         });
 
-      return true;
+      return { limitReached: false };
     });
   } catch (error) {
     if (error instanceof AccountDeletionMutationBlockedError) {
@@ -103,11 +129,39 @@ async function registerDeviceToken(request: Request): Promise<Response> {
     throw error;
   }
 
-  if (!registered) {
-    return jsonResponse({ error: "too_many_devices" }, 429);
+  if (registration.limitReached) {
+    return jsonResponse(
+      {
+        error: "too_many_devices",
+        limit: MAX_DEVICE_TOKENS_PER_USER,
+        action: "disable_push_on_another_device",
+      },
+      429,
+    );
   }
-
-  return jsonResponse({ ok: true });
+  if (registration.deliveryBusyRetryAfterSeconds != null) {
+    return new Response(
+      JSON.stringify({
+        error: "push_delivery_in_progress",
+        retryAfterSeconds: registration.deliveryBusyRetryAfterSeconds,
+      }),
+      {
+        status: 409,
+        headers: {
+          "content-type": "application/json",
+          "retry-after": String(registration.deliveryBusyRetryAfterSeconds),
+        },
+      },
+    );
+  }
+  return jsonResponse({
+    ok: true,
+    pushServiceConfigured: resolveApnsProviderConfiguration(
+      env.CMUX_APNS_KEY_P8,
+      env.CMUX_APNS_KEY_ID,
+      env.CMUX_APNS_TEAM_ID,
+    ) !== null,
+  });
 }
 
 export async function DELETE(request: Request): Promise<Response> {
@@ -125,9 +179,49 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
   if (!HEX_TOKEN.test(deviceToken)) return jsonResponse({ error: "invalid_device_token" }, 400);
 
   const db = cloudDb();
-  await db
-    .delete(deviceTokens)
-    .where(and(eq(deviceTokens.deviceToken, deviceToken), eq(deviceTokens.userId, user.id)));
+  const deletion = await db.transaction(async (tx) => {
+    const [existingToken] = await tx
+      .select({ deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil })
+      .from(deviceTokens)
+      .where(and(
+        eq(deviceTokens.deviceToken, deviceToken),
+        eq(deviceTokens.userId, user.id),
+      ))
+      .limit(1)
+      .for("update");
+    const deliveryLeaseUntilMs =
+      existingToken?.deliveryLeaseUntil?.getTime() ?? 0;
+    if (deliveryLeaseUntilMs > Date.now()) {
+      return {
+        retryAfterSeconds: Math.max(
+          1,
+          Math.ceil((deliveryLeaseUntilMs - Date.now()) / 1_000),
+        ),
+      };
+    }
+    await tx
+      .delete(deviceTokens)
+      .where(and(
+        eq(deviceTokens.deviceToken, deviceToken),
+        eq(deviceTokens.userId, user.id),
+      ));
+    return { retryAfterSeconds: null };
+  });
+  if (deletion.retryAfterSeconds != null) {
+    return new Response(
+      JSON.stringify({
+        error: "push_delivery_in_progress",
+        retryAfterSeconds: deletion.retryAfterSeconds,
+      }),
+      {
+        status: 409,
+        headers: {
+          "content-type": "application/json",
+          "retry-after": String(deletion.retryAfterSeconds),
+        },
+      },
+    );
+  }
 
   return jsonResponse({ ok: true });
 }
