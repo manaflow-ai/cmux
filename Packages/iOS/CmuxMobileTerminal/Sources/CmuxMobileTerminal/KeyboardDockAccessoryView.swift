@@ -80,4 +80,22 @@ final class KeyboardDockAccessoryView: UIInputView {
         return true
     }
 }
+
+/// The composer band container that rides inside ``KeyboardDockAccessoryView``.
+///
+/// The hosted compose field is a SwiftUI `TextField`, which cannot override
+/// `inputAccessoryView`. UIKit resolves input views by walking the responder
+/// chain UP from the first responder, and this container is always in the
+/// focused field's chain, so it supplies the shared dock on the field's
+/// behalf. Without this, focusing the field resolves a nil accessory and the
+/// system dismisses the dock mid-transition — the very view the field lives
+/// in — killing the focus and bouncing the dock instead of raising the
+/// keyboard.
+final class KeyboardDockComposerContainerView: UIView {
+    /// Returns the shared dock accessory (or nil while the chrome is hidden),
+    /// mirroring the surface's own `inputAccessoryView` policy.
+    var keyboardAccessoryProvider: (() -> UIView?)?
+
+    override var inputAccessoryView: UIView? { keyboardAccessoryProvider?() }
+}
 #endif

@@ -993,7 +993,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the toolbar row above it and the terminal grid above that. The viewport
     /// coordinator reserves the same heights for the
     /// `terminal / toolbar / composer / keyboard` stack.
-    private let composerContainer = UIView()
+    private let composerContainer = KeyboardDockComposerContainerView()
     /// Height (points) the open composer band reserves above the keyboard edge. Fed
     /// by the host from the hosted compose field's intrinsic content size
     /// (``setComposerBandHeight(_:animated:)``); 0 while the composer is closed. The
@@ -1339,6 +1339,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             composer: composerContainer,
             toolbarRowHeight: Self.persistentToolbarHeight
         )
+        // The hosted SwiftUI field cannot supply an accessory itself; the
+        // container answers for it through responder-chain resolution with the
+        // surface's own policy (nil while the chrome is hidden).
+        composerContainer.keyboardAccessoryProvider = { [weak self] in
+            guard let self, !self.chromeHidden else { return nil }
+            return self.keyboardDockAccessory
+        }
         updateDockedToolbarVisibility()
     }
 
@@ -2755,6 +2762,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public func photoPickerWillPresent() {
         synchronizeActualInputOwner()
         inputSession.send(.modalWillPresent)
+        // The reducer just resigned the text owner and cleared the retained
+        // focus request, so nothing re-seats the dock after dismissal. Take
+        // the keyboard-down seat now (the same re-seat as
+        // ``resignCurrentInput()``) so the dock stays seated behind the picker
+        // instead of unmounting with the keyboard.
+        reseatDockAccessoryIfUnowned()
     }
 
     /// Records the PhotosPicker binding's presented edge.
@@ -2765,6 +2778,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Reconciles any focus request retained while the picker was on screen.
     public func photoPickerDidDismiss() {
         inputSession.send(.modalDidDismiss)
+        // The presentation can strip the surface's seat (full-screen remote
+        // pickers resign the presenting window's responder). This fires on the
+        // binding flip, while the sheet is still animating out, so a denied
+        // seat is retried once on the next main-queue turn.
+        if !reseatDockAccessoryIfUnowned() {
+            DispatchQueue.main.async { [weak self] in
+                _ = self?.reseatDockAccessoryIfUnowned()
+            }
+        }
+    }
+
+    /// Takes the surface's keyboard-down first-responder seat when no cmux
+    /// text responder owns the keyboard, so the system keeps the dock
+    /// accessory seated at the screen bottom.
+    ///
+    /// - Returns: Whether a cmux responder holds the seat on return.
+    @discardableResult
+    private func reseatDockAccessoryIfUnowned() -> Bool {
+        guard window != nil, !chromeHidden, !isDismantled else { return false }
+        if inputProxy.isFirstResponder || isFirstResponder { return true }
+        if composerContainer.firstResponderInSubtree() != nil { return true }
+        return becomeFirstResponder()
     }
 
     private func performInputFocus(_ owner: TerminalInputOwner) -> Bool {
