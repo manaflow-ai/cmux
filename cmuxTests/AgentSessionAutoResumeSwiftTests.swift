@@ -187,6 +187,7 @@ struct AgentSessionAutoResumeSwiftTests {
                 sourceSurfaceIdentifier: ObjectIdentifier(dockTerminal.surface)
             ).userInfo
         )
+        dock.flushPendingTerminalTitleUpdates()
         #expect(dock.bonsplitController.tab(dockTabID)?.title == persistedTitle)
 
         dock.updatePanelShellActivityState(panelId: restoredPanelID, state: .promptIdle)
@@ -201,6 +202,7 @@ struct AgentSessionAutoResumeSwiftTests {
                 sourceSurfaceIdentifier: ObjectIdentifier(dockTerminal.surface)
             ).userInfo
         )
+        dock.flushPendingTerminalTitleUpdates()
         #expect(dock.bonsplitController.tab(dockTabID)?.title == persistedTitle)
 
         // The Dock already owns the transferred promptIdle state. A duplicate

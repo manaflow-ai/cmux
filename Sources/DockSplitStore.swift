@@ -980,6 +980,7 @@ final class DockSplitStore: BonsplitDelegate {
     /// title metadata so their snapshots include the latest accepted value.
     func flushPendingTerminalTitleUpdates() {
         terminalTitleUpdateCoalescer.flushNow()
+        applyPendingTerminalTitleUpdates()
     }
 
     /// Preserves shell-state/title ordering for one surface without forcing

@@ -99,14 +99,17 @@ struct TabManagerTitleUpdateStalenessTests {
         #expect(replacementPanel.id == panelId)
         #expect(replacementPanel.surface !== originalSurface)
 
-        NotificationCenter.default.post(
-            name: .ghosttyDidSetTitle,
-            object: originalSurface,
-            userInfo: staleUserInfo
-        )
+        let staleSourceSurfaces: [AnyObject?] = [originalSurface, nil]
+        for staleSourceSurface in staleSourceSurfaces {
+            NotificationCenter.default.post(
+                name: .ghosttyDidSetTitle,
+                object: staleSourceSurface,
+                userInfo: staleUserInfo
+            )
 
-        await drainMainQueue()
-        #expect(scheduler.delays.isEmpty)
+            await drainMainQueue()
+            #expect(scheduler.delays.isEmpty)
+        }
         #expect(workspace.terminalPanel(for: panelId)?.surface === replacementPanel.surface)
         #expect(workspace.panelTitles[panelId] != staleTitle)
         #expect(workspace.title != staleTitle)

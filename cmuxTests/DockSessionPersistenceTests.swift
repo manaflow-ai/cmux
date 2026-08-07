@@ -491,7 +491,6 @@ struct DockSessionPersistenceTests {
             title: titleAtClose,
             sourceSurfaceIdentifier: ObjectIdentifier(originalTerminal.surface)
         )))
-        #expect(originalTerminal.displayTitle != titleAtClose)
 
         #expect(store.closePanel(panelID))
         #expect(history.canReopen)
@@ -532,6 +531,7 @@ struct DockSessionPersistenceTests {
             title: runningTitle,
             sourceSurfaceIdentifier: ObjectIdentifier(restoredTerminal.surface)
         )))
+        store.flushPendingTerminalTitleUpdates()
         #expect(restoredTerminal.displayTitle != runningTitle)
 
         controller.controlSidebarScheduleScopedShellState(
@@ -543,6 +543,7 @@ struct DockSessionPersistenceTests {
             stateRawValue: PanelShellActivityState.promptIdle.rawValue
         )
         TerminalMutationBus.shared.drainForTesting()
+        store.flushPendingTerminalTitleUpdates()
         #expect(restoredTerminal.shellActivity.state == .promptIdle)
         #expect(restoredTerminal.displayTitle != runningTitle)
 

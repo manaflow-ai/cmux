@@ -286,39 +286,41 @@ struct DockControlDefinitionDecodingTests {
             workspace.teardownAllPanels()
         }
 
-        let firstPaneID = try #require(
-            firstStore.bonsplitController.allPaneIds.first
-        )
-        let firstPanelID = try #require(firstStore.newSurface(
-            kind: .terminal,
-            inPane: firstPaneID,
-            workingDirectory: "/tmp",
-            focus: false
-        ))
-        let firstTerminal = try #require(
-            firstStore.panels[firstPanelID] as? TerminalPanel
-        )
-        let firstTabID = try #require(
-            firstStore.surfaceId(forPanelId: firstPanelID)
-        )
-        let liveTitle = "codex · first window Dock"
+        for (store, liveTitle) in [
+            (firstStore, "codex · first window Dock"),
+            (secondStore, "codex · second window Dock"),
+        ] {
+            let paneID = try #require(
+                store.bonsplitController.allPaneIds.first
+            )
+            let panelID = try #require(store.newSurface(
+                kind: .terminal,
+                inPane: paneID,
+                workingDirectory: "/tmp",
+                focus: false
+            ))
+            let terminal = try #require(
+                store.panels[panelID] as? TerminalPanel
+            )
+            let tabID = try #require(
+                store.surfaceId(forPanelId: panelID)
+            )
 
-        NotificationCenter.default.post(
-            name: .ghosttyDidSetTitle,
-            object: nil,
-            userInfo: GhosttyTitleChange(
-                tabId: firstStore.workspaceId,
-                surfaceId: firstPanelID,
-                title: liveTitle,
-                sourceSurfaceIdentifier: ObjectIdentifier(firstTerminal.surface)
-            ).userInfo
-        )
-        firstStore.flushPendingTerminalTitleUpdates()
+            NotificationCenter.default.post(
+                name: .ghosttyDidSetTitle,
+                object: nil,
+                userInfo: GhosttyTitleChange(
+                    tabId: store.workspaceId,
+                    surfaceId: panelID,
+                    title: liveTitle,
+                    sourceSurfaceIdentifier: ObjectIdentifier(terminal.surface)
+                ).userInfo
+            )
+            store.flushPendingTerminalTitleUpdates()
 
-        #expect(firstTerminal.displayTitle == liveTitle)
-        #expect(
-            firstStore.bonsplitController.tab(firstTabID)?.title == liveTitle
-        )
+            #expect(terminal.displayTitle == liveTitle)
+            #expect(store.bonsplitController.tab(tabID)?.title == liveTitle)
+        }
     }
 
     @Test("Dock terminal title bursts use the configured coalescing delay")
