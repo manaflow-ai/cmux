@@ -1428,14 +1428,10 @@ extension Workspace {
                     return nil
                 }
                 if restoresRemoteWorkspaceTerminalSnapshot {
-                    // The resume command runs on the remote host, so the panel's
-                    // recorded directory is the right cd target even while remote
-                    // trust rules keep it out of savedWorkingDirectory. Falling
-                    // back to workingDirectory would hand the far host this
-                    // machine's cwd.
+                    // Only remote-report provenance is safe to send to the far
+                    // host. `savedWorkingDirectory` is nil when the snapshot's
+                    // directory still requires remote trust.
                     return savedWorkingDirectory
-                        ?? snapshot.terminal?.workingDirectory
-                        ?? snapshot.directory
                 }
                 return restorableAgent.workingDirectory
                     ?? restorableAgent.launchCommand?.workingDirectory
@@ -1487,7 +1483,7 @@ extension Workspace {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent?.resumeStartupInput(
                             useLocalRestoreVerb: false,
-                            restoringWorkingDirectory: resumeSessionWorkingDirectory
+                            workingDirectorySelection: .exact(resumeSessionWorkingDirectory)
                         )
                             .map(SurfaceResumeStartupLaunch.input)
                     } else {
@@ -4988,17 +4984,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         let previousPresentedDirectory = presentedCurrentDirectory
         let isRemoteTerminalReport = isRemoteTerminalSurface(panelId)
-        // A generic live report must not overwrite a directory that remote trust
-        // rules own, but it may fill an empty slot: on a remote-workspace terminal
-        // the pty stream is the remote session, and dropping its first report
-        // leaves the panel with no recorded directory at all, so a later session
-        // restore can only fall back to this machine's cwd. The recorded value
-        // stays trust-required — it gains no remote-report provenance and never
-        // feeds local consumers.
-        if source == .liveReport, remoteDirectoryTrustRequiredPanelIds.contains(panelId) {
-            let existingDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard existingDirectory.isEmpty else { return false }
-        }
+        if source == .liveReport, remoteDirectoryTrustRequiredPanelIds.contains(panelId) { return false }
         let routedRemoteReport = source == .remoteReport && !allowsLocalDirectoryFallback(panelId: panelId)
         let establishesRemoteProvenance = source == .trustedRestoredRemoteSnapshotMetadata ||
             (source.establishesRemoteProvenance &&
