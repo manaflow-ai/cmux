@@ -1,25 +1,19 @@
 import AppKit
 import CmuxFoundation
-import CmuxSettings
-import CmuxSettingsUI
 import SwiftUI
 
 struct TmuxWorkspacePaneOverlayView: View {
-    @LiveSetting(\.notifications.paneFlashColorHex) private var paneFlashColorHex
-
     let unreadRects: [CGRect]
     let flashRect: CGRect?
     let activePaneBorderRect: CGRect?
     let activePaneBorderColorHex: String?
     let flashStartedAt: Date?
     let flashReason: WorkspaceAttentionFlashReason?
+    let workspaceAttentionColor: WorkspaceAttentionColor
     @State private var completedFlashStartedAt: Date?
 
     var body: some View {
-        let presentation = WorkspaceAttentionCoordinator.notificationRingStyle
-        let attentionColor = Color(
-            nsColor: presentation.accent.resolvedColor(configuredHex: paneFlashColorHex).nsColor
-        )
+        let attentionColor = Color(nsColor: workspaceAttentionColor.nsColor)
         overlayContent(attentionColor: attentionColor)
             .allowsHitTesting(false)
             .frame(maxWidth: .infinity, maxHeight: .infinity)

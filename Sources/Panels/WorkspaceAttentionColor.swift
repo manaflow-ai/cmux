@@ -1,5 +1,5 @@
 import AppKit
-import CmuxFoundation
+import SwiftUI
 
 /// The resolved color shared by pane flashes and unread notification rings.
 ///
@@ -8,26 +8,29 @@ import CmuxFoundation
 /// AppKit layers and SwiftUI canvases never read ambient defaults or parse the
 /// setting in their drawing loops.
 struct WorkspaceAttentionColor: Equatable, Sendable {
-    private let configuredHex: String?
+    private let rgb: UInt32?
 
     init(configuredHex: String?) {
-        self.configuredHex = Self.normalizedStrictHex(configuredHex)
+        self.rgb = Self.strictRGB(configuredHex)
     }
 
     var nsColor: NSColor {
-        guard let configuredHex, let color = NSColor(hex: configuredHex) else {
-            return .systemBlue
-        }
-        return color
+        guard let rgb else { return .systemBlue }
+        return NSColor(
+            red: CGFloat((rgb >> 16) & 0xFF) / 255,
+            green: CGFloat((rgb >> 8) & 0xFF) / 255,
+            blue: CGFloat(rgb & 0xFF) / 255,
+            alpha: 1
+        )
     }
 
-    private static func normalizedStrictHex(_ raw: String?) -> String? {
+    private static func strictRGB(_ raw: String?) -> UInt32? {
         guard let raw else { return nil }
         let bytes = raw.utf8
         guard bytes.count == 7,
               bytes.first == 0x23,
               bytes.dropFirst().allSatisfy(isASCIIHexDigit) else { return nil }
-        return raw.uppercased()
+        return UInt32(raw.dropFirst(), radix: 16)
     }
 
     private static func isASCIIHexDigit(_ byte: UInt8) -> Bool {
@@ -37,5 +40,16 @@ struct WorkspaceAttentionColor: Equatable, Sendable {
         default:
             return false
         }
+    }
+}
+
+private struct WorkspaceAttentionColorEnvironmentKey: EnvironmentKey {
+    static let defaultValue = WorkspaceAttentionColor(configuredHex: nil)
+}
+
+extension EnvironmentValues {
+    var workspaceAttentionColor: WorkspaceAttentionColor {
+        get { self[WorkspaceAttentionColorEnvironmentKey.self] }
+        set { self[WorkspaceAttentionColorEnvironmentKey.self] = newValue }
     }
 }

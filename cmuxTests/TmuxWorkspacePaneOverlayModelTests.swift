@@ -13,6 +13,7 @@ struct TmuxWorkspacePaneOverlayModelTests {
     func tracksActivePaneBorder() {
         let model = TmuxWorkspacePaneOverlayModel()
         let borderRect = CGRect(x: 8, y: 12, width: 320, height: 180)
+        let attentionColor = WorkspaceAttentionColor(configuredHex: "#FF69B4")
 
         model.apply(TmuxWorkspacePaneOverlayRenderState(
             workspaceId: UUID(),
@@ -21,15 +22,18 @@ struct TmuxWorkspacePaneOverlayModelTests {
             activePaneBorderRect: borderRect,
             activePaneBorderColorHex: "#33AAFF",
             flashToken: 0,
-            flashReason: nil
+            flashReason: nil,
+            workspaceAttentionColor: attentionColor
         ))
 
         #expect(model.activePaneBorderRect == borderRect)
         #expect(model.activePaneBorderColorHex == "#33AAFF")
+        #expect(model.workspaceAttentionColor == attentionColor)
 
         model.clear()
 
         #expect(model.activePaneBorderRect == nil)
         #expect(model.activePaneBorderColorHex == nil)
+        #expect(model.workspaceAttentionColor == WorkspaceAttentionColor(configuredHex: nil))
     }
 }

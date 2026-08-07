@@ -180464,25 +180464,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Briefly flash a blue outline when cmux highlights a pane."
+            "value": "Briefly flash an outline when cmux highlights a pane."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux がペインを強調表示するときに短い青いアウトラインを表示します。"
+            "value": "cmux がペインを強調表示するときに短いアウトラインを表示します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 패인을 강조할 때 파란색 테두리를 잠시 깜빡입니다."
+            "value": "cmux가 패인을 강조할 때 테두리를 잠시 깜빡입니다."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Короткочасно підсвічувати синьою рамкою панель, на яку cmux звертає увагу."
+            "value": "Короткочасно підсвічувати рамкою панель, на яку cmux звертає увагу."
           }
         }
       }

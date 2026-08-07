@@ -1,27 +1,16 @@
 import AppKit
-import CmuxSettingsUI
 import ObjectiveC
 import SwiftUI
 
 private var tmuxWorkspacePaneWindowOverlayKey: UInt8 = 0
 private let tmuxWorkspacePaneOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.tmuxWorkspacePane.overlay.container")
 
-private struct TmuxWorkspacePaneOverlayRoot: View {
-    let overlay: TmuxWorkspacePaneOverlayView
-    let settingsRuntime: SettingsRuntime?
-
-    var body: some View {
-        overlay.environment(\.settingsRuntime, settingsRuntime)
-    }
-}
-
 @MainActor
 final class WindowTmuxWorkspacePaneOverlayController: NSObject {
     private weak var window: NSWindow?
     private let containerView = PassthroughWindowOverlayContainerView(frame: .zero)
     private let model = TmuxWorkspacePaneOverlayModel()
-    private let hostingView: NSHostingView<TmuxWorkspacePaneOverlayRoot>
-    private let settingsRuntime: SettingsRuntime?
+    private let hostingView: NSHostingView<TmuxWorkspacePaneOverlayView>
     private let chromeComposition = AppWindowChromeComposition()
     private var installConstraints: [NSLayoutConstraint] = []
     private weak var installedReferenceView: NSView?
@@ -32,37 +21,27 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
         lastRenderState != nil || !containerView.isHidden
     }
 
-    static func controller(
-        for window: NSWindow,
-        createIfNeeded: Bool,
-        settingsRuntime: SettingsRuntime? = nil
-    ) -> WindowTmuxWorkspacePaneOverlayController? {
+    static func controller(for window: NSWindow, createIfNeeded: Bool) -> WindowTmuxWorkspacePaneOverlayController? {
         if let existing = objc_getAssociatedObject(window, &tmuxWorkspacePaneWindowOverlayKey) as? WindowTmuxWorkspacePaneOverlayController {
             return existing
         }
         guard createIfNeeded else { return nil }
-        let controller = WindowTmuxWorkspacePaneOverlayController(
-            window: window,
-            settingsRuntime: settingsRuntime
-        )
+        let controller = WindowTmuxWorkspacePaneOverlayController(window: window)
         objc_setAssociatedObject(window, &tmuxWorkspacePaneWindowOverlayKey, controller, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         return controller
     }
 
-    init(window: NSWindow, settingsRuntime: SettingsRuntime? = nil) {
+    init(window: NSWindow) {
         self.window = window
-        self.settingsRuntime = settingsRuntime
         self.hostingView = NSHostingView(
-            rootView: TmuxWorkspacePaneOverlayRoot(
-                overlay: TmuxWorkspacePaneOverlayView(
-                    unreadRects: [],
-                    flashRect: nil,
-                    activePaneBorderRect: nil,
-                    activePaneBorderColorHex: nil,
-                    flashStartedAt: nil,
-                    flashReason: nil
-                ),
-                settingsRuntime: settingsRuntime
+            rootView: TmuxWorkspacePaneOverlayView(
+                unreadRects: [],
+                flashRect: nil,
+                activePaneBorderRect: nil,
+                activePaneBorderColorHex: nil,
+                flashStartedAt: nil,
+                flashReason: nil,
+                workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: nil)
             )
         )
         super.init()
@@ -123,32 +102,28 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
         if let state {
             lastRenderState = state
             model.apply(state)
-            hostingView.rootView = TmuxWorkspacePaneOverlayRoot(
-                overlay: TmuxWorkspacePaneOverlayView(
-                    unreadRects: model.unreadRects,
-                    flashRect: model.flashRect,
-                    activePaneBorderRect: model.activePaneBorderRect,
-                    activePaneBorderColorHex: model.activePaneBorderColorHex,
-                    flashStartedAt: model.flashStartedAt,
-                    flashReason: model.flashReason
-                ),
-                settingsRuntime: settingsRuntime
+            hostingView.rootView = TmuxWorkspacePaneOverlayView(
+                unreadRects: model.unreadRects,
+                flashRect: model.flashRect,
+                activePaneBorderRect: model.activePaneBorderRect,
+                activePaneBorderColorHex: model.activePaneBorderColorHex,
+                flashStartedAt: model.flashStartedAt,
+                flashReason: model.flashReason,
+                workspaceAttentionColor: model.workspaceAttentionColor
             )
             containerView.alphaValue = 1
             containerView.isHidden = false
         } else {
             lastRenderState = nil
             model.clear()
-            hostingView.rootView = TmuxWorkspacePaneOverlayRoot(
-                overlay: TmuxWorkspacePaneOverlayView(
-                    unreadRects: [],
-                    flashRect: nil,
-                    activePaneBorderRect: nil,
-                    activePaneBorderColorHex: nil,
-                    flashStartedAt: nil,
-                    flashReason: nil
-                ),
-                settingsRuntime: settingsRuntime
+            hostingView.rootView = TmuxWorkspacePaneOverlayView(
+                unreadRects: [],
+                flashRect: nil,
+                activePaneBorderRect: nil,
+                activePaneBorderColorHex: nil,
+                flashStartedAt: nil,
+                flashReason: nil,
+                workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: nil)
             )
             containerView.alphaValue = 0
             containerView.isHidden = true

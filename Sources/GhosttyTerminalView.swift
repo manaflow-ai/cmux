@@ -5,7 +5,6 @@ import CmuxFoundation
 import CmuxPanes
 import CmuxTerminalCore
 import CmuxSettings
-import CmuxSettingsUI
 import CmuxWorkspaces
 import CmuxTestSupport
 import SwiftUI
@@ -8529,9 +8528,7 @@ final class GhosttySurfaceScrollView: NSView {
         notificationRingOverlayView.layer?.masksToBounds = false
         notificationRingOverlayView.autoresizingMask = [.width, .height]
         let notificationRingStyle = WorkspaceAttentionCoordinator.notificationRingStyle
-        let notificationRingColor = notificationRingStyle.accent
-            .resolvedColor(configuredHex: nil)
-            .nsColor
+        let notificationRingColor = NSColor.systemBlue
         notificationRingLayer.fillColor = NSColor.clear.cgColor
         notificationRingLayer.strokeColor = notificationRingColor.cgColor
         notificationRingLayer.lineWidth = NotificationRingMetrics.lineWidth
@@ -8550,9 +8547,7 @@ final class GhosttySurfaceScrollView: NSView {
         flashOverlayView.layer?.masksToBounds = false
         flashOverlayView.autoresizingMask = [.width, .height]
         let flashStyle = WorkspaceAttentionCoordinator.flashStyle(for: .navigation)
-        let flashColor = flashStyle.accent
-            .resolvedColor(configuredHex: nil)
-            .nsColor
+        let flashColor = NSColor.systemBlue
         flashLayer.fillColor = NSColor.clear.cgColor
         flashLayer.strokeColor = flashColor.cgColor
         flashLayer.lineWidth = NotificationRingMetrics.lineWidth
@@ -12212,7 +12207,7 @@ extension GhosttyNSView: NSTextInputClient {
 // MARK: - SwiftUI Wrapper
 
 struct GhosttyTerminalView: NSViewRepresentable {
-    @LiveSetting(\.notifications.paneFlashColorHex) private var paneFlashColorHex
+    @Environment(\.workspaceAttentionColor) private var workspaceAttentionColor
     @Environment(\.paneDropZone) var paneDropZone
 
     let terminalSurface: TerminalSurface
@@ -12466,11 +12461,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
         // Keep the surface lifecycle and handlers updated even if we defer re-parenting.
         hostedView.attachSurface(terminalSurface)
-        hostedView.setWorkspaceAttentionColor(
-            WorkspaceAttentionCoordinator.notificationRingStyle.accent.resolvedColor(
-                configuredHex: paneFlashColorHex
-            )
-        )
+        hostedView.setWorkspaceAttentionColor(workspaceAttentionColor)
         if hostOwnsPortalNow {
             hostedView.setSessionContentWidthPresentation(sessionContentWidthPresentation)
             hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
