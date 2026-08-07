@@ -14110,6 +14110,12 @@ class TerminalController {
                 params: request.params,
                 connectionID: executionContext?.connectionID
             )
+        case let method where method.hasPrefix("mobile.simulator."):
+            result = await v2MobileSimulatorDispatch(
+                method: method,
+                params: request.params,
+                connectionID: executionContext?.connectionID
+            )
         case "workspace.close":
             result = v2MobileWorkspaceClose(params: request.params)
         case "workspace.group.collapse":

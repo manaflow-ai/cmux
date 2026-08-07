@@ -18,6 +18,16 @@ struct MobilePairingScannerSheet: View {
     private let previewEnabled: Bool
     @State private var authorizationStatus: AVAuthorizationStatus
 
+    static var guidanceText: String {
+        L10n.string(
+            "mobile.pairing.scannerInstruction",
+            defaultValue: """
+            On your Mac, open Tailscale Pairing in cmux to show the QR. \
+            Install Tailscale on both devices and connect them to the same Tailscale network first.
+            """
+        )
+    }
+
     init(
         previewEnabled: Bool = false,
         onCancel: (() -> Void)? = nil,
@@ -50,7 +60,7 @@ struct MobilePairingScannerSheet: View {
                             }
                             .ignoresSafeArea(edges: .bottom)
 
-                            Text(MobilePairingScannerGuidanceCopy.text)
+                            Text(Self.guidanceText)
                                 .font(.footnote.weight(.medium))
                                 .multilineTextAlignment(.center)
                                 .foregroundStyle(.white)
@@ -172,17 +182,7 @@ struct MobilePairingScannerSheet: View {
 struct MobilePairingScannerSheet: View {
     let onCode: (String) -> Void
 
-    var body: some View {
-        ContentUnavailableView(
-            L10n.string("mobile.pairing.cameraUnavailable", defaultValue: "Camera Unavailable"),
-            systemImage: "camera.fill"
-        )
-    }
-}
-#endif
-
-enum MobilePairingScannerGuidanceCopy {
-    static var text: String {
+    static var guidanceText: String {
         L10n.string(
             "mobile.pairing.scannerInstruction",
             defaultValue: """
@@ -191,4 +191,12 @@ enum MobilePairingScannerGuidanceCopy {
             """
         )
     }
+
+    var body: some View {
+        ContentUnavailableView(
+            L10n.string("mobile.pairing.cameraUnavailable", defaultValue: "Camera Unavailable"),
+            systemImage: "camera.fill"
+        )
+    }
 }
+#endif
