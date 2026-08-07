@@ -4,7 +4,8 @@ import Foundation
 struct ArtifactGitPrivacyValidator: Sendable {
     let worktreeRoot: URL?
     let commandRunner: any ArtifactGitCommandRunning
-    let fileManager: FileManager
+    // Only FileManager's thread-safe, stateless path queries are used through this immutable reference.
+    nonisolated(unsafe) let fileManager: FileManager
 
     func storeIsUntracked(filesystemRoot: URL) async -> Bool {
         guard let worktreeRoot else { return true }
