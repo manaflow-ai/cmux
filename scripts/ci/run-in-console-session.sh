@@ -49,67 +49,73 @@ prepare_app_host_home_for_console_user() {
   local console_user="$1"
   local cleanup_requested="$2"
   [ -n "${CMUX_APP_HOST_HOME:-}" ] || return 0
-  local app_host_xdg_config_home_input="${CMUX_APP_HOST_XDG_CONFIG_HOME:-${CMUX_APP_HOST_HOME%/}/.config}"
+  cmux_validate_published_app_host_identity_values || return 1
 
-  # A previous invocation may already have made the mode-700 home console-user
-  # owned. Resolve it through the passwordless sudo boundary before validating
-  # and handing it back to that same user.
-  local app_host_home app_host_xdg_config_home app_host_home_target
-  local app_host_home_name app_host_home_parent expected_app_host_home
-  local system_temp_root
-  system_temp_root="$(cd /tmp 2>/dev/null && pwd -P)" || {
-    echo "FAIL: system temporary directory is unavailable" >&2
-    return 1
-  }
-  app_host_home_target="${CMUX_APP_HOST_HOME%/}"
-  app_host_home_name="${app_host_home_target##*/}"
-  case "$app_host_home_name" in
-    cmux-ah-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
-    *)
-      echo "FAIL: refusing to prepare a path without the app-host home name" >&2
-      return 1
-      ;;
-  esac
-  app_host_home_parent="$(dirname "$app_host_home_target")"
-  app_host_home_parent="$(cd "$app_host_home_parent" 2>/dev/null && pwd -P)" || {
-    echo "FAIL: app-host isolation parent is unavailable" >&2
-    return 1
-  }
-  if [ "$app_host_home_parent" != "$system_temp_root" ]; then
-    echo "FAIL: app-host isolation directory is outside the system temporary directory" >&2
-    return 1
-  fi
-  expected_app_host_home="${system_temp_root%/}/$app_host_home_name"
-  if sudo -n test -L "$app_host_home_target"; then
+  local app_host_home="$CMUX_RESOLVED_APP_HOST_HOME"
+  local app_host_receipt_dir="$CMUX_RESOLVED_APP_HOST_RECEIPT_DIR"
+  if sudo -n test -L "$app_host_home"; then
     echo "FAIL: refusing app-host preparation through a home symlink" >&2
     return 1
   fi
-  if [ "$cleanup_requested" = "1" ] \
-    && ! sudo -n test -e "$app_host_home_target"; then
-    # Cleanup itself owns the already-absent case and can now run as the console
-    # user without a mutable path for this preparation step to traverse.
-    return 0
-  fi
-  app_host_home="$(sudo -n /bin/bash -c 'cd "$1" 2>/dev/null && pwd -P' bash "$app_host_home_target")" || {
-    echo "FAIL: app-host isolation directory is unavailable" >&2
+  if sudo -n test -L "$app_host_receipt_dir"; then
+    echo "FAIL: refusing app-host preparation through a receipt symlink" >&2
     return 1
-  }
-  if [ "$app_host_home" != "$expected_app_host_home" ]; then
-    echo "FAIL: app-host isolation directory changed identity" >&2
-    return 1
-  fi
-  if [ "$cleanup_requested" != "1" ]; then
-    app_host_xdg_config_home="$(sudo -n /bin/bash -c 'cd "$1" 2>/dev/null && pwd -P' bash "$app_host_xdg_config_home_input")" || {
-      echo "FAIL: app-host XDG configuration directory is unavailable" >&2
-      return 1
-    }
-    cmux_validate_resolved_app_host_isolation \
-      "$app_host_home" "$app_host_xdg_config_home" || return 1
-    app_host_home="$CMUX_RESOLVED_APP_HOST_HOME"
   fi
 
-  sudo -n chown -R "$console_user" "$app_host_home"
-  sudo -n chmod -R u+rwX,go-rwx "$app_host_home"
+  local resolved_home resolved_receipt_dir
+  if sudo -n test -e "$app_host_home"; then
+    resolved_home="$(sudo -n /bin/bash -c 'cd "$1" 2>/dev/null && pwd -P' bash "$app_host_home")" || {
+      echo "FAIL: app-host isolation directory is unavailable" >&2
+      return 1
+    }
+    if [ "$resolved_home" != "$app_host_home" ]; then
+      echo "FAIL: app-host isolation directory changed identity" >&2
+      return 1
+    fi
+    sudo -n chown -R "$console_user" "$app_host_home"
+    sudo -n chmod -R u+rwX,go-rwx "$app_host_home"
+  elif [ "$cleanup_requested" != "1" ]; then
+    echo "FAIL: app-host isolation directory is unavailable" >&2
+    return 1
+  fi
+  if sudo -n test -e "$app_host_receipt_dir"; then
+    resolved_receipt_dir="$(sudo -n /bin/bash -c 'cd "$1" 2>/dev/null && pwd -P' bash "$app_host_receipt_dir")" || {
+      echo "FAIL: app-host process receipt directory is unavailable" >&2
+      return 1
+    }
+    if [ "$resolved_receipt_dir" != "$app_host_receipt_dir" ]; then
+      echo "FAIL: app-host process receipt directory changed identity" >&2
+      return 1
+    fi
+    sudo -n chown -R "$console_user" "$app_host_receipt_dir"
+    sudo -n chmod -R u+rwX,go-rwx "$app_host_receipt_dir"
+  elif [ "$cleanup_requested" != "1" ]; then
+    echo "FAIL: app-host process receipt directory is unavailable" >&2
+    return 1
+  fi
+  if sudo -n test -e "$CMUX_RESOLVED_APP_HOST_CONFIRMATION_FILE"; then
+    sudo -n chown "$console_user" "$CMUX_RESOLVED_APP_HOST_CONFIRMATION_FILE"
+  fi
+
+  # Re-run the shared validator after ownership transfer. This validates the
+  # paths from the same account that will launch or tear down the app host.
+  local validation_function="cmux_validate_published_app_host_identity"
+  if [ "$cleanup_requested" = "1" ]; then
+    validation_function="cmux_validate_published_app_host_identity_values"
+  fi
+  sudo -n -u "$console_user" env \
+    GITHUB_RUN_ID="$GITHUB_RUN_ID" \
+    GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" \
+    CMUX_APP_HOST_SHARD="$CMUX_APP_HOST_SHARD" \
+    RUNNER_TEMP="$RUNNER_TEMP" \
+    CMUX_APP_HOST_KEY="$CMUX_APP_HOST_KEY" \
+    CMUX_APP_HOST_HOME="$CMUX_APP_HOST_HOME" \
+    CMUX_APP_HOST_XDG_CONFIG_HOME="$CMUX_APP_HOST_XDG_CONFIG_HOME" \
+    CMUX_APP_HOST_RECEIPT_DIR="$CMUX_APP_HOST_RECEIPT_DIR" \
+    CMUX_APP_HOST_CLEANUP_CONFIRMATION="$CMUX_APP_HOST_CLEANUP_CONFIRMATION" \
+    CMUX_APP_HOST_CONFIRMATION_FILE="$CMUX_APP_HOST_CONFIRMATION_FILE" \
+    /bin/bash -c 'source "$1" && "$2"' \
+      bash "$ci_script_dir/app-host-isolation.sh" "$validation_function"
 }
 
 console_user="$(stat -f %Su /dev/console 2>/dev/null || true)"
@@ -131,7 +137,11 @@ if [ -n "$console_user" ] && [ "$console_user" != "root" ] \
     CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS \
     CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS \
     CMUX_APP_HOST_XCODEBUILD_ATTEMPTS \
-    CMUX_CI_APP_HOST_ISOLATION_REQUIRED CMUX_APP_HOST_HOME CMUX_APP_HOST_XDG_CONFIG_HOME CFFIXED_USER_HOME XDG_CONFIG_HOME CARGO_HOME RUSTUP_HOME)
+    GITHUB_RUN_ID GITHUB_RUN_ATTEMPT CMUX_APP_HOST_SHARD CMUX_CI_APP_HOST_ISOLATION_REQUIRED CMUX_APP_HOST_KEY CMUX_APP_HOST_HOME CMUX_APP_HOST_XDG_CONFIG_HOME CMUX_APP_HOST_RECEIPT_DIR CMUX_APP_HOST_CLEANUP_CONFIRMATION CMUX_APP_HOST_CONFIRMATION_FILE \
+    CFFIXED_USER_HOME XDG_CONFIG_HOME CARGO_HOME RUSTUP_HOME)
+  if [ "${CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER:-0}" = "1" ]; then
+    forward+=(CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER CMUX_APP_HOST_LSOF CMUX_FAKE_LSOF_STATE)
+  fi
   env_pairs=()
   for var in "${forward[@]}"; do
     if [ -n "${!var+set}" ]; then

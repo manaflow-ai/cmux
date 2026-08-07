@@ -490,6 +490,7 @@ jobs:
       # This independent job-level marker makes every app-host wrapper fail
       # closed if a setup step or environment handoff loses either redirect.
       CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
+      CMUX_APP_HOST_SHARD: ${{ matrix.shard }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
@@ -564,24 +565,7 @@ jobs:
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
 
       - name: Prepare isolated app-host home
-        run: |
-          set -euo pipefail
-          APP_HOST_KEY="$(printf '%s' "${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:${{ matrix.shard }}" | shasum -a 256 | cut -c1-12)"
-          APP_HOST_HOME="/tmp/cmux-ah-${APP_HOST_KEY}"
-          APP_HOST_CONFIG_SENTINEL="$APP_HOST_HOME/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
-          echo "CMUX_APP_HOST_HOME=$APP_HOST_HOME" >> "$GITHUB_ENV"
-          rm -rf "$APP_HOST_HOME"
-          mkdir -p \
-            "$APP_HOST_HOME/.config/cmux" \
-            "$APP_HOST_HOME/.config/ghostty" \
-            "$APP_HOST_HOME/Library/Application Support/com.mitchellh.ghostty" \
-            "$APP_HOST_HOME/Library/Caches" \
-            "$APP_HOST_HOME/Library/Logs/DiagnosticReports" \
-            "$APP_HOST_HOME/Library/Preferences"
-          printf '# cmux CI app-host isolation sentinel\n' > "$APP_HOST_CONFIG_SENTINEL"
-          chmod -R u+rwX,go-rwx "$APP_HOST_HOME"
-          echo "CARGO_HOME=${HOME}/.cargo" >> "$GITHUB_ENV"
-          echo "RUSTUP_HOME=${HOME}/.rustup" >> "$GITHUB_ENV"
+        run: scripts/ci/prepare-app-host-home.sh
 
       - name: Resolve Swift packages
         run: |

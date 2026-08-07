@@ -4,6 +4,8 @@ set -euo pipefail
 ci_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/ci/app-host-isolation.sh
 source "$ci_script_dir/app-host-isolation.sh"
+# shellcheck source=scripts/ci/app-host-processes.sh
+source "$ci_script_dir/app-host-processes.sh"
 
 if [ "$#" -eq 0 ]; then
   echo "usage: $0 <xcodebuild args...>" >&2
@@ -40,13 +42,17 @@ fi
 # redirects without exposing them to the xcodebuild driver.
 app_host_test_runner_environment=("TEST_RUNNER_CMUX_TEST_PROCESS=1")
 app_host_home=""
+app_host_key=""
+app_host_receipt_dir=""
 app_host_home_input="${CMUX_APP_HOST_HOME:-}"
 app_host_xdg_config_home_input="${CMUX_APP_HOST_XDG_CONFIG_HOME:-}"
-if [ -n "$app_host_home_input" ] && [ -z "$app_host_xdg_config_home_input" ]; then
-  app_host_xdg_config_home_input="${app_host_home_input%/}/.config"
-fi
 if [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" = "1" ]; then
-  if [ -z "$app_host_home_input" ] || [ -z "$app_host_xdg_config_home_input" ]; then
+  if [ -z "$app_host_home_input" ] \
+    || [ -z "$app_host_xdg_config_home_input" ] \
+    || [ -z "${CMUX_APP_HOST_KEY:-}" ] \
+    || [ -z "${CMUX_APP_HOST_RECEIPT_DIR:-}" ] \
+    || [ -z "${CMUX_APP_HOST_CLEANUP_CONFIRMATION:-}" ] \
+    || [ -z "${CMUX_APP_HOST_CONFIRMATION_FILE:-}" ]; then
     echo "FAIL: required app-host isolation environment is incomplete" >&2
     exit 1
   fi
@@ -57,10 +63,11 @@ if { [ -n "$app_host_home_input" ] && [ -z "$app_host_xdg_config_home_input" ]; 
   exit 1
 fi
 if [ -n "$app_host_home_input" ]; then
-  cmux_resolve_app_host_isolation \
-    "$app_host_home_input" "$app_host_xdg_config_home_input" || exit 1
+  cmux_validate_published_app_host_identity || exit 1
   app_host_home="$CMUX_RESOLVED_APP_HOST_HOME"
   app_host_xdg_config_home="$CMUX_RESOLVED_APP_HOST_XDG_CONFIG_HOME"
+  app_host_key="$CMUX_RESOLVED_APP_HOST_KEY"
+  app_host_receipt_dir="$CMUX_RESOLVED_APP_HOST_RECEIPT_DIR"
   app_host_test_runner_environment+=(
     "TEST_RUNNER_HOME=$app_host_home"
     "TEST_RUNNER_CFFIXED_USER_HOME=$app_host_home"
@@ -69,6 +76,8 @@ if [ -n "$app_host_home_input" ]; then
     "TEST_RUNNER_CMUX_APP_HOST_ISOLATION_REQUIRED=1"
     "TEST_RUNNER_CMUX_APP_HOST_EXPECTED_HOME=$app_host_home"
     "TEST_RUNNER_CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME=$app_host_xdg_config_home"
+    "TEST_RUNNER_CMUX_APP_HOST_RECEIPT_DIR=$app_host_receipt_dir"
+    "TEST_RUNNER_CMUX_APP_HOST_KEY=$app_host_key"
   )
 fi
 
@@ -82,26 +91,9 @@ if [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" = "1" ]; then
   )
 fi
 
-# Resolve a CI-scoped root so app-host cleanup targets every CI app-host on this
-# Mac (this run AND orphans left by previous runs, which live under a different
-# per-run DerivedData path), while never matching a human's tagged dev build
-# outside the runner work area. Prefer RUNNER_TEMP (all CI DerivedData lives
-# under it); fall back to this run's -derivedDataPath from the xcodebuild args.
-derived_data_path=""
-prev_arg=""
-for arg in "$@"; do
-  if [ "$prev_arg" = "-derivedDataPath" ]; then derived_data_path="$arg"; break; fi
-  prev_arg="$arg"
-done
-ci_app_host_root="${RUNNER_TEMP:-${derived_data_path}}"
 kill_stale_app_host() {
-  # Kill app-host executables (matched by their .../Build/Products/.../cmux DEV
-  # path) under the CI work root only. This catches a stale host orphaned by a
-  # previous run under a different DerivedData path, without touching an
-  # unrelated dev build outside the runner work area. If we cannot identify the
-  # root, do nothing rather than risk an unrelated process.
-  [ -n "$ci_app_host_root" ] && \
-    pkill -f "${ci_app_host_root%/}/.*Build/Products/.*cmux DEV" 2>/dev/null || true
+  [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" = "1" ] || return 0
+  cmux_terminate_stale_receipted_app_hosts "$CMUX_RESOLVED_RUNNER_TEMP"
 }
 
 validate_app_host_config_paths() {
