@@ -3058,6 +3058,60 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func recoverySweepSchedulingDoesNotBlockSSHStartup(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-recovery-scheduling-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_resume_failed_auth_group_reapers() {
+          : > "$CMUX_TEST_RECOVERY_STARTED"
+          cmux_test_worker_deadline=$(($(cmux_ssh_auth_now_millis) + 2000))
+          while [ ! -e "$CMUX_TEST_RECOVERY_RELEASE" ]; do
+            cmux_test_worker_now=$(cmux_ssh_auth_now_millis) || return 90
+            [ "$cmux_test_worker_now" -lt "$cmux_test_worker_deadline" ] || return 90
+            /bin/sleep 0.01
+          done
+          : > "$CMUX_TEST_RECOVERY_DONE"
+        }
+        cmux_ssh_schedule_failed_auth_group_recovery || exit 99
+        : > "$CMUX_TEST_STARTUP_CONTINUED"
+        test -e "$CMUX_TEST_STARTUP_CONTINUED" || exit 98
+
+        cmux_test_started_deadline=$(($(cmux_ssh_auth_now_millis) + 1000))
+        while [ ! -e "$CMUX_TEST_RECOVERY_STARTED" ]; do
+          cmux_test_started_now=$(cmux_ssh_auth_now_millis) || exit 97
+          [ "$cmux_test_started_now" -lt "$cmux_test_started_deadline" ] || exit 96
+          /bin/sleep 0.01
+        done
+        : > "$CMUX_TEST_RECOVERY_RELEASE"
+
+        cmux_test_done_deadline=$(($(cmux_ssh_auth_now_millis) + 1000))
+        while [ ! -e "$CMUX_TEST_RECOVERY_DONE" ]; do
+          cmux_test_done_now=$(cmux_ssh_auth_now_millis) || exit 95
+          [ "$cmux_test_done_now" -lt "$cmux_test_done_deadline" ] || exit 94
+          /bin/sleep 0.01
+        done
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_RECOVERY_DONE": root.appendingPathComponent("done").path,
+                "CMUX_TEST_RECOVERY_RELEASE": root.appendingPathComponent("release").path,
+                "CMUX_TEST_RECOVERY_STARTED": root.appendingPathComponent("started").path,
+                "CMUX_TEST_STARTUP_CONTINUED": root.appendingPathComponent("continued").path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func recoveryQueueReclaimsExpiredUnpublishedDirectory() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
