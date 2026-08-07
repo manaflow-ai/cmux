@@ -331,6 +331,7 @@ pub struct PersistentSessionStateResetPreview {
     pub state_root: PathBuf,
     pub session_dir: PathBuf,
     pub terminal_host_root: PathBuf,
+    pub pending_reset_dirs: Vec<PathBuf>,
     pub requires_force: bool,
     pub confirm_reset: String,
 }
@@ -362,22 +363,29 @@ impl PersistentSessionStateResetter {
     }
 
     /// Builds a read-only reset preview for `session_name`.
-    pub fn preview(&self, session_name: &str) -> PersistentSessionStateResetPreview {
+    pub fn preview(
+        &self,
+        session_name: &str,
+    ) -> anyhow::Result<PersistentSessionStateResetPreview> {
         let session_dir = self.session_dir(session_name);
         let terminal_host_root =
             crate::terminal_host_runtime::terminal_host_root(&self.state_root, session_name);
-        PersistentSessionStateResetPreview {
+        let pending_reset_dirs = pending_session_reset_dirs(&self.state_root, session_name)?;
+        let confirm_reset = reset_confirmation_token(
+            &self.state_root,
+            session_name,
+            &session_dir,
+            &terminal_host_root,
+            &pending_reset_dirs,
+        )?;
+        Ok(PersistentSessionStateResetPreview {
             state_root: self.state_root.clone(),
             session_dir: session_dir.clone(),
             terminal_host_root: terminal_host_root.clone(),
+            pending_reset_dirs,
             requires_force: true,
-            confirm_reset: reset_confirmation_token(
-                &self.state_root,
-                session_name,
-                &session_dir,
-                &terminal_host_root,
-            ),
-        }
+            confirm_reset,
+        })
     }
 
     /// Removes the scoped saved state for `session_name` after confirmation.
@@ -396,15 +404,21 @@ impl PersistentSessionStateResetter {
             removed_session_state: false,
             removed_terminal_hosts: false,
         };
-        if !root.exists() {
-            return Ok(reset);
-        }
-        if !root.is_dir() {
+        let root_metadata = match fs::symlink_metadata(root) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(reset),
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("inspect workspace state root {}", root.display()));
+            }
+        };
+        if !root_metadata.file_type().is_dir() {
             anyhow::bail!("workspace state root is not a directory: {}", root.display());
         }
+        let pending_reset_dirs = pending_session_reset_dirs(root, session_name)?;
         let session_dir_exists = validate_session_reset_dir(&session_dir)?;
         let terminal_host_root_exists = validate_terminal_host_reset_dir(&terminal_host_root)?;
-        if !session_dir_exists && !terminal_host_root_exists {
+        if !session_dir_exists && !terminal_host_root_exists && pending_reset_dirs.is_empty() {
             return Ok(reset);
         }
         require_reset_confirmation(
@@ -412,12 +426,14 @@ impl PersistentSessionStateResetter {
             session_name,
             &session_dir,
             &terminal_host_root,
+            &pending_reset_dirs,
             confirm_reset,
         )?;
         let session_guard = acquire_existing_session_guard(root, session_name)?;
+        let pending_reset_dirs = pending_session_reset_dirs(root, session_name)?;
         let session_dir_exists = validate_session_reset_dir(&session_dir)?;
         let terminal_host_root_exists = validate_terminal_host_reset_dir(&terminal_host_root)?;
-        if !session_dir_exists && !terminal_host_root_exists {
+        if !session_dir_exists && !terminal_host_root_exists && pending_reset_dirs.is_empty() {
             return Ok(reset);
         }
         require_reset_confirmation(
@@ -425,6 +441,7 @@ impl PersistentSessionStateResetter {
             session_name,
             &session_dir,
             &terminal_host_root,
+            &pending_reset_dirs,
             confirm_reset,
         )?;
         if session_dir_exists {
@@ -439,9 +456,10 @@ impl PersistentSessionStateResetter {
         } else {
             None
         };
+        let mut pending_reset_dirs = pending_session_reset_dirs(root, session_name)?;
         let session_dir_exists = validate_session_reset_dir(&session_dir)?;
         let terminal_host_root_exists = validate_terminal_host_reset_dir(&terminal_host_root)?;
-        if !session_dir_exists && !terminal_host_root_exists {
+        if !session_dir_exists && !terminal_host_root_exists && pending_reset_dirs.is_empty() {
             return Ok(reset);
         }
         require_reset_confirmation(
@@ -449,6 +467,7 @@ impl PersistentSessionStateResetter {
             session_name,
             &session_dir,
             &terminal_host_root,
+            &pending_reset_dirs,
             confirm_reset,
         )?;
         let _orphan_live_marker_leases = if terminal_host_root_exists {
@@ -462,17 +481,17 @@ impl PersistentSessionStateResetter {
             })?;
             reset.removed_terminal_hosts = true;
         }
-        let renamed_session_dir = if session_dir_exists {
-            Some(rename_session_dir_for_reset(root, session_name, &session_dir)?)
-        } else {
-            None
-        };
-        drop(lease);
         if session_dir_exists {
-            let renamed_session_dir =
-                renamed_session_dir.expect("renamed session dir exists when session dir exists");
-            fs::remove_dir_all(&renamed_session_dir).with_context(|| {
-                format!("remove workspace session state {}", renamed_session_dir.display())
+            pending_reset_dirs.push(rename_session_dir_for_reset(
+                root,
+                session_name,
+                &session_dir,
+            )?);
+        }
+        drop(lease);
+        for reset_dir in pending_reset_dirs {
+            fs::remove_dir_all(&reset_dir).with_context(|| {
+                format!("remove workspace session state {}", reset_dir.display())
             })?;
             reset.removed_session_state = true;
         }
@@ -531,6 +550,46 @@ fn persistent_session_state_dir(root: &Path, session_name: &str) -> PathBuf {
     root.join(session_storage_component(session_name))
 }
 
+fn pending_session_reset_dirs(root: &Path, session_name: &str) -> anyhow::Result<Vec<PathBuf>> {
+    let metadata = match fs::symlink_metadata(root) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("inspect workspace state root {}", root.display()));
+        }
+    };
+    if !metadata.file_type().is_dir() {
+        anyhow::bail!("workspace state root is not a directory: {}", root.display());
+    }
+
+    let storage_component = session_storage_component(session_name);
+    let prefix = format!(".reset-{storage_component}-");
+    let suffix = ".deleting";
+    let mut reset_dirs = Vec::new();
+    for entry in fs::read_dir(root)
+        .with_context(|| format!("read workspace state root {}", root.display()))?
+    {
+        let entry = entry?;
+        let file_name = entry.file_name();
+        let Some(file_name) = file_name.to_str() else {
+            continue;
+        };
+        if !file_name.starts_with(&prefix) || !file_name.ends_with(suffix) {
+            continue;
+        }
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path)
+            .with_context(|| format!("inspect private reset path {}", path.display()))?;
+        if !metadata.file_type().is_dir() {
+            anyhow::bail!("private reset path is not a directory: {}", path.display());
+        }
+        reset_dirs.push(path);
+    }
+    reset_dirs.sort();
+    Ok(reset_dirs)
+}
+
 fn validate_session_reset_dir(path: &Path) -> anyhow::Result<bool> {
     validate_reset_child_dir(path, "workspace session state path")
 }
@@ -587,10 +646,16 @@ fn require_reset_confirmation(
     session_name: &str,
     session_dir: &Path,
     terminal_host_root: &Path,
+    pending_reset_dirs: &[PathBuf],
     confirm_reset: Option<&str>,
 ) -> anyhow::Result<()> {
-    let confirmation =
-        reset_confirmation_token(state_root, session_name, session_dir, terminal_host_root);
+    let confirmation = reset_confirmation_token(
+        state_root,
+        session_name,
+        session_dir,
+        terminal_host_root,
+        pending_reset_dirs,
+    )?;
     if confirm_reset == Some(confirmation.as_str()) {
         return Ok(());
     }
@@ -602,20 +667,25 @@ fn reset_confirmation_token(
     session_name: &str,
     session_dir: &Path,
     terminal_host_root: &Path,
-) -> String {
+    pending_reset_dirs: &[PathBuf],
+) -> anyhow::Result<String> {
     let mut hash = Sha256::new();
     update_reset_confirmation_part(&mut hash, "cmux-session-reset-v1");
     update_reset_confirmation_part(&mut hash, session_name);
     update_reset_confirmation_part(&mut hash, &canonical_reset_path(state_root));
     update_reset_confirmation_part(&mut hash, &canonical_reset_path(session_dir));
     update_reset_confirmation_part(&mut hash, &canonical_reset_path(terminal_host_root));
-    update_reset_confirmation_part(&mut hash, &session_reset_target_fingerprint(session_dir));
+    update_reset_confirmation_part(&mut hash, &session_reset_target_fingerprint(session_dir)?);
     update_reset_confirmation_part(
         &mut hash,
-        &reset_dir_fingerprint("terminal-hosts", terminal_host_root),
+        &reset_dir_fingerprint("terminal-hosts", terminal_host_root)?,
     );
+    for reset_dir in pending_reset_dirs {
+        update_reset_confirmation_part(&mut hash, &canonical_reset_path(reset_dir));
+        update_reset_confirmation_part(&mut hash, &reset_dir_fingerprint("pending", reset_dir)?);
+    }
     let digest = hash.finalize();
-    digest[..12].iter().map(|byte| format!("{byte:02x}")).collect()
+    Ok(digest[..12].iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 fn update_reset_confirmation_part(hash: &mut Sha256, value: &str) {
@@ -627,54 +697,72 @@ fn canonical_reset_path(path: &Path) -> String {
     path.canonicalize().unwrap_or_else(|_| path.to_path_buf()).display().to_string()
 }
 
-fn session_reset_target_fingerprint(session_dir: &Path) -> String {
-    let mut fingerprint = reset_dir_fingerprint("session", session_dir);
+fn session_reset_target_fingerprint(session_dir: &Path) -> anyhow::Result<String> {
+    let mut fingerprint = reset_dir_fingerprint("session", session_dir)?;
     let database_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
     fingerprint.push_str(";registry_file=");
-    fingerprint.push_str(&reset_path_metadata_fingerprint(&database_path));
-    fingerprint
+    fingerprint.push_str(&reset_path_metadata_fingerprint(&database_path)?);
+    Ok(fingerprint)
 }
 
-fn reset_dir_fingerprint(label: &str, path: &Path) -> String {
-    let mut fingerprint = format!("{label}:{}", reset_path_metadata_fingerprint(path));
-    let entries = match fs::read_dir(path) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            fingerprint.push_str(";entries:missing");
-            return fingerprint;
-        }
-        Err(error) => {
-            fingerprint.push_str(";entries:error:");
-            fingerprint.push_str(&format!("{:?}", error.kind()));
-            return fingerprint;
-        }
-    };
-    let mut entry_fingerprints = Vec::new();
-    for entry in entries {
-        match entry {
-            Ok(entry) => {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                entry_fingerprints.push(format!(
-                    "{}={}",
-                    name,
-                    reset_path_metadata_fingerprint(&entry.path())
-                ));
-            }
-            Err(error) => entry_fingerprints.push(format!("read-entry-error={:?}", error.kind())),
-        }
-    }
-    entry_fingerprints.sort();
-    fingerprint.push_str(";entries:");
-    fingerprint.push_str(&entry_fingerprints.join(","));
-    fingerprint
+fn reset_dir_fingerprint(label: &str, path: &Path) -> anyhow::Result<String> {
+    let mut entries = Vec::new();
+    collect_reset_path_fingerprints(path, Path::new("."), &mut entries)?;
+    entries.sort();
+    Ok(format!("{label}:{}", entries.join(",")))
 }
 
-fn reset_path_metadata_fingerprint(path: &Path) -> String {
+fn collect_reset_path_fingerprints(
+    path: &Path,
+    relative_path: &Path,
+    entries: &mut Vec<String>,
+) -> anyhow::Result<()> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return "missing".into(),
-        Err(error) => return format!("error:{}", error.kind()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            entries.push(format!("{}=missing", relative_path.display()));
+            return Ok(());
+        }
+        Err(error) => {
+            return Err(error).with_context(|| format!("inspect reset path {}", path.display()));
+        }
     };
+    entries.push(format!("{}={}", relative_path.display(), reset_metadata_fingerprint(&metadata)));
+    if !metadata.file_type().is_dir() {
+        return Ok(());
+    }
+    let mut child_paths = Vec::new();
+    for entry in
+        fs::read_dir(path).with_context(|| format!("read reset path {}", path.display()))?
+    {
+        child_paths.push(entry?.path());
+    }
+    child_paths.sort();
+    for child_path in child_paths {
+        let child_name = child_path.file_name().ok_or_else(|| {
+            anyhow::anyhow!("reset path has no file name: {}", child_path.display())
+        })?;
+        collect_reset_path_fingerprints(
+            &child_path,
+            &relative_path.join(Path::new(child_name)),
+            entries,
+        )?;
+    }
+    Ok(())
+}
+
+fn reset_path_metadata_fingerprint(path: &Path) -> anyhow::Result<String> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok("missing".into()),
+        Err(error) => {
+            return Err(error).with_context(|| format!("inspect reset path {}", path.display()));
+        }
+    };
+    Ok(reset_metadata_fingerprint(&metadata))
+}
+
+fn reset_metadata_fingerprint(metadata: &fs::Metadata) -> String {
     let kind = if metadata.file_type().is_dir() {
         "dir"
     } else if metadata.file_type().is_file() {

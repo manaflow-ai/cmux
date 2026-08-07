@@ -1002,6 +1002,54 @@ fn session_reset_state_rejects_preview_when_session_sidecar_appears() {
     fs::remove_dir_all(dir).unwrap();
 }
 
+#[test]
+fn session_reset_state_rejects_preview_when_nested_session_file_appears() {
+    let dir = unique_temp_dir("session-reset-new-nested-file");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-new-nested-file";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let session_dir = database.parent().unwrap();
+    let nested_dir = session_dir.join("nested");
+    fs::create_dir_all(&nested_dir).unwrap();
+    fs::write(nested_dir.join("previewed"), b"old").unwrap();
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let stale_confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    let unpreviewed = nested_dir.join("unpreviewed");
+    fs::write(&unpreviewed, b"new").unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            stale_confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset accepted a token before a nested file existed");
+    assert!(database.exists(), "reset removed the registry with a stale token");
+    assert!(unpreviewed.exists(), "reset removed a nested file that was not previewed");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn session_reset_state_bad_token_does_not_mutate_state_root() {

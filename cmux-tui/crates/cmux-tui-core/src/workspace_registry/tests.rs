@@ -119,7 +119,7 @@ fn reset_removes_selected_session_guard_file() {
     assert!(guard_path.exists(), "open did not create a session guard");
 
     let resetter = PersistentSessionStateResetter::new(root.clone());
-    let preview = resetter.preview(session);
+    let preview = resetter.preview(session).unwrap();
     assert_eq!(preview.state_root, root);
     assert_eq!(preview.session_dir, resetter.session_dir(session));
     assert_eq!(resetter.state_root(), root.as_path());
@@ -127,6 +127,45 @@ fn reset_removes_selected_session_guard_file() {
 
     assert!(reset.removed_session_state);
     assert!(!guard_path.exists(), "reset left the selected session guard behind");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_retries_previous_private_deletion_dir() {
+    let root = temp_root("reset-retries-private-delete");
+    let session = "reset-retries-private-delete";
+    fs::create_dir_all(&root).unwrap();
+    let pending_reset_dir =
+        root.join(format!(".reset-{}-previous.deleting", session_storage_component(session)));
+    fs::create_dir_all(pending_reset_dir.join("nested")).unwrap();
+    fs::write(pending_reset_dir.join("nested").join("saved-state"), b"old").unwrap();
+
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let preview = resetter.preview(session).unwrap();
+    assert_eq!(preview.pending_reset_dirs, vec![pending_reset_dir.clone()]);
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(reset.removed_session_state);
+    assert!(!pending_reset_dir.exists(), "reset left a private deletion dir behind");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_errors_when_state_root_cannot_be_inspected() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_root("reset-inaccessible-root");
+    let blocked_parent = root.join("blocked");
+    let state_root = blocked_parent.join("state");
+    fs::create_dir_all(&state_root).unwrap();
+    fs::set_permissions(&blocked_parent, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let resetter = PersistentSessionStateResetter::new(state_root);
+    let error = resetter.reset("reset-inaccessible-root", Some("unused")).unwrap_err();
+
+    fs::set_permissions(&blocked_parent, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(error.to_string().contains("inspect workspace state root"));
     fs::remove_dir_all(root).unwrap();
 }
 
