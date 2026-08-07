@@ -2865,6 +2865,20 @@ fn acquire_existing_session_guard(root: &Path, session_name: &str) -> anyhow::Re
 #[cfg(unix)]
 fn prepare_terminal_host_root_for_reset(root: &Path) -> anyhow::Result<()> {
     let records = crate::terminal_host_runtime::load_terminal_host_records(root)?;
+    let expected_live_markers = records
+        .iter()
+        .map(|(record_path, record)| terminal_host_live_marker_path(record_path, record))
+        .collect::<HashSet<_>>();
+    for entry in fs::read_dir(root)
+        .with_context(|| format!("read terminal host state {}", root.display()))?
+    {
+        let path = entry?.path();
+        if path.extension().and_then(|value| value.to_str()) == Some("live")
+            && !expected_live_markers.contains(&path)
+        {
+            anyhow::bail!("terminal host state still has live or unverified hosts");
+        }
+    }
     for (record_path, record) in &records {
         match crate::terminal_host_runtime::terminal_host_record_liveness(&record_path, &record)? {
             TerminalHostLiveness::Dead => {}
@@ -2880,6 +2894,14 @@ fn prepare_terminal_host_root_for_reset(root: &Path) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(unix)]
+fn terminal_host_live_marker_path(
+    record_path: &Path,
+    record: &crate::terminal_host_runtime::TerminalHostRecord,
+) -> PathBuf {
+    record_path.with_extension(format!("{}-{}.live", record.incarnation, record.host_start_nonce))
 }
 
 #[cfg(not(unix))]

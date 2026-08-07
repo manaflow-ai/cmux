@@ -292,7 +292,7 @@ const SESSION_HELP: &str = "\
 USAGE
   cmux session list
   cmux session <selector> open|show|snapshot|ping|shutdown
-  cmux session <name> reset-state [--force] [--state <path>]
+  cmux session <name> reset-state [--force --confirm-reset <token>] [--state <path>]
   cmux session <selector> creation <correlation-key> resolve
   cmux session <selector> events [--generation <value> --revision <decimal>]
   cmux session <selector> config reload

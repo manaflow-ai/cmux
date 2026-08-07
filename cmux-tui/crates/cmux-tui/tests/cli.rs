@@ -672,11 +672,30 @@ fn session_reset_state_removes_only_the_named_saved_state() {
     assert_eq!(preview["state_root"], state.display().to_string());
     assert_eq!(preview["session_dir"], stale_database.parent().unwrap().display().to_string());
     assert_eq!(preview["terminal_host_root"], stale_host_root.display().to_string());
+    let confirm_reset = preview["confirm_reset"].as_str().unwrap().to_string();
     assert!(stale_database.exists(), "preview removed stale database");
     assert!(stale_host_root.exists(), "preview removed stale terminal-host state");
 
-    let reset = Command::new(bin())
+    let rejected = Command::new(bin())
         .args(["session", stale_session, "reset-state", "--force", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!rejected.status.success(), "force without preview token unexpectedly succeeded");
+    assert!(stale_database.exists(), "rejected force removed stale database");
+    assert!(stale_host_root.exists(), "rejected force removed stale terminal-host state");
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            stale_session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            &confirm_reset,
+            "--state",
+        ])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
         .output()
@@ -703,9 +722,26 @@ fn session_reset_state_refuses_live_terminal_host_state() {
     let database = find_session_database(&state, session);
     let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
     let _live_host = create_live_terminal_host_record(&host_root);
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let confirm_reset = preview["confirm_reset"].as_str().unwrap();
 
     let reset = Command::new(bin())
-        .args(["session", session, "reset-state", "--force", "--state"])
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            confirm_reset,
+            "--state",
+        ])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
         .output()
@@ -717,6 +753,59 @@ fn session_reset_state_refuses_live_terminal_host_state() {
     assert!(!stderr.contains(&state.display().to_string()), "{stderr}");
     assert!(database.exists(), "reset removed the registry while a live host was present");
     assert!(host_root.exists(), "reset removed live terminal-host state");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_reset_state_refuses_orphan_terminal_host_live_marker() {
+    let dir = unique_temp_dir("session-reset-orphan-host-marker");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-orphan-host";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    let live_marker = host_root.join("orphan.live");
+    let live_file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_marker)
+        .unwrap();
+    assert_eq!(unsafe { libc::flock(live_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset unexpectedly succeeded");
+    assert!(database.exists(), "reset removed the registry while a live marker was present");
+    assert!(live_marker.exists(), "reset removed the orphan live marker");
 
     fs::remove_dir_all(dir).unwrap();
 }
