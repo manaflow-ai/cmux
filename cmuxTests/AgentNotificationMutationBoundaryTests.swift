@@ -584,6 +584,10 @@ extension AgentNotificationRegressionTests {
         #expect(
             fixture.destination.agentLifecycleStatesByPanelId[fixture.panelId]?["claude_code"] == .running
         )
+        #expect(
+            fixture.destination.agentLifecycleRecordsByPanelId[fixture.panelId]?["claude_code"]?.sessionID
+                == "session-1"
+        )
     }
 
     @Test("An authorized-workspace clear cancels a confined in-flight relay delivery")

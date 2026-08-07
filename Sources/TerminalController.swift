@@ -4818,8 +4818,7 @@ class TerminalController {
             ?? v2UUID(params, "terminal_id")
             ?? v2UUID(params, "tab_id") {
             return tabManager.tabs.first(where: {
-                $0.panels[surfaceId] != nil
-                    || $0.remoteTmuxControlPane(surfaceID: surfaceId) != nil
+                $0.surfaceOwnershipTarget(for: surfaceId) != nil
             })
         }
         if let paneId = v2UUID(params, "pane_id"),
@@ -13260,8 +13259,13 @@ class TerminalController {
 
     private func resolveSurfaceId(from arg: String, tab: Workspace) -> UUID? {
         if let uuid = UUID(uuidString: arg),
-           tab.panels[uuid] != nil || tab.remoteTmuxControlPane(surfaceID: uuid) != nil {
-            return uuid
+           let ownership = tab.surfaceOwnershipTarget(for: uuid) {
+            // Projected remote-tmux panes remain addressable by their exposed
+            // surface ID; ordinary Bonsplit surface IDs resolve to the stable
+            // panel that owns the surface.
+            return tab.remoteTmuxControlPane(surfaceID: uuid) != nil
+                ? uuid
+                : ownership.containerPanelID
         }
 
         if let index = Int(arg), index >= 0 {

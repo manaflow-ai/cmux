@@ -294,7 +294,8 @@ final class CmuxEventBus: @unchecked Sendable {
             "resume": resume,
             "filters": [
                 "names": Array(names).sorted(),
-                "categories": Array(categories).sorted()
+                "categories": Array(categories).sorted(),
+                "surface_ids": Array(surfaceIDs).sorted()
             ]
         ]
 

@@ -838,24 +838,33 @@ struct AgentLifecycleEventTests {
     }
 
     @Test
-    func surfaceTreeAliasResolvesToLifecycleOwningPanel() throws {
-        let fixture = try Fixture()
-        fixture.workspace.setAgentLifecycle(
+    func surfaceTreeAliasResolvesToLifecycleOwningPanelAndWorkspace() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.setAgentLifecycle(
             key: "codex",
-            panelId: fixture.surfaceID,
+            panelId: panelID,
             lifecycle: .running,
             sessionID: "session-alias"
         )
         let surfaceTreeID = try #require(
-            fixture.workspace.surfaceIdFromPanelId(fixture.surfaceID)?.uuid
+            workspace.surfaceIdFromPanelId(panelID)?.uuid
         )
 
         let snapshot = try #require(
-            fixture.workspace.agentWaitSurfaceSnapshot(surfaceID: surfaceTreeID)
+            workspace.agentWaitSurfaceSnapshot(surfaceID: surfaceTreeID)
+        )
+        let resolvedWorkspace = try #require(
+            TerminalController.shared.v2ResolveWorkspace(
+                params: ["surface_id": surfaceTreeID.uuidString],
+                tabManager: manager
+            )
         )
 
-        #expect(snapshot.surfaceID == fixture.surfaceID)
+        #expect(snapshot.surfaceID == panelID)
         #expect(snapshot.occupant?.sessionID == "session-alias")
+        #expect(resolvedWorkspace === workspace)
     }
 
     @Test

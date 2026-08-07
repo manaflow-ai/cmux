@@ -62,9 +62,9 @@ not included in event payloads.
 
 Use `cmux wait --surface <id|ref|index> --until
 <idle|needs-input|exit> [--timeout <ms>]` to block on that lifecycle. The
-server resolves and pins the agent session occupying the surface when the wait
-starts. If another agent replaces it, the replacement cannot satisfy the
-wait.
+server resolves and pins the occupant identity—its reported session ID when
+available, otherwise its occupant revision—when the wait starts. A replacement
+agent cannot satisfy the wait in either case.
 
 Claude Code's `PushNotification` tool (model-initiated "notify the user now" pushes) is bridged through a `PostToolUse` hook into cmux notifications. The tool normally delivers via a raw OSC desktop notification, which cmux suppresses on surfaces running a hook-integrated agent, so the bridge is what makes those pushes visible inside cmux. It mirrors the tool's own outcome: a push the tool reports as skipped (user active, channel disabled) is not duplicated.
 
