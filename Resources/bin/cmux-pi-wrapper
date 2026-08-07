@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# cmux Pi wrapper - gives each cmux terminal surface a stable Pi session id.
+
+set -u
+
+is_cmux_pi_shim() {
+    local candidate="$1"
+    if [[ -n "${CMUX_PI_WRAPPER_SHIM:-}" &&
+          -e "$candidate" &&
+          -e "$CMUX_PI_WRAPPER_SHIM" &&
+          "$candidate" -ef "$CMUX_PI_WRAPPER_SHIM" ]]; then
+        return 0
+    fi
+    case "$candidate" in
+        */cmux-cli-shims/*/pi|*/cmux-cli-shims/pi|*/Contents/Resources/bin/pi|*/Resources/bin/pi)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+find_real_pi() {
+    local wrapper_path candidate directory old_ifs
+    wrapper_path="${BASH_SOURCE[0]}"
+    old_ifs="$IFS"
+    IFS=:
+    for directory in ${PATH:-}; do
+        [[ -n "$directory" ]] || directory=.
+        candidate="$directory/pi"
+        [[ -x "$candidate" ]] || continue
+        if [[ -e "$wrapper_path" && "$candidate" -ef "$wrapper_path" ]]; then
+            continue
+        fi
+        if is_cmux_pi_shim "$candidate"; then
+            continue
+        fi
+        IFS="$old_ifs"
+        printf '%s\n' "$candidate"
+        return 0
+    done
+    IFS="$old_ifs"
+    return 1
+}
+
+supports_stable_session_ids() {
+    local version major minor
+    version="$("$REAL_PI" --version 2>/dev/null | head -n 1)"
+    version="${version#v}"
+    major="${version%%.*}"
+    version="${version#*.}"
+    minor="${version%%.*}"
+    [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] || return 1
+    (( major > 0 || minor >= 84 ))
+}
+
+has_explicit_session_choice() {
+    local argument
+    for argument in "$@"; do
+        case "$argument" in
+            --session|--session=*|--session-id|--session-id=*|--fork|--fork=*|\
+            --continue|-c|--resume|-r|--no-session)
+                return 0
+                ;;
+        esac
+    done
+    return 1
+}
+
+is_utility_invocation() {
+    local first="${1:-}"
+    case "$first" in
+        install|remove|uninstall|update|list|config|auth|--help|-h|--version|-v)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+REAL_PI="$(find_real_pi)" || {
+    echo "Error: pi not found in PATH" >&2
+    exit 127
+}
+
+surface_id="${CMUX_SURFACE_ID:-}"
+if [[ -z "$surface_id" || ! "$surface_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] ||
+   is_utility_invocation "$@" ||
+   has_explicit_session_choice "$@" ||
+   ! supports_stable_session_ids; then
+    exec "$REAL_PI" "$@"
+fi
+
+exec "$REAL_PI" --session-id "cmux-$surface_id" "$@"

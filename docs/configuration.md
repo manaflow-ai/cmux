@@ -192,6 +192,8 @@ Built-in action IDs: `claude`, `codex`, `opencode`, `pi`.
 Set `textBoxDefaultSubmitAction` to `text-entry` to force plain Text Entry for new terminals.
 Built-in provider actions shell-quote `{{prompt}}` before pasting the command. Claude may still show its workspace trust prompt before processing the prompt. Built-ins run `claude --dangerously-skip-permissions -- {{prompt}}`, `codex --yolo -- {{prompt}}`, `opencode --prompt {{prompt}}`, and `pi -- {{prompt}}`.
 
+Inside a cmux terminal, Pi 0.84 and newer automatically receives `--session-id cmux-<surface-id>`. Relaunching `pi` in the same restored surface reattaches to that project session. Explicit `--session`, `--session-id`, `--fork`, `--continue`, and `--resume` arguments keep their normal Pi behavior. Older Pi versions pass through unchanged.
+
 Action fields:
 
 - `id`: stable action ID.
