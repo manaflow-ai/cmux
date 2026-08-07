@@ -529,8 +529,9 @@ impl PersistentSessionStateResetter {
             }
         }
         if let Some(reset_dir) = session_reset_dir {
-            fs::remove_dir_all(&reset_dir)
-                .with_context(|| format!("remove workspace session state {}", reset_dir.display()))?;
+            fs::remove_dir_all(&reset_dir).with_context(|| {
+                format!("remove workspace session state {}", reset_dir.display())
+            })?;
             reset.removed_session_state = true;
         }
         if let Some(reset_dir) = terminal_host_reset_dir {
@@ -3571,10 +3572,13 @@ fn prepare_terminal_host_root_for_reset(
         if path.extension().and_then(|value| value.to_str()) == Some("live")
             && !expected_live_markers.contains(&path)
         {
-            let Some(lease) = lock_verified_dead_live_marker(&path, expected_uid)? else {
-                anyhow::bail!("terminal host state still has live or unverified hosts");
-            };
-            live_marker_leases.push(lease);
+            match lock_verified_dead_live_marker(&path, expected_uid)? {
+                TerminalHostLiveMarkerLock::Locked(lease) => live_marker_leases.push(lease),
+                TerminalHostLiveMarkerLock::Missing => {}
+                TerminalHostLiveMarkerLock::Unsafe => {
+                    anyhow::bail!("terminal host state still has live or unverified hosts");
+                }
+            }
         }
     }
     for (record_path, record) in &records {
@@ -3582,10 +3586,13 @@ fn prepare_terminal_host_root_for_reset(
             TerminalHostLiveness::Dead => {
                 if record.record_version >= 2 {
                     let marker = terminal_host_live_marker_path(record_path, record);
-                    let Some(lease) = lock_verified_dead_live_marker(&marker, expected_uid)? else {
-                        continue;
-                    };
-                    live_marker_leases.push(lease);
+                    match lock_verified_dead_live_marker(&marker, expected_uid)? {
+                        TerminalHostLiveMarkerLock::Locked(lease) => live_marker_leases.push(lease),
+                        TerminalHostLiveMarkerLock::Missing => {}
+                        TerminalHostLiveMarkerLock::Unsafe => {
+                            anyhow::bail!("terminal host state still has live or unverified hosts");
+                        }
+                    }
                 }
             }
             TerminalHostLiveness::Live | TerminalHostLiveness::Indeterminate => {
@@ -3610,10 +3617,17 @@ struct TerminalHostLiveMarkerLease {
 }
 
 #[cfg(unix)]
+enum TerminalHostLiveMarkerLock {
+    Locked(TerminalHostLiveMarkerLease),
+    Missing,
+    Unsafe,
+}
+
+#[cfg(unix)]
 fn lock_verified_dead_live_marker(
     path: &Path,
     expected_uid: u32,
-) -> anyhow::Result<Option<TerminalHostLiveMarkerLease>> {
+) -> anyhow::Result<TerminalHostLiveMarkerLock> {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
@@ -3625,9 +3639,9 @@ fn lock_verified_dead_live_marker(
     {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(None);
+            return Ok(TerminalHostLiveMarkerLock::Missing);
         }
-        Err(_) => return Ok(None),
+        Err(_) => return Ok(TerminalHostLiveMarkerLock::Unsafe),
     };
     let metadata = file.metadata()?;
     if !metadata.file_type().is_file()
@@ -3635,7 +3649,7 @@ fn lock_verified_dead_live_marker(
         || metadata.nlink() != 1
         || metadata.mode() & 0o077 != 0
     {
-        return Ok(None);
+        return Ok(TerminalHostLiveMarkerLock::Unsafe);
     }
     loop {
         // SAFETY: flock only observes/changes the advisory lock on this valid file descriptor.
@@ -3643,19 +3657,23 @@ fn lock_verified_dead_live_marker(
         if result == 0 {
             let current = match fs::symlink_metadata(path) {
                 Ok(current) => current,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return Ok(TerminalHostLiveMarkerLock::Missing);
+                }
                 Err(error) => return Err(error.into()),
             };
             if current.dev() != metadata.dev() || current.ino() != metadata.ino() {
-                return Ok(None);
+                return Ok(TerminalHostLiveMarkerLock::Unsafe);
             }
-            return Ok(Some(TerminalHostLiveMarkerLease { _file: file }));
+            return Ok(TerminalHostLiveMarkerLock::Locked(TerminalHostLiveMarkerLease {
+                _file: file,
+            }));
         }
         let error = std::io::Error::last_os_error();
         if error.kind() == std::io::ErrorKind::Interrupted {
             continue;
         }
-        return Ok(None);
+        return Ok(TerminalHostLiveMarkerLock::Unsafe);
     }
 }
 

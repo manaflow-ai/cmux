@@ -276,6 +276,46 @@ fn terminal_host_reset_holds_structured_live_marker_lock() {
 
 #[cfg(unix)]
 #[test]
+fn terminal_host_reset_refuses_busy_live_marker() {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let root = temp_root("terminal-host-reset-refuses-busy-live-marker");
+    fs::create_dir_all(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+    let uid = fs::metadata(&root).unwrap().uid();
+    let live_path = root.join("orphan.live");
+    let live_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_path)
+        .unwrap();
+    // SAFETY: flock only changes the advisory lock on this valid test file descriptor.
+    assert_eq!(unsafe { libc::flock(live_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+
+    assert!(matches!(
+        lock_verified_dead_live_marker(&root.join("missing.live"), uid).unwrap(),
+        TerminalHostLiveMarkerLock::Missing
+    ));
+    assert!(matches!(
+        lock_verified_dead_live_marker(&live_path, uid).unwrap(),
+        TerminalHostLiveMarkerLock::Unsafe
+    ));
+    let error = match prepare_terminal_host_root_for_reset(&root) {
+        Ok(_) => panic!("reset accepted a busy live marker"),
+        Err(error) => error,
+    };
+
+    assert!(error.to_string().contains("live or unverified hosts"), "{error:#}");
+    assert!(live_path.exists(), "reset removed a busy live marker");
+    drop(live_file);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn reset_rejects_unpublished_terminal_host_publication() {
     let root = temp_root("reset-rejects-unpublished-terminal-host");
     let session = "reset-rejects-unpublished-terminal-host";
@@ -420,9 +460,8 @@ fn reset_private_rename_rejects_replaced_directory_fingerprint() {
     let replacement = session_dir.join("replacement");
     fs::write(&replacement, b"new").unwrap();
 
-    let error =
-        rename_session_dir_for_reset(&root, session, &session_dir, &expected_fingerprint)
-            .unwrap_err();
+    let error = rename_session_dir_for_reset(&root, session, &session_dir, &expected_fingerprint)
+        .unwrap_err();
 
     assert!(error.to_string().contains("reset path changed during reset"));
     assert!(replacement.exists(), "reset deleted the replacement directory");
@@ -445,9 +484,8 @@ fn reset_private_rename_rejects_late_nested_session_file() {
 
     let late = nested.join("late-sidecar");
     fs::write(&late, b"new").unwrap();
-    let error =
-        rename_session_dir_for_reset(&root, session, &session_dir, &expected_fingerprint)
-            .unwrap_err();
+    let error = rename_session_dir_for_reset(&root, session, &session_dir, &expected_fingerprint)
+        .unwrap_err();
 
     assert!(error.to_string().contains("reset path changed during reset"));
     assert!(session_dir.exists(), "reset staged the changed session directory");
@@ -463,12 +501,9 @@ fn reset_private_rename_rejects_late_terminal_host_file() {
     let nested = host_root.join("nested");
     fs::create_dir_all(&nested).unwrap();
     fs::write(nested.join("previewed"), b"old").unwrap();
-    let expected_fingerprint = reset_dir_fingerprint(
-        "terminal-hosts",
-        &host_root,
-        &mut ResetFingerprintBudget::default(),
-    )
-    .unwrap();
+    let expected_fingerprint =
+        reset_dir_fingerprint("terminal-hosts", &host_root, &mut ResetFingerprintBudget::default())
+            .unwrap();
 
     let late = nested.join("late-sidecar");
     fs::write(&late, b"new").unwrap();
