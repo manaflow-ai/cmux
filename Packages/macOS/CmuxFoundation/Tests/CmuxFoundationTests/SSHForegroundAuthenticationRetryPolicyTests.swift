@@ -3193,6 +3193,35 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(Darwin.kill(-groupID, 0) != 0)
     }
 
+    @Test func authenticationCommandDoesNotInheritAnchorGuardDescriptor() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-anchor-descriptor-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        let inheritedMarker = root.appendingPathComponent("inherited")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let policy = SSHForegroundAuthenticationRetryPolicy()
+        let classifiedAuthentication = policy.classifyingTransientFailure(
+            in: """
+            if /usr/sbin/lsof -a -p "$$" -Fn 2>/dev/null | \
+              /usr/bin/grep -Fq "$CMUX_TEST_ANCHOR_TOKEN"; then
+              : > "$CMUX_TEST_INHERITED_MARKER"
+            fi
+            """
+        )
+        let result = try runShellCommand(classifiedAuthentication, environment: [
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+            "CMUX_TEST_ANCHOR_TOKEN": root.lastPathComponent,
+            "CMUX_TEST_INHERITED_MARKER": inheritedMarker.path,
+        ])
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+        #expect(!fileManager.fileExists(atPath: inheritedMarker.path))
+    }
+
     @Test func killedPublisherCannotStrandPublishedAnchor() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
