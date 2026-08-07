@@ -29,6 +29,90 @@ import Testing
         #expect(state?.streamStatus == .starting)
     }
 
+    @Test func frameReceiveResultIdentifiesStaleFrames() throws {
+        let store = MobileSimulatorStreamStore()
+        let descriptor = simulatorDescriptor()
+        store.replaceSimulatorPanels(in: "workspace-1", with: [descriptor])
+        store.activate(panelID: "sim-1", in: "workspace-1")
+        let newest = MobileSimulatorFrameEvent(
+            panelID: "sim-1",
+            sequence: 9,
+            format: .jpeg,
+            pixelWidth: 390,
+            pixelHeight: 844,
+            displayScale: 3,
+            dataBase64: "bmV3ZXI="
+        )
+        let stale = MobileSimulatorFrameEvent(
+            panelID: "sim-1",
+            sequence: 8,
+            format: .jpeg,
+            pixelWidth: 390,
+            pixelHeight: 844,
+            displayScale: 3,
+            dataBase64: "b2xkZXI="
+        )
+
+        let newestPayload = try JSONEncoder().encode(newest)
+        let stalePayload = try JSONEncoder().encode(stale)
+        #expect(
+            store.receiveSimulatorFramePayload(newestPayload)
+                == .received(panelID: "sim-1", sequence: 9, payloadBytes: newestPayload.count)
+        )
+        #expect(
+            store.receiveSimulatorFramePayload(stalePayload)
+                == .stale(
+                    panelID: "sim-1",
+                    sequence: 8,
+                    previousSequence: 9,
+                    payloadBytes: stalePayload.count
+                )
+        )
+        #expect(store.state(for: "sim-1")?.latestFrame == newest)
+    }
+
+    @Test func frameReceiveResultIdentifiesMalformedPayloadsAndUnknownPanels() throws {
+        let store = MobileSimulatorStreamStore()
+        store.replaceSimulatorPanels(in: "workspace-1", with: [simulatorDescriptor()])
+        let malformed = Data(#"{"panel_id":"sim-1""#.utf8)
+        #expect(store.receiveSimulatorFramePayload(malformed) == .decodeFailed(payloadBytes: malformed.count))
+
+        let unknown = MobileSimulatorFrameEvent(
+            panelID: "missing",
+            sequence: 3,
+            format: .jpeg,
+            pixelWidth: 390,
+            pixelHeight: 844,
+            displayScale: 3,
+            dataBase64: "ZmFrZQ=="
+        )
+        let payload = try JSONEncoder().encode(unknown)
+        #expect(
+            store.receiveSimulatorFramePayload(payload)
+                == .unknownPanel(panelID: "missing", sequence: 3, payloadBytes: payload.count)
+        )
+    }
+
+    @Test func stateReceiveResultDescribesOwnershipTransition() throws {
+        let store = MobileSimulatorStreamStore()
+        store.replaceSimulatorPanels(in: "workspace-1", with: [
+            simulatorDescriptor(ownerConnectionID: nil, isOwnedByCurrentConnection: true),
+        ])
+
+        let payload = try JSONEncoder().encode(
+            simulatorDescriptor(ownerConnectionID: "other", isOwnedByCurrentConnection: false)
+        )
+
+        #expect(
+            store.receiveSimulatorStatePayload(payload)
+                == .applied(
+                    panelID: "sim-1",
+                    ownership: .otherConnection,
+                    previousOwnership: .currentConnection
+                )
+        )
+    }
+
     /// A `simulator.state` event can describe a panel this phone never
     /// activated; it must not promote that panel to `.starting`.
     @Test func passiveStateUpdateDoesNotPromoteIdlePanelToStarting() throws {

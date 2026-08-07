@@ -13,21 +13,46 @@ extension TerminalController {
             return v2MobileSimulatorList(params: params, connectionID: connectionID)
         case "mobile.simulator.stream.start":
             guard CmuxFeatureFlags.shared.isSimulatorEnabled else {
+                MobileSimulatorDiagnostics.recordStream(
+                    panelID: nil,
+                    state: .startFailed,
+                    ownership: .unknown
+                )
                 return .err(code: "capability_disabled", message: "Simulator panes are disabled", data: nil)
             }
             guard let connectionID else {
+                MobileSimulatorDiagnostics.recordStream(
+                    panelID: nil,
+                    state: .startFailed,
+                    ownership: .unknown
+                )
                 return .err(code: "unavailable", message: "Simulator streaming requires a mobile connection", data: nil)
             }
             guard let request = mobileSimulatorDecode(
                 MobileSimulatorStreamStartParameters.self,
                 params: params
             ), let workspaceID = UUID(uuidString: request.workspaceID) else {
+                MobileSimulatorDiagnostics.recordStream(
+                    panelID: nil,
+                    state: .startFailed,
+                    ownership: .unknown
+                )
                 return .err(code: "invalid_params", message: "Invalid simulator stream parameters", data: nil)
             }
             guard let resolved = mobileSimulatorPanel(id: request.panelID, workspaceID: workspaceID) else {
+                MobileSimulatorDiagnostics.recordStream(
+                    panelID: UUID(uuidString: request.panelID),
+                    state: .startFailed,
+                    ownership: .unknown
+                )
                 return mobileSimulatorPanelResolutionError(params: params)
             }
             guard resolved.panel.isFeatureReady else {
+                MobileSimulatorDiagnostics.recordStream(
+                    panelID: resolved.panel.id,
+                    state: .startFailed,
+                    ownership: .unknown
+                )
                 return .err(code: "capability_disabled", message: "Simulator pane is disabled", data: [
                     "panel_id": request.panelID
                 ])
@@ -123,19 +148,56 @@ extension TerminalController {
         connectionID: UUID?
     ) -> V2CallResult {
         guard CmuxFeatureFlags.shared.isSimulatorEnabled else {
+            MobileSimulatorDiagnostics.recordInput(
+                panelID: nil,
+                state: .featureDisabled,
+                kind: .pointer
+            )
             return .err(code: "capability_disabled", message: "Simulator panes are disabled", data: nil)
         }
         guard let connectionID else {
+            MobileSimulatorDiagnostics.recordInput(panelID: nil, state: .unavailable, kind: .pointer)
             return .err(code: "unavailable", message: "Simulator input requires a mobile connection", data: nil)
         }
         guard let input = mobileSimulatorDecode(MobileSimulatorPointerInput.self, params: params),
               let workspaceID = UUID(uuidString: input.workspaceID) else {
+            MobileSimulatorDiagnostics.recordInput(
+                panelID: v2RawString(params, "panel_id").flatMap(UUID.init(uuidString:)),
+                state: .invalidParameters,
+                kind: .pointer
+            )
             return .err(code: "invalid_params", message: "Invalid simulator pointer input", data: nil)
         }
+        let panelID = UUID(uuidString: input.panelID)
+        let detail = MobileSimulatorDiagnostics.pointerPhase(input.phase).rawValue
+        MobileSimulatorDiagnostics.recordCoordinate(
+            panelID: panelID,
+            x: input.x,
+            y: input.y,
+            mapping: .mapped
+        )
+        MobileSimulatorDiagnostics.recordInput(
+            panelID: panelID,
+            state: .queued,
+            kind: .pointer,
+            detail: detail
+        )
         guard let resolved = mobileSimulatorPanel(id: input.panelID, workspaceID: workspaceID) else {
+            MobileSimulatorDiagnostics.recordInput(
+                panelID: panelID,
+                state: .panelMissing,
+                kind: .pointer,
+                detail: detail
+            )
             return mobileSimulatorPanelResolutionError(params: params)
         }
         guard mobileSimulatorHasControl(connectionID: connectionID, panel: resolved.panel) else {
+            MobileSimulatorDiagnostics.recordInput(
+                panelID: resolved.panel.id,
+                state: .rejectedLocked,
+                kind: .pointer,
+                detail: detail
+            )
             return mobileSimulatorLockedError(panel: resolved.panel, connectionID: connectionID)
         }
         let point = SimulatorPoint(x: input.x, y: input.y)
@@ -149,6 +211,12 @@ extension TerminalController {
         case .ended:
             resolved.panel.coordinator.endTouch(at: point)
         }
+        MobileSimulatorDiagnostics.recordInput(
+            panelID: resolved.panel.id,
+            state: .accepted,
+            kind: .pointer,
+            detail: detail
+        )
         return .ok(["ok": true, "panel_id": resolved.panel.id.uuidString])
     }
 
@@ -157,25 +225,64 @@ extension TerminalController {
         connectionID: UUID?
     ) -> V2CallResult {
         guard CmuxFeatureFlags.shared.isSimulatorEnabled else {
+            MobileSimulatorDiagnostics.recordInput(panelID: nil, state: .featureDisabled, kind: .text)
             return .err(code: "capability_disabled", message: "Simulator panes are disabled", data: nil)
         }
         guard let connectionID else {
+            MobileSimulatorDiagnostics.recordInput(panelID: nil, state: .unavailable, kind: .text)
             return .err(code: "unavailable", message: "Simulator input requires a mobile connection", data: nil)
         }
         guard let input = mobileSimulatorDecode(MobileSimulatorTextInput.self, params: params),
               let workspaceID = UUID(uuidString: input.workspaceID) else {
+            MobileSimulatorDiagnostics.recordInput(
+                panelID: v2RawString(params, "panel_id").flatMap(UUID.init(uuidString:)),
+                state: .invalidParameters,
+                kind: .text
+            )
             return .err(code: "invalid_params", message: "Invalid simulator text input", data: nil)
         }
+        let panelID = UUID(uuidString: input.panelID)
+        let detail = input.text.utf8.count
+        MobileSimulatorDiagnostics.recordInput(
+            panelID: panelID,
+            state: .queued,
+            kind: .text,
+            detail: detail
+        )
         guard let resolved = mobileSimulatorPanel(id: input.panelID, workspaceID: workspaceID) else {
+            MobileSimulatorDiagnostics.recordInput(
+                panelID: panelID,
+                state: .panelMissing,
+                kind: .text,
+                detail: detail
+            )
             return mobileSimulatorPanelResolutionError(params: params)
         }
         guard mobileSimulatorHasControl(connectionID: connectionID, panel: resolved.panel) else {
+            MobileSimulatorDiagnostics.recordInput(
+                panelID: resolved.panel.id,
+                state: .rejectedLocked,
+                kind: .text,
+                detail: detail
+            )
             return mobileSimulatorLockedError(panel: resolved.panel, connectionID: connectionID)
         }
         switch resolved.panel.coordinator.typeText(input.text) {
         case .success:
+            MobileSimulatorDiagnostics.recordInput(
+                panelID: resolved.panel.id,
+                state: .accepted,
+                kind: .text,
+                detail: detail
+            )
             return .ok(["ok": true, "panel_id": resolved.panel.id.uuidString])
         case .failure:
+            MobileSimulatorDiagnostics.recordInput(
+                panelID: resolved.panel.id,
+                state: .unavailable,
+                kind: .text,
+                detail: detail
+            )
             return .err(code: "unavailable", message: "Simulator text input is unavailable", data: [
                 "panel_id": resolved.panel.id.uuidString
             ])
@@ -187,25 +294,68 @@ extension TerminalController {
         connectionID: UUID?
     ) -> V2CallResult {
         guard CmuxFeatureFlags.shared.isSimulatorEnabled else {
+            MobileSimulatorDiagnostics.recordInput(
+                panelID: nil,
+                state: .featureDisabled,
+                kind: .hardwareButton
+            )
             return .err(code: "capability_disabled", message: "Simulator panes are disabled", data: nil)
         }
         guard let connectionID else {
+            MobileSimulatorDiagnostics.recordInput(panelID: nil, state: .unavailable, kind: .hardwareButton)
             return .err(code: "unavailable", message: "Simulator input requires a mobile connection", data: nil)
         }
         guard let input = mobileSimulatorDecode(MobileSimulatorButtonInput.self, params: params),
               let workspaceID = UUID(uuidString: input.workspaceID) else {
+            MobileSimulatorDiagnostics.recordInput(
+                panelID: v2RawString(params, "panel_id").flatMap(UUID.init(uuidString:)),
+                state: .invalidParameters,
+                kind: .hardwareButton
+            )
             return .err(code: "invalid_params", message: "Invalid simulator button input", data: nil)
         }
+        let panelID = UUID(uuidString: input.panelID)
+        let detail = MobileSimulatorDiagnostics.buttonKind(input.button).rawValue
+        MobileSimulatorDiagnostics.recordInput(
+            panelID: panelID,
+            state: .queued,
+            kind: .hardwareButton,
+            detail: detail
+        )
         guard let resolved = mobileSimulatorPanel(id: input.panelID, workspaceID: workspaceID) else {
+            MobileSimulatorDiagnostics.recordInput(
+                panelID: panelID,
+                state: .panelMissing,
+                kind: .hardwareButton,
+                detail: detail
+            )
             return mobileSimulatorPanelResolutionError(params: params)
         }
         guard mobileSimulatorHasControl(connectionID: connectionID, panel: resolved.panel) else {
+            MobileSimulatorDiagnostics.recordInput(
+                panelID: resolved.panel.id,
+                state: .rejectedLocked,
+                kind: .hardwareButton,
+                detail: detail
+            )
             return mobileSimulatorLockedError(panel: resolved.panel, connectionID: connectionID)
         }
         guard let button = SimulatorHardwareButton(rawValue: input.button.rawValue) else {
+            MobileSimulatorDiagnostics.recordInput(
+                panelID: resolved.panel.id,
+                state: .invalidParameters,
+                kind: .hardwareButton,
+                detail: detail
+            )
             return .err(code: "invalid_params", message: "Unsupported simulator button", data: nil)
         }
         resolved.panel.coordinator.press(button)
+        MobileSimulatorDiagnostics.recordInput(
+            panelID: resolved.panel.id,
+            state: .accepted,
+            kind: .hardwareButton,
+            detail: detail
+        )
         return .ok(["ok": true, "panel_id": resolved.panel.id.uuidString])
     }
 

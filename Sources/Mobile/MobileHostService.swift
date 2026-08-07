@@ -614,6 +614,13 @@ final class MobileHostService {
                 )
             }
             #endif
+            if topic == MobileHostEventTopicPolicy.simulatorFrameTopic,
+               !result.simulatorFrameShedPanelIDs.isEmpty {
+                MobileSimulatorDiagnostics.recordFrameQueueShed(
+                    panelIDStrings: result.simulatorFrameShedPanelIDs,
+                    shedByteCount: result.shedByteCount
+                )
+            }
             resyncSurfaceIDs.formUnion(result.renderGridResyncSurfaceIDs)
             if result.startDrain {
                 Task { await connection.drainQueuedEvents() }
@@ -2768,6 +2775,13 @@ actor MobileHostConnection {
         if !result.renderGridResyncSurfaceIDs.isEmpty {
             MobileTerminalRenderObserver.requestRenderGridFullResync(
                 surfaceIDStrings: result.renderGridResyncSurfaceIDs
+            )
+        }
+        if topic == MobileHostEventTopicPolicy.simulatorFrameTopic,
+           !result.simulatorFrameShedPanelIDs.isEmpty {
+            MobileSimulatorDiagnostics.recordFrameQueueShed(
+                panelIDStrings: result.simulatorFrameShedPanelIDs,
+                shedByteCount: result.shedByteCount
             )
         }
         if result.startDrain {

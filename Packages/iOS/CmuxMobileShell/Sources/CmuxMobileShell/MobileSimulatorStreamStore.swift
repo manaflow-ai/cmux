@@ -12,6 +12,22 @@ public struct MobileSimulatorStreamSelection: Equatable, Sendable {
     }
 }
 
+public enum MobileSimulatorFrameReceiveResult: Equatable, Sendable {
+    case received(panelID: String, sequence: UInt64, payloadBytes: Int)
+    case stale(panelID: String, sequence: UInt64, previousSequence: UInt64, payloadBytes: Int)
+    case decodeFailed(payloadBytes: Int)
+    case unknownPanel(panelID: String, sequence: UInt64, payloadBytes: Int)
+}
+
+public enum MobileSimulatorStateReceiveResult: Equatable, Sendable {
+    case applied(
+        panelID: String,
+        ownership: DiagnosticSimulatorOwnershipState,
+        previousOwnership: DiagnosticSimulatorOwnershipState?
+    )
+    case decodeFailed(payloadBytes: Int)
+}
+
 @MainActor
 @Observable
 public final class MobileSimulatorStreamSurfaceState: Identifiable {
@@ -103,11 +119,24 @@ public final class MobileSimulatorStreamSurfaceState: Identifiable {
         streamStatus = .starting
     }
 
-    public func didReceive(_ frame: MobileSimulatorFrameEvent) {
-        guard frame.panelID == id else { return }
-        guard latestFrame.map({ frame.sequence >= $0.sequence }) ?? true else { return }
+    public func didReceive(
+        _ frame: MobileSimulatorFrameEvent,
+        payloadBytes: Int
+    ) -> MobileSimulatorFrameReceiveResult {
+        guard frame.panelID == id else {
+            return .unknownPanel(panelID: frame.panelID, sequence: frame.sequence, payloadBytes: payloadBytes)
+        }
+        if let latestFrame, frame.sequence < latestFrame.sequence {
+            return .stale(
+                panelID: frame.panelID,
+                sequence: frame.sequence,
+                previousSequence: latestFrame.sequence,
+                payloadBytes: payloadBytes
+            )
+        }
         latestFrame = frame
         streamStatus = .streaming
+        return .received(panelID: frame.panelID, sequence: frame.sequence, payloadBytes: payloadBytes)
     }
 }
 
@@ -217,19 +246,48 @@ public final class MobileSimulatorStreamStore {
         replaceSimulatorPanels(in: descriptor.workspaceID, with: descriptors)
     }
 
-    public func receiveSimulatorFramePayload(_ payload: Data) {
+    @discardableResult
+    public func receiveSimulatorFramePayload(_ payload: Data) -> MobileSimulatorFrameReceiveResult {
         guard let event = try? JSONDecoder().decode(MobileSimulatorFrameEvent.self, from: payload) else {
-            return
+            return .decodeFailed(payloadBytes: payload.count)
         }
-        statesByPanel[event.panelID]?.didReceive(event)
+        guard let state = statesByPanel[event.panelID] else {
+            return .unknownPanel(
+                panelID: event.panelID,
+                sequence: event.sequence,
+                payloadBytes: payload.count
+            )
+        }
+        return state.didReceive(event, payloadBytes: payload.count)
     }
 
-    public func receiveSimulatorStatePayload(_ payload: Data) {
+    @discardableResult
+    public func receiveSimulatorStatePayload(_ payload: Data) -> MobileSimulatorStateReceiveResult {
         guard let descriptor = try? JSONDecoder().decode(
             MobileSimulatorPanelDescriptor.self,
             from: payload
-        ) else { return }
+        ) else { return .decodeFailed(payloadBytes: payload.count) }
+        let previousOwnership = statesByPanel[descriptor.panelID].map { state in
+            Self.diagnosticOwnershipState(
+                ownerConnectionID: state.ownerConnectionID,
+                isOwnedByCurrentConnection: state.isOwnedByCurrentConnection
+            )
+        }
         applySimulatorDescriptor(descriptor)
+        let ownership = statesByPanel[descriptor.panelID].map { state in
+            Self.diagnosticOwnershipState(
+                ownerConnectionID: state.ownerConnectionID,
+                isOwnedByCurrentConnection: state.isOwnedByCurrentConnection
+            )
+        } ?? Self.diagnosticOwnershipState(
+            ownerConnectionID: descriptor.ownerConnectionID,
+            isOwnedByCurrentConnection: descriptor.isOwnedByCurrentConnection
+        )
+        return .applied(
+            panelID: descriptor.panelID,
+            ownership: ownership,
+            previousOwnership: previousOwnership
+        )
     }
 
     public func receiveSimulatorClosedPayload(_ payload: Data) -> String? {
@@ -280,5 +338,24 @@ public final class MobileSimulatorStreamStore {
         for panelID in activePanelByWorkspace.values {
             statesByPanel[panelID]?.streamStatus = .paused
         }
+    }
+
+    public static func diagnosticOwnershipState(
+        ownerConnectionID: String?,
+        isOwnedByCurrentConnection: Bool?
+    ) -> DiagnosticSimulatorOwnershipState {
+        if isOwnedByCurrentConnection == true {
+            return .currentConnection
+        }
+        if ownerConnectionID != nil, isOwnedByCurrentConnection == false {
+            return .otherConnection
+        }
+        if ownerConnectionID == nil, isOwnedByCurrentConnection == false {
+            return .pendingHandshake
+        }
+        if ownerConnectionID == nil {
+            return .unowned
+        }
+        return .unknown
     }
 }

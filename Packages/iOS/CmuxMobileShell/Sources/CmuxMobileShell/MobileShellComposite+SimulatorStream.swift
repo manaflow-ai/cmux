@@ -20,10 +20,29 @@ extension MobileShellComposite {
     }
 
     private func performMobileSimulatorStreamStart(panelID: String, workspaceID: String) async {
-        guard !startedMobileSimulatorPanelIDs.contains(panelID),
-              connectionState == .connected,
+        recordSimulatorStream(
+            panelID: panelID,
+            state: .startRequested,
+            ownership: currentSimulatorOwnership(panelID: panelID)
+        )
+        guard !startedMobileSimulatorPanelIDs.contains(panelID) else {
+            recordSimulatorStream(
+                panelID: panelID,
+                state: .started,
+                ownership: currentSimulatorOwnership(panelID: panelID)
+            )
+            return
+        }
+        guard connectionState == .connected,
               supportsSimulatorStream,
-              let client = remoteClient else { return }
+              let client = remoteClient else {
+            recordSimulatorStream(
+                panelID: panelID,
+                state: .startFailed,
+                ownership: currentSimulatorOwnership(panelID: panelID)
+            )
+            return
+        }
         simulatorStreamStore?.simulatorStreamWillStart(panelID: panelID)
         do {
             let descriptor = try await client.startMobileSimulatorStream(
@@ -33,14 +52,31 @@ extension MobileShellComposite {
             guard connectionState == .connected,
                   remoteClient === client else {
                 settleFailedMobileSimulatorStreamStart(panelID: panelID)
+                recordSimulatorStream(
+                    panelID: panelID,
+                    state: .startFailed,
+                    ownership: currentSimulatorOwnership(panelID: panelID)
+                )
                 return
             }
             startedMobileSimulatorPanelIDs.insert(panelID)
             simulatorStreamStore?.simulatorStreamDidStart(descriptor)
+            recordSimulatorStream(
+                panelID: panelID,
+                state: .started,
+                ownership: currentSimulatorOwnership(panelID: panelID),
+                activeSessions: startedMobileSimulatorPanelIDs.count
+            )
         } catch MobileShellConnectionError.rpcError(let code, _) where code == "locked" {
             simulatorStreamStore?.state(for: panelID)?.streamStatus = .locked
+            recordSimulatorStream(panelID: panelID, state: .locked, ownership: .otherConnection)
         } catch {
             settleFailedMobileSimulatorStreamStart(panelID: panelID)
+            recordSimulatorStream(
+                panelID: panelID,
+                state: .startFailed,
+                ownership: currentSimulatorOwnership(panelID: panelID)
+            )
         }
     }
 
@@ -56,9 +92,29 @@ extension MobileShellComposite {
     }
 
     private func performMobileSimulatorStreamStop(panelID: String, workspaceID: String) async {
+        recordSimulatorStream(
+            panelID: panelID,
+            state: .stopRequested,
+            ownership: currentSimulatorOwnership(panelID: panelID),
+            activeSessions: startedMobileSimulatorPanelIDs.count
+        )
         startedMobileSimulatorPanelIDs.remove(panelID)
-        guard let client = remoteClient else { return }
+        guard let client = remoteClient else {
+            recordSimulatorStream(
+                panelID: panelID,
+                state: .stopped,
+                ownership: currentSimulatorOwnership(panelID: panelID),
+                activeSessions: startedMobileSimulatorPanelIDs.count
+            )
+            return
+        }
         _ = try? await client.stopMobileSimulatorStream(panelID: panelID, workspaceID: workspaceID)
+        recordSimulatorStream(
+            panelID: panelID,
+            state: .stopped,
+            ownership: currentSimulatorOwnership(panelID: panelID),
+            activeSessions: startedMobileSimulatorPanelIDs.count
+        )
     }
 
     /// Appends one operation to the panel's chain. Each operation awaits its
@@ -93,31 +149,105 @@ extension MobileShellComposite {
     }
 
     public func sendMobileSimulatorPointer(_ input: MobileSimulatorPointerInput) async {
-        _ = try? await remoteClient?.sendMobileSimulatorPointer(input)
+        let detail = Self.diagnosticPointerPhase(input.phase).rawValue
+        recordSimulatorCoordinate(panelID: input.panelID, x: input.x, y: input.y, mapping: .mapped)
+        recordSimulatorInput(panelID: input.panelID, state: .queued, kind: .pointer, detail: detail)
+        guard let client = remoteClient else {
+            recordSimulatorInput(panelID: input.panelID, state: .unavailable, kind: .pointer, detail: detail)
+            return
+        }
+        recordSimulatorInput(panelID: input.panelID, state: .sent, kind: .pointer, detail: detail)
+        do {
+            _ = try await client.sendMobileSimulatorPointer(input)
+            recordSimulatorInput(panelID: input.panelID, state: .accepted, kind: .pointer, detail: detail)
+        } catch MobileShellConnectionError.rpcError(let code, _) where code == "locked" {
+            recordSimulatorInput(panelID: input.panelID, state: .rejectedLocked, kind: .pointer, detail: detail)
+        } catch {
+            recordSimulatorInput(panelID: input.panelID, state: .failed, kind: .pointer, detail: detail)
+        }
     }
 
     public func sendMobileSimulatorText(_ input: MobileSimulatorTextInput) async {
-        _ = try? await remoteClient?.sendMobileSimulatorText(input)
+        let detail = input.text.utf8.count
+        recordSimulatorInput(panelID: input.panelID, state: .queued, kind: .text, detail: detail)
+        guard let client = remoteClient else {
+            recordSimulatorInput(panelID: input.panelID, state: .unavailable, kind: .text, detail: detail)
+            return
+        }
+        recordSimulatorInput(panelID: input.panelID, state: .sent, kind: .text, detail: detail)
+        do {
+            _ = try await client.sendMobileSimulatorText(input)
+            recordSimulatorInput(panelID: input.panelID, state: .accepted, kind: .text, detail: detail)
+        } catch MobileShellConnectionError.rpcError(let code, _) where code == "locked" {
+            recordSimulatorInput(panelID: input.panelID, state: .rejectedLocked, kind: .text, detail: detail)
+        } catch {
+            recordSimulatorInput(panelID: input.panelID, state: .failed, kind: .text, detail: detail)
+        }
     }
 
     public func sendMobileSimulatorButton(_ input: MobileSimulatorButtonInput) async {
-        _ = try? await remoteClient?.sendMobileSimulatorButton(input)
+        let detail = Self.diagnosticButtonKind(input.button).rawValue
+        recordSimulatorInput(panelID: input.panelID, state: .queued, kind: .hardwareButton, detail: detail)
+        guard let client = remoteClient else {
+            recordSimulatorInput(panelID: input.panelID, state: .unavailable, kind: .hardwareButton, detail: detail)
+            return
+        }
+        recordSimulatorInput(panelID: input.panelID, state: .sent, kind: .hardwareButton, detail: detail)
+        do {
+            _ = try await client.sendMobileSimulatorButton(input)
+            recordSimulatorInput(panelID: input.panelID, state: .accepted, kind: .hardwareButton, detail: detail)
+        } catch MobileShellConnectionError.rpcError(let code, _) where code == "locked" {
+            recordSimulatorInput(panelID: input.panelID, state: .rejectedLocked, kind: .hardwareButton, detail: detail)
+        } catch {
+            recordSimulatorInput(panelID: input.panelID, state: .failed, kind: .hardwareButton, detail: detail)
+        }
     }
 
     func handleMobileSimulatorFrameEvent(_ event: MobileEventEnvelope) {
         guard let payload = event.payloadJSON else { return }
-        simulatorStreamStore?.receiveSimulatorFramePayload(payload)
+        switch simulatorStreamStore?.receiveSimulatorFramePayload(payload) {
+        case .received(let panelID, let sequence, let payloadBytes):
+            recordSimulatorFrame(panelID: panelID, state: .received, sequence: sequence, payloadBytes: payloadBytes)
+        case .stale(let panelID, let sequence, _, let payloadBytes):
+            recordSimulatorFrame(panelID: panelID, state: .staleIgnored, sequence: sequence, payloadBytes: payloadBytes)
+        case .decodeFailed(let payloadBytes):
+            recordSimulatorFrame(panelID: "", state: .decodeFailed, payloadBytes: payloadBytes)
+        case .unknownPanel(let panelID, let sequence, let payloadBytes):
+            recordSimulatorFrame(panelID: panelID, state: .unknownPanel, sequence: sequence, payloadBytes: payloadBytes)
+        case nil:
+            break
+        }
     }
 
     func handleMobileSimulatorStateEvent(_ event: MobileEventEnvelope) {
         guard let payload = event.payloadJSON else { return }
-        simulatorStreamStore?.receiveSimulatorStatePayload(payload)
+        switch simulatorStreamStore?.receiveSimulatorStatePayload(payload) {
+        case .applied(let panelID, let ownership, let previousOwnership):
+            recordSimulatorStream(panelID: panelID, state: .descriptorApplied, ownership: ownership)
+            if previousOwnership != ownership {
+                recordSimulatorOwnership(
+                    panelID: panelID,
+                    ownership: ownership,
+                    previousOwnership: previousOwnership
+                )
+            }
+        case .decodeFailed(let payloadBytes):
+            recordSimulatorFrame(panelID: "", state: .decodeFailed, payloadBytes: payloadBytes)
+        case nil:
+            break
+        }
     }
 
     func handleMobileSimulatorClosedEvent(_ event: MobileEventEnvelope) {
         guard let payload = event.payloadJSON else { return }
         if let panelID = simulatorStreamStore?.receiveSimulatorClosedPayload(payload) {
             startedMobileSimulatorPanelIDs.remove(panelID)
+            recordSimulatorStream(
+                panelID: panelID,
+                state: .closed,
+                ownership: currentSimulatorOwnership(panelID: panelID),
+                activeSessions: startedMobileSimulatorPanelIDs.count
+            )
         }
     }
 
@@ -125,6 +255,11 @@ extension MobileShellComposite {
         guard connectionState == .connected, supportsSimulatorStream else { return }
         let selections = simulatorStreamStore?.activeSimulatorStreamSelections() ?? []
         for selection in selections {
+            recordSimulatorStream(
+                panelID: selection.panelID,
+                state: .restartRequested,
+                ownership: currentSimulatorOwnership(panelID: selection.panelID)
+            )
             _ = enqueueMobileSimulatorStreamOperation(panelID: selection.panelID) { [weak self] in
                 guard let self else { return }
                 // Cleared inside the serialized operation so it cannot race a
@@ -142,6 +277,11 @@ extension MobileShellComposite {
         let selections = simulatorStreamStore?.activeSimulatorStreamSelections() ?? []
         simulatorStreamStore?.pauseSimulatorStreams()
         for selection in selections {
+            recordSimulatorStream(
+                panelID: selection.panelID,
+                state: .pausedForBackground,
+                ownership: currentSimulatorOwnership(panelID: selection.panelID)
+            )
             _ = enqueueMobileSimulatorStreamOperation(panelID: selection.panelID) { [weak self] in
                 await self?.performMobileSimulatorStreamStop(
                     panelID: selection.panelID,

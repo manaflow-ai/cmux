@@ -104,7 +104,10 @@ struct SimulatorStreamPane: View {
     private func touchGesture(viewSize: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onChanged { value in
-                guard state.isOwnedByCurrentConnection else { return }
+                guard state.isOwnedByCurrentConnection else {
+                    recordPointerBlocked(.moved)
+                    return
+                }
                 let mapper = SimulatorStreamCoordinateMapper(viewSize: viewSize, imageSize: imageSize)
                 guard touchPointPolicy.isDrag(start: value.startLocation, location: value.location) else {
                     return
@@ -118,6 +121,7 @@ struct SimulatorStreamPane: View {
             }
             .onEnded { value in
                 guard state.isOwnedByCurrentConnection else {
+                    recordPointerBlocked(.tap)
                     resetPointerSequence()
                     return
                 }
@@ -148,7 +152,18 @@ struct SimulatorStreamPane: View {
         point: CGPoint,
         mapper: SimulatorStreamCoordinateMapper
     ) {
-        guard let normalized = mapper.normalizedPoint(from: point) else { return }
+        let imageRect = mapper.fittedImageRect
+        guard !imageRect.isEmpty else {
+            recordCoordinate(point, mapper: mapper, mapping: .zeroImage)
+            return
+        }
+        if !imageRect.contains(point) {
+            recordCoordinate(point, mapper: mapper, mapping: .outsideImage)
+        }
+        guard let normalized = mapper.normalizedPoint(from: point) else {
+            recordCoordinate(point, mapper: mapper, mapping: .zeroImage)
+            return
+        }
         let input = MobileSimulatorPointerInput(
             panelID: state.id,
             workspaceID: workspaceID,
@@ -157,6 +172,49 @@ struct SimulatorStreamPane: View {
             y: Double(normalized.y)
         )
         pointerPipe.send(input)
+    }
+
+    private func recordPointerBlocked(_ phase: MobileSimulatorPointerPhase) {
+        let detail = Self.diagnosticPointerPhase(phase).rawValue
+        Task {
+            await actions.inputDiagnostic(state.id, .blockedViewOnly, .pointer, detail)
+        }
+    }
+
+    private func recordCoordinate(
+        _ point: CGPoint,
+        mapper: SimulatorStreamCoordinateMapper,
+        mapping: DiagnosticSimulatorCoordinateState
+    ) {
+        let normalized = diagnosticViewPoint(point, viewSize: mapper.viewSize)
+        let x = Double(normalized.x)
+        let y = Double(normalized.y)
+        Task {
+            await actions.coordinate(state.id, x, y, mapping)
+        }
+    }
+
+    private func diagnosticViewPoint(_ point: CGPoint, viewSize: CGSize) -> CGPoint {
+        guard viewSize.width > 0, viewSize.height > 0 else { return .zero }
+        return CGPoint(
+            x: min(max(point.x / viewSize.width, 0), 1),
+            y: min(max(point.y / viewSize.height, 0), 1)
+        )
+    }
+
+    private static func diagnosticPointerPhase(
+        _ phase: MobileSimulatorPointerPhase
+    ) -> DiagnosticSimulatorPointerPhase {
+        switch phase {
+        case .began:
+            return .began
+        case .moved:
+            return .moved
+        case .ended:
+            return .ended
+        case .tap:
+            return .tap
+        }
     }
 
     @ViewBuilder
@@ -395,17 +453,46 @@ struct SimulatorStreamPane: View {
         // an inline decode in this MainActor-isolated view would block
         // scrolling and gesture recognition on every received frame.
         let base64 = frame.dataBase64
+        let payloadBytes = base64.utf8.count
         let decoded = await Task.detached(priority: .userInitiated) { () -> UIImage? in
             guard let data = Data(base64Encoded: base64),
                   let image = UIImage(data: data) else { return nil }
             // Force decompression here rather than lazily at first render.
             return image.preparingForDisplay() ?? image
         }.value
-        guard let decoded else { return }
+        guard let decoded else {
+            Task {
+                await actions.frameDiagnostic(
+                    frame.panelID,
+                    .imageDecodeFailed,
+                    frame.sequence,
+                    payloadBytes
+                )
+            }
+            return
+        }
         // A newer frame may have superseded this decode while it ran.
-        guard state.latestFrame?.sequence == frame.sequence else { return }
+        guard state.latestFrame?.sequence == frame.sequence else {
+            Task {
+                await actions.frameDiagnostic(
+                    frame.panelID,
+                    .staleIgnored,
+                    frame.sequence,
+                    payloadBytes
+                )
+            }
+            return
+        }
         image = decoded
         imageSequence = frame.sequence
+        Task {
+            await actions.frameDiagnostic(
+                frame.panelID,
+                .imageDecoded,
+                frame.sequence,
+                payloadBytes
+            )
+        }
     }
 }
 #endif

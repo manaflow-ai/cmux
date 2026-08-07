@@ -26,6 +26,12 @@ import Testing
         #expect(DiagnosticEventPresentation().name(DiagnosticPathKind.relay) == "relay")
         #expect(DiagnosticEventPresentation().name(DiagnosticRuntimeRole.mobileClient) == "mobileClient")
         #expect(DiagnosticEventPresentation().name(DiagnosticAppLifecyclePhase.background) == "background")
+        #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorFrameLifecycle.cachedSent) == "cachedSent")
+        #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorInputLifecycle.rejectedLocked) == "rejectedLocked")
+        #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorInputKind.hardwareButton) == "hardwareButton")
+        #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorHardwareButtonKind.appSwitcher) == "appSwitcher")
+        #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorOwnershipState.otherConnection) == "otherConnection")
+        #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorCoordinateState.outsideImage) == "outsideImage")
     }
 
     @Test func describesDialFailure() {
@@ -159,6 +165,11 @@ import Testing
             .reachabilityChanged: "Network reachability changed",
             .transportCloseAttribution: "Transport close attributed",
             .transportPathEvent: "Transport path changed",
+            .simulatorStreamLifecycle: "Simulator stream state changed",
+            .simulatorFrameLifecycle: "Simulator frame pipeline changed",
+            .simulatorInputLifecycle: "Simulator input state changed",
+            .simulatorCoordinateMapped: "Simulator touch coordinate mapped",
+            .simulatorOwnershipChanged: "Simulator control ownership changed",
         ]
 
         #expect(Set(expected.keys) == Set(DiagnosticEventCode.allCases))
@@ -235,7 +246,83 @@ import Testing
             .init(key: "remote_sequence", value: "20"),
         ])
 
-        for described in [recovery, endpoint, session, composer, input] {
+        let simulatorStream = englishPresentation.describe(DiagnosticEvent(
+            code: .simulatorStreamLifecycle,
+            tNanos: 1,
+            surface: 19,
+            a: DiagnosticSimulatorStreamLifecycle.started.rawValue,
+            b: DiagnosticSimulatorOwnershipState.currentConnection.rawValue,
+            c: 1
+        ))
+        #expect(simulatorStream.fields == [
+            .init(key: "surface", value: "19"),
+            .init(key: "state", value: "Started"),
+            .init(key: "owner", value: "Current connection"),
+            .init(key: "active_sessions", value: "1"),
+        ])
+
+        let simulatorFrame = englishPresentation.describe(DiagnosticEvent(
+            code: .simulatorFrameLifecycle,
+            tNanos: 1,
+            surface: 19,
+            a: DiagnosticSimulatorFrameLifecycle.cachedSent.rawValue,
+            b: 42,
+            c: 11_235
+        ))
+        #expect(simulatorFrame.fields == [
+            .init(key: "surface", value: "19"),
+            .init(key: "state", value: "Cached frame sent"),
+            .init(key: "frame_sequence", value: "42"),
+            .init(key: "payload_size", value: "11,235 bytes"),
+        ])
+
+        let simulatorInput = englishPresentation.describe(DiagnosticEvent(
+            code: .simulatorInputLifecycle,
+            tNanos: 1,
+            surface: 19,
+            a: DiagnosticSimulatorInputLifecycle.accepted.rawValue,
+            b: DiagnosticSimulatorInputKind.hardwareButton.rawValue,
+            c: DiagnosticSimulatorHardwareButtonKind.appSwitcher.rawValue
+        ))
+        #expect(simulatorInput.fields == [
+            .init(key: "surface", value: "19"),
+            .init(key: "state", value: "Accepted"),
+            .init(key: "input", value: "Hardware button"),
+            .init(key: "input_detail", value: "App Switcher"),
+        ])
+
+        let simulatorCoordinate = englishPresentation.describe(DiagnosticEvent(
+            code: .simulatorCoordinateMapped,
+            tNanos: 1,
+            surface: 19,
+            a: 1_234,
+            b: 9_876,
+            c: DiagnosticSimulatorCoordinateState.mapped.rawValue
+        ))
+        #expect(simulatorCoordinate.fields == [
+            .init(key: "surface", value: "19"),
+            .init(key: "x", value: "0.1234"),
+            .init(key: "y", value: "0.9876"),
+            .init(key: "mapping", value: "Mapped"),
+        ])
+
+        let simulatorOwnership = englishPresentation.describe(DiagnosticEvent(
+            code: .simulatorOwnershipChanged,
+            tNanos: 1,
+            surface: 19,
+            a: DiagnosticSimulatorOwnershipState.otherConnection.rawValue,
+            b: DiagnosticSimulatorOwnershipState.currentConnection.rawValue
+        ))
+        #expect(simulatorOwnership.fields == [
+            .init(key: "surface", value: "19"),
+            .init(key: "owner", value: "Other connection"),
+            .init(key: "previous_owner", value: "Current connection"),
+        ])
+
+        for described in [
+            recovery, endpoint, session, composer, input, simulatorStream,
+            simulatorFrame, simulatorInput, simulatorCoordinate, simulatorOwnership,
+        ] {
             #expect(!described.fields.contains { ["a", "b", "c", "ms"].contains($0.key) })
         }
     }

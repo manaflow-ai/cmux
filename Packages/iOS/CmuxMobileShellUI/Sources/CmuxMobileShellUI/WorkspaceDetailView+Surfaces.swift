@@ -115,7 +115,31 @@ extension WorkspaceDetailView {
             actions: SimulatorStreamSurfaceActions(
                 pointer: { await store.sendMobileSimulatorPointer($0) },
                 text: { await store.sendMobileSimulatorText($0) },
-                button: { await store.sendMobileSimulatorButton($0) }
+                button: { await store.sendMobileSimulatorButton($0) },
+                coordinate: { panelID, x, y, mapping in
+                    await store.recordMobileSimulatorCoordinate(
+                        panelID: panelID,
+                        x: x,
+                        y: y,
+                        mapping: mapping
+                    )
+                },
+                frameDiagnostic: { panelID, state, sequence, payloadBytes in
+                    await store.recordMobileSimulatorFrameDiagnostic(
+                        panelID: panelID,
+                        state: state,
+                        sequence: sequence,
+                        payloadBytes: payloadBytes
+                    )
+                },
+                inputDiagnostic: { panelID, state, kind, detail in
+                    await store.recordMobileSimulatorInputDiagnostic(
+                        panelID: panelID,
+                        state: state,
+                        kind: kind,
+                        detail: detail
+                    )
+                }
             ),
             reconnect: { Task { await store.reconnectOrRefresh() } }
         )

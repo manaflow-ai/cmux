@@ -301,6 +301,11 @@ import os
         #expect(DiagnosticEventCode.transportSessionLifecycle.rawValue == 51)
         #expect(DiagnosticEventCode.transportCloseAttribution.rawValue == 54)
         #expect(DiagnosticEventCode.transportPathEvent.rawValue == 55)
+        #expect(DiagnosticEventCode.simulatorStreamLifecycle.rawValue == 56)
+        #expect(DiagnosticEventCode.simulatorFrameLifecycle.rawValue == 57)
+        #expect(DiagnosticEventCode.simulatorInputLifecycle.rawValue == 58)
+        #expect(DiagnosticEventCode.simulatorCoordinateMapped.rawValue == 59)
+        #expect(DiagnosticEventCode.simulatorOwnershipChanged.rawValue == 60)
         #expect(Set(DiagnosticEventCode.allCases.map(\.rawValue)).count == DiagnosticEventCode.allCases.count)
     }
 
