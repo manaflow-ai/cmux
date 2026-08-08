@@ -1331,6 +1331,7 @@ impl std::error::Error for DeliveryClassifiedError {
 
 const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
 const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+const SHUTDOWN_ACK_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(not(test))]
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
@@ -2057,7 +2058,6 @@ trait MessageSink: Send + Sync {
     fn set_write_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
         Ok(())
     }
-    #[cfg(test)]
     fn flush_control(&self, _timeout: Duration) -> std::io::Result<()> {
         Ok(())
     }
@@ -2254,6 +2254,17 @@ impl MessageWriter {
 
     fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
         self.sink.set_write_timeout(timeout)
+    }
+
+    fn flush_control(&self, timeout: Duration) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self.sink.flush_control(timeout);
+        if result.is_err() {
+            self.close();
+        }
+        result
     }
 
     fn register_wait_wakeup(&self, wake: &Arc<ResourceWaitWake>) {
@@ -2602,9 +2613,10 @@ struct BoundedOutbound {
 #[derive(Default)]
 struct BoundedOutboundState {
     initial: VecDeque<RegularOutbound>,
-    control: VecDeque<Arc<BudgetedText>>,
+    control: VecDeque<ControlOutbound>,
     regular: VecDeque<RegularOutbound>,
     stream_usage: HashMap<u64, StreamOutboundUsage>,
+    control_messages: usize,
     control_bytes: usize,
     regular_bytes: usize,
     closed: bool,
@@ -2619,6 +2631,16 @@ struct StreamOutboundUsage {
 struct RegularOutbound {
     text: Arc<BudgetedText>,
     stream: OutboundStream,
+}
+
+enum ControlOutbound {
+    Text(Arc<BudgetedText>),
+    Flush(std::sync::mpsc::SyncSender<()>),
+}
+
+enum OutboundItem {
+    Text(Arc<BudgetedText>),
+    Flush(std::sync::mpsc::SyncSender<()>),
 }
 
 #[derive(Clone)]
@@ -2784,6 +2806,28 @@ impl BoundedOutbound {
         Ok(())
     }
 
+    fn flush_control(&self, timeout: Duration) -> std::io::Result<()> {
+        let (flushed_tx, flushed_rx) = std::sync::mpsc::sync_channel(1);
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        state.control.push_back(ControlOutbound::Flush(flushed_tx));
+        drop(state);
+        self.changed.notify_one();
+        match flushed_rx.recv_timeout(timeout) {
+            Ok(()) => Ok(()),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "timed out while flushing the shutdown response",
+            )),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "connection closed while flushing the shutdown response",
+            )),
+        }
+    }
+
     fn push_terminal(
         &self,
         text: Arc<BudgetedText>,
@@ -2844,7 +2888,7 @@ impl BoundedOutbound {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let bytes = text.len();
-        if state.control.len() >= OUTBOUND_CONTROL_RESERVE
+        if state.control_messages >= OUTBOUND_CONTROL_RESERVE
             || bytes > OUTBOUND_CONTROL_BYTE_RESERVE.saturating_sub(state.control_bytes)
         {
             return Err(std::io::Error::new(
@@ -2852,29 +2896,50 @@ impl BoundedOutbound {
                 "outbound control reserve overflowed",
             ));
         }
+        state.control_messages += 1;
         state.control_bytes += bytes;
-        state.control.push_back(text);
+        state.control.push_back(ControlOutbound::Text(text));
         Ok(())
     }
 
     #[cfg(test)]
     fn try_pop(&self) -> Option<String> {
         let mut state = self.state.lock().unwrap();
-        let text = Self::pop_locked(&mut state).map(|text| text.to_string());
-        drop(state);
-        if text.is_some() {
-            self.changed.notify_all();
+        loop {
+            match Self::pop_locked(&mut state) {
+                Some(OutboundItem::Text(text)) => {
+                    drop(state);
+                    self.changed.notify_all();
+                    return Some(text.to_string());
+                }
+                Some(OutboundItem::Flush(flushed)) => {
+                    drop(state);
+                    self.changed.notify_all();
+                    let _ = flushed.send(());
+                    state = self.state.lock().unwrap();
+                }
+                None => return None,
+            }
         }
-        text
     }
 
     fn recv(&self) -> Option<Arc<BudgetedText>> {
         let mut state = self.state.lock().unwrap();
         loop {
-            if let Some(text) = Self::pop_locked(&mut state) {
-                drop(state);
-                self.changed.notify_all();
-                return Some(text);
+            match Self::pop_locked(&mut state) {
+                Some(OutboundItem::Text(text)) => {
+                    drop(state);
+                    self.changed.notify_all();
+                    return Some(text);
+                }
+                Some(OutboundItem::Flush(flushed)) => {
+                    drop(state);
+                    self.changed.notify_all();
+                    let _ = flushed.send(());
+                    state = self.state.lock().unwrap();
+                    continue;
+                }
+                None => {}
             }
             if state.closed {
                 return None;
@@ -2883,18 +2948,24 @@ impl BoundedOutbound {
         }
     }
 
-    fn pop_locked(state: &mut BoundedOutboundState) -> Option<Arc<BudgetedText>> {
+    fn pop_locked(state: &mut BoundedOutboundState) -> Option<OutboundItem> {
         if let Some(message) = state.initial.pop_front() {
             Self::record_stream_pop(state, &message);
-            return Some(message.text);
+            return Some(OutboundItem::Text(message.text));
         }
-        if let Some(text) = state.control.pop_front() {
-            state.control_bytes -= text.len();
-            return Some(text);
+        if let Some(control) = state.control.pop_front() {
+            return Some(match control {
+                ControlOutbound::Text(text) => {
+                    state.control_messages = state.control_messages.saturating_sub(1);
+                    state.control_bytes = state.control_bytes.saturating_sub(text.len());
+                    OutboundItem::Text(text)
+                }
+                ControlOutbound::Flush(flushed) => OutboundItem::Flush(flushed),
+            });
         }
         let message = state.regular.pop_front()?;
         Self::record_stream_pop(state, &message);
-        Some(message.text)
+        Some(OutboundItem::Text(message.text))
     }
 
     fn record_stream_pop(state: &mut BoundedOutboundState, message: &RegularOutbound) {
@@ -2915,7 +2986,10 @@ impl BoundedOutbound {
     }
 
     fn close(&self) {
-        self.state.lock().unwrap().closed = true;
+        let mut state = self.state.lock().unwrap();
+        state.closed = true;
+        state.control.retain(|item| matches!(item, ControlOutbound::Text(_)));
+        drop(state);
         self.changed.notify_all();
     }
 }
@@ -3070,6 +3144,10 @@ impl MessageSink for QueuedSink {
 
     fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
         self.control.as_ref().map_or(Ok(()), |control| control.set_write_timeout(timeout))
+    }
+
+    fn flush_control(&self, timeout: Duration) -> std::io::Result<()> {
+        self.control.as_ref().map_or(Ok(()), |_| self.outbound.flush_control(timeout))
     }
 
     fn close(&self) {
@@ -4707,13 +4785,22 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
     true
 }
 
-fn complete_daemon_shutdown_after_ack(mux: &Mux, requesting_client: u64) {
+fn complete_daemon_shutdown_after_ack(
+    mux: &Mux,
+    requesting_client: u64,
+    writer: &MessageWriter,
+) -> bool {
+    if writer.flush_control(SHUTDOWN_ACK_FLUSH_TIMEOUT).is_err() {
+        mux.cancel_daemon_handoff();
+        return false;
+    }
     mux.request_daemon_shutdown();
     for peer in mux.control_clients.client_ids() {
         if peer != requesting_client {
             disconnect_client(mux, peer, true);
         }
     }
+    true
 }
 
 pub fn detach_control_client(mux: &Mux, client: u64) -> bool {
@@ -4814,11 +4901,11 @@ fn handle_resource_session_shutdown(
         Ok(result) => {
             let sent = send_resource_response(writer, id, operation, Ok(result));
             if sent {
-                complete_daemon_shutdown_after_ack(mux, client);
+                complete_daemon_shutdown_after_ack(mux, client, writer)
             } else {
                 mux.cancel_daemon_handoff();
+                false
             }
-            sent
         }
         Err(error) => {
             mux.cancel_daemon_handoff();
@@ -7070,12 +7157,11 @@ fn handle_request_with_cancellation(
     };
     let response_ok = response.ok;
     let sent = send_response(writer, response);
-    // Queue the successful acknowledgement before making the owning loop
-    // leave. The headless loop polls at a bounded interval, giving the writer
-    // thread time to flush the response before normal process teardown.
+    // Flush the successful acknowledgement before making the owning loop
+    // leave, so process teardown cannot race the response writer.
     if shutdown_daemon && response_ok {
         if sent {
-            complete_daemon_shutdown_after_ack(mux, client);
+            return complete_daemon_shutdown_after_ack(mux, client, writer);
         } else {
             mux.cancel_daemon_handoff();
         }
@@ -14955,6 +15041,51 @@ mod tests {
         let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_eq!(terminal["event"], "overflow");
         assert_eq!(outbound.try_pop(), None);
+    }
+
+    #[test]
+    fn control_flush_waits_until_the_prior_control_message_leaves_the_queue() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let service = RenderService::new();
+        let response = service.serialize_control(&json!({"ok": true})).unwrap();
+        outbound.push_control(response.clone()).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let waiting = outbound.clone();
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            done_tx.send(waiting.flush_control(Duration::from_secs(5))).unwrap();
+        });
+
+        started_rx.recv().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let flush_is_queued = outbound
+                .state
+                .lock()
+                .unwrap()
+                .control
+                .iter()
+                .any(|item| matches!(item, ControlOutbound::Flush(_)));
+            if flush_is_queued {
+                break;
+            }
+            assert!(Instant::now() < deadline, "flush barrier was not queued");
+            std::thread::yield_now();
+        }
+        assert!(matches!(
+            done_rx.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        ));
+        assert_eq!(outbound.try_pop().unwrap(), response.to_string());
+        assert!(matches!(
+            done_rx.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        ));
+
+        assert_eq!(outbound.try_pop(), None);
+        done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        worker.join().unwrap();
     }
 
     #[test]
