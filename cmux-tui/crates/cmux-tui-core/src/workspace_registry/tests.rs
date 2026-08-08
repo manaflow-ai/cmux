@@ -110,6 +110,919 @@ fn interrupted_staged_workspace_keeps_reserved_public_id_without_early_publicati
     fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_keeps_selected_session_guard_file() {
+    let root = temp_root("reset-keeps-session-guard");
+    let session = "reset-keeps-session-guard";
+    drop(WorkspaceRegistry::open(&root, session).unwrap());
+    let guard_path = session_guard_lock_path(&root.join(SESSION_GUARD_DIR), session);
+    assert!(guard_path.exists(), "open did not create a session guard");
+
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let preview = resetter.preview(session).unwrap();
+    assert_eq!(preview.state_root, root);
+    assert_eq!(preview.session_dir, resetter.session_dir(session));
+    assert_eq!(resetter.state_root(), root.as_path());
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(reset.removed_session_state);
+    assert!(guard_path.exists(), "reset removed an unpreviewed session guard");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_manifest_path_key_preserves_invalid_utf8_bytes() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let first = Path::new(std::ffi::OsStr::from_bytes(b"\xff"));
+    let second = Path::new(std::ffi::OsStr::from_bytes(b"\xfe"));
+
+    assert_eq!(first.display().to_string(), second.display().to_string());
+    assert_ne!(reset_manifest_path_key(first), reset_manifest_path_key(second));
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_does_not_restrict_supplied_state_root() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_root("reset-preserves-state-root-mode");
+    let session = "reset-preserves-state-root-mode";
+    fs::create_dir_all(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::write(session_dir.join(SESSION_WRITER_LOCK_FILE), b"").unwrap();
+    let before_mode = fs::metadata(&root).unwrap().permissions().mode() & 0o777;
+
+    let preview = resetter.preview(session).unwrap();
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(reset.removed_session_state);
+    assert_eq!(before_mode, 0o755);
+    assert_eq!(fs::metadata(&root).unwrap().permissions().mode() & 0o777, before_mode);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_accepts_restored_session_without_writer_lock() {
+    let root = temp_root("reset-restored-without-writer-lock");
+    let session = "reset-restored-without-writer-lock";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    let writer_lock = session_dir.join(SESSION_WRITER_LOCK_FILE);
+    assert!(!writer_lock.exists());
+
+    let preview = resetter.preview(session).unwrap();
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(reset.removed_session_state);
+    assert!(!session_dir.exists(), "reset left restored session state behind");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_refuses_restored_session_when_legacy_writer_lock_is_busy() {
+    let root = temp_root("reset-restored-writer-lock-busy");
+    let session = "reset-restored-writer-lock-busy";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    let writer_lock = session_dir.join(SESSION_WRITER_LOCK_FILE);
+    assert!(!writer_lock.exists());
+    let preview = resetter.preview(session).unwrap();
+    let _legacy_owner = SessionLease::acquire(&writer_lock).unwrap();
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(error.to_string().contains("already owned by another daemon"), "{error:#}");
+    assert!(session_dir.exists(), "reset deleted state owned by a legacy writer");
+    assert!(writer_lock.exists(), "reset removed the busy writer lock");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_rejects_session_dir_recreated_after_staging() {
+    let root = temp_root("reset-recreated-after-staging");
+    let session = "reset-recreated-after-staging";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_RECREATE_SESSION_DIR_AFTER_STAGING.lock().unwrap() = Some(session_dir.clone());
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(error.to_string().contains("reset path changed during reset"), "{error:#}");
+    assert!(session_dir.exists(), "reset removed recreated session state");
+    assert_eq!(fs::read(session_dir.join("recreated-sidecar")).unwrap(), b"new");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_accepts_partial_session_without_registry() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_root("reset-partial-without-registry");
+    let session = "reset-partial-without-registry";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join("partial-sidecar"), b"partial").unwrap();
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(host_root.join("stale-host-sidecar"), b"stale").unwrap();
+
+    let preview = resetter.preview(session).unwrap();
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(reset.removed_session_state);
+    assert!(reset.removed_terminal_hosts);
+    assert!(!session_dir.exists());
+    assert!(!host_root.exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_keeps_staged_dir_when_private_rename_sync_fails() {
+    let root = temp_root("reset-rename-sync-fails");
+    let session = "reset-rename-sync-fails";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::write(session_dir.join("sidecar"), b"previewed").unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_RENAME_SYNC_FAILURE_ROOT.lock().unwrap() = Some(root.clone());
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(error.to_string().contains("private reset rename sync failure"), "{error:#}");
+    assert!(!session_dir.exists(), "sync failure should leave the staged private path");
+    let pending = pending_session_reset_dirs(&root, session).unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].kind, PendingSessionResetKind::Session);
+    assert!(pending[0].path.join(WORKSPACE_REGISTRY_FILE).exists());
+    assert_eq!(fs::read(pending[0].path.join("sidecar")).unwrap(), b"previewed");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_delete_rejects_file_added_after_manifest_check() {
+    let root = temp_root("reset-delete-rejects-late-file");
+    let session = "reset-delete-rejects-late-file";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    let expected_fingerprint =
+        session_reset_target_fingerprint(&session_dir, &mut ResetFingerprintBudget::default())
+            .unwrap();
+    let late = session_dir.join("aaa-late");
+    *RESET_DELETE_AFTER_MANIFEST_FILE.lock().unwrap() = Some((session_dir.clone(), late.clone()));
+
+    let error = remove_reset_dir_all(
+        &session_dir,
+        "workspace session state",
+        "session",
+        &expected_fingerprint,
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("reset path changed during reset"), "{error:#}");
+    assert_eq!(fs::read(late).unwrap(), b"late");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_delete_rejects_child_replaced_after_verification() {
+    let root = temp_root("reset-delete-rejects-replaced-child");
+    let session = "reset-delete-rejects-replaced-child";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    let target = session_dir.join("replace-after-verify");
+    fs::write(&target, b"previewed").unwrap();
+    let expected_fingerprint =
+        session_reset_target_fingerprint(&session_dir, &mut ResetFingerprintBudget::default())
+            .unwrap();
+    *RESET_DELETE_AFTER_CHILD_VERIFY_FILE.lock().unwrap() = Some(target.clone());
+
+    let error = remove_reset_dir_all(
+        &session_dir,
+        "workspace session state",
+        "session",
+        &expected_fingerprint,
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("reset path changed during reset"), "{error:#}");
+    assert_eq!(fs::read(&target).unwrap(), b"replacement");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_dir_child_names_rewinds_between_scans() {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let root = temp_root("reset-child-name-rewind");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("child"), b"confirmed").unwrap();
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(&root)
+        .unwrap();
+
+    let first = reset_dir_child_names(&directory, &root, "workspace session state").unwrap();
+    let second = reset_dir_child_names(&directory, &root, "workspace session state").unwrap();
+
+    assert_eq!(first, vec![std::ffi::OsString::from("child")]);
+    assert_eq!(second, vec![std::ffi::OsString::from("child")]);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn unsupported_checked_reset_deletion_does_not_mutate_tree() {
+    let root = temp_root("reset-unsupported-platform-delete");
+    let target = root.join("session");
+    let child = target.join("child");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(&child, b"must-remain").unwrap();
+
+    let error = unsupported_checked_reset_deletion(&target, "workspace session state").unwrap_err();
+
+    assert!(error.to_string().contains("safe saved-state reset is not supported"), "{error:#}");
+    assert_eq!(fs::read(&child).unwrap(), b"must-remain");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_unsupported_checked_deletion_fails_before_staging_session_dir() {
+    let root = temp_root("reset-unsupported-before-staging");
+    let session = "reset-unsupported-before-staging";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_UNSUPPORTED_CHECKED_DELETION_ROOT.lock().unwrap() = Some(root.clone());
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(error.to_string().contains("safe saved-state reset is not supported"), "{error:#}");
+    assert!(session_dir.exists(), "reset moved the session dir before platform support failed");
+    assert!(session_dir.join(WORKSPACE_REGISTRY_FILE).exists());
+    assert!(pending_session_reset_dirs(&root, session).unwrap().is_empty());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_device_boundary_rejects_nested_device_change() {
+    let error = ensure_reset_device_boundary(Path::new("nested"), Some(1), Some(2)).unwrap_err();
+
+    assert!(error.to_string().contains("filesystem boundary"));
+    ensure_reset_device_boundary(Path::new("nested"), Some(1), Some(1)).unwrap();
+    ensure_reset_device_boundary(Path::new("nested"), None, Some(2)).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_retries_previous_private_deletion_dir() {
+    let root = temp_root("reset-retries-private-delete");
+    let session = "reset-retries-private-delete";
+    fs::create_dir_all(&root).unwrap();
+    let pending_reset_dir = root.join(format!(
+        ".reset-{}-session-{}.deleting",
+        session_storage_component(session),
+        new_uuid_v4()
+    ));
+    fs::create_dir_all(pending_reset_dir.join("nested")).unwrap();
+    fs::write(pending_reset_dir.join("nested").join("saved-state"), b"old").unwrap();
+
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let preview = resetter.preview(session).unwrap();
+    assert_eq!(preview.pending_reset_dirs, vec![pending_reset_dir.clone()]);
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(reset.removed_session_state);
+    assert!(!pending_reset_dir.exists(), "reset left a private deletion dir behind");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_retries_previous_terminal_host_deletion_dir_as_terminal_hosts() {
+    let root = temp_root("reset-retries-terminal-host-private-delete");
+    let session = "reset-retries-terminal-host-private-delete";
+    fs::create_dir_all(&root).unwrap();
+    let pending_reset_dir = root.join(format!(
+        ".reset-{}-terminal-hosts-{}.deleting",
+        session_storage_component(session),
+        new_uuid_v4()
+    ));
+    fs::create_dir_all(pending_reset_dir.join("nested")).unwrap();
+    fs::write(pending_reset_dir.join("nested").join("terminal-host-state"), b"old").unwrap();
+
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let preview = resetter.preview(session).unwrap();
+    assert_eq!(preview.pending_reset_dirs, vec![pending_reset_dir.clone()]);
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(!reset.removed_session_state);
+    assert!(reset.removed_terminal_hosts);
+    assert!(!pending_reset_dir.exists(), "reset left a terminal-host deletion dir behind");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_preserves_invalid_lookalike_private_deletion_dir() {
+    let root = temp_root("reset-preserves-invalid-private-delete");
+    let session = "reset-preserves-invalid-private-delete";
+    fs::create_dir_all(&root).unwrap();
+    let lookalike = root
+        .join(format!(".reset-{}-session-not-a-uuid.deleting", session_storage_component(session)));
+    fs::create_dir_all(&lookalike).unwrap();
+    fs::write(lookalike.join("unrelated"), b"keep").unwrap();
+
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let preview = resetter.preview(session).unwrap();
+    assert!(preview.pending_reset_dirs.is_empty());
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(!reset.removed_session_state);
+    assert!(!reset.removed_terminal_hosts);
+    assert!(lookalike.join("unrelated").exists(), "reset removed an invalid look-alike path");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_rejects_same_file_rewrite_with_restored_mtime() {
+    let root = temp_root("reset-restored-mtime");
+    let session = "reset-restored-mtime";
+    drop(WorkspaceRegistry::open(&root, session).unwrap());
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let target = session_dir.join("sidecar");
+    fs::write(&target, b"expected").unwrap();
+    let before = fs::metadata(&target).unwrap();
+    let before_modified = before.modified().unwrap();
+    let preview = resetter.preview(session).unwrap();
+
+    let mut file = OpenOptions::new().write(true).truncate(true).open(&target).unwrap();
+    file.write_all(b"mutated!").unwrap();
+    file.sync_all().unwrap();
+    file.set_times(fs::FileTimes::new().set_modified(before_modified)).unwrap();
+    let after = file.metadata().unwrap();
+    assert_eq!(metadata_identity(&after), metadata_identity(&before));
+    drop(file);
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(error.to_string().contains("reset confirmation is required"));
+    assert_eq!(fs::read(&target).unwrap(), b"mutated!");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_errors_when_state_root_cannot_be_inspected() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_root("reset-inaccessible-root");
+    let blocked_parent = root.join("blocked");
+    let state_root = blocked_parent.join("state");
+    fs::create_dir_all(&state_root).unwrap();
+    fs::set_permissions(&blocked_parent, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let resetter = PersistentSessionStateResetter::new(state_root);
+    let error = resetter.reset("reset-inaccessible-root", Some("unused")).unwrap_err();
+
+    fs::set_permissions(&blocked_parent, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(error.to_string().contains("inspect workspace state root"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_rejects_symlinked_state_root() {
+    use std::os::unix::fs::symlink;
+
+    let real_root = temp_root("reset-symlink-real-root");
+    let linked_root = temp_root("reset-symlink-linked-root");
+    let session = "reset-symlinked-state-root";
+    let resetter = PersistentSessionStateResetter::new(linked_root.clone());
+    let session_dir = real_root.join(session_storage_component(session));
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    symlink(&real_root, &linked_root).unwrap();
+
+    let preview_error = resetter.preview(session).unwrap_err();
+    let reset_error = resetter.reset(session, Some("unused")).unwrap_err();
+
+    assert!(preview_error.to_string().contains("workspace state root must not be a symbolic link"));
+    assert!(reset_error.to_string().contains("workspace state root must not be a symbolic link"));
+    assert!(session_dir.exists(), "reset touched the symlink target");
+    fs::remove_file(linked_root).unwrap();
+    fs::remove_dir_all(real_root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn terminal_host_reset_holds_structured_live_marker_lock() {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let root = temp_root("terminal-host-reset-holds-live-lock");
+    fs::create_dir_all(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+    let uid = fs::metadata(&root).unwrap().uid();
+    let terminal_id = TERMINAL_ONE;
+    let incarnation = INCARNATION_ONE;
+    let host_start_nonce = "02".repeat(32);
+    let record = crate::terminal_host_runtime::TerminalHostRecord {
+        record_version: 2,
+        terminal_id: terminal_id.to_string(),
+        incarnation: incarnation.to_string(),
+        endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
+        owner_token: "01".repeat(32),
+        host_pid: std::process::id(),
+        host_start_nonce,
+        workspace_key: String::new(),
+        supports_set_defaults: true,
+        supports_clear_history: true,
+    };
+    let record_path = record.record_path(&root);
+    let live_path = terminal_host_live_marker_path(&record_path, &record);
+    let _live_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_path)
+        .unwrap();
+    let mut record_file =
+        OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record_path).unwrap();
+    record_file.write_all(&serde_json::to_vec(&record).unwrap()).unwrap();
+    record_file.sync_all().unwrap();
+
+    let leases = prepare_terminal_host_root_for_reset(&root).unwrap();
+    assert_eq!(
+        crate::terminal_host_runtime::terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Live,
+        "reset must hold the structured live-marker lock until directory removal"
+    );
+    drop(leases);
+    assert_eq!(
+        crate::terminal_host_runtime::terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Dead
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn terminal_host_reset_refuses_busy_live_marker() {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let root = temp_root("terminal-host-reset-refuses-busy-live-marker");
+    fs::create_dir_all(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+    let uid = fs::metadata(&root).unwrap().uid();
+    let live_path = root.join("orphan.live");
+    let live_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_path)
+        .unwrap();
+    // SAFETY: flock only changes the advisory lock on this valid test file descriptor.
+    assert_eq!(unsafe { libc::flock(live_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+
+    assert!(matches!(
+        lock_verified_dead_live_marker(&root.join("missing.live"), uid).unwrap(),
+        TerminalHostLiveMarkerLock::Missing
+    ));
+    assert!(matches!(
+        lock_verified_dead_live_marker(&live_path, uid).unwrap(),
+        TerminalHostLiveMarkerLock::Unsafe
+    ));
+    let error = match prepare_terminal_host_root_for_reset(&root) {
+        Ok(_) => panic!("reset accepted a busy live marker"),
+        Err(error) => error,
+    };
+
+    assert!(error.to_string().contains("live or unverified hosts"), "{error:#}");
+    assert!(live_path.exists(), "reset removed a busy live marker");
+    drop(live_file);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn terminal_host_reset_checks_legacy_live_marker_as_orphan() {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let root = temp_root("terminal-host-reset-legacy-marker");
+    fs::create_dir_all(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+    let uid = fs::metadata(&root).unwrap().uid();
+    let terminal_id = TERMINAL_ONE;
+    let record = crate::terminal_host_runtime::TerminalHostRecord {
+        record_version: 1,
+        terminal_id: terminal_id.to_string(),
+        incarnation: INCARNATION_ONE.to_string(),
+        endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
+        owner_token: "01".repeat(32),
+        host_pid: 0,
+        host_start_nonce: String::new(),
+        workspace_key: String::new(),
+        supports_set_defaults: false,
+        supports_clear_history: false,
+    };
+    let record_path = record.record_path(&root);
+    let live_path = terminal_host_live_marker_path(&record_path, &record);
+    let live_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_path)
+        .unwrap();
+    // SAFETY: flock only changes the advisory lock on this valid test file descriptor.
+    assert_eq!(unsafe { libc::flock(live_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let mut record_file =
+        OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record_path).unwrap();
+    record_file.write_all(&serde_json::to_vec(&record).unwrap()).unwrap();
+    record_file.sync_all().unwrap();
+    *RESET_REMOVE_LEGACY_HOST_RECORD_BEFORE_LIVENESS.lock().unwrap() = Some(record_path.clone());
+
+    let error = match prepare_terminal_host_root_for_reset(&root) {
+        Ok(_) => panic!("reset ignored a busy legacy live marker"),
+        Err(error) => error,
+    };
+    *RESET_REMOVE_LEGACY_HOST_RECORD_BEFORE_LIVENESS.lock().unwrap() = None;
+
+    assert!(error.to_string().contains("live or unverified hosts"), "{error:#}");
+    assert!(record_path.exists(), "reset reached the liveness hook before checking the marker");
+    assert!(live_path.exists(), "reset removed a busy legacy live marker");
+    drop(live_file);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_rejects_unpublished_terminal_host_publication() {
+    let root = temp_root("reset-rejects-unpublished-terminal-host");
+    let session = "reset-rejects-unpublished-terminal-host";
+    drop(WorkspaceRegistry::open(&root, session).unwrap());
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    crate::terminal_host_runtime::prepare_terminal_host_publication_lock(&host_root).unwrap();
+    let _publication =
+        crate::terminal_host_runtime::acquire_terminal_host_publication_lock(&host_root).unwrap();
+
+    let preview = resetter.preview(session).unwrap();
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(error.to_string().contains("live or unverified hosts"), "{error:#}");
+    assert!(session_dir.exists(), "reset removed session state during host publication");
+    assert!(host_root.exists(), "reset removed terminal-host state during host publication");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_refuses_unparseable_terminal_host_record() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_root("reset-refuses-unparseable-terminal-host-record");
+    let session = "reset-refuses-unparseable-terminal-host-record";
+    drop(WorkspaceRegistry::open(&root, session).unwrap());
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    crate::terminal_host_runtime::prepare_terminal_host_publication_lock(&host_root).unwrap();
+    let record_path = host_root.join(format!("{TERMINAL_ONE}.json"));
+    fs::write(&record_path, b"{").unwrap();
+
+    let preview = resetter.preview(session).unwrap();
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(format!("{error:#}").contains("live or unverified hosts"), "{error:#}");
+    assert!(session_dir.exists(), "reset removed the registry before host verification");
+    assert!(record_path.exists(), "reset removed an unverified terminal-host record");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let root = temp_root("reset-dead-v2-host-without-marker");
+    let session = "reset-dead-v2-host-without-marker";
+    drop(WorkspaceRegistry::open(&root, session).unwrap());
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    crate::terminal_host_runtime::prepare_terminal_host_publication_lock(&host_root).unwrap();
+    let uid = fs::metadata(&host_root).unwrap().uid();
+    let terminal_id = TERMINAL_ONE;
+    let record = crate::terminal_host_runtime::TerminalHostRecord {
+        record_version: 2,
+        terminal_id: terminal_id.to_string(),
+        incarnation: INCARNATION_ONE.to_string(),
+        endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
+        owner_token: "01".repeat(32),
+        host_pid: u32::MAX,
+        host_start_nonce: "02".repeat(32),
+        workspace_key: String::new(),
+        supports_set_defaults: true,
+        supports_clear_history: true,
+    };
+    let record_path = record.record_path(&host_root);
+    let live_path = terminal_host_live_marker_path(&record_path, &record);
+    let mut record_file =
+        OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record_path).unwrap();
+    record_file.write_all(&serde_json::to_vec(&record).unwrap()).unwrap();
+    record_file.sync_all().unwrap();
+
+    let preview = resetter.preview(session).unwrap();
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(reset.removed_session_state);
+    assert!(reset.removed_terminal_hosts);
+    assert!(!live_path.exists(), "reset created a live marker before deletion");
+    assert!(!host_root.exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_terminal_host_only_state_reports_only_terminal_hosts() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_root("reset-terminal-host-only");
+    let session = "reset-terminal-host-only";
+    fs::create_dir_all(&root).unwrap();
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(host_root.join("stale-sidecar"), b"stale").unwrap();
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+
+    let preview = resetter.preview(session).unwrap();
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(!reset.removed_session_state);
+    assert!(reset.removed_terminal_hosts);
+    assert!(!host_root.exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_preview_rejects_confirmation_manifest_path_budget() {
+    let root = temp_root("reset-manifest-path-budget");
+    let session = "reset-manifest-path-budget";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    for index in 0..MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES {
+        fs::write(session_dir.join(format!("extra-{index}")), b"x").unwrap();
+    }
+
+    let error = resetter.preview(session).unwrap_err();
+
+    assert!(error.to_string().contains("reset confirmation scan exceeds"), "{error:#}");
+    assert!(error.to_string().contains("paths"), "{error:#}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_preview_rejects_confirmation_manifest_byte_budget() {
+    let root = temp_root("reset-manifest-byte-budget");
+    let session = "reset-manifest-byte-budget";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(
+        session_dir.join(WORKSPACE_REGISTRY_FILE),
+        vec![0_u8; usize::try_from(MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES).unwrap() + 1],
+    )
+    .unwrap();
+
+    let error = resetter.preview(session).unwrap_err();
+
+    assert!(error.to_string().contains("reset confirmation scan exceeds"), "{error:#}");
+    assert!(error.to_string().contains("bytes"), "{error:#}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_preview_rejects_confirmation_manifest_string_budget() {
+    let root = temp_root("reset-manifest-string-budget");
+    let session = "reset-manifest-string-budget";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let mut nested = session_dir;
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(nested.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    for index in 0..16 {
+        nested = nested.join(format!("long-reset-manifest-component-{index:02}"));
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join(format!("long-reset-manifest-leaf-{index:02}")), b"x").unwrap();
+    }
+
+    let error = resetter.preview(session).unwrap_err();
+
+    assert!(error.to_string().contains("reset confirmation scan exceeds"), "{error:#}");
+    assert!(error.to_string().contains("manifest bytes"), "{error:#}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_private_rename_rejects_replaced_directory_fingerprint() {
+    let root = temp_root("reset-rename-rejects-replacement");
+    let session = "reset-rename-rejects-replacement";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"old").unwrap();
+    let expected_fingerprint =
+        session_reset_target_fingerprint(&session_dir, &mut ResetFingerprintBudget::default())
+            .unwrap();
+
+    fs::remove_dir_all(&session_dir).unwrap();
+    fs::create_dir_all(&session_dir).unwrap();
+    let replacement = session_dir.join("replacement");
+    fs::write(&replacement, b"new").unwrap();
+
+    let error = rename_session_dir_for_reset(&root, session, &session_dir, &expected_fingerprint)
+        .unwrap_err();
+
+    assert!(error.to_string().contains("reset path changed during reset"));
+    assert!(replacement.exists(), "reset deleted the replacement directory");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_private_rename_rejects_late_nested_session_file() {
+    let root = temp_root("reset-rename-rejects-late-session-file");
+    let session = "reset-rename-rejects-late-session-file";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let nested = session_dir.join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::write(nested.join("previewed"), b"old").unwrap();
+    let expected_fingerprint =
+        session_reset_target_fingerprint(&session_dir, &mut ResetFingerprintBudget::default())
+            .unwrap();
+
+    let late = nested.join("late-sidecar");
+    fs::write(&late, b"new").unwrap();
+    let error = rename_session_dir_for_reset(&root, session, &session_dir, &expected_fingerprint)
+        .unwrap_err();
+
+    assert!(error.to_string().contains("reset path changed during reset"));
+    assert!(session_dir.exists(), "reset staged the changed session directory");
+    assert!(late.exists(), "reset deleted an unconfirmed nested session file");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_private_rename_rejects_late_terminal_host_file() {
+    let root = temp_root("reset-rename-rejects-late-terminal-host-file");
+    let session = "reset-rename-rejects-late-terminal-host-file";
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    let nested = host_root.join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(nested.join("previewed"), b"old").unwrap();
+    let expected_fingerprint =
+        reset_dir_fingerprint("terminal-hosts", &host_root, &mut ResetFingerprintBudget::default())
+            .unwrap();
+
+    let late = nested.join("late-sidecar");
+    fs::write(&late, b"new").unwrap();
+    let error =
+        rename_terminal_host_dir_for_reset(&root, session, &host_root, &expected_fingerprint)
+            .unwrap_err();
+
+    assert!(error.to_string().contains("reset path changed during reset"));
+    assert!(host_root.exists(), "reset staged the changed terminal-host directory");
+    assert!(late.exists(), "reset deleted an unconfirmed terminal-host file");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_exclusive_rename_preserves_an_existing_private_target() {
+    use std::ffi::OsStr;
+    use std::os::fd::AsRawFd;
+
+    let root = temp_root("reset-exclusive-rename-existing-target");
+    fs::create_dir_all(&root).unwrap();
+    let source = root.join("source");
+    let target = root.join("target");
+    fs::write(&source, b"source").unwrap();
+    fs::write(&target, b"target").unwrap();
+    let directory = File::open(&root).unwrap();
+
+    let error = reset_rename_child_exclusive(
+        directory.as_raw_fd(),
+        OsStr::new("source"),
+        OsStr::new("target"),
+        &source,
+        &target,
+    )
+    .unwrap_err();
+
+    assert!(format!("{error:#}").contains("move reset path"));
+    assert_eq!(fs::read(&source).unwrap(), b"source");
+    assert_eq!(fs::read(&target).unwrap(), b"target");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_directory_scan_clears_stale_errno_before_readdir() {
+    let root = temp_root("reset-readdir-clears-errno");
+    fs::create_dir_all(&root).unwrap();
+    let directory = File::open(&root).unwrap();
+    set_reset_readdir_errno(libc::EIO);
+
+    let names = reset_dir_child_names(&directory, &root, "saved state").unwrap();
+
+    assert!(names.is_empty());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_guard_rejects_symlinked_lock_directory() {
+    use std::os::unix::fs::symlink;
+
+    let root = temp_root("session-guard-symlink");
+    let outside = temp_root("session-guard-symlink-outside");
+    fs::create_dir_all(&root).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    symlink(&outside, root.join(SESSION_GUARD_DIR)).unwrap();
+
+    let error = WorkspaceRegistry::open(&root, "symlinked-lock-dir").unwrap_err();
+
+    assert!(error.to_string().contains("session lock directory is not a directory"));
+    assert!(fs::read_dir(&outside).unwrap().next().is_none());
+    fs::remove_dir_all(root).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[test]
+fn reset_session_guard_coordinator_busy_fails_without_waiting_forever() {
+    let root = temp_root("session-guard-coordinator-busy");
+    fs::create_dir_all(&root).unwrap();
+    let lock_dir = prepare_session_guard_dir(&root).unwrap();
+    let _held = SessionLease::acquire(&session_guard_coordinator_path(&lock_dir)).unwrap();
+    let started = std::time::Instant::now();
+
+    let error = match acquire_existing_session_reset_guard(&root, "blocked-by-coordinator") {
+        Ok(_) => panic!("reset acquired a busy session coordinator"),
+        Err(error) => error,
+    };
+
+    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    assert!(format!("{error:#}").contains("workspace session coordinator is busy"));
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn workspace_commit_publishes_one_normalized_resource_event() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
