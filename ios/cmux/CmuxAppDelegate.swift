@@ -69,12 +69,35 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
     ) async {
         let request = response.notification.request
         // A swipe/clear of a cmux banner delivers the custom dismiss action
-        // (enabled via the `cmux.terminal` category's `.customDismissAction`).
+        // (enabled on both cmux terminal categories via `.customDismissAction`).
         // Forward it to the Mac so the desktop banner + store entry clear too.
         let ids = Self.cmuxIDs(from: request.content.userInfo)
         if response.actionIdentifier == UNNotificationDismissActionIdentifier {
             await pushCoordinator?.handleDismiss(
                 notificationId: Self.notificationID(from: request),
+                macDeviceId: ids.macDeviceId
+            )
+            return
+        }
+        if response.actionIdentifier == MobilePushCoordinator.replyActionIdentifier,
+           let replyText = (response as? UNTextInputNotificationResponse)?.userText,
+           !replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let notificationId = Self.notificationID(from: request)
+            await analytics?.capture("ios_push_inline_reply", [
+                "has_workspace_id": .bool(ids.workspaceId != nil),
+                "has_surface_id": .bool(ids.surfaceId != nil),
+                "has_mac_device_id": .bool(ids.macDeviceId != nil),
+                "has_notification_id": .bool(notificationId != nil),
+            ])
+            await pushCoordinator?.handleReply(
+                text: replyText,
+                workspaceId: ids.workspaceId,
+                surfaceId: ids.surfaceId,
+                macDeviceId: ids.macDeviceId,
+                retargetsToLiveSurfaceOwner: ids.retargetsToLiveSurfaceOwner
+            )
+            await pushCoordinator?.handleDismiss(
+                notificationId: notificationId,
                 macDeviceId: ids.macDeviceId
             )
             return

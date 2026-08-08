@@ -37,4 +37,11 @@ public protocol UserNotificationCenterServing: UserNotificationCenterConfiguring
     func removePendingNotificationRequests(
         withIdentifiers identifiers: [String]
     ) async -> Result<Void, UserNotificationCenterFailure>
+
+    /// Reads the currently registered notification categories, so owners of
+    /// dynamic per-request categories can merge rather than clobber.
+    func notificationCategories() async -> Result<
+        Set<UNNotificationCategory>,
+        UserNotificationCenterFailure
+    >
 }
