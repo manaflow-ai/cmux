@@ -135,6 +135,31 @@
     "faqFeatureA": "Wir möchten davon hören. Öffnen Sie ein <issuesLink>Issue</issuesLink> oder einen <prLink>Pull Request</prLink> auf GitHub, oder <mailLink>schreiben Sie uns</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "Übersicht",
+      "team": "Team"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "LLM-Anfragen mit Failover und nutzungsabhängiger Planung über Anbieter-Konten verteilen.",
+      "coderouterLink": "coderouter öffnen"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Gemeinsam genutzte KI-Konten verwalten und Anfragen mit coderouter verteilen.",
+      "title": "coderouter",
+      "description": "coderouter verteilt LLM-Anfragen mit Failover und nutzungsabhängiger Planung über Anbieter-Konten."
+    },
+    "accountMenu": {
+      "label": "Kontomenü",
+      "settings": "Einstellungen",
+      "billing": "Abrechnung",
+      "signOut": "Abmelden",
+      "signingOut": "Wird abgemeldet…",
+      "signOutError": "Abmeldung fehlgeschlagen. Erneut versuchen.",
+      "signIn": "Anmelden"
+    },
     "aiAccounts": {
       "metaTitle": "KI-Konten — cmux",
       "metaDescription": "Verwalte die KI-Anbieterkonten deines Teams für cmux.",

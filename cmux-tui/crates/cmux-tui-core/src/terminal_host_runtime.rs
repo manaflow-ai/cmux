@@ -50,6 +50,7 @@ pub(crate) const CONTROL_RESPONSE_TIMEOUT: std::time::Duration = std::time::Dura
 const HOST_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const HOST_CONNECT_RETRY_WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
 const HOST_CONNECT_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
+const TERMINAL_HOST_PUBLICATION_LOCK_FILE: &str = ".publication.lock";
 // Keep live PTY backpressure independent from the extra headroom needed by
 // one maximum Resized + Colors + targeted acknowledgement transition.
 const MAX_HOST_CLIENT_OUTPUT_QUEUED_BYTES: usize = 8 * 1024 * 1024;
@@ -1692,7 +1693,7 @@ mod unix {
         kitty_graphics_limits: KittyGraphicsLimits,
         terminal_id: TerminalId,
     ) -> anyhow::Result<HostAttachment> {
-        prepare_private_dir(root)?;
+        let launch_publication_lock = reserve_terminal_host_publication(root)?;
         let owner_token = CapabilityToken::random()?;
         let terminal_hex = encode_hex(terminal_id.as_bytes());
         // macOS limits sockaddr_un paths to roughly one hundred bytes and
@@ -1805,6 +1806,7 @@ mod unix {
         {
             anyhow::bail!("terminal-host discovery record changed during launch");
         }
+        drop(launch_publication_lock);
         // Keep the exact-kill guard armed through record validation and a
         // successful authenticated Snapshot. Returning Err after disarming it
         // would leave a live published host while the mux marks its registry
@@ -2057,6 +2059,19 @@ mod unix {
     pub fn load_terminal_host_records(
         root: &Path,
     ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
+        load_terminal_host_records_with_policy(root, false)
+    }
+
+    pub(crate) fn load_terminal_host_records_for_reset(
+        root: &Path,
+    ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
+        load_terminal_host_records_with_policy(root, true)
+    }
+
+    fn load_terminal_host_records_with_policy(
+        root: &Path,
+        fail_closed: bool,
+    ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
         let mut records = Vec::new();
         let mut identities = HashSet::new();
         let entries = match fs::read_dir(root) {
@@ -2072,19 +2087,42 @@ mod unix {
             }
             let bytes = match fs::read(&path) {
                 Ok(bytes) => bytes,
-                Err(_) => continue,
+                Err(_) if !fail_closed => continue,
+                Err(error) => {
+                    return Err(error)
+                        .with_context(|| format!("read terminal-host record {}", path.display()));
+                }
             };
-            let Ok(record) = serde_json::from_slice::<TerminalHostRecord>(&bytes) else {
+            let record = match serde_json::from_slice::<TerminalHostRecord>(&bytes) {
+                Ok(record) => record,
+                Err(_) if !fail_closed => continue,
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("decode terminal-host record {}", path.display())
+                    });
+                }
+            };
+            if let Err(error) = validate_terminal_host_record(&path, &record) {
+                if fail_closed {
+                    return Err(error).with_context(|| {
+                        format!("validate terminal-host record {}", path.display())
+                    });
+                }
                 continue;
-            };
-            if validate_terminal_host_record(&path, &record).is_err()
-                || !identities.insert((record.terminal_id.clone(), record.incarnation.clone()))
-            {
+            }
+            if !identities.insert((record.terminal_id.clone(), record.incarnation.clone())) {
+                if fail_closed {
+                    anyhow::bail!("duplicate terminal-host identity in {}", path.display());
+                }
                 continue;
             }
             records.push((path, record));
         }
-        records.sort_by(|left, right| left.0.cmp(&right.0));
+        // Reset uses records only for marker membership and liveness checks, so
+        // keep its fail-closed scan linear.
+        if !fail_closed {
+            records.sort_by(|left, right| left.0.cmp(&right.0));
+        }
         Ok(records)
     }
 
@@ -4326,6 +4364,141 @@ mod unix {
         }
     }
 
+    pub(crate) struct TerminalHostResetLock {
+        file: File,
+    }
+
+    pub(crate) struct TerminalHostPublicationLock {
+        file: File,
+    }
+
+    pub(crate) fn prepare_terminal_host_publication_lock(root: &Path) -> anyhow::Result<()> {
+        prepare_private_dir(root)?;
+        let path = terminal_host_publication_lock_path(root);
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+            .open(&path)
+            .with_context(|| format!("create terminal-host publication lock {}", path.display()))?;
+        validate_terminal_host_publication_lock(root, &path, &file)?;
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+        file.sync_all()?;
+        File::open(root)?.sync_all()?;
+        Ok(())
+    }
+
+    pub(crate) fn reserve_terminal_host_publication(
+        root: &Path,
+    ) -> anyhow::Result<TerminalHostPublicationLock> {
+        prepare_terminal_host_publication_lock(root)?;
+        acquire_terminal_host_publication_lock(root)
+    }
+
+    pub(crate) fn acquire_terminal_host_reset_lock(
+        root: &Path,
+    ) -> anyhow::Result<Option<TerminalHostResetLock>> {
+        prepare_terminal_host_publication_lock(root)?;
+        let path = terminal_host_publication_lock_path(root);
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .mode(0o600)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+            .open(&path)
+            .with_context(|| format!("open terminal-host publication lock {}", path.display()))?;
+        validate_terminal_host_publication_lock(root, &path, &file)?;
+        lock_terminal_host_publication_file(&file, libc::LOCK_EX | libc::LOCK_NB).with_context(
+            || format!("terminal host state has live or unverified hosts: {}", root.display()),
+        )?;
+        validate_terminal_host_publication_lock(root, &path, &file)?;
+        Ok(Some(TerminalHostResetLock { file }))
+    }
+
+    pub(crate) fn acquire_terminal_host_publication_lock(
+        root: &Path,
+    ) -> anyhow::Result<TerminalHostPublicationLock> {
+        let path = terminal_host_publication_lock_path(root);
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+            .open(&path)
+            .with_context(|| format!("open terminal-host publication lock {}", path.display()))?;
+        validate_terminal_host_publication_lock(root, &path, &file)?;
+        lock_terminal_host_publication_file(&file, libc::LOCK_SH)
+            .with_context(|| format!("lock terminal-host publication lock {}", path.display()))?;
+        validate_terminal_host_publication_lock(root, &path, &file)?;
+        Ok(TerminalHostPublicationLock { file })
+    }
+
+    fn terminal_host_publication_lock_path(root: &Path) -> PathBuf {
+        root.join(TERMINAL_HOST_PUBLICATION_LOCK_FILE)
+    }
+
+    fn validate_terminal_host_publication_lock(
+        root: &Path,
+        path: &Path,
+        file: &File,
+    ) -> anyhow::Result<()> {
+        let root_metadata = fs::metadata(root)
+            .with_context(|| format!("inspect terminal-host root {}", root.display()))?;
+        let path_metadata = fs::symlink_metadata(path).with_context(|| {
+            format!("inspect terminal-host publication lock {}", path.display())
+        })?;
+        if !path_metadata.file_type().is_file()
+            || path_metadata.uid() != root_metadata.uid()
+            || path_metadata.mode() & 0o077 != 0
+            || path_metadata.nlink() != 1
+        {
+            anyhow::bail!("terminal-host publication lock is unsafe: {}", path.display());
+        }
+        let file_metadata = file.metadata()?;
+        if path_metadata.dev() != file_metadata.dev() || path_metadata.ino() != file_metadata.ino()
+        {
+            anyhow::bail!(
+                "terminal-host publication lock changed while opening: {}",
+                path.display()
+            );
+        }
+        Ok(())
+    }
+
+    fn lock_terminal_host_publication_file(
+        file: &File,
+        operation: libc::c_int,
+    ) -> anyhow::Result<()> {
+        loop {
+            // SAFETY: flock only observes or changes the advisory lock on this
+            // valid descriptor.
+            if unsafe { libc::flock(file.as_raw_fd(), operation) } == 0 {
+                return Ok(());
+            }
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(error.into());
+        }
+    }
+
+    impl Drop for TerminalHostResetLock {
+        fn drop(&mut self) {
+            // SAFETY: flock only changes the advisory lock on this valid descriptor.
+            let _ = unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
+        }
+    }
+
+    impl Drop for TerminalHostPublicationLock {
+        fn drop(&mut self) {
+            // SAFETY: flock only changes the advisory lock on this valid descriptor.
+            let _ = unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
+        }
+    }
+
     struct HostServiceGuard {
         shared: Arc<HostShared>,
         endpoint: PathBuf,
@@ -4451,6 +4624,10 @@ mod unix {
             supports_clear_history: true,
             supports_terminate_ack: true,
         };
+        let record_root = Path::new(&launch.record_path)
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("terminal-host record has no parent directory"))?;
+        let _publication_lock = acquire_terminal_host_publication_lock(record_root)?;
         let lease =
             HostLivenessLease::acquire(liveness_path(Path::new(&launch.record_path), &record))?;
         let mut guard = HostServiceGuard {
@@ -6646,6 +6823,68 @@ mod unix {
         }
 
         #[test]
+        fn launch_publication_reservation_blocks_reset_lock_until_released() {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-host-publication-reservation-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            let reservation = reserve_terminal_host_publication(&root).unwrap();
+
+            let error = match acquire_terminal_host_reset_lock(&root) {
+                Ok(_) => panic!("reset lock was not blocked by publication reservation"),
+                Err(error) => error,
+            };
+            assert!(error.to_string().contains("live or unverified hosts"), "{error:#}");
+
+            drop(reservation);
+            let reset_lock = acquire_terminal_host_reset_lock(&root).unwrap();
+            assert!(reset_lock.is_some());
+            drop(reset_lock);
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
+        fn reset_lock_prepares_missing_publication_lock() {
+            use std::os::fd::AsRawFd;
+            use std::os::unix::fs::OpenOptionsExt;
+
+            let root = std::env::temp_dir().join(format!(
+                "cmux-host-reset-prepares-publication-lock-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            prepare_private_dir(&root).unwrap();
+            assert!(!terminal_host_publication_lock_path(&root).exists());
+
+            let reset_lock = acquire_terminal_host_reset_lock(&root).unwrap();
+
+            assert!(reset_lock.is_some());
+            let publication_lock = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+                .open(terminal_host_publication_lock_path(&root))
+                .unwrap();
+            // SAFETY: flock only observes the advisory lock on this valid test descriptor.
+            assert_ne!(
+                unsafe { libc::flock(publication_lock.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) },
+                0,
+                "publication reservation should be blocked while reset holds the lock"
+            );
+            drop(reset_lock);
+            // SAFETY: flock only observes the advisory lock on this valid test descriptor.
+            assert_eq!(
+                unsafe { libc::flock(publication_lock.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) },
+                0
+            );
+            // SAFETY: flock only changes the advisory lock on this valid test descriptor.
+            let _ = unsafe { libc::flock(publication_lock.as_raw_fd(), libc::LOCK_UN) };
+            drop(publication_lock);
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
         fn dropping_liveness_lease_releases_inherited_descriptor_lock() {
             let (record_path, record, lease) = record_fixture("inherited-liveness-fd");
             let inherited = lease.file.try_clone().unwrap();
@@ -8620,7 +8859,8 @@ mod unix {
 #[cfg(unix)]
 pub(crate) use unix::{
     ControlResponses, DecodedHostResize, DeferredCellPixelResolution,
-    adopt_terminal_host_with_kitty_limits, decode_host_resize_payload_for_version,
+    acquire_terminal_host_reset_lock, adopt_terminal_host_with_kitty_limits,
+    decode_host_resize_payload_for_version, load_terminal_host_records_for_reset,
 };
 #[cfg(unix)]
 pub use unix::{
@@ -8631,6 +8871,10 @@ pub use unix::{
     terminal_host_exit_record, terminal_host_record_liveness, terminal_host_root,
     validate_terminal_host_exit_record, validate_terminal_host_record,
 };
+#[cfg(all(unix, test))]
+pub(crate) use unix::{
+    acquire_terminal_host_publication_lock, prepare_terminal_host_publication_lock,
+};
 
 #[cfg(not(unix))]
 pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
@@ -8640,6 +8884,16 @@ pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
 #[cfg(not(unix))]
 pub fn isolate_terminal_host_process_fds() -> anyhow::Result<()> {
     Ok(())
+}
+
+#[cfg(not(unix))]
+pub(crate) struct TerminalHostResetLock;
+
+#[cfg(not(unix))]
+pub(crate) fn acquire_terminal_host_reset_lock(
+    _root: &Path,
+) -> anyhow::Result<Option<TerminalHostResetLock>> {
+    anyhow::bail!("terminal host liveness cannot be verified on this platform")
 }
 
 #[cfg(not(unix))]
