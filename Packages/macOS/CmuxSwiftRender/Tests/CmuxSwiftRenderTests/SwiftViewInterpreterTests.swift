@@ -319,6 +319,32 @@ import Testing
         #expect(node?.children.first?.children.first?.text == "one")
     }
 
+    @Test func returnExitsViewFunctionBeforeFallthrough() {
+        let node = interp.evaluate("""
+        func badge(_ w) -> some View {
+            if w.unread == 0 { return AnyView(Text("EARLY")) }
+            return AnyView(Text("FALLTHROUGH"))
+        }
+        VStack { badge(w) }
+        """, state: [
+            "w": .object(["unread": .int(0)]),
+        ])
+        #expect(node?.kind == .vstack)
+        #expect(node?.children.map(\.text) == ["EARLY"])
+    }
+
+    @Test func topLevelLetIsVisibleInsideFunction() {
+        let node = interp.evaluate("""
+        let MARK = "X:"
+        func label(_ v) -> String { return "\\(MARK)\\(v)" }
+        VStack { Text(label(s)) }
+        """, state: [
+            "s": .string("a-b-c"),
+        ])
+        #expect(node?.kind == .vstack)
+        #expect(node?.children.map(\.text) == ["X:a-b-c"])
+    }
+
     @Test func numberFormattedCurrencyAndReduce() {
         let items = SwiftValue.array([
             .object(["cost": .double(1.5)]),
