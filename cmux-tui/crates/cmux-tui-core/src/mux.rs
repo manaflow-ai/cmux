@@ -1826,10 +1826,6 @@ pub struct Mux {
     terminal_adoptions: Mutex<HashSet<String>>,
     terminal_exit_detaches: Arc<TerminalExitDetachTracker>,
     terminal_adoption_insert_failures: AtomicU64,
-    /// Fences the interval between accepting a browser daemon-handoff request
-    /// and queueing its acknowledgement. ClientRegistry consults this under
-    /// its own lock so a new native-browser owner cannot race the shutdown.
-    pub(crate) daemon_handoff_pending: AtomicBool,
     shutting_down: AtomicBool,
     pub(crate) control_clients: crate::server::ClientRegistry,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
@@ -2169,7 +2165,6 @@ impl Mux {
                     .and_then(|value| value.parse().ok())
                     .unwrap_or(0),
             ),
-            daemon_handoff_pending: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
             control_clients: crate::server::ClientRegistry::new(),
             surface_operation_admission: Arc::new(
@@ -4687,6 +4682,10 @@ impl Mux {
 
     pub fn subscribe(&self) -> MuxEventReceiver {
         self.subscribers.subscribe()
+    }
+
+    pub fn subscribe_config_reload(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe_config_reload()
     }
 
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
@@ -7435,9 +7434,9 @@ impl Mux {
     }
 
     /// Validate the target daemon and atomically reserve its handoff. Unless
-    /// forced, this proves no other native browser owns the mux. New owner
-    /// announcements are rejected until the response is queued or the
-    /// reservation is cancelled.
+    /// forced, this proves no other native browser owns the mux. New control
+    /// clients and native-browser ownership changes are rejected until the
+    /// reservation is cancelled or shutdown completes.
     pub(crate) fn begin_daemon_handoff(
         &self,
         requesting_client: u64,
@@ -7453,16 +7452,12 @@ impl Mux {
                 anyhow::bail!("daemon generation changed; identify again");
             }
         }
-        self.control_clients.begin_daemon_handoff(
-            requesting_client,
-            &self.daemon_handoff_pending,
-            request.force,
-        )?;
+        self.control_clients.begin_daemon_handoff(requesting_client, request.force)?;
         Ok(actual_identity)
     }
 
     pub fn cancel_daemon_handoff(&self) {
-        self.daemon_handoff_pending.store(false, Ordering::Release);
+        self.control_clients.cancel_daemon_handoff();
     }
 
     /// Ask the owning frontend loop to leave through the normal daemon

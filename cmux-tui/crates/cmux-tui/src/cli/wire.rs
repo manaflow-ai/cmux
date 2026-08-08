@@ -527,9 +527,12 @@ fn human_key_rank(key: &str) -> usize {
     }
 }
 
-fn resolve_socket(global: &GlobalArgs) -> PathBuf {
+pub(super) fn resolve_socket(global: &GlobalArgs) -> PathBuf {
     if let Some(path) = &global.socket {
         return path.clone();
+    }
+    if let Some(session) = &global.session {
+        return cmux_tui_core::server::default_socket_path(session);
     }
     for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
         if let Some(path) = std::env::var_os(name)
@@ -538,7 +541,7 @@ fn resolve_socket(global: &GlobalArgs) -> PathBuf {
             return PathBuf::from(path);
         }
     }
-    cmux_tui_core::server::default_socket_path(global.session.as_deref().unwrap_or("main"))
+    cmux_tui_core::server::default_socket_path("main")
 }
 
 #[cfg(test)]

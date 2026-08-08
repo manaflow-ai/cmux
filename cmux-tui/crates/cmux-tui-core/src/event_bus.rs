@@ -22,6 +22,7 @@ struct MuxEventSubscriber {
 
 enum MuxEventFilter {
     All,
+    ConfigReload,
     AttachedSurface(SurfaceId),
     SurfaceSession(SurfaceSessionScope),
 }
@@ -33,6 +34,7 @@ struct SurfaceSessionScope {
     pane: PaneId,
 }
 
+#[derive(Clone)]
 pub struct MuxEventReceiver {
     mailbox: Arc<MuxEventMailbox>,
 }
@@ -55,6 +57,7 @@ struct MuxEventMailboxState {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum CoalescedEventKey {
+    ConfigReload,
     Title(SurfaceId),
     SurfaceOutput(SurfaceId),
     Scroll(SurfaceId),
@@ -63,6 +66,10 @@ enum CoalescedEventKey {
 impl MuxEventBroadcaster {
     pub fn subscribe(&self) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::All)
+    }
+
+    pub fn subscribe_config_reload(&self) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::ConfigReload)
     }
 
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
@@ -128,6 +135,7 @@ impl MuxEventFilter {
     fn accepts(&mut self, event: &MuxEvent) -> bool {
         match self {
             Self::All => true,
+            Self::ConfigReload => matches!(event, MuxEvent::ConfigReloadRequested),
             Self::AttachedSurface(surface) => match event {
                 MuxEvent::Notification(notification) => notification.surface == Some(*surface),
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => {
@@ -232,6 +240,11 @@ impl MuxEventMailbox {
             event @ MuxEvent::ScrollChanged { surface, .. } => {
                 state.push_coalesced(sequence, CoalescedEventKey::Scroll(surface), event)
             }
+            MuxEvent::ConfigReloadRequested => state.push_coalesced(
+                sequence,
+                CoalescedEventKey::ConfigReload,
+                MuxEvent::ConfigReloadRequested,
+            ),
             MuxEvent::SurfaceExited(surface) => {
                 state.discard_surface_state(surface);
                 if !state.reserve_pending_slot() {
@@ -338,6 +351,10 @@ impl MuxEventMailboxState {
 }
 
 impl MuxEventReceiver {
+    pub fn close(&self) {
+        self.mailbox.close();
+    }
+
     pub fn overflowed(&self) -> bool {
         self.mailbox.state.lock().unwrap().overflowed
     }
@@ -661,6 +678,18 @@ mod tests {
         broadcaster.emit(MuxEvent::LayoutChanged(20));
 
         assert!(matches!(events.recv().unwrap(), MuxEvent::TreeDelta(_)));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn config_reload_subscription_keeps_a_pending_reload_when_the_mux_becomes_empty() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe_config_reload();
+
+        broadcaster.emit(MuxEvent::ConfigReloadRequested);
+        broadcaster.emit(MuxEvent::Empty);
+
+        assert!(matches!(events.recv().unwrap(), MuxEvent::ConfigReloadRequested));
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
     }
 

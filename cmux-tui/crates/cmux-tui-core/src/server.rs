@@ -1331,6 +1331,7 @@ impl std::error::Error for DeliveryClassifiedError {
 
 const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
 const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+const SHUTDOWN_ACK_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(not(test))]
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
@@ -2057,6 +2058,9 @@ trait MessageSink: Send + Sync {
     fn set_write_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
         Ok(())
     }
+    fn flush_control(&self, _timeout: Duration) -> std::io::Result<()> {
+        Ok(())
+    }
     fn is_open(&self) -> bool;
     fn close(&self);
 }
@@ -2250,6 +2254,17 @@ impl MessageWriter {
 
     fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
         self.sink.set_write_timeout(timeout)
+    }
+
+    fn flush_control(&self, timeout: Duration) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self.sink.flush_control(timeout);
+        if result.is_err() {
+            self.close();
+        }
+        result
     }
 
     fn register_wait_wakeup(&self, wake: &Arc<ResourceWaitWake>) {
@@ -2598,9 +2613,10 @@ struct BoundedOutbound {
 #[derive(Default)]
 struct BoundedOutboundState {
     initial: VecDeque<RegularOutbound>,
-    control: VecDeque<Arc<BudgetedText>>,
+    control: VecDeque<ControlOutbound>,
     regular: VecDeque<RegularOutbound>,
     stream_usage: HashMap<u64, StreamOutboundUsage>,
+    control_messages: usize,
     control_bytes: usize,
     regular_bytes: usize,
     closed: bool,
@@ -2615,6 +2631,16 @@ struct StreamOutboundUsage {
 struct RegularOutbound {
     text: Arc<BudgetedText>,
     stream: OutboundStream,
+}
+
+enum ControlOutbound {
+    Text(Arc<BudgetedText>),
+    Flush(std::sync::mpsc::SyncSender<()>),
+}
+
+enum OutboundItem {
+    Text(Arc<BudgetedText>),
+    Flush(std::sync::mpsc::SyncSender<()>),
 }
 
 #[derive(Clone)]
@@ -2780,6 +2806,28 @@ impl BoundedOutbound {
         Ok(())
     }
 
+    fn flush_control(&self, timeout: Duration) -> std::io::Result<()> {
+        let (flushed_tx, flushed_rx) = std::sync::mpsc::sync_channel(1);
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        state.control.push_back(ControlOutbound::Flush(flushed_tx));
+        drop(state);
+        self.changed.notify_one();
+        match flushed_rx.recv_timeout(timeout) {
+            Ok(()) => Ok(()),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "timed out while flushing the shutdown response",
+            )),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "connection closed while flushing the shutdown response",
+            )),
+        }
+    }
+
     fn push_terminal(
         &self,
         text: Arc<BudgetedText>,
@@ -2840,7 +2888,7 @@ impl BoundedOutbound {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let bytes = text.len();
-        if state.control.len() >= OUTBOUND_CONTROL_RESERVE
+        if state.control_messages >= OUTBOUND_CONTROL_RESERVE
             || bytes > OUTBOUND_CONTROL_BYTE_RESERVE.saturating_sub(state.control_bytes)
         {
             return Err(std::io::Error::new(
@@ -2848,29 +2896,50 @@ impl BoundedOutbound {
                 "outbound control reserve overflowed",
             ));
         }
+        state.control_messages += 1;
         state.control_bytes += bytes;
-        state.control.push_back(text);
+        state.control.push_back(ControlOutbound::Text(text));
         Ok(())
     }
 
     #[cfg(test)]
     fn try_pop(&self) -> Option<String> {
         let mut state = self.state.lock().unwrap();
-        let text = Self::pop_locked(&mut state).map(|text| text.to_string());
-        drop(state);
-        if text.is_some() {
-            self.changed.notify_all();
+        loop {
+            match Self::pop_locked(&mut state) {
+                Some(OutboundItem::Text(text)) => {
+                    drop(state);
+                    self.changed.notify_all();
+                    return Some(text.to_string());
+                }
+                Some(OutboundItem::Flush(flushed)) => {
+                    drop(state);
+                    self.changed.notify_all();
+                    let _ = flushed.send(());
+                    state = self.state.lock().unwrap();
+                }
+                None => return None,
+            }
         }
-        text
     }
 
     fn recv(&self) -> Option<Arc<BudgetedText>> {
         let mut state = self.state.lock().unwrap();
         loop {
-            if let Some(text) = Self::pop_locked(&mut state) {
-                drop(state);
-                self.changed.notify_all();
-                return Some(text);
+            match Self::pop_locked(&mut state) {
+                Some(OutboundItem::Text(text)) => {
+                    drop(state);
+                    self.changed.notify_all();
+                    return Some(text);
+                }
+                Some(OutboundItem::Flush(flushed)) => {
+                    drop(state);
+                    self.changed.notify_all();
+                    let _ = flushed.send(());
+                    state = self.state.lock().unwrap();
+                    continue;
+                }
+                None => {}
             }
             if state.closed {
                 return None;
@@ -2879,18 +2948,24 @@ impl BoundedOutbound {
         }
     }
 
-    fn pop_locked(state: &mut BoundedOutboundState) -> Option<Arc<BudgetedText>> {
+    fn pop_locked(state: &mut BoundedOutboundState) -> Option<OutboundItem> {
         if let Some(message) = state.initial.pop_front() {
             Self::record_stream_pop(state, &message);
-            return Some(message.text);
+            return Some(OutboundItem::Text(message.text));
         }
-        if let Some(text) = state.control.pop_front() {
-            state.control_bytes -= text.len();
-            return Some(text);
+        if let Some(control) = state.control.pop_front() {
+            return Some(match control {
+                ControlOutbound::Text(text) => {
+                    state.control_messages = state.control_messages.saturating_sub(1);
+                    state.control_bytes = state.control_bytes.saturating_sub(text.len());
+                    OutboundItem::Text(text)
+                }
+                ControlOutbound::Flush(flushed) => OutboundItem::Flush(flushed),
+            });
         }
         let message = state.regular.pop_front()?;
         Self::record_stream_pop(state, &message);
-        Some(message.text)
+        Some(OutboundItem::Text(message.text))
     }
 
     fn record_stream_pop(state: &mut BoundedOutboundState, message: &RegularOutbound) {
@@ -2911,7 +2986,10 @@ impl BoundedOutbound {
     }
 
     fn close(&self) {
-        self.state.lock().unwrap().closed = true;
+        let mut state = self.state.lock().unwrap();
+        state.closed = true;
+        state.control.retain(|item| matches!(item, ControlOutbound::Text(_)));
+        drop(state);
         self.changed.notify_all();
     }
 }
@@ -3066,6 +3144,10 @@ impl MessageSink for QueuedSink {
 
     fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
         self.control.as_ref().map_or(Ok(()), |control| control.set_write_timeout(timeout))
+    }
+
+    fn flush_control(&self, timeout: Duration) -> std::io::Result<()> {
+        self.control.as_ref().map_or(Ok(()), |_| self.outbound.flush_control(timeout))
     }
 
     fn close(&self) {
@@ -3317,6 +3399,9 @@ struct ResourceClientRecord {
 struct ClientRegistryState {
     clients: BTreeMap<u64, ClientRecord>,
     attached_by_surface: HashMap<SurfaceId, HashSet<u64>>,
+    /// Shares the registry lock with registration so accepting a handoff and
+    /// admitting a new owner cannot pass each other.
+    daemon_handoff_pending: bool,
 }
 
 pub(crate) struct ClientRegistry {
@@ -3344,7 +3429,13 @@ impl ClientRegistry {
 
     fn register(&self, transport: ClientTransport, writer: MessageWriter) -> u64 {
         let client = self.next_id.fetch_add(1, Ordering::Relaxed);
-        self.state.lock().unwrap().clients.insert(
+        let mut state = self.state.lock().unwrap();
+        if state.daemon_handoff_pending {
+            drop(state);
+            writer.close();
+            return client;
+        }
+        state.clients.insert(
             client,
             ClientRecord {
                 transport,
@@ -3366,6 +3457,15 @@ impl ClientRegistry {
             },
         );
         client
+    }
+
+    fn client_ids(&self) -> Vec<u64> {
+        self.state.lock().unwrap().clients.keys().copied().collect()
+    }
+
+    #[cfg(test)]
+    fn daemon_handoff_pending(&self) -> bool {
+        self.state.lock().unwrap().daemon_handoff_pending
     }
 
     fn is_unix(&self, client: u64) -> bool {
@@ -3525,12 +3625,9 @@ impl ClientRegistry {
         name: Option<String>,
         kind: Option<String>,
         capabilities: Option<Vec<String>>,
-        daemon_handoff_pending: &AtomicBool,
     ) -> anyhow::Result<(Option<String>, Option<String>)> {
         let mut state = self.state.lock().unwrap();
-        if kind.as_deref() == Some("native-browser")
-            && daemon_handoff_pending.load(Ordering::Acquire)
-        {
+        if kind.as_deref() == Some("native-browser") && state.daemon_handoff_pending {
             anyhow::bail!("daemon handoff is already in progress");
         }
         let record = state
@@ -3560,13 +3657,12 @@ impl ClientRegistry {
         client: u64,
         name: Option<Option<String>>,
         kind: Option<Option<String>>,
-        daemon_handoff_pending: &AtomicBool,
     ) -> Result<(Option<String>, Option<String>), ResourceError> {
         let name = name.map(|name| validate_resource_client_label("name", name)).transpose()?;
         let kind = kind.map(|kind| validate_resource_client_label("kind", kind)).transpose()?;
         let mut state = self.state.lock().unwrap();
         if kind.as_ref().and_then(|kind| kind.as_deref()) == Some("native-browser")
-            && daemon_handoff_pending.load(Ordering::Acquire)
+            && state.daemon_handoff_pending
         {
             return Err(ResourceError::operation_failed(
                 "client.metadata.update",
@@ -3663,10 +3759,9 @@ impl ClientRegistry {
     pub(crate) fn begin_daemon_handoff(
         &self,
         requesting_client: u64,
-        daemon_handoff_pending: &AtomicBool,
         force: bool,
     ) -> anyhow::Result<()> {
-        let state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
         let requester = state
             .clients
             .get(&requesting_client)
@@ -3681,10 +3776,15 @@ impl ClientRegistry {
         {
             anyhow::bail!("another native-browser frontend still owns this daemon");
         }
-        daemon_handoff_pending
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .map_err(|_| anyhow::anyhow!("daemon handoff is already in progress"))?;
+        if state.daemon_handoff_pending {
+            anyhow::bail!("daemon handoff is already in progress");
+        }
+        state.daemon_handoff_pending = true;
         Ok(())
+    }
+
+    pub(crate) fn cancel_daemon_handoff(&self) {
+        self.state.lock().unwrap().daemon_handoff_pending = false;
     }
 
     pub(crate) fn list_json(&self, requesting_client: u64) -> Value {
@@ -4699,6 +4799,24 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
     true
 }
 
+fn complete_daemon_shutdown_after_ack(
+    mux: &Mux,
+    requesting_client: u64,
+    writer: &MessageWriter,
+) -> bool {
+    if writer.flush_control(SHUTDOWN_ACK_FLUSH_TIMEOUT).is_err() {
+        mux.cancel_daemon_handoff();
+        return false;
+    }
+    mux.request_daemon_shutdown();
+    for peer in mux.control_clients.client_ids() {
+        if peer != requesting_client {
+            disconnect_client(mux, peer, true);
+        }
+    }
+    true
+}
+
 pub fn detach_control_client(mux: &Mux, client: u64) -> bool {
     disconnect_client(mux, client, true)
 }
@@ -4797,11 +4915,11 @@ fn handle_resource_session_shutdown(
         Ok(result) => {
             let sent = send_resource_response(writer, id, operation, Ok(result));
             if sent {
-                mux.request_daemon_shutdown();
+                complete_daemon_shutdown_after_ack(mux, client, writer)
             } else {
                 mux.cancel_daemon_handoff();
+                false
             }
-            sent
         }
         Err(error) => {
             mux.cancel_daemon_handoff();
@@ -5432,7 +5550,7 @@ fn resource_client_metadata_update(
     let name = request.fields.get("name").map(|value| value.as_str().map(str::to_string));
     let kind = request.fields.get("kind").map(|value| value.as_str().map(str::to_string));
     let (name, kind) =
-        mux.control_clients.set_resource_info(target, name, kind, &mux.daemon_handoff_pending)?;
+        mux.control_clients.set_resource_info(target, name, kind)?;
     mux.emit(MuxEvent::ClientChanged { client: target, name, kind });
     let record = mux
         .control_clients
@@ -7053,12 +7171,11 @@ fn handle_request_with_cancellation(
     };
     let response_ok = response.ok;
     let sent = send_response(writer, response);
-    // Queue the successful acknowledgement before making the owning loop
-    // leave. The headless loop polls at a bounded interval, giving the writer
-    // thread time to flush the response before normal process teardown.
+    // Flush the successful acknowledgement before making the owning loop
+    // leave, so process teardown cannot race the response writer.
     if shutdown_daemon && response_ok {
         if sent {
-            mux.request_daemon_shutdown();
+            return complete_daemon_shutdown_after_ack(mux, client, writer);
         } else {
             mux.cancel_daemon_handoff();
         }
@@ -8975,13 +9092,7 @@ fn handle_command_with_cancellation(
             "protocol": PROTOCOL_VERSION,
         })),
         Command::SetClientInfo { name, kind, capabilities } => {
-            let (name, kind) = mux.control_clients.set_info(
-                client,
-                name,
-                kind,
-                capabilities,
-                &mux.daemon_handoff_pending,
-            )?;
+            let (name, kind) = mux.control_clients.set_info(client, name, kind, capabilities)?;
             mux.emit(MuxEvent::ClientChanged { client, name, kind });
             Ok(json!({}))
         }
@@ -11672,6 +11783,82 @@ mod tests {
         (writer, outbound, entered_rx, release_tx)
     }
 
+    struct BlockingFlushSink {
+        outbound: Arc<BoundedOutbound>,
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+
+    impl MessageSink for BlockingFlushSink {
+        fn send_initial(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_initial(text, stream)
+        }
+
+        fn send_stream(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_regular(text, stream)
+        }
+
+        fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
+            self.outbound.push_control(text)
+        }
+
+        fn send_terminal(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_terminal(text, stream)
+        }
+
+        fn flush_control(&self, _timeout: Duration) -> std::io::Result<()> {
+            self.entered.send(()).map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "flush blocker observer closed",
+                )
+            })?;
+            self.release.lock().unwrap().recv().map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "flush blocker release closed",
+                )
+            })
+        }
+
+        fn is_open(&self) -> bool {
+            self.outbound.is_open()
+        }
+
+        fn close(&self) {
+            self.outbound.close();
+        }
+    }
+
+    fn blocking_flush_writer() -> (
+        MessageWriter,
+        Arc<BoundedOutbound>,
+        std::sync::mpsc::Receiver<()>,
+        std::sync::mpsc::SyncSender<()>,
+    ) {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let writer = MessageWriter::new(BlockingFlushSink {
+            outbound: outbound.clone(),
+            entered: entered_tx,
+            release: Mutex::new(release_rx),
+        });
+        (writer, outbound, entered_rx, release_tx)
+    }
+
     fn pop_json(outbound: &BoundedOutbound) -> Value {
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
@@ -13135,7 +13322,7 @@ mod tests {
         assert_eq!(rejected["ok"], false);
         assert!(rejected["error"]["message"].as_str().unwrap().contains("trusted local"));
         assert!(!mux.daemon_shutdown_requested());
-        assert!(!mux.daemon_handoff_pending.load(Ordering::Acquire));
+        assert!(!mux.control_clients.daemon_handoff_pending());
 
         let (local_writer, local_outbound) = captured_writer();
         let local = mux.control_clients.register(ClientTransport::Unix, local_writer.clone());
@@ -13156,7 +13343,7 @@ mod tests {
         assert_eq!(rejected["ok"], false);
         assert!(rejected["error"]["message"].as_str().unwrap().contains("still owns"));
         assert!(!mux.daemon_shutdown_requested());
-        assert!(!mux.daemon_handoff_pending.load(Ordering::Acquire));
+        assert!(!mux.control_clients.daemon_handoff_pending());
 
         let forced_request = resource_request(
             "forced-shutdown",
@@ -13170,7 +13357,7 @@ mod tests {
         // Observing shutdown means the durable result was returned and queued
         // before the owning loop was asked to exit.
         assert!(mux.daemon_shutdown_requested());
-        assert!(mux.daemon_handoff_pending.load(Ordering::Acquire));
+        assert!(mux.control_clients.daemon_handoff_pending());
         let accepted = pop_json(&local_outbound);
         assert_eq!(accepted["ok"], true);
         assert_eq!(accepted["result"]["value"]["accepted"], true);
@@ -13200,7 +13387,7 @@ mod tests {
         closed_writer.close();
         assert!(!handle_connection_message(&first, client, &request, &closed_writer, &scheduler,));
         assert!(!first.daemon_shutdown_requested());
-        assert!(!first.daemon_handoff_pending.load(Ordering::Acquire));
+        assert!(!first.control_clients.daemon_handoff_pending());
         drop(scheduler);
         drop(first);
 
@@ -13212,7 +13399,7 @@ mod tests {
             Arc::new(ConnectionSurfaceScheduler::new(reopened.surface_operation_admission.clone()));
         assert!(handle_connection_message(&reopened, client, &request, &writer, &scheduler,));
         assert!(reopened.daemon_shutdown_requested());
-        assert!(reopened.daemon_handoff_pending.load(Ordering::Acquire));
+        assert!(reopened.control_clients.daemon_handoff_pending());
         let replay = pop_json(&outbound);
         assert_eq!(replay["ok"], true);
         assert_eq!(replay["result"]["value"]["accepted"], true);
@@ -14865,6 +15052,51 @@ mod tests {
     }
 
     #[test]
+    fn control_flush_waits_until_the_prior_control_message_leaves_the_queue() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let service = RenderService::new();
+        let response = service.serialize_control(&json!({"ok": true})).unwrap();
+        outbound.push_control(response.clone()).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let waiting = outbound.clone();
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            done_tx.send(waiting.flush_control(Duration::from_secs(5))).unwrap();
+        });
+
+        started_rx.recv().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let flush_is_queued = outbound
+                .state
+                .lock()
+                .unwrap()
+                .control
+                .iter()
+                .any(|item| matches!(item, ControlOutbound::Flush(_)));
+            if flush_is_queued {
+                break;
+            }
+            assert!(Instant::now() < deadline, "flush barrier was not queued");
+            std::thread::yield_now();
+        }
+        assert!(matches!(
+            done_rx.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        ));
+        assert_eq!(outbound.try_pop().unwrap(), response.to_string());
+        assert!(matches!(
+            done_rx.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        ));
+
+        assert_eq!(outbound.try_pop(), None);
+        done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        worker.join().unwrap();
+    }
+
+    #[test]
     fn terminal_overflow_purges_only_its_stream_and_rejects_late_frames() {
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
@@ -15879,6 +16111,8 @@ mod tests {
             MessageWriter::new(QueuedSink { outbound: accepted_outbound.clone(), control: None });
         let local =
             accepted.control_clients.register(ClientTransport::Unix, accepted_writer.clone());
+        let interactive =
+            accepted.control_clients.register(ClientTransport::Unix, test_writer());
         let (_, generation) = accepted.registry_identity();
         assert!(handle_message(
             &accepted,
@@ -15902,6 +16136,45 @@ mod tests {
         assert_eq!(response["data"]["accepted"], true);
         assert_eq!(response["data"]["pid"], std::process::id());
         assert_eq!(response["data"]["generation"], generation);
+        assert!(accepted.control_clients.contains(local));
+        assert!(!accepted.control_clients.contains(interactive));
+    }
+
+    #[test]
+    fn daemon_shutdown_waits_for_ack_flush_before_disconnecting_the_owner() {
+        let mux = test_mux();
+        let (writer, outbound, flush_entered, release_flush) = blocking_flush_writer();
+        let requester = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let interactive =
+            mux.control_clients.register(ClientTransport::Unix, test_writer());
+        let (_, generation) = mux.registry_identity();
+        let request = json!({
+            "id": 97,
+            "cmd": "shutdown-daemon",
+            "pid": std::process::id(),
+            "generation": generation,
+        })
+        .to_string();
+        let worker_mux = mux.clone();
+        let worker_writer = writer.clone();
+        let worker = std::thread::spawn(move || {
+            handle_message(&worker_mux, requester, &request, &worker_writer)
+        });
+
+        flush_entered
+            .recv_timeout(Duration::from_secs(2))
+            .expect("shutdown did not wait for the response flush");
+        assert!(!mux.daemon_shutdown_requested());
+        assert!(mux.control_clients.contains(interactive));
+
+        release_flush.send(()).unwrap();
+        assert!(worker.join().unwrap());
+        assert!(mux.daemon_shutdown_requested());
+        assert!(mux.control_clients.contains(requester));
+        assert!(!mux.control_clients.contains(interactive));
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["data"]["accepted"], true);
     }
 
     #[test]
@@ -16017,6 +16290,27 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("handoff is already in progress"));
+    }
+
+    #[test]
+    fn daemon_handoff_rejects_clients_registered_after_the_fence() {
+        let mux = test_mux();
+        let requester_writer = test_writer();
+        let requester =
+            mux.control_clients.register(ClientTransport::Unix, requester_writer.clone());
+        mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
+
+        let late_writer = test_writer();
+        let late = mux.control_clients.register(ClientTransport::Unix, late_writer.clone());
+
+        assert!(!mux.control_clients.contains(late));
+        assert!(!late_writer.is_open());
+
+        mux.cancel_daemon_handoff();
+        let retry_writer = test_writer();
+        let retry = mux.control_clients.register(ClientTransport::Unix, retry_writer.clone());
+        assert!(mux.control_clients.contains(retry));
+        assert!(retry_writer.is_open());
     }
 
     #[cfg(unix)]

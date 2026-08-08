@@ -33,6 +33,7 @@ mod remote_cli;
 #[cfg(not(unix))]
 mod remote_cli {
     const REMOTE_COMMANDS: &[&str] = &[
+        "remote",
         "connect",
         "ssh",
         "forward",
@@ -298,13 +299,7 @@ cmux - terminal multiplexer and resource client
 
 USAGE
   cmux [OPTIONS]           Start a session
-  cmux daemon [OPTIONS]    Start a headless session and remote daemon
-  cmux connect <ROUTE>     Attach through an authenticated remote route
-  cmux ssh <HOST>          Bootstrap and attach over direct SSH
-  cmux forward <ROUTE>     Forward a workspace TCP service locally
-  cmux rpc <ROUTE>         Run workspace coding-agent RPC requests
-  cmux enroll <ACTION>     Enroll, approve, list, or revoke devices
-  cmux known-daemons       List client-pinned daemon identities and routes
+{lifecycle_usage}
   cmux attach [OPTIONS]    Attach to a session or one terminal
   cmux relay [OPTIONS]     Relay protocol bytes over stdio
   {machine_agent_usage}
@@ -355,10 +350,17 @@ fn usage_for(catalog: &localization::Catalog) -> String {
 }
 
 fn usage_for_platform(catalog: &localization::Catalog, supports_machine_agent: bool) -> String {
+    let usage = USAGE.replace(
+        "{lifecycle_usage}\n",
+        &format!("{}\n", catalog.local_server.startup_lifecycle_usage),
+    );
     if supports_machine_agent {
-        USAGE.replace("  {machine_agent_usage}\n", &format!("  {}\n", catalog.machine_agent.usage))
+        usage.replace(
+            "  {machine_agent_usage}\n",
+            &format!("  {}\n", catalog.machine_agent.usage),
+        )
     } else {
-        USAGE.replace("  {machine_agent_usage}\n", "")
+        usage.replace("  {machine_agent_usage}\n", "")
     }
 }
 
@@ -473,11 +475,6 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     match args.peek().map(|s| s.as_str()) {
         Some("attach") => {
             out.attach = true;
-            args.next();
-        }
-        Some("daemon") => {
-            out.remote = true;
-            out.headless = true;
             args.next();
         }
         _ => {}
@@ -1070,8 +1067,107 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn rewrite_server_start(args: &mut Vec<String>) {
+    if args.iter().any(|arg| matches!(arg.as_str(), "-h" | "--help")) {
+        return;
+    }
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--socket" | "--session" | "--machine" => {
+                if args.get(index + 1).is_none() {
+                    return;
+                }
+                index += 2;
+            }
+            "--json" | "--jsonl" | "--quiet" => index += 1,
+            "server" if args.get(index + 1).map(String::as_str) == Some("start") => {
+                args.drain(index..index + 2);
+                args.insert(0, "--headless".to_string());
+                return;
+            }
+            _ => return,
+        }
+    }
+}
+
+fn is_cli_invocation(args: &[String]) -> bool {
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--socket"
+            | "--session"
+            | "--machine"
+            | "--terminal"
+            | "--state"
+            | "--machine-provider"
+            | "--cloud-host"
+            | "--cloud-user"
+            | "--cloud-port"
+            | "--cloud-identity"
+            | "--ws"
+            | "--ws-token"
+            | "--remote-ws"
+            | "--remote-http"
+            | "--remote-state-dir"
+            | "--remote-link-socket"
+            | "--remote-admin-socket"
+            | "--remote-resume-lease-seconds"
+            | "--relay"
+            | "--relay-slot"
+            | "--relay-ticket-file"
+            | "--relay-ticket-command"
+            | "--relay-ticket-command-arg"
+            | "--advertise"
+            | "--term" => index += 2,
+            "--json" | "--jsonl" | "--quiet" => index += 1,
+            "--ephemeral"
+            | "--cloud"
+            | "--headless"
+            | "--ws-insecure-bind"
+            | "--remote"
+            | "--remote-ws-insecure-bind"
+            | "--iroh" => index += 1,
+            "--machine-provider-command" => return false,
+            "-h" | "--help" | "help" => return true,
+            "attach" => return false,
+            value if cli::is_public_scope(value) => return true,
+            value if value.starts_with('-') => index += 1,
+            // Session startup has no positional arguments. Route unknown
+            // top-level words through the public parser so typos cannot fall
+            // into the unrelated legacy startup help.
+            _ => return true,
+        }
+    }
+    false
+}
+
+fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), String> {
+    if raw_args.first().map(String::as_str) != Some("remote") {
+        return Ok(());
+    }
+    match raw_args.get(1).map(String::as_str) {
+        Some("stop") => {
+            raw_args.drain(..2);
+            raw_args.insert(0, "remote-stop".to_string());
+        }
+        Some("connect" | "ssh" | "forward" | "rpc" | "enroll" | "known-daemons") => {
+            raw_args.remove(0);
+        }
+        Some("-h" | "--help") | None => {}
+        Some(_)
+            if raw_args[2..]
+                .iter()
+                .any(|argument| matches!(argument.as_str(), "-h" | "--help")) => {}
+        Some(action) => {
+            return Err(localization::catalog().remote_client.unknown_action("remote", action));
+        }
+    }
+    Ok(())
+}
+
 fn main() {
-    let raw_args = std::env::args().skip(1).collect::<Vec<_>>();
+    let mut raw_args = std::env::args().skip(1).collect::<Vec<_>>();
     // Private process mode used by the daemon when it launches one durable
     // terminal host per PTY. Keep this out of public help and dispatch it
     // before installing the interactive daemon's signal handlers: the host
@@ -1107,6 +1203,10 @@ fn main() {
     if let Some(exit_code) = provider_authority::try_run(&raw_args) {
         std::process::exit(exit_code);
     }
+    if let Err(error) = normalize_remote_resource_args(&mut raw_args) {
+        eprintln!("cmux-tui: {error}");
+        std::process::exit(1);
+    }
     if remote_cli::is_remote_invocation(&raw_args) {
         discard_provider_secret_environment();
         std::process::exit(remote_cli::run(&raw_args, &usage()));
@@ -1132,7 +1232,11 @@ fn main() {
         }
         return;
     }
-    if cli::is_cli_invocation(&raw_args) {
+    // `server start` is the canonical spelling for the existing foreground
+    // headless owner. Keep startup in the established Args/run_server path so
+    // lifecycle aliases cannot drift into a second server launcher.
+    rewrite_server_start(&mut raw_args);
+    if is_cli_invocation(&raw_args) {
         discard_provider_secret_environment();
         std::process::exit(cli::run(&raw_args, &usage()));
     }
@@ -1546,6 +1650,7 @@ fn run_server(
     if let Some(server) = &websocket_server {
         eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
     }
+    let (owner_event_stop, owner_event_thread) = start_local_owner_event_loop(&mux);
     cmux_tui_core::server::serve(mux.clone(), Some(socket_path.clone()))?;
 
     #[cfg(unix)]
@@ -1606,6 +1711,10 @@ fn run_server(
             Err(error) => Err(error),
         }
     };
+    owner_event_stop.close();
+    let owner_event_result = owner_event_thread
+        .join()
+        .map_err(|_| anyhow::anyhow!("local owner event loop panicked"));
     #[cfg(unix)]
     if let Some(runtime) = remote_runtime {
         runtime.shutdown()?;
@@ -1613,7 +1722,37 @@ fn run_server(
     drop(websocket_server);
     mux.shutdown();
     cmux_tui_core::server::cleanup(&socket_path);
-    result
+    result.and(owner_event_result)
+}
+
+fn dispatch_local_owner_event(event: &cmux_tui_core::MuxEvent, reload: impl FnOnce()) {
+    if matches!(event, cmux_tui_core::MuxEvent::ConfigReloadRequested) {
+        reload();
+    }
+}
+
+fn local_owner_reload_events(mux: &Mux) -> cmux_tui_core::MuxEventReceiver {
+    mux.subscribe_config_reload()
+}
+
+fn start_local_owner_event_loop(
+    mux: &Arc<Mux>,
+) -> (cmux_tui_core::MuxEventReceiver, std::thread::JoinHandle<()>) {
+    let weak_mux = Arc::downgrade(mux);
+    let events = local_owner_reload_events(mux);
+    let stop = events.clone();
+    let thread = std::thread::spawn(move || {
+        while let Ok(event) = events.recv() {
+            let mux = weak_mux.upgrade();
+            dispatch_local_owner_event(&event, move || {
+                if let Some(mux) = mux {
+                    let config = config::load();
+                    session::apply_config_to_local_owner(&mux, &config);
+                }
+            });
+        }
+    });
+    (stop, thread)
 }
 
 #[cfg(not(unix))]
@@ -1909,7 +2048,8 @@ mod remote_args_tests {
     fn daemon_accepts_native_and_durable_object_relay_registrations() {
         let args = parse_args(
             [
-                "daemon",
+                "--headless",
+                "--remote",
                 "--relay",
                 "relay+wss://relay.example",
                 "--relay-slot",
@@ -1958,7 +2098,8 @@ mod remote_args_tests {
         let marker = "inline-daemon-secret-marker";
         let error = parse_args_result(
             [
-                "daemon",
+                "--headless",
+                "--remote",
                 "--relay",
                 "relay+wss://relay.example",
                 "--relay-slot",
@@ -2013,6 +2154,79 @@ mod tests {
 
     fn args(values: &[&str]) -> Args {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
+    }
+
+    #[test]
+    fn public_cli_routing_skips_private_process_option_values() {
+        let strings = |values: &[&str]| {
+            values.iter().map(|value| (*value).to_string()).collect::<Vec<_>>()
+        };
+        assert!(is_cli_invocation(&strings(&[
+            "--relay-slot",
+            "server",
+            "workspace",
+            "list",
+        ])));
+        assert!(!is_cli_invocation(&strings(&[
+            "--relay-slot",
+            "routing-key",
+            "--headless",
+        ])));
+    }
+
+    #[test]
+    fn local_owner_event_dispatches_reload_to_the_shared_mutation_path() {
+        let applied = std::cell::Cell::new(false);
+
+        dispatch_local_owner_event(
+            &cmux_tui_core::MuxEvent::ConfigReloadRequested,
+            || applied.set(true),
+        );
+
+        assert!(applied.get());
+    }
+
+    #[test]
+    fn local_owner_reload_subscription_ignores_unrelated_event_overflow() {
+        let mux = Mux::new("owner-reload-overflow", SurfaceOptions::default());
+        let events = local_owner_reload_events(&mux);
+
+        for surface in 0..=4_096 {
+            mux.emit(cmux_tui_core::MuxEvent::Bell(surface));
+        }
+        mux.emit(cmux_tui_core::MuxEvent::ConfigReloadRequested);
+
+        assert!(matches!(
+            events.recv().unwrap(),
+            cmux_tui_core::MuxEvent::ConfigReloadRequested
+        ));
+        assert!(!events.overflowed());
+    }
+
+    #[test]
+    fn local_owner_event_loop_stop_wakes_without_a_mux_event() {
+        let mux = Arc::new(Mux::new("owner-event-stop", SurfaceOptions::default()));
+        let (stop, thread) = start_local_owner_event_loop(&mux);
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+
+        stop.close();
+        std::thread::spawn(move || done_tx.send(thread.join()).unwrap());
+        let stopped_without_event = match done_rx.recv_timeout(Duration::from_secs(1)) {
+            Ok(result) => {
+                result.unwrap();
+                true
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => false,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                panic!("owner event loop join observer disconnected")
+            }
+        };
+        if !stopped_without_event {
+            mux.emit(cmux_tui_core::MuxEvent::ConfigReloadRequested);
+            done_rx.recv_timeout(Duration::from_secs(2)).unwrap().unwrap();
+        }
+
+        assert!(stopped_without_event, "owner event loop required a mux event to stop");
     }
 
     #[cfg(windows)]
@@ -2416,10 +2630,15 @@ mod tests {
         let english = usage_for_platform(localization::catalog_for_locale("en_US.UTF-8"), true);
         assert!(english.contains("cmux machine-agent"));
         assert!(english.contains("Share one local session through the configured host"));
+        assert!(english.contains("cmux server <ACTION>"));
+        assert!(english.contains("Stop a replaceable SSH sidecar explicitly"));
         let japanese = usage_for_platform(localization::catalog_for_locale("ja_JP.UTF-8"), true);
         assert!(japanese.contains("cmux machine-agent"));
         assert!(japanese.contains("設定したホスト経由でローカルセッションを共有"));
+        assert!(japanese.contains("cmux server <操作>"));
+        assert!(japanese.contains("置換可能な SSH サイドカーを明示的に停止"));
         assert!(!japanese.contains("Share one local session"));
+        assert!(!japanese.contains("Stop authenticated remote access explicitly"));
     }
 
     #[test]
