@@ -637,6 +637,55 @@ await handlers.get("tool.result")({
   status: "done",
   output: "second sibling work finished"
 }, siblingStatusCtx);
+const discardedAttentionThread = makeThread(
+  "T-amp-discarded-attention",
+  "running"
+);
+const discardedAttentionCtx = { thread: discardedAttentionThread };
+await handlers.get("agent.start")({
+  thread: discardedAttentionThread,
+  message: "discard an in-flight approval",
+  id: "msg-discarded-attention"
+}, discardedAttentionCtx);
+globalThis.__cmuxAmpHangNextBegin = true;
+const discardedBeginCount = attentionCalls("begin").length;
+discardedAttentionThread.setState("awaiting-approval");
+await waitFor(
+  () => attentionCalls("begin").length === discardedBeginCount + 1,
+  "Amp did not start the approval that will be discarded"
+);
+const discardedBeginCall = attentionCalls("begin").at(-1);
+await handlers.get("session.start")(
+  { thread: discardedAttentionThread },
+  discardedAttentionCtx
+);
+await waitFor(
+  () => discardedBeginCall.killedWith === "SIGKILL",
+  "Amp did not finish the abandoned approval subprocess deadline"
+);
+const postDiscardThread = makeThread(
+  "T-amp-post-discard-status",
+  "running"
+);
+const postDiscardCtx = { thread: postDiscardThread };
+await handlers.get("agent.start")({
+  thread: postDiscardThread,
+  message: "publish after discarded attention",
+  id: "msg-post-discard-status"
+}, postDiscardCtx);
+await handlers.get("tool.call")({
+  thread: postDiscardThread,
+  toolUseID: "tool-post-discard-status",
+  tool: "Task",
+  input: { prompt: "prove aggregate status ownership was released" }
+}, postDiscardCtx);
+if (statusCalls().at(-1)?.args[2] !== "subagent") {
+  throw new Error(
+    `discarded Amp attention kept shared status ownership: ${
+      JSON.stringify(statusCalls().at(-1))
+    }`
+  );
+}
 for (const [statusThread, statusCtx, messageId] of [
   [approvalStatusThread, approvalStatusCtx, "msg-status-approval"],
   [siblingStatusThread, siblingStatusCtx, "msg-status-sibling"]
