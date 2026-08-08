@@ -135,6 +135,31 @@
     "faqFeatureA": "Bunu duymak isteriz. GitHub'da bir <issuesLink>issue</issuesLink> ya da <prLink>pull request</prLink> açın veya <mailLink>bize e-posta gönderin</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "genel bakış",
+      "team": "ekip"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirin.",
+      "coderouterLink": "coderouter'ı aç"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Paylaşılan AI hesaplarını yönetin ve istekleri coderouter ile yönlendirin.",
+      "title": "coderouter",
+      "description": "coderouter, LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirir."
+    },
+    "accountMenu": {
+      "label": "Hesap menüsü",
+      "settings": "Ayarlar",
+      "billing": "Faturalandırma",
+      "signOut": "Çıkış yap",
+      "signingOut": "Çıkış yapılıyor…",
+      "signOutError": "Çıkış yapılamadı. Tekrar deneyin.",
+      "signIn": "Giriş yap"
+    },
     "aiAccounts": {
       "metaTitle": "Yapay zeka hesapları — cmux",
       "metaDescription": "cmux için ekibin yapay zeka sağlayıcı hesaplarını yönet.",

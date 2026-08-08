@@ -544,6 +544,7 @@ class MintTerminalRendererResult:
     terminal_id: str
     endpoint: str
     incarnation: str
+    protocol_version: int
     rights: int
     token: str
     ttl_ms: int
@@ -733,7 +734,7 @@ class ResolveTerminalResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ResolveTerminalResult'
     surface: Union[Id, None]
     terminal_id: str
-    exit: Union[JsonValue, None]
+    exit: Union[TerminalExit, None]
     generation: str
     launch_spec: JsonValue
     lifecycle: TerminalLifecycle
@@ -767,12 +768,16 @@ class ResourceSelectors:
 @dataclass(frozen=True)
 class RunResult:
     __cmux_schema_path__: ClassVar[str] = 'types/RunResult'
-    surface: Id
-    pane: Id
-    screen: Id
-    workspace: Id
-    terminal_id: Union[str, None]
+    surface: Union[Id, None]
+    pane: Union[Id, None]
+    screen: Union[Id, None]
+    workspace: Union[Id, None]
+    terminal_id: str
+    already_exited: bool
+    exit: Union[TerminalExit, None]
+    lifecycle: TerminalLifecycle
     terminal_incarnation: Union[str, None]
+    terminal_revision: int
 
 
 @dataclass(frozen=True)
@@ -870,6 +875,35 @@ class TerminalEventsResult:
 
 
 @dataclass(frozen=True)
+class TerminalExit:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalExit'
+    exited_at_ms: int
+    outcome: TerminalExitOutcome
+
+
+@dataclass(frozen=True)
+class TerminalExitOutcomeExit:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalExitOutcome/variants/exit'
+    code: int
+    kind: Literal['exit']
+
+
+@dataclass(frozen=True)
+class TerminalExitOutcomeSignal:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalExitOutcome/variants/signal'
+    core_dumped: bool
+    kind: Literal['signal']
+    signal: int
+
+
+@dataclass(frozen=True)
+class TerminalExitOutcomeUnknown:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalExitOutcome/variants/unknown'
+    kind: Literal['unknown']
+    reason: str
+
+
+@dataclass(frozen=True)
 class TerminalKeyInput:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalKeyInput'
     consumed_mods: TerminalModifiers
@@ -898,14 +932,16 @@ class TerminalModifiers:
 @dataclass(frozen=True)
 class TerminalPlacement:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalPlacement'
-    surface: Id
-    pane: Id
-    screen: Id
-    workspace: Id
-    terminal_id: Union[str, None]
+    surface: Union[Id, None]
+    pane: Union[Id, None]
+    screen: Union[Id, None]
+    workspace: Union[Id, None]
+    terminal_id: str
+    already_exited: bool
+    exit: Union[TerminalExit, None]
     generation: str
     key: str
-    lifecycle: Union[Literal['running'], None]
+    lifecycle: TerminalLifecycle
     registry_id: str
     replayed: bool
     terminal_incarnation: Union[str, None]
@@ -916,7 +952,7 @@ class TerminalPlacement:
 class TerminalRecord:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalRecord'
     terminal_id: str
-    exit: Union[JsonValue, None]
+    exit: Union[TerminalExit, None]
     launch_spec: JsonValue
     lifecycle: TerminalLifecycle
     terminal_incarnation: Union[str, None]
@@ -1335,6 +1371,13 @@ class MarkWorkspacesProviderManagedRequest:
 class MintTerminalRendererRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/mint-terminal-renderer/request'
     surface: Id
+    ttl_ms: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class MintTerminalRendererByTerminalRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/mint-terminal-renderer-by-terminal/request'
+    terminal: str
     ttl_ms: Union[int, MissingType] = field(default=MISSING)
 
 
@@ -2301,6 +2344,7 @@ JsonValue = Any
 Layout = Union[LayoutLeaf, LayoutSplit, LayoutStack]
 LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
 Pane = Union[LivePane, DeadPane]
+TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
 KnownEvent = Union[BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
@@ -2393,6 +2437,10 @@ __all__ = [
     'Tab',
     'TerminalColors',
     'TerminalEventsResult',
+    'TerminalExit',
+    'TerminalExitOutcomeExit',
+    'TerminalExitOutcomeSignal',
+    'TerminalExitOutcomeUnknown',
     'TerminalKeyInput',
     'TerminalModifiers',
     'TerminalPlacement',
@@ -2446,6 +2494,7 @@ __all__ = [
     'ListWorkspacesRequest',
     'MarkWorkspacesProviderManagedRequest',
     'MintTerminalRendererRequest',
+    'MintTerminalRendererByTerminalRequest',
     'MoveTabRequest',
     'MoveTerminalRequest',
     'MoveWorkspaceRequest',
@@ -2554,4 +2603,5 @@ __all__ = [
     'Layout',
     'LayoutUndoResult',
     'Pane',
+    'TerminalExitOutcome',
 ]

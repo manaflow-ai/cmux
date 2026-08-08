@@ -116,7 +116,7 @@ export default async function BillingSuccessPage({
     href: string;
   }[] = [
     { key: "cloudAgents", href: openCmuxHref.toString() },
-    { key: "modelGateway", href: "/dashboard/subrouter" },
+    { key: "modelGateway", href: "/dashboard/coderouter" },
     { key: "aiAccounts", href: "/dashboard/ai-accounts" },
     { key: "iosApp", href: "/dashboard/testflight" },
   ];
