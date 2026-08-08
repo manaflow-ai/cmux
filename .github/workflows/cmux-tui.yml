@@ -214,6 +214,27 @@ jobs:
           )
           PY
 
+      - name: Verify baseline terminal replay behavior
+        if: matrix.shard == 'remainder'
+        working-directory: cmux-tui
+        run: |
+          matches=0
+          while IFS= read -r bin; do
+            [ -n "$bin" ] || continue
+            case "$(basename "$bin")" in
+              terminal-*)
+                "$bin" pending_wrap_replay_preserves_cursor_with_origin_mode \
+                  --exact \
+                  --test-threads=1
+                matches=$((matches + 1))
+                ;;
+            esac
+          done < target/valgrind-test-binaries.txt
+          if [[ "$matches" -ne 1 ]]; then
+            echo "::error::expected one terminal integration test binary, found $matches" >&2
+            exit 1
+          fi
+
       - name: Run test binaries under valgrind
         working-directory: cmux-tui
         env:
@@ -246,20 +267,11 @@ jobs:
             valgrind_args=(--track-origins=yes)
             test_args=()
             case "$(basename "$bin")" in
-              terminal-*)
-                # Normal Linux and macOS jobs cover replay equivalence. The
-                # baseline CPU build required by Valgrind changes this one
-                # origin-mode result without reporting a memory error, so the
-                # memory pass excludes only this assertion.
-                test_args+=(
-                  --skip pending_wrap_replay_preserves_cursor_with_origin_mode
-                  --test-threads=1
-                )
-                ;;
-              pty-*|cmux_tui_core-*|cmux_tui-[[:xdigit:]]*)
-                # These tests own bounded worker pools, PTYs, and sockets.
-                # Valgrind serializes their CPU work internally, so test-harness
-                # parallelism creates scheduler starvation and timeout races.
+              pty-*|terminal-*|cmux_tui_core-*|cmux_tui-[[:xdigit:]]*)
+                # These tests own bounded worker pools, PTYs, sockets, and
+                # stateful terminal replay. Valgrind serializes their CPU work
+                # internally, so test-harness parallelism creates scheduler
+                # starvation and timeout races.
                 test_args+=(--test-threads=1)
                 ;;
               cmux_remote-[[:xdigit:]]*)
