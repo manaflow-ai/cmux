@@ -9,7 +9,7 @@ on:
         required: false
         default: ""
       test_filter:
-        description: "UI test class or class/method, for example cmuxUITests/testSignInPairingAndWorkspaceShell"
+        description: "UI test class or class/method, for example cmuxUITests/testTerminalKeyboardDockRapidToggleIsPixelAttachedEveryFrame"
         required: false
         default: ""
       device_family:
@@ -370,6 +370,14 @@ jobs:
           TEST_FILTER: ${{ inputs.test_filter }}
         run: |
           set -euo pipefail
+          if [[ "${TEST_FILTER:-}" == *"testTerminalKeyboardDockRapidToggleIsPixelAttachedEveryFrame"* ]]; then
+            # This lane verifies the real software-keyboard key plane and the
+            # system inputAccessoryView on every display-link frame. An attached
+            # hardware keyboard suppresses that UI and would turn the run into a
+            # false pass over keyboard-down geometry.
+            defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
+            defaults write com.apple.iphonesimulator AutomaticKeyboard -bool true
+          fi
           XCODEBUILD_ARGS=(
             -workspace ios/cmux.xcworkspace
             -scheme cmux-ios
@@ -377,7 +385,18 @@ jobs:
             -derivedDataPath "$IOS_DERIVED_DATA"
           )
           if [ -n "${TEST_FILTER:-}" ]; then
-            XCODEBUILD_ARGS+=(-only-testing:"$TEST_FILTER")
+            RESOLVED_TEST_FILTER="$TEST_FILTER"
+            # The workflow's documented UI shorthand is Class/testMethod.
+            # xcodebuild requires Target/Class/testMethod, and the main iOS UI
+            # class happens to have the same name as its target. Expand that
+            # exact shorthand so dispatches do not compile successfully while
+            # executing zero tests. Already target-qualified selectors pass
+            # through unchanged.
+            if [[ "$TEST_FILTER" =~ ^cmuxUITests/test[^/]+$ ]]; then
+              RESOLVED_TEST_FILTER="cmuxUITests/$TEST_FILTER"
+            fi
+            echo "Resolved test filter: $RESOLVED_TEST_FILTER"
+            XCODEBUILD_ARGS+=(-only-testing:"$RESOLVED_TEST_FILTER")
           else
             # Full UI tests currently exceed the pull-request simulator budget
             # on macos-26. Keep them runnable via workflow_dispatch +
@@ -402,8 +421,42 @@ jobs:
             echo "Preparing $SIMULATOR_NAME ($SIMULATOR_ID), attempt $attempt"
             xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl erase "$SIMULATOR_ID"
+            if [[ "${TEST_FILTER:-}" == *"testTerminalKeyboardDockRapidToggleIsPixelAttachedEveryFrame"* ]]; then
+              # Simulator may materialize a per-device hardware-keyboard default
+              # after an erase, overriding the domain-level setting above. Pin
+              # this freshly erased device too so focusing MobileComposerField
+              # always draws the software keyboard that the test measures.
+              defaults write com.apple.iphonesimulator DevicePreferences \
+                -dict-add "$SIMULATOR_ID" '{ ConnectHardwareKeyboard = 0; }'
+              # `defaults -dict-add` serializes the OpenStep scalar above as the
+              # string "0" on current macOS. Simulator treats that truthy string as
+              # an attached hardware keyboard. Rewrite the leaf as an actual bool
+              # before booting the freshly erased device.
+              SIMULATOR_PREFS="${RUNNER_TEMP}/cmux-simulator-prefs-${SIMULATOR_ID}.plist"
+              defaults export com.apple.iphonesimulator "$SIMULATOR_PREFS"
+              plutil -replace "DevicePreferences.${SIMULATOR_ID}.ConnectHardwareKeyboard" \
+                -bool false "$SIMULATOR_PREFS"
+              defaults import com.apple.iphonesimulator "$SIMULATOR_PREFS"
+              plutil -extract "DevicePreferences.${SIMULATOR_ID}.ConnectHardwareKeyboard" \
+                raw -o - "$SIMULATOR_PREFS"
+            fi
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
+            if [[ "${TEST_FILTER:-}" == *"testTerminalKeyboardDockRapidToggleIsPixelAttachedEveryFrame"* ]]; then
+              # A freshly erased device presents the one-time QuickPath (slide
+              # to type) introduction where its first software keyboard would
+              # render, so no key plane and no keyboard frame ever appear and
+              # the dock test times out on cycle 1. Seed the "already shown"
+              # markers inside the booted device; the key plane then renders on
+              # first focus even on a fully headless CoreSimulator boot, with
+              # no Simulator.app host attached.
+              xcrun simctl spawn "$SIMULATOR_ID" defaults write \
+                com.apple.keyboard.preferences DidShowContinuousPathIntroduction -bool true
+              xcrun simctl spawn "$SIMULATOR_ID" defaults write \
+                com.apple.keyboard.preferences DidShowGestureKeyboardIntroduction -bool true
+              xcrun simctl spawn "$SIMULATOR_ID" defaults write \
+                com.apple.Preferences KeyboardDidShowProductivityTutorial -bool true
+            fi
             if xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$LOG_PATH"; then
               ./scripts/ci/require_selected_test_execution.sh \
                 "$LOG_PATH" \
@@ -411,6 +464,18 @@ jobs:
               exit 0
             fi
             status="${PIPESTATUS[0]}"
+            if [[ "${TEST_FILTER:-}" == *"testTerminalKeyboardDockRapidToggleIsPixelAttachedEveryFrame"* ]]; then
+              # The stress lane keeps timing out with zero keyboard frames and
+              # the log alone cannot show what the headless device displayed
+              # (education card, permission alert, or a real key plane). Capture
+              # the live screen and the device's keyboard state for the
+              # diagnostics artifact before the retry erases the device.
+              xcrun simctl io "$SIMULATOR_ID" screenshot \
+                "$IOS_DERIVED_DATA/logs/keyboard-stress-attempt-${attempt}.png" || true
+              xcrun simctl spawn "$SIMULATOR_ID" defaults read \
+                com.apple.keyboard.preferences \
+                > "$IOS_DERIVED_DATA/logs/keyboard-prefs-attempt-${attempt}.txt" 2>&1 || true
+            fi
             if selected_tests_passed_despite_xcodebuild_status "$LOG_PATH"; then
               echo "xcodebuild exited $status after XCTest reported the selected tests passed with zero failures; treating this as a runner cleanup failure."
               exit 0
@@ -421,6 +486,17 @@ jobs:
             fi
             exit "$status"
           done
+
+      - name: Upload iOS simulator diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-simulator-${{ matrix.family }}-diagnostics
+          path: |
+            ${{ env.IOS_DERIVED_DATA }}/logs
+            ${{ env.IOS_DERIVED_DATA }}/Logs/Test/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 3
 
   ios-tests:
     name: ios-tests

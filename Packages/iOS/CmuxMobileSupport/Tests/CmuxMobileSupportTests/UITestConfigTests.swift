@@ -207,6 +207,22 @@ import Testing
         ]))
     }
 
+    @Test func keyboardDockFrameRecordingFlagRequiresExplicitEnable() {
+        #if DEBUG
+        #expect(UITestConfig.keyboardDockFrameRecordingEnabled(from: [
+            "CMUX_UITEST_KEYBOARD_DOCK_FRAME_RECORDING": "1",
+        ]))
+        #else
+        #expect(!UITestConfig.keyboardDockFrameRecordingEnabled(from: [
+            "CMUX_UITEST_KEYBOARD_DOCK_FRAME_RECORDING": "1",
+        ]))
+        #endif
+        #expect(!UITestConfig.keyboardDockFrameRecordingEnabled(from: [:]))
+        #expect(!UITestConfig.keyboardDockFrameRecordingEnabled(from: [
+            "CMUX_UITEST_KEYBOARD_DOCK_FRAME_RECORDING": "0",
+        ]))
+    }
+
     @Test func agentChatPreviewFlagIsDebugOnly() {
         let env = ["CMUX_UITEST_AGENT_CHAT_PREVIEW": "1"]
         let config = UITestEnvironmentConfig(environment: env)

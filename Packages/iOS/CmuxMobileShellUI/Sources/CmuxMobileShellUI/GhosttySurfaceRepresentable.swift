@@ -83,7 +83,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             delegate: context.coordinator,
             fontSize: fontSize,
             terminalTheme: terminalTheme,
-            terminalConfigTheme: terminalConfigTheme
+            terminalConfigTheme: terminalConfigTheme,
+            keyboardDockFrameRecordingEnabled: UITestConfig.keyboardDockFrameRecordingEnabled
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         view.artifactFilesEnabled = artifactFilesEnabled
@@ -199,6 +200,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// surface's composer band. Built lazily on first open and torn down on
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
         private var composerController: UIHostingController<TerminalComposerView>?
+        /// Shared picker state between the accessory-hosted composer (which
+        /// requests presentation and stages the selection) and the app-window
+        /// anchor that actually presents the Photos picker.
+        let photoPickerBridge = ComposerPhotoPickerBridge()
+        /// Hosts ``ComposerPhotoPickerAnchorView`` as a hidden zero-size
+        /// subview of the SURFACE (the app window), so the picker's
+        /// presentation and dismissal run in the app window's controller
+        /// hierarchy; see ``installPhotoPickerAnchorIfNeeded()``.
+        private var photoPickerAnchorController: UIHostingController<ComposerPhotoPickerAnchorView>?
         var artifactChipController: UIHostingController<TerminalArtifactChipView>?
         var artifactChipVisibility = TerminalArtifactChipVisibilityState()
         /// Pending debounced chip unmount; cancelled whenever a positive count
@@ -693,6 +703,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 let controller = composerController ?? makeComposerController(store: store)
                 composerController = controller
                 surfaceView.mountComposerView(controller.view)
+                installPhotoPickerAnchorIfNeeded()
                 // The field opens at one line; report its initial height without
                 // animation (the composer's open transition already animates), then
                 // live grows/shrinks animate.
@@ -715,6 +726,45 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     self.surfaceView?.mountComposerView(nil)
                 }
             }
+        }
+
+        /// Install (once) the hidden photo-picker anchor into the surface —
+        /// the APP window — so the composer's Photos picker presents from the
+        /// app window's controller hierarchy. The composer's own hosting view
+        /// rides inside the keyboard dock accessory (the system keyboard's
+        /// window); presenting from THERE never cleanly tears down: the app
+        /// window's accessibility tree stays pruned and the picker's
+        /// dismissal binding never delivers, wedging the input session's
+        /// modal phase with the dock unmounted. (Parenting the composer
+        /// controller into the app hierarchy instead trips UIKit's addChild
+        /// hierarchy check, because its view lives in another window.)
+        @MainActor
+        private func installPhotoPickerAnchorIfNeeded() {
+            guard photoPickerAnchorController == nil, let surfaceView else { return }
+            let controller = UIHostingController(
+                rootView: ComposerPhotoPickerAnchorView(
+                    bridge: photoPickerBridge,
+                    didPresent: { [weak self] in
+                        self?.surfaceView?.photoPickerDidPresent()
+                    },
+                    didDismiss: { [weak self] in
+                        self?.surfaceView?.photoPickerDidDismiss()
+                    }
+                )
+            )
+            controller.view.backgroundColor = .clear
+            controller.view.isUserInteractionEnabled = false
+            controller.view.frame = .zero
+            controller.view.accessibilityElementsHidden = true
+            surfaceView.addSubview(controller.view)
+            photoPickerAnchorController = controller
+        }
+
+        /// Symmetric teardown for ``installPhotoPickerAnchorIfNeeded()``.
+        @MainActor
+        private func removePhotoPickerAnchor() {
+            photoPickerAnchorController?.view.removeFromSuperview()
+            photoPickerAnchorController = nil
         }
 
         /// Build the hosting controller for the compose field. The field asks for a
@@ -741,12 +791,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 photoPickerWillPresent: { [weak self] in
                     self?.surfaceView?.photoPickerWillPresent()
                 },
-                photoPickerDidPresent: { [weak self] in
-                    self?.surfaceView?.photoPickerDidPresent()
+                requestPhotoPicker: { [weak self] in
+                    guard let self else { return }
+                    self.installPhotoPickerAnchorIfNeeded()
+                    self.photoPickerBridge.isPresented = true
                 },
-                photoPickerDidDismiss: { [weak self] in
-                    self?.surfaceView?.photoPickerDidDismiss()
-                }
+                photoPickerBridge: photoPickerBridge
             )
             let controller = UIHostingController(rootView: view)
             // The field is pinned edge-to-edge in the band, so the band frame (not an
@@ -819,6 +869,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         @MainActor
         func tearDownComposer() {
             surfaceView?.mountComposerView(nil)
+            removePhotoPickerAnchor()
             composerController = nil
             composerMounted = false
         }

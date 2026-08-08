@@ -46,6 +46,26 @@ public struct MobileKeyboardTransition: Sendable {
         ).height
     }
 
+    /// Returns how much of `view`'s WINDOW is covered by the keyboard's final
+    /// frame, in window points.
+    ///
+    /// Window-space overlap is stable across a keyboard transition even when
+    /// the view's own frame animates with it (safe-area propagation can resize
+    /// hosted views mid-transition), so constraints anchored to the window can
+    /// be seeded from the first notification without a late correction.
+    ///
+    /// - Parameter view: The view whose window should be measured.
+    /// - Returns: The bottom overlap in window coordinates, or zero when the
+    ///   view is detached or the keyboard does not reach the window's bottom.
+    @MainActor public func overlapInWindow(of view: UIView) -> CGFloat {
+        guard let window = view.window else { return 0 }
+        let keyboardFrameInWindow = window.convert(endFrame, from: nil)
+        return MobileKeyboardReservation(
+            keyboardFrameInWindow: keyboardFrameInWindow,
+            viewFrameInWindow: window.bounds
+        ).height
+    }
+
     /// Returns whether the keyboard is visible to `view`, including floating or
     /// split iPad keyboards that do not reserve bottom layout space.
     @MainActor public func isVisible(in view: UIView) -> Bool {
