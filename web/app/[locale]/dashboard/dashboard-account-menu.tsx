@@ -2,7 +2,9 @@
 
 import { Menu } from "@base-ui-components/react/menu";
 import { UserAvatar, useUser } from "@stackframe/stack";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { useState } from "react";
+import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { Link } from "@/i18n/navigation";
 
 const menuItemClass =
@@ -10,17 +12,22 @@ const menuItemClass =
 
 export function DashboardAccountMenu() {
   const t = useTranslations("dashboard.accountMenu");
+  const locale = useLocale();
   const user = useUser({ or: "return-null" });
+  const [signOutPending, setSignOutPending] = useState(false);
+  const [signOutError, setSignOutError] = useState(false);
+  const signInHref = vaultSignInHref(localizedVaultPath(locale, "/dashboard"));
 
   if (!user) {
     return (
-      <Link
-        href="/handler/sign-in"
+      <a
+        href={signInHref}
+        aria-label={t("signIn")}
         className="flex min-w-0 flex-1 items-center gap-2.5 px-1.5 py-1 text-muted hover:bg-code-bg hover:text-foreground"
       >
         <UserAvatar size={24} user={null} />
         <span className="hidden truncate font-medium sm:block">{t("signIn")}</span>
-      </Link>
+      </a>
     );
   }
 
@@ -58,11 +65,29 @@ export function DashboardAccountMenu() {
             <Menu.Separator className="mx-1 my-1 h-px bg-border" />
             <Menu.Item
               className={`${menuItemClass} text-red-600 dark:text-red-400`}
-              onClick={() => void user.signOut()}
+              disabled={signOutPending}
+              onClick={async (event) => {
+                event.preventDefault();
+                if (signOutPending) return;
+                setSignOutPending(true);
+                setSignOutError(false);
+                try {
+                  await user.signOut();
+                  window.location.assign(`/${locale}`);
+                } catch {
+                  setSignOutPending(false);
+                  setSignOutError(true);
+                }
+              }}
             >
               <SignOutIcon />
-              <span>{t("signOut")}</span>
+              <span>{signOutPending ? t("signingOut") : t("signOut")}</span>
             </Menu.Item>
+            {signOutError ? (
+              <p role="alert" className="px-2.5 py-1.5 text-xs text-red-600 dark:text-red-400">
+                {t("signOutError")}
+              </p>
+            ) : null}
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>

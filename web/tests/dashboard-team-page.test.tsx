@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 let signedIn = true;
+let stackConfigured = true;
 let redirectedTo: string | null = null;
 
 mock.module("@stackframe/stack", () => ({
@@ -20,7 +21,7 @@ mock.module("next/navigation", () => ({
 }));
 
 mock.module("../app/lib/stack", () => ({
-  isStackConfigured: () => true,
+  isStackConfigured: () => stackConfigured,
   getStackServerApp: () => ({
     getUser: async () => signedIn ? { id: "user-1" } : null,
   }),
@@ -38,6 +39,7 @@ const { default: DashboardTeamPage } = await import(
 describe("dashboard team settings", () => {
   beforeEach(() => {
     signedIn = true;
+    stackConfigured = true;
     redirectedTo = null;
   });
 
@@ -59,5 +61,14 @@ describe("dashboard team settings", () => {
       params: Promise.resolve({ locale: "en" }),
     })).rejects.toThrow("redirect:/handler/sign-in");
     expect(redirectedTo).toContain("/dashboard/team");
+  });
+
+  test("preserves the active locale when Stack is unavailable", async () => {
+    stackConfigured = false;
+
+    await expect(DashboardTeamPage({
+      params: Promise.resolve({ locale: "ja" }),
+    })).rejects.toThrow("redirect:/ja");
+    expect(redirectedTo).toBe("/ja");
   });
 });

@@ -44,7 +44,7 @@ type AccountState =
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "dashboard.aiAccounts" });
+  const t = await getTranslations({ locale, namespace: "dashboard.coderouter" });
   const alternates = buildAlternates(locale, "/dashboard/coderouter");
   const title = t("metaTitle");
   const description = seoDescription(locale, t("metaDescription"));
@@ -178,7 +178,7 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
       {accountState.kind === "notConfigured" ? (
         <StatusPanel title={t("notConfiguredTitle")} body={t("notConfiguredBody")} />
       ) : accountState.kind === "migrationPending" ? (
-        <StatusPanel title={t("migrationPendingTitle")} body={t("migrationPendingBody")} />
+        <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
       ) : accountState.kind === "error" ? (
         <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
       ) : (

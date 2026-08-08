@@ -118,6 +118,8 @@
       "coderouterLink": "coderouterを開く"
     },
     "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "共有AIアカウントを管理し、coderouterでリクエストをルーティングします。",
       "title": "coderouter",
       "description": "coderouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。"
     },
@@ -126,6 +128,8 @@
       "settings": "設定",
       "billing": "請求",
       "signOut": "サインアウト",
+      "signingOut": "サインアウト中…",
+      "signOutError": "サインアウトできませんでした。もう一度お試しください。",
       "signIn": "サインイン"
     },
     "billing": {

@@ -118,6 +118,8 @@
       "coderouterLink": "open coderouter"
     },
     "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Manage shared AI accounts and route requests with coderouter.",
       "title": "coderouter",
       "description": "coderouter routes llm requests across provider accounts with failover and usage-aware scheduling."
     },
@@ -126,6 +128,8 @@
       "settings": "Settings",
       "billing": "Billing",
       "signOut": "Sign out",
+      "signingOut": "Signing out…",
+      "signOutError": "Could not sign out. Try again.",
       "signIn": "Sign in"
     },
     "billing": {

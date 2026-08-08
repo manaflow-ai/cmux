@@ -12,7 +12,7 @@ export default async function DashboardTeamPage({
 }) {
   const { locale } = await params;
   if (!isStackConfigured()) {
-    redirect("/");
+    redirect(`/${locale}`);
   }
   const user = await getStackServerApp().getUser({ or: "return-null" });
   if (!user) {

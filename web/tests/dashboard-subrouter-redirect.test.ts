@@ -35,4 +35,26 @@ describe("legacy subrouter dashboard URL", () => {
 
     expect(redirectedTo).toBe("/en/dashboard/coderouter?team=team%20one");
   });
+
+  test("uses the first team when the query repeats", async () => {
+    redirectedTo = null;
+
+    await LegacySubrouterRedirectPage({
+      params: Promise.resolve({ locale: "ja" }),
+      searchParams: Promise.resolve({ team: ["first", "second"] }),
+    });
+
+    expect(redirectedTo).toBe("/ja/dashboard/coderouter?team=first");
+  });
+
+  test("omits the query when no team is selected", async () => {
+    redirectedTo = null;
+
+    await LegacySubrouterRedirectPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({}),
+    });
+
+    expect(redirectedTo).toBe("/en/dashboard/coderouter");
+  });
 });

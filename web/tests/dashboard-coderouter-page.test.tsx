@@ -141,9 +141,8 @@ describe("coderouter dashboard", () => {
     const html = renderToStaticMarkup(page);
 
     expect(hostedExchangeCalls).toBe(0);
-    expect(html).toContain("Account migration in progress");
     expect(html).toContain(
-      "Shared accounts are temporarily unavailable while migration finishes. Try again shortly.",
+      "The account service could not be reached. Try again shortly.",
     );
   });
 

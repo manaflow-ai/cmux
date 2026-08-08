@@ -2,12 +2,14 @@ import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type React from "react";
 
+let currentUser: {
+  displayName: string;
+  primaryEmail: string;
+  signOut: () => Promise<void>;
+} | null = null;
+
 mock.module("@stackframe/stack", () => ({
-  useUser: () => ({
-    displayName: "Lawrence",
-    primaryEmail: "lawrence@example.com",
-    signOut: async () => undefined,
-  }),
+  useUser: () => currentUser,
   UserAvatar: ({ size }: { size: number }) => (
     <span data-testid="avatar" data-size={size} />
   ),
@@ -35,6 +37,7 @@ mock.module("@base-ui-components/react/menu", () => ({
 }));
 
 mock.module("next-intl", () => ({
+  useLocale: () => "en",
   useTranslations: () => (key: string) => key,
 }));
 
@@ -54,6 +57,11 @@ const { DashboardAccountMenu } = await import(
 
 describe("dashboard account menu", () => {
   test("matches the chatmux identity row and exposes working account actions", () => {
+    currentUser = {
+      displayName: "Lawrence",
+      primaryEmail: "lawrence@example.com",
+      signOut: async () => undefined,
+    };
     const html = renderToStaticMarkup(<DashboardAccountMenu />);
 
     expect(html).toContain("Lawrence");
@@ -62,5 +70,15 @@ describe("dashboard account menu", () => {
     expect(html).toContain('href="/dashboard/team"');
     expect(html).toContain('href="/dashboard/billing"');
     expect(html).toContain("signOut");
+  });
+
+  test("uses the unlocalized auth handler and names the compact sign-in link", () => {
+    currentUser = null;
+    const html = renderToStaticMarkup(<DashboardAccountMenu />);
+
+    expect(html).toContain('aria-label="signIn"');
+    expect(html).toContain('href="/handler/sign-in?');
+    expect(html).toContain("dashboard");
+    expect(html).not.toContain("/en/handler/sign-in");
   });
 });
