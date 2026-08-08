@@ -394,7 +394,7 @@ impl std::error::Error for CellPixelRequestDeadlineElapsed {}
 #[cfg(unix)]
 mod unix {
     use std::collections::{HashMap, HashSet};
-    use std::ffi::CString;
+    use std::ffi::{CString, OsStr};
     use std::fs::{self, File, OpenOptions};
     use std::io as std_io;
     use std::io::{Read, Write};
@@ -1742,6 +1742,31 @@ mod unix {
         record_path: &Path,
         record: &TerminalHostRecord,
     ) -> anyhow::Result<TerminalHostIdentity> {
+        let parent = record_path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("terminal-host record has no parent directory"))?;
+        let uid = fs::metadata(parent)?.uid();
+        let metadata = fs::symlink_metadata(record_path).ok();
+        validate_terminal_host_record_with_metadata(record_path, record, uid, metadata.as_ref())
+    }
+
+    pub(crate) fn validate_terminal_host_record_from_directory(
+        root: &File,
+        record_path: &Path,
+        record_file: &File,
+        record: &TerminalHostRecord,
+    ) -> anyhow::Result<TerminalHostIdentity> {
+        let uid = root.metadata()?.uid();
+        let metadata = record_file.metadata()?;
+        validate_terminal_host_record_with_metadata(record_path, record, uid, Some(&metadata))
+    }
+
+    fn validate_terminal_host_record_with_metadata(
+        record_path: &Path,
+        record: &TerminalHostRecord,
+        uid: u32,
+        metadata: Option<&fs::Metadata>,
+    ) -> anyhow::Result<TerminalHostIdentity> {
         if !matches!(record.record_version, 1 | HOST_RECORD_VERSION) {
             anyhow::bail!("unsupported terminal-host record version {}", record.record_version);
         }
@@ -1788,14 +1813,13 @@ mod unix {
         if record_path != expected_record {
             anyhow::bail!("terminal-host record filename is not canonical");
         }
-        let uid = fs::metadata(parent)?.uid();
         let expected_endpoint = PathBuf::from("/tmp")
             .join(format!("cmux-th-{uid}"))
             .join(format!("{}.sock", record.terminal_id));
         if Path::new(&record.endpoint) != expected_endpoint {
             anyhow::bail!("terminal-host endpoint is not canonical");
         }
-        if let Ok(metadata) = fs::symlink_metadata(record_path)
+        if let Some(metadata) = metadata
             && (!metadata.file_type().is_file()
                 || metadata.uid() != uid
                 || metadata.mode() & 0o077 != 0)
@@ -1812,6 +1836,119 @@ mod unix {
     fn liveness_path(record_path: &Path, record: &TerminalHostRecord) -> PathBuf {
         record_path
             .with_extension(format!("{}-{}.live", record.incarnation, record.host_start_nonce))
+    }
+
+    fn open_terminal_host_child_at(
+        root: &File,
+        name: &OsStr,
+        flags: libc::c_int,
+    ) -> std_io::Result<Option<File>> {
+        let name = CString::new(name.as_bytes()).map_err(|_| {
+            std_io::Error::new(std_io::ErrorKind::InvalidInput, "terminal-host path contains nul")
+        })?;
+        loop {
+            // SAFETY: openat reads a nul-terminated child name relative to a valid directory fd.
+            let descriptor = unsafe {
+                libc::openat(
+                    root.as_raw_fd(),
+                    name.as_ptr(),
+                    flags | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+                )
+            };
+            if descriptor >= 0 {
+                // SAFETY: openat returned a new descriptor that this File owns.
+                return Ok(Some(unsafe { File::from_raw_fd(descriptor) }));
+            }
+            let error = std_io::Error::last_os_error();
+            if error.kind() == std_io::ErrorKind::Interrupted {
+                continue;
+            }
+            if error.kind() == std_io::ErrorKind::NotFound {
+                return Ok(None);
+            }
+            return Err(error);
+        }
+    }
+
+    pub(crate) fn terminal_host_record_liveness_from_directory(
+        root: &File,
+        record_path: &Path,
+        record: &TerminalHostRecord,
+    ) -> anyhow::Result<TerminalHostLiveness> {
+        let record_name = record_path
+            .file_name()
+            .ok_or_else(|| anyhow::anyhow!("terminal-host record has no file name"))?;
+        let record_file = match open_terminal_host_child_at(root, record_name, libc::O_RDONLY) {
+            Ok(file) => file,
+            Err(_) => return Ok(TerminalHostLiveness::Indeterminate),
+        };
+        let uid = root.metadata()?.uid();
+        let record_metadata = record_file.as_ref().map(File::metadata).transpose()?;
+        validate_terminal_host_record_with_metadata(
+            record_path,
+            record,
+            uid,
+            record_metadata.as_ref(),
+        )?;
+        if record.record_version == 1 {
+            return Ok(
+                if record_file.is_none() && !Path::new(&record.endpoint).exists() {
+                    TerminalHostLiveness::Dead
+                } else {
+                    TerminalHostLiveness::Indeterminate
+                },
+            );
+        }
+        let path = liveness_path(record_path, record);
+        let name = path
+            .file_name()
+            .ok_or_else(|| anyhow::anyhow!("terminal-host liveness path has no file name"))?;
+        let file = match open_terminal_host_child_at(root, name, libc::O_RDWR) {
+            Ok(Some(file)) => file,
+            Ok(None) => {
+                let host_cleanup_complete =
+                    record_file.is_none() && !Path::new(&record.endpoint).exists();
+                return Ok(
+                    if host_cleanup_complete || process_definitely_absent(record.host_pid) {
+                        TerminalHostLiveness::Dead
+                    } else {
+                        TerminalHostLiveness::Indeterminate
+                    },
+                );
+            }
+            Err(_) => return Ok(TerminalHostLiveness::Indeterminate),
+        };
+        let metadata = file.metadata()?;
+        if !metadata.file_type().is_file()
+            || metadata.uid() != uid
+            || metadata.nlink() != 1
+            || metadata.mode() & 0o077 != 0
+        {
+            return Ok(TerminalHostLiveness::Indeterminate);
+        }
+        loop {
+            // SAFETY: flock only observes or changes the advisory lock on this valid descriptor.
+            let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+            if result == 0 {
+                // SAFETY: unlock the same valid descriptor before it closes.
+                let _ = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+                return Ok(TerminalHostLiveness::Dead);
+            }
+            let error = std_io::Error::last_os_error();
+            if error.kind() == std_io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Ok(
+                if error
+                    .raw_os_error()
+                    .is_some_and(|code| code == libc::EWOULDBLOCK || code == libc::EAGAIN)
+                {
+                    TerminalHostLiveness::Live
+                } else {
+                    TerminalHostLiveness::Indeterminate
+                },
+            );
+        }
     }
 
     /// Probe the process-lifetime nonce lock. `Dead` is positive evidence
@@ -1925,12 +2062,6 @@ mod unix {
         root: &Path,
     ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
         load_terminal_host_records_with_policy(root, false)
-    }
-
-    pub(crate) fn load_terminal_host_records_for_reset(
-        root: &Path,
-    ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
-        load_terminal_host_records_with_policy(root, true)
     }
 
     fn load_terminal_host_records_with_policy(
@@ -3588,6 +3719,12 @@ mod unix {
         _root: File,
     }
 
+    impl TerminalHostResetLock {
+        pub(crate) fn root_directory(&self) -> &File {
+            &self._root
+        }
+    }
+
     pub(crate) struct TerminalHostPublicationLock {
         file: File,
     }
@@ -3618,6 +3755,7 @@ mod unix {
         acquire_terminal_host_publication_lock(root)
     }
 
+    #[cfg(test)]
     pub(crate) fn acquire_terminal_host_reset_lock(
         root: &Path,
     ) -> anyhow::Result<Option<TerminalHostResetLock>> {
@@ -3676,6 +3814,7 @@ mod unix {
         }
     }
 
+    #[cfg(test)]
     fn validate_terminal_host_reset_root(root: &Path, directory: &File) -> anyhow::Result<()> {
         let path_metadata = fs::symlink_metadata(root)
             .with_context(|| format!("inspect terminal-host root {}", root.display()))?;
@@ -7049,9 +7188,9 @@ mod unix {
 #[cfg(unix)]
 pub(crate) use unix::{
     ControlResponses, DecodedHostResize, DeferredCellPixelResolution, TerminalHostResetLock,
-    acquire_terminal_host_reset_lock, acquire_terminal_host_reset_lock_from_directory,
+    acquire_terminal_host_reset_lock_from_directory,
     adopt_terminal_host_with_kitty_limits, decode_host_resize_payload_for_version,
-    load_terminal_host_records_for_reset,
+    terminal_host_record_liveness_from_directory, validate_terminal_host_record_from_directory,
 };
 #[cfg(unix)]
 pub use unix::{
@@ -7063,7 +7202,8 @@ pub use unix::{
 };
 #[cfg(all(unix, test))]
 pub(crate) use unix::{
-    acquire_terminal_host_publication_lock, prepare_terminal_host_publication_lock,
+    acquire_terminal_host_publication_lock, acquire_terminal_host_reset_lock,
+    prepare_terminal_host_publication_lock,
 };
 
 #[cfg(not(unix))]

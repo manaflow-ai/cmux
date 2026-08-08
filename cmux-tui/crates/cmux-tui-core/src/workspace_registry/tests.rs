@@ -881,6 +881,70 @@ fn reset_state_root_swap_after_guard_stays_on_verified_directory() {
 
 #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
 #[test]
+fn reset_state_root_swap_after_guard_keeps_live_terminal_host_state() {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let root = temp_root("reset-live-host-root-swap-after-guard");
+    let outside = temp_root("reset-live-host-root-swap-after-guard-outside");
+    let moved_root = temp_root("reset-live-host-root-after-guard");
+    let session = "reset-live-host-root-swap-after-guard";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    let uid = fs::metadata(&host_root).unwrap().uid();
+    let record = crate::terminal_host_runtime::TerminalHostRecord {
+        record_version: 2,
+        terminal_id: TERMINAL_ONE.to_string(),
+        incarnation: INCARNATION_ONE.to_string(),
+        endpoint: format!("/tmp/cmux-th-{uid}/{TERMINAL_ONE}.sock"),
+        owner_token: "01".repeat(32),
+        host_pid: std::process::id(),
+        host_start_nonce: "02".repeat(32),
+        workspace_key: String::new(),
+        supports_set_defaults: true,
+        supports_clear_history: true,
+    };
+    let record_path = record.record_path(&host_root);
+    let live_path = terminal_host_live_marker_path(&record_path, &record);
+    let mut record_file =
+        OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record_path).unwrap();
+    record_file.write_all(&serde_json::to_vec(&record).unwrap()).unwrap();
+    record_file.sync_all().unwrap();
+    let live_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_path)
+        .unwrap();
+    // SAFETY: flock only changes the advisory lock on this valid test file descriptor.
+    assert_eq!(unsafe { libc::flock(live_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    fs::create_dir_all(&outside).unwrap();
+    fs::set_permissions(&outside, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(outside.join("sentinel"), b"outside").unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_REPLACE_STATE_ROOT_AFTER_GUARD.lock().unwrap() =
+        Some((root.clone(), moved_root.clone(), outside.clone()));
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+    *RESET_REPLACE_STATE_ROOT_AFTER_GUARD.lock().unwrap() = None;
+
+    assert!(format!("{error:#}").contains("live or unverified hosts"), "{error:#}");
+    assert_eq!(fs::read(outside.join("sentinel")).unwrap(), b"outside");
+    assert!(!outside.join(host_root.file_name().unwrap()).exists());
+    assert!(moved_root.join(host_root.file_name().unwrap()).exists());
+    assert!(fs::symlink_metadata(&root).unwrap().file_type().is_symlink());
+
+    drop(live_file);
+    fs::remove_file(root).unwrap();
+    fs::remove_dir_all(moved_root).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
 fn reset_rejects_hard_linked_session_guard_coordinator_before_chmod() {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
 

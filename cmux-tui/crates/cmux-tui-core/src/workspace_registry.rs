@@ -443,14 +443,20 @@ impl PersistentSessionStateResetter {
         #[cfg(all(unix, test))]
         inject_reset_path_replacement_before_write(root, &RESET_REPLACE_STATE_ROOT_BEFORE_GUARD)?;
         let session_guard = acquire_existing_session_reset_guard(root, session_name)?;
-        #[cfg(all(unix, test))]
-        inject_reset_path_replacement_before_write(root, &RESET_REPLACE_STATE_ROOT_AFTER_GUARD)?;
         let lock_pending_reset_dirs =
             pending_session_reset_dirs_for_guard(&session_guard, root, session_name)?;
         let lock_session_dir_exists =
             validate_session_reset_dir_for_guard(&session_guard, &session_dir)?;
         let lock_terminal_host_root_exists =
             validate_terminal_host_reset_dir_for_guard(&session_guard, &terminal_host_root)?;
+        let confirmation_path_tokens = ResetConfirmationPathTokens::capture(
+            root,
+            &session_dir,
+            &terminal_host_root,
+            &lock_pending_reset_dirs,
+        );
+        #[cfg(all(unix, test))]
+        inject_reset_path_replacement_before_write(root, &RESET_REPLACE_STATE_ROOT_AFTER_GUARD)?;
         #[cfg(all(unix, test))]
         {
             inject_reset_path_replacement_before_write(
@@ -473,13 +479,16 @@ impl PersistentSessionStateResetter {
         } else {
             None
         };
-        let _terminal_host_reset_lock = if lock_terminal_host_root_exists {
+        let terminal_host_reset_lock = if lock_terminal_host_root_exists {
             acquire_terminal_host_reset_lock_for_guard(&session_guard, &terminal_host_root)?
         } else {
             None
         };
         let _terminal_host_reset_leases = if lock_terminal_host_root_exists {
-            prepare_terminal_host_root_for_reset(&terminal_host_root)?
+            let reset_lock = terminal_host_reset_lock.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("terminal host state still has live or unverified hosts")
+            })?;
+            prepare_terminal_host_root_for_reset_at(&terminal_host_root, reset_lock)?
         } else {
             Vec::new()
         };
@@ -499,6 +508,7 @@ impl PersistentSessionStateResetter {
             &session_dir,
             &terminal_host_root,
             &pending_reset_dirs,
+            &confirmation_path_tokens,
             confirm_reset,
         )?;
         if pending_reset_dirs.len() != confirmation.pending_reset_dir_fingerprints.len() {
@@ -686,6 +696,63 @@ struct ResetConfirmationSnapshot {
     session_fingerprint: String,
     terminal_host_fingerprint: String,
     pending_reset_dir_fingerprints: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResetConfirmationPathTokens {
+    state_root_path: PathBuf,
+    state_root: String,
+    session_dir_path: PathBuf,
+    session_dir: String,
+    terminal_host_root_path: PathBuf,
+    terminal_host_root: String,
+    pending_reset_dirs: Vec<(PathBuf, String)>,
+}
+
+impl ResetConfirmationPathTokens {
+    fn capture(
+        state_root: &Path,
+        session_dir: &Path,
+        terminal_host_root: &Path,
+        pending_reset_dirs: &[PendingSessionResetDir],
+    ) -> Self {
+        Self {
+            state_root_path: state_root.to_path_buf(),
+            state_root: canonical_reset_path_token(state_root),
+            session_dir_path: session_dir.to_path_buf(),
+            session_dir: canonical_reset_path_token(session_dir),
+            terminal_host_root_path: terminal_host_root.to_path_buf(),
+            terminal_host_root: canonical_reset_path_token(terminal_host_root),
+            pending_reset_dirs: pending_reset_dirs
+                .iter()
+                .map(|reset_dir| {
+                    (reset_dir.path.clone(), canonical_reset_path_token(&reset_dir.path))
+                })
+                .collect(),
+        }
+    }
+
+    fn validate_paths(
+        &self,
+        state_root: &Path,
+        session_dir: &Path,
+        terminal_host_root: &Path,
+        pending_reset_dirs: &[PendingSessionResetDir],
+    ) -> anyhow::Result<()> {
+        if self.state_root_path != state_root
+            || self.session_dir_path != session_dir
+            || self.terminal_host_root_path != terminal_host_root
+            || self.pending_reset_dirs.len() != pending_reset_dirs.len()
+            || self
+                .pending_reset_dirs
+                .iter()
+                .zip(pending_reset_dirs)
+                .any(|((expected, _), current)| expected != &current.path)
+        {
+            anyhow::bail!("reset target paths changed during reset")
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1005,6 +1072,7 @@ fn validate_reset_child_dir(path: &Path, label: &str) -> anyhow::Result<bool> {
     Ok(true)
 }
 
+#[cfg(any(not(unix), test))]
 fn rename_session_dir_for_reset(
     root: &Path,
     session_name: &str,
@@ -1021,6 +1089,7 @@ fn rename_session_dir_for_reset(
     )
 }
 
+#[cfg(any(not(unix), test))]
 fn rename_terminal_host_dir_for_reset(
     root: &Path,
     session_name: &str,
@@ -1140,14 +1209,14 @@ fn rename_reset_dir_for_deletion_at(
 #[cfg(unix)]
 fn sync_private_reset_rename_at(
     root_directory: &File,
-    root: &Path,
+    _root: &Path,
     candidate: &Path,
     label: &str,
 ) -> anyhow::Result<()> {
     #[cfg(test)]
     {
         let mut failure_root = RESET_RENAME_SYNC_FAILURE_ROOT.lock().unwrap();
-        if failure_root.as_deref() == Some(root) {
+        if failure_root.as_deref() == Some(_root) {
             *failure_root = None;
             anyhow::bail!("injected private reset rename sync failure");
         }
@@ -1157,6 +1226,7 @@ fn sync_private_reset_rename_at(
         .with_context(|| format!("sync private reset path for {label} {}", candidate.display()))
 }
 
+#[cfg(any(not(unix), test))]
 fn rename_reset_dir_for_deletion(
     root: &Path,
     session_name: &str,
@@ -1196,6 +1266,7 @@ fn rename_reset_dir_for_deletion(
     anyhow::bail!("could not allocate private reset path for {label} {}", source.display())
 }
 
+#[cfg(any(not(unix), test))]
 fn sync_private_reset_rename(root: &Path, candidate: &Path, label: &str) -> anyhow::Result<()> {
     #[cfg(test)]
     {
@@ -1209,6 +1280,7 @@ fn sync_private_reset_rename(root: &Path, candidate: &Path, label: &str) -> anyh
         .with_context(|| format!("sync private reset path for {label} {}", candidate.display()))
 }
 
+#[cfg(any(not(unix), test))]
 fn ensure_reset_dir_fingerprint(
     path: &Path,
     fingerprint_label: &str,
@@ -1286,6 +1358,7 @@ fn require_reset_confirmation_at(
     session_dir: &Path,
     terminal_host_root: &Path,
     pending_reset_dirs: &[PendingSessionResetDir],
+    path_tokens: &ResetConfirmationPathTokens,
     confirm_reset: Option<&str>,
 ) -> anyhow::Result<ResetConfirmationSnapshot> {
     let confirmation = reset_confirmation_snapshot_at(
@@ -1295,6 +1368,7 @@ fn require_reset_confirmation_at(
         session_dir,
         terminal_host_root,
         pending_reset_dirs,
+        path_tokens,
     )?;
     if confirm_reset == Some(confirmation.confirm_reset.as_str()) {
         return Ok(confirmation);
@@ -1310,14 +1384,16 @@ fn reset_confirmation_snapshot_at(
     session_dir: &Path,
     terminal_host_root: &Path,
     pending_reset_dirs: &[PendingSessionResetDir],
+    path_tokens: &ResetConfirmationPathTokens,
 ) -> anyhow::Result<ResetConfirmationSnapshot> {
+    path_tokens.validate_paths(state_root, session_dir, terminal_host_root, pending_reset_dirs)?;
     let mut hash = Sha256::new();
     let mut budget = ResetFingerprintBudget::default();
     update_reset_confirmation_part(&mut hash, "cmux-session-reset-v1");
     update_reset_confirmation_part(&mut hash, session_name);
-    update_reset_confirmation_part(&mut hash, &canonical_reset_path_token(state_root));
-    update_reset_confirmation_part(&mut hash, &canonical_reset_path_token(session_dir));
-    update_reset_confirmation_part(&mut hash, &canonical_reset_path_token(terminal_host_root));
+    update_reset_confirmation_part(&mut hash, &path_tokens.state_root);
+    update_reset_confirmation_part(&mut hash, &path_tokens.session_dir);
+    update_reset_confirmation_part(&mut hash, &path_tokens.terminal_host_root);
     let session_fingerprint =
         reset_dir_fingerprint_at(root_directory, session_dir, "session", &mut budget)?;
     update_reset_confirmation_part(&mut hash, &session_fingerprint);
@@ -1329,8 +1405,10 @@ fn reset_confirmation_snapshot_at(
     )?;
     update_reset_confirmation_part(&mut hash, &terminal_host_fingerprint);
     let mut pending_reset_dir_fingerprints = Vec::with_capacity(pending_reset_dirs.len());
-    for reset_dir in pending_reset_dirs {
-        update_reset_confirmation_part(&mut hash, &canonical_reset_path_token(&reset_dir.path));
+    for (reset_dir, (_, path_token)) in
+        pending_reset_dirs.iter().zip(&path_tokens.pending_reset_dirs)
+    {
+        update_reset_confirmation_part(&mut hash, path_token);
         let fingerprint =
             reset_dir_fingerprint_at(root_directory, &reset_dir.path, "pending", &mut budget)?;
         update_reset_confirmation_part(&mut hash, &fingerprint);
@@ -1612,7 +1690,7 @@ fn reset_metadata_device(_metadata: &fs::Metadata) -> Option<u64> {
     None
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 fn remove_reset_dir_all(
     path: &Path,
     label: &str,
@@ -5175,6 +5253,7 @@ fn require_reset_confirmation_for_guard(
     session_dir: &Path,
     terminal_host_root: &Path,
     pending_reset_dirs: &[PendingSessionResetDir],
+    path_tokens: &ResetConfirmationPathTokens,
     confirm_reset: Option<&str>,
 ) -> anyhow::Result<ResetConfirmationSnapshot> {
     require_reset_confirmation_at(
@@ -5184,6 +5263,7 @@ fn require_reset_confirmation_for_guard(
         session_dir,
         terminal_host_root,
         pending_reset_dirs,
+        path_tokens,
         confirm_reset,
     )
 }
@@ -5196,6 +5276,7 @@ fn require_reset_confirmation_for_guard(
     session_dir: &Path,
     terminal_host_root: &Path,
     pending_reset_dirs: &[PendingSessionResetDir],
+    _path_tokens: &ResetConfirmationPathTokens,
     confirm_reset: Option<&str>,
 ) -> anyhow::Result<ResetConfirmationSnapshot> {
     require_reset_confirmation(
@@ -5590,28 +5671,33 @@ fn session_guard_coordinator_path(lock_dir: &Path) -> PathBuf {
 }
 
 #[cfg(unix)]
-fn prepare_terminal_host_root_for_reset(
+fn prepare_terminal_host_root_for_reset_at(
     root: &Path,
+    reset_lock: &crate::terminal_host_runtime::TerminalHostResetLock,
 ) -> anyhow::Result<Vec<TerminalHostLiveMarkerLease>> {
+    use std::ffi::OsString;
     use std::os::unix::fs::MetadataExt;
 
-    let records = crate::terminal_host_runtime::load_terminal_host_records_for_reset(root)
+    let directory = reset_lock.root_directory();
+    let records = load_terminal_host_records_for_reset_at(directory, root)
         .context("terminal host state still has live or unverified hosts")?;
-    let expected_uid = fs::metadata(root)?.uid();
+    let expected_uid = directory.metadata()?.uid();
     let mut live_marker_leases = Vec::new();
     let expected_live_markers = records
         .iter()
         .filter(|(_, record)| record.record_version >= 2)
-        .map(|(record_path, record)| terminal_host_live_marker_path(record_path, record))
+        .filter_map(|(record_path, record)| {
+            terminal_host_live_marker_path(record_path, record)
+                .file_name()
+                .map(OsString::from)
+        })
         .collect::<HashSet<_>>();
-    for entry in fs::read_dir(root)
-        .with_context(|| format!("read terminal host state {}", root.display()))?
-    {
-        let path = entry?.path();
-        if path.extension().and_then(|value| value.to_str()) == Some("live")
-            && !expected_live_markers.contains(&path)
+    for name in reset_dir_child_names(directory, root, "terminal host state")? {
+        let path = root.join(&name);
+        if Path::new(&name).extension().and_then(|value| value.to_str()) == Some("live")
+            && !expected_live_markers.contains(&name)
         {
-            match lock_verified_dead_live_marker(&path, expected_uid)? {
+            match lock_verified_dead_live_marker_at(directory, &name, &path, expected_uid)? {
                 TerminalHostLiveMarkerLock::Locked(lease) => live_marker_leases.push(lease),
                 TerminalHostLiveMarkerLock::Missing => {}
                 TerminalHostLiveMarkerLock::Unsafe => {
@@ -5623,11 +5709,23 @@ fn prepare_terminal_host_root_for_reset(
     #[cfg(test)]
     inject_legacy_terminal_host_record_removal_before_liveness(root)?;
     for (record_path, record) in &records {
-        match crate::terminal_host_runtime::terminal_host_record_liveness(record_path, record)? {
+        match crate::terminal_host_runtime::terminal_host_record_liveness_from_directory(
+            directory,
+            record_path,
+            record,
+        )? {
             TerminalHostLiveness::Dead => {
                 if record.record_version >= 2 {
                     let marker = terminal_host_live_marker_path(record_path, record);
-                    match lock_verified_dead_live_marker(&marker, expected_uid)? {
+                    let name = marker.file_name().ok_or_else(|| {
+                        anyhow::anyhow!("terminal-host liveness path has no file name")
+                    })?;
+                    match lock_verified_dead_live_marker_at(
+                        directory,
+                        name,
+                        &marker,
+                        expected_uid,
+                    )? {
                         TerminalHostLiveMarkerLock::Locked(lease) => live_marker_leases.push(lease),
                         TerminalHostLiveMarkerLock::Missing => {}
                         TerminalHostLiveMarkerLock::Unsafe => {
@@ -5642,6 +5740,61 @@ fn prepare_terminal_host_root_for_reset(
         }
     }
     Ok(live_marker_leases)
+}
+
+#[cfg(all(unix, test))]
+fn prepare_terminal_host_root_for_reset(
+    root: &Path,
+) -> anyhow::Result<Vec<TerminalHostLiveMarkerLease>> {
+    let reset_lock = crate::terminal_host_runtime::acquire_terminal_host_reset_lock(root)?
+        .ok_or_else(|| anyhow::anyhow!("terminal host state still has live or unverified hosts"))?;
+    prepare_terminal_host_root_for_reset_at(root, &reset_lock)
+}
+
+#[cfg(unix)]
+fn load_terminal_host_records_for_reset_at(
+    directory: &File,
+    root: &Path,
+) -> anyhow::Result<Vec<(PathBuf, crate::terminal_host_runtime::TerminalHostRecord)>> {
+    use std::os::fd::AsRawFd;
+
+    let mut records = Vec::new();
+    let mut identities = HashSet::new();
+    for name in reset_dir_child_names(directory, root, "terminal host state")? {
+        if Path::new(&name).extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let path = root.join(&name);
+        let stat = reset_child_stat(directory.as_raw_fd(), &name, &path)?;
+        if !reset_stat_is_file(&stat) {
+            anyhow::bail!("terminal-host record is not a file: {}", path.display());
+        }
+        let mut file = open_reset_child_file(directory.as_raw_fd(), &name, &path)?;
+        let metadata = file.metadata()?;
+        if reset_metadata_fingerprint(&metadata) != reset_stat_metadata_fingerprint(&stat) {
+            anyhow::bail!("terminal-host record changed while opening: {}", path.display());
+        }
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)
+            .with_context(|| format!("read terminal-host record {}", path.display()))?;
+        let current = reset_child_stat(directory.as_raw_fd(), &name, &path)?;
+        if reset_stat_metadata_fingerprint(&current) != reset_stat_metadata_fingerprint(&stat) {
+            anyhow::bail!("terminal-host record changed while reading: {}", path.display());
+        }
+        let record = serde_json::from_slice::<crate::terminal_host_runtime::TerminalHostRecord>(
+            &bytes,
+        )
+        .with_context(|| format!("decode terminal-host record {}", path.display()))?;
+        crate::terminal_host_runtime::validate_terminal_host_record_from_directory(
+            directory, &path, &file, &record,
+        )
+        .with_context(|| format!("validate terminal-host record {}", path.display()))?;
+        if !identities.insert((record.terminal_id.clone(), record.incarnation.clone())) {
+            anyhow::bail!("duplicate terminal-host identity in {}", path.display());
+        }
+        records.push((path, record));
+    }
+    Ok(records)
 }
 
 #[cfg(all(unix, test))]
@@ -5680,24 +5833,37 @@ enum TerminalHostLiveMarkerLock {
 }
 
 #[cfg(unix)]
-fn lock_verified_dead_live_marker(
+fn lock_verified_dead_live_marker_at(
+    directory: &File,
+    name: &std::ffi::OsStr,
     path: &Path,
     expected_uid: u32,
 ) -> anyhow::Result<TerminalHostLiveMarkerLock> {
-    use std::os::fd::AsRawFd;
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::fs::MetadataExt;
 
-    let file = match OpenOptions::new()
-        .read(true)
-        .write(true)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-        .open(path)
-    {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+    let encoded_name = reset_child_c_string(name, path)?;
+    let file = loop {
+        // SAFETY: openat reads a nul-terminated child name relative to a valid directory fd.
+        let descriptor = unsafe {
+            libc::openat(
+                directory.as_raw_fd(),
+                encoded_name.as_ptr(),
+                libc::O_RDWR | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+            )
+        };
+        if descriptor >= 0 {
+            // SAFETY: openat returned a new descriptor that this File owns.
+            break unsafe { File::from_raw_fd(descriptor) };
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        if error.kind() == std::io::ErrorKind::NotFound {
             return Ok(TerminalHostLiveMarkerLock::Missing);
         }
-        Err(_) => return Ok(TerminalHostLiveMarkerLock::Unsafe),
+        return Ok(TerminalHostLiveMarkerLock::Unsafe);
     };
     let metadata = file.metadata()?;
     if !metadata.file_type().is_file()
@@ -5708,17 +5874,23 @@ fn lock_verified_dead_live_marker(
         return Ok(TerminalHostLiveMarkerLock::Unsafe);
     }
     loop {
-        // SAFETY: flock only observes/changes the advisory lock on this valid file descriptor.
+        // SAFETY: flock only observes or changes the advisory lock on this valid descriptor.
         let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
         if result == 0 {
-            let current = match fs::symlink_metadata(path) {
+            let current = match reset_child_stat(directory.as_raw_fd(), name, path) {
                 Ok(current) => current,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Err(error)
+                    if error
+                        .downcast_ref::<std::io::Error>()
+                        .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
+                {
                     return Ok(TerminalHostLiveMarkerLock::Missing);
                 }
-                Err(error) => return Err(error.into()),
+                Err(error) => return Err(error),
             };
-            if current.dev() != metadata.dev() || current.ino() != metadata.ino() {
+            if reset_stat_device(&current) != metadata.dev()
+                || reset_stat_inode(&current) != metadata.ino()
+            {
                 return Ok(TerminalHostLiveMarkerLock::Unsafe);
             }
             return Ok(TerminalHostLiveMarkerLock::Locked(TerminalHostLiveMarkerLease {
@@ -5733,12 +5905,28 @@ fn lock_verified_dead_live_marker(
     }
 }
 
+#[cfg(all(unix, test))]
+fn lock_verified_dead_live_marker(
+    path: &Path,
+    expected_uid: u32,
+) -> anyhow::Result<TerminalHostLiveMarkerLock> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("terminal-host liveness path has no parent"))?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("terminal-host liveness path has no file name"))?;
+    let directory = open_verified_reset_directory(parent, "terminal host state")?;
+    lock_verified_dead_live_marker_at(&directory, name, path, expected_uid)
+}
+
 #[cfg(not(unix))]
 struct OrphanLiveMarkerLease;
 
 #[cfg(not(unix))]
-fn prepare_terminal_host_root_for_reset(
+fn prepare_terminal_host_root_for_reset_at(
     _root: &Path,
+    _reset_lock: &crate::terminal_host_runtime::TerminalHostResetLock,
 ) -> anyhow::Result<Vec<OrphanLiveMarkerLease>> {
     anyhow::bail!("terminal host liveness cannot be verified on this platform");
 }
