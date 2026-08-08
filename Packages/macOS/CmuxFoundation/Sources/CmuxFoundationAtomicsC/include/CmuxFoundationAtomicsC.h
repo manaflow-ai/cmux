@@ -25,7 +25,13 @@ typedef struct {
 
 void CmuxAtomicUInt64Initialize(CmuxAtomicUInt64Storage *storage, uint64_t initialValue);
 uint64_t CmuxAtomicUInt64LoadRelaxed(const CmuxAtomicUInt64Storage *storage);
+uint64_t CmuxAtomicUInt64LoadAcquire(const CmuxAtomicUInt64Storage *storage);
 void CmuxAtomicUInt64StoreRelaxed(CmuxAtomicUInt64Storage *storage, uint64_t value);
+bool CmuxAtomicUInt64CompareExchange(
+    CmuxAtomicUInt64Storage *storage,
+    uint64_t expected,
+    uint64_t desired
+);
 uint64_t CmuxAtomicUInt64IncrementRelaxed(CmuxAtomicUInt64Storage *storage);
 uint64_t CmuxAtomicUInt64AdvanceRelaxed(CmuxAtomicUInt64Storage *storage);
 bool CmuxAtomicUInt64IncrementIfBelow(
@@ -33,5 +39,22 @@ bool CmuxAtomicUInt64IncrementIfBelow(
     uint64_t upperBound
 );
 bool CmuxAtomicUInt64DecrementIfPositive(CmuxAtomicUInt64Storage *storage);
+
+typedef struct {
+    _Atomic(uintptr_t) value;
+} CmuxAtomicRawPointerStorage;
+
+void CmuxAtomicRawPointerInitialize(
+    CmuxAtomicRawPointerStorage *storage,
+    const void *initialValue
+);
+const void *CmuxAtomicRawPointerLoadAcquire(
+    const CmuxAtomicRawPointerStorage *storage
+);
+bool CmuxAtomicRawPointerCompareExchange(
+    CmuxAtomicRawPointerStorage *storage,
+    const void *expected,
+    const void *desired
+);
 
 #endif

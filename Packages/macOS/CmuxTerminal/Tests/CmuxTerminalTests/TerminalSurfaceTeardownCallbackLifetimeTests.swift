@@ -2,6 +2,7 @@ import AppKit
 import CmuxTerminalCore
 import Foundation
 import GhosttyKit
+import GhosttyRuntimeTestStubs
 import Testing
 @testable import CmuxTerminal
 
@@ -27,6 +28,42 @@ import Testing
         #expect(await wait.value == false)
     }
 
+    @Test func teardownSurfaceKeepsMainActorResponsiveWhileNativeFreeIsBlocked() async {
+        let surface = makeSurface()
+        let runtimeSurface = fakeRuntimeSurface()
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        cmux_test_ghostty_surface_free_blocking_begin(runtimeSurface)
+        defer {
+            cmux_test_ghostty_surface_free_release()
+            cmux_test_ghostty_surface_free_blocking_reset()
+        }
+
+        let probeResult = AsyncStream<Bool>.makeStream()
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard cmux_test_ghostty_surface_free_wait_until_started() else {
+                probeResult.continuation.yield(false)
+                probeResult.continuation.finish()
+                return
+            }
+
+            Task { @MainActor in
+                let nativeFreeIsStillBlocked =
+                    cmux_test_ghostty_surface_free_blocking_is_active()
+                cmux_test_ghostty_surface_free_release()
+                probeResult.continuation.yield(nativeFreeIsStillBlocked)
+                probeResult.continuation.finish()
+            }
+        }
+
+        surface.teardownSurface()
+
+        var probeResultIterator = probeResult.stream.makeAsyncIterator()
+        #expect(
+            await probeResultIterator.next() == true,
+            "explicit teardown did not start native free while keeping the main actor responsive"
+        )
+    }
+
     @Test func teardownSurfaceKeepsTeeLeaseUntilNativeFree() async {
         let recorder = TeardownOrderRecorder()
         let surface = makeSurface()
@@ -49,6 +86,32 @@ import Testing
         let completed = await recorder.waitForEventCount(2)
         #expect(completed, "timed out waiting for native free and tee-lease release")
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
+    }
+
+    @Test func installingNewRuntimeSurfaceReplacesClosedNativeAccessGate() async throws {
+        let recorder = TeardownOrderRecorder()
+        let surface = makeSurface()
+        let runtimeSurface = fakeRuntimeSurface()
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            recorder.record(.nativeFree)
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        let retiredGate = surface.runtimeNativeAccessGate
+        surface.teardownSurface()
+
+        #expect(retiredGate.acquireBorrow() == nil)
+        #expect(await recorder.waitForEventCount(1))
+
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        let replacementGate = surface.runtimeNativeAccessGate
+        #expect(replacementGate !== retiredGate)
+        let replacementBorrow = try #require(replacementGate.acquireBorrow())
+        replacementBorrow.release()
+
+        surface.teardownSurface()
+        #expect(await recorder.waitForEventCount(2))
     }
 
     @Test func agentHibernationSuspendKeepsTeeLeaseUntilNativeFree() async {

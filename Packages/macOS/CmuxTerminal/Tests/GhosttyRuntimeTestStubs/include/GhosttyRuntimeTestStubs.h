@@ -15,6 +15,15 @@ typedef struct {
   bool sentinel;
 } ghostty_string_s;
 
+typedef struct {
+  double tl_px_x;
+  double tl_px_y;
+  uint32_t offset_start;
+  uint32_t offset_len;
+  const char* text;
+  uintptr_t text_len;
+} ghostty_text_s;
+
 typedef void (*ghostty_font_size_action_cb)(
     void* userdata,
     int32_t action,
@@ -50,7 +59,8 @@ bool ghostty_surface_set_font_size_action_callback(
     void *userdata);
 void ghostty_surface_config_new(void);
 void ghostty_surface_free(void *surface);
-void ghostty_surface_free_text(void);
+void ghostty_surface_request_process_termination(void *surface);
+void ghostty_surface_free_text(void *surface, ghostty_text_s *text);
 float ghostty_surface_font_size(void *surface);
 bool ghostty_surface_font_size_adjusted(void *surface);
 uint64_t ghostty_surface_foreground_pid(void *surface);
@@ -64,7 +74,11 @@ void ghostty_surface_new(void);
 bool ghostty_surface_process_exited(void *surface);
 void ghostty_surface_process_output(void);
 void ghostty_surface_quicklook_font(void);
-void ghostty_surface_read_screen_tail_vt(void);
+bool ghostty_surface_read_screen_tail_vt(
+    void *surface,
+    uintptr_t max_rows,
+    uintptr_t max_bytes,
+    ghostty_text_s *text);
 void ghostty_surface_read_text(void);
 void ghostty_surface_refresh(void);
 void ghostty_surface_render_grid_json(void);
@@ -92,6 +106,16 @@ ghostty_string_s ghostty_surface_tty_name(void *surface);
 
 void cmux_test_ghostty_runtime_stubs_reset(void);
 void cmux_test_ghostty_runtime_stubs_set_close_state(bool needs_confirm, uint64_t foreground_pid, const char* tty_name);
+void cmux_test_ghostty_surface_free_blocking_begin(void *surface);
+bool cmux_test_ghostty_surface_free_wait_until_started(void);
+bool cmux_test_ghostty_surface_free_blocking_is_active(void);
+void cmux_test_ghostty_surface_free_release(void);
+void cmux_test_ghostty_surface_free_blocking_reset(void);
+void cmux_test_ghostty_surface_read_blocking_begin(void *surface);
+bool cmux_test_ghostty_surface_read_wait_until_started(void);
+bool cmux_test_ghostty_surface_read_blocking_is_active(void);
+void cmux_test_ghostty_surface_read_release(void);
+void cmux_test_ghostty_surface_read_blocking_reset(void);
 uint32_t cmux_test_ghostty_tty_name_call_count(void);
 void cmux_test_ghostty_renderer_realized_begin(void *surface);
 void cmux_test_ghostty_renderer_realized_reset(void);

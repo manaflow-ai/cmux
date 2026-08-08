@@ -12,12 +12,18 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `11aa609d7`, which exposes whether the
-VT parser is at a ground-state stream boundary. cmux uses that contract to
-retain incomplete escape-sequence bytes across distributed snapshot handoff.
-It builds on `19d03fa4d`, which suppresses empty opener stderr diagnostics on
-top of `f0f8273b7`, the iOS startup locale/crash-reporting order fix. That
-commit follows `88357634c`, the fork-main
+The submodule pinned by this branch is `81b4de4f5`, which preserves the stable
+POSIX process-group identity after its direct-child leader exits and sends each
+graceful/escalation signal exactly once. It builds on `88c3325dc`, the bounded,
+two-phase embedded-surface teardown that tracks direct-child reaping separately
+from surviving process-group descendants. It includes `d462c1d97`, the Hangul
+NFC/NFD font-resolution integration, and `9513174f2`, the
+current-fork reapplication of the VT stream-boundary API previously pinned at
+`11aa609d7`. cmux uses that VT contract to retain incomplete escape-sequence
+bytes across distributed snapshot handoff. The current pin builds on
+`19d03fa4d`, which suppresses empty opener stderr diagnostics on top of
+`f0f8273b7`, the iOS startup locale/crash-reporting order fix. That commit
+follows `88357634c`, the fork-main
 merge of https://github.com/manaflow-ai/ghostty/pull/175. That previous merge combines
 the initial cmux theme-picker render fix at `5068b3a37` with terminal-owned
 semantic-prompt row lifecycle enforcement through `2d6e944e3` from
@@ -33,7 +39,9 @@ gitlinks (`cd1f8e012` and `80d7fb35a`).
 
 ### VT stream-boundary visibility
 
-- Commit: `11aa609d7` (Expose safe VT stream snapshot boundary)
+- Commits:
+  - Original pin: `11aa609d7` (Expose safe VT stream snapshot boundary)
+  - Reapplied on current fork main: `9513174f2`
 - Files: `include/ghostty/vt/terminal.h`, `src/terminal/c/terminal.zig`,
   `src/lib_vt.zig`
 - Summary:
@@ -45,6 +53,74 @@ gitlinks (`cd1f8e012` and `80d7fb35a`).
   - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-11aa609d75dec882ef2f83171e2cbe887aeddbc5-crashsubdir-cmux-crash-sentry-off-v1
   - SHA-256 `1a4acbcc9e0e5b20c0b4dad6660d0c08546a5d36192053834df960144fa8fdb9`
     is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Bounded embedded-surface process teardown
+
+- Pull requests:
+  - https://github.com/manaflow-ai/ghostty/pull/184
+  - https://github.com/manaflow-ai/ghostty/pull/187
+  - https://github.com/manaflow-ai/ghostty/pull/188
+- Commits:
+  - `9be0c8b93` (test: cover subprocesses that ignore SIGHUP)
+  - `5b20c6229` (fix: bound embedded surface process teardown)
+  - `26d320bfe` (test: cover descendants surviving direct child exit)
+  - `88c3325dc` (fix: reap surviving process-group descendants)
+  - `b8a643561` (test: cover process-group grace and leader exit)
+  - `81b4de4f5` (fix: preserve graceful process-group teardown)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/termio/Exec.zig`
+- Summary:
+  - Exposes `ghostty_surface_request_process_termination`, a non-blocking,
+    idempotent pre-free request that retires an embedded surface from Ghostty
+    app routing and wakes its IO owner without joining or freeing the surface.
+  - Sends the process group one SIGHUP, then polls liveness with signal `0` for
+    12 seconds, preserving cmux's 10-second Claude `SessionEnd` hook budget.
+  - Retains the process-group id independently from direct-child wait status,
+    so descendants remain addressable after the group leader has been reaped.
+  - Sends one SIGKILL at escalation and bounds the final reap wait to three
+    seconds, so a pathological child cannot hold a native teardown worker.
+  - Handles the pre-`exec` race by terminating the still-waitable direct child
+    if its intended process group has not been created yet.
+  - Keeps `ghostty_surface_free` as the final synchronization and ownership
+    boundary for renderer, IO, callback userdata, and native allocation release.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-81b4de4f540eeea9be34574ffdd13ec51ee8a340-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `a95a372c23e9b791b2786d145fa8fef8eb09571ade914b55a600e175920792c7`
+    is pinned in `scripts/ghosttykit-checksums.txt`; the downloaded archive
+    passed `scripts/validate-xcframework-archive.py`.
+- Conflict note:
+  - Preserve the two-phase contract during future embedded-surface or termio
+    merges: the pre-free request must prevent new app-action retains, remain
+    idempotent, and start IO-owned process teardown without freeing native state.
+    Final free must still wait for existing action leases and release the surface
+    exactly once. POSIX process teardown must retain the stable group id,
+    separate direct-child and process-group liveness state, a single SIGHUP,
+    signal-`0` grace polling, a single SIGKILL escalation, and the bounded
+    three-second final reap window.
+
+### Canonical Hangul font resolution
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/185
+- Commits:
+  - `0316a8de8` (test: NFC and NFD Hangul must resolve the same font face)
+  - `3fbdd078d` (font: resolve NFD Hangul clusters via canonical composition)
+- Files:
+  - `src/font/hangul.zig`
+  - `src/font/main.zig`
+  - `src/font/shaper/coretext.zig`
+  - `src/font/shaper/run.zig`
+- Summary:
+  - Composes modern Hangul jamo clusters algorithmically for font-resolver
+    lookup so canonically equivalent NFC and NFD text selects the same face.
+  - Preserves the original cell codepoints and shaper input, including NFD
+    copy/paste contents.
+- Conflict note:
+  - Preserve canonical composition at font lookup only; do not rewrite stored
+    terminal cells or the text passed to the shaper.
 
 The renderer line was reviewed in
 https://github.com/manaflow-ai/ghostty/pull/168, following the merged

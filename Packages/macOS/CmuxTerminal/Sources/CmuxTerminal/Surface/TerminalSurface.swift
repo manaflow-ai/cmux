@@ -57,6 +57,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public typealias CodexCommandShim = TerminalSurfaceCodexCommandShim
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
     private var runtimeSurface: ghostty_surface_t?
+    /// Native API admission state replaced with every installed runtime pointer.
+    var runtimeNativeAccessGate = TerminalSurfaceRuntimeNativeAccessGate()
     var runtimeControllingTTYName: String?
     var runtimeControllingTTYDeviceIdentifier: Int64?
     /// The live runtime surface pointer, or nil before creation/after teardown.
@@ -64,6 +66,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         get { runtimeSurface }
         set {
             guard runtimeSurface != newValue else { return }
+            if runtimeSurface == nil, newValue != nil {
+                runtimeNativeAccessGate = TerminalSurfaceRuntimeNativeAccessGate()
+            }
             runtimeSurface = newValue
             runtimeControllingTTYName = nil
             runtimeControllingTTYDeviceIdentifier = nil
@@ -703,6 +708,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
                 workspaceId: tabId,
                 reason: "deinit",
                 surface: surfaceToFree,
+                nativeAccessGate: runtimeNativeAccessGate,
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
@@ -716,6 +722,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             workspaceId: tabId,
             reason: "deinit",
             surface: surfaceToFree,
+            nativeAccessGate: runtimeNativeAccessGate,
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease

@@ -21,6 +21,7 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
     let workspaceId: UUID
     let reason: String
     let surface: ghostty_surface_t
+    let nativeAccessGate: TerminalSurfaceRuntimeNativeAccessGate
     let callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     let manualIOContext: Unmanaged<TerminalManualIOWriteBox>?
     let byteTeeLease: (any TerminalByteTeeLease)?
@@ -36,6 +37,7 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         workspaceId: UUID,
         reason: String,
         surface: ghostty_surface_t,
+        nativeAccessGate: TerminalSurfaceRuntimeNativeAccessGate,
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
         manualIOContext: Unmanaged<TerminalManualIOWriteBox>?,
         byteTeeLease: (any TerminalByteTeeLease)?,
@@ -46,6 +48,7 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         self.workspaceId = workspaceId
         self.reason = reason
         self.surface = surface
+        self.nativeAccessGate = nativeAccessGate
         self.callbackContext = callbackContext
         self.manualIOContext = manualIOContext
         self.byteTeeLease = byteTeeLease
