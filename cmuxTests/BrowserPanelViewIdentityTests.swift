@@ -46,6 +46,41 @@ import Testing
         #expect(anchor.frame == host.bounds)
     }
 
+    @Test func portalAnchorReinstallationPublishesResizedHostGeometryBeforeLayout() throws {
+        let host = LayoutCountingBrowserHostView(
+            frame: NSRect(x: 0, y: 0, width: 480, height: 320)
+        )
+        let window = NSWindow(
+            contentRect: host.frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        let anchor = NSView(frame: .zero)
+        WebViewRepresentable.installPortalAnchorView(anchor, in: host)
+        host.layoutSubtreeIfNeeded()
+        #expect(anchor.frame == host.bounds)
+
+        host.layoutPassCount = 0
+        host.setFrameSize(NSSize(width: 720, height: 480))
+        #expect(anchor.frame != host.bounds)
+
+        WebViewRepresentable.installPortalAnchorView(anchor, in: host)
+
+        #expect(
+            host.layoutPassCount == 0,
+            "Refreshing browser portal geometry must not synchronously lay out the SwiftUI-owned host."
+        )
+        #expect(
+            anchor.frame == host.bounds,
+            "Portal synchronization must see the resized host geometry before AppKit's deferred constraint pass."
+        )
+    }
+
     @Test func replacingBrowserPanelClearsUncommittedOmnibarDraft() throws {
         let workspaceID = UUID()
         let firstPanel = BrowserPanel(workspaceId: workspaceID)
