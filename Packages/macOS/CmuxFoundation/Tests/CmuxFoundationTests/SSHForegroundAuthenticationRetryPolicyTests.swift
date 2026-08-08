@@ -557,7 +557,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_test_victim_pid=$!
         trap '/bin/kill -KILL "$cmux_test_victim_pid" >/dev/null 2>&1 || true; wait "$cmux_test_victim_pid" 2>/dev/null || true' EXIT
         printf '%s 1 1 stale_identity S\n' "$cmux_test_victim_pid" > "$CMUX_TEST_FROZEN"
-        cmux_ssh_auth_take_process_snapshot() { : > "$1"; }
+        cmux_ssh_auth_take_process_snapshot() {
+          : > "$CMUX_TEST_POST_TIMEOUT_SNAPSHOT"
+          : > "$1"
+        }
         cmux_ssh_auth_expand_owned_processes() { return 0; }
         cmux_ssh_auth_deadline_allows_work() { return 0; }
         cmux_ssh_auth_process_snapshot="$CMUX_TEST_ORDERED"
@@ -700,6 +703,70 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 "CMUX_TEST_SIGNALS": root.appendingPathComponent("signals").path,
                 "CMUX_TEST_SNAPSHOT": root.appendingPathComponent("snapshot").path,
             ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func freezePassesAbsoluteDeadlineToIdentityValidationAndStopsOnTimeout(
+        shellPath: String
+    ) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-ssh-auth-freeze-identity-deadline-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_deadline_allows_work() { return 0; }
+        cmux_ssh_auth_deadline_allows_signal() { return 0; }
+        cmux_ssh_auth_select_exclusive_groups() { : > "$cmux_ssh_auth_owned_groups"; }
+        cmux_ssh_auth_filter_current_processes() { /bin/cp "$2" "$3"; }
+        cmux_ssh_auth_order_children_first() { /usr/bin/awk '{ print 0, $0 }' "$1" > "$2"; }
+        cmux_ssh_auth_take_process_snapshot() { : > "$1"; }
+        cmux_ssh_auth_expand_owned_processes() { return 0; }
+        cmux_ssh_auth_stable_identity() {
+          printf '%s|%s\n' "$#" "${2:-}" > "$CMUX_TEST_IDENTITY_CALL"
+          return 124
+        }
+        kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
+        printf '101 1 777 Thu_Jan_1_00:00:00_1970 S\n' > "$CMUX_TEST_OWNED"
+        cmux_ssh_auth_deadline_millis=4242
+        : > "$CMUX_TEST_GROUPS"
+        : > "$CMUX_TEST_FROZEN"
+        : > "$CMUX_TEST_SIGNALED_GROUPS"
+        : > "$CMUX_TEST_SIGNALED_PIDS"
+        : > "$CMUX_TEST_SIGNALS"
+        cmux_ssh_auth_process_snapshot="$CMUX_TEST_PROCESS_SNAPSHOT"
+        cmux_ssh_auth_poststop_snapshot="$CMUX_TEST_POSTSTOP_SNAPSHOT"
+        cmux_ssh_auth_owned_processes="$CMUX_TEST_OWNED"
+        cmux_ssh_auth_next_owned_processes="$CMUX_TEST_OWNED_NEXT"
+        cmux_ssh_auth_owned_groups="$CMUX_TEST_GROUPS"
+        cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
+        cmux_ssh_auth_ordered_processes="$CMUX_TEST_ORDERED"
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
+        cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
+        if cmux_ssh_auth_freeze_owned_processes; then exit 99; fi
+        /usr/bin/grep -Fqx '2|4242' "$CMUX_TEST_IDENTITY_CALL" || exit 98
+        test ! -s "$CMUX_TEST_SIGNALS" || exit 97
+        test ! -s "$CMUX_TEST_SIGNALED_PIDS" || exit 96
+        test ! -e "$CMUX_TEST_POST_TIMEOUT_SNAPSHOT" || exit 95
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: freezeIdentityTestEnvironment(root: root).merging([
+                "CMUX_TEST_IDENTITY_CALL": root.appendingPathComponent("identity-call").path,
+                "CMUX_TEST_POST_TIMEOUT_SNAPSHOT": root
+                    .appendingPathComponent("post-timeout-snapshot").path,
+            ]) { _, override in override },
             shellPath: shellPath
         )
 
@@ -2775,7 +2842,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
-    func recoverySweepRequiresAbandonedCleanupRecordBeforeReapingStoppedPublisher(shellPath: String) throws {
+    func recoverySweepReapsStoppedPublisherWithAbandonedOrMissingCleanupOwner(
+        shellPath: String
+    ) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-stopped-publisher-\(UUID().uuidString)", isDirectory: true)
@@ -2785,12 +2854,20 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .appendingPathComponent("cmux-ssh-auth-group.abandoned", isDirectory: true)
         let activeDirectory = root
             .appendingPathComponent("cmux-ssh-auth-group.active", isDirectory: true)
+        let ownerlessDirectory = root
+            .appendingPathComponent("cmux-ssh-auth-group.ownerless", isDirectory: true)
         let callsFile = root.appendingPathComponent("calls")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         try createSecureGroupDirectory(at: suspendedDirectory)
         try createSecureGroupDirectory(at: abandonedDirectory)
         try createSecureGroupDirectory(at: activeDirectory)
-        for directory in [suspendedDirectory, abandonedDirectory, activeDirectory] {
+        try createSecureGroupDirectory(at: ownerlessDirectory)
+        for directory in [
+            suspendedDirectory,
+            abandonedDirectory,
+            activeDirectory,
+            ownerlessDirectory,
+        ] {
             try "999999|888888|Thu_Jan_1_00:00:00_1970\n".write(
                 to: directory.appendingPathComponent("identity"),
                 atomically: true,
@@ -2807,16 +2884,21 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_test_abandoned_publisher=$!
         /bin/sleep 30 &
         cmux_test_active_publisher=$!
-        trap '/bin/kill -KILL "$cmux_test_suspended_publisher" "$cmux_test_abandoned_publisher" "$cmux_test_active_publisher" >/dev/null 2>&1 || true; wait "$cmux_test_suspended_publisher" "$cmux_test_abandoned_publisher" "$cmux_test_active_publisher" 2>/dev/null || true' EXIT
+        /bin/sleep 30 &
+        cmux_test_ownerless_publisher=$!
+        trap '/bin/kill -KILL "$cmux_test_suspended_publisher" "$cmux_test_abandoned_publisher" "$cmux_test_active_publisher" "$cmux_test_ownerless_publisher" >/dev/null 2>&1 || true; wait "$cmux_test_suspended_publisher" "$cmux_test_abandoned_publisher" "$cmux_test_active_publisher" "$cmux_test_ownerless_publisher" 2>/dev/null || true' EXIT
         cmux_test_suspended_identity=$(cmux_ssh_auth_identity "$cmux_test_suspended_publisher") || exit 100
         cmux_test_abandoned_identity=$(cmux_ssh_auth_identity "$cmux_test_abandoned_publisher") || exit 99
         cmux_test_active_identity=$(cmux_ssh_auth_identity "$cmux_test_active_publisher") || exit 98
+        cmux_test_ownerless_identity=$(cmux_ssh_auth_identity "$cmux_test_ownerless_publisher") || exit 97
         printf '%s|%s\n' "$cmux_test_suspended_publisher" "$cmux_test_suspended_identity" \
           > "$CMUX_TEST_SUSPENDED_GROUP/publisher" || exit 97
         printf '%s|%s\n' "$cmux_test_abandoned_publisher" "$cmux_test_abandoned_identity" \
           > "$CMUX_TEST_ABANDONED_GROUP/publisher" || exit 96
         printf '%s|%s\n' "$cmux_test_active_publisher" "$cmux_test_active_identity" \
           > "$CMUX_TEST_ACTIVE_GROUP/publisher" || exit 95
+        printf '%s|%s\n' "$cmux_test_ownerless_publisher" "$cmux_test_ownerless_identity" \
+          > "$CMUX_TEST_OWNERLESS_GROUP/publisher" || exit 94
         printf '999999|888888|777777|Thu_Jan_1_00:00:00_1970\n' \
           > "$CMUX_TEST_ABANDONED_GROUP/cleanup.owner" || exit 94
         : > "$CMUX_TEST_ABANDONED_GROUP/cancel" || exit 93
@@ -2824,8 +2906,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         printf '%s|%s\n' "$$" "$cmux_test_cleanup_owner_identity" \
           > "$CMUX_TEST_ACTIVE_GROUP/cleanup.owner" || exit 92
         : > "$CMUX_TEST_ACTIVE_GROUP/cancel" || exit 91
+        : > "$CMUX_TEST_OWNERLESS_GROUP/cancel" || exit 90
         /bin/kill -STOP "$cmux_test_suspended_publisher" \
-          "$cmux_test_abandoned_publisher" "$cmux_test_active_publisher" || exit 90
+          "$cmux_test_abandoned_publisher" "$cmux_test_active_publisher" \
+          "$cmux_test_ownerless_publisher" || exit 89
         cmux_test_stop_attempt=0
         while [ "$cmux_test_stop_attempt" -lt 100 ]; do
           if [ "$(cmux_ssh_auth_stopped_identity "$cmux_test_suspended_publisher")" = \
@@ -2833,7 +2917,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             [ "$(cmux_ssh_auth_stopped_identity "$cmux_test_abandoned_publisher")" = \
             "$cmux_test_abandoned_identity" ] && \
             [ "$(cmux_ssh_auth_stopped_identity "$cmux_test_active_publisher")" = \
-            "$cmux_test_active_identity" ]; then break; fi
+            "$cmux_test_active_identity" ] && \
+            [ "$(cmux_ssh_auth_stopped_identity "$cmux_test_ownerless_publisher")" = \
+            "$cmux_test_ownerless_identity" ]; then break; fi
           /bin/sleep 0.01
           cmux_test_stop_attempt=$((cmux_test_stop_attempt + 1))
         done
@@ -2854,9 +2940,14 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_recovery_enqueue "$CMUX_TEST_SUSPENDED_GROUP" || exit 88
         cmux_ssh_auth_recovery_enqueue "$CMUX_TEST_ABANDONED_GROUP" || exit 87
         cmux_ssh_auth_recovery_enqueue "$CMUX_TEST_ACTIVE_GROUP" || exit 86
-        cmux_ssh_resume_failed_auth_group_reapers || exit 85
-        test "$(/bin/cat "$CMUX_TEST_RECOVERY_CALLS" 2>/dev/null)" = \
-          "cmux-ssh-auth-group.abandoned" || exit 84
+        cmux_ssh_auth_recovery_enqueue "$CMUX_TEST_OWNERLESS_GROUP" || exit 85
+        cmux_ssh_resume_failed_auth_group_reapers || exit 84
+        /usr/bin/grep -Fqx 'cmux-ssh-auth-group.abandoned' \
+          "$CMUX_TEST_RECOVERY_CALLS" || exit 83
+        /usr/bin/grep -Fqx 'cmux-ssh-auth-group.ownerless' \
+          "$CMUX_TEST_RECOVERY_CALLS" || exit 82
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_RECOVERY_CALLS" | \
+          /usr/bin/tr -d '[:space:]')" -eq 2 || exit 81
         test -s "$CMUX_TEST_SUSPENDED_GROUP/identity" || exit 83
         test -s "$CMUX_TEST_ACTIVE_GROUP/identity" || exit 82
         """
@@ -2866,6 +2957,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             environment: [
                 "CMUX_TEST_ABANDONED_GROUP": abandonedDirectory.path,
                 "CMUX_TEST_ACTIVE_GROUP": activeDirectory.path,
+                "CMUX_TEST_OWNERLESS_GROUP": ownerlessDirectory.path,
                 "CMUX_TEST_RECOVERY_CALLS": callsFile.path,
                 "CMUX_TEST_SUSPENDED_GROUP": suspendedDirectory.path,
                 "TMPDIR": root.path,
@@ -3202,6 +3294,119 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         )
 
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func recoverySchedulerContinuesWhileQueueHasWork(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-ssh-auth-recovery-drain-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_resume_failed_auth_group_reapers() {
+          cmux_test_started_count=$(/usr/bin/awk 'END { print NR + 0 }' \
+            "$CMUX_TEST_RECOVERY_STARTED" 2>/dev/null || printf '0\n')
+          cmux_test_started_count=$((cmux_test_started_count + 1))
+          printf '%s\n' "$cmux_test_started_count" >> "$CMUX_TEST_RECOVERY_STARTED"
+          if [ "$cmux_test_started_count" -ge 2 ]; then
+            /bin/rm -f -- "$CMUX_TEST_QUEUE_WORK"
+          fi
+        }
+        cmux_ssh_auth_recovery_queue_has_work_locked() {
+          [ -e "$CMUX_TEST_QUEUE_WORK" ]
+        }
+        : > "$CMUX_TEST_QUEUE_WORK"
+        cmux_ssh_schedule_failed_auth_group_recovery || exit 99
+
+        cmux_test_started_deadline=$(($(cmux_ssh_auth_now_millis) + 4000))
+        while :; do
+          cmux_test_started_count=$(/usr/bin/awk 'END { print NR + 0 }' \
+            "$CMUX_TEST_RECOVERY_STARTED" 2>/dev/null || printf '0\n')
+          [ "$cmux_test_started_count" -ge 2 ] && break
+          cmux_test_started_now=$(cmux_ssh_auth_now_millis) || exit 98
+          [ "$cmux_test_started_now" -lt "$cmux_test_started_deadline" ] || exit 97
+          /bin/sleep 0.01
+        done
+
+        cmux_test_release_deadline=$(($(cmux_ssh_auth_now_millis) + 2000))
+        while [ -d "$TMPDIR/cmux-ssh-auth-recovery/sweep.lock" ]; do
+          cmux_test_release_now=$(cmux_ssh_auth_now_millis) || exit 96
+          [ "$cmux_test_release_now" -lt "$cmux_test_release_deadline" ] || exit 95
+          /bin/sleep 0.01
+        done
+        [ "$cmux_test_started_count" -eq 2 ] || exit 94
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_QUEUE_WORK": root.appendingPathComponent("queue-work").path,
+                "CMUX_TEST_RECOVERY_STARTED": root.appendingPathComponent("started").path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func recoverySchedulerDetachesWorkerFileDescriptors(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-ssh-auth-recovery-detached-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_resume_failed_auth_group_reapers() {
+          : > "$CMUX_TEST_RECOVERY_STARTED"
+        }
+        cmux_ssh_auth_recovery_queue_has_work_locked() { return 1; }
+        cmux_ssh_auth_reaper_generation_is_current() {
+          if [ -e "$CMUX_TEST_RECOVERY_STARTED" ]; then
+            printf 'cmux-recovery-worker-stderr-open\n' >&2
+          fi
+          return 0
+        }
+        cmux_ssh_schedule_failed_auth_group_recovery || exit 99
+
+        cmux_test_started_deadline=$(($(cmux_ssh_auth_now_millis) + 2000))
+        while [ ! -e "$CMUX_TEST_RECOVERY_STARTED" ]; do
+          cmux_test_started_now=$(cmux_ssh_auth_now_millis) || exit 98
+          [ "$cmux_test_started_now" -lt "$cmux_test_started_deadline" ] || exit 97
+          /bin/sleep 0.01
+        done
+        cmux_test_release_deadline=$(($(cmux_ssh_auth_now_millis) + 2000))
+        while [ -d "$TMPDIR/cmux-ssh-auth-recovery/sweep.lock" ]; do
+          cmux_test_release_now=$(cmux_ssh_auth_now_millis) || exit 96
+          [ "$cmux_test_release_now" -lt "$cmux_test_release_deadline" ] || exit 95
+          /bin/sleep 0.01
+        done
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_RECOVERY_STARTED": root
+                    .appendingPathComponent("started").path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+        #expect(!result.standardError.contains("cmux-recovery-worker-stderr-open"))
     }
 
     @Test func recoveryQueueReclaimsExpiredUnpublishedDirectory() throws {
