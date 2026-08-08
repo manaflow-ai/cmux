@@ -216,6 +216,41 @@ pub struct HostSnapshot {
 pub struct TerminalHostIdentity {
     pub terminal_id: String,
     pub incarnation: String,
+    pub host_epoch: Option<String>,
+    pub lease_generation: Option<String>,
+}
+
+impl TerminalHostIdentity {
+    pub fn legacy(terminal_id: impl Into<String>, incarnation: impl Into<String>) -> Self {
+        Self {
+            terminal_id: terminal_id.into(),
+            incarnation: incarnation.into(),
+            host_epoch: None,
+            lease_generation: None,
+        }
+    }
+
+    pub fn with_liveness(
+        terminal_id: impl Into<String>,
+        incarnation: impl Into<String>,
+        host_epoch: impl Into<String>,
+        lease_generation: impl Into<String>,
+    ) -> Self {
+        Self {
+            terminal_id: terminal_id.into(),
+            incarnation: incarnation.into(),
+            host_epoch: Some(host_epoch.into()),
+            lease_generation: Some(lease_generation.into()),
+        }
+    }
+
+    pub fn runtime_attachment_tokens(&self) -> Option<(&str, &str, &str)> {
+        Some((
+            self.incarnation.as_str(),
+            self.host_epoch.as_deref()?,
+            self.lease_generation.as_deref()?,
+        ))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1360,10 +1395,7 @@ mod unix {
         }
 
         pub fn identity(&self) -> TerminalHostIdentity {
-            TerminalHostIdentity {
-                terminal_id: self.record.terminal_id.clone(),
-                incarnation: self.record.incarnation.clone(),
-            }
+            host_identity_from_record(&self.record)
         }
 
         pub(crate) fn exit_record_path(&self) -> PathBuf {
@@ -1827,10 +1859,20 @@ mod unix {
             anyhow::bail!("terminal-host record permissions or ownership are unsafe");
         }
         let _ = (terminal_id, incarnation);
-        Ok(TerminalHostIdentity {
-            terminal_id: record.terminal_id.clone(),
-            incarnation: record.incarnation.clone(),
-        })
+        Ok(host_identity_from_record(record))
+    }
+
+    fn host_identity_from_record(record: &TerminalHostRecord) -> TerminalHostIdentity {
+        if record.record_version == 1 {
+            TerminalHostIdentity::legacy(record.terminal_id.clone(), record.incarnation.clone())
+        } else {
+            TerminalHostIdentity::with_liveness(
+                record.terminal_id.clone(),
+                record.incarnation.clone(),
+                record.incarnation.clone(),
+                record.host_start_nonce.clone(),
+            )
+        }
     }
 
     fn liveness_path(record_path: &Path, record: &TerminalHostRecord) -> PathBuf {
@@ -3431,10 +3473,10 @@ mod unix {
                     write_exit_record(
                         &self.exit_record_path,
                         &TerminalHostExitRecord::new(
-                            &TerminalHostIdentity {
-                                terminal_id: self.terminal_id.to_hex(),
-                                incarnation: self.incarnation.to_hex(),
-                            },
+                            &TerminalHostIdentity::legacy(
+                                self.terminal_id.to_hex(),
+                                self.incarnation.to_hex(),
+                            ),
                             exit.clone(),
                         ),
                     )
@@ -5671,10 +5713,10 @@ mod unix {
             let (record_path, record, lease) = record_fixture("exit-sidecar");
             let root = record_path.parent().unwrap();
             let exit_record = TerminalHostExitRecord::new(
-                &TerminalHostIdentity {
-                    terminal_id: record.terminal_id.clone(),
-                    incarnation: record.incarnation.clone(),
-                },
+                &TerminalHostIdentity::legacy(
+                    record.terminal_id.clone(),
+                    record.incarnation.clone(),
+                ),
                 TerminalExit {
                     outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 17 },
                     exited_at_ms: 1_234_567,
@@ -5712,10 +5754,10 @@ mod unix {
             let (record_path, record, lease) = record_fixture("exit-sidecar-race");
             let root = record_path.parent().unwrap().to_path_buf();
             let exit_path = record_path.with_extension("exit");
-            let identity = TerminalHostIdentity {
-                terminal_id: record.terminal_id.clone(),
-                incarnation: record.incarnation.clone(),
-            };
+            let identity = TerminalHostIdentity::legacy(
+                record.terminal_id.clone(),
+                record.incarnation.clone(),
+            );
             let first = TerminalHostExitRecord::new(
                 &identity,
                 TerminalExit {

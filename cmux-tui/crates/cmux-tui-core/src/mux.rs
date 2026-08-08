@@ -2736,10 +2736,11 @@ impl Mux {
             terminal.incarnation.as_deref() == Some(incarnation),
             "terminal incarnation changed during adoption"
         );
+        let host_identity = surface
+            .terminal_host_identity()
+            .ok_or_else(|| anyhow::anyhow!("adopted surface omitted its host identity"))?;
         anyhow::ensure!(
-            surface.terminal_host_identity().is_some_and(|identity| {
-                identity.terminal_id == terminal_id && identity.incarnation == incarnation
-            }),
+            host_identity.terminal_id == terminal_id && host_identity.incarnation == incarnation,
             "adopted host identity does not match durable terminal"
         );
 
@@ -2815,24 +2816,40 @@ impl Mux {
                 })?
             }
         };
-        let lifecycle = commit_terminal_lifecycle_with_runtime_attachment(
-            &mut registry,
-            "terminal-ready",
-            "terminal-adopted",
-            terminal_id,
-            TerminalLifecycle::Running,
-            Some(incarnation),
-            None,
-            TerminalRuntimeAttachment {
-                origin: "cmux-tui-runtime",
-                idempotency_key: format!("runtime-attachment-attached-{terminal_id}-{incarnation}"),
-                terminal_id: runtime_attachment_public_id,
-                runtime_id: incarnation,
-                state: "attached",
-                host_epoch: incarnation,
-                lease_generation: incarnation,
-            },
-        );
+        let lifecycle = if let Some((runtime_id, host_epoch, lease_generation)) =
+            host_identity.runtime_attachment_tokens()
+        {
+            commit_terminal_lifecycle_with_runtime_attachment(
+                &mut registry,
+                "terminal-ready",
+                "terminal-adopted",
+                terminal_id,
+                TerminalLifecycle::Running,
+                Some(incarnation),
+                None,
+                TerminalRuntimeAttachment {
+                    origin: "cmux-tui-runtime",
+                    idempotency_key: format!(
+                        "runtime-attachment-attached-{terminal_id}-{runtime_id}"
+                    ),
+                    terminal_id: runtime_attachment_public_id,
+                    runtime_id,
+                    state: "attached",
+                    host_epoch,
+                    lease_generation,
+                },
+            )
+        } else {
+            commit_terminal_lifecycle(
+                &mut registry,
+                "terminal-ready",
+                "terminal-adopted",
+                terminal_id,
+                TerminalLifecycle::Running,
+                Some(incarnation),
+                None,
+            )
+        };
         let revision = match lifecycle {
             Ok((_, revision)) => revision,
             Err(error) => {
@@ -5913,10 +5930,7 @@ impl Mux {
                 }
             };
             let incarnation = TerminalId::random()?.to_hex();
-            let identity = TerminalHostIdentity {
-                terminal_id: terminal_hex.clone(),
-                incarnation: incarnation.clone(),
-            };
+            let identity = TerminalHostIdentity::legacy(terminal_hex.clone(), incarnation.clone());
             {
                 let mut registry = self.workspace_registry.lock().unwrap();
                 let (_, revision) = match commit_terminal_lifecycle(
@@ -7078,10 +7092,12 @@ impl Mux {
             self.next_id(),
             self.surface_options.lock().unwrap().clone(),
             Arc::downgrade(self),
-            TerminalHostIdentity {
-                terminal_id: terminal_id.to_string(),
-                incarnation: incarnation.to_string(),
-            },
+            TerminalHostIdentity::with_liveness(
+                terminal_id,
+                incarnation,
+                incarnation,
+                runtime_attachment_lease_generation_for_test(incarnation),
+            ),
         )?;
         let mut state = self.state.lock().unwrap();
         insert_surface_checked(&mut state, surface.clone())?;
@@ -7095,7 +7111,13 @@ impl Mux {
         drop(state);
         drop(registry);
         self.commit_ordinary_full_resource_projection("test.terminal.seed", serde_json::json!({}))?;
-        self.record_terminal_runtime_attachment_source(terminal_id, incarnation, "attached")?;
+        let identity = TerminalHostIdentity::with_liveness(
+            terminal_id,
+            incarnation,
+            incarnation,
+            runtime_attachment_lease_generation_for_test(incarnation),
+        );
+        self.record_terminal_runtime_attachment_source(&identity, "attached")?;
         Ok(surface.id)
     }
 
@@ -8617,23 +8639,27 @@ impl Mux {
 
     fn record_terminal_runtime_attachment_source(
         &self,
-        terminal_id: &str,
-        incarnation: &str,
+        identity: &TerminalHostIdentity,
         state: &'static str,
     ) -> anyhow::Result<()> {
-        let mut registry = self.workspace_registry.lock().unwrap();
-        let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
+        let Some((runtime_id, host_epoch, lease_generation)) = identity.runtime_attachment_tokens()
+        else {
             return Ok(());
         };
-        let idempotency_key = format!("runtime-attachment-{state}-{terminal_id}-{incarnation}");
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let Some(public_id) = registry.terminal_resource_id(&identity.terminal_id)? else {
+            return Ok(());
+        };
+        let idempotency_key =
+            format!("runtime-attachment-{state}-{}-{runtime_id}", identity.terminal_id);
         registry.record_runtime_attachment_update(
             "cmux-tui-runtime",
             &idempotency_key,
             &public_id,
-            incarnation,
+            runtime_id,
             state,
-            incarnation,
-            incarnation,
+            host_epoch,
+            lease_generation,
         )?;
         Ok(())
     }
@@ -10546,11 +10572,7 @@ impl Mux {
             // process startup. Re-read canonical placement after Ready and
             // hold registry -> state through the binding so a move committed
             // during launch is projected instead of the stale request target.
-            self.record_terminal_runtime_attachment_source(
-                &identity.terminal_id,
-                &identity.incarnation,
-                "attached",
-            )?;
+            self.record_terminal_runtime_attachment_source(&identity, "attached")?;
             let projected = self.bind_running_terminal_to_canonical_workspace(&surface);
             let (placement, canonical_workspace, changed, created_path) = match projected {
                 Ok(projected) => projected,
@@ -12445,14 +12467,21 @@ impl Mux {
         };
         let topology =
             detach_projection.as_ref().map(|projection| (&projection.patch, &projection.changes));
-        let runtime_attachment = incarnation.map(|incarnation| TerminalExitRuntimeAttachment {
-            origin: "cmux-tui-runtime",
-            idempotency_key: format!("runtime-attachment-detached-{terminal_id}-{incarnation}"),
-            runtime_id: incarnation,
-            state: "detached",
-            host_epoch: incarnation,
-            lease_generation: incarnation,
-        });
+        let runtime_attachment = match (public_terminal_id.as_ref(), incarnation) {
+            (Some(public_terminal_id), Some(incarnation)) => registry
+                .runtime_attachment_lease_tokens(public_terminal_id, incarnation)?
+                .map(|(host_epoch, lease_generation)| TerminalExitRuntimeAttachment {
+                    origin: "cmux-tui-runtime",
+                    idempotency_key: format!(
+                        "runtime-attachment-detached-{terminal_id}-{incarnation}"
+                    ),
+                    runtime_id: incarnation.to_string(),
+                    state: "detached",
+                    host_epoch,
+                    lease_generation,
+                }),
+            _ => None,
+        };
         let (_, terminal_revision, resource_revision, replayed) = registry.commit_terminal_exit(
             terminal_id,
             incarnation,
@@ -14477,6 +14506,11 @@ fn commit_terminal_transition(
         }),
     )?;
     Ok(commit.revision)
+}
+
+#[cfg(all(test, unix))]
+fn runtime_attachment_lease_generation_for_test(incarnation: &str) -> String {
+    format!("lease-{incarnation}")
 }
 
 /// Advance only renderer lifecycle fields from the latest durable row. This
@@ -18519,20 +18553,8 @@ mod tests {
     fn stable_terminal_lookup_never_chooses_between_duplicate_ids() {
         let terminal_id = "00112233445566778899aabbccddeeff";
         let identities = vec![
-            (
-                10,
-                TerminalHostIdentity {
-                    terminal_id: terminal_id.into(),
-                    incarnation: "11111111111111111111111111111111".into(),
-                },
-            ),
-            (
-                20,
-                TerminalHostIdentity {
-                    terminal_id: terminal_id.into(),
-                    incarnation: "22222222222222222222222222222222".into(),
-                },
-            ),
+            (10, TerminalHostIdentity::legacy(terminal_id, "11111111111111111111111111111111")),
+            (20, TerminalHostIdentity::legacy(terminal_id, "22222222222222222222222222222222")),
         ];
 
         assert_eq!(
@@ -18668,10 +18690,10 @@ mod tests {
             mux.next_id(),
             opts,
             Arc::downgrade(&mux),
-            TerminalHostIdentity {
-                terminal_id: "00112233445566778899aabbccddeeff".into(),
-                incarnation: "11111111111111111111111111111111".into(),
-            },
+            TerminalHostIdentity::legacy(
+                "00112233445566778899aabbccddeeff",
+                "11111111111111111111111111111111",
+            ),
         )
         .unwrap();
         wait_for_kitty_image_budget(&mux);
@@ -20221,7 +20243,10 @@ mod tests {
         assert_eq!(payload["runtime_id"], INCARNATION);
         assert_eq!(payload["state"], "attached");
         assert_eq!(payload["host_epoch"], INCARNATION);
-        assert_eq!(payload["lease_generation"], INCARNATION);
+        assert_eq!(
+            payload["lease_generation"],
+            runtime_attachment_lease_generation_for_test(INCARNATION)
+        );
 
         let serialized = serde_json::to_string(payload).unwrap();
         for forbidden in [
@@ -20358,7 +20383,7 @@ mod tests {
             TerminalLifecycle::Exited
         );
         let payloads = runtime_attachment_event_payloads(&mux);
-        assert!(payloads.iter().any(|payload| {
+        assert!(!payloads.iter().any(|payload| {
             payload["terminal_id"] == public_id.as_str()
                 && payload["runtime_id"] == CURRENT_INCARNATION
                 && payload["state"] == "detached"
@@ -20391,7 +20416,7 @@ mod tests {
                 &public_id,
                 INCARNATION,
                 INCARNATION,
-                INCARNATION,
+                &runtime_attachment_lease_generation_for_test(INCARNATION),
                 "host_liveness_dead",
             )
             .unwrap();
@@ -20471,7 +20496,12 @@ mod tests {
             mux.surface_options.lock().unwrap().clone(),
             Arc::downgrade(&mux),
             Some(TabResourceIdentity::terminal(None).unwrap()),
-            TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() },
+            TerminalHostIdentity::with_liveness(
+                TERMINAL,
+                INCARNATION,
+                INCARNATION,
+                runtime_attachment_lease_generation_for_test(INCARNATION),
+            ),
         )
         .unwrap();
         let expected_public_id = surface.terminal_public_id().cloned().unwrap();
@@ -24331,7 +24361,7 @@ mod tests {
             exited_at_ms: 1_234_567,
         };
         let sidecar = crate::terminal_host_runtime::TerminalHostExitRecord::new(
-            &TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() },
+            &TerminalHostIdentity::legacy(TERMINAL, INCARNATION),
             exit,
         );
         let sidecar_path = sidecar.record_path(&host_root);
@@ -24560,7 +24590,7 @@ mod tests {
             mux.next_id(),
             mux.surface_options.lock().unwrap().clone(),
             Arc::downgrade(&mux),
-            TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() },
+            TerminalHostIdentity::legacy(TERMINAL, INCARNATION),
         )
         .unwrap();
         insert_surface_checked(&mut mux.state.lock().unwrap(), surface.clone()).unwrap();

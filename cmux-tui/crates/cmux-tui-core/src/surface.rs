@@ -7250,10 +7250,10 @@ mod tests {
     #[test]
     fn exited_host_placeholder_preserves_identity_and_rejects_input() {
         let mux = Mux::new_for_test("exited-host-placeholder", SurfaceOptions::default());
-        let identity = crate::terminal_host_runtime::TerminalHostIdentity {
-            terminal_id: crate::terminal_host::TerminalId::random().unwrap().to_hex(),
-            incarnation: crate::terminal_host::HostIncarnation::random().unwrap().to_hex(),
-        };
+        let identity = crate::terminal_host_runtime::TerminalHostIdentity::legacy(
+            crate::terminal_host::TerminalId::random().unwrap().to_hex(),
+            crate::terminal_host::HostIncarnation::random().unwrap().to_hex(),
+        );
         let surface = Surface::exited_terminal_placeholder(
             91,
             SurfaceOptions::default(),

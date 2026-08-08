@@ -16,10 +16,10 @@ use crate::terminal_host_protocol::TerminalExit;
 pub(crate) struct TerminalExitRuntimeAttachment<'a> {
     pub(crate) origin: &'a str,
     pub(crate) idempotency_key: String,
-    pub(crate) runtime_id: &'a str,
+    pub(crate) runtime_id: String,
     pub(crate) state: &'a str,
-    pub(crate) host_epoch: &'a str,
-    pub(crate) lease_generation: &'a str,
+    pub(crate) host_epoch: String,
+    pub(crate) lease_generation: String,
 }
 
 impl WorkspaceRegistry {
@@ -248,10 +248,10 @@ impl WorkspaceRegistry {
                         origin: runtime_attachment.origin,
                         idempotency_key: runtime_attachment.idempotency_key.as_str(),
                         terminal_id: &terminal_public_id,
-                        runtime_id: runtime_attachment.runtime_id,
+                        runtime_id: runtime_attachment.runtime_id.as_str(),
                         state: runtime_attachment.state,
-                        host_epoch: runtime_attachment.host_epoch,
-                        lease_generation: runtime_attachment.lease_generation,
+                        host_epoch: runtime_attachment.host_epoch.as_str(),
+                        lease_generation: runtime_attachment.lease_generation.as_str(),
                     },
                 )?;
             }

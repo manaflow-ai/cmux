@@ -1661,6 +1661,24 @@ impl WorkspaceRegistry {
         Ok(JournalAppendCommit { sequence, event_id, replayed: false })
     }
 
+    pub(crate) fn runtime_attachment_lease_tokens(
+        &self,
+        terminal_id: &TerminalPublicId,
+        runtime_id: &str,
+    ) -> anyhow::Result<Option<(String, String)>> {
+        validate_runtime_loss_token("runtime id", runtime_id)?;
+        self.connection
+            .query_row(
+                "SELECT host_epoch, lease_generation
+                 FROM journal_runtime_attachment_states
+                 WHERE terminal_id = ?1 AND runtime_id = ?2",
+                params![terminal_id.as_str(), runtime_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
     #[allow(dead_code)]
     pub(crate) fn record_runtime_host_loss_proof(
         &mut self,
