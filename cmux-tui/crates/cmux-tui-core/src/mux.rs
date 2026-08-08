@@ -23087,7 +23087,7 @@ mod tests {
                             },
                             ResourceChange::SetScreenOrder {
                                 workspace_id: workspace.public_id.clone(),
-                                screen_ids: vec![screen.clone()],
+                                screen_ids: vec![screen],
                             },
                             ResourceChange::SetTabOrder {
                                 pane_id: pane.clone(),
