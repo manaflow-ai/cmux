@@ -664,7 +664,7 @@ fn session_reset_state_rejects_global_routing_options() {
             .output()
             .unwrap();
         assert!(!output.status.success(), "{option} unexpectedly reached reset execution");
-        let error: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
         assert_eq!(error["code"], "session.reset_state.routing_options_unsupported");
         assert_eq!(error["details"]["options"], serde_json::json!([option]));
         assert!(error["message"].as_str().unwrap().contains(option));
