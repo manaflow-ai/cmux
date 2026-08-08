@@ -604,6 +604,7 @@ jobs:
             | xargs -I{} echo "Duration: {}s"
 
       - name: Upload recording artifact
+        id: recording
         if: ${{ always() && steps.filter.outputs.record_video == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -622,6 +623,7 @@ jobs:
           COMMIT_SHA: ${{ steps.sha.outputs.sha }}
           RUN_ID: ${{ github.run_id }}
           RECORD_VIDEO: ${{ steps.filter.outputs.record_video }}
+          RECORDING_URL: ${{ steps.recording.outputs.artifact-url }}
         run: |
           set -euo pipefail
 
@@ -633,8 +635,6 @@ jobs:
 
           REF_DISPLAY="${{ inputs.ref || github.ref_name }}"
           RUN_URL="https://github.com/${{ github.repository }}/actions/runs/$RUN_ID"
-          ARTIFACT_URL="$RUN_URL#artifacts"
-
           {
             echo "## E2E test result"
             echo
@@ -645,7 +645,11 @@ jobs:
             echo "**Workflow run:** $RUN_URL"
 
             if [ "$RECORD_VIDEO" = "true" ]; then
-              echo "**Recording:** [Download from artifacts]($ARTIFACT_URL) (retained for 30 days)"
+              if [ -n "$RECORDING_URL" ]; then
+                echo "**Recording:** [Download artifact]($RECORDING_URL) (retained for 30 days)"
+              else
+                echo "**Recording:** unavailable"
+              fi
             fi
 
             if [ -n "$TEST_OUTPUT" ]; then
