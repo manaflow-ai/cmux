@@ -8685,6 +8685,42 @@ impl App {
         self.sidebar_layout.ordered.iter().map(|placement| placement.kind).collect()
     }
 
+    fn focusable_rail_order(&self) -> Vec<RailKind> {
+        let order = self.visible_rail_order();
+        if !order.is_empty() {
+            return order;
+        }
+        let size = (
+            self.sidebar_layout.content.x.saturating_add(self.sidebar_layout.content.width),
+            self.sidebar_layout.content.height.saturating_add(1),
+        );
+        if size.0 == 0 || size.1 == 0 {
+            return Vec::new();
+        }
+        let hidden_views = self
+            .hidden_sidebar_views
+            .get(&self.config.sidebar.active_profile)
+            .cloned()
+            .unwrap_or_default();
+        sidebar_layout_for_state(
+            &self.config,
+            true,
+            self.sidebar_compact,
+            self.machine_ui.is_some(),
+            size,
+            self.sidebar_width_override,
+            self.machine_sidebar_width_override,
+            self.tabs_sidebar_width_override,
+            &self.projection_sidebar_width_overrides,
+            &hidden_views,
+            None,
+        )
+        .ordered
+        .iter()
+        .map(|placement| placement.kind)
+        .collect()
+    }
+
     fn rail_kind_for_view(&self, index: usize) -> RailKind {
         self.config.sidebar.views.get(index).and_then(|view| view.legacy_kind()).map_or(
             RailKind::Projection(index),
@@ -15093,7 +15129,10 @@ impl App {
             }
         };
         match command {
-            Some(MachineRailCommand::Activate(machine)) => self.activate_machine(machine),
+            Some(MachineRailCommand::Activate(machine)) => {
+                self.activate_machine(machine);
+                self.focus = FocusTarget::Pane;
+            }
             Some(MachineRailCommand::Rename(machine)) => {
                 self.open_rename_machine_prompt(machine);
             }
@@ -15134,12 +15173,10 @@ impl App {
             .views
             .get(view_index)
             .and_then(|view| self.projection_rails.get(&view.id))
-            .map_or(0, |state| {
-                state
-                    .selected_action
-                    .filter(|index| *index < actions.len())
-                    .map(|index| rows.len().saturating_add(index))
-                    .unwrap_or_else(|| state.selected.min(selectable_rows.saturating_sub(1)))
+            .map_or(0, |state| match state.selected_action {
+                Some(index) if index < actions.len() => rows.len().saturating_add(index),
+                Some(_) => selectable_rows,
+                None => state.selected.min(selectable_rows.saturating_sub(1)),
             });
         let selected = rows.get(current).cloned();
         if matches!(key.code, KeyCode::Left | KeyCode::Char('h')) {
@@ -15190,9 +15227,7 @@ impl App {
         if key.code == KeyCode::Enter {
             if let Some(row) = selected {
                 self.activate_projection_target(row.target)?;
-                if self.tree.active_surface().is_some() {
-                    self.focus = FocusTarget::Pane;
-                }
+                self.focus = FocusTarget::Pane;
             } else if let Some(action) = current
                 .checked_sub(rows.len())
                 .and_then(|index| actions.get(index))
@@ -15546,6 +15581,7 @@ impl App {
                                 self.tree.workspaces.iter().position(|workspace| workspace.id == id)
                             {
                                 self.select_workspace_for_client(Some(index), None);
+                                self.focus = FocusTarget::Pane;
                             }
                         }
                         Some(WorkspaceRailTarget::Action(action)) => {
@@ -15553,6 +15589,7 @@ impl App {
                         }
                         Some(WorkspaceRailTarget::Recoverable(id)) => {
                             self.request_restore_managed_workspace(&id);
+                            self.focus = FocusTarget::Pane;
                         }
                         None => {}
                     }
@@ -15600,6 +15637,7 @@ impl App {
             && let Some(target) = targets.get(self.tabs_rail_selection)
         {
             self.activate_sidebar_tab(target)?;
+            self.focus = FocusTarget::Pane;
         }
         Ok(RenderAction::Draw)
     }
@@ -16968,34 +17006,16 @@ impl App {
         self.sidebar_visible = true;
         let requested = self.config.sidebar.plugin.is_some() && self.sync_sidebar_plugin(true);
         if self.config.sidebar.plugin.is_none() || self.sidebar_plugin_surface.is_some() {
-            let preferred = self
-                .config
-                .sidebar
-                .views
+            let order = self.focusable_rail_order();
+            let preferred = order
                 .iter()
-                .enumerate()
-                .find(|(_, view)| view.includes(SidebarResourceKind::Workspaces))
-                .map(|(index, view)| {
-                    view.legacy_kind().map_or(RailKind::Projection(index), |kind| match kind {
-                        SidebarColumnKind::Machines => RailKind::Machine,
-                        SidebarColumnKind::Workspaces => RailKind::Workspace,
-                        SidebarColumnKind::Tabs => RailKind::Tabs,
-                    })
+                .copied()
+                .find(|kind| {
+                    self.view_index_for_rail(*kind)
+                        .and_then(|index| self.config.sidebar.views.get(index))
+                        .is_some_and(|view| view.includes(SidebarResourceKind::Workspaces))
                 })
-                .or_else(|| {
-                    self.config.sidebar.views.iter().enumerate().find_map(
-                        |(index, view)| match view.legacy_kind() {
-                            Some(SidebarColumnKind::Machines) if self.machine_ui.is_some() => {
-                                Some(RailKind::Machine)
-                            }
-                            Some(SidebarColumnKind::Tabs) => Some(RailKind::Tabs),
-                            Some(SidebarColumnKind::Machines | SidebarColumnKind::Workspaces) => {
-                                None
-                            }
-                            None => Some(RailKind::Projection(index)),
-                        },
-                    )
-                });
+                .or_else(|| order.first().copied());
             if let Some(kind) = preferred {
                 self.focus_rail(kind);
             }
@@ -34071,7 +34091,9 @@ mod tests {
         let (mux, surface) = test_mux("focus-builtin-sidebar-test", None);
         let mut app = test_app(Session::Local(mux.clone()));
         app.tree = notify_tree(surface.id, false);
+        app.sync_layout((100, 16));
         app.sidebar_visible = false;
+        app.sync_layout((100, 16));
 
         app.run_action(Action::FocusSidebar).unwrap();
         assert!(app.sidebar_visible);
@@ -34080,6 +34102,25 @@ mod tests {
         app.run_action(Action::FocusSidebar).unwrap();
         assert!(!app.workspace_sidebar_focused());
         mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn focus_sidebar_uses_only_visible_rails() {
+        let mux = Mux::new("focus-visible-rails-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut machine_ui = provider_machine_ui();
+        machine_ui.session_available = true;
+        app.machine_ui = Some(machine_ui);
+        app.hidden_sidebar_views
+            .entry(app.config.sidebar.active_profile.clone())
+            .or_default()
+            .insert("workspaces".into());
+        app.sync_layout((100, 16));
+        assert_eq!(app.visible_rail_order(), vec![RailKind::Machine]);
+
+        app.run_action(Action::FocusSidebar).unwrap();
+
+        assert_eq!(app.focus, FocusTarget::MachineRail);
     }
 
     #[test]
@@ -34310,6 +34351,45 @@ mod tests {
 
         assert_eq!(app.focus, FocusTarget::Pane);
         assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+    }
+
+    #[test]
+    fn machine_keyboard_switch_returns_focus_to_pane() {
+        let mux = Mux::new("machine-keyboard-switch-focus-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![
+                MachineDescriptor {
+                    key: MachineKey(41),
+                    id: "machine-41".into(),
+                    name: "active".into(),
+                    subtitle: "local".into(),
+                    status: MachineStatus::Running,
+                },
+                MachineDescriptor {
+                    key: MachineKey(42),
+                    id: "machine-42".into(),
+                    name: "remote".into(),
+                    subtitle: "ssh".into(),
+                    status: MachineStatus::Running,
+                },
+            ],
+            active: Some(MachineKey(41)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.select_rail_target(crate::machine::MachineRailTarget::Machine(MachineKey(42)));
+        app.machine_ui = Some(ui);
+        app.machine_selection_intent = Some(MachineKey(41));
+        app.machine_presented = Some(MachineKey(41));
+        app.focus = FocusTarget::MachineRail;
+
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::Switch(MachineKey(42)))
+        );
+        assert_eq!(app.focus, FocusTarget::Pane);
     }
 
     #[test]
@@ -36505,6 +36585,7 @@ mod tests {
         app.tabs_rail_selection = 0;
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.tree.active_surface(), Some(first.id));
+        assert_eq!(app.focus, FocusTarget::Pane);
 
         for surface in [first.id, second.id] {
             mux.close_surface(surface).unwrap();
@@ -36562,6 +36643,28 @@ mod tests {
     }
 
     #[test]
+    fn workspace_keyboard_enter_returns_focus_to_pane() {
+        let mux = Mux::new("workspace-keyboard-enter-focus-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+        app.sidebar_workspace_selection = 0;
+        app.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+        app.focus = FocusTarget::WorkspaceRail;
+
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+
+        assert_eq!(app.focus, FocusTarget::Pane);
+
+        for surface in [first.id, second.id] {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
     fn projection_enter_on_active_surface_returns_focus_to_pane() {
         let (mux, surface) = test_mux("projection-active-surface-enter-test", None);
         mux.report_agent(
@@ -36591,6 +36694,43 @@ mod tests {
 
         assert_eq!(app.tree.active_surface(), Some(surface.id));
         assert_eq!(app.focus, FocusTarget::Pane);
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn projection_stale_action_selection_does_not_retarget_resource_row() {
+        let (mux, surface) = test_mux("projection-stale-action-selection-test", None);
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("agent-session".into()),
+        )
+        .unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "workspace-agents".into(),
+            levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        let state = app.projection_rail_state_mut(0);
+        state.selected = 0;
+        state.selected_action = Some(99);
+        app.focus = FocusTarget::ProjectionRail(0);
+
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)).unwrap();
+
+        assert!(
+            app.projection_rail_state_mut(0).collapsed.is_empty(),
+            "stale action selection must not collapse the selected resource row"
+        );
 
         mux.close_surface(surface.id).unwrap();
     }
