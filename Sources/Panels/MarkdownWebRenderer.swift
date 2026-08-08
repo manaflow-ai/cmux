@@ -26,11 +26,23 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
     }
 
-    func makeNSView(context: Context) -> WKWebView {
+    /// Returns a throwaway container per representable; the coordinator owns
+    /// parenting the shared webview into the current one. SwiftUI can host two
+    /// representables for the same tab within one transaction (a cross-pane
+    /// move whose source pane collapses) — if both return the same NSView, the
+    /// dying host's teardown rips the webview out of the adopting host's
+    /// hierarchy permanently. Containers make teardown destroy only a container.
+    func makeNSView(context: Context) -> NSView {
+        let container = NSView()
+        container.autoresizesSubviews = true
+        ensureWebView(context: context)
+        context.coordinator.adopt(container: container)
+        return container
+    }
+
+    /// Creates the session-retained webview if needed and re-applies per-host bindings.
+    private func ensureWebView(context: Context) {
         if let webView = context.coordinator.webView {
-            if webView.superview != nil {
-                webView.removeFromSuperview()
-            }
             webView.onPointerDown = onRequestPanelFocus
             webView.onLeaveWindow = { [weak coordinator = context.coordinator] in
                 coordinator?.handleViewLeftWindow()
@@ -45,7 +57,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             context.coordinator.setFontSize(fontSize)
             context.coordinator.setFontFamily(fontFamily)
             context.coordinator.setMaxContentWidth(maxContentWidth)
-            return webView
+            return
         }
 
         let config = WKWebViewConfiguration()
@@ -90,32 +102,38 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         context.coordinator.setFontFamily(fontFamily)
         context.coordinator.setMaxContentWidth(maxContentWidth)
         context.coordinator.loadShell(theme: theme, initialMarkdown: markdown)
-        return webView
     }
 
-    func updateNSView(_ nsView: WKWebView, context: Context) {
+    func updateNSView(_ nsView: NSView, context: Context) {
         // Re-bind panel metadata in case SwiftUI recreated the wrapper while
         // the panel-owned renderer session kept the same coordinator.
         context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
-        (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
-        applyBackground(to: nsView)
-        applyAppearance(to: nsView, isDark: theme.isDark)
+        context.coordinator.adopt(container: nsView)
+        if let webView = context.coordinator.webView {
+            (webView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
+            applyBackground(to: webView)
+            applyAppearance(to: webView, isDark: theme.isDark)
+        }
         context.coordinator.setFontSize(fontSize)
         context.coordinator.setFontFamily(fontFamily)
         context.coordinator.setMaxContentWidth(maxContentWidth)
         context.coordinator.update(markdown: markdown, theme: theme)
     }
 
-    static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
-        if let retainedWebView = coordinator.webView, retainedWebView === nsView {
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.containerWillDismantle(nsView)
+        // A raw webview handed in directly (defense in depth; hosts only hold
+        // containers now) — clean it up unless it is the session-retained one.
+        guard let webView = nsView as? WKWebView else { return }
+        if let retainedWebView = coordinator.webView, retainedWebView === webView {
             return
         }
-        nsView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
-        nsView.navigationDelegate = nil
-        nsView.uiDelegate = nil
-        (nsView as? MarkdownWebView)?.onPointerDown = nil
-        (nsView as? MarkdownWebView)?.onLeaveWindow = nil
-        (nsView as? MarkdownWebView)?.onReenterWindow = nil
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        (webView as? MarkdownWebView)?.onPointerDown = nil
+        (webView as? MarkdownWebView)?.onLeaveWindow = nil
+        (webView as? MarkdownWebView)?.onReenterWindow = nil
         coordinator.cancelImageLoads()
     }
 
@@ -267,8 +285,53 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             isShellLoading = false
             webContentProcessRecoveryAttempts = 0
             shellWasHealthyWhenDetached = false
+            currentContainer = nil
             cancelImageLoads()
             requestedLibs.removeAll()
+        }
+
+        /// The representable container that should currently host the webview.
+        private weak var currentContainer: NSView?
+        private var reparentScheduled = false
+
+        /// First-time adoption is synchronous so the initial mount is not
+        /// blank; migration defers one runloop tick, after which the SwiftUI
+        /// transaction has settled and the surviving container is unambiguous.
+        func adopt(container: NSView) {
+            guard currentContainer !== container else {
+                scheduleReparentIfNeeded()
+                return
+            }
+            currentContainer = container
+            if webView?.superview == nil {
+                reparentNow()
+            } else {
+                scheduleReparentIfNeeded()
+            }
+        }
+
+        func containerWillDismantle(_ container: NSView) {
+            // The webview may sit inside the dying container; queue a re-parent.
+            scheduleReparentIfNeeded()
+        }
+
+        private func scheduleReparentIfNeeded() {
+            guard !reparentScheduled else { return }
+            reparentScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.reparentScheduled = false
+                self.reparentNow()
+            }
+        }
+
+        private func reparentNow() {
+            guard let webView, let container = currentContainer else { return }
+            guard webView.superview !== container else { return }
+            webView.removeFromSuperview()
+            webView.frame = container.bounds
+            webView.autoresizingMask = [.width, .height]
+            container.addSubview(webView)
         }
 
         func loadShell(theme: MarkdownWebTheme, initialMarkdown: String) {
@@ -758,10 +821,27 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             shellWasHealthyWhenDetached = isLoaded
         }
 
+        /// A hide/unhide cycle across a runloop turn forces WebKit to
+        /// re-create its remote layer host connection after a reparent;
+        /// synchronous toggles coalesce into a no-op.
+        private func scheduleRemoteLayerNudge() {
+            DispatchQueue.main.async { [weak self] in
+                guard let webView = self?.webView, webView.window != nil else { return }
+                webView.isHidden = true
+                DispatchQueue.main.async { [weak self] in
+                    self?.webView?.isHidden = false
+                }
+            }
+        }
+
         func handleViewReenteredWindow() {
-            // A still-loaded shell — alive but merely unpainted — is left
-            // intact; the host view's repaint nudge handles that case.
-            guard !isLoaded else { return }
+            // A still-loaded shell survives the reparent with its DOM intact,
+            // but the window hop severs WebKit's remote layer host and the
+            // panel shows blank. Nudge the layer host back.
+            guard !isLoaded else {
+                scheduleRemoteLayerNudge()
+                return
+            }
             // Recover only when the document was healthy before the detach, so
             // a payload that exhausted its crash-recovery budget while attached
             // (a crash loop) is not granted a fresh budget by pane reparenting.
