@@ -551,8 +551,6 @@ impl PersistentSessionStateResetter {
         };
         #[cfg(test)]
         inject_reset_recreated_session_dir_after_staging(&session_dir)?;
-        #[cfg(not(unix))]
-        drop(lease);
         for (reset_dir, expected_fingerprint) in
             pending_reset_dirs.iter().zip(&confirmation.pending_reset_dir_fingerprints)
         {
