@@ -1339,6 +1339,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             composer: composerContainer,
             toolbarRowHeight: Self.persistentToolbarHeight
         )
+        keyboardDockAccessory?.setBottomFillColor(terminalTheme.terminalBackgroundUIColor)
         // The hosted SwiftUI field cannot supply an accessory itself; the
         // container answers for it through responder-chain resolution with the
         // surface's own policy (nil while the chrome is hidden).
@@ -2777,25 +2778,71 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Reconciles any focus request retained while the picker was on screen.
     public func photoPickerDidDismiss() {
         inputSession.send(.modalDidDismiss)
-        reconcileDockSeatAfterModalDismissal()
-        // This fires on the binding flip, while the sheet is still animating
-        // out, so responder work that UIKit denies mid-transition is retried
-        // once on the next main-queue turn.
-        DispatchQueue.main.async { [weak self] in
-            self?.reconcileDockSeatAfterModalDismissal()
+        // This fires on the binding flip, while the dismissal is still
+        // animating. A sheet leaves the app window's responders intact so the
+        // immediate pass settles everything; a FULL-SCREEN presentation (the
+        // phone's Photos picker) keeps denying `becomeFirstResponder` until
+        // its transition completes, hundreds of milliseconds later, so the
+        // seat is retried on the surface's existing display link until it
+        // lands (bounded; a new modal or a settled seat stops it).
+        if !reconcileDockSeatAfterModalDismissal() {
+            pendingDockReseatDeadline = CACurrentMediaTime() + 3
+            startDisplayLink()
         }
     }
 
-    /// Post-modal seat reconciliation. The sheet hides the keyboard while the
-    /// text owner keeps first responder; a later tap on that still-focused
-    /// field is a responder no-op, so it could never re-summon the keyboard.
-    /// Release the text seat (the surface re-takes the keyboard-down seat, so
-    /// the dock stays docked) and the next tap runs the normal focus path.
-    private func reconcileDockSeatAfterModalDismissal() {
+    /// Post-modal seat reconciliation. The presentation hides the keyboard
+    /// while the text owner keeps (or loses) first responder; a later tap on
+    /// a still-focused field is a responder no-op, so it could never
+    /// re-summon the keyboard. Release the text seat (the surface re-takes
+    /// the keyboard-down seat, so the dock stays docked) and the next tap
+    /// runs the normal focus path.
+    ///
+    /// - Returns: Whether a cmux responder holds the seat AND the dock is
+    ///   mounted (or intentionally withheld by hidden chrome).
+    @discardableResult
+    private func reconcileDockSeatAfterModalDismissal() -> Bool {
+        guard inputSession.state.modalPhase == .none else { return true }
         if inputSession.state.actualOwner != nil, !keyboardVisible {
             resignCurrentInput()
         }
-        reseatDockAccessoryIfUnowned()
+        guard reseatDockAccessoryIfUnowned() else { return false }
+        if !chromeHidden, keyboardDockAccessory?.window == nil {
+            // The modal can tear the accessory out of the keyboard window
+            // while the seat holder stays first responder, so holding the
+            // seat is NOT enough: UIKit never re-evaluates input views for a
+            // responder that never changed. Force the remount, then report
+            // unsettled until the accessory actually reaches a window (the
+            // display-link retry keeps calling until it does).
+            currentDockSeatResponder()?.reloadInputViews()
+            return keyboardDockAccessory?.window != nil
+        }
+        return true
+    }
+
+    /// The responder currently holding the dock accessory's seat, if any.
+    private func currentDockSeatResponder() -> UIResponder? {
+        if inputProxy.isFirstResponder { return inputProxy }
+        if isFirstResponder { return self }
+        return composerContainer.firstResponderInSubtree()
+    }
+
+    /// Deadline for the display-link-driven post-modal reseat; 0 when idle.
+    private var pendingDockReseatDeadline: CFTimeInterval = 0
+
+    /// Runs on the display link while a post-modal reseat is pending: UIKit
+    /// denies responder changes until the dismissal transition completes, so
+    /// each frame retries until the seat lands or the bounded window passes.
+    func settlePendingDockReseatIfNeeded() {
+        guard pendingDockReseatDeadline > 0 else { return }
+        if inputSession.state.modalPhase != .none {
+            pendingDockReseatDeadline = 0
+            return
+        }
+        if reconcileDockSeatAfterModalDismissal()
+            || CACurrentMediaTime() > pendingDockReseatDeadline {
+            pendingDockReseatDeadline = 0
+        }
     }
 
     /// Takes the surface's keyboard-down first-responder seat when no cmux
@@ -3263,6 +3310,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if checkSurfaceOperationDeadlines(now: now) {
             return
         }
+        settlePendingDockReseatIfNeeded()
         completePendingVerifiedReplayPresentationIfPresented()
         guard surface != nil else {
             if !hasPendingSurfaceOperationDeadline {
@@ -3563,6 +3611,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         snapshotFallbackView.textColor = terminalTheme.terminalForegroundUIColor
         configBackgroundColor = themeBackground
         inputProxy.terminalTheme = terminalTheme
+        keyboardDockAccessory?.setBottomFillColor(themeBackground)
         needsDraw = true
     }
 
