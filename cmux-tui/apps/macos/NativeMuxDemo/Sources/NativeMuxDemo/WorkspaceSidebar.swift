@@ -5,7 +5,11 @@ struct WorkspaceSidebar: View {
     let snapshot: ResourceSnapshot
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let spaceCountByWorkspaceID = Dictionary(
+            grouping: snapshot.screens,
+            by: \.workspaceID
+        ).mapValues(\.count)
+        return VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(L10n.text("sidebar.workspaces", "WORKSPACES"))
                     .font(.caption2.weight(.semibold))
@@ -28,7 +32,7 @@ struct WorkspaceSidebar: View {
                         WorkspaceSidebarRow(
                             workspace: workspace,
                             selectedWorkspaceID: selectedWorkspaceID,
-                            spaceCount: snapshot.screens(in: workspace.id).count,
+                            spaceCount: spaceCountByWorkspaceID[workspace.id, default: 0],
                             onSelect: { model.selectWorkspace(workspace) },
                             onClose: { model.closeWorkspace(workspace) }
                         )
