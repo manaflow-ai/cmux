@@ -1101,6 +1101,7 @@
       "surfaceCwd": "Répertoire de travail pour cette surface",
       "surfaceEnv": "Variables d'environnement sous forme de paires clé-valeur",
       "surfaceUrl": "URL à ouvrir (navigateur uniquement)",
+      "surfaceSelected": "Sélectionner cet onglet dans son volet à l’ouverture de l’espace de travail",
       "surfaceFocus": "Focaliser cette surface après la création",
       "cwdResolution": "Résolution du répertoire de travail",
       "omitted": "omis",

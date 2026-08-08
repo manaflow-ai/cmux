@@ -2208,6 +2208,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// The bonsplit controller managing the split panes for this workspace
     let bonsplitController: BonsplitController
+    /// Per-pane selection restoration must not run the global panel-activation path.
+    var suppressesCustomLayoutSelectionActivation = false
 
     /// Backing store for `dockSplit`, created on first access. Kept optional so
     /// workspace teardown can tear down the Dock only when it was actually used
@@ -12733,8 +12735,9 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
-        // Mirror bookkeeping restores selection from its transaction snapshot.
-        guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
+        // Focus-neutral restoration mutates Bonsplit selection without activating panels.
+        guard !remoteTmuxMirrorMutations.suppressesFocusActivation,
+              !suppressesCustomLayoutSelectionActivation else { return }
         applyTabSelection(tabId: tab.id, inPane: pane)
     }
 
@@ -12812,8 +12815,9 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
-        // Mirror bookkeeping restores pane focus without re-running activation.
-        guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
+        // Focus-neutral restoration mutates Bonsplit focus without activating panels.
+        guard !remoteTmuxMirrorMutations.suppressesFocusActivation,
+              !suppressesCustomLayoutSelectionActivation else { return }
         // When a pane is focused, focus its selected tab's panel
         guard let tab = controller.selectedTab(inPane: pane) else { return }
 #if DEBUG

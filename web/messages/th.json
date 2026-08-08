@@ -1102,6 +1102,7 @@
       "surfaceCwd": "ไดเรกทอรีทำงานสำหรับ surface นี้",
       "surfaceEnv": "ตัวแปรสภาพแวดล้อมในรูปแบบคู่คีย์-ค่า",
       "surfaceUrl": "URL ที่จะเปิด (เฉพาะเบราว์เซอร์)",
+      "surfaceSelected": "เลือกแท็บนี้ภายใน pane เมื่อเปิด workspace",
       "surfaceFocus": "โฟกัสที่ surface นี้หลังสร้าง",
       "cwdResolution": "การแก้ไขไดเรกทอรีทำงาน",
       "omitted": "ละไว้",

@@ -2010,6 +2010,7 @@
       "surfaceCwd": "Working directory for this surface",
       "surfaceEnv": "Environment variables as key-value pairs",
       "surfaceUrl": "URL to open (browser only)",
+      "surfaceSelected": "Select this tab within its pane when the workspace opens",
       "surfaceFocus": "Focus this surface after creation",
       "cwdResolution": "Working directory resolution",
       "omitted": "omitted",

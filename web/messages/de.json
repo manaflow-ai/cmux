@@ -1100,6 +1100,7 @@
       "surfaceCwd": "Arbeitsverzeichnis für diese Oberfläche",
       "surfaceEnv": "Umgebungsvariablen als Schlüssel-Wert-Paare",
       "surfaceUrl": "URL zum Öffnen (nur Browser)",
+      "surfaceSelected": "Diesen Tab innerhalb seines Bereichs auswählen, wenn der Arbeitsbereich geöffnet wird",
       "surfaceFocus": "Diese Oberfläche nach der Erstellung fokussieren",
       "cwdResolution": "Arbeitsverzeichnis-Auflösung",
       "omitted": "weggelassen",

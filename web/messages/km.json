@@ -1100,6 +1100,7 @@
       "surfaceCwd": "ថតការងារសម្រាប់ surface នេះ",
       "surfaceEnv": "អថេរបរិស្ថានជាគូ key-value",
       "surfaceUrl": "URL ដែលត្រូវបើក (កម្មវិធីរុករកតែប៉ុណ្ណោះ)",
+      "surfaceSelected": "ជ្រើស tab នេះក្នុង pane របស់វា ពេលបើក workspace",
       "surfaceFocus": "ផ្ដោតលើ surface នេះបន្ទាប់ពីបង្កើត",
       "cwdResolution": "ការដោះស្រាយថតការងារ",
       "omitted": "លុបចោល",

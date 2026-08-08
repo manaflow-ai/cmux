@@ -1100,6 +1100,7 @@
       "surfaceCwd": "Arbejdsmappe for denne overflade",
       "surfaceEnv": "Miljøvariabler som nøgle-værdi-par",
       "surfaceUrl": "URL der skal åbnes (kun browser)",
+      "surfaceSelected": "Vælg denne fane i dens rude, når arbejdsområdet åbnes",
       "surfaceFocus": "Fokuser på denne overflade efter oprettelse",
       "cwdResolution": "Opløsning af arbejdsmappe",
       "omitted": "udeladt",

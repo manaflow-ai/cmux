@@ -162,14 +162,21 @@ extension Workspace {
             guard let paneId = bonsplitController.allPaneIds.first(where: { $0.id.uuidString == pane.id }) else {
                 return nil
             }
+            let selectedTabId = bonsplitController.selectedTab(inPane: paneId)?.id
             let surfaces = bonsplitController.tabs(inPane: paneId).compactMap { tab -> CmuxSurfaceDefinition? in
                 guard let panelId = panelIdFromSurfaceId(tab.id) else { return nil }
-                return configCaptureSurfaceDefinition(
+                guard var definition = configCaptureSurfaceDefinition(
                     panelId: panelId,
                     workspaceCwd: workspaceCwd,
                     liveCommands: liveCommands,
                     skippedPanelCount: &skippedPanelCount
-                )
+                ) else {
+                    return nil
+                }
+                if tab.id == selectedTabId {
+                    definition.selected = true
+                }
+                return definition
             }
             guard !surfaces.isEmpty else { return nil }
             return .pane(CmuxPaneDefinition(surfaces: surfaces))
