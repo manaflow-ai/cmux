@@ -497,6 +497,69 @@ struct AgentChatSessionRegistryLifecycleTests {
         #expect(resolved.sessionID == newer.sessionID)
     }
 
+    /// `needsInput` is reached from four distinct hook events, so `state`
+    /// alone cannot tell a real permission gate from the idle-reminder timer
+    /// firing after a finished turn. The published `cause` is what keeps them
+    /// apart.
+    @MainActor
+    @Test func agentStateChangedCarriesTheHookEventThatProducedNeedsInput() throws {
+        let gates: [WorkstreamEvent.HookEventName] = [
+            .permissionRequest, .askUserQuestion, .exitPlanMode, .notification,
+        ]
+
+        for gate in gates {
+            let registry = AgentChatSessionRegistry()
+            let sessionID = UUID().uuidString
+            let workspaceID = UUID().uuidString
+            let surfaceID = UUID().uuidString
+            let subscription = CmuxEventBus.shared.subscribe(
+                afterSequence: nil,
+                names: ["agent.state.changed"],
+                categories: []
+            ).subscription
+            defer { subscription.close() }
+
+            for hookEventName in [WorkstreamEvent.HookEventName.userPromptSubmit, gate] {
+                registry.noteHookEvent(WorkstreamEvent(
+                    sessionId: sessionID,
+                    hookEventName: hookEventName,
+                    source: "claude",
+                    workspaceId: workspaceID,
+                    surfaceId: surfaceID,
+                    transcriptPath: nil,
+                    cwd: "/Users/example/project",
+                    ppid: nil,
+                    receivedAt: Date(timeIntervalSince1970: 100)
+                ))
+            }
+
+            let published = drainStateChanges(subscription, sessionID: sessionID)
+            #expect(published.map { $0["state"] as? String } == ["working", "needs_input"])
+            #expect(published.first?["previous_state"] as? String == nil)
+            #expect(published.last?["previous_state"] as? String == "working")
+            #expect(published.last?["cause"] as? String == gate.rawValue)
+            #expect(published.last?["agent"] as? String == "claude")
+            #expect(published.last?["session_id"] as? String == sessionID)
+        }
+    }
+
+    /// Drains the already-queued `agent.state.changed` payloads for one
+    /// session. Publishing is synchronous, so a zero timeout suffices; the
+    /// session filter keeps concurrently running tests out of the result.
+    @MainActor
+    private func drainStateChanges(
+        _ subscription: CmuxEventSubscription,
+        sessionID: String
+    ) -> [[String: Any]] {
+        var payloads: [[String: Any]] = []
+        while let event = subscription.next(timeout: 0) {
+            guard let payload = event["payload"] as? [String: Any],
+                  payload["session_id"] as? String == sessionID else { continue }
+            payloads.append(payload)
+        }
+        return payloads
+    }
+
     private func temporaryHomeDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-chat-\(UUID().uuidString)", isDirectory: true)
