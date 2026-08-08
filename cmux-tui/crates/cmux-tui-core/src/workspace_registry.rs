@@ -551,6 +551,7 @@ impl PersistentSessionStateResetter {
         };
         #[cfg(test)]
         inject_reset_recreated_session_dir_after_staging(&session_dir)?;
+        #[cfg(not(unix))]
         drop(lease);
         for (reset_dir, expected_fingerprint) in
             pending_reset_dirs.iter().zip(&confirmation.pending_reset_dir_fingerprints)
@@ -565,6 +566,7 @@ impl PersistentSessionStateResetter {
                 label,
                 "pending",
                 expected_fingerprint,
+                None,
             )?;
             match reset_dir.kind {
                 PendingSessionResetKind::Session => reset.removed_session_state = true,
@@ -578,6 +580,7 @@ impl PersistentSessionStateResetter {
                 "workspace session state",
                 "session",
                 &confirmation.session_fingerprint,
+                session_reset_lock_file_for_deletion(lease.as_ref()),
             )?;
             reset.removed_session_state = true;
         }
@@ -593,6 +596,7 @@ impl PersistentSessionStateResetter {
                 "terminal host state",
                 "terminal-hosts",
                 &confirmation.terminal_host_fingerprint,
+                terminal_host_reset_lock_file_for_deletion(terminal_host_reset_lock.as_ref()),
             )?;
             reset.removed_terminal_hosts = true;
         }
@@ -1732,7 +1736,7 @@ fn remove_reset_dir_all(
         label,
         root_device,
         &manifest.entries,
-        reset_ignored_root_child(fingerprint_label),
+        None,
     )?;
     let current = fs::symlink_metadata(path)
         .with_context(|| format!("inspect {label} {}", path.display()))?;
@@ -1744,12 +1748,40 @@ fn remove_reset_dir_all(
 }
 
 #[cfg(unix)]
+struct ResetIgnoredRootChild<'a> {
+    name: &'static str,
+    file: &'a File,
+}
+
+#[cfg(unix)]
+impl ResetIgnoredRootChild<'_> {
+    fn validate_stat(&self, relative_path: &Path, stat: &libc::stat) -> anyhow::Result<bool> {
+        use std::os::unix::fs::MetadataExt;
+
+        if relative_path != Path::new(".").join(self.name) {
+            return Ok(false);
+        }
+        let metadata = self.file.metadata()?;
+        if !metadata.file_type().is_file()
+            || metadata.nlink() != 1
+            || !reset_stat_is_file(stat)
+            || metadata.dev() != reset_stat_device(stat)
+            || metadata.ino() != reset_stat_inode(stat)
+        {
+            anyhow::bail!("reset lock path changed during reset: {}", relative_path.display());
+        }
+        Ok(true)
+    }
+}
+
+#[cfg(unix)]
 fn remove_reset_dir_all_at(
     root_directory: &File,
     path: &Path,
     label: &str,
     fingerprint_label: &str,
     expected_fingerprint: &str,
+    ignored_root_child: Option<ResetIgnoredRootChild<'_>>,
 ) -> anyhow::Result<()> {
     use std::os::fd::AsRawFd;
 
@@ -1771,6 +1803,8 @@ fn remove_reset_dir_all_at(
     if reset_metadata_fingerprint(&opened) != reset_stat_metadata_fingerprint(&stat) {
         anyhow::bail!("reset path changed during reset: {}", path.display());
     }
+    #[cfg(test)]
+    inject_reset_ignored_lock_replacement(path, fingerprint_label, ignored_root_child.as_ref())?;
     remove_reset_dir_children_from_handle(
         &directory,
         path,
@@ -1778,7 +1812,7 @@ fn remove_reset_dir_all_at(
         label,
         reset_stat_device(&stat),
         &manifest.entries,
-        reset_ignored_root_child(fingerprint_label),
+        ignored_root_child.as_ref(),
     )?;
     let current = reset_child_stat(root_directory.as_raw_fd(), name, path)?;
     if !reset_stat_is_dir(&current)
@@ -1798,7 +1832,7 @@ fn remove_reset_dir_children_from_handle(
     label: &str,
     root_device: u64,
     expected_entries: &HashSet<String>,
-    ignored_root_child: Option<&str>,
+    ignored_root_child: Option<&ResetIgnoredRootChild<'_>>,
 ) -> anyhow::Result<()> {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::MetadataExt;
@@ -1941,6 +1975,32 @@ fn inject_reset_delete_child_replacement(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(all(unix, test))]
+fn inject_reset_ignored_lock_replacement(
+    staged_root: &Path,
+    fingerprint_label: &str,
+    ignored_root_child: Option<&ResetIgnoredRootChild<'_>>,
+) -> anyhow::Result<()> {
+    let mut replacement = RESET_REPLACE_IGNORED_LOCK_BEFORE_DELETE.lock().unwrap();
+    let Some((root, label)) = replacement.as_ref() else {
+        return Ok(());
+    };
+    if staged_root.parent() != Some(root.as_path()) || fingerprint_label != label {
+        return Ok(());
+    }
+    let ignored = ignored_root_child
+        .ok_or_else(|| anyhow::anyhow!("injected reset lock identity is missing"))?;
+    let lock_path = staged_root.join(ignored.name);
+    fs::remove_file(&lock_path)
+        .with_context(|| format!("remove injected reset lock {}", lock_path.display()))?;
+    fs::create_dir(&lock_path)
+        .with_context(|| format!("replace injected reset lock {}", lock_path.display()))?;
+    fs::write(lock_path.join("sentinel"), b"preserve")
+        .with_context(|| format!("write injected reset lock directory {}", lock_path.display()))?;
+    *replacement = None;
+    Ok(())
+}
+
 #[cfg(test)]
 fn inject_reset_recreated_session_dir_after_staging(path: &Path) -> anyhow::Result<()> {
     let mut injected = RESET_RECREATE_SESSION_DIR_AFTER_STAGING.lock().unwrap();
@@ -2051,10 +2111,10 @@ fn ensure_reset_manifest_entry(
     display_path: &Path,
     stat: &libc::stat,
     expected_entries: &HashSet<String>,
-    ignored_root_child: Option<&str>,
+    ignored_root_child: Option<&ResetIgnoredRootChild<'_>>,
 ) -> anyhow::Result<()> {
     if let Some(ignored) = ignored_root_child
-        && relative_path == Path::new(".").join(ignored)
+        && ignored.validate_stat(relative_path, stat)?
     {
         return Ok(());
     }
@@ -5163,6 +5223,9 @@ static RESET_DELETE_AFTER_MANIFEST_FILE: std::sync::Mutex<Option<(PathBuf, PathB
 #[cfg(test)]
 static RESET_DELETE_AFTER_CHILD_VERIFY_FILE: std::sync::Mutex<Option<PathBuf>> =
     std::sync::Mutex::new(None);
+#[cfg(all(unix, test))]
+static RESET_REPLACE_IGNORED_LOCK_BEFORE_DELETE: std::sync::Mutex<Option<(PathBuf, String)>> =
+    std::sync::Mutex::new(None);
 
 #[cfg(test)]
 static RESET_REMOVE_LEGACY_HOST_RECORD_BEFORE_LIVENESS: std::sync::Mutex<Option<PathBuf>> =
@@ -5366,8 +5429,22 @@ fn remove_reset_dir_all_for_guard(
     label: &str,
     fingerprint_label: &str,
     expected: &str,
+    ignored_lock_file: Option<&File>,
 ) -> anyhow::Result<()> {
-    remove_reset_dir_all_at(&guard.root, path, label, fingerprint_label, expected)
+    let ignored_name = reset_ignored_root_child(fingerprint_label);
+    let ignored_root_child = match (ignored_name, ignored_lock_file) {
+        (Some(name), Some(file)) => Some(ResetIgnoredRootChild { name, file }),
+        (None, None) => None,
+        _ => anyhow::bail!("reset lock identity is missing for {label} {}", path.display()),
+    };
+    remove_reset_dir_all_at(
+        &guard.root,
+        path,
+        label,
+        fingerprint_label,
+        expected,
+        ignored_root_child,
+    )
 }
 
 #[cfg(not(unix))]
@@ -5377,8 +5454,33 @@ fn remove_reset_dir_all_for_guard(
     label: &str,
     fingerprint_label: &str,
     expected: &str,
+    _ignored_lock_file: Option<&File>,
 ) -> anyhow::Result<()> {
     remove_reset_dir_all(path, label, fingerprint_label, expected)
+}
+
+#[cfg(unix)]
+fn session_reset_lock_file_for_deletion(lease: Option<&SessionLease>) -> Option<&File> {
+    lease.map(SessionLease::reset_lock_file)
+}
+
+#[cfg(not(unix))]
+fn session_reset_lock_file_for_deletion(_lease: Option<&SessionLease>) -> Option<&File> {
+    None
+}
+
+#[cfg(unix)]
+fn terminal_host_reset_lock_file_for_deletion(
+    lock: Option<&crate::terminal_host_runtime::TerminalHostResetLock>,
+) -> Option<&File> {
+    lock.map(crate::terminal_host_runtime::TerminalHostResetLock::lock_file)
+}
+
+#[cfg(not(unix))]
+fn terminal_host_reset_lock_file_for_deletion(
+    _lock: Option<&crate::terminal_host_runtime::TerminalHostResetLock>,
+) -> Option<&File> {
+    None
 }
 
 #[cfg(unix)]
@@ -6154,6 +6256,11 @@ struct SessionLease {
 }
 
 impl SessionLease {
+    #[cfg(unix)]
+    fn reset_lock_file(&self) -> &File {
+        &self.file
+    }
+
     fn validate_current(&self) -> anyhow::Result<()> {
         #[cfg(unix)]
         if let Some(directory) = &self._directory {

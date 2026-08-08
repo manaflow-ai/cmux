@@ -340,6 +340,31 @@ fn reset_delete_rejects_child_replaced_after_verification() {
 
 #[cfg(unix)]
 #[test]
+fn reset_delete_rejects_writer_lock_replaced_by_directory() {
+    let root = temp_root("reset-delete-rejects-replaced-writer-lock");
+    let session = "reset-delete-rejects-replaced-writer-lock";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_REPLACE_IGNORED_LOCK_BEFORE_DELETE.lock().unwrap() =
+        Some((root.clone(), "session".to_string()));
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+    *RESET_REPLACE_IGNORED_LOCK_BEFORE_DELETE.lock().unwrap() = None;
+
+    assert!(format!("{error:#}").contains("reset lock path changed"), "{error:#}");
+    let pending = pending_session_reset_dirs(&root, session).unwrap();
+    assert_eq!(pending.len(), 1);
+    let replaced_lock = pending[0].path.join(SESSION_WRITER_LOCK_FILE);
+    assert!(replaced_lock.is_dir());
+    assert_eq!(fs::read(replaced_lock.join("sentinel")).unwrap(), b"preserve");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn reset_dir_child_names_rewinds_between_scans() {
     use std::os::unix::fs::OpenOptionsExt;
 

@@ -4501,6 +4501,10 @@ mod unix {
     }
 
     impl TerminalHostResetLock {
+        pub(crate) fn lock_file(&self) -> &File {
+            &self.file
+        }
+
         pub(crate) fn root_directory(&self) -> &File {
             &self._root
         }
