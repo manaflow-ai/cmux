@@ -2232,6 +2232,27 @@ pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthority
 pub(super) fn run_session_reset_state(global: GlobalArgs, plan: SessionResetStatePlan) -> i32 {
     let output = global.output;
     let messages = &crate::localization::catalog().session_reset;
+    let routing_options = [
+        global.socket.as_ref().map(|_| "--socket"),
+        global.session.as_ref().map(|_| "--session"),
+        global.machine.as_ref().map(|_| "--machine"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    if !routing_options.is_empty() {
+        let options = routing_options.join(", ");
+        return super::wire::print_local_error(
+            &json!({
+                "code": "session.reset_state.routing_options_unsupported",
+                "message": messages.routing_options_unsupported(&options),
+                "details": { "options": routing_options },
+                "retryable": false,
+            }),
+            output,
+            2,
+        );
+    }
     let state_root =
         match plan.state.map(PathBuf::from).or_else(cmux_tui_core::platform::workspace_state_dir) {
             Some(path) => path,
@@ -2330,6 +2351,15 @@ fn reset_failure_advice(error: &anyhow::Error) -> ResetFailureAdvice {
             code: "session.reset_state.confirmation_required",
             reason: messages.confirmation_required,
             recovery: messages.confirmation_recovery,
+        }
+    } else if reset_error_starts_with(
+        error,
+        &["safe saved-state reset is not supported on this platform"],
+    ) {
+        ResetFailureAdvice {
+            code: "session.reset_state.unsupported",
+            reason: messages.reason_reset_unsupported,
+            recovery: messages.recovery_reset_unsupported,
         }
     } else if reset_error_starts_with(
         error,
@@ -2443,6 +2473,15 @@ mod tests {
         ));
         assert_eq!(advice.code, "session.reset_state.state_too_large");
         assert!(advice.recovery.contains("reduce the scoped saved state"), "{}", advice.recovery);
+    }
+
+    #[test]
+    fn reset_failure_advice_classifies_unsupported_checked_deletion() {
+        let advice = reset_failure_advice(&anyhow::anyhow!(
+            "safe saved-state reset is not supported on this platform because cmux cannot verify saved state during deletion"
+        ));
+        assert_eq!(advice.code, "session.reset_state.unsupported");
+        assert!(advice.recovery.contains("supported platform build"), "{}", advice.recovery);
     }
 
     #[test]

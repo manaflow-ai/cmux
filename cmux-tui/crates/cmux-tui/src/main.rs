@@ -734,16 +734,24 @@ enum SchemaSocketOwner {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ResetStateRecoverySupport {
     Supported,
-    #[cfg_attr(unix, allow(dead_code))]
+    #[cfg_attr(
+        any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"),
+        allow(dead_code)
+    )]
     Unsupported,
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
 fn reset_state_recovery_support() -> ResetStateRecoverySupport {
     ResetStateRecoverySupport::Supported
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(
+    target_os = "ios",
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "android"
+)))]
 fn reset_state_recovery_support() -> ResetStateRecoverySupport {
     ResetStateRecoverySupport::Unsupported
 }
@@ -2048,6 +2056,17 @@ mod tests {
         assert!(supported.contains("no server is listening on this socket"), "{supported}");
         assert!(supported.contains("reset-state"), "{supported}");
         assert!(supported.contains("--state '/tmp/cmux state'"), "{supported}");
+
+        let main_supported = absent_socket_schema_recovery(
+            messages,
+            "main",
+            Some(state_root),
+            ResetStateRecoverySupport::Supported,
+        );
+        assert!(
+            main_supported.contains("cmux session 'main' reset-state --state '/tmp/cmux state'"),
+            "{main_supported}"
+        );
 
         let unsupported = absent_socket_schema_recovery(
             messages,
