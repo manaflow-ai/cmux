@@ -79,17 +79,48 @@ enum WorkspaceAutoColorAssignmentStore {
             stored = stored.filter { liveKeys.contains($0.key) }
         }
 
-        for id in needingAssignment where stored[id.uuidString] == nil {
-            // Only colors on screen count as used. A dead workspace's color must
-            // not keep a palette slot reserved forever.
-            let used = stored.filter { liveKeys.contains($0.key) }.values + manualColorHexes
+        // Two passes over the visible workspaces. The first decides which
+        // colors are already spoken for, the second fills the gaps. Splitting
+        // them matters: allocating inline lets a reassignment steal a color a
+        // later workspace already holds, which then has to move too.
+        //
+        // The healing half matters because a reconcile can run against a
+        // partial list — during restore, or from a window that does not own
+        // every workspace — and hand out a color that a workspace which was not
+        // visible yet already holds. Without this, that duplicate is permanent.
+        var used: [String] = manualColorHexes
+        var taken = Set(manualColorHexes.map(WorkspaceAutoTabColorAssignment.normalized))
+        var pending: [String] = []
+
+        for id in needingAssignment {
+            let key = id.uuidString
+            guard let current = stored[key] else {
+                pending.append(key)
+                continue
+            }
+            let normalized = WorkspaceAutoTabColorAssignment.normalized(current)
+            guard !taken.contains(normalized) else {
+                pending.append(key)
+                continue
+            }
+            taken.insert(normalized)
+            used.append(current)
+        }
+
+        for key in pending {
             guard let hex = WorkspaceAutoTabColorAssignment.nextColorHex(
                 palette: palette,
-                usedHexes: Array(used)
+                usedHexes: used
             ) else {
-                break
+                continue
             }
-            stored[id.uuidString] = hex
+            // With the palette exhausted every candidate is a duplicate, so a
+            // workspace that already has a color keeps it rather than churning.
+            let normalized = WorkspaceAutoTabColorAssignment.normalized(hex)
+            guard stored[key] == nil || !taken.contains(normalized) else { continue }
+            stored[key] = hex
+            taken.insert(normalized)
+            used.append(hex)
         }
 
         if stored != before {

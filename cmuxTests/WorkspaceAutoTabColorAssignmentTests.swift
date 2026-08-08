@@ -216,6 +216,112 @@ import Testing
         }
     }
 
+    /// The bug this guards against, seen live: a reconcile ran mid-restore
+    /// while only some workspaces were loaded, so a color another workspace
+    /// already held looked free and was handed out twice. Because assignments
+    /// are never rewritten, the duplicate survived every later reconcile and
+    /// two workspaces showed the same rail color forever.
+    @Test
+    func healsTwoVisibleWorkspacesSharingAColor() {
+        let defaults = Self.suite()
+        let ids = (0..<3).map { _ in UUID() }
+        let clashing = Self.palette[0].hex
+        defaults.set(
+            [ids[0].uuidString: clashing, ids[1].uuidString: clashing, ids[2].uuidString: Self.palette[1].hex],
+            forKey: WorkspaceAutoColorAssignmentStore.defaultsKey
+        )
+
+        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+            needingAssignment: ids,
+            liveIds: Set(ids),
+            manualColorHexes: [],
+            palette: Self.palette,
+            defaults: defaults
+        )
+
+        let colors = ids.compactMap { after[$0.uuidString] }
+        #expect(Set(colors).count == 3)
+        #expect(after[ids[0].uuidString] == clashing)
+        #expect(after[ids[2].uuidString] == Self.palette[1].hex)
+    }
+
+    /// Healing must not be an excuse to churn colors: a workspace whose color
+    /// only clashes with an entry for a workspace that is gone keeps it.
+    @Test
+    func doesNotRecolorAWorkspaceThatClashesOnlyWithADeadEntry() {
+        let defaults = Self.suite()
+        let live = UUID()
+        let dead = UUID()
+        let shared = Self.palette[0].hex
+        defaults.set(
+            [live.uuidString: shared, dead.uuidString: shared],
+            forKey: WorkspaceAutoColorAssignmentStore.defaultsKey
+        )
+
+        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+            needingAssignment: [live],
+            liveIds: [live],
+            manualColorHexes: [],
+            palette: Self.palette,
+            defaults: defaults
+        )
+
+        #expect(after[live.uuidString] == shared)
+    }
+
+    /// A workspace that clashes with a colour the user picked by hand moves,
+    /// because the manual colour is the one the user asked for.
+    @Test
+    func movesOffAColorTheUserPickedByHand() {
+        let defaults = Self.suite()
+        let id = UUID()
+        let manual = Self.palette[0].hex
+        defaults.set(
+            [id.uuidString: manual],
+            forKey: WorkspaceAutoColorAssignmentStore.defaultsKey
+        )
+
+        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+            needingAssignment: [id],
+            liveIds: [id],
+            manualColorHexes: [manual],
+            palette: Self.palette,
+            defaults: defaults
+        )
+
+        let assigned = after[id.uuidString]
+        #expect(assigned != nil)
+        #expect(
+            WorkspaceAutoTabColorAssignment.normalized(assigned ?? "")
+                != WorkspaceAutoTabColorAssignment.normalized(manual)
+        )
+    }
+
+    /// With more workspaces than colors, duplicates are unavoidable, so the
+    /// pass must settle instead of reshuffling on every reconcile.
+    @Test
+    func stopsChurningOnceThePaletteIsExhausted() {
+        let defaults = Self.suite()
+        let ids = (0..<(Self.palette.count + 4)).map { _ in UUID() }
+
+        let first = WorkspaceAutoColorAssignmentStore.reconcile(
+            needingAssignment: ids,
+            liveIds: Set(ids),
+            manualColorHexes: [],
+            palette: Self.palette,
+            defaults: defaults
+        )
+        let second = WorkspaceAutoColorAssignmentStore.reconcile(
+            needingAssignment: ids,
+            liveIds: Set(ids),
+            manualColorHexes: [],
+            palette: Self.palette,
+            defaults: defaults
+        )
+
+        #expect(first == second)
+    }
+
     @Test
     func reassignsWhenTheStoredColorLeavesThePalette() {
         let defaults = Self.suite()
