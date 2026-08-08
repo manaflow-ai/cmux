@@ -49,6 +49,104 @@ final class {name}: XCTestCase {{
         )
 
 
+def check_bounded_process_batches() -> int:
+    """Process batches must be bounded, balanced, and cover every selector once."""
+    import json
+
+    suite_names = (
+        "HeavyTests",
+        "AlphaTests",
+        "BetaTests",
+        "GammaTests",
+        "DeltaTests",
+        "EpsilonTests",
+        "ZetaTests",
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        test_root = tmp_root / "cmuxTests"
+        test_root.mkdir()
+        for name in suite_names:
+            (test_root / f"{name}.swift").write_text(
+                f"""
+final class {name}: XCTestCase {{
+    func testOne() {{}}
+    func testTwo() {{}}
+}}
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+        manifest = tmp_root / "timings.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "default_test_ms": 200,
+                    "suites": {
+                        "HeavyTests": 600_000,
+                        **{name: 400 for name in suite_names if name != "HeavyTests"},
+                    },
+                    "methods": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+        output_directory = tmp_root / "batches"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(HELPER),
+                "--root",
+                str(tmp_root),
+                "--shard-index",
+                "1",
+                "--shard-total",
+                "1",
+                "--batch-size",
+                "2",
+                "--batch-output-directory",
+                str(output_directory),
+                "--timings",
+                str(manifest),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            print(result.stdout, end="")
+            print(result.stderr, end="", file=sys.stderr)
+            print(f"FAIL: batched shard helper exited {result.returncode}")
+            return 1
+
+        batches = [
+            path.read_text(encoding="utf-8").splitlines()
+            for path in sorted(output_directory.glob("batch-*.args"))
+        ]
+
+    if not batches:
+        print("FAIL: batched shard helper emitted no process batches")
+        return 1
+    if any(not batch or len(batch) > 2 for batch in batches):
+        print(f"FAIL: process batches must contain 1...2 selectors, got {batches}")
+        return 1
+
+    flattened = [selector for batch in batches for selector in batch]
+    expected = {f"-only-testing:cmuxTests/{name}" for name in suite_names}
+    if len(flattened) != len(set(flattened)) or set(flattened) != expected:
+        print(f"FAIL: process batches lost or duplicated selectors: {batches}")
+        return 1
+
+    heavy_selector = "-only-testing:cmuxTests/HeavyTests"
+    heavy_batch = next(batch for batch in batches if heavy_selector in batch)
+    if heavy_batch != [heavy_selector]:
+        print(f"FAIL: timing-balanced batches should isolate the dominant suite: {heavy_batch}")
+        return 1
+
+    print("PASS: process batches bound app-host lifetime without losing selectors")
+    return 0
+
+
 def run_shard(tmp_root: Path, shard: int, output: Path, timings: Path) -> list[str]:
     result = subprocess.run(
         [
@@ -218,6 +316,9 @@ final class {name}: XCTestCase {{
 
 
 def main() -> int:
+    if (rc := check_bounded_process_batches()) != 0:
+        return rc
+
     with tempfile.TemporaryDirectory() as tmp:
         tmp_root = Path(tmp)
         test_root = tmp_root / "cmuxTests"
