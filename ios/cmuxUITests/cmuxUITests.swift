@@ -6756,12 +6756,27 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
-        XCTAssertEqual(
-            Double(surface.frame.minY) + guideTop,
-            Double(keyboard.frame.minY),
-            accuracy: 2,
-            "UIKeyboardLayoutGuide must resolve to the visible keyboard edge for "
-                + "\(context). keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
+        // The guide (and the dock riding it) tops out at the keyboard's FULL
+        // visual edge, which includes the QuickType/prediction strip; the
+        // XCUI key-plane element measures only the key area below that strip.
+        // Assert the dock bottom sits at-or-above the key plane (no keys
+        // occluded) and within one prediction-strip height of it, so the
+        // check pins the geometry without hardcoding the strip's presence.
+        let dockBottomInWindow = Double(surface.frame.minY) + guideTop
+        XCTAssertLessThanOrEqual(
+            dockBottomInWindow,
+            Double(keyboard.frame.minY) + 2,
+            "Dock must not occlude the key plane for \(context). "
+                + "keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
+            file: file,
+            line: line
+        )
+        XCTAssertGreaterThanOrEqual(
+            dockBottomInWindow,
+            Double(keyboard.frame.minY) - 60,
+            "UIKeyboardLayoutGuide must resolve to the visible keyboard edge "
+                + "(key plane, plus at most the prediction strip) for \(context). "
+                + "keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
             file: file,
             line: line
         )
