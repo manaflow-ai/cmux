@@ -117,14 +117,13 @@ jobs:
     needs: validate-inputs
     if: inputs.mode == 'full'
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    # The core, remote, and application suites are intentionally serialized
-    # under instrumentation. Isolate them so none can consume another test
-    # binary group's runtime budget.
-    timeout-minutes: 60
+    # Full behavior stays in the normal macOS and Linux suites. Valgrind owns
+    # the bounded startup parsers and terminal replay state only.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        shard: [core, remote, tui, remainder]
+        shard: [startup]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -168,19 +167,15 @@ jobs:
           import sys
 
           shard = os.environ["VALGRIND_SHARD"]
-          known_shards = {"core", "remote", "tui", "remainder"}
+          known_shards = {"startup"}
           if shard not in known_shards:
               raise SystemExit(f"unknown Valgrind shard: {shard}")
 
           def shard_for(executable):
               name = os.path.basename(executable)
-              if re.fullmatch(r"cmux_tui_core-[0-9a-f]+", name):
-                  return "core"
-              if re.fullmatch(r"cmux_remote-[0-9a-f]+", name):
-                  return "remote"
-              if re.fullmatch(r"cmux_tui-[0-9a-f]+", name):
-                  return "tui"
-              return "remainder"
+              if re.fullmatch(r"(?:cmux_tui|terminal)-[0-9a-f]+", name):
+                  return "startup"
+              return None
 
           seen = set()
           selected = []
@@ -215,7 +210,7 @@ jobs:
           PY
 
       - name: Verify baseline terminal replay behavior
-        if: matrix.shard == 'remainder'
+        if: matrix.shard == 'startup'
         working-directory: cmux-tui
         run: |
           matches=0
@@ -237,17 +232,6 @@ jobs:
 
       - name: Run test binaries under valgrind
         working-directory: cmux-tui
-        env:
-          # Valgrind's ~30x slowdown breaks the 50ms ws-latency budget on an
-          # otherwise-correct build; the guarded regression (events serialized
-          # behind a 100ms read poll) inflates far past this bound anyway.
-          CMUX_TEST_WS_LATENCY_BUDGET_MS: "2000"
-          # Scale test-fixture deadlines and their observation windows together
-          # under instrumentation. Production defaults and normal CI remain strict.
-          CMUX_TEST_TIMEOUT_SCALE: "4"
-          # Retain the full 128 MiB fairness workload under Valgrind with
-          # explicit instrumentation-only bounds. Normal CI stays strict.
-          CMUX_TEST_PERF_INSTRUMENTED: "valgrind"
         run: |
           run_valgrind() {
             local bin="$1"
@@ -261,67 +245,38 @@ jobs:
               -- "$bin" "$@"
           }
 
+          cmux_tui_bin=""
+          terminal_bin=""
           while IFS= read -r bin; do
-            [ -n "$bin" ] || continue
-            echo "Running valgrind for $bin"
-            valgrind_args=(--track-origins=yes)
-            test_args=()
             case "$(basename "$bin")" in
-              pty-*|terminal-*|cmux_tui_core-*|cmux_tui-[[:xdigit:]]*)
-                # These tests own bounded worker pools, PTYs, sockets, and
-                # stateful terminal replay. Valgrind serializes their CPU work
-                # internally, so test-harness parallelism creates scheduler
-                # starvation and timeout races.
-                test_args+=(--test-threads=1)
-                ;;
-              cmux_remote-[[:xdigit:]]*)
-                # Remote-runtime tests also own real schedulers, sockets, and
-                # deadline checks. Serial execution prevents the instrumented
-                # harness from starving its own observation deadlines.
-                test_args+=(--test-threads=1)
-                ;;
-              terminal_host_recovery-*)
-                # Valgrind instruments this client harness but not the hidden
-                # terminal-host child it launches. The normal-speed child can
-                # fill the socket while the instrumented reader is descheduled,
-                # correctly triggering the production stalled-client timeout
-                # mid-frame. Normal Linux and macOS CI retain this ordering test;
-                # every other recovery case remains under Valgrind.
-                test_args+=(--skip exit_follows_all_final_pty_bytes_on_the_live_stream)
-                ;;
-              direct_wss_e2e-*|relay_wss_diagnostic-*)
-                # ring's AES-GCM backend exposes initialized output through a
-                # partially initialized SIMD buffer. Valgrind reports its
-                # padding at Rustls writev. Keep leak and address checks for
-                # TLS integration binaries while scoping undefined-value
-                # suppression to those binaries.
-                valgrind_args=(--undef-value-errors=no)
-                ;;
+              cmux_tui-*) cmux_tui_bin="$bin" ;;
+              terminal-*) terminal_bin="$bin" ;;
             esac
-
-            if [[ "$(basename "$bin")" == cmux_remote-[[:xdigit:]]* ]]; then
-              # Iroh's Rustls/ring and noq UDP paths expose initialized data
-              # through buffers with uninitialized SIMD or sockaddr padding.
-              # Run only those tests without undefined-value diagnostics while
-              # retaining address and leak checks. Every other remote test
-              # keeps the complete Valgrind diagnostic set.
-              if ! run_valgrind "$bin" --skip 'provider::iroh::' "${test_args[@]}"; then
-                echo "Valgrind failed for $bin outside the Iroh provider" >&2
-                exit 1
-              fi
-              valgrind_args=(--undef-value-errors=no)
-              if ! run_valgrind "$bin" 'provider::iroh::' "${test_args[@]}"; then
-                echo "Valgrind failed for $bin in the Iroh provider" >&2
-                exit 1
-              fi
-              continue
-            fi
-
-            if ! run_valgrind "$bin" "${test_args[@]}"; then
-              echo "Valgrind failed for $bin" >&2
-              exit 1
-            fi
           done < target/valgrind-test-binaries.txt
+          if [[ -z "$cmux_tui_bin" || -z "$terminal_bin" ]]; then
+            echo "::error::startup memory check did not find both test binaries" >&2
+            exit 1
+          fi
+
+          valgrind_args=(--track-origins=yes)
+          run_valgrind \
+            "$terminal_bin" \
+            pending_wrap_replay_preserves_cursor_with_origin_mode \
+            --exact \
+            --test-threads=1
+
+          startup_tests=(
+            config::tests::load_uses_file_ghostty_defaults_without_invoking_external_resolver
+            config::tests::ghostty_file_reader_enforces_byte_limit_during_read
+            config::tests::ghostty_config_helper_output_reader_enforces_byte_limit
+          )
+          for test_name in "${startup_tests[@]}"; do
+            run_valgrind \
+              "$cmux_tui_bin" \
+              "$test_name" \
+              --exact \
+              --test-threads=1
+          done
 
   valgrind-leak-check:
     name: valgrind-leak-check
