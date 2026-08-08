@@ -621,6 +621,108 @@ mod tests {
     }
 
     #[test]
+    fn frontend_event_retry_after_segment_sealing_is_idempotent() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-frontend-journal-sealed-retry-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "frontend-journal-sealed-retry",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let projection_id = public_id("projection", 8, FrontendProjectionPublicId::parse);
+        let event = FrontendJournalEvent::Resize {
+            event_id: "event_frontend_resize_sealed_retry".into(),
+            frontend_projection_id: projection_id,
+            generation: "frontend_generation_1".into(),
+            cols: 80,
+            rows: 24,
+            cell_width: 8,
+            cell_height: 16,
+        };
+        mux.journal_local_frontend_event(event.clone()).unwrap();
+        let checkpoint =
+            mux.create_journal_checkpoint("client_test", "frontend_sealed_checkpoint").unwrap();
+        mux.seal_journal_segments(
+            checkpoint.checkpoint.source_sequence,
+            "client_test",
+            "frontend_sealed_segment",
+        )
+        .unwrap();
+
+        mux.journal_local_frontend_event(event).unwrap();
+        let records = mux.session_journal_after(0, 1024).unwrap().records;
+        assert_eq!(
+            records
+                .iter()
+                .filter(|record| record.event_id == "event_frontend_resize_sealed_retry")
+                .count(),
+            1
+        );
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn shutdown_waits_for_queued_terminal_journal_output() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-journal-shutdown-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "terminal-journal-shutdown",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let database_path = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+            .find(|path| path.is_file())
+            .expect("persistent journal database");
+        let blocker = rusqlite::Connection::open(database_path).unwrap();
+        blocker.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        let terminal_id = Arc::new(public_id("term", 12, TerminalPublicId::parse));
+        mux.journal_terminal_output(
+            terminal_id,
+            Arc::from("shutdown-generation"),
+            b"persist before shutdown returns".to_vec(),
+        );
+
+        let shutdown_mux = mux.clone();
+        let (completed, completion) = sync_channel(1);
+        let shutdown = std::thread::spawn(move || {
+            shutdown_mux.shutdown();
+            completed.send(()).unwrap();
+        });
+        assert!(
+            completion.recv_timeout(Duration::from_millis(100)).is_err(),
+            "shutdown returned before the queued journal write could commit"
+        );
+        blocker.execute_batch("ROLLBACK;").unwrap();
+        completion.recv_timeout(Duration::from_secs(5)).unwrap();
+        shutdown.join().unwrap();
+
+        let records = mux.session_journal_after(0, 1024).unwrap().records;
+        let output = records
+            .iter()
+            .find(|record| record.kind == "terminal.output")
+            .expect("shutdown fenced queued terminal output");
+        assert_eq!(
+            output.terminal_output.as_deref(),
+            Some(b"persist before shutdown returns".as_slice())
+        );
+        drop(blocker);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn terminal_output_survives_a_nonretryable_writer_failure() {
         let root = std::env::temp_dir().join(format!(
             "cmux-terminal-journal-writer-retry-{}-{}",
