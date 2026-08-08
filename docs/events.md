@@ -330,6 +330,7 @@ Feed and agent hooks:
 | `feed.item.completed` | `feed.push` returned a hook decision, timeout, or no-op result. |
 | `feed.item.resolved` | A Feed reply command resolved a permission, question, or plan item. |
 | `agent.hook.<HookEventName>` | Agent hook event received through Feed. Examples include Claude Code and Codex permission requests when their hooks are installed. |
+| `agent.state.changed` | An agent session's lifecycle state changed (`idle`, `working`, `needs_input`, `ended`). |
 
 App, browser, and config:
 
@@ -365,6 +366,45 @@ plugin bridge. The event stream publishes both agent and Feed events:
   }
 }
 ```
+
+## Agent lifecycle state
+
+`agent.hook.<HookEventName>` reports events in each agent's own hook
+vocabulary, which differs per integration. `agent.state.changed` reports the
+semantic lifecycle state cmux itself derives from those events, so consumers
+observe agents through the event stream instead of the private
+`~/.cmuxterm/<agent>-hook-sessions.json`:
+
+```json
+{
+  "name": "agent.state.changed",
+  "category": "agent",
+  "source": "claude",
+  "workspace_id": "9B6920C1-6C29-4C27-A069-78CF285F932A",
+  "surface_id": "83F4E6A4-5246-4DB8-A412-9CE7B059FA6C",
+  "payload": {
+    "agent": "claude",
+    "session_id": "session-123",
+    "state": "needs_input",
+    "previous_state": "working",
+    "cause": "PermissionRequest"
+  }
+}
+```
+
+`state` is `idle`, `working`, `needs_input`, or `ended`. `previous_state` is
+null the first time cmux observes a session.
+
+`cause` is the hook event that produced the state, and it is what separates
+"the agent is blocked on me" from "the agent is done": `needs_input` is
+reached from four distinct hook events, so `state` alone cannot tell a real
+permission gate (`PermissionRequest`, `AskUserQuestion`, `ExitPlanMode`) from
+the idle-reminder timer firing after a finished turn (`Notification`). It is
+null for transitions no hook drove, such as the liveness sweep observing a
+dead agent process.
+
+The event is published only when the state actually changes, from every write
+path, so `--after-seq` replay reconstructs a session's full lifecycle.
 
 The `feed.item.completed` event contains the same workstream payload plus a
 `result` object matching the `feed.push` socket response.

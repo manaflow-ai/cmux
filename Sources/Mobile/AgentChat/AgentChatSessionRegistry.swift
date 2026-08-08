@@ -504,7 +504,10 @@ final class AgentChatSessionRegistry {
         record.setHookLifecycleState(Self.nextState(previous: record.state, event: event))
         stampLifecycleTransition(previous: previous, current: &record, at: event.receivedAt)
         stampVersion(&record)
-        storeRecord(record, replacing: previous)
+        // `nextState` collapses four distinct hook events into `needsInput`;
+        // pass the originating event so consumers can still tell a real
+        // permission gate from the idle-reminder notification.
+        storeRecord(record, replacing: previous, cause: event.hookEventName)
         if shouldConsultStore {
             backfillBindingsFromStore(
                 sessionID: sessionID,
@@ -713,14 +716,45 @@ final class AgentChatSessionRegistry {
     }
 
     /// Stores one record and reconciles every derived registry structure.
+    ///
+    /// - Parameters:
+    ///   - record: The record to store.
+    ///   - previous: The record being replaced, nil for a brand-new session.
+    ///   - cause: The hook event that produced this state, when a hook drove
+    ///     the change. Only `noteHookEvent` still holds it; the liveness
+    ///     sweep, transcript observation, and store seeding pass nil.
     private func storeRecord(
         _ record: AgentChatSessionRecord,
-        replacing previous: AgentChatSessionRecord?
+        replacing previous: AgentChatSessionRecord?,
+        cause: WorkstreamEvent.HookEventName? = nil
     ) {
         records[record.sessionID] = record
         syncProcessExitWatch(for: record)
         updateSessionIndexes(previous: previous, current: record)
+        publishStateChangeIfNeeded(record, previous: previous, cause: cause)
         onRecordChanged?(record, previous)
+    }
+
+    /// Publishes `agent.state.changed` when a stored record's lifecycle state
+    /// actually moved. Every write path routes through `storeRecord`, so this
+    /// is the one place the transition is observable regardless of what drove
+    /// it. A brand-new record publishes with a null `previous_state` so a
+    /// subscriber learns the session exists.
+    private func publishStateChangeIfNeeded(
+        _ record: AgentChatSessionRecord,
+        previous: AgentChatSessionRecord?,
+        cause: WorkstreamEvent.HookEventName?
+    ) {
+        guard previous?.state != record.state else { return }
+        CmuxEventBus.shared.publishAgentStateChanged(
+            agent: record.agentKind.sourceName,
+            sessionId: record.sessionID,
+            state: record.state.wireName,
+            previousState: previous?.state.wireName,
+            cause: cause?.rawValue,
+            workspaceId: record.workspaceID,
+            surfaceId: record.surfaceID
+        )
     }
 
     /// Removes one record and reconciles every derived registry structure.

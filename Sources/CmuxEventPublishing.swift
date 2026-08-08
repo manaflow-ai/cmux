@@ -411,6 +411,42 @@ extension CmuxEventBus {
         )
     }
 
+    /// Publishes the semantic lifecycle state the session registry already
+    /// derives, so consumers observe agents through the event stream instead
+    /// of polling the private `<agent>-hook-sessions.json`.
+    ///
+    /// `cause` is the hook event that produced the state. It matters because
+    /// `needs_input` collapses four distinct hook events, so `state` alone
+    /// cannot separate a real permission gate (`PermissionRequest`,
+    /// `AskUserQuestion`, `ExitPlanMode`) from the idle-reminder timer
+    /// (`Notification`) — "blocked on me" from "done". It is nil for
+    /// transitions the hook stream did not drive, such as the liveness sweep
+    /// ending a dead session.
+    func publishAgentStateChanged(
+        agent: String,
+        sessionId: String,
+        state: String,
+        previousState: String?,
+        cause: String?,
+        workspaceId: String?,
+        surfaceId: String?
+    ) {
+        publish(
+            name: "agent.state.changed",
+            category: "agent",
+            source: agent,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            payload: [
+                "agent": agent,
+                "session_id": sessionId,
+                "state": state,
+                "previous_state": previousState ?? NSNull(),
+                "cause": cause ?? NSNull()
+            ]
+        )
+    }
+
     // swiftlint:disable:next discouraged_optional_collection
     func publishWorkstreamEvent(_ event: WorkstreamEvent, phase: String, result: [String: Any]? = nil) {
         var payload = Self.workstreamPayload(event)
