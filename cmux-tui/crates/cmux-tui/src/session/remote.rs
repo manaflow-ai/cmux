@@ -284,6 +284,8 @@ struct RemoteTreeCache {
     surface_tabs: HashMap<SurfaceId, [usize; 4]>,
     title_generation: u64,
     title_updates: HashMap<SurfaceId, TitleUpdate>,
+    agent_generation: u64,
+    agent_updates: HashMap<SurfaceId, AgentUpdate>,
 }
 
 #[derive(Clone, Copy)]
@@ -297,6 +299,11 @@ struct SurfaceOverflowRecovery {
 struct TitleUpdate {
     generation: u64,
     title: String,
+}
+
+struct AgentUpdate {
+    generation: u64,
+    agent: AgentInfo,
 }
 
 impl RemoteTreeCache {
@@ -364,6 +371,37 @@ impl RemoteTreeCache {
 
     fn title_generation(&self) -> u64 {
         self.title_generation
+    }
+
+    fn replace_agents(&mut self, agents: Vec<AgentInfo>, refresh_generation: u64) {
+        self.agents = agents;
+        let updates = std::mem::take(&mut self.agent_updates);
+        for update in updates.into_values() {
+            if update.generation > refresh_generation {
+                self.replace_agent(update.agent);
+            }
+        }
+    }
+
+    fn update_agent(&mut self, agent: AgentInfo) {
+        self.agent_generation = self.agent_generation.saturating_add(1);
+        self.agent_updates.insert(
+            agent.surface,
+            AgentUpdate { generation: self.agent_generation, agent: agent.clone() },
+        );
+        self.replace_agent(agent);
+    }
+
+    fn replace_agent(&mut self, agent: AgentInfo) {
+        if let Some(existing) = self.agents.iter_mut().find(|item| item.surface == agent.surface) {
+            *existing = agent;
+        } else {
+            self.agents.push(agent);
+        }
+    }
+
+    fn agent_generation(&self) -> u64 {
+        self.agent_generation
     }
 }
 
@@ -1951,6 +1989,7 @@ impl RemoteSession {
             | "frame"
             | "detached"
             | "surface-exited"
+            | "agent-changed"
             | "title-changed"
             | "bell"
             | "scroll-changed" => surface == Some(target),
@@ -2204,6 +2243,32 @@ impl RemoteSession {
             Some("tree-changed") => {
                 self.tree_stale.store(true, Ordering::Release);
                 self.emit(MuxEvent::TreeChanged);
+            }
+            Some("agent-changed") => {
+                let Some(surface) = surface_id() else { return };
+                let Some(state) = value.get("state").and_then(Value::as_str) else { return };
+                let Some(source) = value.get("source").and_then(Value::as_str) else { return };
+                let Some(updated_at_ms) = value.get("updated_at_ms").and_then(Value::as_u64)
+                else {
+                    return;
+                };
+                let session = value.get("session").and_then(Value::as_str).map(str::to_string);
+                let agent = AgentInfo {
+                    surface,
+                    state: state.to_string(),
+                    source: source.to_string(),
+                    session,
+                    updated_at_ms,
+                };
+                let event = MuxEvent::AgentChanged {
+                    surface,
+                    state: Arc::from(agent.state.as_str()),
+                    source: Arc::from(agent.source.as_str()),
+                    session: agent.session.as_deref().map(Arc::from),
+                    updated_at_ms,
+                };
+                self.tree.lock().unwrap().update_agent(agent);
+                self.emit(event);
             }
             Some("layout-changed") => {
                 self.tree_stale.store(true, Ordering::Release);
@@ -3226,7 +3291,10 @@ impl RemoteSession {
         if identity_refresh {
             self.tree_stale.store(false, Ordering::Release);
         }
-        let refresh_generation = self.tree.lock().unwrap().title_generation();
+        let (title_refresh_generation, agent_refresh_generation) = {
+            let cache = self.tree.lock().unwrap();
+            (cache.title_generation(), cache.agent_generation())
+        };
         let data = match self.request(json!({"cmd": "list-workspaces"})) {
             Ok(data) => data,
             Err(e) => {
@@ -3274,8 +3342,8 @@ impl RemoteSession {
             .retain(|surface_id, _| live_surface_ids.contains(surface_id));
         let tree = {
             let mut cache = self.tree.lock().unwrap();
-            cache.replace(tree, refresh_generation);
-            cache.agents = agents;
+            cache.replace(tree, title_refresh_generation);
+            cache.replace_agents(agents, agent_refresh_generation);
             cache.view.clone()
         };
         let surfaces = self.surfaces.lock().unwrap().clone();
@@ -6528,6 +6596,48 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn agent_events_update_the_remote_cache_without_invalidating_the_tree() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+        session.tree_stale.store(false, Ordering::Release);
+
+        for (state, updated_at_ms) in [("working", 40), ("blocked", 41)] {
+            session.handle_line(json!({
+                "event": "agent-changed",
+                "surface": 7,
+                "state": state,
+                "source": "hook",
+                "session": "review",
+                "updated_at_ms": updated_at_ms,
+            }));
+        }
+
+        assert!(!session.tree_is_stale());
+        assert_eq!(
+            session.cached_agents(),
+            vec![AgentInfo {
+                surface: 7,
+                state: "blocked".into(),
+                source: "hook".into(),
+                session: Some("review".into()),
+                updated_at_ms: 41,
+            }]
+        );
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::AgentChanged {
+                surface: 7,
+                state,
+                updated_at_ms: 41,
+                ..
+            }) if state.as_ref() == "blocked"
+        ));
+        assert!(events.try_iter().next().is_none());
+    }
+
     #[test]
     fn surface_event_scope_filters_before_remote_cache_invalidation() {
         let (session, _requests) = recording_acknowledging_session();
@@ -6558,6 +6668,14 @@ mod tests {
 
         for event in [
             json!({"event": "title-changed", "surface": 8, "title": "changed"}),
+            json!({
+                "event": "agent-changed",
+                "surface": 8,
+                "state": "working",
+                "source": "hook",
+                "session": null,
+                "updated_at_ms": 1,
+            }),
             json!({"event": "surface-output", "surface": 8}),
             json!({"event": "surface-exited", "surface": 8}),
             json!({"event": "client-list-invalidated"}),
@@ -6569,6 +6687,7 @@ mod tests {
 
         assert!(!session.tree_is_stale());
         assert!(events.try_iter().next().is_none());
+        assert!(session.cached_agents().is_empty());
         assert_eq!(session.tree.lock().unwrap().view.surface(8).unwrap().title, "unrelated");
 
         session.handle_line(json!({"event": "tree-changed"}));
@@ -6593,6 +6712,21 @@ mod tests {
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::TitleChanged { surface: 7, .. })
+        ));
+
+        session.handle_line(json!({
+            "event": "agent-changed",
+            "surface": 7,
+            "state": "working",
+            "source": "hook",
+            "session": null,
+            "updated_at_ms": 2,
+        }));
+        assert!(!session.tree_is_stale());
+        assert_eq!(session.cached_agents()[0].surface, 7);
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::AgentChanged { surface: 7, .. })
         ));
 
         session.handle_line(json!({"event": "surface-exited", "surface": 7}));

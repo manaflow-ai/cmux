@@ -296,6 +296,7 @@ impl SessionEventSender {
             | MuxEvent::Bell(surface) => *surface == filter,
             MuxEvent::SurfaceResized { surface, .. }
             | MuxEvent::SurfaceResizeFailed { surface, .. }
+            | MuxEvent::AgentChanged { surface, .. }
             | MuxEvent::TitleChanged { surface, .. }
             | MuxEvent::ScrollChanged { surface, .. } => *surface == filter,
             MuxEvent::Notification(notification) => {
@@ -6307,6 +6308,7 @@ pub struct App {
     machine_action_in_flight: bool,
     machine_action_request: Option<MachineRequest>,
     machine_action_connection_attempt: Option<u64>,
+    canceled_machine_connection_attempt: Option<u64>,
     machine_action_intent_generation: Option<u64>,
     machine_selection_intent: Option<MachineKey>,
     machine_selection_generation: u64,
@@ -7763,6 +7765,7 @@ fn run_with_machine_updates_inner(
         machine_action_in_flight: false,
         machine_action_request: None,
         machine_action_connection_attempt: None,
+        canceled_machine_connection_attempt: None,
         machine_action_intent_generation: None,
         machine_selection_intent,
         machine_selection_generation: 0,
@@ -9147,9 +9150,19 @@ impl App {
         self.machine_provider_reconnect_retry_at = None;
     }
 
-    fn take_machine_action_request(&mut self) -> (Option<MachineRequest>, Option<u64>) {
+    fn connection_attempt_was_canceled(&self, attempt: Option<u64>) -> bool {
+        attempt.is_some() && self.canceled_machine_connection_attempt == attempt
+    }
+
+    fn take_machine_action_request(&mut self) -> (Option<MachineRequest>, Option<u64>, bool) {
         self.machine_action_intent_generation = None;
-        (self.machine_action_request.take(), self.machine_action_connection_attempt.take())
+        let request = self.machine_action_request.take();
+        let attempt = self.machine_action_connection_attempt.take();
+        let canceled = self.connection_attempt_was_canceled(attempt);
+        if canceled {
+            self.canceled_machine_connection_attempt = None;
+        }
+        (request, attempt, canceled)
     }
 
     fn connection_request_matches(
@@ -9284,9 +9297,14 @@ impl App {
             }
             MachineControllerCompletion::Action { result, updates } => {
                 self.machine_action_in_flight = false;
-                let (request, connection_attempt) = self.take_machine_action_request();
+                let (request, connection_attempt, connection_canceled) =
+                    self.take_machine_action_request();
                 let reconnecting =
                     matches!(request.as_ref(), Some(MachineRequest::ReconnectProvider));
+                if connection_canceled {
+                    drop((result, updates));
+                    return RenderAction::Draw;
+                }
                 let result = match result {
                     Ok(result) => result,
                     Err(error) => {
@@ -9342,12 +9360,15 @@ impl App {
                 action
             }
             MachineControllerCompletion::ReplacementPrepared { action_id, action } => {
+                let connection_canceled = self
+                    .connection_attempt_was_canceled(self.machine_action_connection_attempt);
                 if self.pending_machine_replacement.is_some() {
                     if let Some(worker) = self.machine_action_worker.as_ref() {
                         let _ = worker.abort_replacement(action_id);
                     }
                     self.machine_action_in_flight = false;
-                    let (request, connection_attempt) = self.take_machine_action_request();
+                    let (request, connection_attempt, connection_canceled) =
+                        self.take_machine_action_request();
                     self.fail_machine_action(request.as_ref());
                     if matches!(request.as_ref(), Some(MachineRequest::ReconnectProvider)) {
                         self.schedule_machine_provider_reconnect();
@@ -9357,11 +9378,13 @@ impl App {
                         localization::catalog().sidebar.machine_action_failed,
                         localization::catalog().sidebar.machine_replacement_pending
                     );
-                    self.report_machine_action_failure(
-                        request.as_ref(),
-                        connection_attempt,
-                        message,
-                    );
+                    if !connection_canceled {
+                        self.report_machine_action_failure(
+                            request.as_ref(),
+                            connection_attempt,
+                            message,
+                        );
+                    }
                     return RenderAction::Draw;
                 }
                 let request = self.machine_action_request.clone();
@@ -9370,8 +9393,9 @@ impl App {
                     self.machine_action_connection_attempt,
                     ConnectionDialogPhase::Starting,
                 );
-                let present = self.machine_action_intent_generation
-                    == Some(self.machine_selection_generation)
+                let present = !connection_canceled
+                    && self.machine_action_intent_generation
+                        == Some(self.machine_selection_generation)
                     && match self.machine_action_request.as_ref() {
                         Some(MachineRequest::Switch(_)) => action
                             .session
@@ -9388,7 +9412,8 @@ impl App {
                 {
                     self.pending_machine_replacement.take();
                     self.machine_action_in_flight = false;
-                    let (request, connection_attempt) = self.take_machine_action_request();
+                    let (request, connection_attempt, connection_canceled) =
+                        self.take_machine_action_request();
                     self.fail_machine_action(request.as_ref());
                     if matches!(request.as_ref(), Some(MachineRequest::ReconnectProvider)) {
                         self.schedule_machine_provider_reconnect();
@@ -9398,11 +9423,13 @@ impl App {
                         localization::catalog().sidebar.machine_action_failed,
                         localization::catalog().sidebar.machine_replacement_worker_stopped
                     );
-                    self.report_machine_action_failure(
-                        request.as_ref(),
-                        connection_attempt,
-                        message,
-                    );
+                    if !connection_canceled {
+                        self.report_machine_action_failure(
+                            request.as_ref(),
+                            connection_attempt,
+                            message,
+                        );
+                    }
                     return RenderAction::Draw;
                 }
                 RenderAction::Draw
@@ -9425,7 +9452,8 @@ impl App {
                     .take()
                     .expect("matching pending replacement was checked");
                 self.machine_action_in_flight = false;
-                let (request, connection_attempt) = self.take_machine_action_request();
+                let (request, connection_attempt, connection_canceled) =
+                    self.take_machine_action_request();
                 let reconnecting =
                     matches!(request.as_ref(), Some(MachineRequest::ReconnectProvider));
                 let mut action = RenderAction::None;
@@ -9435,6 +9463,7 @@ impl App {
                             self.clear_machine_provider_reconnect();
                         }
                         let PendingMachineReplacement { present, action: prepared, .. } = pending;
+                        let present = present && !connection_canceled;
                         let PreparedMachineAction { ui, session_mutation, session_label, session } =
                             prepared;
                         let target = session.machine;
@@ -9475,15 +9504,17 @@ impl App {
                         if reconnecting {
                             self.schedule_machine_provider_reconnect();
                         }
-                        let message = format!(
-                            "{}: {error}",
-                            localization::catalog().sidebar.machine_action_failed
-                        );
-                        self.report_machine_action_failure(
-                            request.as_ref(),
-                            connection_attempt,
-                            message,
-                        );
+                        if !connection_canceled {
+                            let message = format!(
+                                "{}: {error}",
+                                localization::catalog().sidebar.machine_action_failed
+                            );
+                            self.report_machine_action_failure(
+                                request.as_ref(),
+                                connection_attempt,
+                                message,
+                            );
+                        }
                         action = action.merge(RenderAction::Draw);
                     }
                 }
@@ -15871,7 +15902,22 @@ impl App {
     fn close_prompt(&mut self) {
         self.shake_frames = 0;
         self.prompt = None;
-        self.connection_transaction = None;
+        if let Some(transaction) = self.connection_transaction.take() {
+            if let Some(machine) = self.machine_ui.as_mut()
+                && machine.request.as_ref().is_some_and(|request| {
+                    matches!(
+                        request,
+                        MachineRequest::Connect { target, route }
+                            if target == &transaction.target && route == &transaction.route
+                    )
+                })
+            {
+                machine.request = None;
+            }
+            if self.machine_action_connection_attempt == Some(transaction.attempt) {
+                self.canceled_machine_connection_attempt = Some(transaction.attempt);
+            }
+        }
         self.pending_provider_action = None;
     }
 
@@ -29178,7 +29224,7 @@ mod tests {
     }
 
     #[test]
-    fn single_surface_mux_forwarder_drops_unrelated_output_and_titles() {
+    fn single_surface_mux_forwarder_drops_unrelated_output_titles_and_agents() {
         let (tx, rx) = std::sync::mpsc::sync_channel(4);
         let tx = SessionEventSender::filtered(tx, 41);
         let titles = MuxTitleIngress::default();
@@ -29195,6 +29241,20 @@ mod tests {
             forward_mux_event(MuxEvent::SurfaceOutput(42), &tx, &titles),
             ForwardMuxOutcome::Continue
         ));
+        assert!(matches!(
+            forward_mux_event(
+                MuxEvent::AgentChanged {
+                    surface: 42,
+                    state: "working".into(),
+                    source: "hook".into(),
+                    session: None,
+                    updated_at_ms: 1,
+                },
+                &tx,
+                &titles,
+            ),
+            ForwardMuxOutcome::Continue
+        ));
         assert!(rx.try_recv().is_err());
         assert!(titles.take_dirty().is_empty());
 
@@ -29203,6 +29263,24 @@ mod tests {
             ForwardMuxOutcome::Continue
         ));
         assert!(matches!(rx.try_recv().unwrap(), AppEvent::Mux(MuxEvent::SurfaceOutput(41))));
+        assert!(matches!(
+            forward_mux_event(
+                MuxEvent::AgentChanged {
+                    surface: 41,
+                    state: "working".into(),
+                    source: "hook".into(),
+                    session: None,
+                    updated_at_ms: 2,
+                },
+                &tx,
+                &titles,
+            ),
+            ForwardMuxOutcome::Continue
+        ));
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            AppEvent::Mux(MuxEvent::AgentChanged { surface: 41, .. })
+        ));
     }
 
     #[test]
@@ -35928,6 +36006,21 @@ mod tests {
     }
 
     #[test]
+    fn closing_connection_dialog_removes_the_queued_connect_request() {
+        let mux = Mux::new("connection-dialog-queued-cancel-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        app.begin_machine_connection("mini.local".into(), MachineConnectRoute::Local);
+
+        app.close_prompt();
+
+        assert!(app.prompt.is_none());
+        assert!(app.connection_transaction.is_none());
+        assert!(app.machine_ui.as_ref().is_some_and(|ui| ui.request.is_none()));
+        assert!(!app.machine_action_in_flight);
+    }
+
+    #[test]
     fn provider_owned_workspace_policy_never_creates_an_untracked_session_workspace() {
         let mux = Mux::new("provider-owned-initial-workspace-test", SurfaceOptions::default());
         let mut ui = provider_machine_ui();
@@ -37568,6 +37661,42 @@ mod tests {
     }
 
     #[test]
+    fn closing_connection_dialog_prevents_an_active_connect_from_replacing_the_session() {
+        let first = Mux::new("connection-dialog-active-cancel-first", SurfaceOptions::default());
+        first.new_workspace(None, None).unwrap();
+        let second = Mux::new("connection-dialog-active-cancel-second", SurfaceOptions::default());
+        second.new_workspace(None, None).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(first));
+        app.replace_tree(app.session.tree());
+        app.machine_ui = Some(provider_machine_ui());
+        let (controller, requests) = fake_controller(FakeMachineAction::Return(Box::new(
+            MachineActionResult::replace(
+                provider_machine_ui(),
+                Session::Local(second),
+                "second".into(),
+            ),
+        )));
+        install_machine_controller(&mut app, controller);
+        app.begin_machine_connection("mini.local".into(), MachineConnectRoute::Local);
+        let request = MachineRequest::Connect {
+            target: "mini.local".into(),
+            route: MachineConnectRoute::Local,
+        };
+
+        assert_eq!(app.process_machine_requests(), RenderAction::None);
+        assert!(app.machine_action_in_flight);
+        app.close_prompt();
+        assert!(matches!(settle_machine_action(&mut app, &events), RenderAction::Draw));
+
+        assert_eq!(app.session_generation, 1);
+        assert_eq!(app.session_label, "test");
+        assert!(app.prompt.is_none());
+        assert!(app.connection_transaction.is_none());
+        assert!(app.canceled_machine_connection_attempt.is_none());
+        assert_eq!(requests.lock().unwrap().as_slice(), &[request]);
+    }
+
+    #[test]
     fn machine_session_replacement_settles_pointer_capture_on_the_old_session() {
         let first = Mux::new("machine-pointer-reset-first", SurfaceOptions::default());
         first.new_workspace(None, None).unwrap();
@@ -38661,6 +38790,7 @@ mod tests {
             machine_action_in_flight: false,
             machine_action_request: None,
             machine_action_connection_attempt: None,
+            canceled_machine_connection_attempt: None,
             machine_action_intent_generation: None,
             machine_selection_intent: None,
             machine_selection_generation: 0,
