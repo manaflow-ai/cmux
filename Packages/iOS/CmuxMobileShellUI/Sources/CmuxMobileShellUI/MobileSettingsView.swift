@@ -33,6 +33,8 @@ struct MobileSettingsView: View {
     /// replay's connection state. `nil` in previews.
     var store: CMUXMobileShellStore?
     @AppStorage(MobileSettingsView.sendAnonymousTelemetryKey) private var sendAnonymousTelemetry = false
+    @AppStorage(MobileNotificationFeedDesign.storageKey) private var notificationFeedDesignRaw =
+        MobileNotificationFeedDesign.timeline.rawValue
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
@@ -252,6 +254,28 @@ struct MobileSettingsView: View {
                         ))
                     }
                     .accessibilityIdentifier("MobileSettingsToastsEnabled")
+                }
+
+                Section {
+                    Picker(
+                        L10n.string(
+                            "mobile.settings.cmuxLabs.feedDesign",
+                            defaultValue: "Feed Design"
+                        ),
+                        selection: $notificationFeedDesignRaw
+                    ) {
+                        ForEach(MobileNotificationFeedDesign.allCases) { design in
+                            Text(design.title).tag(design.rawValue)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsNotificationFeedDesign")
+                } header: {
+                    Text(L10n.string("mobile.settings.cmuxLabs", defaultValue: "CMUX Labs"))
+                } footer: {
+                    Text(L10n.string(
+                        "mobile.settings.cmuxLabs.feedDesign.footer",
+                        defaultValue: "Switch between five notification Feed experiments."
+                    ))
                 }
 
                 #if DEBUG
