@@ -37,6 +37,7 @@ extension CmxIrohHostRuntime {
         }
 
         localBinding = nil
+        lastRegistrationRefreshState = nil
         lifecyclePhase = .inactive
         currentSnapshot = CmxIrohHostRuntimeSnapshot(
             state: .inactive,
