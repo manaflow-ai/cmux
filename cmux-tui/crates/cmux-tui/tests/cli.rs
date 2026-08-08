@@ -2289,6 +2289,66 @@ fn plain_launch_attaches_to_existing_local_session() {
 
 #[cfg(unix)]
 #[test]
+fn session_shutdown_exits_an_interactive_local_owner() {
+    let dir = unique_temp_dir("interactive-session-shutdown");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let socket_arg = socket.to_str().unwrap();
+    let mut owner = PtyChild::start(&[
+        "--session",
+        "interactive-session-shutdown",
+        "--socket",
+        socket_arg,
+    ]);
+    wait_for_socket_path(&socket);
+
+    let ready_deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(status) = owner.child.try_wait().unwrap() {
+            panic!("interactive owner exited before shutdown: {status}");
+        }
+        let clients = lifecycle_cli(&["--json", "--socket", socket_arg, "client", "list"]);
+        if clients.status.success()
+            && json_output(&clients).as_array().is_some_and(|clients| {
+                clients.iter().any(|client| client["client_kind"].as_str() == Some("tui"))
+            })
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < ready_deadline,
+            "interactive owner did not register its TUI client"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+
+    let shutdown = lifecycle_cli(&[
+        "--json",
+        "--socket",
+        socket_arg,
+        "session",
+        "current",
+        "shutdown",
+    ]);
+    assert_success(&shutdown);
+    assert_eq!(json_output(&shutdown)["value"]["accepted"], true);
+
+    let exit_deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if owner.child.try_wait().unwrap().is_some() {
+            break;
+        }
+        assert!(
+            Instant::now() < exit_deadline,
+            "interactive owner remained alive after session shutdown"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn host_terminal_disconnect_exits_frontend_without_stopping_server() {
     let server = HeadlessServer::start("host-terminal-disconnect");
     let mut tui = DisconnectablePtyChild::start(&["--socket", server.socket.to_str().unwrap()]);
