@@ -2840,9 +2840,8 @@ pub fn checked_reset_deletion_supported(root: &Path) -> bool {
     use std::os::fd::AsRawFd;
 
     let parent = open_verified_reset_directory(root, "workspace state root");
-    parent.is_ok_and(|parent| {
-        open_reset_child_dir(parent.as_raw_fd(), OsStr::new("."), root).is_ok()
-    })
+    parent
+        .is_ok_and(|parent| open_reset_child_dir(parent.as_raw_fd(), OsStr::new("."), root).is_ok())
 }
 
 /// Return whether this process can enforce descriptor-relative reset deletion boundaries.
