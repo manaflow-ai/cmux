@@ -458,10 +458,8 @@ fn reset_preserves_invalid_lookalike_private_deletion_dir() {
     let root = temp_root("reset-preserves-invalid-private-delete");
     let session = "reset-preserves-invalid-private-delete";
     fs::create_dir_all(&root).unwrap();
-    let lookalike = root.join(format!(
-        ".reset-{}-session-not-a-uuid.deleting",
-        session_storage_component(session)
-    ));
+    let lookalike = root
+        .join(format!(".reset-{}-session-not-a-uuid.deleting", session_storage_component(session)));
     fs::create_dir_all(&lookalike).unwrap();
     fs::write(lookalike.join("unrelated"), b"keep").unwrap();
 

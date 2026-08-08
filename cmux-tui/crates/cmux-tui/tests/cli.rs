@@ -658,15 +658,7 @@ fn session_reset_state_rejects_global_routing_options() {
         [("--socket", "ignored.sock"), ("--session", "ignored"), ("--machine", "ignored")]
     {
         let output = Command::new(bin())
-            .args([
-                "--json",
-                option,
-                value,
-                "session",
-                "target",
-                "reset-state",
-                "--state",
-            ])
+            .args(["--json", option, value, "session", "target", "reset-state", "--state"])
             .arg(&state)
             .env_remove("CMUX_TUI_SOCKET")
             .output()
