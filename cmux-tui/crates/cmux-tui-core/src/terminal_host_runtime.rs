@@ -3621,13 +3621,24 @@ mod unix {
     pub(crate) fn acquire_terminal_host_reset_lock(
         root: &Path,
     ) -> anyhow::Result<Option<TerminalHostResetLock>> {
-        let path = terminal_host_publication_lock_path(root);
         let root_file = OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW)
             .open(root)
             .with_context(|| format!("open terminal-host root {}", root.display()))?;
         validate_terminal_host_reset_root(root, &root_file)?;
+        let lock = acquire_terminal_host_reset_lock_from_directory(root, root_file)?;
+        if let Some(lock) = &lock {
+            validate_terminal_host_reset_root(root, &lock._root)?;
+        }
+        Ok(lock)
+    }
+
+    pub(crate) fn acquire_terminal_host_reset_lock_from_directory(
+        root: &Path,
+        root_file: File,
+    ) -> anyhow::Result<Option<TerminalHostResetLock>> {
+        let path = terminal_host_publication_lock_path(root);
         root_file.set_permissions(fs::Permissions::from_mode(0o700))?;
         let file = open_terminal_host_publication_lock_at(&root_file, true)
             .with_context(|| format!("create terminal-host publication lock {}", path.display()))?;
@@ -3640,7 +3651,6 @@ mod unix {
             || format!("terminal host state has live or unverified hosts: {}", root.display()),
         )?;
         validate_terminal_host_publication_lock_at(&root_file, &path, &file)?;
-        validate_terminal_host_reset_root(root, &root_file)?;
         Ok(Some(TerminalHostResetLock { file, _root: root_file }))
     }
 
@@ -7038,9 +7048,10 @@ mod unix {
 
 #[cfg(unix)]
 pub(crate) use unix::{
-    ControlResponses, DecodedHostResize, DeferredCellPixelResolution,
-    acquire_terminal_host_reset_lock, adopt_terminal_host_with_kitty_limits,
-    decode_host_resize_payload_for_version, load_terminal_host_records_for_reset,
+    ControlResponses, DecodedHostResize, DeferredCellPixelResolution, TerminalHostResetLock,
+    acquire_terminal_host_reset_lock, acquire_terminal_host_reset_lock_from_directory,
+    adopt_terminal_host_with_kitty_limits, decode_host_resize_payload_for_version,
+    load_terminal_host_records_for_reset,
 };
 #[cfg(unix)]
 pub use unix::{

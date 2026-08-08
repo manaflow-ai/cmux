@@ -845,6 +845,104 @@ fn reset_state_root_symlink_swap_does_not_write_outside_state() {
 
 #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
 #[test]
+fn reset_state_root_swap_after_guard_stays_on_verified_directory() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let root = temp_root("reset-state-root-swap-after-guard");
+    let outside = temp_root("reset-state-root-swap-after-guard-outside");
+    let moved_root = temp_root("reset-state-root-after-guard");
+    let session = "reset-state-root-swap-after-guard";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    fs::set_permissions(&outside, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(outside.join("sentinel"), b"outside").unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_REPLACE_STATE_ROOT_AFTER_GUARD.lock().unwrap() =
+        Some((root.clone(), moved_root.clone(), outside.clone()));
+
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+    *RESET_REPLACE_STATE_ROOT_AFTER_GUARD.lock().unwrap() = None;
+
+    assert!(reset.removed_session_state);
+    assert_eq!(fs::read(outside.join("sentinel")).unwrap(), b"outside");
+    assert_eq!(fs::metadata(&outside).unwrap().mode() & 0o777, 0o755);
+    assert!(!outside.join(SESSION_GUARD_DIR).exists());
+    assert!(!outside.join(session_storage_component(session)).exists());
+    assert!(!moved_root.join(session_storage_component(session)).exists());
+    assert!(fs::symlink_metadata(&root).unwrap().file_type().is_symlink());
+
+    fs::remove_file(root).unwrap();
+    fs::remove_dir_all(moved_root).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_rejects_hard_linked_session_guard_coordinator_before_chmod() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let root = temp_root("reset-hard-linked-session-guard-coordinator");
+    let outside = temp_root("reset-hard-linked-session-guard-coordinator-outside");
+    let session = "reset-hard-linked-session-guard-coordinator";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let lock_dir = root.join(SESSION_GUARD_DIR);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::create_dir_all(&lock_dir).unwrap();
+    fs::set_permissions(&lock_dir, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    let outside_file = outside.join("coordinator-target");
+    fs::write(&outside_file, b"outside").unwrap();
+    fs::set_permissions(&outside_file, fs::Permissions::from_mode(0o644)).unwrap();
+    fs::hard_link(&outside_file, lock_dir.join(SESSION_GUARD_COORDINATOR_FILE)).unwrap();
+    let preview = resetter.preview(session).unwrap();
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(format!("{error:#}").contains("session lock path is unsafe"), "{error:#}");
+    assert_eq!(fs::read(&outside_file).unwrap(), b"outside");
+    assert_eq!(fs::metadata(&outside_file).unwrap().mode() & 0o777, 0o644);
+    fs::remove_dir_all(root).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_rejects_hard_linked_session_guard_before_chmod() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let root = temp_root("reset-hard-linked-session-guard");
+    let outside = temp_root("reset-hard-linked-session-guard-outside");
+    let session = "reset-hard-linked-session-guard";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let lock_dir = root.join(SESSION_GUARD_DIR);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::create_dir_all(&lock_dir).unwrap();
+    fs::set_permissions(&lock_dir, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    let outside_file = outside.join("session-target");
+    fs::write(&outside_file, b"outside").unwrap();
+    fs::set_permissions(&outside_file, fs::Permissions::from_mode(0o644)).unwrap();
+    fs::hard_link(&outside_file, session_guard_lock_path(&lock_dir, session)).unwrap();
+    let preview = resetter.preview(session).unwrap();
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(format!("{error:#}").contains("session lock path is unsafe"), "{error:#}");
+    assert_eq!(fs::read(&outside_file).unwrap(), b"outside");
+    assert_eq!(fs::metadata(&outside_file).unwrap().mode() & 0o777, 0o644);
+    fs::remove_dir_all(root).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
 fn reset_session_dir_symlink_swap_does_not_write_outside_state() {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
@@ -860,11 +958,8 @@ fn reset_session_dir_symlink_swap_does_not_write_outside_state() {
     fs::set_permissions(&outside, fs::Permissions::from_mode(0o755)).unwrap();
     fs::write(outside.join("sentinel"), b"outside").unwrap();
     let preview = resetter.preview(session).unwrap();
-    *RESET_REPLACE_SESSION_DIR_BEFORE_WRITER_LOCK.lock().unwrap() = Some((
-        session_dir.clone(),
-        moved_session_dir.clone(),
-        outside.clone(),
-    ));
+    *RESET_REPLACE_SESSION_DIR_BEFORE_WRITER_LOCK.lock().unwrap() =
+        Some((session_dir.clone(), moved_session_dir.clone(), outside.clone()));
 
     let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
     *RESET_REPLACE_SESSION_DIR_BEFORE_WRITER_LOCK.lock().unwrap() = None;
