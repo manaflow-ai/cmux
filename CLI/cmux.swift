@@ -15783,7 +15783,8 @@ struct CMUXCLI {
             return Self.moshTmuxCommandUsage
         case "ssh-tmux":
             let help = String(localized: "cli.help.ssh-tmux", defaultValue: """
-            Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]
+            Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>]
+                                 [--transport ssh|et] [--transport-port <n>] [--no-focus]
 
             Mirror a remote host's tmux sessions into the current window's sidebar over
             SSH tmux control mode (tmux -CC). Each session becomes a workspace, each
@@ -15797,13 +15798,19 @@ struct CMUXCLI {
             with no prompt. ~/.ssh/config aliases and their IdentityFile/ProxyJump/Port settings are honored.
 
             Flags:
-              --port <n>          SSH port
-              --identity <path>   SSH identity file path
-              --no-focus          Do not select the mirror workspace or focus its window
+              --port <n>            SSH port
+              --identity <path>     SSH identity file path
+              --transport <name>    ssh (default) or et. et carries the control stream over
+                                    EternalTerminal, which reconnects on its own, so the
+                                    mirror survives a network change instead of respawning.
+              --transport-port <n>  Port the transport connects to: sshd's for ssh, etserver's
+                                    for et (default 22 for ssh, 2022 for et)
+              --no-focus            Do not select the mirror workspace or focus its window
 
             Example:
               cmux ssh-tmux dev@my-host
               cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519
+              cmux ssh-tmux dev@my-host --transport et --transport-port 8080
             """)
             let newWindowHelp = String(
                 localized: "cli.help.ssh-tmux.newWindow",
