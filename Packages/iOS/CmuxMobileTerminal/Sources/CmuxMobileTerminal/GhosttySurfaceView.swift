@@ -1921,8 +1921,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
             sublayer.transform = transform
         }
+        // Only the frozen CONTAINER carries the scroll translation; its content
+        // child is a sublayer, so writing both would apply the offset twice.
         verifiedReplayFrozenPresentationLayer?.transform = transform
-        verifiedReplayFrozenContentLayer?.transform = transform
         CATransaction.commit()
         snapshotFallbackView.transform = CGAffineTransform(translationX: 0, y: translationY)
     }
