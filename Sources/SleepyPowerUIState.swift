@@ -12,4 +12,9 @@ final class SleepyPowerUIState {
     var isOn = false
     /// Whether a privileged toggle is in flight (disables the button).
     var isBusy = false
+    /// True after a Lock Mac attempt reported no lock mechanism was available,
+    /// so the overlay tells the user instead of silently staying unlocked
+    /// (the failure mode of https://github.com/manaflow-ai/cmux/issues/9730).
+    /// Cleared by a later successful lock.
+    var lockFailed = false
 }

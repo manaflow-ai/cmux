@@ -25,6 +25,27 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         return unsafeBitCast(symbol, to: AuthExecFn.self)
     }()
 
+    private typealias LockScreenFn = @convention(c) () -> Int32
+
+    /// `SACLockScreenImmediate` from `login.framework` — the call behind the
+    /// Apple menu's "Lock Screen" (⌃⌘Q), predating the macOS 14 deployment
+    /// floor. It replaces shelling out to the `CGSession` binary, which macOS
+    /// 26 removed together with `User.menu`
+    /// (https://github.com/manaflow-ai/cmux/issues/9730). Resolved via `dlsym`
+    /// like `authExec` above, so no private symbol is linked and a macOS that
+    /// drops it degrades to a reported failure, not a crash.
+    private static let lockScreenImmediate: LockScreenFn? = {
+        guard let handle = dlopen("/System/Library/PrivateFrameworks/login.framework/login", RTLD_LAZY),
+              let symbol = dlsym(handle, "SACLockScreenImmediate") else { return nil }
+        return unsafeBitCast(symbol, to: LockScreenFn.self)
+    }()
+
+    /// Whether the in-process lock call resolved. Internal so the CI canary
+    /// test can assert the symbol still resolves on each supported macOS —
+    /// a future macOS removing it turns CI red instead of the Lock Mac button
+    /// silently breaking again.
+    static var isLockScreenAvailable: Bool { lockScreenImmediate != nil }
+
     private let privilegedQueue = DispatchQueue(label: "com.cmux.sleepyMode.privileged")
     private var authorization: AuthorizationRef?  // accessed only on privilegedQueue
 
@@ -55,6 +76,25 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
                 process.waitUntilExit()
                 continuation.resume(returning: String(data: data, encoding: .utf8))
+            }
+        }
+    }
+
+    @discardableResult
+    func lockScreen() async -> Bool {
+        // The SAC call IPCs to loginwindow; keep it off the caller's actor
+        // like every other system effect here. It returns a status int
+        // (0 on success). Honor it: loginwindow can reject the request even
+        // when the symbol resolves, and for a security-labeled action a
+        // spurious failure warning is acceptable while a silent false
+        // "locked" is not.
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                guard let lockScreenImmediate = Self.lockScreenImmediate else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                continuation.resume(returning: lockScreenImmediate() == 0)
             }
         }
     }

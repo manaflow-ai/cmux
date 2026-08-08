@@ -38,11 +38,13 @@ final class SleepyPowerControls: SleepyPowerControlling {
         await runner.run("/usr/bin/pmset", ["displaysleepnow"])
     }
 
-    /// Engages the real macOS login lock via the supported `CGSession -suspend`
-    /// mechanism (returning to the session requires the account password /
-    /// Touch ID) — Apple's loginwindow, not our overlay, and no private symbol.
-    func lockMacNow() async {
-        await runner.run("/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession", ["-suspend"])
+    /// Engages the real macOS login lock (returning to the session requires the
+    /// account password / Touch ID) — Apple's loginwindow, not our overlay. The
+    /// lock is an in-process call behind the runner seam: the `CGSession`
+    /// binary this used to shell out to was removed in macOS 26 (#9730).
+    @discardableResult
+    func lockMacNow() async -> Bool {
+        await runner.lockScreen()
     }
 
     func isLowPowerOn() async -> Bool {

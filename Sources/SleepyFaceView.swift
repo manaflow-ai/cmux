@@ -136,8 +136,11 @@ struct SleepyFaceView: View {
                 Button {
                     // The real macOS login lock — genuinely secure (Apple's), unlike
                     // the overlay. The screensaver stays up behind it as the backdrop.
+                    // A lock that reports failure must not stay silent: the overlay
+                    // is dismissible, so the user needs to know the Mac is unlocked.
                     let power = power
-                    Task { await power.lockMacNow() }
+                    let ui = powerUIState
+                    Task { ui.lockFailed = !(await power.lockMacNow()) }
                 } label: {
                     Label(String(localized: "sleepyMode.button.lockMac", defaultValue: "Lock Mac"), systemImage: "lock.fill")
                 }
@@ -176,6 +179,20 @@ struct SleepyFaceView: View {
                 }
                 .buttonStyle(SleepyPixelButtonStyle(tint: powerUIState.isOn ? Color(red: 0.24, green: 0.56, blue: 0.32) : Color(red: 0.30, green: 0.42, blue: 0.46)))
                 .disabled(powerUIState.isBusy)
+            }
+            if powerUIState.lockFailed {
+                let warn = Color(red: 0.95, green: 0.62, blue: 0.30)
+                HStack(spacing: 7) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text(String(localized: "sleepyMode.lockFailed", defaultValue: "Couldn't lock the Mac — use ⌃⌘Q or the Apple menu's Lock Screen"))
+                }
+                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                .foregroundStyle(warn.opacity(0.95))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(warn.opacity(0.16))
+                .overlay(Rectangle().strokeBorder(warn.opacity(0.5), lineWidth: 2))
+                .padding(.top, 16)
             }
             Spacer().frame(height: 50)
             Text(hintText)

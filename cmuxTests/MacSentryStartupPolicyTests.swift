@@ -7,6 +7,13 @@ import Foundation
 @testable import cmux
 #endif
 
+private func canonicalAppHostPath(_ path: String) -> String {
+    URL(fileURLWithPath: path)
+        .resolvingSymlinksInPath()
+        .standardizedFileURL
+        .path
+}
+
 private func validateAppHostUserConfigurationHome(
     environment: [String: String],
     isolationRequired: Bool
@@ -29,26 +36,35 @@ private func validateAppHostUserConfigurationHome(
     #expect(environment["CFFIXED_USER_HOME"] == expectedHome)
     #expect(environment["XDG_CONFIG_HOME"] == expectedXDGConfigHome)
     #expect(environment["SSH_AUTH_SOCK"] == "")
-    #expect(FileManager.default.homeDirectoryForCurrentUser.path == expectedHome)
+    #expect(
+        canonicalAppHostPath(
+            FileManager.default.homeDirectoryForCurrentUser.path
+        ) == canonicalAppHostPath(expectedHome)
+    )
     #expect(
         FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first?.path
-            == URL(fileURLWithPath: expectedHome, isDirectory: true)
-                .appendingPathComponent(
-                    "Library/Application Support",
-                    isDirectory: true
-                ).path
+        ).first.map { canonicalAppHostPath($0.path) }
+            == canonicalAppHostPath(
+                URL(fileURLWithPath: expectedHome, isDirectory: true)
+                    .appendingPathComponent(
+                        "Library/Application Support",
+                        isDirectory: true
+                    ).path
+            )
     )
     #expect(
-        NSString(string: "~/Library/Application Support")
-            .expandingTildeInPath
-            == URL(fileURLWithPath: expectedHome, isDirectory: true)
+        canonicalAppHostPath(
+            NSString(string: "~/Library/Application Support")
+                .expandingTildeInPath
+        ) == canonicalAppHostPath(
+            URL(fileURLWithPath: expectedHome, isDirectory: true)
                 .appendingPathComponent(
                     "Library/Application Support",
                     isDirectory: true
                 ).path
+        )
     )
 }
 
