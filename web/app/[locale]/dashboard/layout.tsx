@@ -6,6 +6,8 @@ import { DashboardSkeleton } from "./components/dashboard-skeleton";
 import { DashboardQueryProvider } from "./components/query-provider";
 import { DashboardShell } from "./dashboard-shell";
 
+export const instant = true;
+
 // Auth redirects are owned by each page, not this layout: a layout cannot see
 // the requested URL, so redirecting here would send unauthenticated visitors
 // to a fixed return path and drop page-specific query params. Every page under

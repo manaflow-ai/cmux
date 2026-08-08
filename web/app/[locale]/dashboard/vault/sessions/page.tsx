@@ -9,7 +9,6 @@ import {
 } from "@/services/vault/sessionList";
 import { SessionsTable } from "./sessions-table";
 
-export const dynamic = "force-dynamic";
 
 export default async function VaultSessionsPage({
   params,

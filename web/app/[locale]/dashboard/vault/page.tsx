@@ -7,7 +7,6 @@ import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { formatBytes, formatDate } from "@/services/vault/format";
 
-export const dynamic = "force-dynamic";
 
 export default async function VaultOverviewPage({
   params,

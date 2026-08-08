@@ -38,7 +38,6 @@ import {
 } from "@/services/billing/plans";
 import { AccountPlanBadge } from "../components/account-plan-badge";
 
-export const dynamic = "force-dynamic";
 
 type SearchParams = {
   billing?: string | string[];

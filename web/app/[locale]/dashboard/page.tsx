@@ -4,7 +4,6 @@ import { Link } from "@/i18n/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 
-export const dynamic = "force-dynamic";
 
 export default async function DashboardIndexPage({
   params,

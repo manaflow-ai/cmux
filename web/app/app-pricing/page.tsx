@@ -47,7 +47,6 @@ const ENTERPRISE_CTA_URL = withExternalBrowserIntent("/enterprise");
 const pricing = enMessages.pricing;
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 
-export const dynamic = "force-dynamic";
 
 export default async function AppPricingPage({
   searchParams,
