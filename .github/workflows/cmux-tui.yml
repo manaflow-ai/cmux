@@ -26,7 +26,8 @@ on:
         type: string
 
 concurrency:
-  group: cmux-tui-${{ github.workflow }}-${{ github.ref }}
+  # Every caller waits for one exact commit. A newer request must not cancel it.
+  group: cmux-tui-${{ inputs.request_id }}
   cancel-in-progress: true
 
 permissions:
