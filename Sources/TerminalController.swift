@@ -3700,6 +3700,17 @@ class TerminalController {
         controlCommandCoordinator.resolveRef(handle)
     }
 
+    /// Resolves either wire representation of an identifier (raw UUID or
+    /// `kind:N` ref) that arrived under a specific param key, restricted to the
+    /// handle kinds that key accepts.
+    func v2ResolveIdentifier(
+        _ raw: String,
+        forParamKey key: String,
+        routing: Bool = false
+    ) -> UUID? {
+        controlCommandCoordinator.resolveIdentifier(raw, forParamKey: key, routing: routing)
+    }
+
     nonisolated func v2Ref(kind: ControlHandleKind, uuid: UUID?) -> Any {
         guard let uuid else { return NSNull() }
         return v2MainSync { v2EnsureHandleRef(kind: kind, uuid: uuid) }
@@ -3737,6 +3748,9 @@ class TerminalController {
     // the worker-lane resolution hop, mirroring the main-lane dispatch
     // preamble.
     func v2RefreshKnownRefs() {
+        // Identity classification snapshots live topology for the request, so
+        // it is refreshed on the same boundary as the handle refs.
+        controlCommandCoordinator.resetIdentityKindCache()
         guard let app = AppDelegate.shared else { return }
 
         let windows = app.listMainWindowSummaries()
@@ -3766,16 +3780,34 @@ class TerminalController {
         // CLI helpers always inject caller workspace_id/surface_id, which
         // would otherwise win even when the group belongs to a different
         // window). Then use workspace/surface/pane lookup and the active window.
+        //
+        // A supplied-but-invalid selector fails closed first: treating it like
+        // an absent one would slide down to the active window and act on a
+        // target the caller never named
+        // (https://github.com/manaflow-ai/cmux/issues/9424).
         if v2HasNonNullParam(params, "window_id") {
-            guard let windowId = v2UUID(params, "window_id") else { return nil }
+            guard let windowId = v2RoutingUUID(params, "window_id") else { return nil }
             return v2MainSync { AppDelegate.shared?.tabManagerFor(windowId: windowId) }
         }
-        if let groupId = v2UUID(params, "group_id") {
+        // Resolve each selector once, recording supplied-but-invalid as it goes,
+        // so classification does not sweep live topology twice per request.
+        var rejected = false
+        func selector(_ key: String) -> UUID? {
+            let resolved = v2RoutingUUID(params, key)
+            if resolved == nil, v2HasNonNullParam(params, key) { rejected = true }
+            return resolved
+        }
+        let groupSelector = selector("group_id")
+        let workspaceSelector = selector("workspace_id")
+        let surfaceSelector = selector("surface_id") ?? selector("terminal_id") ?? selector("tab_id")
+        let paneSelector = selector("pane_id")
+        if rejected { return nil }
+        if let groupId = groupSelector {
             if let tm = v2MainSync({ v2LocateTabManager(forGroupId: groupId) }) {
                 return tm
             }
         }
-        if let wsId = v2UUID(params, "workspace_id") {
+        if let wsId = workspaceSelector {
             if wsId == AppDelegate.windowDockAliasWorkspaceId {
                 return v2MainSync { tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager }
             }
@@ -3788,17 +3820,49 @@ class TerminalController {
                 return tm
             }
         }
-        if let surfaceId = v2UUID(params, "surface_id")
-            ?? v2UUID(params, "terminal_id")
-            ?? v2UUID(params, "tab_id") {
+        if let surfaceId = surfaceSelector {
             if let manager = v2MainSync({ controlTabManager(surfaceID: surfaceId) }) { return manager }
         }
-        if let paneId = v2UUID(params, "pane_id") {
+        if let paneId = paneSelector {
             if let tm = v2MainSync({ controlTabManager(paneID: paneId) }) {
                 return tm
             }
         }
         return v2MainSync { tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager }
+    }
+
+    /// Classifies a raw identifier against live topology, so a raw UUID that
+    /// names a surface is rejected when it arrives under `group_id` instead of
+    /// routing the command somewhere else
+    /// (https://github.com/manaflow-ai/cmux/issues/9424).
+    ///
+    /// Authoritative where the handle registry's mint history is not: it sees
+    /// dock-hosted and remote-tmux objects that have never been minted, and is
+    /// unaffected by `removeRef`. An empty result means the identity names
+    /// nothing live; `nil` means this controller cannot classify at all.
+    func controlIdentityKinds(for uuid: UUID) -> Set<ControlHandleKind>? {
+        guard let app = AppDelegate.shared else { return nil }
+        var kinds: Set<ControlHandleKind> = []
+        if app.tabManagerFor(windowId: uuid) != nil {
+            kinds.insert(.window)
+        }
+        // A window-Dock owner id IS its owning window's id.
+        if app.tabManagerForWindowDockOwner(uuid) != nil {
+            kinds.insert(.window)
+        }
+        if uuid == AppDelegate.windowDockAliasWorkspaceId || app.tabManagerFor(tabId: uuid) != nil {
+            kinds.insert(.workspace)
+        }
+        if v2LocateTabManager(forGroupId: uuid) != nil {
+            kinds.insert(.workspaceGroup)
+        }
+        if controlTabManager(paneID: uuid) != nil {
+            kinds.insert(.pane)
+        }
+        if controlTabManager(surfaceID: uuid) != nil {
+            kinds.insert(.surface)
+        }
+        return kinds
     }
 
     @MainActor
@@ -3821,6 +3885,10 @@ class TerminalController {
     /// active scriptable window. Lives here so it can read the controller's
     /// `private` `tabManager` / `v2LocateTabManager`.
     func resolveTabManager(routing: ControlRoutingSelectors) -> TabManager? {
+        // A supplied-but-invalid selector is not an absent one: falling through
+        // would run the command against an implicit window the caller never
+        // named (https://github.com/manaflow-ai/cmux/issues/9424).
+        if routing.hasRejectedSelector { return nil }
         if routing.hasWindowIDParam {
             guard let windowId = routing.windowID else { return nil }
             return AppDelegate.shared?.tabManagerFor(windowId: windowId)
