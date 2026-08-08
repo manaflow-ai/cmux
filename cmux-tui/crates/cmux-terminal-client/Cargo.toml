@@ -10,17 +10,22 @@ description = "Small C ABI for the cmux TerminalBytes smart-renderer stream"
 [lib]
 crate-type = ["staticlib", "rlib"]
 
+[features]
+default = ["text-renderer"]
+native-renderer = []
+text-renderer = ["dep:ghostty-vt"]
+
 [lints]
 workspace = true
 
 [dependencies]
 base64.workspace = true
 bytes.workspace = true
-cmux-remote.workspace = true
+cmux-remote = { path = "../cmux-remote", default-features = false, features = ["iroh-transport"] }
 cmux-remote-protocol.workspace = true
-cmux-tui-core.workspace = true
+cmux-terminal-host-protocol.workspace = true
 getrandom.workspace = true
-ghostty-vt.workspace = true
+ghostty-vt = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

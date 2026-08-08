@@ -1,0 +1,2 @@
+"CFBundleDisplayName" = "cmux Native Frontend";
+"NSLocalNetworkUsageDescription" = "Connect to the local cmux Iroh daemon.";

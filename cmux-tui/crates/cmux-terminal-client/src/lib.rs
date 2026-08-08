@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::ffi::{CStr, c_char, c_void};
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -16,14 +16,12 @@ use cmux_remote::provider::{
 };
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer, ServiceStream};
 use cmux_remote_protocol::{Lane, LanePolicy, Service, ServiceControl, SessionId};
-use cmux_tui_core::apply_terminal_color_overrides;
-use cmux_tui_core::resource::TerminalPublicId;
-use cmux_tui_core::terminal_host_protocol::{
-    Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MessageKind, RESIZE_ACK_CANONICAL_CHANGED, encode_frame,
+use cmux_terminal_host_protocol::{
+    Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MAX_KITTY_IMAGE_BYTES,
+    MAX_KITTY_IMAGES, MAX_KITTY_INFLIGHT_BYTES, MAX_KITTY_PLACEMENTS, MessageKind,
+    RESIZE_ACK_CANONICAL_CHANGED, encode_frame,
 };
-use cmux_tui_core::terminal_host_runtime::{
-    decode_host_snapshot_payload, decode_terminal_color_overrides,
-};
+#[cfg(feature = "text-renderer")]
 use ghostty_vt::{
     Callbacks, CellWidth, KeyAction, KeyEncoder, RenderState, Terminal, key_input_from_chord,
 };
@@ -32,10 +30,300 @@ use tokio::runtime::Runtime;
 use url::Url;
 use zeroize::Zeroizing;
 
+mod frontend;
+
 const CONNECTION_TIMEOUT_ERROR: &str = "terminal connection timed out";
 const TERMINAL_RECONNECT_MAX_ATTEMPTS: u32 = 8;
 const TERMINAL_RECONNECT_INITIAL_DELAY: StdDuration = StdDuration::from_millis(250);
 const TERMINAL_RECONNECT_MAX_DELAY: StdDuration = StdDuration::from_secs(4);
+const MAX_NATIVE_RENDER_EVENT_BYTES: usize = 32 * 1024 * 1024;
+const MAX_NATIVE_RENDER_EVENTS: usize = 4096;
+
+#[derive(Clone, PartialEq, Eq)]
+struct TerminalPublicId(String);
+
+impl TerminalPublicId {
+    fn parse(value: impl Into<String>) -> Result<Self, String> {
+        let value = value.into();
+        let Some(payload) = value.strip_prefix("term_") else {
+            return Err("expected a term_ public ID".into());
+        };
+        if payload.len() != 32
+            || !payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err("expected 32 lowercase hexadecimal digits after term_".into());
+        }
+        Ok(Self(value))
+    }
+
+    fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for TerminalPublicId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+struct RendererSnapshot {
+    cols: u16,
+    rows: u16,
+    cell_pixels: (u16, u16),
+    replay: Vec<u8>,
+    kitty_image_aliases: Vec<(u32, u32)>,
+    kitty_limits: (u64, u64, u64, u64),
+    replay_cursor_offset: u32,
+    replay_next_image_ids: (u32, u32),
+    next_image_ids: (u32, u32),
+}
+
+struct SnapshotDecoder<'a> {
+    payload: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> SnapshotDecoder<'a> {
+    fn new(payload: &'a [u8]) -> Self {
+        Self { payload, offset: 0 }
+    }
+    fn take(&mut self, length: usize) -> Result<&'a [u8], String> {
+        let end = self
+            .offset
+            .checked_add(length)
+            .filter(|end| *end <= self.payload.len())
+            .ok_or_else(|| "truncated terminal snapshot".to_string())?;
+        let bytes = &self.payload[self.offset..end];
+        self.offset = end;
+        Ok(bytes)
+    }
+    fn u8(&mut self) -> Result<u8, String> {
+        Ok(self.take(1)?[0])
+    }
+    fn u16(&mut self) -> Result<u16, String> {
+        Ok(u16::from_le_bytes(self.take(2)?.try_into().unwrap()))
+    }
+    fn u32(&mut self) -> Result<u32, String> {
+        Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap()))
+    }
+    fn u64(&mut self) -> Result<u64, String> {
+        Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap()))
+    }
+    fn bytes(&mut self, maximum: usize) -> Result<&'a [u8], String> {
+        let length = self.u32()? as usize;
+        if length > maximum {
+            return Err("terminal snapshot field is too large".into());
+        }
+        self.take(length)
+    }
+    fn string(&mut self) -> Result<(), String> {
+        std::str::from_utf8(self.bytes(256 * 1024)?)
+            .map(|_| ())
+            .map_err(|_| "terminal snapshot string is not UTF-8".into())
+    }
+    fn finish(self) -> Result<(), String> {
+        if self.offset != self.payload.len() {
+            return Err("terminal snapshot has trailing bytes".into());
+        }
+        Ok(())
+    }
+}
+
+fn decode_host_snapshot_payload(payload: &[u8]) -> Result<RendererSnapshot, String> {
+    let mut decoder = SnapshotDecoder::new(payload);
+    let cols = decoder.u16()?;
+    let rows = decoder.u16()?;
+    if cols == 0 || rows == 0 {
+        return Err("terminal snapshot dimensions must be nonzero".into());
+    }
+    let _pid = decoder.u32()?;
+    let replay = decoder.bytes(8 * 1024 * 1024)?.to_vec();
+    match decoder.u8()? {
+        0 => {}
+        1 => decoder.string()?,
+        _ => return Err("terminal snapshot has an invalid optional string".into()),
+    }
+    let argument_count = decoder.u16()? as usize;
+    if argument_count > 256 {
+        return Err("terminal snapshot has too many command arguments".into());
+    }
+    for _ in 0..argument_count {
+        decoder.string()?;
+    }
+    let mut kitty_image_aliases = Vec::new();
+    let alias_count = decoder.u16()? as usize;
+    if alias_count > MAX_KITTY_IMAGE_ALIASES {
+        return Err("terminal snapshot has too many Kitty image aliases".into());
+    }
+    let mut image_ids = HashSet::with_capacity(alias_count);
+    for _ in 0..alias_count {
+        let image_id = decoder.u32()?;
+        let image_number = decoder.u32()?;
+        if image_id == 0 || image_number == 0 || !image_ids.insert(image_id) {
+            return Err("terminal snapshot has invalid Kitty image aliases".into());
+        }
+        kitty_image_aliases.push((image_id, image_number));
+    }
+    let cell_pixels = (decoder.u16()?.max(1), decoder.u16()?.max(1));
+    let kitty_limits = (decoder.u64()?, decoder.u64()?, decoder.u64()?, decoder.u64()?);
+    if kitty_limits.0 > MAX_KITTY_IMAGE_BYTES
+        || kitty_limits.1 > MAX_KITTY_INFLIGHT_BYTES
+        || kitty_limits.2 > MAX_KITTY_IMAGES
+        || kitty_limits.3 > MAX_KITTY_PLACEMENTS
+    {
+        return Err("terminal snapshot exceeds Kitty resource limits".into());
+    }
+    let replay_cursor_offset = decoder.u32()?;
+    let replay_primary = decoder.u32()?;
+    let next_primary = decoder.u32()?;
+    let replay_alternate = decoder.u32()?;
+    let next_alternate = decoder.u32()?;
+    let replay_next_image_ids = (replay_primary, replay_alternate);
+    let next_image_ids = (next_primary, next_alternate);
+    if replay_cursor_offset as usize > replay.len()
+        || replay_next_image_ids.0 == 0
+        || replay_next_image_ids.1 == 0
+        || next_image_ids.0 == 0
+        || next_image_ids.1 == 0
+    {
+        return Err("terminal snapshot has invalid Kitty replay state".into());
+    }
+    decoder.finish()?;
+    Ok(RendererSnapshot {
+        cols,
+        rows,
+        cell_pixels,
+        replay,
+        kitty_image_aliases,
+        kitty_limits,
+        replay_cursor_offset,
+        replay_next_image_ids,
+        next_image_ids,
+    })
+}
+
+fn decode_terminal_color_overrides(payload: &[u8]) -> Result<Vec<u8>, String> {
+    if payload.len() < 8 || payload.len() > 8 + 9 + 2 + 256 * 4 {
+        return Err("terminal Colors payload length is out of range".into());
+    }
+    let version = u16::from_le_bytes(payload[0..2].try_into().unwrap());
+    let flags = u16::from_le_bytes(payload[2..4].try_into().unwrap());
+    let count = u16::from_le_bytes(payload[4..6].try_into().unwrap()) as usize;
+    let reserved = u16::from_le_bytes(payload[6..8].try_into().unwrap());
+    let allowed = match version {
+        1 => 0b111,
+        2 if flags & 8 != 0 => 0b1111,
+        2 => return Err("terminal Colors v2 is missing cursor state".into()),
+        _ => return Err("terminal Colors version is unsupported".into()),
+    };
+    if flags & !allowed != 0 || reserved != 0 || count > 256 {
+        return Err("terminal Colors header is invalid".into());
+    }
+    let expected =
+        8 + (flags & 7).count_ones() as usize * 3 + usize::from(flags & 8 != 0) * 2 + count * 4;
+    if payload.len() != expected {
+        return Err("terminal Colors payload is malformed".into());
+    }
+    let mut offset = 8;
+    let rgb = |p: &[u8], o: &mut usize| {
+        let c = [p[*o], p[*o + 1], p[*o + 2]];
+        *o += 3;
+        c
+    };
+    let fg = (flags & 1 != 0).then(|| rgb(payload, &mut offset));
+    let bg = (flags & 2 != 0).then(|| rgb(payload, &mut offset));
+    let cursor = (flags & 4 != 0).then(|| rgb(payload, &mut offset));
+    let visual = if flags & 8 != 0 {
+        let style = payload[offset];
+        let blink = payload[offset + 1];
+        offset += 2;
+        if !(1..=3).contains(&style) || blink > 1 {
+            return Err("terminal Colors cursor state is invalid".into());
+        }
+        Some((style, blink != 0))
+    } else {
+        None
+    };
+    let mut palette = [None; 256];
+    for _ in 0..count {
+        let index = payload[offset] as usize;
+        if palette[index].is_some() {
+            return Err("terminal Colors contains a duplicate palette index".into());
+        }
+        palette[index] = Some([payload[offset + 1], payload[offset + 2], payload[offset + 3]]);
+        offset += 4;
+    }
+    let mut out = if visual.is_some() { b"\x1b[0 q".to_vec() } else { Vec::new() };
+    let mut dynamic = |code: u16, color: [u8; 3]| {
+        out.extend_from_slice(
+            format!("\x1b]{code};rgb:{:02x}/{:02x}/{:02x}\x1b\\", color[0], color[1], color[2])
+                .as_bytes(),
+        )
+    };
+    if let Some(c) = fg {
+        dynamic(10, c);
+    }
+    if let Some(c) = bg {
+        dynamic(11, c);
+    }
+    if let Some(c) = cursor {
+        dynamic(12, c);
+    }
+    if let Some((style, blink)) = visual {
+        let value = match (style, blink) {
+            (1, true) => 1,
+            (1, false) => 2,
+            (2, true) => 3,
+            (2, false) => 4,
+            (3, true) => 5,
+            (3, false) => 6,
+            _ => unreachable!(),
+        };
+        out.extend_from_slice(format!("\x1b[{value} q").as_bytes());
+    }
+    for (index, color) in palette.into_iter().enumerate() {
+        if let Some(c) = color {
+            out.extend_from_slice(
+                format!("\x1b]4;{index};rgb:{:02x}/{:02x}/{:02x}\x1b\\", c[0], c[1], c[2])
+                    .as_bytes(),
+            );
+        }
+    }
+    Ok(out)
+}
+
+fn encode_native_reset_payload(snapshot: &RendererSnapshot) -> Vec<u8> {
+    // This is the CMUX_FRONTEND_RENDER_RESET_PAYLOAD_VERSION 1 wire format.
+    let mut output = Vec::with_capacity(snapshot.replay.len() + 96);
+    output.extend_from_slice(b"CMNR");
+    output.push(1);
+    output.extend_from_slice(&(snapshot.replay.len() as u32).to_le_bytes());
+    output.extend_from_slice(&(snapshot.kitty_image_aliases.len() as u16).to_le_bytes());
+    for value in [
+        snapshot.kitty_limits.0,
+        snapshot.kitty_limits.1,
+        snapshot.kitty_limits.2,
+        snapshot.kitty_limits.3,
+    ] {
+        output.extend_from_slice(&value.to_le_bytes());
+    }
+    output.extend_from_slice(&snapshot.replay_cursor_offset.to_le_bytes());
+    for value in [
+        snapshot.replay_next_image_ids.0,
+        snapshot.next_image_ids.0,
+        snapshot.replay_next_image_ids.1,
+        snapshot.next_image_ids.1,
+    ] {
+        output.extend_from_slice(&value.to_le_bytes());
+    }
+    for (image_id, image_number) in &snapshot.kitty_image_aliases {
+        output.extend_from_slice(&image_id.to_le_bytes());
+        output.extend_from_slice(&image_number.to_le_bytes());
+    }
+    output.extend_from_slice(&snapshot.replay);
+    output
+}
 
 pub struct CmuxTerminalClient {
     runtime: Runtime,
@@ -160,12 +448,16 @@ impl ActiveTerminal {
 }
 
 struct ClientState {
+    #[cfg(feature = "text-renderer")]
     terminal: Option<Terminal>,
+    #[cfg(feature = "text-renderer")]
     key_encoder: KeyEncoder,
+    #[cfg(feature = "text-renderer")]
     render: RenderState,
     frame_text: String,
     frame_rows: Vec<String>,
     frame_dirty_rows: Vec<u16>,
+    #[cfg(feature = "text-renderer")]
     render_dirty: bool,
     status: String,
     transport_provider: String,
@@ -190,6 +482,27 @@ struct ClientState {
     cell_pixels: (u16, u16),
     resize_delivery: Option<Arc<ResizeDelivery>>,
     resize_acknowledgement: Option<ResizeAcknowledgement>,
+    native_render_events: Option<VecDeque<NativeRenderEvent>>,
+    native_render_event_lease: Option<NativeRenderEvent>,
+    native_render_event_bytes: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+enum NativeRenderEventKind {
+    Reset = 1,
+    Bytes = 2,
+    Resize = 3,
+    Ready = 4,
+    Exit = 5,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeRenderEvent {
+    kind: NativeRenderEventKind,
+    cols: u16,
+    rows: u16,
+    payload: Vec<u8>,
 }
 
 #[derive(Serialize)]
@@ -229,12 +542,16 @@ impl ClientState {
         terminal_id: TerminalPublicId,
     ) -> Result<Self, String> {
         Ok(Self {
+            #[cfg(feature = "text-renderer")]
             terminal: None,
+            #[cfg(feature = "text-renderer")]
             key_encoder: KeyEncoder::new().map_err(|error| error.to_string())?,
+            #[cfg(feature = "text-renderer")]
             render: RenderState::new().map_err(|error| error.to_string())?,
             frame_text: String::new(),
             frame_rows: Vec::new(),
             frame_dirty_rows: Vec::new(),
+            #[cfg(feature = "text-renderer")]
             render_dirty: false,
             status: "bootstrap".into(),
             transport_provider: provider,
@@ -259,13 +576,79 @@ impl ClientState {
             cell_pixels: (8, 16),
             resize_delivery: None,
             resize_acknowledgement: None,
+            native_render_events: None,
+            native_render_event_lease: None,
+            native_render_event_bytes: 0,
         })
     }
 
+    fn enable_native_render_events(&mut self) {
+        self.native_render_events = Some(VecDeque::new());
+        self.native_render_event_lease = None;
+        self.native_render_event_bytes = 0;
+    }
+
+    fn push_native_render_event(
+        &mut self,
+        kind: NativeRenderEventKind,
+        cols: u16,
+        rows: u16,
+        payload: Vec<u8>,
+    ) -> bool {
+        let Some(events) = self.native_render_events.as_mut() else { return true };
+        if kind == NativeRenderEventKind::Bytes && payload.is_empty() {
+            return true;
+        }
+        if kind == NativeRenderEventKind::Bytes
+            && self.native_render_event_bytes.saturating_add(payload.len())
+                <= MAX_NATIVE_RENDER_EVENT_BYTES
+            && let Some(previous) = events.back_mut()
+            && previous.kind == NativeRenderEventKind::Bytes
+            && previous.payload.len().saturating_add(payload.len()) <= 1024 * 1024
+        {
+            self.native_render_event_bytes =
+                self.native_render_event_bytes.saturating_add(payload.len());
+            previous.payload.extend_from_slice(&payload);
+            return true;
+        }
+        if events.len() >= MAX_NATIVE_RENDER_EVENTS
+            || self.native_render_event_bytes.saturating_add(payload.len())
+                > MAX_NATIVE_RENDER_EVENT_BYTES
+        {
+            events.clear();
+            self.native_render_event_bytes =
+                self.native_render_event_lease.as_ref().map_or(0, |event| event.payload.len());
+            return false;
+        }
+        self.native_render_event_bytes =
+            self.native_render_event_bytes.saturating_add(payload.len());
+        events.push_back(NativeRenderEvent { kind, cols, rows, payload });
+        true
+    }
+
+    fn continue_after_native_event(
+        &mut self,
+        kind: NativeRenderEventKind,
+        cols: u16,
+        rows: u16,
+        payload: Vec<u8>,
+    ) -> FrameEffect {
+        if self.push_native_render_event(kind, cols, rows, payload) {
+            FrameEffect::Continue
+        } else {
+            self.status = "renderer-backpressure".into();
+            self.resync_count = self.resync_count.saturating_add(1);
+            FrameEffect::Restart
+        }
+    }
+
     fn prepare_handshake(&mut self, terminal_id: TerminalPublicId) -> Result<(), String> {
-        self.terminal = None;
-        self.render = RenderState::new().map_err(|error| error.to_string())?;
-        self.render_dirty = false;
+        #[cfg(feature = "text-renderer")]
+        {
+            self.terminal = None;
+            self.render = RenderState::new().map_err(|error| error.to_string())?;
+            self.render_dirty = false;
+        }
         self.status = "resyncing".into();
         self.terminal_id = terminal_id;
         self.snapshot_boundary = 0;
@@ -280,9 +663,15 @@ impl ClientState {
         self.rows = 0;
         self.cell_pixels = (8, 16);
         self.resize_acknowledgement = None;
+        if let Some(events) = self.native_render_events.as_mut() {
+            events.clear();
+        }
+        self.native_render_event_bytes =
+            self.native_render_event_lease.as_ref().map_or(0, |event| event.payload.len());
         Ok(())
     }
 
+    #[cfg(feature = "text-renderer")]
     fn encode_key(&mut self, chord: &str, repeat: bool) -> Result<Vec<u8>, String> {
         let mut input = key_input_from_chord(chord)
             .ok_or_else(|| format!("unsupported terminal key chord: {chord}"))?;
@@ -299,29 +688,61 @@ impl ClientState {
         Ok(encoded)
     }
 
+    #[cfg(not(feature = "text-renderer"))]
+    fn encode_key(&mut self, _chord: &str, _repeat: bool) -> Result<Vec<u8>, String> {
+        Err("named key encoding is unavailable in a native-renderer build".into())
+    }
+
     fn apply(&mut self, frame: Frame) -> Result<FrameEffect, String> {
         let effect = match frame.kind {
             MessageKind::Snapshot => {
                 let snapshot = decode_host_snapshot_payload(&frame.payload)
                     .map_err(|error| error.to_string())?;
-                let mut terminal =
-                    Terminal::new(snapshot.cols, snapshot.rows, 100_000, Callbacks::default())
+                #[cfg(feature = "text-renderer")]
+                {
+                    let mut terminal =
+                        Terminal::new(snapshot.cols, snapshot.rows, 100_000, Callbacks::default())
+                            .map_err(|error| error.to_string())?;
+                    terminal
+                        .resize(
+                            snapshot.cols,
+                            snapshot.rows,
+                            u32::from(snapshot.cell_pixels.0),
+                            u32::from(snapshot.cell_pixels.1),
+                        )
                         .map_err(|error| error.to_string())?;
-                terminal
-                    .resize(
-                        snapshot.cols,
-                        snapshot.rows,
-                        u32::from(snapshot.cell_pixels.0),
-                        u32::from(snapshot.cell_pixels.1),
-                    )
-                    .map_err(|error| error.to_string())?;
-                terminal
-                    .apply_vt_replay_parts(
-                        &snapshot.replay,
-                        &snapshot.kitty_image_aliases,
-                        snapshot.kitty_state,
-                    )
-                    .map_err(|error| error.to_string())?;
+                    terminal
+                        .apply_vt_replay_parts(
+                            &snapshot.replay,
+                            &snapshot
+                                .kitty_image_aliases
+                                .iter()
+                                .map(|(image_id, image_number)| ghostty_vt::KittyImageAlias {
+                                    image_id: *image_id,
+                                    image_number: *image_number,
+                                })
+                                .collect::<Vec<_>>(),
+                            ghostty_vt::KittyReplayState {
+                                limits: ghostty_vt::KittyGraphicsLimits {
+                                    image_bytes: snapshot.kitty_limits.0,
+                                    inflight_bytes: snapshot.kitty_limits.1,
+                                    images: snapshot.kitty_limits.2,
+                                    placements: snapshot.kitty_limits.3,
+                                },
+                                replay_cursor_offset: snapshot.replay_cursor_offset,
+                                replay_next_image_ids: ghostty_vt::KittyImageIdCursors {
+                                    primary: snapshot.replay_next_image_ids.0,
+                                    alternate: snapshot.replay_next_image_ids.1,
+                                },
+                                next_image_ids: ghostty_vt::KittyImageIdCursors {
+                                    primary: snapshot.next_image_ids.0,
+                                    alternate: snapshot.next_image_ids.1,
+                                },
+                            },
+                        )
+                        .map_err(|error| error.to_string())?;
+                    self.terminal = Some(terminal);
+                }
                 self.cols = snapshot.cols;
                 self.rows = snapshot.rows;
                 self.cell_pixels = snapshot.cell_pixels;
@@ -331,26 +752,41 @@ impl ClientState {
                 self.local_parser_cursor = frame.sequence;
                 self.source_cursor = frame.sequence;
                 self.expected_sequence = frame.sequence.checked_add(1);
-                self.terminal = Some(terminal);
                 self.snapshot_applied = true;
                 self.status = "snapshot".into();
-                self.render_dirty = true;
-                FrameEffect::Continue
+                #[cfg(feature = "text-renderer")]
+                {
+                    self.render_dirty = true;
+                }
+                self.continue_after_native_event(
+                    NativeRenderEventKind::Reset,
+                    snapshot.cols,
+                    snapshot.rows,
+                    encode_native_reset_payload(&snapshot),
+                )
             }
             MessageKind::Colors
                 if self.snapshot_applied && frame.sequence == self.snapshot_boundary =>
             {
-                let colors = decode_terminal_color_overrides(&frame.payload)
-                    .map_err(|error| error.to_string())?;
-                apply_terminal_color_overrides(
+                let native_colors = decode_terminal_color_overrides(&frame.payload)?;
+                #[cfg(feature = "text-renderer")]
+                {
                     self.terminal
                         .as_mut()
-                        .ok_or_else(|| "Colors arrived before snapshot".to_string())?,
-                    &colors,
-                );
+                        .ok_or_else(|| "Colors arrived before snapshot".to_string())?
+                        .vt_write(&native_colors);
+                }
                 self.bootstrap_frames = self.bootstrap_frames.saturating_add(1);
-                self.render_dirty = true;
-                FrameEffect::Continue
+                #[cfg(feature = "text-renderer")]
+                {
+                    self.render_dirty = true;
+                }
+                self.continue_after_native_event(
+                    NativeRenderEventKind::Bytes,
+                    self.cols,
+                    self.rows,
+                    native_colors,
+                )
             }
             MessageKind::Ready
                 if self.snapshot_applied && frame.sequence == self.snapshot_boundary =>
@@ -359,20 +795,35 @@ impl ClientState {
                 self.bootstrap_committed = true;
                 self.status = "live".into();
                 self.bootstrap_frames = self.bootstrap_frames.saturating_add(1);
-                FrameEffect::Continue
+                self.continue_after_native_event(
+                    NativeRenderEventKind::Ready,
+                    self.cols,
+                    self.rows,
+                    Vec::new(),
+                )
             }
             MessageKind::Output => {
                 self.require_sequence(frame.sequence)?;
-                let terminal = self
-                    .terminal
-                    .as_mut()
-                    .ok_or_else(|| "output arrived before snapshot".to_string())?;
-                terminal.vt_write(&frame.payload);
+                #[cfg(feature = "text-renderer")]
+                {
+                    self.terminal
+                        .as_mut()
+                        .ok_or_else(|| "output arrived before snapshot".to_string())?
+                        .vt_write(&frame.payload);
+                }
                 self.raw_bytes = self.raw_bytes.saturating_add(frame.payload.len() as u64);
                 self.raw_frames = self.raw_frames.saturating_add(1);
                 self.local_parser_cursor = frame.sequence;
-                self.render_dirty = true;
-                FrameEffect::Continue
+                #[cfg(feature = "text-renderer")]
+                {
+                    self.render_dirty = true;
+                }
+                self.continue_after_native_event(
+                    NativeRenderEventKind::Bytes,
+                    self.cols,
+                    self.rows,
+                    frame.payload,
+                )
             }
             MessageKind::Resized if matches!(frame.payload.len(), 4 | 8) => {
                 self.require_sequence(frame.sequence)?;
@@ -386,17 +837,28 @@ impl ClientState {
                 } else {
                     self.cell_pixels
                 };
-                self.terminal
-                    .as_mut()
-                    .ok_or_else(|| "resize arrived before snapshot".to_string())?
-                    .resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))
-                    .map_err(|error| error.to_string())?;
+                #[cfg(feature = "text-renderer")]
+                {
+                    self.terminal
+                        .as_mut()
+                        .ok_or_else(|| "resize arrived before snapshot".to_string())?
+                        .resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))
+                        .map_err(|error| error.to_string())?;
+                }
                 self.cols = cols;
                 self.rows = rows;
                 self.cell_pixels = cell_pixels;
                 self.local_parser_cursor = frame.sequence;
-                self.render_dirty = true;
-                FrameEffect::Continue
+                #[cfg(feature = "text-renderer")]
+                {
+                    self.render_dirty = true;
+                }
+                self.continue_after_native_event(
+                    NativeRenderEventKind::Resize,
+                    cols,
+                    rows,
+                    Vec::new(),
+                )
             }
             MessageKind::Exit => {
                 self.require_sequence(frame.sequence)?;
@@ -404,7 +866,13 @@ impl ClientState {
                 self.ready = false;
                 self.exited = true;
                 self.status = "exited".into();
-                FrameEffect::Stop
+                let effect = self.continue_after_native_event(
+                    NativeRenderEventKind::Exit,
+                    self.cols,
+                    self.rows,
+                    Vec::new(),
+                );
+                if effect == FrameEffect::Continue { FrameEffect::Stop } else { effect }
             }
             MessageKind::ResyncRequired => {
                 self.source_cursor = frame.sequence;
@@ -461,6 +929,7 @@ impl ClientState {
         Ok(())
     }
 
+    #[cfg(feature = "text-renderer")]
     fn materialize_frame(&mut self) -> Result<(), String> {
         // Snapshot and Colors are one bootstrap transaction. Do not expose
         // their renderable result until the host commits the same boundary
@@ -490,6 +959,11 @@ impl ClientState {
         Ok(())
     }
 
+    #[cfg(not(feature = "text-renderer"))]
+    fn materialize_frame(&mut self) -> Result<(), String> {
+        Err("plain-text rendering is unavailable in a native-renderer build".into())
+    }
+
     fn diagnostics(&self) -> String {
         serde_json::to_string(&Diagnostics {
             carrier: &self.transport_provider,
@@ -515,6 +989,7 @@ impl ClientState {
     }
 }
 
+#[cfg(feature = "text-renderer")]
 fn append_row(output: &mut String, row: &[ghostty_vt::Cell]) {
     for cell in row {
         match cell.width {
@@ -605,19 +1080,19 @@ async fn open_terminal_stream_with_timeout(
     Ok(stream)
 }
 
-async fn connect_client(
+pub(crate) struct ConnectedTransport {
+    pub(crate) connection: Arc<ClientConnection>,
+    pub(crate) provider: Arc<IrohProvider>,
+    pub(crate) multiplexer: Arc<ServiceMultiplexer>,
+    pub(crate) provider_name: String,
+    pub(crate) path: String,
+    pub(crate) generation: u64,
+}
+
+pub(crate) async fn connect_transport(
     invitation_uri: &str,
-    terminal_id: TerminalPublicId,
-) -> Result<
-    (
-        Arc<ServiceStream>,
-        Arc<ClientConnection>,
-        Arc<IrohProvider>,
-        Arc<ServiceMultiplexer>,
-        Arc<Mutex<ClientState>>,
-    ),
-    String,
-> {
+    device_name: &str,
+) -> Result<ConnectedTransport, String> {
     let invitation = EnrollmentInvitation::from_uri(invitation_uri)
         .map_err(|error| format!("invitation: {error}"))?;
     let route = invitation
@@ -630,11 +1105,8 @@ async fn connect_client(
     getrandom::fill(&mut session_bytes).map_err(|error| error.to_string())?;
     let session = SessionId(session_bytes);
     let provider = Arc::new(
-        IrohProvider::new(IrohProviderConfig {
-            discovery_n0: true,
-            ..IrohProviderConfig::default()
-        })
-        .map_err(|error| error.to_string())?,
+        IrohProvider::new(IrohProviderConfig { discovery_n0: true, ..Default::default() })
+            .map_err(|error| error.to_string())?,
     );
     let group = provider
         .connect(ConnectRequest { endpoint, session, lane_policy: LanePolicy::Isolated, routing })
@@ -655,7 +1127,7 @@ async fn connect_client(
                 id: invitation.id,
                 secret: Zeroizing::new(invitation_secret),
             },
-            device_name: "TerminalBytes Demo".into(),
+            device_name: device_name.into(),
             session,
             lane_policy: LanePolicy::Isolated,
             limits: Default::default(),
@@ -671,18 +1143,42 @@ async fn connect_client(
         .as_ref()
         .map(|path| format!("{:?}", path.kind).to_lowercase())
         .unwrap_or_else(|| snapshot.transport.route.clone());
+    let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
+    Ok(ConnectedTransport {
+        connection,
+        provider,
+        multiplexer,
+        provider_name: snapshot.transport.provider,
+        path,
+        generation: snapshot.generation,
+    })
+}
+
+async fn connect_client(
+    invitation_uri: &str,
+    terminal_id: TerminalPublicId,
+) -> Result<
+    (
+        Arc<ServiceStream>,
+        Arc<ClientConnection>,
+        Arc<IrohProvider>,
+        Arc<ServiceMultiplexer>,
+        Arc<Mutex<ClientState>>,
+    ),
+    String,
+> {
+    let transport = connect_transport(invitation_uri, "TerminalBytes Demo").await?;
     let state = Arc::new(Mutex::new(
         ClientState::new(
-            snapshot.transport.provider,
-            path,
-            snapshot.generation,
+            transport.provider_name.clone(),
+            transport.path.clone(),
+            transport.generation,
             terminal_id.clone(),
         )
         .map_err(|error| format!("libghostty: {error}"))?,
     ));
-    let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
-    let stream = open_terminal_stream(&multiplexer, &terminal_id).await?;
-    Ok((stream, connection, provider, multiplexer, state))
+    let stream = open_terminal_stream(&transport.multiplexer, &terminal_id).await?;
+    Ok((stream, transport.connection, transport.provider, transport.multiplexer, state))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1773,6 +2269,147 @@ mod tests {
         TerminalPublicId::parse("term_0123456789abcdef0123456789abcdef").unwrap()
     }
 
+    #[test]
+    fn native_color_events_are_vt_encoded() {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&2u16.to_le_bytes());
+        payload.extend_from_slice(&15u16.to_le_bytes());
+        payload.extend_from_slice(&1u16.to_le_bytes());
+        payload.extend_from_slice(&0u16.to_le_bytes());
+        payload.extend_from_slice(&[0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99]);
+        payload.extend_from_slice(&[3, 1]);
+        payload.extend_from_slice(&[5, 0xaa, 0xbb, 0xcc]);
+        let encoded = decode_terminal_color_overrides(&payload).unwrap();
+        assert_eq!(
+            encoded,
+            b"\x1b[0 q\x1b]10;rgb:11/22/33\x1b\\\x1b]11;rgb:44/55/66\x1b\\\x1b]12;rgb:77/88/99\x1b\\\x1b[5 q\x1b]4;5;rgb:aa/bb/cc\x1b\\"
+        );
+    }
+
+    #[test]
+    fn snapshot_rejects_malformed_kitty_state_in_every_renderer_mode() {
+        let valid = test_snapshot_payload(b"");
+        let kitty_cursor_offset = 21 + 32;
+        let mut invalid_offset = valid.clone();
+        invalid_offset[kitty_cursor_offset..kitty_cursor_offset + 4]
+            .copy_from_slice(&1u32.to_le_bytes());
+        assert!(decode_host_snapshot_payload(&invalid_offset).is_err());
+
+        let mut invalid_id = valid;
+        let first_id = kitty_cursor_offset + 4;
+        invalid_id[first_id..first_id + 4].copy_from_slice(&0u32.to_le_bytes());
+        assert!(decode_host_snapshot_payload(&invalid_id).is_err());
+
+        let mut invalid_limits = test_snapshot_payload(b"");
+        invalid_limits[21..29].copy_from_slice(&(MAX_KITTY_IMAGE_BYTES + 1).to_le_bytes());
+        assert!(decode_host_snapshot_payload(&invalid_limits).is_err());
+    }
+
+    #[test]
+    fn snapshot_decodes_interleaved_kitty_cursor_wire_order() {
+        let mut payload = test_snapshot_payload(b"");
+        let cursor = 21 + 32;
+        for (index, value) in [11u32, 22, 33, 44].into_iter().enumerate() {
+            let start = cursor + 4 + index * 4;
+            payload[start..start + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        let snapshot = decode_host_snapshot_payload(&payload).unwrap();
+        assert_eq!(snapshot.replay_next_image_ids, (11, 33));
+        assert_eq!(snapshot.next_image_ids, (22, 44));
+    }
+
+    #[test]
+    fn native_render_queue_coalesces_and_resets() {
+        let mut state =
+            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
+        state.enable_native_render_events();
+        assert!(state.push_native_render_event(
+            NativeRenderEventKind::Bytes,
+            80,
+            24,
+            b"one".to_vec()
+        ));
+        assert!(state.push_native_render_event(
+            NativeRenderEventKind::Bytes,
+            80,
+            24,
+            b"two".to_vec()
+        ));
+        let events = state.native_render_events.as_ref().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].payload, b"onetwo");
+        assert_eq!(state.native_render_event_bytes, 6);
+        state.native_render_events.as_mut().unwrap().clear();
+        state.native_render_event_bytes = 0;
+        for _ in 0..(MAX_NATIVE_RENDER_EVENTS - 1) {
+            assert!(state.push_native_render_event(
+                NativeRenderEventKind::Reset,
+                80,
+                24,
+                Vec::new()
+            ));
+        }
+        assert!(state.push_native_render_event(
+            NativeRenderEventKind::Bytes,
+            80,
+            24,
+            b"a".to_vec()
+        ));
+        assert!(state.push_native_render_event(
+            NativeRenderEventKind::Bytes,
+            80,
+            24,
+            b"b".to_vec()
+        ));
+        let events = state.native_render_events.as_ref().unwrap();
+        assert_eq!(events.len(), MAX_NATIVE_RENDER_EVENTS);
+        assert_eq!(events.back().unwrap().payload, b"ab");
+        state.prepare_handshake(test_terminal_id()).unwrap();
+        assert!(state.native_render_events.as_ref().unwrap().is_empty());
+        assert_eq!(state.native_render_event_bytes, 0);
+    }
+
+    #[test]
+    fn native_render_queue_rejects_byte_and_count_overflow() {
+        let mut state =
+            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
+        state.enable_native_render_events();
+        assert!(!state.push_native_render_event(
+            NativeRenderEventKind::Bytes,
+            80,
+            24,
+            vec![0; MAX_NATIVE_RENDER_EVENT_BYTES + 1],
+        ));
+        assert!(state.native_render_events.as_ref().unwrap().is_empty());
+        for _ in 0..MAX_NATIVE_RENDER_EVENTS {
+            assert!(state.push_native_render_event(
+                NativeRenderEventKind::Reset,
+                80,
+                24,
+                Vec::new()
+            ));
+        }
+        assert!(!state.push_native_render_event(NativeRenderEventKind::Reset, 80, 24, Vec::new()));
+        assert!(state.native_render_events.as_ref().unwrap().is_empty());
+    }
+
+    #[test]
+    fn native_render_queue_counts_leased_bytes_during_resync() {
+        let mut state =
+            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
+        state.enable_native_render_events();
+        assert!(state.push_native_render_event(NativeRenderEventKind::Bytes, 80, 24, vec![0; 1],));
+        state.native_render_event_lease = state.native_render_events.as_mut().unwrap().pop_front();
+        state.prepare_handshake(test_terminal_id()).unwrap();
+        assert!(state.native_render_event_lease.is_some());
+        assert!(!state.push_native_render_event(
+            NativeRenderEventKind::Bytes,
+            80,
+            24,
+            vec![0; MAX_NATIVE_RENDER_EVENT_BYTES],
+        ));
+    }
+
     unsafe extern "C" fn count_update(context: *mut c_void) {
         // SAFETY: the test registers a live AtomicU64 for the callback lifetime.
         let count = unsafe { &*(context.cast::<AtomicU64>()) };
@@ -2014,22 +2651,32 @@ mod tests {
     }
 
     fn test_snapshot_payload(replay: &[u8]) -> Vec<u8> {
-        cmux_tui_core::terminal_host_runtime::encode_host_snapshot_payload(
-            &cmux_tui_core::terminal_host_runtime::HostSnapshot {
-                cols: 80,
-                rows: 24,
-                cell_pixels: (8, 16),
-                replay: replay.to_vec(),
-                kitty_image_aliases: Vec::new(),
-                kitty_state: ghostty_vt::KittyReplayState::disabled(),
-                sequence_boundary: 0,
-                colors: ghostty_vt::TerminalColorOverrides::default(),
-                pid: None,
-                command: Vec::new(),
-                cwd: None,
-            },
-        )
-        .unwrap()
+        let mut output = Vec::new();
+        output.extend_from_slice(&80u16.to_le_bytes());
+        output.extend_from_slice(&24u16.to_le_bytes());
+        output.extend_from_slice(&0u32.to_le_bytes());
+        output.extend_from_slice(&(replay.len() as u32).to_le_bytes());
+        output.extend_from_slice(replay);
+        output.push(0);
+        output.extend_from_slice(&0u16.to_le_bytes());
+        output.extend_from_slice(&0u16.to_le_bytes());
+        output.extend_from_slice(&8u16.to_le_bytes());
+        output.extend_from_slice(&16u16.to_le_bytes());
+        output.extend_from_slice(&[0u8; 32]);
+        output.extend_from_slice(&0u32.to_le_bytes());
+        for _ in 0..4 {
+            output.extend_from_slice(&2_147_483_647u32.to_le_bytes());
+        }
+        output
+    }
+
+    fn test_colors_payload() -> Vec<u8> {
+        let mut output = Vec::from(
+            [2u16.to_le_bytes(), 8u16.to_le_bytes(), 0u16.to_le_bytes(), 0u16.to_le_bytes()]
+                .concat(),
+        );
+        output.extend_from_slice(&[1, 0]);
+        output
     }
 
     async fn send_test_terminal_frame(stream: &ServiceStream, frame: Frame) {
@@ -2076,6 +2723,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "text-renderer")]
     fn named_key_encoding_uses_the_local_terminal_keyboard_modes() {
         let mut state =
             ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
@@ -2116,6 +2764,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "text-renderer")]
     fn snapshot_render_is_published_only_after_same_boundary_ready() {
         let mut state =
             ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
@@ -2437,15 +3086,7 @@ mod tests {
 
                         let colors = Frame {
                             sequence: boundary,
-                            ..Frame::new(
-                                MessageKind::Colors,
-                                cmux_tui_core::terminal_host_runtime::encode_terminal_color_overrides(
-                                    &ghostty_vt::TerminalColorOverrides {
-                                        cursor_visual: Some((ghostty_vt::CursorShape::Block, false)),
-                                        ..Default::default()
-                                    },
-                                ),
-                            )
+                            ..Frame::new(MessageKind::Colors, test_colors_payload())
                         };
                         send_test_terminal_frame(&incoming.stream, colors).await;
                         let mut ready = Frame::new(MessageKind::Ready, Vec::new());
@@ -2453,8 +3094,7 @@ mod tests {
                         send_test_terminal_frame(&incoming.stream, ready).await;
 
                         if round == 0 {
-                            let mut resync =
-                                Frame::new(MessageKind::ResyncRequired, Vec::new());
+                            let mut resync = Frame::new(MessageKind::ResyncRequired, Vec::new());
                             resync.sequence = boundary + 1;
                             send_test_terminal_frame(&incoming.stream, resync).await;
                         } else {

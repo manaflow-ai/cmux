@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-pub const PROTOCOL: &str = "cmux.protocol/2";
+pub const PROTOCOL: &str = cmux_remote_protocol::RESOURCE_PROTOCOL;
 pub const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 pub const STREAM_EVENT_CAPACITY: usize = 256;
 pub const STREAM_BYTE_CAPACITY: usize = 16 * 1024 * 1024;

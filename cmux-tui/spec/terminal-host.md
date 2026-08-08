@@ -113,7 +113,7 @@ indexes are fatal.
 | 14 | `Launch` | parent to host | private pipe | launch layout |
 | 15 | `Capability` | host to client | response | 32-byte token |
 | 16 | `ResizeAck` | host to client | response | `cols:u16, rows:u16, result_flags:u32` |
-| 17 | `ClearHistoryAck` | host to client | response | `status:u8`; a negotiated smart client receives clear-history replay bytes after a successful status |
+| 17 | `ClearHistoryAck` | host to client | response | `status:u8`; a negotiated smart client may receive bounded clear-history VT replay after success |
 | 18 | `CellPixelSizeAck` | host to client | response | `width_px:u16, height_px:u16` |
 | 19 | `KittyGraphicsLimitsAck` | host to client | response | four little-endian `u64` limits |
 | 20 | `LaunchFailed` | host to parent | private pipe | versioned launch failure |
@@ -133,6 +133,12 @@ indexes are fatal.
 other bits are invalid. Acknowledgements require negotiated
 `FLAG_VIEWER_SIZE_ACKS` and a nonzero request id. Without acknowledgements,
 `ViewerSize` uses the broadcast `Resized` plus `Colors` path.
+
+`ClearHistoryAck.status` is `0` for success, `1` for preservation failure,
+`2` for stream timeout, `3` when the fallback key cannot be represented, `4`
+for known non-delivery, `5` for ambiguous delivery, and `6` for fallback-write
+timeout. A smart renderer may receive the bounded post-clear VT replay after a
+success byte; legacy clients receive only the status byte.
 
 ## Variable payloads
 

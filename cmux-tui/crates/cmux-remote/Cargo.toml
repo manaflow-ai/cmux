@@ -11,7 +11,8 @@ description = "Authenticated remote daemon, transports, and workspace services f
 workspace = true
 
 [features]
-default = ["iroh-transport"]
+default = ["daemon-services", "iroh-transport"]
+daemon-services = ["dep:cmux-pty", "dep:cmux-tui-core", "dep:ghostty-vt"]
 iroh-transport = ["dep:iroh", "dep:socket2"]
 
 [dependencies]
@@ -20,14 +21,14 @@ async-trait.workspace = true
 axum.workspace = true
 base64.workspace = true
 bytes.workspace = true
-cmux-pty.workspace = true
+cmux-pty = { workspace = true, optional = true }
 cmux-remote-protocol.workspace = true
-cmux-tui-core.workspace = true
+cmux-tui-core = { workspace = true, optional = true }
 diffy.workspace = true
 fs4.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
-ghostty-vt.workspace = true
+ghostty-vt = { workspace = true, optional = true }
 hmac.workspace = true
 http.workspace = true
 hyper.workspace = true

@@ -10,7 +10,123 @@ extern "C" {
 #endif
 
 typedef struct CmuxTerminalClient CmuxTerminalClient;
+typedef struct CmuxFrontendClient CmuxFrontendClient;
+typedef struct CmuxFrontendTerminal CmuxFrontendTerminal;
 typedef void (*CmuxTerminalClientUpdateCallback)(void *context);
+
+typedef enum {
+    CMUX_FRONTEND_RENDER_RESET = 1,
+    CMUX_FRONTEND_RENDER_BYTES = 2,
+    CMUX_FRONTEND_RENDER_RESIZE = 3,
+    CMUX_FRONTEND_RENDER_READY = 4,
+    CMUX_FRONTEND_RENDER_EXIT = 5,
+} CmuxFrontendRenderEventKind;
+
+// CMUX_FRONTEND_RENDER_RESET payloads use the versioned CMNR v1 format:
+// magic (4 bytes), version (u8), replay length (u32), alias count (u16),
+// Kitty limits/cursors, aliases, then replay bytes. Consumers must reject
+// unknown versions rather than treating the payload as raw VT.
+#define CMUX_FRONTEND_RENDER_RESET_PAYLOAD_VERSION 1u
+
+typedef struct {
+    uint32_t kind;
+    uint16_t cols;
+    uint16_t rows;
+    size_t payload_length;
+} CmuxFrontendRenderEvent;
+
+typedef struct {
+    size_t payload_length;
+    // A true value means queued deltas were discarded and the caller must
+    // request a full snapshot before it applies more deltas.
+    bool overflowed;
+    // A true value means the ordered session event stream ended.
+    bool ended;
+    // The CmuxFrontendResourceStreamEndReason value for an ended stream.
+    uint32_t end_reason;
+} CmuxFrontendResourceUpdate;
+
+typedef enum {
+    CMUX_FRONTEND_RESOURCE_STREAM_END_NONE = 0,
+    CMUX_FRONTEND_RESOURCE_STREAM_END_COMPLETED = 1,
+    CMUX_FRONTEND_RESOURCE_STREAM_END_CANCELED = 2,
+    CMUX_FRONTEND_RESOURCE_STREAM_END_CLOSED = 3,
+    CMUX_FRONTEND_RESOURCE_STREAM_END_GAP = 4,
+    CMUX_FRONTEND_RESOURCE_STREAM_END_ERROR = 5,
+} CmuxFrontendResourceStreamEndReason;
+
+// Native frontend API. One enrolled client owns resource control plus any
+// number of terminal renderer attachments. Disconnect every terminal before
+// disconnecting its client.
+CmuxFrontendClient *cmux_frontend_client_connect_with_timeout(
+    const char *invitation_uri,
+    char *error_buffer,
+    size_t error_capacity,
+    uint64_t timeout_milliseconds);
+void cmux_frontend_client_set_update_callback(
+    const CmuxFrontendClient *client,
+    CmuxTerminalClientUpdateCallback callback,
+    void *context);
+bool cmux_frontend_client_copy_resource_update(
+    const CmuxFrontendClient *client,
+    CmuxFrontendResourceUpdate *update,
+    uint8_t *buffer,
+    size_t capacity);
+char *cmux_frontend_client_request(
+    CmuxFrontendClient *client,
+    const char *operation,
+    const char *params_json,
+    bool mutation,
+    char *error_buffer,
+    size_t error_capacity);
+void cmux_frontend_string_free(char *value);
+CmuxFrontendTerminal *cmux_frontend_client_attach_terminal(
+    CmuxFrontendClient *client,
+    const char *terminal_id,
+    char *error_buffer,
+    size_t error_capacity,
+    uint64_t timeout_milliseconds);
+size_t cmux_frontend_client_copy_diagnostics(
+    const CmuxFrontendClient *client,
+    char *buffer,
+    size_t capacity);
+void cmux_frontend_client_disconnect(CmuxFrontendClient *client);
+
+void cmux_frontend_terminal_set_update_callback(
+    const CmuxFrontendTerminal *terminal,
+    CmuxTerminalClientUpdateCallback callback,
+    void *context);
+bool cmux_frontend_terminal_send(
+    CmuxFrontendTerminal *terminal,
+    const uint8_t *bytes,
+    size_t length);
+bool cmux_frontend_terminal_send_key(
+    CmuxFrontendTerminal *terminal,
+    const char *chord,
+    bool repeat);
+bool cmux_frontend_terminal_paste(
+    CmuxFrontendTerminal *terminal,
+    const uint8_t *bytes,
+    size_t length);
+bool cmux_frontend_terminal_resize(
+    CmuxFrontendTerminal *terminal,
+    uint16_t cols,
+    uint16_t rows);
+bool cmux_frontend_terminal_copy_next_render_event(
+    CmuxFrontendTerminal *terminal,
+    CmuxFrontendRenderEvent *event,
+    uint8_t *buffer,
+    size_t capacity);
+size_t cmux_frontend_terminal_copy_frame(
+    const CmuxFrontendTerminal *terminal,
+    char *buffer,
+    size_t capacity);
+size_t cmux_frontend_terminal_copy_diagnostics(
+    const CmuxFrontendTerminal *terminal,
+    char *buffer,
+    size_t capacity);
+bool cmux_frontend_terminal_has_exited(const CmuxFrontendTerminal *terminal);
+void cmux_frontend_terminal_disconnect(CmuxFrontendTerminal *terminal);
 
 // Both connect functions return an owned client, or NULL on failure. The caller
 // transfers that ownership exactly once to cmux_terminal_client_disconnect and

@@ -1,0 +1,19 @@
+[package]
+name = "cmux-terminal-host-protocol"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Shared framing for cmux terminal-host streams"
+
+[lints]
+workspace = true
+
+[dependencies]
+cmux-pty.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+libc.workspace = true
+serde_json.workspace = true
