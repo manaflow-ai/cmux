@@ -92,23 +92,24 @@ final class {name}: XCTestCase {{
             encoding="utf-8",
         )
         output_directory = tmp_root / "batches"
+        batch_command = [
+            sys.executable,
+            str(HELPER),
+            "--root",
+            str(tmp_root),
+            "--shard-index",
+            "1",
+            "--shard-total",
+            "1",
+            "--batch-size",
+            "2",
+            "--batch-output-directory",
+            str(output_directory),
+            "--timings",
+            str(manifest),
+        ]
         result = subprocess.run(
-            [
-                sys.executable,
-                str(HELPER),
-                "--root",
-                str(tmp_root),
-                "--shard-index",
-                "1",
-                "--shard-total",
-                "1",
-                "--batch-size",
-                "2",
-                "--batch-output-directory",
-                str(output_directory),
-                "--timings",
-                str(manifest),
-            ],
+            batch_command,
             text=True,
             capture_output=True,
             check=False,
@@ -123,6 +124,17 @@ final class {name}: XCTestCase {{
             path.read_text(encoding="utf-8").splitlines()
             for path in sorted(output_directory.glob("batch-*.args"))
         ]
+        rerun = subprocess.run(
+            batch_command,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if rerun.returncode == 0 or "already contains process batches" not in rerun.stderr:
+            print(rerun.stdout, end="")
+            print(rerun.stderr, end="", file=sys.stderr)
+            print("FAIL: reused batch output directory must be rejected")
+            return 1
 
     if not batches:
         print("FAIL: batched shard helper emitted no process batches")
