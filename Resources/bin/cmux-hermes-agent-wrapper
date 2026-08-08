@@ -235,8 +235,23 @@ cleanup_hermes_tui_watcher_directory() {
         /bin/rm -f -- "$file" 2>/dev/null || true
     done
     /bin/rm -f -- "$directory/.cmux-hermes-tui-event.plist" 2>/dev/null || true
-    /bin/rm -f -- "$directory/.cmux-hermes-tui-watcher-wait" 2>/dev/null || true
     /bin/rmdir "$directory" 2>/dev/null || true
+}
+
+run_hermes_tui_tick_source() {
+    /usr/bin/perl -MTime::HiRes=usleep -e '
+        use strict;
+        use warnings;
+
+        $SIG{HUP} = "IGNORE";
+        $SIG{INT} = "IGNORE";
+        $SIG{TERM} = "IGNORE";
+        $| = 1;
+        while (1) {
+            usleep(100_000);
+            print "\n" or exit 0;
+        }
+    '
 }
 
 run_hermes_tui_watcher() {
@@ -253,10 +268,11 @@ run_hermes_tui_watcher() {
     unset CMUX_HERMES_TUI_WATCHER_CLI
 
     trap '' HUP INT TERM
-    local wait_fifo="$directory/.cmux-hermes-tui-watcher-wait"
-    if ! /usr/bin/mkfifo -m 600 "$wait_fifo" 2>/dev/null ||
-       ! exec 9<> "$wait_fifo"; then
-        cleanup_hermes_tui_watcher_directory "$directory"
+    # macOS ships Bash 3.2, whose `read -t` accepts only whole seconds. Keep one
+    # low-overhead ticker process instead of busy-looping or spawning `sleep` on
+    # every poll. The anonymous pipe also removes FIFO initialization races from
+    # Hermes's now-live TMPDIR.
+    if ! exec 9< <(run_hermes_tui_tick_source); then
         return 0
     fi
 
@@ -301,14 +317,23 @@ run_hermes_tui_watcher() {
            ! kill -0 "$parent_pid" 2>/dev/null; then
             break
         fi
-        IFS= read -r -t 0.1 -u 9 watcher_tick || true
+        if ! IFS= read -r -u 9 watcher_tick; then
+            # A failed ticker must never delete the TMPDIR out from under live
+            # Hermes. Fall back to a low-frequency parent liveness wait, then
+            # finalize and clean up only after Hermes has actually exited.
+            while [[ "$PPID" == "$parent_pid" ]] &&
+                  kill -0 "$parent_pid" 2>/dev/null; do
+                /bin/sleep 1 || return 0
+            done
+            break
+        fi
     done
 
+    exec 9<&-
     if [[ -n "$last_session_id" ]]; then
         emit_hermes_tui_lifecycle_event \
             "$cli" "session-finalize" "on_session_finalize" "$last_session_id"
     fi
-    exec 9>&-
     cleanup_hermes_tui_watcher_directory "$directory"
 }
 
@@ -335,6 +360,7 @@ should_watch_hermes_tui() {
 start_hermes_tui_watcher() {
     local cli="$1"
     local temp_root watcher_directory watcher_pid
+    [[ -x /usr/bin/perl ]] || return 0
     temp_root="$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P)" || temp_root="/tmp"
     watcher_directory="$(
         /usr/bin/mktemp -d "$temp_root/cmux-hermes-tui.XXXXXX" 2>/dev/null
