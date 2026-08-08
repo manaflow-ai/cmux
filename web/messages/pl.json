@@ -135,6 +135,31 @@
     "faqFeatureA": "Chcemy to usłyszeć. Otwórz <issuesLink>zgłoszenie</issuesLink> lub <prLink>pull request</prLink> na GitHub albo <mailLink>napisz do nas</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "przegląd",
+      "team": "zespół"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "Kieruj żądania LLM między kontami dostawców z przełączaniem awaryjnym i planowaniem według użycia.",
+      "coderouterLink": "otwórz coderouter"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Zarządzaj współdzielonymi kontami AI i kieruj żądania za pomocą coderouter.",
+      "title": "coderouter",
+      "description": "coderouter kieruje żądania LLM między kontami dostawców z przełączaniem awaryjnym i planowaniem według użycia."
+    },
+    "accountMenu": {
+      "label": "Menu konta",
+      "settings": "Ustawienia",
+      "billing": "Rozliczenia",
+      "signOut": "Wyloguj się",
+      "signingOut": "Wylogowywanie…",
+      "signOutError": "Nie udało się wylogować. Spróbuj ponownie.",
+      "signIn": "Zaloguj się"
+    },
     "aiAccounts": {
       "metaTitle": "Konta AI — cmux",
       "metaDescription": "Zarządzaj kontami dostawców AI zespołu w cmux.",
