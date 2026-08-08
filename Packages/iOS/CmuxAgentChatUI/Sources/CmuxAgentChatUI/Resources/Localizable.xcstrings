@@ -15,6 +15,12 @@
             "state": "translated",
             "value": "この大きな書類では、先頭部分のみが支援技術に公開されます。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文档较大，只有开头部分会提供给辅助技术。"
+          }
         }
       }
     },
@@ -31,6 +37,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Macへの接続を確認して、もう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检查与 Mac 的连接后重试。"
           }
         }
       }
@@ -49,6 +61,12 @@
             "state": "translated",
             "value": "操作を完了できませんでした"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法完成操作"
+          }
         }
       }
     },
@@ -65,6 +83,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "参照項目"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "引用的项目"
           }
         }
       }
@@ -83,6 +107,12 @@
             "state": "translated",
             "value": "フォルダを表示"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览文件夹"
+          }
         }
       }
     },
@@ -99,6 +129,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "内容をコピー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制内容"
           }
         }
       }
@@ -117,6 +153,12 @@
             "state": "translated",
             "value": "画像をコピー"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制图片"
+          }
         }
       }
     },
@@ -133,6 +175,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "パスをコピー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制路径"
           }
         }
       }
@@ -151,6 +199,12 @@
             "state": "translated",
             "value": "完了"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
+          }
         }
       }
     },
@@ -167,6 +221,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ファイル操作"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件操作"
           }
         }
       }
@@ -185,6 +245,12 @@
             "state": "translated",
             "value": "そのファイルはMac上で利用できなくなりました。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个文件已不在你的 Mac 上。"
+          }
         }
       }
     },
@@ -201,6 +267,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ファイルが見つかりません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到文件"
           }
         }
       }
@@ -219,6 +291,12 @@
             "state": "translated",
             "value": "項目がありません"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有项目"
+          }
         }
       }
     },
@@ -235,6 +313,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "このフォルダを読み込めませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载这个文件夹"
           }
         }
       }
@@ -253,6 +337,12 @@
             "state": "translated",
             "value": "最初の 500 項目を表示しています"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示前 500 个项目"
+          }
         }
       }
     },
@@ -269,6 +359,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "このファイルは会話で参照されていません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对话中没有引用这个文件。"
           }
         }
       }
@@ -287,6 +383,12 @@
             "state": "translated",
             "value": "このファイルは現在のターミナル画面に表示されていません。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个文件在当前终端视图中不可见。"
+          }
         }
       }
     },
@@ -303,6 +405,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "プレビューできません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法预览"
           }
         }
       }
@@ -321,6 +429,12 @@
             "state": "translated",
             "value": "ハイライトはオフ"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高亮已关闭"
+          }
         }
       }
     },
@@ -337,6 +451,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "このファイルは%@です。スクロールを滑らかに保つため、%@を超えるファイルでは構文ハイライトがオフになります。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个文件大小为 %@。为保持滚动流畅，超过 %@ 的文件会关闭语法高亮。"
           }
         }
       }
@@ -355,6 +475,12 @@
             "state": "translated",
             "value": "下端"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "底部"
+          }
         }
       }
     },
@@ -368,6 +494,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "末尾"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "末尾"
@@ -389,6 +521,12 @@
             "state": "translated",
             "value": "最新"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新"
+          }
         }
       }
     },
@@ -405,6 +543,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "先頭"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顶部"
           }
         }
       }
@@ -423,6 +567,12 @@
             "state": "translated",
             "value": "行へ移動を閉じる"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭跳转到行"
+          }
         }
       }
     },
@@ -439,6 +589,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "移動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳转"
           }
         }
       }
@@ -457,6 +613,12 @@
             "state": "translated",
             "value": "行へ移動"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳转到行"
+          }
         }
       }
     },
@@ -473,6 +635,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "行番号"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行号"
           }
         }
       }
@@ -491,6 +659,12 @@
             "state": "translated",
             "value": "行番号"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行号"
+          }
         }
       }
     },
@@ -507,6 +681,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "プレビューを読み込み中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在加载预览"
           }
         }
       }
@@ -525,6 +705,12 @@
             "state": "translated",
             "value": "Macとの接続を確認して、もう一度お試しください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检查与 Mac 的连接后重试。"
+          }
         }
       }
     },
@@ -541,6 +727,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Macに接続できません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接 Mac"
           }
         }
       }
@@ -559,6 +751,12 @@
             "state": "translated",
             "value": "ソース"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "源码"
+          }
         }
       }
     },
@@ -575,6 +773,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "プレビュー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "渲染"
           }
         }
       }
@@ -593,6 +797,12 @@
             "state": "translated",
             "value": "Markdown表示"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown 视图"
+          }
         }
       }
     },
@@ -609,6 +819,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "OK"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "好"
           }
         }
       }
@@ -627,6 +843,12 @@
             "state": "translated",
             "value": "項目を開く"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开项目"
+          }
         }
       }
     },
@@ -643,6 +865,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "このファイルはプレビューできません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个文件无法预览。"
           }
         }
       }
@@ -661,6 +889,12 @@
             "state": "translated",
             "value": "プレビューできません"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法预览"
+          }
         }
       }
     },
@@ -677,6 +911,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "再試行"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试"
           }
         }
       }
@@ -695,6 +935,12 @@
             "state": "translated",
             "value": "「ファイル」に保存"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "存储到「文件」"
+          }
         }
       }
     },
@@ -711,6 +957,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "検索を閉じる"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭搜索"
           }
         }
       }
@@ -729,6 +981,12 @@
             "state": "translated",
             "value": "次の一致"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下一个匹配"
+          }
         }
       }
     },
@@ -745,6 +1003,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ファイル内を検索"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在文件中查找"
           }
         }
       }
@@ -763,6 +1027,12 @@
             "state": "translated",
             "value": "前の一致"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上一个匹配"
+          }
         }
       }
     },
@@ -779,6 +1049,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "読み込み中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在加载"
           }
         }
       }
@@ -797,6 +1073,12 @@
             "state": "translated",
             "value": "検索"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索"
+          }
         }
       }
     },
@@ -813,6 +1095,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "共有"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享"
           }
         }
       }
@@ -831,6 +1119,12 @@
             "state": "translated",
             "value": "テキストオプション"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文本选项"
+          }
         }
       }
     },
@@ -847,6 +1141,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "このプレビューの上限は%@です。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预览上限为 %@。"
           }
         }
       }
@@ -865,6 +1165,12 @@
             "state": "translated",
             "value": "このファイルのサイズは%@です。プレビューの上限は%@です。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个文件大小为 %@，预览上限为 %@。"
+          }
         }
       }
     },
@@ -881,6 +1187,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ファイルが大きすぎてプレビューできません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件太大，无法预览"
           }
         }
       }
@@ -899,6 +1211,12 @@
             "state": "translated",
             "value": "ファイルを表示"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看文件"
+          }
         }
       }
     },
@@ -915,6 +1233,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ビューア操作"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看器操作"
           }
         }
       }
@@ -933,6 +1257,12 @@
             "state": "translated",
             "value": "行を折り返す"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动换行"
+          }
         }
       }
     },
@@ -949,6 +1279,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "画像"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "图片"
           }
         }
       }
@@ -967,6 +1303,12 @@
             "state": "translated",
             "value": "コピー"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制"
+          }
         }
       }
     },
@@ -980,6 +1322,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ctrl-C"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "Ctrl-C"
@@ -1001,6 +1349,12 @@
             "state": "translated",
             "value": "Esc"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc"
+          }
         }
       }
     },
@@ -1014,6 +1368,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "停止"
@@ -1035,6 +1395,12 @@
             "state": "translated",
             "value": "ターミナル"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端"
+          }
         }
       }
     },
@@ -1051,6 +1417,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ コード"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 代码"
           }
         }
       }
@@ -1069,6 +1441,12 @@
             "state": "translated",
             "value": "コードブロック"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代码块"
+          }
         }
       }
     },
@@ -1085,6 +1463,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "添付を追加"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加附件"
           }
         }
       }
@@ -1103,6 +1487,12 @@
             "state": "translated",
             "value": "添付ファイル %lld"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "附件 %lld"
+          }
         }
       }
     },
@@ -1119,6 +1509,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ターミナルを開く"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开终端"
           }
         }
       }
@@ -1137,6 +1533,12 @@
             "state": "translated",
             "value": "%@にメッセージ"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "给 %@ 发消息"
+          }
         }
       }
     },
@@ -1153,6 +1555,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "❯ コマンド"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "❯ 命令"
           }
         }
       }
@@ -1171,6 +1579,12 @@
             "state": "translated",
             "value": "添付ファイル %lld を削除"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除附件 %lld"
+          }
         }
       }
     },
@@ -1187,6 +1601,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "送信"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送"
           }
         }
       }
@@ -1205,6 +1625,12 @@
             "state": "translated",
             "value": "セッションが終了しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话已结束"
+          }
         }
       }
     },
@@ -1218,6 +1644,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "停止"
@@ -1239,6 +1671,12 @@
             "state": "translated",
             "value": "コード"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代码"
+          }
         }
       }
     },
@@ -1255,6 +1693,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "コードブロック"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代码块"
           }
         }
       }
@@ -1273,6 +1717,12 @@
             "state": "translated",
             "value": "コマンド"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令"
+          }
         }
       }
     },
@@ -1289,6 +1739,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "すべてコピー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制全部"
           }
         }
       }
@@ -1307,6 +1763,12 @@
             "state": "translated",
             "value": "差分"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差异"
+          }
         }
       }
     },
@@ -1323,6 +1785,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "完了"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
           }
         }
       }
@@ -1341,6 +1809,12 @@
             "state": "translated",
             "value": "詳細はありません"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有详细信息"
+          }
         }
       }
     },
@@ -1357,6 +1831,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@（%@）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ - %@"
           }
         }
       }
@@ -1375,6 +1855,12 @@
             "state": "translated",
             "value": "ファイル変更"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件变更"
+          }
         }
       }
     },
@@ -1391,6 +1877,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "削除"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除"
           }
         }
       }
@@ -1409,6 +1901,12 @@
             "state": "translated",
             "value": "編集"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑"
+          }
         }
       }
     },
@@ -1425,6 +1923,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "書き込み"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写入"
           }
         }
       }
@@ -1443,6 +1947,12 @@
             "state": "translated",
             "value": "出力"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输出"
+          }
         }
       }
     },
@@ -1459,6 +1969,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ブロック全体を表示するシートを開きます"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开表单查看完整内容"
           }
         }
       }
@@ -1477,6 +1993,12 @@
             "state": "translated",
             "value": "失敗"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失败"
+          }
         }
       }
     },
@@ -1494,6 +2016,12 @@
             "state": "translated",
             "value": "実行中"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行中"
+          }
         }
       }
     },
@@ -1507,6 +2035,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "成功"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "成功"
@@ -1528,6 +2062,12 @@
             "state": "translated",
             "value": "ターミナル出力"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端输出"
+          }
         }
       }
     },
@@ -1544,6 +2084,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "推論"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推理过程"
           }
         }
       }
@@ -1562,6 +2108,12 @@
             "state": "translated",
             "value": "入力"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入"
+          }
         }
       }
     },
@@ -1578,6 +2130,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "出力"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输出"
           }
         }
       }
@@ -1596,6 +2154,12 @@
             "state": "translated",
             "value": "%@（%@）"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ - %@"
+          }
         }
       }
     },
@@ -1612,6 +2176,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "概要"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "摘要"
           }
         }
       }
@@ -1630,6 +2200,12 @@
             "state": "translated",
             "value": "ツール詳細"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工具详情"
+          }
         }
       }
     },
@@ -1646,6 +2222,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "追加: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增：%@"
           }
         }
       }
@@ -1664,6 +2246,12 @@
             "state": "translated",
             "value": "セクション: %@"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "区段：%@"
+          }
         }
       }
     },
@@ -1680,6 +2268,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "削除: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除：%@"
           }
         }
       }
@@ -1698,6 +2292,12 @@
             "state": "translated",
             "value": "ファイル編集"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件编辑"
+          }
         }
       }
     },
@@ -1714,6 +2314,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "追加"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增行"
           }
         }
       }
@@ -1732,6 +2338,12 @@
             "state": "translated",
             "value": "削除"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除行"
+          }
         }
       }
     },
@@ -1748,6 +2360,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "再接続中…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重连中…"
           }
         }
       }
@@ -1766,6 +2384,12 @@
             "state": "translated",
             "value": "終了"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已结束"
+          }
         }
       }
     },
@@ -1782,6 +2406,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "待機中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空闲"
           }
         }
       }
@@ -1800,6 +2430,12 @@
             "state": "translated",
             "value": "入力待ち"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待输入"
+          }
         }
       }
     },
@@ -1816,6 +2452,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "作業中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作中"
           }
         }
       }
@@ -1834,6 +2476,12 @@
             "state": "translated",
             "value": "これより前の履歴はMac側にあります"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更早的记录在你的 Mac 上"
+          }
         }
       }
     },
@@ -1850,6 +2498,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ターミナルを開く"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开终端"
           }
         }
       }
@@ -1868,6 +2522,12 @@
             "state": "translated",
             "value": "%lld件の添付ファイル"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个附件"
+          }
         }
       }
     },
@@ -1884,6 +2544,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "キャンセル"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
           }
         }
       }
@@ -1902,6 +2568,12 @@
             "state": "translated",
             "value": "送信済み"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已送达"
+          }
         }
       }
     },
@@ -1918,6 +2590,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "破棄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "丢弃"
           }
         }
       }
@@ -1936,6 +2614,12 @@
             "state": "translated",
             "value": "送信に失敗しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送失败"
+          }
         }
       }
     },
@@ -1952,6 +2636,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "エージェントが空くまで送信待ち"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已排队，等智能体空闲后发送"
           }
         }
       }
@@ -1970,6 +2660,12 @@
             "state": "translated",
             "value": "再試行"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试"
+          }
         }
       }
     },
@@ -1986,6 +2682,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "送信中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送中"
           }
         }
       }
@@ -2004,6 +2706,12 @@
             "state": "translated",
             "value": "許可"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许"
+          }
         }
       }
     },
@@ -2020,6 +2728,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "許可済み"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已允许"
           }
         }
       }
@@ -2038,6 +2752,12 @@
             "state": "translated",
             "value": "拒否済み"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已拒绝"
+          }
         }
       }
     },
@@ -2054,6 +2774,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "拒否"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒绝"
           }
         }
       }
@@ -2072,6 +2798,12 @@
             "state": "translated",
             "value": "期限切れ"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已过期"
+          }
         }
       }
     },
@@ -2088,6 +2820,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ダブルタップで折りたたむ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轻点两下可折叠"
           }
         }
       }
@@ -2106,6 +2844,12 @@
             "state": "translated",
             "value": "折りたたみ済み"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已折叠"
+          }
         }
       }
     },
@@ -2122,6 +2866,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ダブルタップで展開"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轻点两下可展开"
           }
         }
       }
@@ -2140,6 +2890,12 @@
             "state": "translated",
             "value": "展開済み"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已展开"
+          }
         }
       }
     },
@@ -2156,6 +2912,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "最新メッセージへスクロール"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "滚动到最新消息"
           }
         }
       }
@@ -2174,6 +2936,12 @@
             "state": "translated",
             "value": "コンテキストを圧縮しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已压缩上下文"
+          }
         }
       }
     },
@@ -2190,6 +2958,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "中断されました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已中断"
           }
         }
       }
@@ -2208,6 +2982,12 @@
             "state": "translated",
             "value": "セッション終了"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话已结束"
+          }
         }
       }
     },
@@ -2224,6 +3004,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "セッション開始"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话已开始"
           }
         }
       }
@@ -2242,6 +3028,12 @@
             "state": "translated",
             "value": "出力を折りたたむ"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收起输出"
+          }
         }
       }
     },
@@ -2258,6 +3050,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "コマンド%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令 %@"
           }
         }
       }
@@ -2276,6 +3074,12 @@
             "state": "translated",
             "value": "すべての出力を表示"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示全部输出"
+          }
         }
       }
     },
@@ -2292,6 +3096,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "コマンド%@、失敗、終了コード%lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令 %@，失败，退出码 %lld"
           }
         }
       }
@@ -2310,6 +3120,12 @@
             "state": "translated",
             "value": "インタラクティブプログラム — フルターミナルを開く"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "交互式程序——打开完整终端"
+          }
         }
       }
     },
@@ -2326,6 +3142,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@はインタラクティブプログラムです。フルターミナルを開いてください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 是交互式程序。打开完整终端。"
           }
         }
       }
@@ -2344,6 +3166,12 @@
             "state": "translated",
             "value": "⋯ 残り%lld行"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⋯ 还有 %lld 行"
+          }
         }
       }
     },
@@ -2360,6 +3188,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ターミナルで開く"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在终端中打开"
           }
         }
       }
@@ -2378,6 +3212,12 @@
             "state": "translated",
             "value": "実行中"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行中"
+          }
         }
       }
     },
@@ -2394,6 +3234,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "コマンド%@、実行中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令 %@，运行中"
           }
         }
       }
@@ -2412,6 +3258,12 @@
             "state": "translated",
             "value": "コマンド%@、成功"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令 %@，成功"
+          }
         }
       }
     },
@@ -2425,6 +3277,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "思考"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "思考"
@@ -2446,6 +3304,12 @@
             "state": "translated",
             "value": "失敗"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失败"
+          }
         }
       }
     },
@@ -2463,6 +3327,12 @@
             "state": "translated",
             "value": "実行中"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行中"
+          }
         }
       }
     },
@@ -2476,6 +3346,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "成功"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "成功"
@@ -2497,6 +3373,12 @@
             "state": "translated",
             "value": "⋯ 省略"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⋯ 已截断"
+          }
         }
       }
     },
@@ -2513,6 +3395,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "まだメッセージはありません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无消息"
           }
         }
       }
@@ -2531,6 +3419,12 @@
             "state": "translated",
             "value": "この会話を読み込めませんでした"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载此对话"
+          }
         }
       }
     },
@@ -2547,6 +3441,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "再試行"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试"
           }
         }
       }
@@ -2565,6 +3465,12 @@
             "state": "translated",
             "value": "エージェントが作業中"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体工作中"
+          }
         }
       }
     },
@@ -2582,6 +3488,12 @@
             "state": "translated",
             "value": "未読メッセージ"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未读消息"
+          }
         }
       }
     },
@@ -2598,6 +3510,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "未対応のメッセージ（%@）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不支持的消息（%@）"
           }
         }
       }

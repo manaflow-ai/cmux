@@ -15,6 +15,12 @@
             "state" : "translated",
             "value" : "未接続"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未连接"
+          }
         }
       }
     },
@@ -31,6 +37,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "再接続中…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新连接中…"
           }
         }
       }
@@ -49,6 +61,12 @@
             "state" : "translated",
             "value" : "%lld件のファイル"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 个文件"
+          }
         }
       }
     },
@@ -65,6 +83,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "表示中のファイルを開く"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开当前视图中的文件"
           }
         }
       }
@@ -101,6 +125,18 @@
               }
             }
           }
+        },
+        "zh-Hans" : {
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld 个文件"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -108,21 +144,24 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Check the connection to your Mac and try again." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Macへの接続を確認して、もう一度お試しください。" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Macへの接続を確認して、もう一度お試しください。" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "检查与 Mac 的连接后重试。"}}
       }
     },
     "terminal.artifact.gallery.action_failed.title" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Couldn't complete action" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "操作を完了できませんでした" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "操作を完了できませんでした" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "无法完成操作"}}
       }
     },
     "terminal.artifact.gallery.browse_folder" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Browse folder" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "フォルダを表示" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "フォルダを表示" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "浏览文件夹"}}
       }
     },
     "terminal.artifact.gallery.child_count" : {
@@ -138,6 +177,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld項目"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 个项目"
           }
         }
       }
@@ -156,6 +201,12 @@
             "state" : "translated",
             "value" : "%lld項目以上"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld+ 个项目"
+          }
         }
       }
     },
@@ -163,7 +214,8 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Copy path" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "パスをコピー" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "パスをコピー" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "复制路径"}}
       }
     },
     "terminal.artifact.gallery.empty" : {
@@ -179,6 +231,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "表示中のファイルはありません"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前视图中没有文件"
           }
         }
       }
@@ -197,6 +255,12 @@
             "state" : "translated",
             "value" : "完了"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完成"
+          }
         }
       }
     },
@@ -204,42 +268,48 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "All" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべて" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべて" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "全部"}}
       }
     },
     "terminal.artifact.gallery.filter.code" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Code" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コード" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コード" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "代码"}}
       }
     },
     "terminal.artifact.gallery.filter.docs" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Docs" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "書類" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "書類" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "文档"}}
       }
     },
     "terminal.artifact.gallery.filter.folders" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Folders" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "フォルダ" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "フォルダ" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "文件夹"}}
       }
     },
     "terminal.artifact.gallery.filter.images" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Images" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "画像" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "画像" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "图片"}}
       }
     },
     "terminal.artifact.gallery.filter.logs" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Logs" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ログ" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ログ" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "日志"}}
       }
     },
     "terminal.artifact.gallery.kind.binary" : {
@@ -255,6 +325,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "バイナリファイル"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "二进制文件"
           }
         }
       }
@@ -273,6 +349,12 @@
             "state" : "translated",
             "value" : "フォルダ"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文件夹"
+          }
         }
       }
     },
@@ -289,6 +371,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "画像"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片"
           }
         }
       }
@@ -307,6 +395,12 @@
             "state" : "translated",
             "value" : "テキスト書類"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文本文档"
+          }
         }
       }
     },
@@ -323,6 +417,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ファイルを読み込み中…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载文件…"
           }
         }
       }
@@ -341,6 +441,12 @@
             "state" : "translated",
             "value" : "さらに読み込み中…"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载更多…"
+          }
         }
       }
     },
@@ -348,7 +454,8 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Loading all files…" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべてのファイルを読み込み中…" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべてのファイルを読み込み中…" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "正在加载全部文件…"}}
       }
     },
     "terminal.artifact.gallery.missing" : {
@@ -365,6 +472,12 @@
             "state" : "translated",
             "value" : "Macにありません"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已不在你的 Mac 上"
+          }
         }
       }
     },
@@ -372,35 +485,40 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld new files" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新しいファイル%lld件" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新しいファイル%lld件" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "%lld 个新文件"}}
       }
     },
     "terminal.artifact.gallery.ok" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "OK" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "OK" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "OK" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "好"}}
       }
     },
     "terminal.artifact.gallery.provenance.attached" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Attached" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "添付" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "添付" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "已附加"}}
       }
     },
     "terminal.artifact.gallery.provenance.created" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Created" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "作成" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "作成" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "已创建"}}
       }
     },
     "terminal.artifact.gallery.provenance.referenced" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Referenced" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "参照" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "参照" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "已引用"}}
       }
     },
     "terminal.artifact.gallery.retry" : {
@@ -417,6 +535,12 @@
             "state" : "translated",
             "value" : "再試行"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重试"
+          }
         }
       }
     },
@@ -424,21 +548,24 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Scope" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "範囲" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "範囲" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "范围"}}
       }
     },
     "terminal.artifact.gallery.scope.in_view" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "In view" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "表示中" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "表示中" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "当前视图"}}
       }
     },
     "terminal.artifact.gallery.scope.session" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Session" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "セッション" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "セッション" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "会话"}}
       }
     },
     "terminal.artifact.gallery.session_empty" : {
@@ -455,6 +582,12 @@
             "state" : "translated",
             "value" : "このセッションにはファイルがありません"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个会话中没有文件"
+          }
         }
       }
     },
@@ -462,70 +595,80 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Showing first %lld files" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最初の%lld件のファイルを表示" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最初の%lld件のファイルを表示" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "显示前 %lld 个文件"}}
       }
     },
     "terminal.artifact.gallery.sort" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Sort" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "並べ替え" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "並べ替え" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "排序"}}
       }
     },
     "terminal.artifact.gallery.share" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Share" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "共有" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "共有" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "共享"}}
       }
     },
     "terminal.artifact.gallery.sort.name" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Name" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "名前" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "名前" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "名称"}}
       }
     },
     "terminal.artifact.gallery.sort.recent" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Recent" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最近" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最近" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "最近"}}
       }
     },
     "terminal.artifact.gallery.sort.size" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Size" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サイズ" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サイズ" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "大小"}}
       }
     },
     "terminal.artifact.gallery.search" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Search session files" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "セッションのファイルを検索" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "セッションのファイルを検索" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "搜索会话文件"}}
       }
     },
     "terminal.artifact.gallery.section.attached" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "You attached" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "あなたの添付" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "あなたの添付" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "你附加的"}}
       }
     },
     "terminal.artifact.gallery.section.created" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Created by agent" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エージェントが作成" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エージェントが作成" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "智能体创建的"}}
       }
     },
     "terminal.artifact.gallery.section.referenced" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Referenced" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "参照" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "参照" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "引用的"}}
       }
     },
     "terminal.artifact.gallery.title" : {
@@ -541,6 +684,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ファイル"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文件"
           }
         }
       }
@@ -559,6 +708,12 @@
             "state" : "translated",
             "value" : "Macへの接続を確認して、もう一度お試しください。"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "检查与 Mac 的连接后重试。"
+          }
         }
       }
     },
@@ -575,6 +730,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Macに接続できません"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法连接 Mac"
           }
         }
       }
@@ -593,6 +754,12 @@
             "state" : "translated",
             "value" : "表示"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "视图"
+          }
         }
       }
     },
@@ -609,6 +776,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "アイコン"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图标"
           }
         }
       }
@@ -627,6 +800,12 @@
             "state" : "translated",
             "value" : "リスト"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "列表"
+          }
         }
       }
     },
@@ -634,77 +813,88 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Close" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "閉じる" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "閉じる" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "关闭"}}
       }
     },
     "workspace.changes.file_missing" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "File no longer changed" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このファイルは変更されていません" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このファイルは変更されていません" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "这个文件已没有变更"}}
       }
     },
     "workspace.changes.chip.accessibility" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Changes: %1$@, +%2$lld, −%3$lld" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "変更：%1$@、+%2$lld、−%3$lld" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "変更：%1$@、+%2$lld、−%3$lld" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "变更：%1$@，+%2$lld，−%3$lld"}}
       }
     },
     "workspace.changes.chip.row_accessibility" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "%1$@, %2$lld additions, %3$lld deletions" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%1$@、追加%2$lld行、削除%3$lld行" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%1$@、追加%2$lld行、削除%3$lld行" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "%1$@，新增 %2$lld 行，删除 %3$lld 行"}}
       }
     },
     "workspace.changes.hint.body" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Tap the Changes button to see what the agent edited." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "変更ボタンをタップして、エージェントが編集した内容を確認できます。" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "変更ボタンをタップして、エージェントが編集した内容を確認できます。" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "轻点「变更」按钮，查看智能体编辑了哪些内容。"}}
       }
     },
     "workspace.changes.hint.dismiss" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Dismiss" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "閉じる" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "閉じる" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "关闭"}}
       }
     },
     "workspace.changes.hint.title" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Review this workspace's changes" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このワークスペースの変更を確認" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このワークスペースの変更を確認" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "审阅这个工作区的变更"}}
       }
     },
     "workspace.changes.preview.error" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Error" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エラー" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エラー" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "错误"}}
       }
     },
     "workspace.changes.preview.loading" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Loading" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "読み込み中" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "読み込み中" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "加载中"}}
       }
     },
     "workspace.changes.preview.state" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "State" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "状態" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "状態" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "状态"}}
       }
     },
     "workspace.changes.title" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Changes" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "変更" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "変更" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "变更"}}
       }
     },
     "mobile.settings.terminalFolderTap" : {
@@ -720,6 +910,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "タップでフォルダを開く"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "轻点打开文件夹"
           }
         }
       }
@@ -738,6 +934,12 @@
             "state" : "translated",
             "value" : "触覚フィードバック"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "触感"
+          }
         }
       }
     },
@@ -754,6 +956,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "触覚フィードバック"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "触感反馈"
           }
         }
       }
@@ -772,6 +980,12 @@
             "state" : "translated",
             "value" : "オフにすると、操作、確認、警告、エラーでcmuxが振動しなくなります。"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭后，cmux 在操作、确认、警告和错误时都不再振动。"
+          }
         }
       }
     },
@@ -779,434 +993,496 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Actions" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "操作" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "操作" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "操作"}}
       }
     },
     "mobile.common.cancel" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Cancel" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "キャンセル" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "キャンセル" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "取消"}}
       }
     },
     "mobile.computers.forget" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Forget" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "登録解除" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "登録解除" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "忘记"}}
       }
     },
     "mobile.computers.forget.confirmMessage" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "It's removed from all your devices. If it's still online, it reappears the next time it connects." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべてのデバイスから削除されます。オンラインのままの場合は、次回接続時に再表示されます。" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべてのデバイスから削除されます。オンラインのままの場合は、次回接続時に再表示されます。" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "这台电脑会从你的所有设备上移除。如果它仍在线，下次连接时会重新出现。"}}
       }
     },
     "mobile.computers.forget.confirmTitle" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Forget this computer?" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このコンピュータの登録を解除しますか？" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このコンピュータの登録を解除しますか？" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "要忘记这台电脑吗？"}}
       }
     },
     "mobile.common.edit" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Edit" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "編集" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "編集" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "编辑"}}
       }
     },
     "mobile.common.remove" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Remove" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "削除" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "削除" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "移除"}}
       }
     },
     "mobile.common.save" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Save" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "保存" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "保存" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "保存"}}
       }
     },
     "mobile.workspace.customize.description.tooLong" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Description must be 4 KB or less." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "説明は4 KB以下にしてください。" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "説明は4 KB以下にしてください。" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "描述不能超过 4 KB。"}}
       }
     },
     "mobile.workspace.customize.description.truncated" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "This Mac description is longer than iPhone can edit. Change it on Mac to avoid losing text." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このMacの説明はiPhoneで編集できる長さを超えています。テキストを失わないようMacで変更してください。" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このMacの説明はiPhoneで編集できる長さを超えています。テキストを失わないようMacで変更してください。" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "Mac 上的这段描述超出 iPhone 可编辑的长度。在 Mac 上修改可避免丢失文字。"}}
       }
     },
     "mobile.workspace.customize.concurrentChange" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "This workspace changed on your Mac. Review the latest values and save again." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このワークスペースはMacで変更されました。最新の値を確認して、もう一度保存してください。" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このワークスペースはMacで変更されました。最新の値を確認して、もう一度保存してください。" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "这个工作区在你的 Mac 上已变更。确认最新的值后重新保存。"}}
       }
     },
     "mobile.workspace.customize.workspaceUnavailable" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "This workspace is no longer available. Reopen the workspace list and try again." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このワークスペースは利用できなくなりました。ワークスペース一覧を開き直して、もう一度試してください。" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このワークスペースは利用できなくなりました。ワークスペース一覧を開き直して、もう一度試してください。" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "这个工作区已不可用。重新打开工作区列表后再试。"}}
       }
     },
     "mobile.hideComputersVerifier.allHiddenKnownPairedMac" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "allHiddenKnownPairedMac=" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべて非表示後も既知のMac=" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべて非表示後も既知のMac=" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "全部隐藏后仍有已知配对 Mac="}}
       }
     },
     "mobile.hideComputersVerifier.allHiddenNormalEmpty" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "allHiddenNormalEmpty=" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべて非表示後に通常の空リスト=" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべて非表示後に通常の空リスト=" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "全部隐藏后普通列表为空="}}
       }
     },
     "mobile.iroh.private" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Private Networks" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "プライベートネットワーク" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "プライベートネットワーク" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "私有网络"}}
       }
     },
     "mobile.iroh.private.automatic" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Automatic" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "自動" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "自動" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "自动"}}
       }
     },
     "mobile.iroh.private.custom.add" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Add Private Addresses" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "プライベートアドレスを追加" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "プライベートアドレスを追加" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "添加私有地址"}}
       }
     },
     "mobile.iroh.private.custom.addresses" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Numeric IP Addresses" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "数値形式のIPアドレス" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "数値形式のIPアドレス" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "数字形式 IP 地址"}}
       }
     },
     "mobile.iroh.private.custom.addresses.footer" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter one IPv4 or IPv6 address per line, without a port. cmux combines it with the Mac's current broker-authenticated Iroh UDP port." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "IPv4またはIPv6アドレスをポートなしで1行に1つ入力してください。cmuxはそのアドレスを、ブローカーが認証したMacの現在のIroh UDPポートと組み合わせます。" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "IPv4またはIPv6アドレスをポートなしで1行に1つ入力してください。cmuxはそのアドレスを、ブローカーが認証したMacの現在のIroh UDPポートと組み合わせます。" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "每行输入一个 IPv4 或 IPv6 地址，不要带端口。cmux 会把它和 Mac 当前经 broker 认证的 Iroh UDP 端口组合起来。"}}
       }
     },
     "mobile.iroh.private.custom.edit" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Edit Private Addresses" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "プライベートアドレスを編集" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "プライベートアドレスを編集" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "编辑私有地址"}}
       }
     },
     "mobile.iroh.private.custom.enabled" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Use These Addresses" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "これらのアドレスを使用" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "これらのアドレスを使用" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "使用这些地址"}}
       }
     },
     "mobile.iroh.private.custom.mac" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Mac" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "Mac"}}
       }
     },
     "mobile.iroh.private.custom.remove.confirm" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Remove these private addresses?" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "これらのプライベートアドレスを削除しますか？" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "これらのプライベートアドレスを削除しますか？" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "要移除这些私有地址吗？"}}
       }
     },
     "mobile.iroh.private.custom.unnamedMac" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Mac" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "Mac"}}
       }
     },
     "mobile.iroh.private.footer" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Private addresses stay on this device and are fallback paths only. cmux pins the Mac's broker-authenticated Iroh EndpointID and current UDP port; an address never proves identity." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "プライベートアドレスはこのデバイス内にのみ保存され、フォールバック経路としてのみ使用されます。cmuxはブローカーが認証したMacのIroh EndpointIDと現在のUDPポートを固定します。アドレス自体を本人確認には使用しません。" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "プライベートアドレスはこのデバイス内にのみ保存され、フォールバック経路としてのみ使用されます。cmuxはブローカーが認証したMacのIroh EndpointIDと現在のUDPポートを固定します。アドレス自体を本人確認には使用しません。" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "私有地址只保存在这台设备上，仅作为备用路径。cmux 会固定 Mac 经 broker 认证的 Iroh EndpointID 和当前 UDP 端口；地址本身不能证明身份。"}}
       }
     },
     "mobile.iroh.private.lan" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Local Network Discovery" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ローカルネットワーク検出" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ローカルネットワーク検出" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "本地网络发现"}}
       }
     },
     "mobile.iroh.private.tailscale" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Tailscale Compatibility" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Tailscale互換性" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Tailscale互換性" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "Tailscale 兼容性"}}
       }
     },
     "mobile.iroh.private.tailscale.active" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "When Tailscale Is Active" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Tailscaleが有効な場合" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Tailscaleが有効な場合" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "Tailscale 启用时"}}
       }
     },
     "mobile.iroh.saveFailed" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Could Not Save Networking Settings" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ネットワーク設定を保存できませんでした" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ネットワーク設定を保存できませんでした" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "无法保存网络设置"}}
       }
     },
     "mobile.iroh.saveFailed.message" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Your previous networking configuration is still active. Check the values, then try again." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "以前のネットワーク設定は引き続き有効です。入力内容を確認して、もう一度お試しください。" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "以前のネットワーク設定は引き続き有効です。入力内容を確認して、もう一度お試しください。" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "之前的网络配置仍在生效。检查各项值后重试。"}}
       }
     },
     "mobile.iroh.diagnostics.clear" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Clear Report" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "レポートを消去" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "レポートを消去" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "清除报告"}}
       }
     },
     "mobile.iroh.diagnostics.clear.confirm" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Clear this diagnostic report?" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "この診断レポートを消去しますか？" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "この診断レポートを消去しますか？" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "要清除这份诊断报告吗？"}}
       }
     },
     "mobile.iroh.diagnostics.clear.message" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "This permanently removes the connection timeline stored on this device." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このデバイスに保存された接続タイムラインを完全に削除します。" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このデバイスに保存された接続タイムラインを完全に削除します。" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "这会永久删除这台设备上保存的连接时间线。"}}
       }
     },
     "mobile.iroh.diagnostics.eventCount" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Recorded Events" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "記録済みイベント" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "記録済みイベント" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "已记录事件"}}
       }
     },
     "mobile.iroh.diagnostics.lastFailure" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Last Failure" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "直近の失敗" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "直近の失敗" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "上次失败"}}
       }
     },
     "mobile.iroh.diagnostics.lastFailureTime" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Failure Time" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "失敗時刻" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "失敗時刻" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "失败时间"}}
       }
     },
     "mobile.iroh.diagnostics.lastSuccess" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Last Successful Connection" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最終接続成功" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最終接続成功" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "上次成功连接"}}
       }
     },
     "mobile.iroh.diagnostics.notRecorded" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Not Recorded" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "記録なし" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "記録なし" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "未记录"}}
       }
     },
     "mobile.iroh.diagnostics.privacy" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "This report remains available while disconnected. It excludes terminal content, account and endpoint identities, network addresses, relay URLs, credentials, and raw errors. Nothing leaves this device until you share it." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このレポートは接続が切れていても利用できます。ターミナルの内容、アカウントおよびエンドポイントの識別情報、ネットワークアドレス、リレー URL、認証情報、生のエラーは含まれません。共有するまで、このデバイスから送信されることはありません。" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このレポートは接続が切れていても利用できます。ターミナルの内容、アカウントおよびエンドポイントの識別情報、ネットワークアドレス、リレー URL、認証情報、生のエラーは含まれません。共有するまで、このデバイスから送信されることはありません。" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "即使连接已断开，这份报告也依然可用。报告不含终端内容、账户与端点身份、网络地址、中继 URL、凭据和原始错误信息。在你共享之前，不会有任何内容离开这台设备。"}}
       }
     },
     "mobile.iroh.diagnostics.share" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Share Safe Report" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "安全なレポートを共有" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "安全なレポートを共有" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "共享安全报告"}}
       }
     },
     "mobile.iroh.diagnostics.shareVerboseLog" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Share Verbose Log" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "詳細ログを共有" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "詳細ログを共有" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "共享详细日志"}}
       }
     },
     "mobile.iroh.diagnostics.verboseLog" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Verbose Connection Log" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "詳細な接続ログ" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "詳細な接続ログ" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "详细连接日志"}}
       }
     },
     "mobile.iroh.diagnostics.verboseLog.footer" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Records detailed connection activity to a file on this device for troubleshooting. Terminal contents and credentials are never written." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "トラブルシューティングのため、接続の詳細な動作をこのデバイス上のファイルに記録します。ターミナルの内容や認証情報は書き込まれません。" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "トラブルシューティングのため、接続の詳細な動作をこのデバイス上のファイルに記録します。ターミナルの内容や認証情報は書き込まれません。" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "把详细的连接活动记录到这台设备上的文件里，方便排查问题。终端内容和凭据绝不会写入。"}}
       }
     },
     "mobile.iroh.diagnostics.failure.none" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "None" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "なし" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "なし" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "无"}}
       }
     },
     "mobile.iroh.diagnostics.failure.offline" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Offline" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "オフライン" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "オフライン" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "离线"}}
       }
     },
     "mobile.iroh.diagnostics.failure.timedOut" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Timed Out" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "タイムアウト" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "タイムアウト" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "超时"}}
       }
     },
     "mobile.iroh.diagnostics.failure.transportIdleTimedOut" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Transport Idle Timeout" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続アイドルタイムアウト" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続アイドルタイムアウト" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "传输空闲超时"}}
       }
     },
     "mobile.iroh.diagnostics.failure.connectionRefused" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Connection Refused" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続が拒否されました" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続が拒否されました" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "连接被拒绝"}}
       }
     },
     "mobile.iroh.diagnostics.failure.hostUnreachable" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Host Unreachable" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ホストに到達できません" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ホストに到達できません" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "主机不可达"}}
       }
     },
     "mobile.iroh.diagnostics.failure.permissionDenied" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Permission Denied" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "権限がありません" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "権限がありません" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "权限被拒绝"}}
       }
     },
     "mobile.iroh.diagnostics.failure.dnsFailed" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Name Resolution Failed" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "名前解決に失敗" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "名前解決に失敗" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "域名解析失败"}}
       }
     },
     "mobile.iroh.diagnostics.failure.secureChannelFailed" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Secure Channel Failed" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "安全なチャネルの確立に失敗" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "安全なチャネルの確立に失敗" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "安全通道建立失败"}}
       }
     },
     "mobile.iroh.diagnostics.failure.routeGated" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Route Gated" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "経路が一時的に制限されています" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "経路が一時的に制限されています" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "路由受限"}}
       }
     },
     "mobile.iroh.diagnostics.failure.sendQueueOverflow" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Send Queue Overflow" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "送信キューオーバーフロー" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "送信キューオーバーフロー" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "发送队列溢出"}}
       }
     },
     "mobile.iroh.diagnostics.failure.unsupportedRoute" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Unsupported Route" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サポートされていない経路" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サポートされていない経路" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "不支持的路由"}}
       }
     },
     "mobile.iroh.diagnostics.failure.noRoute" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "No Route Available" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "利用可能な経路がありません" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "利用可能な経路がありません" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "无可用路由"}}
       }
     },
     "mobile.iroh.diagnostics.failure.routeGated" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Route Gated" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "経路が制限されています" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "経路が制限されています" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "路由受限"}}
       }
     },
     "mobile.iroh.diagnostics.failure.credentialUnavailable" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Credentials Unavailable" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "認証情報を利用できません" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "認証情報を利用できません" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "凭据不可用"}}
       }
     },
     "mobile.iroh.diagnostics.failure.policyUnavailable" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Relay Policy Unavailable" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "リレーポリシーを利用できません" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "リレーポリシーを利用できません" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "中继策略不可用"}}
       }
     },
     "mobile.iroh.diagnostics.failure.endpointUnavailable" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Endpoint Unavailable" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エンドポイントを利用できません" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エンドポイントを利用できません" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "端点不可用"}}
       }
     },
     "mobile.iroh.diagnostics.failure.identityMismatch" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Endpoint Identity Mismatch" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エンドポイント ID が一致しません" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エンドポイント ID が一致しません" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "端点身份不匹配"}}
       }
     },
     "mobile.iroh.diagnostics.failure.admissionDenied" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Connection Admission Denied" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続の受け入れが拒否されました" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続の受け入れが拒否されました" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "连接准入被拒绝"}}
       }
     },
     "mobile.iroh.diagnostics.failure.admissionLeaseExpired": {
@@ -1222,6 +1498,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "受け入れリースの期限切れ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "准入租约已过期"
           }
         }
       }
@@ -1240,6 +1522,12 @@
             "state": "translated",
             "value": "受け入れの再検証に失敗しました"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "准入重新验证失败"
+          }
         }
       }
     },
@@ -1247,49 +1535,56 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Authorization Failed" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "認可に失敗" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "認可に失敗" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "授权失败"}}
       }
     },
     "mobile.iroh.diagnostics.failure.accountMismatch" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Account Mismatch" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "アカウントが一致しません" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "アカウントが一致しません" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "账户不匹配"}}
       }
     },
     "mobile.iroh.diagnostics.failure.protocolViolation" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Protocol Error" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "プロトコルエラー" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "プロトコルエラー" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "协议错误"}}
       }
     },
     "mobile.iroh.diagnostics.failure.connectionClosed" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Connection Closed" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続が終了しました" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続が終了しました" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "连接已关闭"}}
       }
     },
     "mobile.iroh.diagnostics.failure.superseded" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Replaced by a Newer Attempt" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新しい接続試行に置き換えられました" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新しい接続試行に置き換えられました" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "已被较新的连接尝试取代"}}
       }
     },
     "mobile.iroh.diagnostics.failure.cancelled" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Cancelled" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "キャンセル" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "キャンセル" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "已取消"}}
       }
     },
     "mobile.iroh.diagnostics.failure.unknown" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Unknown" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "不明" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "不明" } },
+        "zh-Hans" : {"stringUnit" : {"state" : "translated", "value" : "未知"}}
       }
     }
   },

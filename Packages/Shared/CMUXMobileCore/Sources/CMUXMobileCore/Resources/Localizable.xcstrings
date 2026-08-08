@@ -15,6 +15,12 @@
             "state": "translated",
             "value": "いいえ"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "否"
+          }
         }
       }
     },
@@ -31,6 +37,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "はい"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "是"
           }
         }
       }
@@ -49,6 +61,12 @@
             "state": "translated",
             "value": "ローカルアプリ"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地应用"
+          }
         }
       }
     },
@@ -65,6 +83,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "リモートピア"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程对端"
           }
         }
       }
@@ -83,6 +107,12 @@
             "state": "translated",
             "value": "タイムアウト"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "超时"
+          }
         }
       }
     },
@@ -99,6 +129,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "不明な開始元"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发起方未知"
           }
         }
       }
@@ -131,6 +167,18 @@
                 "stringUnit": {
                   "state": "translated",
                   "value": "%lldバイト"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 字节"
                 }
               }
             }
@@ -170,6 +218,18 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 点"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -187,6 +247,12 @@
             "state": "translated",
             "value": "%@秒"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 秒"
+          }
         }
       }
     },
@@ -203,6 +269,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lldミリ秒"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 毫秒"
           }
         }
       }
@@ -239,6 +311,18 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 秒"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -255,6 +339,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "クライアントの受け入れに失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "客户端准入失败"
           }
         }
       }
@@ -273,6 +363,12 @@
             "state": "translated",
             "value": "クライアントを受け入れました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "客户端已准入"
+          }
         }
       }
     },
@@ -289,6 +385,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "アプリのライフサイクルが変更されました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用生命周期变化"
           }
         }
       }
@@ -307,6 +409,12 @@
             "state": "translated",
             "value": "ターミナルのバイト欠落を検出しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检测到终端字节流缺口"
+          }
         }
       }
     },
@@ -323,6 +431,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンポーザーのアクティブ状態が変更されました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入框激活状态变化"
           }
         }
       }
@@ -341,6 +455,12 @@
             "state": "translated",
             "value": "コンポーザーのフォーカスが変更されました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入框焦点变化"
+          }
         }
       }
     },
@@ -357,6 +477,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンポーザーの下書きが変更されました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入框草稿变化"
           }
         }
       }
@@ -375,6 +501,12 @@
             "state": "translated",
             "value": "コンポーザー表示中にキーボードが切り替わりました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入框打开时键盘被切换"
+          }
         }
       }
     },
@@ -391,6 +523,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンポーザーの表示状態が変更されました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入框显示状态变化"
           }
         }
       }
@@ -409,6 +547,12 @@
             "state": "translated",
             "value": "コンポーザーが表示されました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入框已出现"
+          }
         }
       }
     },
@@ -425,6 +569,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンポーザーが閉じられました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入框已消失"
           }
         }
       }
@@ -443,6 +593,12 @@
             "state": "translated",
             "value": "接続試行を開始しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始尝试连接"
+          }
         }
       }
     },
@@ -459,6 +615,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Iroh経路の探索に失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh 路由发现失败"
           }
         }
       }
@@ -477,6 +639,12 @@
             "state": "translated",
             "value": "Iroh経路の探索を開始しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始发现 Iroh 路由"
+          }
         }
       }
     },
@@ -493,6 +661,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Iroh経路を検出しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh 路由发现成功"
           }
         }
       }
@@ -511,6 +685,12 @@
             "state": "translated",
             "value": "Irohエンドポイントが稼働しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh 端点已激活"
+          }
         }
       }
     },
@@ -527,6 +707,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Irohエンドポイントで障害が発生しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh 端点故障"
           }
         }
       }
@@ -545,6 +731,12 @@
             "state": "translated",
             "value": "Irohエンドポイントを起動しています"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh 端点启动中"
+          }
         }
       }
     },
@@ -561,6 +753,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Irohエンドポイントが停止しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh 端点已停止"
           }
         }
       }
@@ -579,6 +777,12 @@
             "state": "translated",
             "value": "未分類のトランスポートエラー"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未分类的传输错误"
+          }
         }
       }
     },
@@ -595,6 +799,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ホストを認証しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机已认证"
           }
         }
       }
@@ -613,6 +823,12 @@
             "state": "translated",
             "value": "ホストの認証に失敗しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机认证失败"
+          }
         }
       }
     },
@@ -629,6 +845,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ターミナル入力の確認応答が遅れました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端输入确认滞后"
           }
         }
       }
@@ -647,6 +869,12 @@
             "state": "translated",
             "value": "無通信のイベントストリームを再購読しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "静默事件流已重新订阅"
+          }
         }
       }
     },
@@ -663,6 +891,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ペアリングに失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对失败"
           }
         }
       }
@@ -681,6 +915,12 @@
             "state": "translated",
             "value": "ペアリングに成功しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对成功"
+          }
         }
       }
     },
@@ -697,6 +937,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "オフラインのためペアリングをスキップしました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "因离线跳过配对"
           }
         }
       }
@@ -715,6 +961,12 @@
             "state": "translated",
             "value": "ネットワーク到達性が変更されました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网络可达性变化"
+          }
         }
       }
     },
@@ -731,6 +983,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続の復旧に失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接恢复失败"
           }
         }
       }
@@ -749,6 +1007,12 @@
             "state": "translated",
             "value": "接続の復旧を開始しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始恢复连接"
+          }
         }
       }
     },
@@ -765,6 +1029,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続が復旧しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接已恢复"
           }
         }
       }
@@ -783,6 +1053,12 @@
             "state": "translated",
             "value": "リレーポリシーの更新に失敗しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中继策略刷新失败"
+          }
         }
       }
     },
@@ -799,6 +1075,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "リレーポリシーの更新を開始しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始刷新中继策略"
           }
         }
       }
@@ -817,6 +1099,12 @@
             "state": "translated",
             "value": "リレーポリシーを更新しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中继策略已刷新"
+          }
         }
       }
     },
@@ -833,6 +1121,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "レンダリンググリッドが遅延しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "渲染网格滞后"
           }
         }
       }
@@ -851,6 +1145,12 @@
             "state": "translated",
             "value": "再試行を予約しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安排重试"
+          }
         }
       }
     },
@@ -867,6 +1167,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "利用可能なトランスポート経路がありません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可用的传输路由"
           }
         }
       }
@@ -885,6 +1191,12 @@
             "state": "translated",
             "value": "RPCセッションに失敗しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RPC 会话失败"
+          }
         }
       }
     },
@@ -901,6 +1213,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "RPCセッションの準備ができました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RPC 会话就绪"
           }
         }
       }
@@ -919,6 +1237,12 @@
             "state": "translated",
             "value": "選択中のネットワーク経路が変更されました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选中的网络路径变化"
+          }
         }
       }
     },
@@ -935,6 +1259,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "トランスポートセッションが閉じました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "传输会话已关闭"
           }
         }
       }
@@ -953,6 +1283,12 @@
             "state": "translated",
             "value": "イベントストリームが終了しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件流已结束"
+          }
         }
       }
     },
@@ -969,6 +1305,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "トランスポート切断の原因を特定しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已确定传输关闭原因"
           }
         }
       }
@@ -987,6 +1329,12 @@
             "state": "translated",
             "value": "トランスポートに接続しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "传输已连接"
+          }
         }
       }
     },
@@ -1003,6 +1351,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "トランスポートへのダイヤルに失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "传输拨号失败"
           }
         }
       }
@@ -1021,6 +1375,12 @@
             "state": "translated",
             "value": "トランスポートへのダイヤルを開始しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始传输拨号"
+          }
         }
       }
     },
@@ -1037,6 +1397,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "トランスポート経路が変更されました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "传输路径变化"
           }
         }
       }
@@ -1055,6 +1421,12 @@
             "state": "translated",
             "value": "トランスポートセッションの状態が変更されました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "传输会话状态变化"
+          }
         }
       }
     },
@@ -1071,6 +1443,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "アカウントが一致しません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "账户不匹配"
           }
         }
       }
@@ -1089,6 +1467,12 @@
             "state": "translated",
             "value": "クライアントの受け入れが拒否されました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "客户端准入被拒绝"
+          }
         }
       }
     },
@@ -1105,6 +1489,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "受け入れリースの有効期限が切れました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "准入租约已过期"
           }
         }
       }
@@ -1123,6 +1513,12 @@
             "state": "translated",
             "value": "受け入れの再検証に失敗しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "准入重新校验失败"
+          }
         }
       }
     },
@@ -1139,6 +1535,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "認可に失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "授权失败"
           }
         }
       }
@@ -1157,6 +1559,12 @@
             "state": "translated",
             "value": "キャンセルされました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已取消"
+          }
         }
       }
     },
@@ -1173,6 +1581,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続が閉じられました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接已关闭"
           }
         }
       }
@@ -1191,6 +1605,12 @@
             "state": "translated",
             "value": "接続が拒否されました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接被拒绝"
+          }
         }
       }
     },
@@ -1207,6 +1627,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "認証情報を利用できません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "凭据不可用"
           }
         }
       }
@@ -1225,6 +1651,12 @@
             "state": "translated",
             "value": "DNS検索に失敗しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 解析失败"
+          }
         }
       }
     },
@@ -1241,6 +1673,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Irohエンドポイントを利用できません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh 端点不可用"
           }
         }
       }
@@ -1259,6 +1697,12 @@
             "state": "translated",
             "value": "ホストに到達できません"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机不可达"
+          }
         }
       }
     },
@@ -1275,6 +1719,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ホストIDが一致しません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机身份不匹配"
           }
         }
       }
@@ -1293,6 +1743,12 @@
             "state": "translated",
             "value": "利用可能な経路がありません"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可用路由"
+          }
         }
       }
     },
@@ -1309,6 +1765,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "エラーなし"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无故障"
           }
         }
       }
@@ -1327,6 +1789,12 @@
             "state": "translated",
             "value": "オフライン"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线"
+          }
         }
       }
     },
@@ -1343,6 +1811,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "権限がありません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "权限被拒绝"
           }
         }
       }
@@ -1361,6 +1835,12 @@
             "state": "translated",
             "value": "リレーポリシーを利用できません"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中继策略不可用"
+          }
         }
       }
     },
@@ -1377,6 +1857,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "プロトコル違反"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "协议违规"
           }
         }
       }
@@ -1395,6 +1881,12 @@
             "state": "translated",
             "value": "経路はすでに接続中です"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "路由已在连接中"
+          }
         }
       }
     },
@@ -1411,6 +1903,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "セキュアチャネルの確立に失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全通道建立失败"
           }
         }
       }
@@ -1429,6 +1927,12 @@
             "state": "translated",
             "value": "送信キューがあふれました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送队列溢出"
+          }
         }
       }
     },
@@ -1445,6 +1949,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "新しい試行に置き換えられました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已被新的尝试取代"
           }
         }
       }
@@ -1463,6 +1973,12 @@
             "state": "translated",
             "value": "タイムアウト"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "超时"
+          }
         }
       }
     },
@@ -1479,6 +1995,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "トランスポートのアイドルタイムアウト"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "传输空闲超时"
           }
         }
       }
@@ -1497,6 +2019,12 @@
             "state": "translated",
             "value": "不明なエラー"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知故障"
+          }
         }
       }
     },
@@ -1513,6 +2041,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "サポートされていない経路"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不支持的路由"
           }
         }
       }
@@ -1531,6 +2065,12 @@
             "state": "translated",
             "value": "アプリケーションエラーコード"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用错误码"
+          }
         }
       }
     },
@@ -1547,6 +2087,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "試行"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尝试次数"
           }
         }
       }
@@ -1565,6 +2111,12 @@
             "state": "translated",
             "value": "コンポーザー稼働中"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入框活跃"
+          }
         }
       }
     },
@@ -1581,6 +2133,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンポーザー表示中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入框可见"
           }
         }
       }
@@ -1599,6 +2157,12 @@
             "state": "translated",
             "value": "配信済みシーケンス"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已送达序号"
+          }
         }
       }
     },
@@ -1615,6 +2179,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "詳細1"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "详情 1"
           }
         }
       }
@@ -1633,6 +2203,12 @@
             "state": "translated",
             "value": "詳細2"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "详情 2"
+          }
         }
       }
     },
@@ -1649,6 +2225,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "詳細3"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "详情 3"
           }
         }
       }
@@ -1667,6 +2249,12 @@
             "state": "translated",
             "value": "下書きは空"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "草稿为空"
+          }
         }
       }
     },
@@ -1683,6 +2271,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "下書きサイズ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "草稿大小"
           }
         }
       }
@@ -1701,6 +2295,12 @@
             "state": "translated",
             "value": "期間"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "时长"
+          }
         }
       }
     },
@@ -1717,6 +2317,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "エラー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "故障"
           }
         }
       }
@@ -1735,6 +2341,12 @@
             "state": "translated",
             "value": "ファーストレスポンダ"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第一响应者"
+          }
         }
       }
     },
@@ -1751,6 +2363,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "フォーカス中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已聚焦"
           }
         }
       }
@@ -1769,6 +2387,12 @@
             "state": "translated",
             "value": "開始元"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发起方"
+          }
         }
       }
     },
@@ -1785,6 +2409,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "キーボードの高さ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "键盘高度"
           }
         }
       }
@@ -1803,6 +2433,12 @@
             "state": "translated",
             "value": "遅延"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "延迟"
+          }
         }
       }
     },
@@ -1819,6 +2455,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ローカルシーケンス"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地序号"
           }
         }
       }
@@ -1837,6 +2479,12 @@
             "state": "translated",
             "value": "ネットワーク"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网络"
+          }
         }
       }
     },
@@ -1854,6 +2502,12 @@
             "state": "translated",
             "value": "次のシーケンス"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下一序号"
+          }
         }
       }
     },
@@ -1867,6 +2521,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "操作"
@@ -1888,6 +2548,12 @@
             "state": "translated",
             "value": "経路"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "路径"
+          }
         }
       }
     },
@@ -1905,6 +2571,12 @@
             "state": "translated",
             "value": "フェーズ"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "阶段"
+          }
         }
       }
     },
@@ -1918,6 +2590,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用途"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "用途"
@@ -1939,6 +2617,12 @@
             "state": "translated",
             "value": "リモートシーケンス"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程序号"
+          }
         }
       }
     },
@@ -1955,6 +2639,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "再試行まで"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试延迟"
           }
         }
       }
@@ -1973,6 +2663,12 @@
             "state": "translated",
             "value": "セッション"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话"
+          }
         }
       }
     },
@@ -1989,6 +2685,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "無通信時間"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "静默时长"
           }
         }
       }
@@ -2007,6 +2709,12 @@
             "state": "translated",
             "value": "状態"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状态"
+          }
         }
       }
     },
@@ -2023,6 +2731,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "サーフェス"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "界面"
           }
         }
       }
@@ -2041,6 +2755,12 @@
             "state": "translated",
             "value": "ターミナル入力にフォーカス"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端输入已聚焦"
+          }
         }
       }
     },
@@ -2058,6 +2778,12 @@
             "state": "translated",
             "value": "トランスポート"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "传输"
+          }
         }
       }
     },
@@ -2074,6 +2800,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "トリガー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "触发原因"
           }
         }
       }
@@ -2110,6 +2842,18 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "连续 %lld 次失败"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -2123,6 +2867,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@（%2$@）"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "%1$@（%2$@）"
@@ -2162,6 +2912,18 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "出现 %lld 次"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -2178,6 +2940,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "トランスポート障害: %1$@が%2$@にわたって発生しました。最新: %3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "传输中断：%2$@ 内 %1$@。最近一次：%3$@"
           }
         }
       }
@@ -2196,6 +2964,12 @@
             "state": "translated",
             "value": "直接"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直连"
+          }
         }
       }
     },
@@ -2212,6 +2986,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ループバック"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回环"
           }
         }
       }
@@ -2230,6 +3010,12 @@
             "state": "translated",
             "value": "プライベートネットワーク"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "私有网络"
+          }
         }
       }
     },
@@ -2246,6 +3032,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "リレー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中继"
           }
         }
       }
@@ -2264,6 +3056,12 @@
             "state": "translated",
             "value": "不明な経路"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知路径"
+          }
         }
       }
     },
@@ -2280,6 +3078,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "終了"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已关闭"
           }
         }
       }
@@ -2298,6 +3102,12 @@
             "state": "translated",
             "value": "遅延"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已延迟"
+          }
         }
       }
     },
@@ -2314,6 +3124,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "開始"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已打开"
           }
         }
       }
@@ -2332,6 +3148,12 @@
             "state": "translated",
             "value": "選択"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已选中"
+          }
         }
       }
     },
@@ -2348,6 +3170,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "アクティブ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "活跃"
           }
         }
       }
@@ -2366,6 +3194,12 @@
             "state": "translated",
             "value": "バックグラウンド"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "后台"
+          }
         }
       }
     },
@@ -2382,6 +3216,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "非アクティブ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非活跃"
           }
         }
       }
@@ -2400,6 +3240,12 @@
             "state": "translated",
             "value": "バックグラウンド制御"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "后台控制"
+          }
         }
       }
     },
@@ -2416,6 +3262,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "機能レーン"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "功能通道"
           }
         }
       }
@@ -2434,6 +3286,12 @@
             "state": "translated",
             "value": "フォアグラウンド制御"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前台控制"
+          }
         }
       }
     },
@@ -2450,6 +3308,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続プローブ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接探测"
           }
         }
       }
@@ -2468,6 +3332,12 @@
             "state": "translated",
             "value": "オフライン"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线"
+          }
         }
       }
     },
@@ -2484,6 +3354,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "オンライン"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在线"
           }
         }
       }
@@ -2502,6 +3378,12 @@
             "state": "translated",
             "value": "アプリがフォアグラウンドに戻りました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用回到前台"
+          }
         }
       }
     },
@@ -2518,6 +3400,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "稼働確認に失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "存活检测失败"
           }
         }
       }
@@ -2536,6 +3424,12 @@
             "state": "translated",
             "value": "手動再試行"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动重试"
+          }
         }
       }
     },
@@ -2552,6 +3446,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ネットワークが変更されました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网络已变化"
           }
         }
       }
@@ -2570,6 +3470,12 @@
             "state": "translated",
             "value": "プレゼンス通知"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在线状态通知"
+          }
         }
       }
     },
@@ -2586,6 +3492,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "自動再試行の待機時間が終了しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动重试等待结束"
           }
         }
       }
@@ -2604,6 +3516,12 @@
             "state": "translated",
             "value": "イベントストリームが終了しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件流已结束"
+          }
         }
       }
     },
@@ -2620,6 +3538,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "購読を開始できませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "订阅启动失败"
           }
         }
       }
@@ -2638,6 +3562,12 @@
             "state": "translated",
             "value": "トランスポートへの書き込みがタイムアウトしました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "传输写入超时"
+          }
         }
       }
     },
@@ -2654,6 +3584,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ビルド: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "构建：%@"
           }
         }
       }
@@ -2672,6 +3608,12 @@
             "state": "translated",
             "value": "記録されたイベントはありません。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未记录任何事件。"
+          }
         }
       }
     },
@@ -2688,6 +3630,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "イベント数: %lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件数：%lld"
           }
         }
       }
@@ -2706,6 +3654,12 @@
             "state": "translated",
             "value": "レポート形式: %lld"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "报告格式：%lld"
+          }
         }
       }
     },
@@ -2723,6 +3677,12 @@
             "state": "translated",
             "value": "生成日時: %@"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生成时间：%@"
+          }
         }
       }
     },
@@ -2736,6 +3696,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "秒"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "秒"
@@ -2757,6 +3723,12 @@
             "state": "translated",
             "value": "生成元: %@"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来源：%@"
+          }
         }
       }
     },
@@ -2773,6 +3745,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "タイムライン（古い順）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "时间线（从旧到新）"
           }
         }
       }
@@ -2791,6 +3769,12 @@
             "state": "translated",
             "value": "cmux Irohとトランスポートのレポート"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Iroh 与传输报告"
+          }
         }
       }
     },
@@ -2807,6 +3791,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "なし"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无"
           }
         }
       }
@@ -2825,6 +3815,12 @@
             "state": "translated",
             "value": "その他のレスポンダ"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他响应者"
+          }
         }
       }
     },
@@ -2841,6 +3837,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ターミナル入力"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端输入"
           }
         }
       }
@@ -2859,6 +3861,12 @@
             "state": "translated",
             "value": "ターミナルサーフェス"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端界面"
+          }
         }
       }
     },
@@ -2875,6 +3883,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "テキストフィールド"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文本框"
           }
         }
       }
@@ -2893,6 +3907,12 @@
             "state": "translated",
             "value": "テキストビュー"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文本视图"
+          }
         }
       }
     },
@@ -2909,6 +3929,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ブローカー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中介服务"
           }
         }
       }
@@ -2927,6 +3953,12 @@
             "state": "translated",
             "value": "Macホスト"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 主机"
+          }
         }
       }
     },
@@ -2943,6 +3975,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "iOSクライアント"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS 客户端"
           }
         }
       }
@@ -2961,6 +3999,12 @@
             "state": "translated",
             "value": "リレー"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中继"
+          }
         }
       }
     },
@@ -2977,6 +4021,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "未指定のランタイム"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未指定的运行时"
           }
         }
       }
@@ -2995,6 +4045,12 @@
             "state": "translated",
             "value": "すべての経路が閉じました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有路径已关闭"
+          }
         }
       }
     },
@@ -3011,6 +4067,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "アプリケーションレーンに失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用通道失败"
           }
         }
       }
@@ -3029,6 +4091,12 @@
             "state": "translated",
             "value": "終了済みセッションを破棄しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已关闭会话被清除"
+          }
         }
       }
     },
@@ -3045,6 +4113,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "制御所有者が解放されました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "控制权已释放"
           }
         }
       }
@@ -3063,6 +4137,12 @@
             "state": "translated",
             "value": "制御データの読み取りに失敗しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "控制读取失败"
+          }
         }
       }
     },
@@ -3079,6 +4159,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "制御データの書き込みに失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "控制写入失败"
           }
         }
       }
@@ -3097,6 +4183,12 @@
             "state": "translated",
             "value": "確立済み"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已建立"
+          }
         }
       }
     },
@@ -3113,6 +4205,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "明示的に無効化されました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已显式失效"
           }
         }
       }
@@ -3131,6 +4229,12 @@
             "state": "translated",
             "value": "リモート側が閉じました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程已关闭"
+          }
         }
       }
     },
@@ -3147,6 +4251,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ランタイムが無効化されました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行时已停用"
           }
         }
       }
@@ -3165,6 +4275,12 @@
             "state": "translated",
             "value": "ランタイムが再構成されました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行时已重新配置"
+          }
         }
       }
     },
@@ -3178,6 +4294,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@（%2$@）"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "%1$@（%2$@）"
@@ -3199,6 +4321,12 @@
             "state": "translated",
             "value": "%1$@: %2$@"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
+          }
         }
       }
     },
@@ -3212,6 +4340,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "、"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "、"
@@ -3233,6 +4367,12 @@
             "state": "translated",
             "value": "デバッグループバック"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "调试回环"
+          }
         }
       }
     },
@@ -3246,6 +4386,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "Iroh"
@@ -3267,6 +4413,12 @@
             "state": "translated",
             "value": "Tailscale"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
         }
       }
     },
@@ -3284,6 +4436,12 @@
             "state": "translated",
             "value": "不明なトランスポート"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知传输方式"
+          }
         }
       }
     },
@@ -3297,6 +4455,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebSocket"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "WebSocket"
@@ -3318,6 +4482,12 @@
             "state": "translated",
             "value": "不明なアプリフェーズ（%lld）"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知应用阶段（%lld）"
+          }
         }
       }
     },
@@ -3334,6 +4504,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "不明な切断開始元（%lld）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知关闭发起方（%lld）"
           }
         }
       }
@@ -3352,6 +4528,12 @@
             "state": "translated",
             "value": "不明なエラー（%lld）"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知故障（%lld）"
+          }
         }
       }
     },
@@ -3368,6 +4550,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "不明なネットワーク状態（%lld）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知网络状态（%lld）"
           }
         }
       }
@@ -3386,6 +4574,12 @@
             "state": "translated",
             "value": "不明な経路（%lld）"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知路径（%lld）"
+          }
         }
       }
     },
@@ -3402,6 +4596,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "不明な経路操作（%lld）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知路径操作（%lld）"
           }
         }
       }
@@ -3420,6 +4620,12 @@
             "state": "translated",
             "value": "不明な復旧トリガー（%lld）"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知恢复触发原因（%lld）"
+          }
         }
       }
     },
@@ -3436,6 +4642,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "不明なレスポンダ（%lld）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知响应者（%lld）"
           }
         }
       }
@@ -3454,6 +4666,12 @@
             "state": "translated",
             "value": "不明なセッション用途（%lld）"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知会话用途（%lld）"
+          }
         }
       }
     },
@@ -3470,6 +4688,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "不明なセッション状態（%lld）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知会话状态（%lld）"
           }
         }
       }
@@ -3488,6 +4712,12 @@
             "state": "translated",
             "value": "不明な状態（%lld）"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知状态（%lld）"
+          }
         }
       }
     },
@@ -3504,6 +4734,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "不明なトランスポート（%lld）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知传输方式（%lld）"
           }
         }
       }
