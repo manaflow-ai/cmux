@@ -2585,34 +2585,34 @@ fn reset_stat_metadata_fingerprint(stat: &libc::stat) -> String {
 
 #[cfg(all(unix, not(any(target_vendor = "apple", target_os = "aix", target_os = "hurd"))))]
 fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
-    stat.st_mtime
+    widen_reset_stat_i64(stat.st_mtime)
 }
 
 #[cfg(any(target_os = "aix", target_os = "hurd"))]
 fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
-    stat.st_mtim.tv_sec
+    widen_reset_stat_i64(stat.st_mtim.tv_sec)
 }
 
 #[cfg(all(unix, target_vendor = "apple"))]
 fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
     // Rust libc exposes Darwin's st_mtimespec through these stable aliases.
-    stat.st_mtime
+    widen_reset_stat_i64(stat.st_mtime)
 }
 
 #[cfg(all(unix, not(any(target_vendor = "apple", target_os = "aix", target_os = "hurd"))))]
 fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
-    stat.st_mtime_nsec
+    widen_reset_stat_i64(stat.st_mtime_nsec)
 }
 
 #[cfg(any(target_os = "aix", target_os = "hurd"))]
 fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
-    stat.st_mtim.tv_nsec
+    widen_reset_stat_i64(stat.st_mtim.tv_nsec)
 }
 
 #[cfg(all(unix, target_vendor = "apple"))]
 fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
     // Rust libc exposes Darwin's st_mtimespec through these stable aliases.
-    stat.st_mtime_nsec
+    widen_reset_stat_i64(stat.st_mtime_nsec)
 }
 
 #[cfg(unix)]
@@ -2629,7 +2629,17 @@ fn reset_stat_device(stat: &libc::stat) -> u64 {
 
 #[cfg(unix)]
 fn reset_stat_inode(stat: &libc::stat) -> u64 {
-    stat.st_ino
+    widen_reset_stat_u64(stat.st_ino)
+}
+
+#[cfg(unix)]
+fn widen_reset_stat_i64<T: Into<i64>>(value: T) -> i64 {
+    value.into()
+}
+
+#[cfg(unix)]
+fn widen_reset_stat_u64<T: Into<u64>>(value: T) -> u64 {
+    value.into()
 }
 
 #[cfg(not(unix))]
