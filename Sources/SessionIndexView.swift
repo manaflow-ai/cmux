@@ -2434,7 +2434,7 @@ private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Da
 /// and SwiftUI's NSItemProvider bridge doesn't always surface custom
 /// UTTypes there reliably.
 @MainActor
-private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider {
+func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider {
     let dragId = SessionDragRegistry.shared.register(entry)
     let provider = NSItemProvider()
 
