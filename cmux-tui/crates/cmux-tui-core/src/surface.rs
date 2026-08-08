@@ -2260,104 +2260,110 @@ impl Surface {
         spawn_frame_producer(&surface, frame_rx)?;
 
         // PTY reader: pty bytes -> terminal state -> SurfaceOutput events.
-        let reader_thread = std::thread::Builder::new().name(format!("surface-{id}-reader")).spawn({
-            let surface = surface.clone();
-            move || {
-                let mut buf = [0u8; 64 * 1024];
-                loop {
-                    let n = match reader.read(&mut buf) {
-                        Ok(0) => break,
-                        Ok(n) => n,
-                        Err(error)
-                            if matches!(
-                                error.kind(),
-                                std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
-                            ) =>
-                        {
-                            std::thread::sleep(Duration::from_millis(1));
-                            continue;
-                        }
-                        Err(_) => break,
-                    };
-                    let pty = surface.as_pty().expect("surface reader got non-pty surface");
-                    let journal_target = pty.journal_target();
-                    let journal_update =
-                        journal_target.as_ref().and_then(|_| pty.begin_terminal_journal_update());
-                    let journal_enabled = journal_update.is_some();
-                    let mut scroll_changed = None;
-                    let generation = {
-                        let mut term = pty.term.lock().unwrap();
-                        let before = terminal_scroll_position(&term);
-                        let color_revision = term.color_revision();
-                        let color_reapply_revision = term.color_reapply_revision();
-                        let cursor_activity = term
-                            .cursor_activity()
-                            .expect("valid local terminals expose cursor activity");
-                        let normalized = term.vt_write_with_normalized(&buf[..n]);
-                        let cursor_changed = term
-                            .cursor_activity()
-                            .expect("valid local terminals expose cursor activity")
-                            != cursor_activity;
-                        pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
-                        let after = terminal_scroll_position(&term);
-                        let has_attach_taps = pty.broadcast_attach_output(normalized.as_ref());
-                        if has_attach_taps
-                            && (term.color_revision() != color_revision || cursor_changed)
-                        {
-                            pty.attach_colors_pending.store(true, Ordering::Release);
-                            if term.color_reapply_revision() != color_reapply_revision
-                                || cursor_changed
+        let reader_thread =
+            std::thread::Builder::new().name(format!("surface-{id}-reader")).spawn({
+                let surface = surface.clone();
+                move || {
+                    let mut buf = [0u8; 64 * 1024];
+                    loop {
+                        let n = match reader.read(&mut buf) {
+                            Ok(0) => break,
+                            Ok(n) => n,
+                            Err(error)
+                                if matches!(
+                                    error.kind(),
+                                    std::io::ErrorKind::Interrupted
+                                        | std::io::ErrorKind::WouldBlock
+                                ) =>
                             {
-                                pty.attach_colors_force_pending.store(true, Ordering::Release);
+                                std::thread::sleep(Duration::from_millis(1));
+                                continue;
                             }
-                        }
-                        if title_changed.swap(false, Ordering::Relaxed) {
-                            let title = term.title().unwrap_or_default();
-                            *pty.title.lock().unwrap() = title.clone();
-                            if let Some(mux) = mux.upgrade() {
-                                mux.emit_terminal_title(surface.id, title.into());
+                            Err(_) => break,
+                        };
+                        let pty = surface.as_pty().expect("surface reader got non-pty surface");
+                        let journal_target = pty.journal_target();
+                        let journal_update = journal_target
+                            .as_ref()
+                            .and_then(|_| pty.begin_terminal_journal_update());
+                        let journal_enabled = journal_update.is_some();
+                        let mut scroll_changed = None;
+                        let generation = {
+                            let mut term = pty.term.lock().unwrap();
+                            let before = terminal_scroll_position(&term);
+                            let color_revision = term.color_revision();
+                            let color_reapply_revision = term.color_reapply_revision();
+                            let cursor_activity = term
+                                .cursor_activity()
+                                .expect("valid local terminals expose cursor activity");
+                            let normalized = term.vt_write_with_normalized(&buf[..n]);
+                            let cursor_changed = term
+                                .cursor_activity()
+                                .expect("valid local terminals expose cursor activity")
+                                != cursor_activity;
+                            pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+                            let after = terminal_scroll_position(&term);
+                            let has_attach_taps = pty.broadcast_attach_output(normalized.as_ref());
+                            if has_attach_taps
+                                && (term.color_revision() != color_revision || cursor_changed)
+                            {
+                                pty.attach_colors_pending.store(true, Ordering::Release);
+                                if term.color_reapply_revision() != color_reapply_revision
+                                    || cursor_changed
+                                {
+                                    pty.attach_colors_force_pending.store(true, Ordering::Release);
+                                }
                             }
+                            if title_changed.swap(false, Ordering::Relaxed) {
+                                let title = term.title().unwrap_or_default();
+                                *pty.title.lock().unwrap() = title.clone();
+                                if let Some(mux) = mux.upgrade() {
+                                    mux.emit_terminal_title(surface.id, title.into());
+                                }
+                            }
+                            if let Some(pwd) = term.pwd() {
+                                *pty.pwd.lock().unwrap() = Some(pwd);
+                            }
+                            if before != after {
+                                scroll_changed = Some(after);
+                                broadcast_render_scroll_locked(pty, after);
+                            }
+                            // Keep the terminal lock scoped to parser and observer work. A
+                            // borrowed normalized frame still points into `buf`, which lives
+                            // for the reader loop, so any journal allocation can happen after
+                            // releasing the lock.
+                            let journal_output = journal_enabled.then_some(normalized);
+                            (
+                                pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1,
+                                journal_output,
+                            )
+                        };
+                        let (generation, journal_output) = generation;
+                        if let (Some(journal_target), Some(journal_output)) =
+                            (journal_target, journal_output)
+                        {
+                            pty.journal_output_if_open(journal_target, journal_output.into_owned());
                         }
-                        if let Some(pwd) = term.pwd() {
-                            *pty.pwd.lock().unwrap() = Some(pwd);
+                        drop(journal_update);
+                        pty.stream_progress.notify();
+                        pty.request_frame(generation);
+                        if let Some((offset, at_bottom)) = scroll_changed
+                            && let Some(mux) = mux.upgrade()
+                        {
+                            mux.emit_terminal_scroll(surface.id, offset, at_bottom);
                         }
-                        if before != after {
-                            scroll_changed = Some(after);
-                            broadcast_render_scroll_locked(pty, after);
+                        let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
+                        if !responses.is_empty() {
+                            let _ = surface.write_bytes(&responses);
                         }
-                        // Keep the terminal lock scoped to parser and observer work. A
-                        // borrowed normalized frame still points into `buf`, which lives
-                        // for the reader loop, so any journal allocation can happen after
-                        // releasing the lock.
-                        let journal_output = journal_enabled.then_some(normalized);
-                        (pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1, journal_output)
-                    };
-                    let (generation, journal_output) = generation;
-                    if let (Some(journal_target), Some(journal_output)) =
-                        (journal_target, journal_output)
-                    {
-                        pty.journal_output_if_open(journal_target, journal_output.into_owned());
                     }
-                    drop(journal_update);
-                    pty.stream_progress.notify();
-                    pty.request_frame(generation);
-                    if let Some((offset, at_bottom)) = scroll_changed
-                        && let Some(mux) = mux.upgrade()
-                    {
-                        mux.emit_terminal_scroll(surface.id, offset, at_bottom);
+                    if let Some(pty) = surface.as_pty() {
+                        pty.publish_final_frame();
+                        pty.local_pty_drained.store(true, Ordering::Release);
                     }
-                    let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
-                    if !responses.is_empty() {
-                        let _ = surface.write_bytes(&responses);
-                    }
+                    publish_local_exit_if_ready(&surface);
                 }
-                if let Some(pty) = surface.as_pty() {
-                    pty.publish_final_frame();
-                    pty.local_pty_drained.store(true, Ordering::Release);
-                }
-                publish_local_exit_if_ready(&surface);
-            }
-        })?;
+            })?;
         *surface
             .as_pty()
             .expect("local PTY surface owns its reader")
@@ -3913,10 +3919,7 @@ impl Surface {
     }
 
     #[cfg(test)]
-    pub(crate) fn install_terminal_reader_for_test(
-        &self,
-        reader: std::thread::JoinHandle<()>,
-    ) {
+    pub(crate) fn install_terminal_reader_for_test(&self, reader: std::thread::JoinHandle<()>) {
         let pty = self.as_pty().expect("test reader requires a PTY surface");
         let previous = pty.reader_thread.lock().unwrap().replace(reader);
         assert!(previous.is_none(), "test PTY already owns a reader thread");

@@ -762,10 +762,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     }
     #[cfg(not(unix))]
     if out.agent_browser_provider {
-        return Err(format!(
-            "--agent-browser-provider is unsupported on {}",
-            std::env::consts::OS
-        ));
+        return Err(format!("--agent-browser-provider is unsupported on {}", std::env::consts::OS));
     }
     Ok(out)
 }
@@ -2139,10 +2136,7 @@ mod tests {
         let socket_path = std::env::temp_dir().join(format!(
             "cmux-remote-shutdown-{}-{}.sock",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         std::fs::write(&socket_path, b"test socket marker").unwrap();
         let mux = Mux::new("remote-shutdown-failure", SurfaceOptions::default());
@@ -2174,10 +2168,9 @@ mod tests {
     #[cfg(not(unix))]
     #[test]
     fn browser_owned_server_rejects_the_private_provider_flag() {
-        let error = parse_args_result(
-            ["--headless", "--agent-browser-provider"].map(str::to_string),
-        )
-        .unwrap_err();
+        let error =
+            parse_args_result(["--headless", "--agent-browser-provider"].map(str::to_string))
+                .unwrap_err();
         assert!(error.contains("unsupported"));
     }
 

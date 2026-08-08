@@ -1031,6 +1031,7 @@ TerminalSnapshot parse_terminal(const Json& value) {
     return {
         id_value<TerminalId>(
             field(object, "id", "terminal"), "terminal id"),
+        legacy_tab_id,
         std::move(tab_ids),
         string_value(
             field(object, "title", "terminal"), "terminal title"),

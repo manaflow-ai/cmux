@@ -435,10 +435,7 @@ fn compile_journal_producer(
 ) -> anyhow::Result<CompiledJournalProducer> {
     anyhow::ensure!(
         manifest.max_sensitivity != JournalSensitivity::Secret
-            && manifest
-                .events
-                .iter()
-                .all(|event| event.sensitivity != JournalSensitivity::Secret),
+            && manifest.events.iter().all(|event| event.sensitivity != JournalSensitivity::Secret),
         "secret journal payload storage is unavailable until encrypted retention is implemented"
     );
     let events = manifest
@@ -558,8 +555,7 @@ fn push_bounded_journal_document(
 mod performance_tests {
     use super::*;
     use crate::{
-        JournalAuthority, JournalEventSchema, JournalProducer, JournalSubject,
-        SessionJournalRecord,
+        JournalAuthority, JournalEventSchema, JournalProducer, JournalSubject, SessionJournalRecord,
     };
     use std::time::Instant;
 
