@@ -402,6 +402,70 @@ fn reset_child_directory_open_rejects_mount_boundary() {
     );
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn reset_child_directory_open_rejects_macos_data_mount_boundary() {
+    use std::ffi::OsStr;
+    use std::os::fd::AsRawFd;
+
+    let parent = File::open("/System/Volumes").unwrap();
+    let error = open_reset_child_dir(
+        parent.as_raw_fd(),
+        OsStr::new("Data"),
+        Path::new("/System/Volumes/Data"),
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("crosses filesystem boundary"), "{error:#}");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn reset_child_directory_fallback_handles_unavailable_openat2() {
+    use std::ffi::CString;
+    use std::os::fd::AsRawFd;
+
+    let root = temp_root("reset-openat2-fallback");
+    let child = root.join("child");
+    fs::create_dir_all(&child).unwrap();
+    let root_directory = File::open(&root).unwrap();
+    let name = CString::new("child").unwrap();
+    for error_code in [libc::ENOSYS, libc::EPERM] {
+        let directory = open_reset_child_dir_after_openat2_error(
+            root_directory.as_raw_fd(),
+            name.as_c_str(),
+            &child,
+            std::io::Error::from_raw_os_error(error_code),
+        )
+        .unwrap();
+        assert!(directory.metadata().unwrap().is_dir());
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn reset_child_directory_fallback_rejects_mount_boundary() {
+    use std::ffi::CString;
+    use std::os::fd::AsRawFd;
+
+    let root = File::open("/").unwrap();
+    let name = CString::new("proc").unwrap();
+    let error = open_reset_child_dir_after_openat2_error(
+        root.as_raw_fd(),
+        name.as_c_str(),
+        Path::new("/proc"),
+        std::io::Error::from_raw_os_error(libc::ENOSYS),
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error.downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error),
+        Some(libc::EXDEV),
+        "{error:#}"
+    );
+}
+
 #[test]
 fn unsupported_checked_reset_deletion_does_not_mutate_tree() {
     let root = temp_root("reset-unsupported-platform-delete");

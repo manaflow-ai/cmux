@@ -2427,8 +2427,82 @@ fn open_reset_child_dir(
         if error.kind() == std::io::ErrorKind::Interrupted {
             continue;
         }
-        return Err(error).with_context(|| format!("open reset dir {}", display_path.display()));
+        return open_reset_child_dir_after_openat2_error(parent_fd, name.as_c_str(), display_path, error);
     }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn open_reset_child_dir_after_openat2_error(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::CStr,
+    display_path: &Path,
+    error: std::io::Error,
+) -> anyhow::Result<File> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let Some(error_code) = error.raw_os_error() else {
+        return Err(error)
+            .with_context(|| format!("open reset dir {}", display_path.display()));
+    };
+    if !matches!(error_code, libc::ENOSYS | libc::EPERM | libc::EACCES | libc::EINVAL) {
+        return Err(error)
+            .with_context(|| format!("open reset dir {}", display_path.display()));
+    }
+    loop {
+        // SAFETY: openat reads a nul-terminated child name relative to a valid parent descriptor.
+        let descriptor = unsafe {
+            libc::openat(
+                parent_fd,
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW,
+            )
+        };
+        if descriptor >= 0 {
+            // SAFETY: openat returned a new descriptor that this File owns.
+            let directory = unsafe { File::from_raw_fd(descriptor) };
+            let parent_mount = reset_descriptor_mount_id(parent_fd, display_path)?;
+            let child_mount = reset_descriptor_mount_id(directory.as_raw_fd(), display_path)?;
+            if parent_mount != child_mount {
+                return Err(std::io::Error::from_raw_os_error(libc::EXDEV))
+                    .with_context(|| format!("open reset dir {}", display_path.display()));
+            }
+            return Ok(directory);
+        }
+        let fallback_error = std::io::Error::last_os_error();
+        if fallback_error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(fallback_error)
+            .with_context(|| format!("open reset dir {}", display_path.display()));
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn reset_descriptor_mount_id(
+    descriptor: std::os::fd::RawFd,
+    display_path: &Path,
+) -> anyhow::Result<u64> {
+    const MAX_RESET_FDINFO_BYTES: u64 = 4096;
+
+    let fdinfo_path = format!("/proc/self/fdinfo/{descriptor}");
+    let mut file = File::open(&fdinfo_path)
+        .with_context(|| format!("inspect reset mount for {}", display_path.display()))?;
+    let mut fdinfo = String::new();
+    (&mut file)
+        .take(MAX_RESET_FDINFO_BYTES + 1)
+        .read_to_string(&mut fdinfo)
+        .with_context(|| format!("read reset mount for {}", display_path.display()))?;
+    if fdinfo.len() as u64 > MAX_RESET_FDINFO_BYTES {
+        anyhow::bail!("reset mount metadata is too large: {fdinfo_path}");
+    }
+    let value = fdinfo
+        .lines()
+        .find_map(|line| line.strip_prefix("mnt_id:"))
+        .ok_or_else(|| anyhow::anyhow!("reset mount id is unavailable: {fdinfo_path}"))?;
+    value
+        .trim()
+        .parse::<u64>()
+        .with_context(|| format!("parse reset mount id for {}", display_path.display()))
 }
 
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
@@ -2451,7 +2525,23 @@ fn open_reset_child_dir(
         };
         if fd >= 0 {
             // SAFETY: openat returned a new owned file descriptor.
-            return Ok(unsafe { File::from_raw_fd(fd) });
+            let directory = unsafe { File::from_raw_fd(fd) };
+            let mut parent_stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+            // SAFETY: fstat writes one stat value for this valid parent descriptor.
+            if unsafe { libc::fstat(parent_fd, parent_stat.as_mut_ptr()) } != 0 {
+                return Err(std::io::Error::last_os_error()).with_context(|| {
+                    format!("inspect reset dir parent for {}", display_path.display())
+                });
+            }
+            // SAFETY: fstat initialized parent_stat on success.
+            let parent_stat = unsafe { parent_stat.assume_init() };
+            let child_metadata = directory.metadata()?;
+            ensure_reset_device_boundary(
+                display_path,
+                Some(reset_stat_device(&parent_stat)),
+                reset_metadata_device(&child_metadata),
+            )?;
+            return Ok(directory);
         }
         let error = std::io::Error::last_os_error();
         if error.kind() == std::io::ErrorKind::Interrupted {
@@ -2743,40 +2833,17 @@ fn unsupported_checked_reset_deletion(path: &Path, label: &str) -> anyhow::Resul
 /// Return whether this process can enforce descriptor-relative reset deletion boundaries.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 pub fn checked_reset_deletion_supported() -> bool {
-    const RESOLVE_NO_XDEV: u64 = 0x01;
-    const RESOLVE_NO_SYMLINKS: u64 = 0x04;
-    const RESOLVE_BENEATH: u64 = 0x08;
+    use std::ffi::OsStr;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::OpenOptionsExt;
 
-    let path = std::ffi::CString::new(".").expect("reset capability path has no nul byte");
-    let how = ResetOpenHow {
-        flags: (libc::O_RDONLY | libc::O_CLOEXEC | libc::O_DIRECTORY) as u64,
-        mode: 0,
-        resolve: RESOLVE_NO_XDEV | RESOLVE_NO_SYMLINKS | RESOLVE_BENEATH,
-    };
-    loop {
-        // SAFETY: openat2 reads a static relative path and immutable open_how value.
-        let descriptor = unsafe {
-            libc::syscall(
-                libc::SYS_openat2,
-                libc::AT_FDCWD,
-                path.as_ptr(),
-                &how as *const ResetOpenHow,
-                std::mem::size_of::<ResetOpenHow>(),
-            )
-        };
-        if descriptor >= 0 {
-            // SAFETY: close releases the descriptor returned by openat2.
-            unsafe {
-                libc::close(descriptor as libc::c_int);
-            }
-            return true;
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() == std::io::ErrorKind::Interrupted {
-            continue;
-        }
-        return false;
-    }
+    let parent = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(".");
+    parent.is_ok_and(|parent| {
+        open_reset_child_dir(parent.as_raw_fd(), OsStr::new("."), Path::new(".")).is_ok()
+    })
 }
 
 /// Return whether this process can enforce descriptor-relative reset deletion boundaries.
