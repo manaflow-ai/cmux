@@ -36,12 +36,14 @@ final class FrontendModel {
     @ObservationIgnored private var connectTask: Task<Void, Never>?
     @ObservationIgnored private var refreshRequested = false
     @ObservationIgnored private var terminalControllers: [String: NativeTerminalModel] = [:]
+    @ObservationIgnored private var terminalRetirementTasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private lazy var ghosttyRuntime = NativeGhosttyRuntime()
     @ObservationIgnored private let shouldAutoConnect: Bool
     @ObservationIgnored private var didAutoConnect = false
     @ObservationIgnored private var isShuttingDown = false
     @ObservationIgnored private var machineID: String?
     @ObservationIgnored private var sessionID: String?
+    @ObservationIgnored private var focusMutations = FocusMutationTracker()
 
     init(configuration: DemoLaunchConfiguration = .processEnvironment()) {
         invitation = configuration.invitation
@@ -138,13 +140,22 @@ final class FrontendModel {
         updatesTask?.cancel()
         refreshTask?.cancel()
         refreshRequested = false
-        for controller in terminalControllers.values { controller.shutdown() }
+        let controllers = Array(terminalControllers.values)
+        let retirements = Array(terminalRetirementTasks.values)
         terminalControllers.removeAll()
+        terminalRetirementTasks.removeAll()
         snapshot = nil
         machineID = nil
         sessionID = nil
+        focusMutations = FocusMutationTracker()
         let owned = service
         service = nil
+        for controller in controllers {
+            await controller.shutdownAndWait()
+        }
+        for retirement in retirements {
+            await retirement.value
+        }
         if let owned {
             await owned.shutdown()
         }
@@ -159,17 +170,16 @@ final class FrontendModel {
             for await _ in updates.stream {
                 guard !Task.isCancelled else { break }
                 guard let self else { continue }
-                let envelopes = await service.drainResourceUpdates()
-                if envelopes.isEmpty {
+                let batch = await service.drainResourceUpdates()
+                if batch.overflowed || batch.envelopes.isEmpty {
                     self.scheduleRefresh()
-                    continue
-                }
-                // The projection accepts snapshots during bootstrap/resync.
-                // Delta application is deliberately fail-closed until every
-                // resource kind has a typed projection adapter.
-                if envelopes.contains(where: { self.applyResourceDelta($0) == false }) {
+                } else if batch.envelopes.contains(where: { self.applyResourceDelta($0) == false }) {
+                    // The projection accepts snapshots during bootstrap/resync.
+                    // Delta application is deliberately fail-closed until every
+                    // resource kind has a typed projection adapter.
                     self.scheduleRefresh()
                 }
+                if batch.ended { break }
             }
             await service.stopUpdates(generation: updates.generation)
             guard !Task.isCancelled else { return }
@@ -208,7 +218,7 @@ final class FrontendModel {
         }
         next.setRevision(revision)
         snapshot = next
-        pruneTerminalControllers(next)
+        reconcileTerminalControllers(next)
         return true
     }
 
@@ -231,16 +241,28 @@ final class FrontendModel {
 
     private func refreshNow() async throws {
         guard let service, let machineID, let sessionID else { return }
-        let next: ResourceSnapshot = try await service.request(
+        let next = try await fetchSnapshot(
+            service: service,
+            machineID: machineID,
+            sessionID: sessionID
+        )
+        snapshot = next
+        reconcileSelection(next)
+        reconcileTerminalControllers(next)
+    }
+
+    private func fetchSnapshot(
+        service: FrontendService,
+        machineID: String,
+        sessionID: String
+    ) async throws -> ResourceSnapshot {
+        try await service.request(
             "session.snapshot",
             params: [
                 "machine": .string(machineID),
                 "session": .string(sessionID),
             ]
         )
-        snapshot = next
-        reconcileSelection(next)
-        pruneTerminalControllers(next)
     }
 
     private func reconcileSelection(_ next: ResourceSnapshot) {
@@ -258,7 +280,7 @@ final class FrontendModel {
         }
     }
 
-    private func pruneTerminalControllers(_ next: ResourceSnapshot) {
+    private func reconcileTerminalControllers(_ next: ResourceSnapshot) {
         let live = Set(next.terminals.map(\.id))
         let visible: Set<String> = {
             guard selectedWorkspaceID != nil,
@@ -272,50 +294,110 @@ final class FrontendModel {
         }()
         let removed = terminalControllers.keys.filter { !live.contains($0) || !visible.contains($0) }
         for id in removed {
-            let controller = terminalControllers.removeValue(forKey: id)
-            controller?.shutdown()
+            guard let controller = terminalControllers.removeValue(forKey: id) else { continue }
+            retireTerminalController(controller)
+        }
+        guard let service else { return }
+        for terminal in next.terminals where visible.contains(terminal.id) {
+            guard terminalControllers[terminal.id] == nil else { continue }
+            let controller = NativeTerminalModel(
+                terminalID: terminal.id,
+                service: service,
+                runtime: ghosttyRuntime
+            )
+            terminalControllers[terminal.id] = controller
+            controller.attach()
         }
     }
 
-    func terminalController(for terminal: TerminalSnapshot) -> NativeTerminalModel? {
-        guard let service else { return nil }
-        if let controller = terminalControllers[terminal.id] {
-            return controller
+    private func retireTerminalController(_ controller: NativeTerminalModel) {
+        let retirementID = UUID()
+        terminalRetirementTasks[retirementID] = Task { [weak self] in
+            await controller.shutdownAndWait()
+            self?.terminalRetirementTasks[retirementID] = nil
         }
-        let controller = NativeTerminalModel(
-            terminalID: terminal.id,
-            service: service,
-            runtime: ghosttyRuntime
-        )
-        terminalControllers[terminal.id] = controller
-        controller.attach()
-        return controller
+    }
+
+    func terminalViewStates() -> [String: NativeTerminalViewState] {
+        terminalControllers.mapValues(\.viewState)
     }
 
     func selectWorkspace(_ workspace: WorkspaceSnapshot) {
-        let previousWorkspaceID = selectedWorkspaceID
-        let previousScreenID = selectedScreenID
-        selectedWorkspaceID = workspace.id
-        selectedScreenID = snapshot?.screens(in: workspace.id).first { $0.focused }?.id
+        let screenID = snapshot?.screens(in: workspace.id).first { $0.focused }?.id
             ?? snapshot?.screens(in: workspace.id).first?.id
-        mutate(
+        mutateFocus(
             "workspace.focus",
             selectors: ["workspace": workspace.id],
-            onFailure: {
-                self.selectedWorkspaceID = previousWorkspaceID
-                self.selectedScreenID = previousScreenID
-            }
+            workspaceID: workspace.id,
+            screenID: screenID
         )
     }
 
     func selectScreen(_ screen: ScreenSnapshot) {
-        let previousScreenID = selectedScreenID
-        selectedScreenID = screen.id
-        mutate(
+        mutateFocus(
             "screen.focus",
             selectors: ["workspace": screen.workspaceID, "screen": screen.id],
-            onFailure: { self.selectedScreenID = previousScreenID }
+            workspaceID: screen.workspaceID,
+            screenID: screen.id
         )
+    }
+
+    private func mutateFocus(
+        _ operation: String,
+        selectors: [String: String],
+        workspaceID: String,
+        screenID: String?
+    ) {
+        let requestID = focusMutations.begin(
+            workspaceID: selectedWorkspaceID,
+            screenID: selectedScreenID
+        )
+        selectedWorkspaceID = workspaceID
+        selectedScreenID = screenID
+        if let snapshot { reconcileTerminalControllers(snapshot) }
+        mutate(
+            operation,
+            selectors: selectors,
+            onSuccess: { await self.reconcileFocusMutation(requestID) },
+            onFailure: {
+                guard let rollback = self.focusMutations.rollback(requestID) else { return }
+                self.selectedWorkspaceID = rollback.workspaceID
+                self.selectedScreenID = rollback.screenID
+                if let snapshot = self.snapshot {
+                    self.reconcileTerminalControllers(snapshot)
+                }
+            }
+        )
+    }
+
+    private func reconcileFocusMutation(_ requestID: UInt64) async {
+        guard focusMutations.owns(requestID),
+              let service,
+              let machineID,
+              let sessionID else { return }
+        do {
+            let next = try await fetchSnapshot(
+                service: service,
+                machineID: machineID,
+                sessionID: sessionID
+            )
+            guard focusMutations.owns(requestID) else { return }
+            snapshot = next
+            selectedWorkspaceID = next.workspaces.first { $0.focused }?.id
+                ?? next.workspaces.first?.id
+            if let selectedWorkspaceID {
+                let screens = next.screens(in: selectedWorkspaceID)
+                selectedScreenID = screens.first { $0.focused }?.id ?? screens.first?.id
+            } else {
+                selectedScreenID = nil
+            }
+            _ = focusMutations.finish(requestID)
+            reconcileTerminalControllers(next)
+        } catch {
+            guard focusMutations.finish(requestID) else { return }
+            errorMessage = error.localizedDescription
+            scheduleRefresh()
+        }
     }
 
     func createWorkspace() {
@@ -513,6 +595,7 @@ final class FrontendModel {
         _ operation: String,
         selectors: [String: String],
         fields: [String: JSONValue] = [:],
+        onSuccess: (() async -> Void)? = nil,
         onFailure: (() -> Void)? = nil
     ) {
         guard let service, let machineID, let sessionID else { return }
@@ -529,7 +612,11 @@ final class FrontendModel {
                     params: params,
                     mutation: true
                 )
-                scheduleRefresh()
+                if let onSuccess {
+                    await onSuccess()
+                } else {
+                    scheduleRefresh()
+                }
             } catch {
                 onFailure?()
                 errorMessage = error.localizedDescription
@@ -554,13 +641,19 @@ final class FrontendModel {
         updatesTask?.cancel()
         refreshTask?.cancel()
         refreshRequested = false
+        focusMutations = FocusMutationTracker()
         let controllers = Array(terminalControllers.values)
+        let retirements = Array(terminalRetirementTasks.values)
         terminalControllers.removeAll()
+        terminalRetirementTasks.removeAll()
         let ownedService = service
         service = nil
         snapshot = nil
         for controller in controllers {
             await controller.shutdownAndWait()
+        }
+        for retirement in retirements {
+            await retirement.value
         }
         await ownedService?.shutdown()
     }

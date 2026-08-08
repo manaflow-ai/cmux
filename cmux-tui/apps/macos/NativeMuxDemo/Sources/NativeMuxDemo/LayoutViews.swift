@@ -1,25 +1,37 @@
 import SwiftUI
 
 struct LayoutRootView: View {
-    let model: FrontendModel
+    let actions: LayoutActions
     let snapshot: ResourceSnapshot
     let screen: ScreenSnapshot
+    let terminalStates: [String: NativeTerminalViewState]
 
     var body: some View {
         if let zoomed = screen.layout.zoomedPaneID {
-            PaneView(model: model, snapshot: snapshot, paneID: zoomed)
+            PaneView(
+                actions: actions,
+                snapshot: snapshot,
+                paneID: zoomed,
+                terminalStates: terminalStates
+            )
                 .padding(6)
         } else {
             switch screen.layout.root {
             case .viewport(let baseWidth, let columns):
                 ViewportColumnsView(
-                    model: model,
+                    actions: actions,
                     snapshot: snapshot,
                     baseWidth: baseWidth,
-                    columns: columns
+                    columns: columns,
+                    terminalStates: terminalStates
                 )
             case let root:
-                LayoutNodeView(model: model, snapshot: snapshot, node: root)
+                LayoutNodeView(
+                    actions: actions,
+                    snapshot: snapshot,
+                    node: root,
+                    terminalStates: terminalStates
+                )
                     .padding(6)
             }
         }
@@ -27,10 +39,11 @@ struct LayoutRootView: View {
 }
 
 struct ViewportColumnsView: View {
-    let model: FrontendModel
+    let actions: LayoutActions
     let snapshot: ResourceSnapshot
     let baseWidth: Double
     let columns: [ViewportColumn]
+    let terminalStates: [String: NativeTerminalViewState]
 
     @State private var pendingWidths: [String: CGFloat] = [:]
 
@@ -62,9 +75,10 @@ struct ViewportColumnsView: View {
                             .frame(height: 24)
                             .background(.bar)
                             LayoutNodeView(
-                                model: model,
+                                actions: actions,
                                 snapshot: snapshot,
-                                node: column.root
+                                node: column.root,
+                                terminalStates: terminalStates
                             )
                             .padding(4)
                         }
@@ -98,9 +112,9 @@ struct ViewportColumnsView: View {
                                             )
                                             pendingWidths[column.id] = nil
                                             if let paneID = column.root.paneIDs.first {
-                                                model.setViewportWidth(
-                                                    paneID: paneID,
-                                                    columns: Int(width / 8.4)
+                                                actions.setViewportWidth(
+                                                    paneID,
+                                                    Int(width / 8.4)
                                                 )
                                             }
                                         }
@@ -117,9 +131,10 @@ struct ViewportColumnsView: View {
 }
 
 struct LayoutNodeView: View {
-    let model: FrontendModel
+    let actions: LayoutActions
     let snapshot: ResourceSnapshot
     let node: LayoutNode
+    let terminalStates: [String: NativeTerminalViewState]
 
     var body: some View {
         rendered
@@ -128,35 +143,43 @@ struct LayoutNodeView: View {
     private var rendered: AnyView {
         switch node {
         case .leaf(let paneID, _, _):
-            return AnyView(PaneView(model: model, snapshot: snapshot, paneID: paneID))
+            return AnyView(PaneView(
+                actions: actions,
+                snapshot: snapshot,
+                paneID: paneID,
+                terminalStates: terminalStates
+            ))
         case .split(let splitID, let direction, let ratio, let first, let second):
             return AnyView(
                 SplitLayoutView(
-                    model: model,
+                    actions: actions,
                     snapshot: snapshot,
                     splitID: splitID,
                     direction: direction,
                     ratio: ratio,
                     first: first,
-                    second: second
+                    second: second,
+                    terminalStates: terminalStates
                 )
             )
         case .stack(let paneIDs, let expandedPaneID):
             return AnyView(
                 StackLayoutView(
-                    model: model,
+                    actions: actions,
                     snapshot: snapshot,
                     paneIDs: paneIDs,
-                    expandedPaneID: expandedPaneID
+                    expandedPaneID: expandedPaneID,
+                    terminalStates: terminalStates
                 )
             )
         case .viewport(let baseWidth, let columns):
             return AnyView(
                 ViewportColumnsView(
-                    model: model,
+                    actions: actions,
                     snapshot: snapshot,
                     baseWidth: baseWidth,
-                    columns: columns
+                    columns: columns,
+                    terminalStates: terminalStates
                 )
             )
         }
@@ -164,13 +187,14 @@ struct LayoutNodeView: View {
 }
 
 private struct SplitLayoutView: View {
-    let model: FrontendModel
+    let actions: LayoutActions
     let snapshot: ResourceSnapshot
     let splitID: String
     let direction: LayoutNode.SplitDirection
     let ratio: Double
     let first: LayoutNode
     let second: LayoutNode
+    let terminalStates: [String: NativeTerminalViewState]
 
     @State private var pendingRatio: Double?
 
@@ -182,17 +206,37 @@ private struct SplitLayoutView: View {
         GeometryReader { geometry in
             if direction == .horizontal {
                 HStack(spacing: 5) {
-                    LayoutNodeView(model: model, snapshot: snapshot, node: first)
+                    LayoutNodeView(
+                        actions: actions,
+                        snapshot: snapshot,
+                        node: first,
+                        terminalStates: terminalStates
+                    )
                         .frame(width: max(80, geometry.size.width * safeRatio - 3))
                     splitDivider(total: geometry.size.width)
-                    LayoutNodeView(model: model, snapshot: snapshot, node: second)
+                    LayoutNodeView(
+                        actions: actions,
+                        snapshot: snapshot,
+                        node: second,
+                        terminalStates: terminalStates
+                    )
                 }
             } else {
                 VStack(spacing: 5) {
-                    LayoutNodeView(model: model, snapshot: snapshot, node: first)
+                    LayoutNodeView(
+                        actions: actions,
+                        snapshot: snapshot,
+                        node: first,
+                        terminalStates: terminalStates
+                    )
                         .frame(height: max(80, geometry.size.height * safeRatio - 3))
                     splitDivider(total: geometry.size.height)
-                    LayoutNodeView(model: model, snapshot: snapshot, node: second)
+                    LayoutNodeView(
+                        actions: actions,
+                        snapshot: snapshot,
+                        node: second,
+                        terminalStates: terminalStates
+                    )
                 }
             }
         }
@@ -221,11 +265,7 @@ private struct SplitLayoutView: View {
                         let committed = min(0.85, max(0.15, ratio + delta / max(1, total)))
                         pendingRatio = nil
                         if let paneID = first.paneIDs.first {
-                            model.setSplitRatio(
-                                paneID: paneID,
-                                splitID: splitID,
-                                ratio: committed
-                            )
+                            actions.setSplitRatio(paneID, splitID, committed)
                         }
                     }
             )
@@ -233,16 +273,17 @@ private struct SplitLayoutView: View {
 }
 
 private struct StackLayoutView: View {
-    let model: FrontendModel
+    let actions: LayoutActions
     let snapshot: ResourceSnapshot
     let paneIDs: [String]
     let expandedPaneID: String
+    let terminalStates: [String: NativeTerminalViewState]
 
     var body: some View {
         VStack(spacing: 2) {
             ForEach(paneIDs.filter { $0 != expandedPaneID }, id: \.self) { paneID in
                 Button {
-                    model.focusPane(paneID)
+                    actions.focusPane(paneID)
                 } label: {
                     HStack {
                         Image(systemName: "rectangle.compress.vertical")
@@ -258,7 +299,12 @@ private struct StackLayoutView: View {
                 }
                 .buttonStyle(.plain)
             }
-            PaneView(model: model, snapshot: snapshot, paneID: expandedPaneID)
+            PaneView(
+                actions: actions,
+                snapshot: snapshot,
+                paneID: expandedPaneID,
+                terminalStates: terminalStates
+            )
         }
     }
 }

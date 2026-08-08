@@ -7,9 +7,10 @@ private func localizedContentKind(_ kind: String) -> String {
 }
 
 struct PaneView: View {
-    let model: FrontendModel
+    let actions: LayoutActions
     let snapshot: ResourceSnapshot
     let paneID: String
+    let terminalStates: [String: NativeTerminalViewState]
 
     private var pane: PaneSnapshot? { snapshot.pane(paneID) }
     private var tabs: [TabSnapshot] { snapshot.tabs(in: paneID) }
@@ -20,7 +21,7 @@ struct PaneView: View {
     var body: some View {
         HStack(spacing: 0) {
             VerticalTabsView(
-                model: model,
+                actions: actions,
                 snapshot: snapshot,
                 paneID: paneID,
                 tabs: tabs,
@@ -47,7 +48,7 @@ struct PaneView: View {
     private var paneHeader: some View {
         HStack(spacing: 7) {
             Button {
-                model.focusPane(paneID)
+                actions.focusPane(paneID)
             } label: {
                 HStack(spacing: 5) {
                     Circle()
@@ -60,27 +61,27 @@ struct PaneView: View {
             .buttonStyle(.plain)
             Spacer()
             paneButton("rectangle.split.1x2", "pane.split_right") {
-                model.splitPane(paneID, direction: "right")
+                actions.splitPane(paneID, "right")
             }
             paneButton("rectangle.split.2x1", "pane.split_down") {
-                model.splitPane(paneID, direction: "down")
+                actions.splitPane(paneID, "down")
             }
             paneButton("rectangle.3.group", "pane.new_column") {
-                model.createNiriColumn(after: paneID)
+                actions.createNiriColumn(paneID)
             }
             paneButton(pane?.zoomed == true ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right", pane?.zoomed == true ? "pane.unzoom" : "pane.zoom") {
-                model.zoomPane(paneID, enabled: pane?.zoomed != true)
+                actions.zoomPane(paneID, pane?.zoomed != true)
             }
             Menu {
                 Button(L10n.text("pane.new_terminal", "New terminal tab")) {
-                    model.createTerminalTab(in: paneID)
+                    actions.createTerminalTab(paneID)
                 }
                 Button(L10n.text("pane.new_browser", "New browser tab")) {
-                    model.createBrowserTab(in: paneID)
+                    actions.createBrowserTab(paneID)
                 }
                 Divider()
                 Button(L10n.text("pane.close", "Close pane"), role: .destructive) {
-                    model.closePane(paneID)
+                    actions.closePane(paneID)
                 }
             } label: {
                 Image(systemName: "ellipsis")
@@ -120,9 +121,9 @@ struct PaneView: View {
     private var tabContent: some View {
         if let activeTab, activeTab.contentKind == "terminal",
             let terminal = snapshot.terminal(for: activeTab),
-            let controller = model.terminalController(for: terminal)
+            let state = terminalStates[terminal.id]
         {
-            TerminalSurfaceView(terminal: controller)
+            TerminalSurfaceView(state: state)
                 .id(terminal.id)
         } else if let activeTab, activeTab.contentKind == "browser",
             let browser = snapshot.browser(for: activeTab)
@@ -153,7 +154,7 @@ struct PaneView: View {
 }
 
 struct VerticalTabsView: View {
-    let model: FrontendModel
+    let actions: LayoutActions
     let snapshot: ResourceSnapshot
     let paneID: String
     let tabs: [TabSnapshot]
@@ -171,10 +172,10 @@ struct VerticalTabsView: View {
             }
             Menu {
                 Button(L10n.text("pane.new_terminal", "New terminal tab")) {
-                    model.createTerminalTab(in: paneID)
+                    actions.createTerminalTab(paneID)
                 }
                 Button(L10n.text("pane.new_browser", "New browser tab")) {
-                    model.createBrowserTab(in: paneID)
+                    actions.createBrowserTab(paneID)
                 }
             } label: {
                 Image(systemName: "plus")
@@ -190,7 +191,7 @@ struct VerticalTabsView: View {
     private func tabButton(_ tab: TabSnapshot) -> some View {
         let selected = tab.id == activeTab?.id
         return Button {
-            model.focusTab(tab)
+            actions.focusTab(tab)
         } label: {
             ZStack(alignment: .topTrailing) {
                 Image(systemName: tab.contentKind == "browser" ? "globe" : "terminal")
@@ -209,7 +210,7 @@ struct VerticalTabsView: View {
         .help(tab.name ?? localizedContentKind(tab.contentKind))
         .contextMenu {
             Button(L10n.text("tab.close", "Close tab"), role: .destructive) {
-                model.closeTab(tab)
+                actions.closeTab(tab)
             }
         }
     }

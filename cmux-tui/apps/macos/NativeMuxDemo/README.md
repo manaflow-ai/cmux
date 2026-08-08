@@ -1,5 +1,7 @@
 # NativeMuxDemo
 
+[日本語](README.ja.md)
+
 NativeMuxDemo is a standalone SwiftUI client for the cmux remote daemon. One
 Iroh/Noise connection carries the public resource graph and multiple
 `terminal-bytes-v1` streams. Every terminal has an independent local libghostty

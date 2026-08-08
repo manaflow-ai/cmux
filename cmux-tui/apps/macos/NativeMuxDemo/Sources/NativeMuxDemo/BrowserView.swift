@@ -28,9 +28,10 @@ struct BrowserSurfaceView: View {
     let browser: BrowserSnapshot
 
     var body: some View {
+        let isSecure = URL(string: browser.url)?.scheme?.lowercased() == "https"
         VStack(spacing: 0) {
             HStack(spacing: 7) {
-                Image(systemName: browser.url.hasPrefix("https://") ? "lock.fill" : "globe")
+                Image(systemName: isSecure ? "lock.fill" : "globe")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Text(browser.url)

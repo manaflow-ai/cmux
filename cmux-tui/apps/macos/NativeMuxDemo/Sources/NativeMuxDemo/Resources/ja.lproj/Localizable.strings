@@ -43,8 +43,10 @@
 "error.no_machine" = "デーモンからマシンが返されませんでした。";
 "error.no_session" = "デーモンからセッションが返されませんでした。";
 "error.terminal_input_rejected" = "ターミナル入力が拒否されました。";
+"error.terminal_input_overloaded" = "ターミナル入力が混雑しています。もう一度お試しください。";
 "error.terminal_attach" = "ターミナルに接続できませんでした。";
 "error.terminal_resize_rejected" = "ターミナルのサイズ変更が拒否されました。";
+"error.terminal_snapshot" = "ターミナルのスナップショットが無効です。";
 "error.ghostty_runtime" = "組み込み Ghostty レンダラーを起動できませんでした。";
 "error.ghostty_surface" = "組み込み Ghostty ターミナルサーフェスを起動できませんでした。";
 "workspace.close" = "ワークスペースを閉じる";

@@ -37,7 +37,11 @@ typedef struct {
 
 typedef struct {
     size_t payload_length;
+    // A true value means queued deltas were discarded and the caller must
+    // request a full snapshot before it applies more deltas.
     bool overflowed;
+    // A true value means the ordered session event stream ended.
+    bool ended;
 } CmuxFrontendResourceUpdate;
 
 // Native frontend API. One enrolled client owns resource control plus any

@@ -25,7 +25,14 @@ struct WorkspaceSidebar: View {
                 LazyVStack(spacing: 3) {
                     let selectedWorkspaceID = model.selectedWorkspace?.id
                     ForEach(snapshot.orderedWorkspaces) { workspace in
-                        WorkspaceSidebarRow(model: model, snapshot: snapshot, workspace: workspace, selectedWorkspaceID: selectedWorkspaceID)
+                        WorkspaceSidebarRow(
+                            workspace: workspace,
+                            selectedWorkspaceID: selectedWorkspaceID,
+                            spaceCount: snapshot.screens(in: workspace.id).count,
+                            onSelect: { model.selectWorkspace(workspace) },
+                            onClose: { model.closeWorkspace(workspace) }
+                        )
+                        .equatable()
                     }
                 }
                 .padding(.horizontal, 7)
@@ -49,20 +56,23 @@ struct WorkspaceSidebar: View {
 }
 
 private struct WorkspaceSidebarRow: View, Equatable {
-    let model: FrontendModel
-    let snapshot: ResourceSnapshot
     let workspace: WorkspaceSnapshot
     let selectedWorkspaceID: String?
+    let spaceCount: Int
+    let onSelect: () -> Void
+    let onClose: () -> Void
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.workspace.id == rhs.workspace.id && lhs.selectedWorkspaceID == rhs.selectedWorkspaceID && lhs.workspace.name == rhs.workspace.name && lhs.workspace.index == rhs.workspace.index
+        lhs.workspace.id == rhs.workspace.id
+            && lhs.selectedWorkspaceID == rhs.selectedWorkspaceID
+            && lhs.workspace.name == rhs.workspace.name
+            && lhs.workspace.index == rhs.workspace.index
+            && lhs.spaceCount == rhs.spaceCount
     }
 
     var body: some View {
         let selected = workspace.id == selectedWorkspaceID
-        return Button {
-            model.selectWorkspace(workspace)
-        } label: {
+        return Button(action: onSelect) {
             HStack(spacing: 9) {
                 Image(systemName: selected ? "rectangle.stack.fill" : "rectangle.stack")
                     .foregroundStyle(selected ? .cyan : .secondary)
@@ -72,7 +82,6 @@ private struct WorkspaceSidebarRow: View, Equatable {
                         ? L10n.format("workspace.number", "workspace %d", workspace.index + 1)
                         : workspace.name)
                         .lineLimit(1)
-                    let spaceCount = snapshot.screens(in: workspace.id).count
                     Text(L10n.format(
                         spaceCount == 1 ? "spaces.count.one" : "spaces.count.other",
                         spaceCount == 1 ? "%d space" : "%d spaces",
@@ -94,7 +103,7 @@ private struct WorkspaceSidebarRow: View, Equatable {
         .buttonStyle(.plain)
         .contextMenu {
             Button(L10n.text("workspace.close", "Close workspace"), role: .destructive) {
-                model.closeWorkspace(workspace)
+                onClose()
             }
         }
     }

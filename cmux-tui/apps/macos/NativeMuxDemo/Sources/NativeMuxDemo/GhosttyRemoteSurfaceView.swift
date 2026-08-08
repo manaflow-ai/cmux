@@ -6,13 +6,23 @@ import QuartzCore
 
 final class GhosttyTerminalInputRelay: Sendable {
   private let continuation: AsyncStream<TerminalInput>.Continuation
+  private let dropContinuation: AsyncStream<Void>.Continuation
 
-  init(continuation: AsyncStream<TerminalInput>.Continuation) {
+  init(
+    continuation: AsyncStream<TerminalInput>.Continuation,
+    dropContinuation: AsyncStream<Void>.Continuation
+  ) {
     self.continuation = continuation
+    self.dropContinuation = dropContinuation
   }
 
-  func send(_ data: Data) {
-    continuation.yield(.bytes(data))
+  @discardableResult
+  func send(_ data: Data) -> Bool {
+    if case .dropped = continuation.yield(.bytes(data)) {
+      dropContinuation.yield()
+      return false
+    }
+    return true
   }
 }
 
@@ -180,7 +190,8 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
       }
       recreateSurface()
       setGrid(event.geometry)
-      guard let surface, restoreKittyReplay(surface: surface, metadata: reset) else {
+      guard let surface else { return }
+      guard restoreKittyReplay(surface: surface, metadata: reset) else {
         initializationError = L10n.text("error.terminal_snapshot", "The terminal snapshot was invalid.")
         return
       }

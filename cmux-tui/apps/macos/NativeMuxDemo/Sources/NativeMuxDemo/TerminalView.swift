@@ -15,18 +15,18 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
 }
 
 struct TerminalSurfaceView: View {
-  @Bindable var terminal: NativeTerminalModel
+  let state: NativeTerminalViewState
 
   var body: some View {
     ZStack {
-      GhosttySurfaceRepresentable(surfaceView: terminal.surfaceView)
-      if !terminal.isAttached, terminal.errorMessage.isEmpty {
+      GhosttySurfaceRepresentable(surfaceView: state.surfaceView)
+      if !state.isAttached, state.errorMessage.isEmpty {
         ProgressView(L10n.text("terminal.connecting", "Attaching terminal…"))
           .controlSize(.small)
           .padding(12)
           .background(.regularMaterial, in: .rect(cornerRadius: 8))
       }
-      if terminal.didExit {
+      if state.didExit {
         VStack {
           Spacer()
           Text(L10n.text("terminal.exited", "Process exited"))
@@ -38,8 +38,8 @@ struct TerminalSurfaceView: View {
             .padding(10)
         }
       }
-      if !terminal.errorMessage.isEmpty {
-        Text(terminal.errorMessage)
+      if !state.errorMessage.isEmpty {
+        Text(state.errorMessage)
           .font(.caption)
           .foregroundStyle(.red)
           .padding(10)

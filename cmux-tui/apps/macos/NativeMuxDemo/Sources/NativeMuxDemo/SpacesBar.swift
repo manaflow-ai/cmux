@@ -10,6 +10,7 @@ struct SpacesBar: View {
     }
 
     var body: some View {
+        let selectedScreenID = model.selectedScreen?.id
         HStack(spacing: 8) {
             Text(L10n.text("spaces.title", "Spaces"))
                 .font(.caption.weight(.semibold))
@@ -17,7 +18,7 @@ struct SpacesBar: View {
             ScrollView(.horizontal) {
                 HStack(spacing: 5) {
                     ForEach(screens) { screen in
-                        let selected = screen.id == model.selectedScreen?.id
+                        let selected = screen.id == selectedScreenID
                         Button {
                             model.selectScreen(screen)
                         } label: {

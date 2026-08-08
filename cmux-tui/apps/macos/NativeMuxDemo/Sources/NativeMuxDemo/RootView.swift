@@ -73,6 +73,7 @@ struct RootView: View {
     }
 
     private func connected(_ snapshot: ResourceSnapshot) -> some View {
+        let terminalStates = model.terminalViewStates()
         HStack(spacing: 0) {
             WorkspaceSidebar(model: model, snapshot: snapshot)
                 .frame(width: 216)
@@ -81,7 +82,12 @@ struct RootView: View {
                 SpacesBar(model: model, snapshot: snapshot)
                 Divider()
                 if let screen = model.selectedScreen {
-                    LayoutRootView(model: model, snapshot: snapshot, screen: screen)
+                    LayoutRootView(
+                        actions: LayoutActions(model: model),
+                        snapshot: snapshot,
+                        screen: screen,
+                        terminalStates: terminalStates
+                    )
                 } else {
                     ContentUnavailableView(
                         L10n.text("layout.empty", "This space has no panes."),

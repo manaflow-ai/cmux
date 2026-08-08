@@ -33,6 +33,9 @@ pub use rpc::{
     WorkspaceResponse,
 };
 
+/// Current public resource request, response, and event envelope protocol.
+pub const RESOURCE_PROTOCOL: &str = "cmux.protocol/2";
+
 /// Maximum serialized server-to-client message accepted by remote session
 /// transports. Render attach and VT replay responses share this budget.
 pub const REMOTE_SESSION_MESSAGE_MAX_BYTES: usize = 32 * 1024 * 1024;

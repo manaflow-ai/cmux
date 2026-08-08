@@ -223,24 +223,34 @@ actor FrontendService {
     return FrontendUpdateSubscription(generation: generation, stream: pair.stream)
   }
 
-  func drainResourceUpdates() async -> [Data] {
-    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else { return [] }
+  func drainResourceUpdates() async -> FrontendResourceUpdateBatch {
+    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else {
+      return FrontendResourceUpdateBatch(envelopes: [], overflowed: false, ended: true)
+    }
     return await enqueue {
       let raw = OpaquePointer(bitPattern: rawAddress)!
       var result: [Data] = []
+      var ended = false
       while true {
         var descriptor = CmuxFrontendResourceUpdate()
         guard cmux_frontend_client_copy_resource_update(raw, &descriptor, nil, 0) else { break }
-        if descriptor.overflowed { return result }
+        ended = ended || descriptor.ended
+        if descriptor.overflowed {
+          return FrontendResourceUpdateBatch(envelopes: [], overflowed: true, ended: ended)
+        }
         guard descriptor.payload_length > 0 else { break }
         var payload = Data(count: descriptor.payload_length)
         let copied = payload.withUnsafeMutableBytes { bytes in
           cmux_frontend_client_copy_resource_update(raw, &descriptor, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count)
         }
         guard copied else { break }
+        ended = ended || descriptor.ended
+        if descriptor.overflowed {
+          return FrontendResourceUpdateBatch(envelopes: [], overflowed: true, ended: ended)
+        }
         result.append(payload)
       }
-      return result
+      return FrontendResourceUpdateBatch(envelopes: result, overflowed: false, ended: ended)
     }
   }
 

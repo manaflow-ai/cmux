@@ -49,14 +49,27 @@ final class NativeTerminalModel {
   @ObservationIgnored private var inputTask: Task<Void, Never>?
   @ObservationIgnored private var attachTask: Task<Void, Never>?
   @ObservationIgnored private var resizeTask: Task<Void, Never>?
-  @ObservationIgnored private var drainContinuationScheduled = false
+  @ObservationIgnored private var drainTask: Task<Void, Never>?
+  @ObservationIgnored private var inputDropTask: Task<Void, Never>?
+  @ObservationIgnored private var drainRequested = false
   @ObservationIgnored private var resizeQueue = NewestResizeQueue()
   @ObservationIgnored private let inputStream: AsyncStream<TerminalInput>
   @ObservationIgnored private let inputContinuation: AsyncStream<TerminalInput>.Continuation
+  @ObservationIgnored private let inputDropStream: AsyncStream<Void>
+  @ObservationIgnored private let inputDropContinuation: AsyncStream<Void>.Continuation
   @ObservationIgnored private var latestGeometry: TerminalGeometry?
   @ObservationIgnored private var didStart = false
   @ObservationIgnored private var isShuttingDown = false
   @ObservationIgnored let surfaceView: GhosttyRemoteSurfaceView
+
+  var viewState: NativeTerminalViewState {
+    NativeTerminalViewState(
+      surfaceView: surfaceView,
+      errorMessage: errorMessage,
+      isAttached: isAttached,
+      didExit: didExit
+    )
+  }
 
   init(
     terminalID: String,
@@ -66,9 +79,15 @@ final class NativeTerminalModel {
     self.terminalID = terminalID
     self.service = service
     let input = AsyncStream<TerminalInput>.makeStream(bufferingPolicy: .bufferingOldest(256))
+    let inputDrops = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     inputStream = input.stream
     inputContinuation = input.continuation
-    let inputRelay = GhosttyTerminalInputRelay(continuation: input.continuation)
+    inputDropStream = inputDrops.stream
+    inputDropContinuation = inputDrops.continuation
+    let inputRelay = GhosttyTerminalInputRelay(
+      continuation: input.continuation,
+      dropContinuation: inputDrops.continuation
+    )
     surfaceView = GhosttyRemoteSurfaceView(runtime: runtime, inputRelay: inputRelay)
     surfaceView.onGeometryChanged = { [weak self] geometry in
       self?.resize(geometry)
@@ -78,6 +97,7 @@ final class NativeTerminalModel {
   func attach() {
     guard !didStart, !isShuttingDown else { return }
     didStart = true
+    beginInputOverloadReporting()
     attachTask = Task { [weak self] in
       guard let self else { return }
       do {
@@ -91,9 +111,15 @@ final class NativeTerminalModel {
         if let latestGeometry {
           _ = await handle.resize(cols: latestGeometry.cols, rows: latestGeometry.rows)
         }
+        guard !isShuttingDown else {
+          self.handle = nil
+          isAttached = false
+          await handle.shutdown()
+          return
+        }
         beginInputDelivery(to: handle)
         beginUpdates(from: handle)
-        await consumeUpdates(from: handle)
+        requestRenderDrain(from: handle)
       } catch {
         if !isShuttingDown { didStart = false }
         errorMessage = L10n.text(
@@ -102,6 +128,17 @@ final class NativeTerminalModel {
         )
       }
       attachTask = nil
+    }
+  }
+
+  private func beginInputOverloadReporting() {
+    inputDropTask?.cancel()
+    let stream = inputDropStream
+    inputDropTask = Task { [weak self] in
+      for await _ in stream {
+        guard !Task.isCancelled, let self, !isShuttingDown else { return }
+        reportInputOverload()
+      }
     }
   }
 
@@ -133,38 +170,52 @@ final class NativeTerminalModel {
       for await _ in updates.stream {
         guard !Task.isCancelled else { break }
         guard let self else { continue }
-        await consumeUpdates(from: handle)
+        requestRenderDrain(from: handle)
       }
       await handle.stopUpdates(generation: updates.generation)
     }
   }
 
-  private func consumeUpdates(from handle: TerminalHandle) async {
-    let batch = await handle.drainRenderEvents()
-    for event in batch.events { surfaceView.apply(event) }
-    if batch.hasMore, !drainContinuationScheduled {
-      drainContinuationScheduled = true
-      Task { [weak self, weak handle] in
-        await Task.yield()
-        guard let self, let handle else { return }
-        self.drainContinuationScheduled = false
-        await self.consumeUpdates(from: handle)
+  private func requestRenderDrain(from handle: TerminalHandle) {
+    drainRequested = true
+    guard drainTask == nil else { return }
+    drainTask = Task { [weak self, weak handle] in
+      guard let self, let handle else { return }
+      defer { drainTask = nil }
+      while !Task.isCancelled, !isShuttingDown {
+        drainRequested = false
+        let batch = await handle.drainRenderEvents()
+        guard !Task.isCancelled, !isShuttingDown else { return }
+        for event in batch.events { surfaceView.apply(event) }
+        if let rendererError = surfaceView.initializationError {
+          errorMessage = rendererError
+        }
+        if let next = await handle.snapshot() {
+          guard !Task.isCancelled, !isShuttingDown else { return }
+          diagnostics = next.diagnostics
+          didExit = next.didExit
+        }
+        if batch.hasMore {
+          await Task.yield()
+          continue
+        }
+        if !drainRequested { return }
       }
-    }
-    if let rendererError = surfaceView.initializationError {
-      errorMessage = rendererError
-    }
-    if let next = await handle.snapshot() {
-      diagnostics = next.diagnostics
-      didExit = next.didExit
     }
   }
 
   func submit(_ input: TerminalInput) {
     guard isAttached, !didExit else { return }
     if case .dropped = inputContinuation.yield(input) {
-      errorMessage = L10n.text("error.terminal_input_overloaded", "Terminal input is busy; try again.")
+      reportInputOverload()
     }
+  }
+
+  private func reportInputOverload() {
+    errorMessage = L10n.text(
+      "error.terminal_input_overloaded",
+      "Terminal input is busy; try again."
+    )
   }
 
   func resize(_ geometry: TerminalGeometry) {
@@ -196,12 +247,34 @@ final class NativeTerminalModel {
   func shutdownAndWait() async {
     guard !isShuttingDown else { return }
     isShuttingDown = true
-    attachTask?.cancel()
-    resizeTask?.cancel()
+    let pendingAttach = attachTask
+    let pendingResize = resizeTask
+    let pendingUpdates = updateTask
+    let pendingInput = inputTask
+    let pendingInputDrops = inputDropTask
+    let pendingDrain = drainTask
+    pendingAttach?.cancel()
+    pendingResize?.cancel()
     _ = resizeQueue.take()
-    updateTask?.cancel()
-    inputTask?.cancel()
+    pendingUpdates?.cancel()
+    pendingInput?.cancel()
+    pendingInputDrops?.cancel()
+    pendingDrain?.cancel()
+    drainRequested = false
     inputContinuation.finish()
+    inputDropContinuation.finish()
+    _ = await pendingAttach?.value
+    _ = await pendingResize?.value
+    _ = await pendingUpdates?.value
+    _ = await pendingInput?.value
+    _ = await pendingInputDrops?.value
+    _ = await pendingDrain?.value
+    attachTask = nil
+    resizeTask = nil
+    updateTask = nil
+    inputTask = nil
+    inputDropTask = nil
+    drainTask = nil
     let owned = handle
     handle = nil
     isAttached = false

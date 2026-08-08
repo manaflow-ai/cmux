@@ -18,6 +18,23 @@ private extension FixedWidthInteger {
     }
 }
 
+private func nativeResetPayload() -> Data {
+    var payload = Data("CMNR".utf8)
+    payload.append(1)
+    payload.append(contentsOf: UInt32(3).littleEndianBytes)
+    payload.append(contentsOf: UInt16(1).littleEndianBytes)
+    for value in [UInt64(10), UInt64(20), UInt64(30), UInt64(40)] {
+        payload.append(contentsOf: value.littleEndianBytes)
+    }
+    for value in [UInt32(2), UInt32(3), UInt32(4), UInt32(5), UInt32(6)] {
+        payload.append(contentsOf: value.littleEndianBytes)
+    }
+    payload.append(contentsOf: UInt32(41).littleEndianBytes)
+    payload.append(contentsOf: UInt32(77).littleEndianBytes)
+    payload.append(contentsOf: Data("abc".utf8))
+    return payload
+}
+
 @Test
 func decodesEveryNativeLayoutShape() throws {
     let data = Data(
@@ -156,22 +173,76 @@ func resizeQueueKeepsOnlyNewestPendingGeometry() {
 }
 
 @Test
+func focusMutationTrackerRejectsStaleRollback() {
+    var tracker = FocusMutationTracker()
+    let first = tracker.begin(workspaceID: nil, screenID: nil)
+    let second = tracker.begin(workspaceID: "workspace-a", screenID: "screen-a")
+
+    #expect(!tracker.finish(first))
+    #expect(tracker.owns(second))
+    #expect(tracker.rollback(first) == nil)
+    let rollback = tracker.rollback(second)
+    #expect(rollback?.workspaceID == "workspace-a")
+    #expect(rollback?.screenID == "screen-a")
+}
+
+@Test
+func terminalInputRelayReportsBoundedBufferDrops() async {
+    let input = AsyncStream<TerminalInput>.makeStream(bufferingPolicy: .bufferingOldest(1))
+    let drops = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let relay = GhosttyTerminalInputRelay(
+        continuation: input.continuation,
+        dropContinuation: drops.continuation
+    )
+    defer {
+        input.continuation.finish()
+        drops.continuation.finish()
+    }
+
+    #expect(relay.send(Data("first".utf8)))
+    #expect(!relay.send(Data("second".utf8)))
+    var inputIterator = input.stream.makeAsyncIterator()
+    guard case .some(.bytes(let received)) = await inputIterator.next() else {
+        Issue.record("The relay did not keep the oldest buffered input.")
+        return
+    }
+    #expect(received == Data("first".utf8))
+    var dropIterator = drops.stream.makeAsyncIterator()
+    let dropSignal = await dropIterator.next()
+    #expect(dropSignal != nil)
+}
+
+@Test
 func decodesNativeResetSidecarKittyAliasesAndCursors() {
-    var payload = Data("CMNR".utf8)
-    payload.append(1)
-    payload.append(contentsOf: UInt32(3).littleEndianBytes)
-    payload.append(contentsOf: UInt16(1).littleEndianBytes)
-    for value in [UInt64(10), UInt64(20), UInt64(30), UInt64(40)] { payload.append(contentsOf: value.littleEndianBytes) }
-    for value in [UInt32(2), UInt32(3), UInt32(4), UInt32(5), UInt32(6)] { payload.append(contentsOf: value.littleEndianBytes) }
-    payload.append(contentsOf: UInt32(41).littleEndianBytes)
-    payload.append(contentsOf: UInt32(77).littleEndianBytes)
-    payload.append(contentsOf: Data("abc".utf8))
+    let payload = nativeResetPayload()
     let metadata = NativeKittyResetMetadata.decode(payload)
     #expect(metadata?.replay == Data("abc".utf8))
     #expect(metadata?.aliases.first?.0 == 41)
     #expect(metadata?.aliases.first?.1 == 77)
     #expect(metadata?.replayNextIDs.0 == 3)
     #expect(metadata?.nextIDs.1 == 6)
+}
+
+@Test @MainActor
+func resetKeepsSurfaceCreationError() {
+    let input = AsyncStream<TerminalInput>.makeStream()
+    let drops = AsyncStream<Void>.makeStream()
+    let relay = GhosttyTerminalInputRelay(
+        continuation: input.continuation,
+        dropContinuation: drops.continuation
+    )
+    let view = GhosttyRemoteSurfaceView(runtime: nil, inputRelay: relay)
+
+    view.apply(TerminalRenderEvent(
+        kind: .reset,
+        geometry: TerminalGeometry(cols: 80, rows: 24),
+        payload: nativeResetPayload()
+    ))
+
+    #expect(view.initializationError == L10n.text(
+        "error.ghostty_runtime",
+        "The embedded Ghostty renderer could not start."
+    ))
 }
 
 @Test

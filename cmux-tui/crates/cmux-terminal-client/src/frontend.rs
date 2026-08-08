@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use bytes::Bytes;
 use cmux_remote::mux_codec::{MuxLineAssembler, encode_line};
 use cmux_remote::service::{ServiceMultiplexer, ServiceStream, StreamChunk};
-use cmux_remote_protocol::{Lane, Service, ServiceControl};
+use cmux_remote_protocol::{Lane, RESOURCE_PROTOCOL, Service, ServiceControl};
 use cmux_terminal_host_protocol::{Frame, MessageKind};
 use serde_json::{Value, json};
 use tokio::runtime::Runtime;
@@ -31,6 +31,7 @@ struct FrontendControlState {
     closed: AtomicBool,
     resource_updates: Mutex<VecDeque<Vec<u8>>>,
     resource_updates_overflowed: AtomicBool,
+    resource_stream_ended: AtomicBool,
 }
 
 impl FrontendControlState {
@@ -42,6 +43,7 @@ impl FrontendControlState {
             closed: AtomicBool::new(false),
             resource_updates: Mutex::new(VecDeque::new()),
             resource_updates_overflowed: AtomicBool::new(false),
+            resource_stream_ended: AtomicBool::new(false),
         }
     }
 
@@ -68,6 +70,15 @@ impl FrontendControlState {
         self.closed.store(true, Ordering::Release);
         self.fail_pending(message);
         self.updates.notify();
+    }
+
+    fn discard_resource_updates_if_overflowed(&self) -> bool {
+        let mut queue = self.resource_updates.lock().unwrap();
+        if !self.resource_updates_overflowed.swap(false, Ordering::AcqRel) {
+            return false;
+        }
+        queue.clear();
+        true
     }
 }
 
@@ -111,13 +122,14 @@ pub struct CmuxFrontendTerminal {
 }
 
 /// Ordered session-event envelope. The payload is the original stream_item
-/// JSON, including kind, sequence, cursor, and delta changes. A false return
-/// with `overflowed` set requires a full snapshot resync.
+/// JSON, including kind, sequence, cursor, and delta changes. `overflowed`
+/// requires a full snapshot resync. `ended` reports a terminal stream_end.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct CmuxFrontendResourceUpdate {
     pub payload_length: usize,
     pub overflowed: bool,
+    pub ended: bool,
 }
 
 /// Metadata for one ordered event consumed by a native terminal renderer.
@@ -183,7 +195,7 @@ fn handle_control_line(state: &FrontendControlState, line: &[u8]) {
             return;
         }
     };
-    if value.get("protocol").and_then(Value::as_str) != Some("cmux.protocol/1") {
+    if value.get("protocol").and_then(Value::as_str) != Some(RESOURCE_PROTOCOL) {
         return;
     }
     if value.get("type").and_then(Value::as_str) == Some("response")
@@ -195,6 +207,9 @@ fn handle_control_line(state: &FrontendControlState, line: &[u8]) {
     }
     if value.get("type").and_then(Value::as_str) == Some("stream_item") {
         state.push_resource_update(&value);
+    }
+    if value.get("type").and_then(Value::as_str) == Some("stream_end") {
+        state.resource_stream_ended.store(true, Ordering::Release);
     }
     if matches!(value.get("type").and_then(Value::as_str), Some("stream_item" | "stream_end")) {
         state.updates.notify();
@@ -280,7 +295,7 @@ impl CmuxFrontendClient {
         let message = self.next_message.fetch_add(1, Ordering::Relaxed);
         let id = format!("native-{}-{message}", self.nonce);
         let mut envelope = json!({
-            "protocol":"cmux.protocol/1",
+            "protocol":RESOURCE_PROTOCOL,
             "type":"request",
             "id":id,
             "operation":operation,
@@ -484,23 +499,23 @@ pub unsafe extern "C" fn cmux_frontend_client_copy_resource_update(
     let Some(client) = (unsafe { client.as_ref() }) else { return false };
     let Some(update) = (unsafe { update.as_mut() }) else { return false };
     let state = &client.control_state;
-    let overflowed = state.resource_updates_overflowed.load(Ordering::Acquire);
+    update.payload_length = 0;
+    update.overflowed = false;
+    update.ended = state.resource_stream_ended.load(Ordering::Acquire);
+    if state.discard_resource_updates_if_overflowed() {
+        update.overflowed = true;
+        return true;
+    }
     let mut queue = state.resource_updates.lock().unwrap();
     let Some(payload) = queue.front() else {
-        update.payload_length = 0;
-        update.overflowed = overflowed;
-        return overflowed;
+        return update.ended;
     };
     update.payload_length = payload.len();
-    update.overflowed = overflowed;
     if payload.len() > capacity || (payload.len() > 0 && buffer.is_null()) {
         return true;
     }
     let payload = queue.pop_front().unwrap();
     unsafe { std::ptr::copy_nonoverlapping(payload.as_ptr(), buffer, payload.len()) };
-    if queue.is_empty() {
-        state.resource_updates_overflowed.store(false, Ordering::Release);
-    }
     true
 }
 
@@ -952,16 +967,39 @@ mod tests {
         }
         state.push_resource_update(&json!({"type":"stream_item","sequence":256}));
         assert!(state.resource_updates_overflowed.load(Ordering::Acquire));
-        let queue = state.resource_updates.lock().unwrap();
-        assert_eq!(queue.len(), 256);
-        assert_eq!(
-            serde_json::from_slice::<Value>(&queue.front().unwrap()).unwrap()["sequence"],
-            0
+        {
+            let queue = state.resource_updates.lock().unwrap();
+            assert_eq!(queue.len(), 256);
+            assert_eq!(
+                serde_json::from_slice::<Value>(&queue.front().unwrap()).unwrap()["sequence"],
+                0
+            );
+            assert_eq!(
+                serde_json::from_slice::<Value>(&queue.back().unwrap()).unwrap()["sequence"],
+                255
+            );
+        }
+        assert!(state.discard_resource_updates_if_overflowed());
+        assert!(state.resource_updates.lock().unwrap().is_empty());
+        assert!(!state.resource_updates_overflowed.load(Ordering::Acquire));
+        state.push_resource_update(&json!({"type":"stream_item","sequence":257}));
+        assert_eq!(state.resource_updates.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn resource_control_accepts_v2_and_marks_stream_end() {
+        let state = FrontendControlState::new(Arc::new(ClientUpdates::default()));
+        handle_control_line(
+            &state,
+            br#"{"protocol":"cmux.protocol/1","type":"stream_end"}"#,
         );
-        assert_eq!(
-            serde_json::from_slice::<Value>(&queue.back().unwrap()).unwrap()["sequence"],
-            255
+        assert!(!state.resource_stream_ended.load(Ordering::Acquire));
+
+        handle_control_line(
+            &state,
+            br#"{"protocol":"cmux.protocol/2","type":"stream_end"}"#,
         );
+        assert!(state.resource_stream_ended.load(Ordering::Acquire));
     }
 
     #[test]
