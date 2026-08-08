@@ -125,6 +125,11 @@ if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
   echo "error: CMUX_TUI_HOSTED_TIMEOUT_SECONDS must be a positive integer" >&2
   exit 2
 fi
+poll_seconds="${CMUX_TUI_HOSTED_POLL_SECONDS:-30}"
+if [[ ! "$poll_seconds" =~ ^[1-9][0-9]*$ ]]; then
+  echo "error: CMUX_TUI_HOSTED_POLL_SECONDS must be a positive integer" >&2
+  exit 2
+fi
 
 deadline=$((SECONDS + timeout_seconds))
 last_report=$SECONDS
@@ -149,7 +154,7 @@ while ((SECONDS < deadline)); do
     echo "Still waiting: $run_url"
     last_report=$SECONDS
   fi
-  sleep 5
+  sleep "$poll_seconds"
 done
 
 if [[ "$run_status" != "completed" ]]; then
