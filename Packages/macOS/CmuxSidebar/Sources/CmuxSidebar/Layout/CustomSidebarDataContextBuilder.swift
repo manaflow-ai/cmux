@@ -74,6 +74,9 @@ public struct CustomSidebarDataContextBuilder {
             "tabs": .array(workspace.surfaces.map(surfaceValue(_:))),
             "tabCount": .int(workspace.surfaceCount),
         ]
+        if let ref = workspace.ref, !ref.isEmpty {
+            fields["ref"] = .string(ref)
+        }
         if let description = workspace.customDescription, !description.isEmpty {
             fields["description"] = .string(description)
         }

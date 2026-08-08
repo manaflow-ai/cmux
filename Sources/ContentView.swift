@@ -10718,11 +10718,13 @@ struct VerticalTabsSidebar: View, Equatable {
         unreadSnapshot: SidebarUnreadSnapshot
     ) -> [String: SwiftValue] {
         let selectedId = tabManager.selectedTabId
+        let workspaceRefs = TerminalController.shared.v2WorkspaceRefsIfPresent(for: tabManager.tabs.map(\.id))
         let workspaces = tabManager.tabs.enumerated().map { index, workspace in
             workspace.customSidebarWorkspaceSnapshot(
                 index: index,
                 selectedId: selectedId,
-                unreadCount: unreadSnapshot.unreadCount(forWorkspaceId: workspace.id)
+                unreadCount: unreadSnapshot.unreadCount(forWorkspaceId: workspace.id),
+                ref: workspaceRefs[workspace.id]
             )
         }
         let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
