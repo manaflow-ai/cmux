@@ -740,8 +740,8 @@ enum ResetStateRecoverySupport {
     Unsupported,
 }
 
-fn reset_state_recovery_support() -> ResetStateRecoverySupport {
-    if cmux_tui_core::checked_reset_deletion_supported() {
+fn reset_state_recovery_support(state_root: Option<&Path>) -> ResetStateRecoverySupport {
+    if state_root.is_some_and(cmux_tui_core::checked_reset_deletion_supported) {
         ResetStateRecoverySupport::Supported
     } else {
         ResetStateRecoverySupport::Unsupported
@@ -845,7 +845,7 @@ fn workspace_schema_startup_error(
             messages,
             session,
             state_root,
-            reset_state_recovery_support(),
+            reset_state_recovery_support(state_root),
         ),
         SchemaSocketOwner::ForcedHandoffUnsupported => {
             messages.forced_handoff_unsupported.to_string()

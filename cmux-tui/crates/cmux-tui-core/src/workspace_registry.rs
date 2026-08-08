@@ -2427,7 +2427,12 @@ fn open_reset_child_dir(
         if error.kind() == std::io::ErrorKind::Interrupted {
             continue;
         }
-        return open_reset_child_dir_after_openat2_error(parent_fd, name.as_c_str(), display_path, error);
+        return open_reset_child_dir_after_openat2_error(
+            parent_fd,
+            name.as_c_str(),
+            display_path,
+            error,
+        );
     }
 }
 
@@ -2441,12 +2446,10 @@ fn open_reset_child_dir_after_openat2_error(
     use std::os::fd::{AsRawFd, FromRawFd};
 
     let Some(error_code) = error.raw_os_error() else {
-        return Err(error)
-            .with_context(|| format!("open reset dir {}", display_path.display()));
+        return Err(error).with_context(|| format!("open reset dir {}", display_path.display()));
     };
     if !matches!(error_code, libc::ENOSYS | libc::EPERM | libc::EACCES | libc::EINVAL) {
-        return Err(error)
-            .with_context(|| format!("open reset dir {}", display_path.display()));
+        return Err(error).with_context(|| format!("open reset dir {}", display_path.display()));
     }
     loop {
         // SAFETY: openat reads a nul-terminated child name relative to a valid parent descriptor.
@@ -2816,7 +2819,7 @@ fn ensure_checked_reset_deletion_supported(root: &Path) -> anyhow::Result<()> {
             return unsupported_checked_reset_deletion(root, "saved state");
         }
     }
-    if checked_reset_deletion_supported() {
+    if checked_reset_deletion_supported(root) {
         Ok(())
     } else {
         unsupported_checked_reset_deletion(root, "saved state")
@@ -2832,23 +2835,19 @@ fn unsupported_checked_reset_deletion(path: &Path, label: &str) -> anyhow::Resul
 
 /// Return whether this process can enforce descriptor-relative reset deletion boundaries.
 #[cfg(any(target_os = "linux", target_os = "android"))]
-pub fn checked_reset_deletion_supported() -> bool {
+pub fn checked_reset_deletion_supported(root: &Path) -> bool {
     use std::ffi::OsStr;
     use std::os::fd::AsRawFd;
-    use std::os::unix::fs::OpenOptionsExt;
 
-    let parent = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW)
-        .open(".");
+    let parent = open_verified_reset_directory(root, "workspace state root");
     parent.is_ok_and(|parent| {
-        open_reset_child_dir(parent.as_raw_fd(), OsStr::new("."), Path::new(".")).is_ok()
+        open_reset_child_dir(parent.as_raw_fd(), OsStr::new("."), root).is_ok()
     })
 }
 
 /// Return whether this process can enforce descriptor-relative reset deletion boundaries.
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-pub fn checked_reset_deletion_supported() -> bool {
+pub fn checked_reset_deletion_supported(_root: &Path) -> bool {
     true
 }
 
@@ -2859,7 +2858,7 @@ pub fn checked_reset_deletion_supported() -> bool {
     target_os = "linux",
     target_os = "android"
 )))]
-pub fn checked_reset_deletion_supported() -> bool {
+pub fn checked_reset_deletion_supported(_root: &Path) -> bool {
     false
 }
 

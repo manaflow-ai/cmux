@@ -466,6 +466,18 @@ fn reset_child_directory_fallback_rejects_mount_boundary() {
     );
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn checked_reset_deletion_support_uses_state_root() {
+    let root = temp_root("reset-capability-state-root");
+    fs::create_dir_all(&root).unwrap();
+
+    assert!(checked_reset_deletion_supported(&root));
+    assert!(!checked_reset_deletion_supported(&root.join("missing")));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn unsupported_checked_reset_deletion_does_not_mutate_tree() {
     let root = temp_root("reset-unsupported-platform-delete");
