@@ -209,3 +209,15 @@ def install_pi_extension(config_dir: Path, cli_path: str | None = None) -> Path:
     if override:
         shutil.copyfile(override, extension_path)
     return extension_path
+
+
+def set_pi_extension_pinned_cli(extension_path: Path, cli_path: str | Path | None) -> None:
+    """Replace the generated extension's installer-pinned cmux executable fixture."""
+    source = extension_path.read_text(encoding="utf-8")
+    marker = "// cmux-pinned-executable"
+    pinned_lines = [line for line in source.splitlines() if marker in line]
+    if len(pinned_lines) != 1:
+        raise RuntimeError(f"expected one pinned cmux executable line, got {pinned_lines!r}")
+    literal = "null" if cli_path is None else json.dumps(str(Path(cli_path).resolve()))
+    replacement = f"const pinnedCmuxExecutable: string | null = {literal}; {marker}"
+    extension_path.write_text(source.replace(pinned_lines[0], replacement), encoding="utf-8")
