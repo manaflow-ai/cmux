@@ -48,7 +48,7 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
     }
 
     @Test
-    func moveSurfaceToNewWorkspaceFlushesPendingTitleBeforeDerivingDestinationTitle() async throws {
+    func moveSurfaceToNewWorkspaceKeepsFollowingProcessTitleUpdatesAfterDetach() async throws {
         let suiteName = "AppDelegateMoveSurfaceTitle.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
@@ -76,6 +76,7 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
         let remainingPanelId = try XCTUnwrap(workspace.focusedPanelId)
         let movedPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
         let movedTitle = "Moved Surface Title - grok"
+        let updatedTitle = "✳ Investigate detached workspace title updates"
 
         NotificationCenter.default.post(
             name: .ghosttyDidSetTitle,
@@ -101,13 +102,28 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
 
         #expect(workspace.panels[movedPanel.id] == nil)
         #expect(workspace.panels[remainingPanelId] != nil)
-        #expect(destinationWorkspace.customTitle == movedTitle)
+        #expect(destinationWorkspace.customTitle == nil)
         #expect(destinationWorkspace.title == movedTitle)
         #expect(destinationWorkspace.panelTitle(panelId: movedPanel.id) == movedTitle)
 
-        scheduler.fire(at: 0)
-        #expect(destinationWorkspace.title == movedTitle)
-        #expect(destinationWorkspace.panelTitle(panelId: movedPanel.id) == movedTitle)
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: destinationWorkspace.terminalPanel(for: movedPanel.id)?.surface,
+            userInfo: [
+                GhosttyNotificationKey.tabId: destinationWorkspace.id,
+                GhosttyNotificationKey.surfaceId: movedPanel.id,
+                GhosttyNotificationKey.title: updatedTitle
+            ]
+        )
+
+        await drainMainQueue()
+        #expect(scheduler.delays == [0.5, 0.5])
+        scheduler.fire(at: 1)
+
+        #expect(destinationWorkspace.customTitle == nil)
+        #expect(destinationWorkspace.processTitle == updatedTitle)
+        #expect(destinationWorkspace.title == updatedTitle)
+        #expect(destinationWorkspace.panelTitle(panelId: movedPanel.id) == updatedTitle)
     }
 
     @Test
