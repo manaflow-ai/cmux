@@ -20918,7 +20918,6 @@ mod tests {
         mux.resize_surface_for_client(source.id, 7, 50, 15).unwrap();
         assert_eq!(mux.new_workspace(None, None).unwrap().size(), (111, 33));
     }
-
     #[test]
     fn agent_reports_apply_hook_authority() {
         let mux = test_mux();
