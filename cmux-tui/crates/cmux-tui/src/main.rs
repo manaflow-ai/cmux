@@ -760,6 +760,13 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     if out.terminal.is_some() && !out.attach {
         return Err("--terminal requires `cmux attach`".to_string());
     }
+    #[cfg(not(unix))]
+    if out.agent_browser_provider {
+        return Err(format!(
+            "--agent-browser-provider is unsupported on {}",
+            std::env::consts::OS
+        ));
+    }
     Ok(out)
 }
 
@@ -1698,12 +1705,12 @@ fn run_server(
         }
     };
     #[cfg(unix)]
-    if let Some(runtime) = remote_runtime {
-        runtime.shutdown()?;
-    }
+    let remote_shutdown = remote_runtime.map(|runtime| runtime.shutdown()).transpose();
     drop(websocket_server);
     mux.shutdown();
     cmux_tui_core::server::cleanup(&socket_path);
+    #[cfg(unix)]
+    remote_shutdown.map(|_| ())?;
     result
 }
 
@@ -2106,12 +2113,23 @@ mod tests {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
     }
 
+    #[cfg(unix)]
     #[test]
     fn browser_owned_server_accepts_the_private_agent_browser_provider_flag() {
         let parsed = args(&["--headless", "--agent-browser-provider"]);
         assert!(parsed.headless);
         assert!(parsed.agent_browser_provider);
         assert!(!usage().contains("--agent-browser-provider"));
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn browser_owned_server_rejects_the_private_provider_flag() {
+        let error = parse_args_result(
+            ["--headless", "--agent-browser-provider"].map(str::to_string),
+        )
+        .unwrap_err();
+        assert!(error.contains("unsupported"));
     }
 
     #[cfg(windows)]

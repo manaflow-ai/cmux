@@ -13,6 +13,7 @@ const AGENT_HOOK_FORMAT: &str = "cmux.agent-hook.v1";
 const MAX_AGENT_SOURCE_BYTES: usize = 64;
 const MAX_NATIVE_EVENT_BYTES: usize = 128;
 const NORMALIZED_TEXT_BYTES: usize = 8 * 1024;
+const REDACTED_AGENT_VALUE: &str = "[redacted]";
 
 const AGENT_EVENT_KINDS: [&str; 12] = [
     "agent.session.started",
@@ -38,6 +39,7 @@ pub fn agent_hook_journal_ingress(
     validate_agent_source(source)?;
     validate_native_event(native_event)?;
     let terminal_id = terminal_id.map(TerminalPublicId::parse).transpose()?;
+    let native = redact_agent_native(native_event, native);
     let mut normalized = normalized_fields(&native);
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
     let kind = semantic_kind(source, native_event, &normalized);
@@ -72,6 +74,95 @@ pub fn agent_hook_journal_ingress(
         causation_id: None,
         correlation_id: None,
     })
+}
+
+fn redact_agent_native(native_event: &str, mut native: Value) -> Value {
+    if semantic_key(native_event) == "input" {
+        return json!({"redacted":true,"reason":"raw_input"});
+    }
+    redact_agent_fields(&mut native);
+    native
+}
+
+fn redact_agent_fields(value: &mut Value) {
+    match value {
+        Value::Object(fields) => {
+            for (field, value) in fields {
+                if agent_field_is_sensitive(field) {
+                    *value = Value::String(REDACTED_AGENT_VALUE.into());
+                } else {
+                    redact_agent_value(value, agent_string_field_is_structural(field));
+                }
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                redact_agent_value(value, false);
+            }
+        }
+        Value::String(_) => *value = Value::String(REDACTED_AGENT_VALUE.into()),
+        _ => {}
+    }
+}
+
+fn redact_agent_value(value: &mut Value, preserve_strings: bool) {
+    match value {
+        Value::String(_) if !preserve_strings => {
+            *value = Value::String(REDACTED_AGENT_VALUE.into());
+        }
+        Value::Object(_) | Value::Array(_) => redact_agent_fields(value),
+        _ => {}
+    }
+}
+
+fn agent_string_field_is_structural(field: &str) -> bool {
+    let field = semantic_key(field);
+    field == "id"
+        || field.ends_with("id")
+        || [
+            "cwd",
+            "directory",
+            "worktree",
+            "path",
+            "name",
+            "type",
+            "state",
+            "status",
+            "relation",
+            "source",
+            "provider",
+            "kind",
+            "role",
+        ]
+        .iter()
+        .copied()
+        .any(|marker| field == marker || field.ends_with(marker))
+}
+
+fn agent_field_is_sensitive(field: &str) -> bool {
+    let field = semantic_key(field);
+    field == "key"
+        || field == "auth"
+        || [
+            "password",
+            "passwd",
+            "passphrase",
+            "secret",
+            "token",
+            "credential",
+            "authorization",
+            "cookie",
+            "privatekey",
+            "apikey",
+            "accesskey",
+            "input",
+            "prompt",
+            "stdin",
+            "paste",
+        ]
+        .iter()
+        .copied()
+        .any(|marker| field.contains(marker))
 }
 
 pub(crate) fn built_in_agent_producer_manifest() -> JournalProducerManifest {
@@ -704,11 +795,49 @@ mod tests {
             let native = json!({"session_id":"native-1","message":"done","opaque":{"v":42}});
             let ingress = agent_hook_journal_ingress(source, event, None, native.clone()).unwrap();
             assert_eq!(ingress.kind, "agent.turn.completed");
-            assert_eq!(ingress.payload["native"], native);
+            assert_eq!(ingress.payload["native"]["session_id"], native["session_id"]);
+            assert_eq!(ingress.payload["native"]["message"], REDACTED_AGENT_VALUE);
+            assert_eq!(ingress.payload["native"]["opaque"]["v"], 42);
             assert_eq!(ingress.payload["normalized"]["agent_session_id"], "native-1");
             assert_eq!(ingress.payload["adapter"]["id"], source);
             assert_eq!(ingress.sensitivity, Some(JournalSensitivity::Sensitive));
         }
+    }
+
+    #[test]
+    fn raw_input_and_credentials_are_redacted_before_ingress() {
+        let ingress = agent_hook_journal_ingress(
+            "pi",
+            "input",
+            None,
+            json!({
+                "input":"do not persist this prompt",
+                "context":{"session_id":"do not persist this token"}
+            }),
+        )
+        .unwrap();
+        assert_eq!(ingress.payload["native"]["redacted"], true);
+        let encoded = serde_json::to_string(&ingress.payload).unwrap();
+        assert!(!encoded.contains("do not persist this prompt"));
+        assert!(!encoded.contains("do not persist this token"));
+
+        let credential = agent_hook_journal_ingress(
+            "codex",
+            "Stop",
+            None,
+            json!({
+                "session_id":"safe-session",
+                "api_token":"do not persist this credential",
+                "nested":{"tool_input":"do not persist this tool input","opaque":42}
+            }),
+        )
+        .unwrap();
+        assert_eq!(credential.payload["normalized"]["agent_session_id"], "safe-session");
+        assert_eq!(credential.payload["native"]["nested"]["opaque"], 42);
+        let encoded = serde_json::to_string(&credential.payload).unwrap();
+        assert!(!encoded.contains("do not persist this credential"));
+        assert!(!encoded.contains("do not persist this tool input"));
+        assert!(encoded.contains(REDACTED_AGENT_VALUE));
     }
 
     #[test]
@@ -752,7 +881,7 @@ mod tests {
     }
 
     #[test]
-    fn provider_envelopes_normalize_nested_fields_without_losing_native_data() {
+    fn provider_envelopes_normalize_structural_fields_and_redact_message_data() {
         let native = json!({
             "event": {
                 "thread": {"id":"amp-thread-1"},
@@ -765,12 +894,12 @@ mod tests {
         });
         let ingress = agent_hook_journal_ingress("amp", "Stop", None, native.clone()).unwrap();
         assert_eq!(ingress.kind, "agent.turn.completed");
-        assert_eq!(ingress.payload["native"], native);
+        assert_eq!(ingress.payload["native"]["provider_only"], native["provider_only"]);
         assert_eq!(ingress.payload["normalized"]["agent_session_id"], "amp-thread-1");
         assert_eq!(ingress.payload["normalized"]["turn_id"], "turn-7");
         assert_eq!(ingress.payload["normalized"]["cwd"], "/tmp/project");
         assert_eq!(ingress.payload["normalized"]["tool_name"], "Bash");
-        assert_eq!(ingress.payload["normalized"]["message"], "done");
+        assert_eq!(ingress.payload["normalized"]["message"], REDACTED_AGENT_VALUE);
     }
 
     #[test]
@@ -1109,7 +1238,11 @@ mod tests {
             "codex",
             "Stop",
             None,
-            json!({"session_id":"native-session","opaque":{"v":42}}),
+            json!({
+                "session_id":"native-session",
+                "api_token":"persistent-secret-sentinel",
+                "opaque":{"v":42,"prompt":"persistent-input-sentinel"}
+            }),
         )
         .unwrap();
         let first = mux.append_journal_ingress(&ingress, "client_test", "agent_hook_once").unwrap();
@@ -1131,6 +1264,10 @@ mod tests {
         assert_eq!(record.producer.id, AGENT_HOOK_PRODUCER_ID);
         assert_eq!(record.authority.as_ref().unwrap().role, "agent.adapter");
         assert_eq!(record.payload["native"]["opaque"]["v"], 42);
+        let encoded = serde_json::to_string(&record.payload).unwrap();
+        assert!(!encoded.contains("persistent-secret-sentinel"));
+        assert!(!encoded.contains("persistent-input-sentinel"));
+        assert!(encoded.contains(REDACTED_AGENT_VALUE));
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }

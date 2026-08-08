@@ -1255,6 +1255,9 @@ pub struct PtyTerminalRuntime {
     /// Even while the emulator and terminal journal agree, odd while one
     /// output frame has updated one side but not yet reached the other.
     journal_capture_epoch: AtomicU64,
+    /// Owned reader join fence. Shutdown joins this handle before it inserts
+    /// the final journal barrier.
+    reader_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
     term: Mutex<Box<Terminal>>,
     stream_progress: Box<TerminalStreamProgress>,
     mouse_encoders: Mutex<Box<MouseEncoders>>,
@@ -2180,6 +2183,7 @@ impl Surface {
                     crate::workspace_registry::new_uuid_v4()
                 )),
                 journal_capture_epoch: AtomicU64::new(0),
+                reader_thread: Mutex::new(None),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -2242,7 +2246,7 @@ impl Surface {
         spawn_frame_producer(&surface, frame_rx)?;
 
         // PTY reader: pty bytes -> terminal state -> SurfaceOutput events.
-        std::thread::Builder::new().name(format!("surface-{id}-reader")).spawn({
+        let reader_thread = std::thread::Builder::new().name(format!("surface-{id}-reader")).spawn({
             let surface = surface.clone();
             move || {
                 let mut buf = [0u8; 64 * 1024];
@@ -2340,6 +2344,12 @@ impl Surface {
                 publish_local_exit_if_ready(&surface);
             }
         })?;
+        *surface
+            .as_pty()
+            .expect("local PTY surface owns its reader")
+            .reader_thread
+            .lock()
+            .unwrap() = Some(reader_thread);
 
         // Child reaper: retain the native status and rendezvous with PTY EOF
         // so final output is visible before the mux observes completion.
@@ -2605,6 +2615,7 @@ impl Surface {
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation,
                 journal_capture_epoch: AtomicU64::new(0),
+                reader_thread: Mutex::new(None),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -2668,7 +2679,7 @@ impl Surface {
         // spawn. If Builder::spawn fails, dropping the closure clone and
         // function-local Surface drops the still-armed attachment, so no
         // control-write failure can convert this Err into a live orphan.
-        std::thread::Builder::new().name(format!("surface-{id}-host")).spawn({
+        let reader_thread = std::thread::Builder::new().name(format!("surface-{id}-host")).spawn({
             let surface = surface.clone();
             let mux = mux.clone();
             let scrollback = opts.scrollback;
@@ -3320,6 +3331,12 @@ impl Surface {
                 }
             }
         })?;
+        *surface
+            .as_pty()
+            .expect("hosted PTY surface owns its reader")
+            .reader_thread
+            .lock()
+            .unwrap() = Some(reader_thread);
         let kitty_registration = kitty_reservation.map_or(Ok(()), |reservation| {
             reservation.commit(&surface, snapshot.kitty_state.limits)
         });
@@ -3564,6 +3581,7 @@ impl Surface {
                 terminal_public_id: Some(Arc::new(terminal_public_id)),
                 journal_generation,
                 journal_capture_epoch: AtomicU64::new(0),
+                reader_thread: Mutex::new(None),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -3780,6 +3798,7 @@ impl Surface {
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation: Arc::from(format!("test-{id}")),
                 journal_capture_epoch: AtomicU64::new(0),
+                reader_thread: Mutex::new(None),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -3847,6 +3866,28 @@ impl Surface {
 
     pub(crate) fn terminal_journal_capture_epoch(&self) -> Option<u64> {
         self.as_pty().map(|pty| pty.journal_capture_epoch.load(Ordering::Acquire))
+    }
+
+    pub(crate) fn join_terminal_reader(&self) {
+        let Some(pty) = self.as_pty() else {
+            return;
+        };
+        let Some(reader) = pty.reader_thread.lock().unwrap().take() else {
+            return;
+        };
+        if reader.join().is_err() {
+            eprintln!("cmux-tui: terminal reader thread panicked during shutdown");
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_terminal_reader_for_test(
+        &self,
+        reader: std::thread::JoinHandle<()>,
+    ) {
+        let pty = self.as_pty().expect("test reader requires a PTY surface");
+        let previous = pty.reader_thread.lock().unwrap().replace(reader);
+        assert!(previous.is_none(), "test PTY already owns a reader thread");
     }
 
     #[cfg(test)]

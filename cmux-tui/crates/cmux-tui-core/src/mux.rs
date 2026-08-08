@@ -7321,6 +7321,12 @@ impl Mux {
     }
 
     #[cfg(test)]
+    pub(crate) fn insert_surface_runtime_for_test(&self, surface: Arc<Surface>) {
+        let previous = self.state.lock().unwrap().surfaces.insert(surface.id, surface);
+        assert!(previous.is_none(), "test surface id already exists");
+    }
+
+    #[cfg(test)]
     pub(crate) fn remove_terminal_catalog_for_test(
         &self,
         terminal_id: &TerminalPublicId,
@@ -8079,12 +8085,15 @@ impl Mux {
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
         let surfaces = unique_surface_runtimes(&self.state.lock().unwrap());
-        for surface in surfaces {
+        for surface in &surfaces {
             surface.shutdown_for_daemon();
         }
-        // Surface shutdown stops every terminal input source. Fence the
-        // terminal ingress lane while this Mux still owns the registry so the
-        // writer cannot lose parser-accepted output when the last Arc drops.
+        for surface in surfaces {
+            surface.join_terminal_reader();
+        }
+        // Every terminal input source has stopped and its reader has drained.
+        // Fence the terminal ingress lane while this Mux still owns the
+        // registry so the last Arc cannot drop parser-accepted output.
         if let Err(error) = self.flush_terminal_journal() {
             eprintln!("cmux-tui: flush terminal journal during shutdown: {error:#}");
         }

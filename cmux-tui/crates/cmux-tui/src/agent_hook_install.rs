@@ -280,11 +280,18 @@ fn runtime_data_home(home: &Path) -> PathBuf {
         .unwrap_or_else(|| home.join(".local/share"))
 }
 
+#[cfg(unix)]
 pub(crate) fn runtime_helper_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").filter(|value| !value.is_empty()).map(PathBuf::from)?;
     Some(runtime_data_home(&home).join("cmux-tui/bin/cmux-tui-hook"))
 }
 
+#[cfg(not(unix))]
+pub(crate) fn runtime_helper_path() -> Option<PathBuf> {
+    None
+}
+
+#[cfg(unix)]
 pub(crate) fn run(plan: &Plan) -> RunResult {
     match Context::runtime() {
         Ok(context) => run_with_context(plan, &context),
@@ -292,6 +299,20 @@ pub(crate) fn run(plan: &Plan) -> RunResult {
             value: json!({"action":action_name(plan.action),"errors":[error.to_string()]}),
             failed: true,
         },
+    }
+}
+
+#[cfg(not(unix))]
+pub(crate) fn run(plan: &Plan) -> RunResult {
+    RunResult {
+        value: json!({
+            "action":action_name(plan.action),
+            "errors":[format!(
+                "coding-agent hook management is unsupported on {}",
+                std::env::consts::OS
+            )]
+        }),
+        failed: true,
     }
 }
 
@@ -1003,6 +1024,15 @@ mod tests {
             path: None,
             environment: BTreeMap::new(),
         }
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn public_hook_operations_are_rejected_on_unsupported_platforms() {
+        let result = run(&Plan { action: Action::Status, providers: Vec::new() });
+        assert!(result.failed);
+        assert!(result.value["errors"][0].as_str().unwrap().contains("unsupported"));
+        assert!(runtime_helper_path().is_none());
     }
 
     #[test]

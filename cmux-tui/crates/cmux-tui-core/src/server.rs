@@ -4965,7 +4965,7 @@ impl Default for JournalStreamFilter {
             subject_ids: HashSet::new(),
             exact_subjects: HashMap::new(),
             has_subject_filter: false,
-            max_sensitivity: Some(JournalSensitivity::Sensitive),
+            max_sensitivity: Some(JournalSensitivity::Metadata),
             regex: None,
         }
     }
@@ -5155,7 +5155,7 @@ impl JournalStreamFilter {
                 })
             })
             .transpose()?
-            .or(Some(JournalSensitivity::Sensitive));
+            .or(Some(JournalSensitivity::Metadata));
         if max_sensitivity == Some(JournalSensitivity::Secret) {
             return Err(ResourceError::validation_invalid(
                 Some("filter.max_sensitivity"),
@@ -12596,6 +12596,24 @@ mod tests {
         .expect("secret journal sensitivity must be rejected");
         assert_eq!(error.code, "validation.invalid");
         assert_eq!(error.details["field"], "filter.max_sensitivity");
+    }
+
+    #[test]
+    fn journal_filter_requires_an_explicit_sensitive_opt_in() {
+        assert_eq!(
+            JournalStreamFilter::parse(None).unwrap().max_sensitivity,
+            Some(JournalSensitivity::Metadata)
+        );
+        assert_eq!(
+            JournalStreamFilter::parse(Some(&json!({}))).unwrap().max_sensitivity,
+            Some(JournalSensitivity::Metadata)
+        );
+        assert_eq!(
+            JournalStreamFilter::parse(Some(&json!({"max_sensitivity":"sensitive"})))
+                .unwrap()
+                .max_sensitivity,
+            Some(JournalSensitivity::Sensitive)
+        );
     }
 
     #[cfg(unix)]

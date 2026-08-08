@@ -345,10 +345,11 @@ redacted outcome needed for diagnostics.
 
 An agent adapter maps one agent runtime's native hooks into the semantic event
 vocabulary. The built-in `cmux_agent` producer accepts native JSON through the
-CLI, preserves the complete parsed native value under `payload.native`, and
-stores common session, turn, directory, transcript, tool, message, and agent
-topology fields under `payload.normalized`. Unknown native events become
-`agent.state.changed`, so adding a provider event never discards its data:
+CLI, preserves only structural string fields and non-string structure before
+it stores the provider shape under `payload.native`, and stores common session,
+turn, directory, transcript, tool, and agent topology fields under
+`payload.normalized`. Content strings and credential fields are redacted.
+Unknown native events become `agent.state.changed`:
 
 ```bash
 printf '%s\n' '{"session_id":"abc","message":"done"}' | \
@@ -371,12 +372,12 @@ record and can fetch one tree through its indexed subject instead of scanning
 payload JSON.
 
 Native agent, parent, root, session, depth, name, and type fields remain in
-the normalized projection while the complete provider object remains under
-`payload.native`. Adapters accept common snake-case, camel-case, and nested
-event/context forms. When a provider omits parent identity, the event is
-marked `agent_relation: "unknown"` and no parent edge is invented. This keeps
-parallel or nested children as explicit orphans until a later provider event
-supplies the relationship.
+the normalized projection. The provider object remains under `payload.native`
+after recursive content and credential-field redaction. Adapters accept common
+snake-case, camel-case, and nested event/context forms. When a provider
+omits parent identity, the event is marked `agent_relation: "unknown"` and no
+parent edge is invented. This keeps parallel or nested children as explicit
+orphans until a later provider event supplies the relationship.
 
 Provider contracts may supply a safe structural invariant. Claude Code, for
 example, supplies a stable child ID but no parent ID and does not permit its
@@ -399,6 +400,10 @@ cmux agent hook install
 cmux agent hook status
 cmux agent hook uninstall
 ```
+
+Coding-agent hook management is supported only on Unix systems. Other
+platforms reject these commands instead of installing provider files that
+cannot run.
 
 Providers load hook configuration at process start. After installation, launch
 a new agent or restart an existing agent inside a cmux-tui terminal so it
@@ -622,7 +627,7 @@ markers.
 | Frontend focus, window geometry, and viewport target | Implemented as advisory observations |
 | Checkpoint terminal VT content references | Implemented with content-addressed gzip blobs |
 | Continuous terminal content chunks and geometry | Implemented with raw BLOBs and generation-local offsets |
-| Built-in lossless agent-hook ingress, semantic normalization, and indexed agent forest | Implemented in storage v1; explicit parent session IDs form cross-process ancestry without provider agent IDs |
+| Built-in redacted agent-hook ingress, semantic normalization, and indexed agent forest | Implemented in storage v1; explicit parent session IDs form cross-process ancestry without provider agent IDs |
 | Provider-specific agent hook installers | Implemented for Codex, Claude Code, Gemini CLI, Cursor Agent, Grok, Hermes Agent, OpenCode, Amp, and Pi |
 | Verified agent root ownership leases | Pending |
 | Schema-validated producer manifests and ingress | Implemented in storage v1 |

@@ -723,6 +723,66 @@ mod tests {
     }
 
     #[test]
+    fn shutdown_joins_terminal_readers_before_the_final_journal_fence() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-reader-shutdown-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "terminal-reader-shutdown",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let surface = crate::Surface::spawn_for_test(
+            mux.next_id(),
+            crate::SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+        )
+        .unwrap();
+        let terminal_id = Arc::new(public_id("term", 13, TerminalPublicId::parse));
+        let (release_reader, reader_release) = sync_channel(1);
+        let reader_mux = mux.clone();
+        let reader = std::thread::spawn(move || {
+            reader_release.recv().unwrap();
+            reader_mux.journal_terminal_output(
+                terminal_id,
+                Arc::from("delayed-reader-generation"),
+                b"persist after reader shutdown starts".to_vec(),
+            );
+        });
+        surface.install_terminal_reader_for_test(reader);
+        mux.insert_surface_runtime_for_test(surface);
+
+        let shutdown_mux = mux.clone();
+        let (completed, completion) = sync_channel(1);
+        let shutdown = std::thread::spawn(move || {
+            shutdown_mux.shutdown();
+            completed.send(()).unwrap();
+        });
+        assert!(
+            completion.recv_timeout(Duration::from_millis(100)).is_err(),
+            "shutdown returned before the terminal reader stopped"
+        );
+        release_reader.send(()).unwrap();
+        completion.recv_timeout(Duration::from_secs(5)).unwrap();
+        shutdown.join().unwrap();
+
+        let records = mux.session_journal_after(0, 1024).unwrap().records;
+        let output = records
+            .iter()
+            .find(|record| record.kind == "terminal.output")
+            .expect("shutdown fenced delayed terminal reader output");
+        assert_eq!(
+            output.terminal_output.as_deref(),
+            Some(b"persist after reader shutdown starts".as_slice())
+        );
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn terminal_output_survives_a_nonretryable_writer_failure() {
         let root = std::env::temp_dir().join(format!(
             "cmux-terminal-journal-writer-retry-{}-{}",
