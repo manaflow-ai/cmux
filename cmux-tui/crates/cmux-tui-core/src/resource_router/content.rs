@@ -1965,7 +1965,6 @@ mod tests {
         let internal = durable.terminals.first().expect("fixture has one durable terminal");
         let internal_id = internal.terminal_id.as_str();
         let incarnation = internal.incarnation.as_deref().unwrap_or_default();
-
         let pending = dispatch(
             &mux,
             parsed_request("terminal.wait_exit", &selectors, json!({"timeout_ms":"0"}), None),
@@ -2045,6 +2044,78 @@ mod tests {
         assert_eq!(terminal["tab_ids"], json!([]));
         assert_eq!(terminal["exit"]["outcome"], exited["outcome"]);
         assert!(mux.surface(surface.id).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_wait_exit_resolves_detached_id_after_exit_upsert_then_delete() {
+        let (mux, _surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
+        let public_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        let before = public_session_snapshot(&mux).unwrap()["cursor"]["revision"]
+            .as_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        let exit = crate::terminal_host_protocol::TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Signal {
+                signal: libc::SIGTERM,
+                core_dumped: true,
+            },
+            exited_at_ms: 3_456_789,
+        };
+        assert!(mux.persist_terminal_exit_for_test(&public_id, &exit).unwrap());
+
+        let exited = dispatch(
+            &mux,
+            parsed_request("terminal.wait_exit", &selectors, json!({"timeout_ms":"0"}), None),
+        )
+        .unwrap();
+        assert_eq!(exited["state"], "exited");
+        assert_eq!(
+            exited["outcome"],
+            json!({"kind":"signal","signal":libc::SIGTERM,"core_dumped":true})
+        );
+        assert_eq!(exited["exited_at"], "3456789");
+
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        assert_eq!(snapshot["terminals"], json!([]));
+        let events = mux.resource_events_after(before).unwrap();
+        assert_eq!(events.batches.len(), 1);
+        let exit_changes = events.batches[0].changes.as_array().unwrap();
+        let exit_upsert = exit_changes
+            .iter()
+            .find(|change| {
+                change["resource"] == "terminal"
+                    && change["id"] == public_id.as_str()
+                    && change["kind"] == "upsert"
+            })
+            .expect("exit batch omitted the terminal upsert");
+        assert_eq!(exit_upsert["value"]["lifecycle"], "exited");
+        assert_eq!(exit_upsert["value"]["exit"]["outcome"], exited["outcome"]);
+        assert_eq!(exit_upsert["sequence"], 0);
+        assert!(exit_changes.iter().any(|change| {
+            change["resource"] == "terminal"
+                && change["id"] == public_id.as_str()
+                && change["kind"] == "delete"
+        }));
+
+        let mut stale_nested = selectors.clone();
+        stale_nested.pane = Some("pane_00000000000000000000000000000001".into());
+        let error = dispatch(
+            &mux,
+            parsed_request("terminal.wait_exit", &stale_nested, json!({"timeout_ms":"0"}), None),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "selector.not_found");
+
+        let mut unknown = selectors.clone();
+        unknown.terminal = Some("term_ffffffffffffffffffffffffffffffff".into());
+        let error = dispatch(
+            &mux,
+            parsed_request("terminal.wait_exit", &unknown, json!({"timeout_ms":"0"}), None),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "selector.not_found");
     }
 
     #[test]

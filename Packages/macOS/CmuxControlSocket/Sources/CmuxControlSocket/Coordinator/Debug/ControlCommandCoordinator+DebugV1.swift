@@ -2,7 +2,8 @@ internal import Foundation
 
 /// The v1 line-protocol debug/test command dispatch (`set_shortcut`,
 /// `simulate_shortcut`, `activate_app`, the counter reads/resets, the panel
-/// snapshot/screenshot family, and `debug_right_sidebar_focus`).
+/// snapshot family, and `debug_right_sidebar_focus`). Window screenshots stay
+/// app-owned because their async compositor wait runs on the socket worker.
 ///
 /// Every command here was compiled only into DEBUG builds (the legacy
 /// `processCommand` cases sat inside `#if DEBUG`), so the whole dispatch is
@@ -79,9 +80,6 @@ extension ControlCommandCoordinator {
                 ?? Self.debugContextUnavailableResponse
         case "panel_snapshot_reset":
             return debugContext?.controlDebugPanelSnapshotReset(surfaceArgument: args)
-                ?? Self.debugContextUnavailableResponse
-        case "screenshot":
-            return debugContext?.controlDebugCaptureScreenshot(label: args)
                 ?? Self.debugContextUnavailableResponse
         default:
             return nil

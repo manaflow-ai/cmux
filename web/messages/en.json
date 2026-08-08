@@ -100,10 +100,11 @@
       "vaultGroup": "vault",
       "vaultOverview": "overview",
       "vaultSessions": "sessions",
-      "subrouterGroup": "subrouter",
-      "subrouterOverview": "overview",
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "overview",
       "accountGroup": "account",
       "billing": "billing",
+      "team": "team",
       "testflight": "iOS TestFlight"
     },
     "home": {
@@ -112,13 +113,24 @@
       "vaultName": "vault",
       "vaultDescription": "browse synced agent sessions and manage cli access.",
       "vaultLink": "open vault",
-      "subrouterName": "subrouter",
-      "subrouterDescription": "route llm requests across provider accounts with failover and usage-aware scheduling.",
-      "subrouterLink": "open subrouter"
+      "coderouterName": "coderouter",
+      "coderouterDescription": "route llm requests across provider accounts with failover and usage-aware scheduling.",
+      "coderouterLink": "open coderouter"
     },
-    "subrouter": {
-      "title": "subrouter",
-      "description": "subrouter routes llm requests across provider accounts with failover and usage-aware scheduling."
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Manage shared AI accounts and route requests with coderouter.",
+      "title": "coderouter",
+      "description": "coderouter routes llm requests across provider accounts with failover and usage-aware scheduling."
+    },
+    "accountMenu": {
+      "label": "Account menu",
+      "settings": "Settings",
+      "billing": "Billing",
+      "signOut": "Sign out",
+      "signingOut": "Signing out…",
+      "signOutError": "Could not sign out. Try again.",
+      "signIn": "Sign in"
     },
     "billing": {
       "eyebrow": "account",
@@ -237,8 +249,8 @@
       "teamSwitcherLabel": "Team",
       "notConfiguredTitle": "AI account management isn't available yet",
       "notConfiguredBody": "Team AI accounts aren't enabled for this deployment. Try again later or contact support.",
-      "migrationPendingTitle": "Account migration in progress",
-      "migrationPendingBody": "Shared accounts are temporarily unavailable while migration finishes. Try again shortly.",
+      "migrationPendingTitle": "Accounts temporarily unavailable",
+      "migrationPendingBody": "Shared accounts are temporarily unavailable. Try again shortly.",
       "loadErrorTitle": "Accounts could not load",
       "loadErrorBody": "The account service could not be reached. Try again shortly.",
       "accountsTitle": "Connected accounts",
@@ -1893,6 +1905,7 @@
         "paneBorderColor": "Override the cmux pane divider color in split workspaces. This affects cmux pane boundaries, not Ghostty internal splits.",
         "activePaneBorderColor": "Optional border color drawn around the focused cmux pane in split workspaces.",
         "notifications": {
+          "paneFlashColor": "Override the pane flash and unread notification ring color. Leave unset to use the built-in system blue.",
           "suppressOnlyFocusedSurface": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw.",
           "agentPermissionPrompt": "Notify when an agent (e.g. Claude Code) is blocked waiting for your permission to run a tool. On by default, since this is the alert you must act on to unblock the agent.",
           "agentTurnComplete": "When to notify that an agent finished a turn. whenIdle (default) suppresses the notification while the agent still has a running background task or a pending scheduled wakeup, so you are pinged once work truly drains. always notifies on every turn end; never disables it.",
