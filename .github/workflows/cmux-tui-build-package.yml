@@ -65,9 +65,6 @@ on:
 
 permissions: {}
 
-env:
-  RUST_TOOLCHAIN: "1.95.0"
-
 jobs:
   plan-build:
     name: select binary targets
@@ -208,12 +205,8 @@ jobs:
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
 
-      - name: Install Rust toolchain
-        shell: bash
-        run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
-          rustup default "$RUST_TOOLCHAIN"
-          rustc --version
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Install Rust target
         shell: bash
@@ -445,12 +438,8 @@ jobs:
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
 
-      - name: Install Rust toolchain
-        shell: bash
-        run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
-          rustup default "$RUST_TOOLCHAIN"
-          rustc --version
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Install Rust target
         shell: bash
