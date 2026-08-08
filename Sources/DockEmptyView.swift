@@ -6,62 +6,48 @@ struct DockEmptyView: View {
     @State private var isPromptPopoverPresented = false
 
     var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "dock.rectangle")
-                .cmuxFont(size: 24)
-                .foregroundStyle(.secondary)
-            Text(String(localized: "dock.empty.title", defaultValue: "No Dock Controls"))
-                .cmuxFont(size: 13, weight: .semibold)
-            Text(String(
+        CmuxEmptyStateView(
+            symbolName: "dock.rectangle",
+            title: String(localized: "dock.empty.title", defaultValue: "No Dock controls yet"),
+            description: String(
                 localized: "dock.empty.subtitle",
-                defaultValue: "Add controls to .cmux/dock.json."
-            ))
-            .cmuxFont(size: 12)
-            .foregroundStyle(.secondary)
-            VStack(spacing: 8) {
-                HStack(spacing: 4) {
-                    Button {
-                        copyAgentPrompt()
-                    } label: {
-                        Label(
-                            String(localized: "dock.empty.copyPrompt", defaultValue: "Copy Agent Prompt"),
-                            systemImage: "doc.on.doc"
-                        )
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help(String(localized: "dock.empty.copyPrompt.help", defaultValue: "Copy a prompt you can paste into an AI coding agent"))
-
-                    Button {
-                        isPromptPopoverPresented.toggle()
-                    } label: {
-                        Image(systemName: "info.circle")
-                    }
-                    .buttonStyle(.borderless)
-                    .controlSize(.small)
-                    .accessibilityLabel(String(localized: "dock.empty.promptInfo", defaultValue: "Show Agent Prompt"))
-                    .help(String(localized: "dock.empty.promptInfo.help", defaultValue: "Show the prompt that will be copied"))
-                    .popover(isPresented: $isPromptPopoverPresented, arrowEdge: .bottom) {
-                        agentPromptPopover
-                    }
-                }
-
-                Button {
-                    openDockDocs()
-                } label: {
-                    Label(
-                        String(localized: "dock.empty.openDocs", defaultValue: "Docs"),
-                        systemImage: "questionmark.circle"
-                    )
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .help(String(localized: "dock.empty.openDocs.help", defaultValue: "Open the Dock documentation"))
+                defaultValue: "Dock runs your project's commands in the right sidebar. Define them in .cmux/dock.json."
+            )
+        ) {
+            Button {
+                copyAgentPrompt()
+            } label: {
+                Label(
+                    String(localized: "dock.empty.copyPrompt", defaultValue: "Copy Agent Prompt"),
+                    systemImage: "doc.on.doc"
+                )
             }
-            .padding(.top, 4)
+            .buttonStyle(.bordered)
+            .help(String(localized: "dock.empty.copyPrompt.help", defaultValue: "Copy a prompt you can paste into an AI coding agent"))
+
+            Button {
+                isPromptPopoverPresented.toggle()
+            } label: {
+                Image(systemName: "info.circle")
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(String(localized: "dock.empty.promptInfo", defaultValue: "Show Agent Prompt"))
+            .help(String(localized: "dock.empty.promptInfo.help", defaultValue: "Show the prompt that will be copied"))
+            .popover(isPresented: $isPromptPopoverPresented, arrowEdge: .bottom) {
+                agentPromptPopover
+            }
+
+            Button {
+                openDockDocs()
+            } label: {
+                Label(
+                    String(localized: "dock.empty.openDocs", defaultValue: "Docs"),
+                    systemImage: "questionmark.circle"
+                )
+            }
+            .buttonStyle(.bordered)
+            .help(String(localized: "dock.empty.openDocs.help", defaultValue: "Open the Dock documentation"))
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var agentPromptPopover: some View {

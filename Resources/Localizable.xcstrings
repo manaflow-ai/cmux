@@ -110629,13 +110629,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add controls to .cmux/dock.json."
+            "value": "Dock runs your project's commands in the right sidebar. Define them in .cmux/dock.json."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": ".cmux/dock.json にコントロールを追加してください。"
+            "value": "Dockはプロジェクトのコマンドを右サイドバーで実行します。.cmux/dock.json で定義してください。"
           }
         }
       }
@@ -110646,13 +110646,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No Dock Controls"
+            "value": "No Dock controls yet"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dockコントロールがありません"
+            "value": "Dockコントロールはまだありません"
           }
         }
       }
@@ -111435,13 +111435,64 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Empty Panel"
+            "value": "Nothing open here"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "空のパネル"
+            "value": "ここには何も開いていません"
+          }
+        }
+      }
+    },
+    "emptyPanel.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open a terminal or a browser to fill this pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルまたはブラウザを開いて、このペインを使い始めます。"
+          }
+        }
+      }
+    },
+    "emptyPanel.action.newTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ターミナル"
+          }
+        }
+      }
+    },
+    "emptyPanel.action.openBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザを開く"
           }
         }
       }
@@ -147374,6 +147425,23 @@
         }
       }
     },
+    "search.close.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Find"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索を閉じる"
+          }
+        }
+      }
+    },
     "search.nextMatch.help": {
       "extractionState": "manual",
       "localizations": {
@@ -147489,6 +147557,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "下一個符合項目 (Return)"
+          }
+        }
+      }
+    },
+    "search.nextMatch.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next Match"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次の一致"
           }
         }
       }
@@ -147727,6 +147812,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "上一個符合項目 (Shift+Return)"
+          }
+        }
+      }
+    },
+    "search.previousMatch.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous Match"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前の一致"
           }
         }
       }

@@ -578,25 +578,19 @@ private struct FeedListView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 4) {
-            Text(filter == .actionable
-                 ? String(localized: "feed.empty.actionable.title",
-                          defaultValue: "No pending decisions")
-                 : String(localized: "feed.empty.activity.title",
-                          defaultValue: "No activity yet"))
-                .cmuxFont(size: 12)
-                .foregroundColor(.secondary)
-            Text(filter == .actionable
-                 ? String(localized: "feed.empty.actionable.subtitle",
-                          defaultValue: "Permission, plan, and question requests from AI agents will appear here.")
-                 : String(localized: "feed.empty.activity.subtitle",
-                          defaultValue: "Agent decisions and todo-list updates will appear here."))
-                .cmuxFont(size: 11)
-                .foregroundColor(.secondary.opacity(0.7))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 16)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        CmuxEmptyStateView(
+            symbolName: filter == .actionable ? "checklist.checked" : "clock",
+            title: filter == .actionable
+                ? String(localized: "feed.empty.actionable.title",
+                         defaultValue: "No pending decisions")
+                : String(localized: "feed.empty.activity.title",
+                         defaultValue: "No activity yet"),
+            description: filter == .actionable
+                ? String(localized: "feed.empty.actionable.subtitle",
+                         defaultValue: "Permission, plan, and question requests from AI agents will appear here.")
+                : String(localized: "feed.empty.activity.subtitle",
+                         defaultValue: "Agent decisions and todo-list updates will appear here.")
+        )
     }
 }
 

@@ -5448,7 +5448,13 @@ struct ContentView: View {
 
             let segment = String(chars[index..<end])
             if isMatched {
-                result = result + Text(segment).foregroundColor(.blue)
+                // Follow the system accent rather than a fixed blue, and
+                // carry the match in weight as well as color so it still
+                // reads when accent and text hue are close, or for a user
+                // who cannot separate the two by color.
+                result = result + Text(segment)
+                    .foregroundColor(cmuxAccentColor())
+                    .fontWeight(.semibold)
             } else {
                 result = result + Text(segment).foregroundColor(.primary)
             }

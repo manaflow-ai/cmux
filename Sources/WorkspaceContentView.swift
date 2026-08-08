@@ -773,16 +773,26 @@ struct EmptyPanelView: View {
     let paneId: PaneID
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
+    /// Key-equivalent badge shown after a button's title.
+    ///
+    /// Styled against the button's own control background rather than a
+    /// hardcoded white-on-accent, so it stays legible in light and dark
+    /// appearance and under every system accent color.
     private struct ShortcutHint: View {
         let text: String
 
         var body: some View {
             Text(text)
-                .cmuxFont(size: 11, weight: .semibold, design: .rounded)
-                .foregroundStyle(.white.opacity(0.9))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(.white.opacity(0.18), in: Capsule())
+                .cmuxFont(size: 11, weight: .medium, design: .rounded)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.primary.opacity(0.08), in: Capsule())
+                // The shortcut is decoration next to a control that already
+                // carries the same key equivalent; VoiceOver reads the key
+                // equivalent from the button itself.
+                .accessibilityHidden(true)
         }
     }
 
@@ -824,7 +834,7 @@ struct EmptyPanelView: View {
         action: @escaping () -> Void
     ) -> some View {
         let button = Button(action: action) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 HStack(spacing: 6) {
                     CmuxSystemSymbolImage(systemName: systemImage, pointSize: 13)
                     Text(title)
@@ -832,7 +842,10 @@ struct EmptyPanelView: View {
                 ShortcutHint(text: shortcut.displayString)
             }
         }
-        .buttonStyle(.borderedProminent)
+        // Both choices carry equal weight, so neither takes the prominent
+        // (default-action) treatment macOS reserves for a single button.
+        .buttonStyle(.bordered)
+        .controlSize(.large)
 
         if let key = shortcut.keyEquivalent {
             button.keyboardShortcut(key, modifiers: shortcut.eventModifiers)
@@ -842,31 +855,34 @@ struct EmptyPanelView: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            CmuxSystemSymbolImage(magnified: "terminal.fill", pointSize: 48)
-                .foregroundStyle(.tertiary)
+        CmuxEmptyStateView(
+            symbolName: "square.split.2x1",
+            title: String(localized: "emptyPanel.title", defaultValue: "Nothing open here"),
+            description: String(
+                localized: "emptyPanel.subtitle",
+                defaultValue: "Open a terminal or a browser to fill this pane."
+            )
+        ) {
+            emptyPaneActionButton(
+                title: String(
+                    localized: "emptyPanel.action.newTerminal",
+                    defaultValue: "New Terminal"
+                ),
+                systemImage: "terminal.fill",
+                shortcut: newSurfaceShortcut,
+                action: createTerminal
+            )
 
-            Text(String(localized: "emptyPanel.title", defaultValue: "Empty Panel"))
-                .cmuxFont(.headline)
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 12) {
-                emptyPaneActionButton(
-                    title: "Terminal",
-                    systemImage: "terminal.fill",
-                    shortcut: newSurfaceShortcut,
-                    action: createTerminal
-                )
-
-                emptyPaneActionButton(
-                    title: "Browser",
-                    systemImage: "globe",
-                    shortcut: openBrowserShortcut,
-                    action: createBrowser
-                )
-            }
+            emptyPaneActionButton(
+                title: String(
+                    localized: "emptyPanel.action.openBrowser",
+                    defaultValue: "Open Browser"
+                ),
+                systemImage: "globe",
+                shortcut: openBrowserShortcut,
+                action: createBrowser
+            )
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: GhosttyBackgroundTheme.currentColor()))
 #if DEBUG
         .onAppear {
