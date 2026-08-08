@@ -11,11 +11,28 @@ public struct MobileWorkspaceAggregation: Sendable {
     /// The aggregate keys in deterministic display order. A key is the
     /// foreground owner key or a pairing/device id for secondaries; sibling
     /// builds of one Mac order deterministically by instance tag.
+    ///
+    /// `computerPriority` lists Mac device ids the user ordered by hand
+    /// (``MobileWorkspaceSortMode/computerPriority``): matching Macs come
+    /// first, in list order, ahead of even the foreground Mac — an explicit
+    /// choice must beat the automatic rule or it is not a choice. Sibling
+    /// builds of one prioritized Mac stay adjacent (same rank, tag tiebreak),
+    /// and Macs not in the list keep the automatic order after the
+    /// prioritized ones. Ids that match no live state are ignored.
     public func orderedMacIDs(
         statesByMac: [String: MacWorkspaceState],
-        foregroundMacDeviceID foregroundKey: String?
+        foregroundMacDeviceID foregroundKey: String?,
+        computerPriority: [String] = []
     ) -> [String] {
-        statesByMac.sorted { lhs, rhs in
+        var priorityRank: [String: Int] = [:]
+        for (index, deviceID) in computerPriority.enumerated()
+            where !deviceID.isEmpty && priorityRank[deviceID] == nil {
+            priorityRank[deviceID] = index
+        }
+        return statesByMac.sorted { lhs, rhs in
+            let lhsRank = priorityRank[lhs.value.macDeviceID] ?? Int.max
+            let rhsRank = priorityRank[rhs.value.macDeviceID] ?? Int.max
+            if lhsRank != rhsRank { return lhsRank < rhsRank }
             let lhsForeground = lhs.key == foregroundKey
             let rhsForeground = rhs.key == foregroundKey
             if lhsForeground != rhsForeground { return lhsForeground }

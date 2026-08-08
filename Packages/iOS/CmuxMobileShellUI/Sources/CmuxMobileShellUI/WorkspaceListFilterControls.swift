@@ -78,6 +78,20 @@ extension MobileWorkspaceReadStateFilter {
     }
 }
 
+extension MobileWorkspaceSortMode {
+    /// The localized menu title for this All Computers sort mode.
+    var displayName: String {
+        switch self {
+        case .automatic:
+            return L10n.string("mobile.workspaces.sort.automatic", defaultValue: "Automatic")
+        case .computerPriority:
+            return L10n.string("mobile.workspaces.sort.computerOrder", defaultValue: "Computer Order")
+        case .recentActivity:
+            return L10n.string("mobile.workspaces.sort.recentActivity", defaultValue: "Recent Activity")
+        }
+    }
+}
+
 extension MobileWorkspaceListFilter {
     /// Keep the menu-owned machine selection visible and recoverable. The
     /// machine section hides below two present machines, so any selected machine
