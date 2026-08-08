@@ -197,9 +197,14 @@ public struct SocketListenerPolicy: Sendable {
     /// The fallback socket path after a bind failure at the stable default
     /// path, or nil when no fallback applies.
     ///
-    /// Only the shared stable default path falls back (to the user-scoped
-    /// stable path) and only for permission/lock/occupancy failures another
-    /// user's listener can cause. Tagged and explicit paths never fall back.
+    /// Only the shared stable default path falls back, and only for failures
+    /// with a usable alternative. Permission/lock/occupancy failures another
+    /// user's listener can cause fall back to the user-scoped stable path.
+    /// Failures creating the state directory itself (`create_directory`,
+    /// `create_lock_directory` — e.g. `~/.local/state` owned by root after a
+    /// past `sudo` install) fall back to the legacy `/tmp` per-user path,
+    /// because the user-scoped path shares the uncreatable directory and would
+    /// fail identically. Tagged and explicit paths never fall back.
     ///
     /// - Parameters:
     ///   - requestedPath: The path the bind attempted.
@@ -219,9 +224,11 @@ public struct SocketListenerPolicy: Sendable {
         }
 
         switch stage {
+        case "create_directory", "create_lock_directory":
+            return SocketControlSettings.legacyUserScopedStableSocketPath(currentUserID: currentUserID)
         case "unlink" where errnoCode == EACCES || errnoCode == EPERM:
             return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
-        case "create_lock_directory", "open_lock", "lock":
+        case "open_lock", "lock":
             return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
         case "existing_path", "stat_existing_path":
             return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
