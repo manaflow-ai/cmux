@@ -158,6 +158,14 @@ jobs:
           )
           PY
 
+      - name: Upload compiler diagnostics
+        if: ${{ always() && matrix.shard == 'core' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-tui-compiler-diagnostics
+          path: cmux-tui/target/cargo-test-binaries.jsonl
+          if-no-files-found: error
+
       - name: Run test binaries under valgrind
         working-directory: cmux-tui
         env:
