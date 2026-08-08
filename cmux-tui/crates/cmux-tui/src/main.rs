@@ -1627,7 +1627,6 @@ fn run_machine_client(runtime: MachineRuntime) -> anyhow::Result<()> {
     let active = runtime.initial_key();
     let connections = MachineConnectionHub::new(runtime.connection_connectors());
     let session = connections.connect(active)?;
-    connections.warm_all();
     run_machine_client_with_hub(runtime, session, connections)
 }
 
@@ -1640,7 +1639,6 @@ fn run_machine_client_with_initial(
     let connections = MachineConnectionHub::new(runtime.connection_connectors());
     connections
         .insert_ready(active, MachineConnection { session: session.clone(), _lease: active_lease });
-    connections.warm_all();
     run_machine_client_with_hub(runtime, session, connections)
 }
 
@@ -1689,7 +1687,6 @@ impl MachineController for StaticMachineController {
             MachineRequest::CreateFrom { source_id } => {
                 let (machine, name) = self.runtime.create_from(&source_id)?;
                 self.register(machine)?;
-                self.connections.warm_all();
                 let message =
                     format!("{}: {name}", localization::catalog().sidebar.prototype_machine_added);
                 Ok(self.notice(message))
@@ -1795,7 +1792,7 @@ fn run_provider_machine_client(
             &error,
         )),
     };
-    runtime.warm_connections();
+    runtime.sync_connections();
     let controller: Box<dyn MachineController> = Box::new(runtime);
     match run_tui_once(session, label, None, Some(machine_ui), Some(controller))? {
         app::RunOutcome::Quit => Ok(()),
@@ -2103,6 +2100,50 @@ mod tests {
                 .notice
                 .as_deref(),
             Some("このマシンカタログにはプロバイダーアクションがありません")
+        );
+    }
+
+    #[test]
+    fn static_machine_creation_does_not_connect_until_selected() {
+        let suffix =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let socket = std::env::temp_dir()
+            .join(format!("cmux-unselected-machine-{}-{suffix}.sock", std::process::id()));
+        let runtime = MachineRuntime::with_creation_sources(
+            socket,
+            vec![],
+            vec![config::MachineCreationSourceConfig {
+                id: "docker".into(),
+                name: "Docker".into(),
+                subtitle: "container prototype".into(),
+            }],
+        );
+        let active = runtime.initial_key();
+        let connections = MachineConnectionHub::new(runtime.connection_connectors());
+        let mut controller =
+            StaticMachineController { runtime, active, connections, pending: None };
+
+        controller.perform(MachineRequest::CreateFrom { source_id: "docker".into() }).unwrap();
+        let created = controller
+            .runtime
+            .snapshot(active)
+            .machines
+            .into_iter()
+            .find(|machine| machine.id == "prototype:docker:1")
+            .unwrap()
+            .key;
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let phase = controller
+            .connections
+            .phases()
+            .into_iter()
+            .find(|(key, _)| *key == created)
+            .map(|(_, phase)| phase);
+        assert_eq!(
+            phase,
+            Some(machine::MachineConnectionPhase::Disconnected),
+            "created machine transport must not open until the row is selected"
         );
     }
 
