@@ -1,0 +1,267 @@
+@testable import CmuxSudoBroker
+import Darwin
+import Foundation
+import Testing
+
+@Suite("Sudo process lifecycle")
+struct SudoProcessLifecycleTests {
+    @Test("Detached runner reaper collects its child", .timeLimit(.minutes(1)))
+    func detachedRunnerReaperCollectsChild() async throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let inspector = SystemSudoProcessInspector()
+        let spawner = SudoPOSIXProcessSpawner(inspector: inspector)
+        let command = SudoExecutionCommand(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["/bin/sh", "-c", "kill -STOP $$; exit 0"],
+            currentDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
+            outputURL: fixture.paths.results.appendingPathComponent("runner-reaper.out")
+        )
+        let process = try spawner.spawn(command)
+        var stoppedStatus: Int32 = 0
+        #expect(
+            waitpid(
+                process.identity.processIdentifier,
+                &stoppedStatus,
+                WUNTRACED
+            ) == process.identity.processIdentifier
+        )
+        let reaper = SudoChildProcessReaper()
+        let stream = reaper.start(processIdentifier: process.identity.processIdentifier)
+
+        _ = kill(process.identity.processIdentifier, SIGCONT)
+        var iterator = stream.makeAsyncIterator()
+        let reapedProcessIdentifier = await iterator.next()
+
+        #expect(reapedProcessIdentifier == process.identity.processIdentifier)
+        var status: Int32 = 0
+        #expect(waitpid(process.identity.processIdentifier, &status, WNOHANG) == -1)
+        #expect(errno == ECHILD)
+    }
+
+    @Test("Execution deadline terminates a script PTY tree", .timeLimit(.minutes(1)))
+    func boundedRunnerTerminatesPTYTree() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let inspector = SystemSudoProcessInspector()
+        let signaler = SystemSudoProcessSignaler()
+        let runner = SudoBoundedProcessRunner(
+            spawner: SudoPOSIXProcessSpawner(inspector: inspector),
+            inspector: inspector,
+            signaler: signaler
+        )
+        let command = SudoExecutionCommand(
+            executableURL: URL(fileURLWithPath: "/usr/bin/script"),
+            arguments: [
+                "/usr/bin/script", "-q", "/dev/null", "/bin/sh", "-c", "sleep 30",
+            ],
+            currentDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
+            outputURL: fixture.paths.results.appendingPathComponent("pty-timeout.out")
+        )
+
+        let process = try runner.spawn(command)
+        let outcome = runner.wait(
+            for: process,
+            deadline: Date.now.addingTimeInterval(0.2)
+        )
+
+        guard case .timedOut(let survivors) = outcome else {
+            Issue.record("process exited before the deadline instead of exercising cleanup")
+            return
+        }
+        #expect(survivors.isEmpty)
+        #expect(!inspector.isRunning(process.identity))
+    }
+
+    @Test(
+        "Password fallback terminates the script PTY tree before the deadline",
+        .timeLimit(.minutes(1))
+    )
+    func passwordFallbackTerminatesPTYTree() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let inspector = SystemSudoProcessInspector()
+        let signaler = SystemSudoProcessSignaler()
+        let runner = SudoBoundedProcessRunner(
+            spawner: SudoPOSIXProcessSpawner(inspector: inspector),
+            inspector: inspector,
+            signaler: signaler
+        )
+        let command = SudoExecutionCommand(
+            executableURL: URL(fileURLWithPath: "/usr/bin/script"),
+            arguments: [
+                "/usr/bin/script", "-q", "/dev/null", "/bin/sh", "-c",
+                "printf '\(SudoAuthenticationOutputDetector.passwordPrompt)'; sleep 30",
+            ],
+            currentDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
+            outputURL: fixture.paths.results.appendingPathComponent("pty-password.out")
+        )
+
+        let process = try runner.spawn(command)
+        let outcome = runner.wait(
+            for: process,
+            deadline: Date.now.addingTimeInterval(10)
+        )
+
+        if case .authenticationFailed(let survivors) = outcome {
+            #expect(survivors.isEmpty)
+        } else {
+            let output = (try? String(contentsOf: command.outputURL, encoding: .utf8)) ?? ""
+            Issue.record(
+                "password fallback produced \(outcome); captured output: \(output.debugDescription)"
+            )
+        }
+        #expect(!inspector.isRunning(process.identity))
+    }
+
+    @Test("Execution output is capped while the child is fully drained", .timeLimit(.minutes(1)))
+    func executionOutputIsBounded() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let inspector = SystemSudoProcessInspector()
+        let runner = SudoBoundedProcessRunner(
+            spawner: SudoPOSIXProcessSpawner(inspector: inspector),
+            inspector: inspector,
+            signaler: SystemSudoProcessSignaler()
+        )
+        let outputURL = fixture.paths.results.appendingPathComponent("bounded-output.out")
+        let command = SudoExecutionCommand(
+            executableURL: URL(fileURLWithPath: "/bin/dd"),
+            arguments: [
+                "/bin/dd", "if=/dev/zero", "bs=1048576", "count=17",
+            ],
+            currentDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
+            outputURL: outputURL
+        )
+
+        let process = try runner.spawn(command)
+        let outcome = runner.wait(
+            for: process,
+            deadline: Date.now.addingTimeInterval(10)
+        )
+        let outputSize = try #require(
+            FileManager.default.attributesOfItem(atPath: outputURL.path)[.size] as? NSNumber
+        )
+
+        #expect(outcome == .exited(0))
+        #expect(outputSize.intValue <= 16 * 1_024 * 1_024)
+    }
+
+    @Test("PTY transport executes reviewed bytes instead of the approved pathname", .timeLimit(.minutes(1)))
+    func reviewedScriptTransportIsImmutable() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let approvedScriptURL = fixture.paths.approved.appendingPathComponent("immutable.sh")
+        try Data("printf 'replaced-path\\n'\n".utf8).write(to: approvedScriptURL)
+        let reviewedScript = Data("printf 'reviewed-bytes\\n'\n".utf8)
+        let transport = SudoReviewedScriptTransport(
+            reviewedScript: reviewedScript,
+            approvedScriptURL: approvedScriptURL,
+            secureTemporaryDirectoryURL: fixture.root
+        )
+        let outputURL = fixture.paths.results.appendingPathComponent("immutable.out")
+        let inspector = SystemSudoProcessInspector()
+        let runner = SudoBoundedProcessRunner(
+            spawner: SudoPOSIXProcessSpawner(inspector: inspector),
+            inspector: inspector,
+            signaler: SystemSudoProcessSignaler()
+        )
+        let command = SudoExecutionCommand(
+            executableURL: URL(fileURLWithPath: "/usr/bin/script"),
+            arguments: ["/usr/bin/script", "-q", "/dev/null"] + transport.shellArguments,
+            currentDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
+            outputURL: outputURL,
+            standardInput: reviewedScript,
+            standardInputReadyMarker: Data(SudoReviewedScriptTransport.readinessMarker.utf8)
+        )
+
+        let process = try runner.spawn(command)
+        let outcome = runner.wait(
+            for: process,
+            deadline: Date.now.addingTimeInterval(10)
+        )
+        let output = String(decoding: try Data(contentsOf: outputURL), as: UTF8.self)
+
+        #expect(outcome == .exited(0))
+        #expect(output.contains("reviewed-bytes"))
+        #expect(!output.contains("replaced-path"))
+        #expect(!output.contains(SudoReviewedScriptTransport.readinessMarker))
+    }
+
+    @Test("System process inventory includes the calling process")
+    func systemProcessInventoryIncludesSelf() {
+        let processIdentifiers = SystemSudoProcessInspector().allProcessIdentifiers()
+
+        #expect(processIdentifiers.contains(getpid()))
+    }
+
+    @Test("Hidden runner parent failure settles the approved request")
+    func runnerSettlesUnexpectedParent() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let createdAt = Date.now
+        let request = try fixture.enqueue(id: "parent-validation", createdAt: createdAt)
+        let pending = try #require(
+            fixture.store.pendingRequests().first(where: { $0.request.id == request.id })
+        )
+        _ = try fixture.store.transitionToApproved(
+            pending: pending,
+            now: createdAt,
+            executionGraceSeconds: 90
+        )
+        let runner = SudoExecutionRunner(
+            paths: fixture.paths,
+            expectedParentExecutableURL: URL(fileURLWithPath: "/not/the/test-parent"),
+            messages: .testMessages,
+            pamConfiguration: SudoPAMConfiguration(
+                fileURL: fixture.root.appendingPathComponent("missing-pam")
+            )
+        )
+
+        #expect(runner.run(requestID: request.id) == 126)
+        #expect(fixture.store.result(id: request.id)?.errorCode == .runnerLaunchFailed)
+        #expect(fixture.store.state(id: request.id) == nil)
+    }
+
+    @Test("Hidden runner identity failure settles the approved request")
+    func runnerSettlesMissingIdentity() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let createdAt = Date.now
+        let request = try fixture.enqueue(id: "runner-identity", createdAt: createdAt)
+        let pending = try #require(
+            fixture.store.pendingRequests().first(where: { $0.request.id == request.id })
+        )
+        _ = try fixture.store.transitionToApproved(
+            pending: pending,
+            now: createdAt,
+            executionGraceSeconds: 90
+        )
+        let expectedParentURL = URL(fileURLWithPath: "/Applications/cmux.app/Contents/MacOS/cmux")
+        let inspector = TestRunnerBootstrapInspector(
+            parentProcessIdentifier: 2_000_000_000,
+            parentExecutableURL: expectedParentURL
+        )
+        let runner = SudoExecutionRunner(
+            store: fixture.store,
+            pam: TestPAMChecker(enabled: true),
+            inspector: inspector,
+            parentValidator: SudoRunnerParentValidator(
+                inspector: inspector,
+                parentProcessIdentifier: { 2_000_000_000 }
+            ),
+            processRunner: SudoBoundedProcessRunner(
+                spawner: SudoPOSIXProcessSpawner(inspector: inspector),
+                inspector: inspector,
+                signaler: SystemSudoProcessSignaler()
+            ),
+            expectedParentExecutableURL: expectedParentURL,
+            messages: .testMessages,
+            now: { createdAt }
+        )
+
+        #expect(runner.run(requestID: request.id) == 1)
+        #expect(fixture.store.result(id: request.id)?.errorCode == .runnerLaunchFailed)
+        #expect(fixture.store.state(id: request.id) == nil)
+    }
+}
