@@ -100,10 +100,11 @@
       "vaultGroup": "vault",
       "vaultOverview": "overview",
       "vaultSessions": "sessions",
-      "subrouterGroup": "subrouter",
-      "subrouterOverview": "overview",
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "overview",
       "accountGroup": "account",
       "billing": "billing",
+      "team": "team",
       "testflight": "iOS TestFlight"
     },
     "home": {
@@ -112,13 +113,24 @@
       "vaultName": "vault",
       "vaultDescription": "browse synced agent sessions and manage cli access.",
       "vaultLink": "open vault",
-      "subrouterName": "subrouter",
-      "subrouterDescription": "route llm requests across provider accounts with failover and usage-aware scheduling.",
-      "subrouterLink": "open subrouter"
+      "coderouterName": "coderouter",
+      "coderouterDescription": "route llm requests across provider accounts with failover and usage-aware scheduling.",
+      "coderouterLink": "open coderouter"
     },
-    "subrouter": {
-      "title": "subrouter",
-      "description": "subrouter routes llm requests across provider accounts with failover and usage-aware scheduling."
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Manage shared AI accounts and route requests with coderouter.",
+      "title": "coderouter",
+      "description": "coderouter routes llm requests across provider accounts with failover and usage-aware scheduling."
+    },
+    "accountMenu": {
+      "label": "Account menu",
+      "settings": "Settings",
+      "billing": "Billing",
+      "signOut": "Sign out",
+      "signingOut": "Signing out…",
+      "signOutError": "Could not sign out. Try again.",
+      "signIn": "Sign in"
     },
     "billing": {
       "eyebrow": "account",
@@ -237,8 +249,8 @@
       "teamSwitcherLabel": "Team",
       "notConfiguredTitle": "AI account management isn't available yet",
       "notConfiguredBody": "Team AI accounts aren't enabled for this deployment. Try again later or contact support.",
-      "migrationPendingTitle": "Account migration in progress",
-      "migrationPendingBody": "Shared accounts are temporarily unavailable while migration finishes. Try again shortly.",
+      "migrationPendingTitle": "Accounts temporarily unavailable",
+      "migrationPendingBody": "Shared accounts are temporarily unavailable. Try again shortly.",
       "loadErrorTitle": "Accounts could not load",
       "loadErrorBody": "The account service could not be reached. Try again shortly.",
       "accountsTitle": "Connected accounts",
