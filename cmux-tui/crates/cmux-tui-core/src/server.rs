@@ -3368,6 +3368,10 @@ impl ClientRegistry {
         client
     }
 
+    fn client_ids(&self) -> Vec<u64> {
+        self.state.lock().unwrap().clients.keys().copied().collect()
+    }
+
     fn is_unix(&self, client: u64) -> bool {
         self.state
             .lock()
@@ -7059,6 +7063,11 @@ fn handle_request_with_cancellation(
     if shutdown_daemon && response_ok {
         if sent {
             mux.request_daemon_shutdown();
+            for peer in mux.control_clients.client_ids() {
+                if peer != client {
+                    disconnect_client(mux, peer, true);
+                }
+            }
         } else {
             mux.cancel_daemon_handoff();
         }
@@ -15879,6 +15888,8 @@ mod tests {
             MessageWriter::new(QueuedSink { outbound: accepted_outbound.clone(), control: None });
         let local =
             accepted.control_clients.register(ClientTransport::Unix, accepted_writer.clone());
+        let interactive =
+            accepted.control_clients.register(ClientTransport::Unix, test_writer());
         let (_, generation) = accepted.registry_identity();
         assert!(handle_message(
             &accepted,
@@ -15902,6 +15913,8 @@ mod tests {
         assert_eq!(response["data"]["accepted"], true);
         assert_eq!(response["data"]["pid"], std::process::id());
         assert_eq!(response["data"]["generation"], generation);
+        assert!(accepted.control_clients.contains(local));
+        assert!(!accepted.control_clients.contains(interactive));
     }
 
     #[test]

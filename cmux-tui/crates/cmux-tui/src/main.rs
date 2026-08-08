@@ -1634,8 +1634,8 @@ fn run_server(
     if let Some(server) = &websocket_server {
         eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
     }
-    cmux_tui_core::server::serve(mux.clone(), Some(socket_path.clone()))?;
     let (owner_event_stop, owner_event_thread) = start_local_owner_event_loop(&mux);
+    cmux_tui_core::server::serve(mux.clone(), Some(socket_path.clone()))?;
 
     #[cfg(unix)]
     let remote_runtime = if args.remote {
@@ -1691,11 +1691,12 @@ fn run_server(
         match RemoteSession::connect(&socket_path)
             .context("connect the interactive client to its session server")
         {
-            Ok(remote) => run_local_owner_client(&mux, remote, args.session),
+            Ok(remote) => run_tui(Session::Remote(remote), args.session, None),
             Err(error) => Err(error),
         }
     };
     owner_event_stop.store(true, Ordering::Release);
+    mux.emit(cmux_tui_core::MuxEvent::Empty);
     let owner_event_result = owner_event_thread
         .join()
         .map_err(|_| anyhow::anyhow!("local owner event loop panicked"));
@@ -1724,7 +1725,7 @@ fn start_local_owner_event_loop(
     let events = mux.subscribe();
     let thread = std::thread::spawn(move || {
         while !thread_stop.load(Ordering::Acquire) {
-            match events.recv_timeout(std::time::Duration::from_millis(100)) {
+            match events.recv() {
                 Ok(event) => {
                     let mux = weak_mux.upgrade();
                     dispatch_local_owner_event(&event, move || {
@@ -1734,49 +1735,11 @@ fn start_local_owner_event_loop(
                         }
                     });
                 }
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(_) => break,
             }
         }
     });
     (stop, thread)
-}
-
-fn propagate_local_owner_shutdown(mux: &Mux, session: &Session) -> bool {
-    if !mux.daemon_shutdown_requested() {
-        return false;
-    }
-    session.begin_shutdown();
-    true
-}
-
-fn run_local_owner_client(
-    mux: &Arc<Mux>,
-    remote: Arc<RemoteSession>,
-    session_label: String,
-) -> anyhow::Result<()> {
-    let session = Session::Remote(remote);
-    let watcher_session = session.clone();
-    let cleanup_session = session.clone();
-    let weak_mux = Arc::downgrade(mux);
-    let watcher = std::thread::spawn(move || {
-        while !watcher_session.daemon_shutdown_requested() {
-            let Some(mux) = weak_mux.upgrade() else {
-                break;
-            };
-            if propagate_local_owner_shutdown(&mux, &watcher_session) {
-                break;
-            }
-            drop(mux);
-            std::thread::park_timeout(std::time::Duration::from_millis(25));
-        }
-    });
-
-    let result = run_tui(session, session_label, None);
-    cleanup_session.begin_shutdown();
-    watcher.thread().unpark();
-    watcher.join().map_err(|_| anyhow::anyhow!("local owner shutdown watcher panicked"))?;
-    result
 }
 
 #[cfg(not(unix))]
@@ -2196,19 +2159,6 @@ mod tests {
             "routing-key",
             "--headless",
         ])));
-    }
-
-    #[test]
-    fn interactive_remote_client_observes_local_owner_shutdown() {
-        let mux = Mux::new_for_test("interactive-owner", SurfaceOptions::default());
-        let session = session::test_remote_session_without_provider_authority();
-
-        assert!(!session.daemon_shutdown_requested());
-        assert!(!propagate_local_owner_shutdown(&mux, &session));
-        mux.request_daemon_shutdown();
-        assert!(propagate_local_owner_shutdown(&mux, &session));
-        assert!(session.daemon_shutdown_requested());
-        mux.shutdown();
     }
 
     #[test]
