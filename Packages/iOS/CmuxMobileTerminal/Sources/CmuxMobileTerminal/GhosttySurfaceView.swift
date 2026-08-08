@@ -240,7 +240,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var lastScrollMechanicsTouchPoint: CGPoint = .zero
     private var nativeScrollScreen: MobileTerminalRenderGridFrame.Screen?
     private var nativeScrollBoundary: TerminalNativeScrollGeometry.Boundary?
-    private var nativeScrollContentTranslationY: CGFloat = 0
+    /// Internal for `GhosttySurfaceView+VerifiedReplayFrozenPresentation.swift`:
+    /// a freshly frozen container initializes its transform from the live
+    /// native-scroll translation.
+    var nativeScrollContentTranslationY: CGFloat = 0
     private lazy var scrollMechanicsView: UIScrollView = {
         let view = UIScrollView()
         view.backgroundColor = .clear
