@@ -141,8 +141,9 @@ describe("coderouter dashboard", () => {
     const html = renderToStaticMarkup(page);
 
     expect(hostedExchangeCalls).toBe(0);
+    expect(html).toContain("Accounts temporarily unavailable");
     expect(html).toContain(
-      "The account service could not be reached. Try again shortly.",
+      "Shared accounts are temporarily unavailable. Try again shortly.",
     );
   });
 
