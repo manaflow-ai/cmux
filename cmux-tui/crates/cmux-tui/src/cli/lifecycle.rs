@@ -368,6 +368,8 @@ fn print_success(value: Value, output: OutputMode) -> i32 {
 mod tests {
     use std::io::{self, Read, Write};
     use std::net::Shutdown;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     use super::*;
 
@@ -407,6 +409,50 @@ mod tests {
         }
     }
 
+    struct TimeoutRecordingStream {
+        read_timeout_set: Arc<AtomicBool>,
+        write_timeout_set: Arc<AtomicBool>,
+    }
+
+    impl Read for TimeoutRecordingStream {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Ok(0)
+        }
+    }
+
+    impl Write for TimeoutRecordingStream {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl transport::Stream for TimeoutRecordingStream {
+        fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
+            Ok(Box::new(Self {
+                read_timeout_set: self.read_timeout_set.clone(),
+                write_timeout_set: self.write_timeout_set.clone(),
+            }))
+        }
+
+        fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+            self.read_timeout_set.store(timeout.is_some(), Ordering::Release);
+            Ok(())
+        }
+
+        fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+            self.write_timeout_set.store(timeout.is_some(), Ordering::Release);
+            Ok(())
+        }
+
+        fn shutdown(&self, _: Shutdown) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
     fn expired_deadline_fails_before_reading_another_frame() {
         let stream: Box<dyn transport::Stream> = Box::new(UnreadableStream);
@@ -414,5 +460,21 @@ mod tests {
         let expired = Instant::now() - Duration::from_millis(1);
 
         assert_eq!(read_response(&mut connection, expired), Err(ExchangeError::Timeout));
+    }
+
+    #[test]
+    fn lifecycle_deadline_bounds_reads_and_writes() {
+        let read_timeout_set = Arc::new(AtomicBool::new(false));
+        let write_timeout_set = Arc::new(AtomicBool::new(false));
+        let stream: Box<dyn transport::Stream> = Box::new(TimeoutRecordingStream {
+            read_timeout_set: read_timeout_set.clone(),
+            write_timeout_set: write_timeout_set.clone(),
+        });
+        let mut connection = BufReader::new(stream);
+
+        require_time_remaining(&mut connection, Instant::now() + Duration::from_secs(1)).unwrap();
+
+        assert!(read_timeout_set.load(Ordering::Acquire));
+        assert!(write_timeout_set.load(Ordering::Acquire));
     }
 }

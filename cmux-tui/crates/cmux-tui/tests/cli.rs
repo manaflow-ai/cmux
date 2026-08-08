@@ -315,6 +315,20 @@ fn server_lifecycle_help_and_typos_do_not_fall_back_to_startup_help() {
     assert_eq!(json_error["code"], "usage.invalid");
     assert!(json_error["message"].as_str().unwrap().contains("Did you mean `stop`?"));
 
+    let output_flag_used_as_a_socket_value =
+        lifecycle_cli(&["--socket", "--json", "server", "stpo"]);
+    assert_eq!(output_flag_used_as_a_socket_value.status.code(), Some(2));
+    let error = String::from_utf8(output_flag_used_as_a_socket_value.stderr).unwrap();
+    assert!(error.contains("Did you mean `stop`?"), "{error}");
+    assert!(!error.trim_start().starts_with('{'), "{error}");
+
+    let misplaced_start_option =
+        lifecycle_cli(&["--term", "xterm-256color", "server", "start"]);
+    assert_eq!(misplaced_start_option.status.code(), Some(2));
+    let error = String::from_utf8(misplaced_start_option.stderr).unwrap();
+    assert!(error.contains("after `server start`"), "{error}");
+    assert!(!error.contains("Did you mean `start`?"), "{error}");
+
     let scope_typo = lifecycle_cli(&["sever", "stop"]);
     assert_eq!(scope_typo.status.code(), Some(2));
     let scope_error = String::from_utf8(scope_typo.stderr).unwrap();
@@ -341,6 +355,11 @@ fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     let nested_stop_help = String::from_utf8(nested_stop_help.stdout).unwrap();
     assert!(nested_stop_help.contains("cmux remote stop"));
     assert!(!nested_stop_help.contains("cmux-tui remote-stop"));
+
+    let unknown_remote_action = lifecycle_cli(&["remote", "frobnicate"]);
+    assert_eq!(unknown_remote_action.status.code(), Some(1));
+    let error = String::from_utf8(unknown_remote_action.stderr).unwrap();
+    assert!(error.contains("unknown remote action frobnicate"), "{error}");
 
     let local_only_option = lifecycle_cli(&[
         "server",
@@ -493,6 +512,17 @@ fn uvx_spelling_server_stop_is_absent_idempotent_with_stable_output_modes() {
     assert_success(&json);
     assert_eq!(json_output(&json)["status"], "not_running");
     assert_eq!(json_output(&json)["session"], "absent");
+
+    let socket_only = lifecycle_cli(&[
+        "--json",
+        "server",
+        "stop",
+        "--socket",
+        socket.to_str().unwrap(),
+    ]);
+    assert_success(&socket_only);
+    assert_eq!(json_output(&socket_only)["status"], "not_running");
+    assert_eq!(json_output(&socket_only)["session"], serde_json::Value::Null);
 
     let quiet = lifecycle_cli(&[
         "--quiet",
