@@ -1155,6 +1155,10 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
             raw_args.remove(0);
         }
         Some("-h" | "--help") | None => {}
+        Some(_)
+            if raw_args[2..]
+                .iter()
+                .any(|argument| matches!(argument.as_str(), "-h" | "--help")) => {}
         Some(action) => {
             return Err(localization::catalog().remote_client.unknown_action("remote", action));
         }
