@@ -657,6 +657,33 @@ impl WorkspaceRegistry {
         &mut self,
         events: &[&crate::journal_ingress::JournalIngressEvent],
     ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>> {
+        self.append_journal_ingress_events_with_busy_timeout(
+            events,
+            std::time::Duration::from_secs(5),
+        )
+    }
+
+    pub(crate) fn append_journal_ingress_events_with_busy_timeout(
+        &mut self,
+        events: &[&crate::journal_ingress::JournalIngressEvent],
+        busy_timeout: std::time::Duration,
+    ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>> {
+        self.connection.busy_timeout(busy_timeout)?;
+        let result = self.append_journal_ingress_events_with_current_timeout(events);
+        let reset = self.connection.busy_timeout(std::time::Duration::from_secs(5));
+        match (result, reset) {
+            (result, Ok(())) => result,
+            (Ok(_), Err(error)) => Err(error).context("restore workspace registry busy timeout"),
+            (Err(error), Err(reset_error)) => Err(error).context(format!(
+                "also failed to restore workspace registry busy timeout: {reset_error}"
+            )),
+        }
+    }
+
+    fn append_journal_ingress_events_with_current_timeout(
+        &mut self,
+        events: &[&crate::journal_ingress::JournalIngressEvent],
+    ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>> {
         if events.is_empty() {
             return Ok(Vec::new());
         }

@@ -20,6 +20,7 @@ pub(crate) const TERMINAL_OUTPUT_INGRESS_BYTES: usize = 64 * 1024;
 const TERMINAL_OUTPUT_BATCH_BYTES: usize = 256 * 1024;
 const JOURNAL_TERMINAL_FAILURE_RETRY_ATTEMPTS: usize = 6;
 const JOURNAL_DURABLE_WAIT: Duration = Duration::from_secs(2);
+const JOURNAL_SQLITE_RETRY_SLICE: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -563,8 +564,12 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     );
                     return;
                 }
+                let remaining = retry_deadline.saturating_duration_since(Instant::now());
                 let events = batch.iter().map(|queued| &queued.event).collect::<Vec<_>>();
-                match mux.commit_session_journal_events(&events) {
+                match mux.commit_session_journal_events(
+                    &events,
+                    remaining.min(JOURNAL_SQLITE_RETRY_SLICE),
+                ) {
                     Ok(commits) => {
                         complete_batch_success(&batch, commits);
                         break;

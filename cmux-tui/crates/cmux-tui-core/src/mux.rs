@@ -4625,9 +4625,13 @@ impl Mux {
     pub(crate) fn commit_session_journal_events(
         &self,
         events: &[&crate::journal_ingress::JournalIngressEvent],
+        sqlite_wait: Duration,
     ) -> anyhow::Result<Vec<Option<crate::JournalAppendCommit>>> {
-        let commits =
-            self.workspace_registry.lock().unwrap().append_journal_ingress_events(events)?;
+        let commits = self
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .append_journal_ingress_events_with_busy_timeout(events, sqlite_wait)?;
         self.publish_journal_event();
         Ok(commits)
     }
