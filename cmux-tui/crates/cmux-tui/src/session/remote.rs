@@ -5404,6 +5404,7 @@ mod tests {
                         })
                     }
                 }
+                Some("list-agents") => json!({"agents": []}),
                 Some("new-workspace") => json!({"surface": 4}),
                 command => {
                     return Err(io::Error::other(format!(

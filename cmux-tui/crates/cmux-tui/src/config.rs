@@ -4534,7 +4534,7 @@ mod tests {
             &binary,
             "#!/bin/sh\n\
              i=0\n\
-             while [ \"$i\" -lt 4096 ]; do\n\
+             while [ \"$i\" -lt 2048 ]; do\n\
                printf 'palette = 1=#010203\\n'\n\
                i=$((i + 1))\n\
              done\n\

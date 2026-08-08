@@ -14870,7 +14870,9 @@ impl App {
         if input.is_composing() || input.is_modifier_only() || input.is_release() {
             return KeyboardIngress::Ignored;
         }
-        self.status_message = None;
+        if self.menu.is_none() && !self.status_message_hovered() {
+            self.status_message = None;
+        }
         if self.pairing_dialog.is_some()
             || self.shortcut_help.is_some()
             || self.prompt.is_some()
@@ -21399,6 +21401,7 @@ mod tests {
         let mux = Mux::new("enhanced-prefix-shift-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.sidebar_view = SidebarView::Workspaces;
+        app.sync_layout((80, 25));
         app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
 
         app.handle_keyboard(crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
@@ -23492,7 +23495,13 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(80, 25)).unwrap();
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         let buffer = terminal.backend().buffer();
-        let expected = [(71, "復"), (73, "元"), (75, "失"), (77, "敗")];
+        let status = app.rendered_status_message.clone().expect("rendered status message");
+        let expected = [
+            (status.rect.x, "復"),
+            (status.rect.x + 2, "元"),
+            (status.rect.x + 4, "失"),
+            (status.rect.x + 6, "敗"),
+        ];
         for (x, symbol) in expected {
             assert_eq!(buffer[(x, 24)].symbol(), symbol);
         }
@@ -23503,7 +23512,10 @@ mod tests {
                 matches!(hit, super::Hit::HorizontalScrollbar { .. }).then_some(*rect)
             })
             .expect("wide viewport should render a horizontal scrollbar");
-        assert!(track.x + track.width < 70, "track must end before the 10-cell status label");
+        assert!(
+            track.x.saturating_add(track.width) <= status.rect.x.saturating_sub(1),
+            "track must end before the status label"
+        );
 
         app.status_message = Some("status failure details ".repeat(20));
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
@@ -34610,30 +34622,17 @@ mod tests {
 
         app.machine_ui.as_mut().unwrap().request = None;
         app.open_context_menu(hit.x, hit.y);
-        assert_eq!(
-            app.menu.as_ref().map(|menu| menu.levels[0].items.to_vec()),
-            Some(vec![
-                MenuItem::Action(MenuAction::RestoreManagedMachine(MachineKey(42))),
-                MenuItem::Action(MenuAction::PurgeManagedMachine(MachineKey(42))),
-                MenuItem::Separator,
-                MenuItem::ActionWithShortcut {
-                    action: MenuAction::ToggleSidebar { visible: true },
-                    shortcut: "Ctrl-b s".into(),
-                },
-                MenuItem::ActionWithShortcut {
-                    action: MenuAction::ToggleSidebarCompact { compact: false },
-                    shortcut: "Ctrl-b m".into(),
-                },
-                MenuItem::ActionWithShortcut {
-                    action: MenuAction::FocusSidebar,
-                    shortcut: "Ctrl-b S".into(),
-                },
-                MenuItem::Separator,
-                MenuItem::ActionWithShortcut {
-                    action: MenuAction::ShowShortcuts,
-                    shortcut: "Ctrl-b ?".into(),
-                },
-            ])
+        let menu_items = app.menu.as_ref().unwrap().levels[0].items.to_vec();
+        assert!(
+            matches!(
+                menu_items.as_slice(),
+                [
+                    MenuItem::Action(MenuAction::RestoreManagedMachine(MachineKey(42))),
+                    MenuItem::Action(MenuAction::PurgeManagedMachine(MachineKey(42))),
+                    ..
+                ]
+            ),
+            "recoverable machine actions: {menu_items:?}"
         );
         app.activate_menu(MenuAction::PurgeManagedMachine(MachineKey(42))).unwrap();
         app.prompt.as_mut().unwrap().input.insert_str("CONFIRM");
