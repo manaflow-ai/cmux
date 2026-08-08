@@ -1201,35 +1201,43 @@ func servePersistentDaemonWithVerifierConfig(
 	for {
 		now := time.Now()
 		var acceptDeadline time.Time
+		var slotLeaseMissing bool
 		if config.slotLeasePresent != nil {
 			present, err := config.slotLeasePresent()
 			if err == nil {
 				if present {
 					slotLeaseObserved = true
-				} else if slotLeaseObserved && atomic.LoadInt64(&activeConnections) == 0 {
-					if config.slotLeaseRemoved != nil {
-						config.slotLeaseRemoved()
-					}
-					return nil
+				} else if slotLeaseObserved {
+					slotLeaseMissing = true
 				}
 			}
 			acceptDeadline = now.Add(persistentDaemonAcceptPollStep(config))
 		}
+		activity := persistentDaemonActivity{
+			activeConnections: atomic.LoadInt64(&activeConnections),
+		}
+		// Counting sessions takes the hub lock and scans the session map. A live
+		// connection already prevents automatic retirement, so inspect sessions
+		// only when their count can affect the decision.
+		if activity.activeConnections == 0 {
+			activity.activeSessions = hub.activeSessionCount()
+		}
+		var emptyIdleExpired bool
 		if config.emptyIdleTimeout > 0 {
-			isEmpty := atomic.LoadInt64(&activeConnections) == 0 && hub.activeSessionCount() == 0
-			if isEmpty {
+			if activity.isEmpty() {
 				if idleSince.IsZero() {
 					idleSince = now
 				}
 				remaining := config.emptyIdleTimeout - now.Sub(idleSince)
 				if remaining <= 0 {
-					return nil
+					emptyIdleExpired = true
+				} else {
+					idleDeadline := now.Add(minDuration(
+						remaining,
+						persistentDaemonAcceptPollStep(config),
+					))
+					acceptDeadline = earliestNonzeroTime(acceptDeadline, idleDeadline)
 				}
-				idleDeadline := now.Add(minDuration(
-					remaining,
-					persistentDaemonAcceptPollStep(config),
-				))
-				acceptDeadline = earliestNonzeroTime(acceptDeadline, idleDeadline)
 			} else {
 				idleSince = time.Time{}
 				acceptDeadline = earliestNonzeroTime(
@@ -1237,6 +1245,18 @@ func servePersistentDaemonWithVerifierConfig(
 					now.Add(persistentDaemonAcceptPollStep(config)),
 				)
 			}
+		}
+		exitReason := persistentDaemonAutomaticExitReason(
+			activity,
+			slotLeaseMissing,
+			emptyIdleExpired,
+		)
+		if exitReason != "" {
+			logPersistentDaemonExit(stderr, now, exitReason, activity)
+			if exitReason == persistentDaemonExitSlotLeaseRemoved && config.slotLeaseRemoved != nil {
+				config.slotLeaseRemoved()
+			}
+			return nil
 		}
 		if !acceptDeadline.IsZero() {
 			setPersistentDaemonAcceptDeadline(listener, acceptDeadline)

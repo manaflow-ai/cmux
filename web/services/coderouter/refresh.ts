@@ -11,7 +11,7 @@ import {
   type EncryptedCredential,
 } from "./encryption";
 import type { CodeRouterCredential } from "./types";
-import { reportCoderouterFailure } from "./observability";
+import { addCoderouterBreadcrumb, reportCoderouterFailure } from "./observability";
 
 const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OPENCODE_CLIENT_ID = "opencode-cli";
@@ -75,7 +75,16 @@ export function createCredentialRefresher(
   }
 
   const leaseId = await dependencies.claim(input.accountId);
-  if (!leaseId) throw new CodeRouterRefreshBusy("credential refresh already in progress");
+  if (!leaseId) {
+    addCoderouterBreadcrumb("refresh", "Credential refresh already in progress", {
+      provider: currentProvider(before.credential),
+    }, "warning");
+    throw new CodeRouterRefreshBusy("credential refresh already in progress");
+  }
+  addCoderouterBreadcrumb("refresh", "Credential refresh lease acquired", {
+    provider: currentProvider(before.credential),
+    forced: input.force === true,
+  });
   try {
     // The lease winner must re-read after claiming. Another request may have
     // refreshed and rotated the token immediately before this lease.
@@ -102,6 +111,9 @@ export function createCredentialRefresher(
       expectedRevision: current.envelope.credentialRevision,
       credential: refreshed,
       encrypted,
+    });
+    addCoderouterBreadcrumb("refresh", "Credential refresh completed", {
+      provider: refreshed.provider,
     });
     return refreshed;
   } catch (error) {
@@ -201,6 +213,7 @@ async function postForm(
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(body),
     cache: "no-store",
+    signal: AbortSignal.timeout(10_000),
   });
   return await providerJson(response);
 }
@@ -214,6 +227,7 @@ async function postJson(
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
     cache: "no-store",
+    signal: AbortSignal.timeout(10_000),
   });
   return await providerJson(response);
 }

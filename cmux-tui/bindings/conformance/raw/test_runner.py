@@ -185,7 +185,7 @@ class StreamNegotiationServerTests(unittest.TestCase):
             stream.flush()
             identity = json.loads(stream.readline())
             self.assertEqual(identity["id"], 1)
-            self.assertEqual(identity["data"]["protocol"], 10)
+            self.assertEqual(identity["data"]["protocol"], 11)
 
             stream.write(
                 b'{"id":2,"cmd":"subscribe","tree_events":"deltas"}\n'

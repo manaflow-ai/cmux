@@ -135,6 +135,31 @@
     "faqFeatureA": "Мы хотим об этом услышать. Откройте <issuesLink>issue</issuesLink> или <prLink>pull request</prLink> на GitHub либо <mailLink>напишите нам</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "обзор",
+      "team": "команда"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "Распределяйте LLM-запросы между аккаунтами провайдеров с отказоустойчивостью и планированием по нагрузке.",
+      "coderouterLink": "открыть coderouter"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Управляйте общими ИИ-аккаунтами и распределяйте запросы с помощью coderouter.",
+      "title": "coderouter",
+      "description": "coderouter распределяет LLM-запросы между аккаунтами провайдеров с отказоустойчивостью и планированием по нагрузке."
+    },
+    "accountMenu": {
+      "label": "Меню аккаунта",
+      "settings": "Настройки",
+      "billing": "Оплата",
+      "signOut": "Выйти",
+      "signingOut": "Выход…",
+      "signOutError": "Не удалось выйти. Повторите попытку.",
+      "signIn": "Войти"
+    },
     "aiAccounts": {
       "metaTitle": "Аккаунты ИИ — cmux",
       "metaDescription": "Управляйте аккаунтами ИИ-провайдеров команды в cmux.",
