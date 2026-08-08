@@ -15970,6 +15970,128 @@ mod tests {
             .collect()
     }
 
+    #[cfg(unix)]
+    fn open_running_terminal_without_live_attachment(
+        terminal_id: &str,
+        incarnation: &str,
+        fixture: u128,
+        attachment_runtime: Option<&str>,
+    ) -> (Arc<Mux>, std::path::PathBuf, TerminalPublicId) {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-runtime-attachment-exit-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = format!("runtime-attachment-exit-{fixture:x}");
+        let workspace = RegistryWorkspace {
+            id: 1,
+            public_id: restore_workspace_id(fixture),
+            key: format!("workspace-{fixture:x}"),
+            name: "Runtime Attachment Exit".into(),
+            group_key: session.clone(),
+        };
+        let screen = restore_screen_id(fixture);
+        let pane = restore_pane_id(fixture);
+        let tab = restore_tab_id(fixture);
+        let terminal_public_id = restore_terminal_id(fixture);
+        {
+            let mut registry = WorkspaceRegistry::open(&root, &session).unwrap();
+            registry
+                .commit_resource_patch(
+                    &WorkspaceMutation::new("seed-runtime-attachment-exit", "test").unwrap(),
+                    "workspace.create",
+                    &serde_json::json!({"fixture":"runtime-attachment-exit"}),
+                    None,
+                    Some(0),
+                    &ResourcePatch {
+                        changes: vec![
+                            ResourceChange::UpsertWorkspace {
+                                workspace: workspace.clone(),
+                                position: 0,
+                                active_screen: Some(screen.clone()),
+                            },
+                            ResourceChange::UpsertScreen(RegistryScreen {
+                                public_id: screen.clone(),
+                                workspace_id: workspace.public_id.clone(),
+                                position: 0,
+                                name: None,
+                                layout: RegistryLayoutNode::Leaf { pane: pane.clone() },
+                                active_pane: pane.clone(),
+                                zoomed_pane: None,
+                                auto_layout: None,
+                                viewport: RegistryViewport::default(),
+                            }),
+                            ResourceChange::UpsertPane(RegistryPane {
+                                public_id: pane.clone(),
+                                screen_id: screen.clone(),
+                                name: None,
+                                active_tab: Some(tab.clone()),
+                                creation_ordinal: 1,
+                            }),
+                            ResourceChange::UpsertTerminal {
+                                public_id: terminal_public_id.clone(),
+                                terminal: RegistryTerminal {
+                                    terminal_id: terminal_id.into(),
+                                    workspace_key: workspace.key.clone(),
+                                    incarnation: None,
+                                    lifecycle: TerminalLifecycle::Launching,
+                                    launch_spec: serde_json::json!({}),
+                                    exit: None,
+                                },
+                            },
+                            ResourceChange::UpsertTab(RegistryTab {
+                                public_id: tab.clone(),
+                                pane_id: pane.clone(),
+                                position: 0,
+                                content_id: ContentPublicId::Terminal(terminal_public_id.clone()),
+                                name: None,
+                                browser_url: None,
+                                terminal_id: Some(terminal_id.into()),
+                            }),
+                            ResourceChange::SetWorkspaceOrder {
+                                workspace_ids: vec![workspace.public_id.clone()],
+                            },
+                            ResourceChange::SetScreenOrder {
+                                workspace_id: workspace.public_id.clone(),
+                                screen_ids: vec![screen],
+                            },
+                            ResourceChange::SetTabOrder { pane_id: pane, tab_ids: vec![tab] },
+                            ResourceChange::SetActiveWorkspace {
+                                workspace_id: Some(workspace.public_id),
+                            },
+                        ],
+                    },
+                    &serde_json::json!({"created":true}),
+                    &serde_json::json!([{"kind":"fixture.created"}]),
+                )
+                .unwrap();
+            commit_terminal_lifecycle(
+                &mut registry,
+                "terminal-ready",
+                "seed-running-terminal",
+                terminal_id,
+                TerminalLifecycle::Running,
+                Some(incarnation),
+                None,
+            )
+            .unwrap();
+            if let Some(attachment_runtime) = attachment_runtime {
+                registry
+                    .record_runtime_attachment_update(
+                        "test",
+                        "seed-runtime-attachment",
+                        &terminal_public_id,
+                        attachment_runtime,
+                        "attached",
+                        attachment_runtime,
+                        attachment_runtime,
+                    )
+                    .unwrap();
+            }
+        }
+        let mux = Mux::open_persistent(&session, SurfaceOptions::default(), &root).unwrap();
+        (mux, root, terminal_public_id)
+    }
+
     fn journal_event_kinds(mux: &Mux) -> Vec<String> {
         mux.workspace_registry
             .lock()
@@ -20028,6 +20150,86 @@ mod tests {
             registry.terminal_record(TERMINAL).unwrap().unwrap().lifecycle,
             TerminalLifecycle::Exited
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stale_host_exit_does_not_create_first_runtime_attachment_state() {
+        const TERMINAL: &str = "00000000000040008000000000000063";
+        const CURRENT_INCARNATION: &str = "10000000000040008000000000000063";
+        const STALE_INCARNATION: &str = "20000000000040008000000000000063";
+        let (mux, root, public_id) = open_running_terminal_without_live_attachment(
+            TERMINAL,
+            CURRENT_INCARNATION,
+            0x1063,
+            None,
+        );
+
+        let error = mux
+            .persist_terminal_exit(
+                TERMINAL,
+                Some(STALE_INCARNATION),
+                &TerminalExit::unknown("stale-host-exit"),
+            )
+            .unwrap_err();
+
+        assert!(error.to_string().contains("terminal_incarnation_mismatch"));
+        let payloads = runtime_attachment_event_payloads(&mux);
+        assert!(
+            !payloads.iter().any(|payload| payload["terminal_id"] == public_id.as_str()),
+            "stale exit must not create the first runtime attachment state: {payloads:?}"
+        );
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Running
+        );
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn runtime_attachment_failure_blocks_host_exit_lifecycle() {
+        const TERMINAL: &str = "00000000000040008000000000000064";
+        const CURRENT_INCARNATION: &str = "10000000000040008000000000000064";
+        const STALE_INCARNATION: &str = "20000000000040008000000000000064";
+        let (mux, root, _) = open_running_terminal_without_live_attachment(
+            TERMINAL,
+            CURRENT_INCARNATION,
+            0x1064,
+            Some(STALE_INCARNATION),
+        );
+
+        let error = mux
+            .persist_terminal_exit(
+                TERMINAL,
+                Some(CURRENT_INCARNATION),
+                &TerminalExit::unknown("host-exited"),
+            )
+            .unwrap_err();
+
+        assert!(error.to_string().contains("runtime attachment update is stale"));
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Running
+        );
+        assert!(mux.resolve_terminal(TERMINAL).unwrap().unwrap().surface.is_some());
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
