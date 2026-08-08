@@ -403,6 +403,53 @@ fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     assert!(!error.contains("not running"), "{error}");
 }
 
+#[test]
+fn local_server_lifecycle_rejects_machine_before_socket_access() {
+    for args in [
+        &[
+            "--machine",
+            "other",
+            "server",
+            "status",
+            "--socket",
+            "/tmp/cmux-machine-must-not-connect.sock",
+        ][..],
+        &[
+            "--machine",
+            "other",
+            "server",
+            "stop",
+            "--socket",
+            "/tmp/cmux-machine-must-not-connect.sock",
+        ][..],
+        &[
+            "--machine",
+            "other",
+            "server",
+            "reload-config",
+            "--socket",
+            "/tmp/cmux-machine-must-not-connect.sock",
+        ][..],
+        &[
+            "--machine",
+            "other",
+            "session",
+            "named",
+            "stop",
+            "--socket",
+            "/tmp/cmux-machine-must-not-connect.sock",
+        ][..],
+    ] {
+        let output = lifecycle_cli(args);
+        assert_eq!(output.status.code(), Some(2));
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            error.contains("--machine cannot target a local server"),
+            "{error}"
+        );
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn explicit_session_overrides_an_inherited_socket_route() {
