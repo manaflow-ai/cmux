@@ -246,7 +246,10 @@ final class SidebarRowTextView: NSTextField {
     private var cachedLinkHitLayout: LinkHitLayout?
     private var linkDescriptors: [LinkDescriptor] = []
     private var accessibilityLinks: [SidebarRowTextAccessibilityLink] = []
-    private var accessibilityLinksAreMaterialized = true
+    // Before the first accessibility query, row updates retain only descriptors.
+    // Once queried, stale proxies refresh across layout and content changes.
+    private var accessibilityLinksWereRequested = false
+    private var accessibilityLinksAreStale = false
     private var accessibilityLayoutSize: NSSize?
 
     override var isFlipped: Bool { true }
@@ -290,23 +293,31 @@ final class SidebarRowTextView: NSTextField {
         super.layout()
         let textRectSize = (cell?.titleRect(forBounds: bounds) ?? bounds).size
         guard textRectSize != accessibilityLayoutSize else { return }
+        accessibilityLayoutSize = textRectSize
         cachedLinkHitLayout = nil
-        accessibilityLinksAreMaterialized = linkDescriptors.isEmpty && accessibilityLinks.isEmpty
-        guard !accessibilityLinksAreMaterialized,
-              window != nil || !accessibilityLinks.isEmpty
-        else { return }
+        guard accessibilityLinksWereRequested else { return }
+        accessibilityLinksAreStale = !linkDescriptors.isEmpty || !accessibilityLinks.isEmpty
         materializeAccessibilityLinks()
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard window != nil, !isHidden, !linkDescriptors.isEmpty else { return }
+        guard accessibilityLinksWereRequested,
+              window != nil,
+              !isHidden,
+              !linkDescriptors.isEmpty
+        else { return }
+        accessibilityLinksAreStale = true
         materializeAccessibilityLinks()
     }
 
     /// Vends the link proxies referenced by the accessibility attributed text.
     override func accessibilityChildren() -> [Any]? {
         guard !isHidden else { return [] }
+        if !accessibilityLinksWereRequested {
+            accessibilityLinksWereRequested = true
+            accessibilityLinksAreStale = true
+        }
         materializeAccessibilityLinks()
         var children = super.accessibilityChildren() ?? []
         for link in accessibilityLinks where !children.contains(where: {
@@ -345,8 +356,8 @@ final class SidebarRowTextView: NSTextField {
         cachedLinkHitLayout = nil
         accessibilityLayoutSize = nil
         linkDescriptors = []
-        accessibilityLinksAreMaterialized = true
         replaceAccessibilityLinks(with: [])
+        accessibilityLinksAreStale = false
         needsLayout = true
     }
 
@@ -557,15 +568,18 @@ final class SidebarRowTextView: NSTextField {
 
     /// Releases link state before the owning row takes on a new semantic identity.
     func invalidateLinkAccessibility() {
+        let accessibilityWasRequested = accessibilityLinksWereRequested
+        accessibilityLinksWereRequested = false
+        accessibilityLinksAreStale = false
         guard pendingLinkURL != nil
             || !linkDescriptors.isEmpty
             || !accessibilityLinks.isEmpty
             || attributedStringValue.length > 0
             || cachedLinkHitLayout != nil
+            || accessibilityWasRequested
         else { return }
         pendingLinkURL = nil
         linkDescriptors = []
-        accessibilityLinksAreMaterialized = true
         attributedStringValue = NSAttributedString(string: "")
         cachedLinkHitLayout = nil
         accessibilityLayoutSize = nil
@@ -575,15 +589,17 @@ final class SidebarRowTextView: NSTextField {
 
     private func replaceLinkDescriptors(with nextLinkDescriptors: [LinkDescriptor]) {
         linkDescriptors = nextLinkDescriptors
-        accessibilityLinksAreMaterialized =
-            nextLinkDescriptors.isEmpty && accessibilityLinks.isEmpty
-        guard window != nil || !accessibilityLinks.isEmpty else { return }
+        guard accessibilityLinksWereRequested else { return }
+        accessibilityLinksAreStale = !nextLinkDescriptors.isEmpty || !accessibilityLinks.isEmpty
         materializeAccessibilityLinks()
     }
 
     private func materializeAccessibilityLinks() {
-        guard !accessibilityLinksAreMaterialized else { return }
-        guard !linkDescriptors.isEmpty || !accessibilityLinks.isEmpty else { return }
+        guard accessibilityLinksWereRequested, accessibilityLinksAreStale else { return }
+        guard !linkDescriptors.isEmpty || !accessibilityLinks.isEmpty else {
+            accessibilityLinksAreStale = false
+            return
+        }
 
         let textRectSize = (cell?.titleRect(forBounds: bounds) ?? bounds).size
         accessibilityLayoutSize = textRectSize
@@ -628,7 +644,7 @@ final class SidebarRowTextView: NSTextField {
 
         attributedStringValue = mutable
         cachedLinkHitLayout = nil
-        accessibilityLinksAreMaterialized = true
+        accessibilityLinksAreStale = false
         replaceAccessibilityLinks(with: nextAccessibilityLinks)
     }
 
@@ -651,9 +667,16 @@ final class SidebarRowTextView: NSTextField {
     }
 
     private func linkHitLayout(textRectSize: NSSize) -> LinkHitLayout {
+        let layoutLineBreakMode: NSLineBreakMode = if cell?.truncatesLastVisibleLine == true,
+                                                     lineBreakMode == .byWordWrapping
+                                                     || lineBreakMode == .byCharWrapping {
+            .byTruncatingTail
+        } else {
+            lineBreakMode
+        }
         if let cachedLinkHitLayout,
            cachedLinkHitLayout.textRectSize == textRectSize,
-           cachedLinkHitLayout.lineBreakMode == lineBreakMode,
+           cachedLinkHitLayout.lineBreakMode == layoutLineBreakMode,
            cachedLinkHitLayout.maximumNumberOfLines == maximumNumberOfLines,
            cachedLinkHitLayout.attributedString.isEqual(to: attributedStringValue) {
             return cachedLinkHitLayout
@@ -664,14 +687,17 @@ final class SidebarRowTextView: NSTextField {
         let textContainer = NSTextContainer(size: textRectSize)
         textContainer.lineFragmentPadding = 0
         textContainer.maximumNumberOfLines = maximumNumberOfLines
-        textContainer.lineBreakMode = lineBreakMode
+        // NSTextContainer uses this mode only for its last line. Mirror
+        // NSCell.truncatesLastVisibleLine so accessibility and pointer geometry
+        // exclude the same glyphs that the field replaces with an ellipsis.
+        textContainer.lineBreakMode = layoutLineBreakMode
         layoutManager.addTextContainer(textContainer)
         storage.addLayoutManager(layoutManager)
 
         let layout: LinkHitLayout = (
             attributedString: attributedStringValue,
             textRectSize: textRectSize,
-            lineBreakMode: lineBreakMode,
+            lineBreakMode: layoutLineBreakMode,
             maximumNumberOfLines: maximumNumberOfLines,
             storage: storage,
             layoutManager: layoutManager,

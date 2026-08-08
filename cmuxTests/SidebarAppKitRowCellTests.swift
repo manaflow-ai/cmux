@@ -616,6 +616,9 @@ struct SidebarAppKitRowCellTests {
             textView.attributedStringValue.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int
                 == NSUnderlineStyle.single.rawValue
         )
+        let accessibilityLink = try #require(
+            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
+        )
         let accessibilityValue = try #require(
             textView.cell?.accessibilityAttributedString(
                 for: NSRange(location: 0, length: textView.attributedStringValue.length)
@@ -624,9 +627,6 @@ struct SidebarAppKitRowCellTests {
         let attributedAccessibilityLink = try #require(
             accessibilityValue.attribute(.accessibilityLink, at: 0, effectiveRange: nil)
                 as? SidebarRowTextAccessibilityLink
-        )
-        let accessibilityLink = try #require(
-            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
         )
         #expect(accessibilityLink === attributedAccessibilityLink)
         #expect(accessibilityLink.accessibilityRole() == .link)
@@ -845,7 +845,7 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func detachedRowDefersAccessibilityLinkProxyUntilAccessibilityQuery() throws {
+    func attachedRowDefersAccessibilityLinkProxyUntilAccessibilityQuery() throws {
         let url = try #require(URL(string: "https://cmux.com"))
         let source = NSAttributedString(
             string: "cmux",
@@ -857,6 +857,17 @@ struct SidebarAppKitRowCellTests {
         )
         let textView = SidebarRowTextView(lines: 1)
         textView.frame = NSRect(x: 0, y: 0, width: 240, height: 30)
+        let host = NSView(frame: textView.frame)
+        let window = NSWindow(
+            contentRect: host.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+        host.addSubview(textView)
+        window.orderFront(nil)
+        defer { window.close() }
         textView.configureAttributedText(
             attributed,
             font: .systemFont(ofSize: 12),
@@ -865,7 +876,8 @@ struct SidebarAppKitRowCellTests {
         )
         let linkLocation = try #require(Self.firstRowLinkLocation(in: textView.attributedStringValue))
 
-        #expect(textView.window == nil)
+        host.layoutSubtreeIfNeeded()
+        #expect(textView.window === window)
         #expect(
             Self.linkURL(
                 from: textView.attributedStringValue.attribute(
@@ -938,6 +950,71 @@ struct SidebarAppKitRowCellTests {
         #expect(formerlyVisibleLink.accessibilityParent() == nil)
         #expect(formerlyVisibleLink.accessibilityFrameInParentSpace().isEmpty)
         #expect(!formerlyVisibleLink.accessibilityPerformPress())
+        #expect(openedURL == nil)
+    }
+
+    @Test
+    func multilineLastLineTruncationHidesLinkFromAccessibility() throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        let filler = String(repeating: "a", count: 500)
+        let probeStorage = NSTextStorage(string: filler, attributes: [.font: font])
+        let probeLayoutManager = NSLayoutManager()
+        let probeContainer = NSTextContainer(size: NSSize(width: 120, height: 1_000))
+        probeContainer.lineFragmentPadding = 0
+        probeContainer.maximumNumberOfLines = 12
+        probeContainer.lineBreakMode = .byTruncatingTail
+        probeLayoutManager.addTextContainer(probeContainer)
+        probeStorage.addLayoutManager(probeLayoutManager)
+        probeLayoutManager.ensureLayout(for: probeContainer)
+        let probeGlyphRange = probeLayoutManager.glyphRange(for: probeContainer)
+        var truncatedRange = NSRange(location: NSNotFound, length: 0)
+        probeLayoutManager.enumerateLineFragments(forGlyphRange: probeGlyphRange) {
+            _, _, _, lineGlyphRange, _ in
+            let candidate = probeLayoutManager.truncatedGlyphRange(
+                inLineFragmentForGlyphAt: lineGlyphRange.location
+            )
+            if candidate.location != NSNotFound {
+                truncatedRange = candidate
+            }
+        }
+        #expect(truncatedRange.location != NSNotFound)
+        #expect(truncatedRange.length >= 4)
+        let truncatedCharacterRange = probeLayoutManager.characterRange(
+            forGlyphRange: truncatedRange,
+            actualGlyphRange: nil
+        )
+        let prefix = String(repeating: "a", count: truncatedCharacterRange.location)
+        let source = NSMutableAttributedString(
+            string: prefix + "cmux" + String(repeating: "z", count: 100),
+            attributes: [.font: font]
+        )
+        source.addAttribute(
+            .link,
+            value: url,
+            range: NSRange(location: (prefix as NSString).length, length: 4)
+        )
+        let attributed = try AttributedString(
+            source,
+            including: AttributeScopes.AppKitAttributes.self
+        )
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 1_000))
+        let textView = SidebarRowTextView(lines: 12)
+        textView.frame = host.bounds
+        var openedURL: URL?
+        textView.onOpenLink = { openedURL = $0 }
+        host.addSubview(textView)
+        textView.configureAttributedText(
+            attributed,
+            font: font,
+            color: .labelColor,
+            linkColor: .linkColor
+        )
+        host.layoutSubtreeIfNeeded()
+
+        #expect(textView.lineBreakMode == .byWordWrapping)
+        #expect(textView.cell?.truncatesLastVisibleLine == true)
+        #expect(Self.accessibilityLinks(in: textView).isEmpty)
         #expect(openedURL == nil)
     }
 
@@ -1096,6 +1173,9 @@ struct SidebarAppKitRowCellTests {
 
         #expect(Self.linkURL(from: attributed.attribute(.sidebarRowLink, at: linkLocation, effectiveRange: nil)) == url)
         #expect(attributed.attribute(.link, at: linkLocation, effectiveRange: nil) == nil)
+        let accessibilityLink = try #require(
+            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
+        )
         let accessibilityValue = try #require(
             textView.cell?.accessibilityAttributedString(
                 for: NSRange(location: 0, length: attributed.length)
@@ -1104,9 +1184,6 @@ struct SidebarAppKitRowCellTests {
         let attributedAccessibilityLink = try #require(
             accessibilityValue.attribute(.accessibilityLink, at: linkLocation, effectiveRange: nil)
                 as? SidebarRowTextAccessibilityLink
-        )
-        let accessibilityLink = try #require(
-            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
         )
         #expect(accessibilityLink === attributedAccessibilityLink)
         #expect(accessibilityLink.accessibilityRole() == .link)
