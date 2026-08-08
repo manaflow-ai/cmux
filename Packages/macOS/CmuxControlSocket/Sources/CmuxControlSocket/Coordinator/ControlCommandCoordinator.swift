@@ -270,7 +270,8 @@ public final class ControlCommandCoordinator {
             surfaceID: uuid(params, "surface_id")
                 ?? uuid(params, "terminal_id")
                 ?? uuid(params, "tab_id"),
-            paneID: uuid(params, "pane_id")
+            paneID: uuid(params, "pane_id"),
+            hasWorkspaceIDParam: hasNonNull(params, "workspace_id")
         )
     }
 }

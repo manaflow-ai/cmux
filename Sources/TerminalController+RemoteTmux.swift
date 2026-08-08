@@ -202,16 +202,7 @@ extension TerminalController {
     }
 
     nonisolated func remoteTmuxRouting(from params: [String: Any]) -> ControlRoutingSelectors {
-        ControlRoutingSelectors(
-            hasWindowIDParam: v2HasNonNullParam(params, "window_id"),
-            windowID: v2UUID(params, "window_id"),
-            groupID: v2UUID(params, "group_id"),
-            workspaceID: v2UUID(params, "workspace_id"),
-            surfaceID: v2UUID(params, "surface_id")
-                ?? v2UUID(params, "terminal_id")
-                ?? v2UUID(params, "tab_id"),
-            paneID: v2UUID(params, "pane_id")
-        )
+        v2RoutingSelectors(params)
     }
 
     private nonisolated static func remoteTmuxActivate(from params: [String: Any]) -> Bool {
@@ -224,11 +215,14 @@ extension TerminalController {
     ) -> RemoteTmuxAttachWindowTarget {
         if routing.hasWindowIDParam {
             return routing.windowID.map(RemoteTmuxAttachWindowTarget.explicitWindow)
-                ?? .unresolvedExplicitWindow
+                ?? .unresolvedExplicitTarget
         }
-        let preferredWindowID = resolveTabManager(routing: routing)
-            .flatMap { AppDelegate.shared?.windowId(for: $0) }
-        return .contextualWindow(preferredWindowID)
+        guard let tabManager = resolveTabManager(routing: routing) else {
+            // An explicit workspace that resolved to no window must not mirror
+            // into the active window; a purely contextual request still may.
+            return routing.hasWorkspaceIDParam ? .unresolvedExplicitTarget : .contextualWindow(nil)
+        }
+        return .contextualWindow(AppDelegate.shared?.windowId(for: tabManager))
     }
 
     /// `remote.tmux.detach` — detach a control client and remove its mirror workspace;
