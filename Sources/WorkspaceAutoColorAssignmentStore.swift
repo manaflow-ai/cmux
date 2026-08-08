@@ -128,9 +128,14 @@ enum WorkspaceAutoColorAssignmentStore {
                 continue
             }
             // With the palette exhausted every candidate is a duplicate, so a
-            // workspace that already has a color keeps it rather than churning.
+            // workspace that already has a color keeps it rather than
+            // churning. Its preserved duplicate still counts toward later
+            // least-used allocations in this pass.
             let normalized = WorkspaceAutoTabColorAssignment.normalized(hex)
-            guard stored[key] == nil || !taken.contains(normalized) else { continue }
+            if let current = stored[key], taken.contains(normalized) {
+                used.append(current)
+                continue
+            }
             stored[key] = hex
             taken.insert(normalized)
             used.append(hex)
