@@ -30,10 +30,10 @@ export default async function DashboardIndexPage({
       link: t("vaultLink"),
     },
     {
-      href: "/dashboard/subrouter",
-      name: t("subrouterName"),
-      description: t("subrouterDescription"),
-      link: t("subrouterLink"),
+      href: "/dashboard/coderouter",
+      name: t("coderouterName"),
+      description: t("coderouterDescription"),
+      link: t("coderouterLink"),
     },
   ];
 

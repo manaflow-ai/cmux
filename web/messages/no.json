@@ -135,6 +135,31 @@
     "faqFeatureA": "Vi vil gjerne høre det. Åpne et <issuesLink>issue</issuesLink> eller en <prLink>pull request</prLink> på GitHub, eller <mailLink>send oss en e-post</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "oversikt",
+      "team": "team"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "Rute LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging.",
+      "coderouterLink": "åpne coderouter"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Administrer delte AI-kontoer og rute forespørsler med coderouter.",
+      "title": "coderouter",
+      "description": "coderouter ruter LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging."
+    },
+    "accountMenu": {
+      "label": "Kontomeny",
+      "settings": "Innstillinger",
+      "billing": "Fakturering",
+      "signOut": "Logg ut",
+      "signingOut": "Logger ut…",
+      "signOutError": "Kunne ikke logge ut. Prøv igjen.",
+      "signIn": "Logg inn"
+    },
     "aiAccounts": {
       "metaTitle": "AI-kontoer — cmux",
       "metaDescription": "Administrer teamets AI-leverandørkontoer for cmux.",
