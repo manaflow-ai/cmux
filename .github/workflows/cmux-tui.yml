@@ -12,6 +12,23 @@ permissions:
   contents: read
 
 jobs:
+  lockfile-artifact:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Resolve workspace lockfile
+        working-directory: cmux-tui
+        run: cargo metadata --format-version 1 --no-deps >/dev/null
+
+      - name: Upload generated lockfile
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-tui-generated-lockfile
+          path: cmux-tui/Cargo.lock
+          if-no-files-found: error
+
   web-frontend:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
