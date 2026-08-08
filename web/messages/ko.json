@@ -135,6 +135,31 @@
     "faqFeatureA": "여러분의 의견을 듣고 싶습니다. GitHub에서 <issuesLink>issue</issuesLink>나 <prLink>pull request</prLink>를 열거나 <mailLink>이메일을 보내주세요</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "개요",
+      "team": "팀"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "장애 조치와 사용량 기반 일정 관리를 통해 공급자 계정 간에 LLM 요청을 라우팅합니다.",
+      "coderouterLink": "coderouter 열기"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "공유 AI 계정을 관리하고 coderouter로 요청을 라우팅합니다.",
+      "title": "coderouter",
+      "description": "coderouter는 장애 조치와 사용량 기반 일정 관리를 통해 공급자 계정 간에 LLM 요청을 라우팅합니다."
+    },
+    "accountMenu": {
+      "label": "계정 메뉴",
+      "settings": "설정",
+      "billing": "결제",
+      "signOut": "로그아웃",
+      "signingOut": "로그아웃 중…",
+      "signOutError": "로그아웃할 수 없습니다. 다시 시도하세요.",
+      "signIn": "로그인"
+    },
     "aiAccounts": {
       "metaTitle": "AI 계정 — cmux",
       "metaDescription": "cmux 팀 AI 제공업체 계정을 관리합니다.",

@@ -111,6 +111,16 @@ struct RemoteTmuxNotificationLifecycleTests {
         }
     }
 
+    private func parsedRequest(_ link: String) throws -> CmuxNavigationURLRequest {
+        let url = try #require(URL(string: link))
+        switch CmuxNavigationURLRequest.parse(url) {
+        case .success(let request):
+            return try #require(request)
+        case .failure(let error):
+            throw error
+        }
+    }
+
     @Test
     func projectedPaneNotificationStoresOpensAndPreservesRecoverableRoute() throws {
         TerminalNotificationStore.shared.clearAll()
@@ -130,7 +140,6 @@ struct RemoteTmuxNotificationLifecycleTests {
                 forPanelId: panePanel.id
             ) != .notTerminalPanel
         )
-        let containerPanel = try #require(harness.workspace.panels[containerPanelID])
         let appDelegate = try #require(AppDelegate.shared)
         #expect(appDelegate.locateSurface(surfaceId: panePanel.id)?.workspaceId == harness.workspace.id)
         #expect(
@@ -139,14 +148,34 @@ struct RemoteTmuxNotificationLifecycleTests {
                 preferredWorkspaceId: harness.workspace.id
             )?.workspace === harness.workspace
         )
-        #expect(
+        let containerPanel = try #require(harness.workspace.panels[containerPanelID])
+        let copiedSurfaceLink = try #require(
             WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
                 workspace: harness.workspace,
                 panelId: panePanel.id
-            ) == WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
-                workspaceId: harness.workspace.stableId,
-                surfaceId: containerPanel.stableSurfaceId
             )
+        )
+        #expect(
+            copiedSurfaceLink == WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
+                workspaceId: harness.workspace.id,
+                surfaceId: panePanel.id,
+                stableWorkspaceId: harness.workspace.stableId,
+                stableSurfaceId: containerPanel.stableSurfaceId
+            )
+        )
+        let copiedSurfaceRequest = try parsedRequest(copiedSurfaceLink)
+        #expect(
+            copiedSurfaceRequest.target ==
+                .surface(workspaceId: harness.workspace.id, surfaceId: panePanel.id)
+        )
+        #expect(copiedSurfaceRequest.stableFallbackWorkspaceId == harness.workspace.stableId)
+        #expect(copiedSurfaceRequest.stableFallbackSurfaceId == containerPanel.stableSurfaceId)
+        let resolver = CmuxNavigationTargetResolver(
+            workspaces: [harness.workspace.cmuxNavigationDescriptor]
+        )
+        #expect(
+            resolver.resolve(copiedSurfaceRequest) ==
+                .surface(workspaceId: harness.workspace.id, panelId: containerPanelID)
         )
 
         let defaultsName = "remote-tmux-projected-link-\(UUID().uuidString)"
