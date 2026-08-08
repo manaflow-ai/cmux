@@ -444,6 +444,8 @@ impl PersistentSessionStateResetter {
         let lock_pending_reset_dirs = pending_session_reset_dirs(root, session_name)?;
         let lock_session_dir_exists = validate_session_reset_dir(&session_dir)?;
         let lock_terminal_host_root_exists = validate_terminal_host_reset_dir(&terminal_host_root)?;
+        #[cfg(all(unix, test))]
+        inject_terminal_host_root_replacement_before_lock(&terminal_host_root)?;
         if !lock_session_dir_exists
             && !lock_terminal_host_root_exists
             && lock_pending_reset_dirs.is_empty()
@@ -4591,10 +4593,35 @@ static RESET_UNSUPPORTED_CHECKED_DELETION_ROOT: std::sync::Mutex<Option<PathBuf>
 #[cfg(test)]
 static RESET_RECREATE_SESSION_DIR_AFTER_STAGING: std::sync::Mutex<Option<PathBuf>> =
     std::sync::Mutex::new(None);
+#[cfg(all(unix, test))]
+static RESET_REPLACE_TERMINAL_HOST_ROOT_BEFORE_LOCK: std::sync::Mutex<
+    Option<(PathBuf, PathBuf, PathBuf)>,
+> = std::sync::Mutex::new(None);
 
 fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
     fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
     acquire_existing_session_guard(root, session_name)
+}
+
+#[cfg(all(unix, test))]
+fn inject_terminal_host_root_replacement_before_lock(path: &Path) -> anyhow::Result<()> {
+    let mut replacement = RESET_REPLACE_TERMINAL_HOST_ROOT_BEFORE_LOCK.lock().unwrap();
+    let Some((target, moved, outside)) = replacement.take() else {
+        return Ok(());
+    };
+    if target != path {
+        *replacement = Some((target, moved, outside));
+        return Ok(());
+    }
+    fs::rename(&target, &moved)
+        .with_context(|| format!("move injected terminal-host root {}", target.display()))?;
+    std::os::unix::fs::symlink(&outside, &target).with_context(|| {
+        format!(
+            "replace injected terminal-host root {} with symbolic link",
+            target.display()
+        )
+    })?;
+    Ok(())
 }
 
 fn acquire_existing_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {

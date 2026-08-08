@@ -398,7 +398,7 @@ mod unix {
     use std::fs::{self, File, OpenOptions};
     use std::io as std_io;
     use std::io::{Read, Write};
-    use std::os::fd::{AsRawFd, RawFd};
+    use std::os::fd::{AsRawFd, FromRawFd, RawFd};
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
     use std::os::unix::net::{UnixListener, UnixStream};
@@ -3585,6 +3585,7 @@ mod unix {
 
     pub(crate) struct TerminalHostResetLock {
         file: File,
+        _root: File,
     }
 
     pub(crate) struct TerminalHostPublicationLock {
@@ -3620,21 +3621,92 @@ mod unix {
     pub(crate) fn acquire_terminal_host_reset_lock(
         root: &Path,
     ) -> anyhow::Result<Option<TerminalHostResetLock>> {
-        prepare_terminal_host_publication_lock(root)?;
         let path = terminal_host_publication_lock_path(root);
-        let file = OpenOptions::new()
+        let root_file = OpenOptions::new()
             .read(true)
-            .write(true)
-            .mode(0o600)
-            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-            .open(&path)
-            .with_context(|| format!("open terminal-host publication lock {}", path.display()))?;
-        validate_terminal_host_publication_lock(root, &path, &file)?;
+            .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW)
+            .open(root)
+            .with_context(|| format!("open terminal-host root {}", root.display()))?;
+        validate_terminal_host_reset_root(root, &root_file)?;
+        root_file.set_permissions(fs::Permissions::from_mode(0o700))?;
+        let file = open_terminal_host_publication_lock_at(&root_file, true)
+            .with_context(|| format!("create terminal-host publication lock {}", path.display()))?;
+        validate_terminal_host_publication_lock_at(&root_file, &path, &file)?;
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+        file.sync_all()?;
+        root_file.sync_all()?;
+        validate_terminal_host_publication_lock_at(&root_file, &path, &file)?;
         lock_terminal_host_publication_file(&file, libc::LOCK_EX | libc::LOCK_NB).with_context(
             || format!("terminal host state has live or unverified hosts: {}", root.display()),
         )?;
-        validate_terminal_host_publication_lock(root, &path, &file)?;
-        Ok(Some(TerminalHostResetLock { file }))
+        validate_terminal_host_publication_lock_at(&root_file, &path, &file)?;
+        validate_terminal_host_reset_root(root, &root_file)?;
+        Ok(Some(TerminalHostResetLock { file, _root: root_file }))
+    }
+
+    fn open_terminal_host_publication_lock_at(root: &File, create: bool) -> std_io::Result<File> {
+        let name = CString::new(TERMINAL_HOST_PUBLICATION_LOCK_FILE)
+            .expect("terminal-host publication lock name has no nul byte");
+        let mut flags = libc::O_RDWR | libc::O_CLOEXEC | libc::O_NOFOLLOW;
+        if create {
+            flags |= libc::O_CREAT;
+        }
+        loop {
+            // SAFETY: openat reads a nul-terminated child name relative to a
+            // valid directory descriptor and returns a new owned descriptor.
+            let descriptor = unsafe { libc::openat(root.as_raw_fd(), name.as_ptr(), flags, 0o600) };
+            if descriptor >= 0 {
+                // SAFETY: openat returned a new descriptor that this File owns.
+                return Ok(unsafe { File::from_raw_fd(descriptor) });
+            }
+            let error = std_io::Error::last_os_error();
+            if error.kind() != std_io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
+
+    fn validate_terminal_host_reset_root(root: &Path, directory: &File) -> anyhow::Result<()> {
+        let path_metadata = fs::symlink_metadata(root)
+            .with_context(|| format!("inspect terminal-host root {}", root.display()))?;
+        let directory_metadata = directory.metadata()?;
+        if !path_metadata.file_type().is_dir()
+            || !directory_metadata.file_type().is_dir()
+            || path_metadata.dev() != directory_metadata.dev()
+            || path_metadata.ino() != directory_metadata.ino()
+        {
+            anyhow::bail!("terminal-host root changed while opening: {}", root.display());
+        }
+        Ok(())
+    }
+
+    fn validate_terminal_host_publication_lock_at(
+        root: &File,
+        path: &Path,
+        file: &File,
+    ) -> anyhow::Result<()> {
+        let root_metadata = root.metadata()?;
+        let file_metadata = file.metadata()?;
+        if !file_metadata.file_type().is_file()
+            || file_metadata.uid() != root_metadata.uid()
+            || file_metadata.mode() & 0o077 != 0
+            || file_metadata.nlink() != 1
+        {
+            anyhow::bail!("terminal-host publication lock is unsafe: {}", path.display());
+        }
+        let current = open_terminal_host_publication_lock_at(root, false).with_context(|| {
+            format!("inspect terminal-host publication lock {}", path.display())
+        })?;
+        let current_metadata = current.metadata()?;
+        if current_metadata.dev() != file_metadata.dev()
+            || current_metadata.ino() != file_metadata.ino()
+        {
+            anyhow::bail!(
+                "terminal-host publication lock changed while opening: {}",
+                path.display()
+            );
+        }
+        Ok(())
     }
 
     pub(crate) fn acquire_terminal_host_publication_lock(

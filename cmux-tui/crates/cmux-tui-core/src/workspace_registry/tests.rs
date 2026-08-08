@@ -808,6 +808,46 @@ fn reset_terminal_host_only_state_reports_only_terminal_hosts() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_terminal_host_root_symlink_swap_does_not_write_outside_state() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let root = temp_root("reset-terminal-host-root-symlink-swap");
+    let outside = temp_root("reset-terminal-host-root-symlink-swap-outside");
+    let session = "reset-terminal-host-root-symlink-swap";
+    fs::create_dir_all(&root).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    fs::set_permissions(&outside, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(outside.join("sentinel"), b"outside").unwrap();
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(host_root.join("stale-sidecar"), b"stale").unwrap();
+    let moved_host_root = host_root.with_file_name("terminal-host-root-before-lock");
+    let preview = resetter.preview(session).unwrap();
+    *RESET_REPLACE_TERMINAL_HOST_ROOT_BEFORE_LOCK.lock().unwrap() = Some((
+        host_root.clone(),
+        moved_host_root.clone(),
+        outside.clone(),
+    ));
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+    *RESET_REPLACE_TERMINAL_HOST_ROOT_BEFORE_LOCK.lock().unwrap() = None;
+
+    assert!(format!("{error:#}").contains("terminal-host root"), "{error:#}");
+    assert_eq!(fs::read(outside.join("sentinel")).unwrap(), b"outside");
+    assert_eq!(fs::metadata(&outside).unwrap().mode() & 0o777, 0o755);
+    assert!(!outside.join(TERMINAL_HOST_PUBLICATION_LOCK_FILE).exists());
+    assert!(moved_host_root.join("stale-sidecar").exists());
+    assert!(fs::symlink_metadata(&host_root).unwrap().file_type().is_symlink());
+
+    fs::remove_file(host_root).unwrap();
+    fs::remove_dir_all(root).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
 #[test]
 fn reset_preview_rejects_confirmation_manifest_path_budget() {
     let root = temp_root("reset-manifest-path-budget");
