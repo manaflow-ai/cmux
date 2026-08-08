@@ -188,6 +188,20 @@ extension CMUXCLI {
     }
 
     static func feedHookCommandString(for def: AgentHookDef, agentEvent: String) -> String {
+        if def.name == "codex",
+           let injectedEvent = CodexHookInjectionSchema.current.events.first(where: {
+               $0.agentEvent == agentEvent
+           }) {
+            let inline = codexFireAndForgetAgentHookShellCommand(
+                "cmux hooks codex \(injectedEvent.cmuxSubcommand)",
+                for: def
+            )
+            return codexPersistentHookScriptCommand(
+                inline,
+                eventTag: "feed-\(agentEvent)"
+            )
+        }
+
         let inline: String
         let noOpCommand = feedHookNoOpShellCommand(for: def, agentEvent: agentEvent)
         switch def.format {

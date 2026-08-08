@@ -958,11 +958,7 @@ struct BrowserPanelView: View {
     }
 
     private var focusFlashOverlayView: some View {
-        RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
-            .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
-            .shadow(color: cmuxAccentColor().opacity(focusFlashOpacity * 0.35), radius: 10)
-            .padding(FocusFlashPattern.ringInset)
-            .allowsHitTesting(false)
+        WorkspaceAttentionFlashRingView(opacity: focusFlashOpacity)
     }
 
     @ViewBuilder
@@ -1232,9 +1228,9 @@ struct BrowserPanelView: View {
                 hitSize: addressBarButtonHitSize
             )
 
-            if panel.isDownloading || !panel.recentDownloads.isEmpty {
+            if panel.isDownloading || !browserToolbarDownloads.isEmpty {
                 BrowserDownloadsToolbarButton(
-                    downloads: panel.recentDownloads,
+                    downloads: browserToolbarDownloads,
                     isDownloading: panel.isDownloading,
                     iconPointSize: chromeMetrics.navigationIconFontSize,
                     hitSize: addressBarButtonHitSize,
@@ -1244,6 +1240,16 @@ struct BrowserPanelView: View {
                 )
             }
         }
+    }
+
+    private var browserToolbarDownloads: [BrowserDownloadRecord] {
+        #if DEBUG
+        if panel.recentDownloads.isEmpty,
+           let fixtureDownload = BrowserDownloadsPopoverAppearanceUITestSupport().fixtureDownload {
+            return [fixtureDownload]
+        }
+        #endif
+        return panel.recentDownloads
     }
 
     private var screenshotPageButton: some View {
@@ -1381,7 +1387,7 @@ struct BrowserPanelView: View {
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .popover(isPresented: $isBrowserProfileMenuPresented, arrowEdge: .bottom) {
-            browserProfilePopover
+            browserProfilePopover.browserChromePopoverAppearance(browserChromeColorScheme)
         }
         .safeHelp(
             String(
@@ -1455,7 +1461,7 @@ struct BrowserPanelView: View {
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .popover(isPresented: $isBrowserThemeMenuPresented, arrowEdge: .bottom) {
-            browserThemeModePopover
+            browserThemeModePopover.browserChromePopoverAppearance(browserChromeColorScheme)
         }
         .safeHelp(
             String(
@@ -1485,7 +1491,7 @@ struct BrowserPanelView: View {
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .popover(isPresented: $isBrowserImportHintPopoverPresented, arrowEdge: .bottom) {
-            browserImportHintPopover
+            browserImportHintPopover.browserChromePopoverAppearance(browserChromeColorScheme)
         }
         .safeHelp(String(localized: "browser.import.hint.toolbar.help", defaultValue: "Import browser data"))
         .accessibilityIdentifier("BrowserImportHintToolbarChip")

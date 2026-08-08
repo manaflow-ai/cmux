@@ -107,7 +107,8 @@ public final class MobileIrohRuntimeComposition:
         case unavailableCustomPrivatePath
     }
     typealias BrokerFactory = @Sendable (
-        _ tokenSource: CmxIrohBrokerTokenSource
+        _ tokenSource: CmxIrohBrokerTokenSource,
+        _ discoveryScope: CmxConnectivityDiscoveryScope?
     ) throws -> any CmxIrohClientBrokerServing
 
     private struct BrokerBundle {
@@ -369,13 +370,14 @@ public final class MobileIrohRuntimeComposition:
             },
             transportVerificationMode: transportVerificationMode,
             automaticRelayCredentialRefreshEnabled: automaticRelayCredentialRefreshEnabled,
-            brokerFactory: { tokenSource in
+            brokerFactory: { tokenSource, discoveryScope in
                 guard let baseURL else {
                     throw CmxIrohTrustBrokerClientError.invalidBaseURL
                 }
                 return try CmxIrohTrustBrokerClient(
                     baseURL: baseURL,
                     tokenSource: tokenSource,
+                    discoveryScope: discoveryScope,
                     backpressureMode: .callerOwned
                 )
             },
@@ -486,9 +488,10 @@ public final class MobileIrohRuntimeComposition:
 
     private func makeBrokerBundle(
         accountID: String,
-        tokenSource: CmxIrohBrokerTokenSource
+        tokenSource: CmxIrohBrokerTokenSource,
+        discoveryScope: CmxConnectivityDiscoveryScope? = nil
     ) throws -> BrokerBundle {
-        let rawClient = try brokerFactory(tokenSource)
+        let rawClient = try brokerFactory(tokenSource, discoveryScope)
         let client = CmxIrohBackpressuredClientBroker(
             broker: rawClient,
             gate: brokerBackpressureGate,
@@ -1692,7 +1695,18 @@ public final class MobileIrohRuntimeComposition:
         }
         let brokerBundle = try makeBrokerBundle(
             accountID: accountID,
-            tokenSource: brokerTokenSource(pinnedTo: accountID)
+            tokenSource: brokerTokenSource(pinnedTo: accountID),
+            discoveryScope: try CmxConnectivityDiscoveryScope(
+                deviceID: deviceID,
+                appInstanceID: appInstanceID,
+                tag: tag,
+                platform: .ios,
+                peerPlatform: .mac,
+                peerTags: Self.discoveryPeerTags(
+                    for: discoveryCompatibilityPolicy
+                ),
+                peerPairingEnabled: true
+            )
         )
         let broker = brokerBundle.client
         let endpointRelayProfile: CmxIrohEndpointRelayProfile?
@@ -2168,6 +2182,19 @@ public final class MobileIrohRuntimeComposition:
         for error: any Error
     ) -> DiagnosticFailureKind {
         DiagnosticFailureKind.classify(error)
+    }
+
+    nonisolated private static func discoveryPeerTags(
+        for policy: MobileMacBuildCompatibilityPolicy?
+    ) -> [String]? {
+        switch policy {
+        case .development(let expectedInstanceTag):
+            [expectedInstanceTag]
+        case .official:
+            ["default", "nightly"]
+        case nil:
+            nil
+        }
     }
 
     private static func currentTag(

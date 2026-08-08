@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import { IrohInvalidInputError } from "./errors";
+import {
+  parseIrohDiscoveryScope,
+  type IrohDiscoveryScope,
+} from "./discoveryScope";
 export { MANAGED_RELAY_URLS } from "./publicationPolicy";
 
 export const IROH_ALPN = "cmux/mobile/1";
@@ -64,6 +68,7 @@ export type IrohRegisterRequest = {
   readonly nonce: string;
   readonly payload: string;
   readonly signature: string;
+  readonly discoveryScope?: IrohDiscoveryScope;
 };
 
 export function parseChallengeRequest(value: unknown): IrohChallengeRequest {
@@ -94,8 +99,17 @@ export function parseRegisterRequest(value: unknown): IrohRegisterRequest {
     nonce: base64url(body.nonce, 32, "invalid_nonce"),
     payload: boundedString(body.payload, 1, 48_000, "invalid_payload"),
     signature: base64url(body.signature, 64, "invalid_signature"),
+    ...(body.discoveryScope === undefined
+      ? {}
+      : { discoveryScope: parseIrohDiscoveryScope(body.discoveryScope) }),
   };
-  rejectUnknownKeys(body, ["challengeId", "nonce", "payload", "signature"]);
+  rejectUnknownKeys(body, [
+    "challengeId",
+    "nonce",
+    "payload",
+    "signature",
+    "discoveryScope",
+  ]);
   return parsed;
 }
 
