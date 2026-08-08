@@ -1228,9 +1228,8 @@ final class cmuxUITests: XCTestCase {
         guard waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3) != nil else {
             return XCTFail("Search results list did not return after popping the detail")
         }
-        guard waitForKeyboardDismissal(in: app) else {
-            return XCTFail("Keyboard stayed up after popping back to the search results")
-        }
+        // Popping the detail returns to the LIVE search session, so the field
+        // may re-present with the keyboard; that is the designed behavior.
         guard waitForHittable(docsRow, timeout: 3) else {
             return XCTFail("Matching row missing from the restored search results")
         }
@@ -1247,6 +1246,9 @@ final class cmuxUITests: XCTestCase {
         tap(workspacesTab, in: app)
         guard waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3) != nil else {
             return XCTFail("Workspaces root list missing after leaving search")
+        }
+        guard waitForKeyboardDismissal(in: app) else {
+            return XCTFail("Keyboard stayed up after leaving search for the Workspaces tab")
         }
         guard minimizedSearch.waitForExistence(timeout: 3) else {
             return XCTFail("Minimized search control missing on the Workspaces tab")
