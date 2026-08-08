@@ -222,9 +222,56 @@ struct DockControlDefinitionDecodingTests {
     @Test("Project config parent traversal stops at the filesystem root")
     @MainActor
     func projectConfigParentTraversalStopsAtRoot() {
+        let foundationParentOfRoot = URL(fileURLWithPath: "/", isDirectory: true)
+            .deletingLastPathComponent()
+            .path
+
+        #expect(DockSplitStore.parentDirectoryPath(for: foundationParentOfRoot) == nil)
         #expect(DockSplitStore.parentDirectoryPath(for: "/") == nil)
         #expect(DockSplitStore.parentDirectoryPath(for: "/..") == nil)
         #expect(DockSplitStore.parentDirectoryPath(for: "/Users") == "/")
+    }
+
+    @Test(
+        "Project config resolution terminates outside the home directory",
+        .timeLimit(.minutes(1))
+    )
+    func projectConfigResolutionTerminatesOutsideHome() throws {
+        let fileManager = FileManager.default
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-dock-root-walk-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let homePath = fileManager.homeDirectoryForCurrentUser.path
+        #expect(root.path != homePath)
+        #expect(!root.path.hasPrefix(homePath + "/"))
+
+        let ancestorConfigURLs = [
+            URL(fileURLWithPath: "/tmp", isDirectory: true),
+            URL(fileURLWithPath: "/", isDirectory: true),
+        ].map {
+            $0.appendingPathComponent(".cmux", isDirectory: true)
+                .appendingPathComponent("dock.json", isDirectory: false)
+        }
+        for configURL in ancestorConfigURLs {
+            try #require(!fileManager.fileExists(atPath: configURL.path))
+        }
+
+        let clock = ContinuousClock()
+        let start = clock.now
+        let resolution = try DockSplitStore.resolve(rootDirectory: root.path)
+        let foundationParentOfRoot = URL(fileURLWithPath: "/", isDirectory: true)
+            .deletingLastPathComponent()
+            .path
+        let rootResolution = try DockSplitStore.resolve(rootDirectory: foundationParentOfRoot)
+        let elapsed = start.duration(to: clock.now)
+
+        #expect(resolution.sourceURL == nil)
+        #expect(resolution.baseDirectory == root.path)
+        #expect(rootResolution.sourceURL == nil)
+        #expect(rootResolution.baseDirectory == "/")
+        #expect(elapsed < .seconds(1))
     }
 
     @Test("Dock surface creation without focus preserves the selected tab")

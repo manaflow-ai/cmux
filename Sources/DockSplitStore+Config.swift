@@ -244,11 +244,12 @@ extension DockSplitStore {
 
     nonisolated private static func existingDirectory(_ rawPath: String) -> String? {
         let expanded = (rawPath as NSString).expandingTildeInPath
+        let normalized = (expanded as NSString).standardizingPath
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: expanded, isDirectory: &isDirectory) else {
+        guard FileManager.default.fileExists(atPath: normalized, isDirectory: &isDirectory) else {
             return nil
         }
-        return isDirectory.boolValue ? expanded : (expanded as NSString).deletingLastPathComponent
+        return isDirectory.boolValue ? normalized : (normalized as NSString).deletingLastPathComponent
     }
 
     nonisolated private static func canonicalConfigPath(_ url: URL) -> String {
