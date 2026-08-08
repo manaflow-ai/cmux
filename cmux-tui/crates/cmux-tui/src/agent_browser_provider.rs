@@ -273,6 +273,7 @@ fn select_workspace_target(
         .ok_or_else(|| anyhow!("cmux-tui returned an invalid workspace snapshot"))?;
     let mut candidates = Vec::new();
     let mut terminal_location = None;
+    let mut terminal_location_is_ambiguous = false;
     let terminal_workspace_hint = scope.workspace.as_ref();
     for (workspace_index, workspace) in workspaces.iter().enumerate() {
         let workspace_id = stable_string(workspace, "resource_id")
@@ -305,7 +306,12 @@ fn select_workspace_target(
                             workspace_keys.iter().any(|key| key == workspace_hint)
                         })
                     {
-                        terminal_location = Some((workspace_index, screen_index, pane_index));
+                        let location = (workspace_index, screen_index, pane_index);
+                        if terminal_location.is_some_and(|existing| existing != location) {
+                            terminal_location_is_ambiguous = true;
+                        } else {
+                            terminal_location = Some(location);
+                        }
                     }
                     if tab.get("kind").and_then(Value::as_str) != Some("browser") {
                         continue;
@@ -335,6 +341,11 @@ fn select_workspace_target(
             .ok_or_else(|| anyhow!("requested cmux browser tab {exact_tab:?} is not available"))?;
         return Ok(selected(candidate, "exact-tab"));
     }
+
+    anyhow::ensure!(
+        !terminal_location_is_ambiguous,
+        "the caller terminal has multiple cmux placements; set CMUX_TUI_WORKSPACE_ID or CMUX_TUI_BROWSER_TAB_ID"
+    );
 
     if let Some((workspace_index, screen_index, pane_index)) = terminal_location {
         let (_, candidate) = candidates
@@ -532,6 +543,21 @@ mod tests {
         assert_eq!(selected.workspace_id, "ws_one");
         assert_eq!(selected.tab_id, "tab_same_pane");
         assert_eq!(selected.selection, "terminal-workspace");
+    }
+
+    #[test]
+    fn mirrored_terminal_without_a_workspace_scope_is_rejected() {
+        let mut topology = topology();
+        topology["workspaces"][1]["screens"][0]["panes"][0]["tabs"][0]
+            ["terminal_resource_id"] = json!("term_one");
+        let scope = ProviderScope { terminal: Some("term_one".into()), ..Default::default() };
+
+        let error = select_workspace_target(&topology, &targets(), &scope)
+            .err()
+            .expect("an unscoped mirrored terminal must be ambiguous");
+
+        assert!(error.to_string().contains("multiple cmux placements"));
+        assert!(error.to_string().contains("CMUX_TUI_BROWSER_TAB_ID"));
     }
 
     #[test]

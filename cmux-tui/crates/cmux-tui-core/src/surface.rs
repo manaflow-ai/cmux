@@ -1243,8 +1243,7 @@ impl PtyTerminalRuntime {
         Some(TerminalJournalUpdateGuard { epoch: &self.journal_capture_epoch })
     }
 
-    fn close_terminal_journal_capture_when_idle(&self, timeout: Duration) {
-        let deadline = Instant::now() + timeout;
+    fn close_terminal_journal_capture_when_idle(&self, deadline: Instant) {
         loop {
             let gate = self.journal_capture_gate.lock().unwrap();
             if self.journal_capture_epoch.load(Ordering::Acquire) & 1 == 0 {
@@ -1254,8 +1253,7 @@ impl PtyTerminalRuntime {
             if Instant::now() >= deadline {
                 self.journal_capture_open.store(false, Ordering::Release);
                 eprintln!(
-                    "cmux-tui: terminal journal capture did not become idle within {} ms; closing capture",
-                    timeout.as_millis()
+                    "cmux-tui: terminal journal capture did not become idle before the shared shutdown deadline; closing capture"
                 );
                 return;
             }
@@ -3911,12 +3909,11 @@ impl Surface {
         self.as_pty().map(|pty| pty.journal_capture_epoch.load(Ordering::Acquire))
     }
 
-    pub(crate) fn finish_terminal_reader(&self, timeout: Duration) {
+    pub(crate) fn finish_terminal_reader(&self, deadline: Instant) {
         let Some(pty) = self.as_pty() else {
             return;
         };
         if let Some(reader) = pty.reader_thread.lock().unwrap().take() {
-            let deadline = Instant::now() + timeout;
             while !reader.is_finished() && Instant::now() < deadline {
                 std::thread::sleep(Duration::from_millis(1));
             }
@@ -3926,8 +3923,7 @@ impl Surface {
                 }
             } else {
                 eprintln!(
-                    "cmux-tui: terminal reader did not stop within {} ms; closing journal capture",
-                    timeout.as_millis()
+                    "cmux-tui: terminal reader did not stop before the shared shutdown deadline; closing journal capture"
                 );
             }
         }
@@ -3935,7 +3931,7 @@ impl Surface {
         // does not delay shutdown. Give an in-flight journal update the same
         // bounded drain interval, then close its gate so a failed journal
         // cannot prevent daemon shutdown forever.
-        pty.close_terminal_journal_capture_when_idle(timeout);
+        pty.close_terminal_journal_capture_when_idle(deadline);
     }
 
     #[cfg(test)]

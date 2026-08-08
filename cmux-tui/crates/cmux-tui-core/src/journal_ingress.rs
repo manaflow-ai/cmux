@@ -1118,6 +1118,71 @@ mod tests {
     }
 
     #[test]
+    fn producer_deadline_prevents_a_late_transaction_commit() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-producer-commit-deadline-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "journal-producer-commit-deadline",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        mux.install_journal_before_commit_for_test(entered, release_receiver);
+        let ingress = crate::agent_hook_journal_ingress(
+            "codex",
+            "SubagentStop",
+            None,
+            serde_json::json!({
+                "session_id":"commit-deadline-root",
+                "root_session_id":"commit-deadline-root",
+                "parent_session_id":"commit-deadline-root",
+                "child_agent_id":"commit-deadline-child",
+                "message":"transaction-deadline-marker",
+            }),
+        )
+        .unwrap();
+        let producer_mux = mux.clone();
+        let (result_sender, result_receiver) = sync_channel(1);
+        let producer = std::thread::spawn(move || {
+            result_sender
+                .send(producer_mux.append_journal_ingress(
+                    &ingress,
+                    "client_commit_deadline",
+                    "commit_deadline_1",
+                ))
+                .unwrap();
+        });
+        entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let error = result_receiver
+            .recv_timeout(JOURNAL_DURABLE_WAIT + Duration::from_secs(1))
+            .expect("producer must return at its fixed deadline")
+            .unwrap_err();
+        assert!(error.to_string().contains("timed out"));
+        release.send(()).unwrap();
+        producer.join().unwrap();
+        let shutdown_deadline = Instant::now() + Duration::from_secs(1);
+        while !mux.daemon_shutdown_requested() && Instant::now() < shutdown_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(mux.daemon_shutdown_requested());
+        let records = mux.session_journal_after(0, 1024).unwrap().records;
+        assert!(
+            records
+                .iter()
+                .all(|record| !record.payload.to_string().contains("transaction-deadline-marker")),
+            "a producer transaction must roll back after its deadline"
+        );
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn shutdown_joins_terminal_readers_before_the_final_journal_fence() {
         let root = std::env::temp_dir().join(format!(
             "cmux-terminal-reader-shutdown-{}-{}",
@@ -1178,7 +1243,7 @@ mod tests {
     }
 
     #[test]
-    fn reader_timeout_waits_for_an_active_journal_update_before_closing_capture() {
+    fn reader_timeout_closes_capture_after_the_shared_deadline() {
         let mux = Mux::new("active-terminal-journal-update", crate::SurfaceOptions::default());
         let surface = crate::Surface::spawn_for_test(
             1,
@@ -1203,20 +1268,46 @@ mod tests {
         let finishing_surface = surface.clone();
         let (finished, finished_receiver) = sync_channel(1);
         let finisher = std::thread::spawn(move || {
-            finishing_surface.finish_terminal_reader(Duration::from_millis(10));
+            finishing_surface.finish_terminal_reader(Instant::now() + Duration::from_millis(10));
             finished.send(()).unwrap();
         });
-        assert!(
-            finished_receiver.recv_timeout(Duration::from_millis(100)).is_err(),
-            "reader timeout closed capture during an active journal update"
-        );
-        release.send(()).unwrap();
         finished_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
         finisher.join().unwrap();
         assert!(
             surface.begin_terminal_journal_update_for_test().is_none(),
             "a late terminal update started after the shutdown capture fence"
         );
+        release.send(()).unwrap();
+    }
+
+    #[test]
+    fn shutdown_uses_one_terminal_reader_deadline_for_all_surfaces() {
+        let mux = Mux::new("shared-terminal-reader-deadline", crate::SurfaceOptions::default());
+        let mut releases = Vec::new();
+        for id in 1..=4 {
+            let surface = crate::Surface::spawn_for_test(
+                id,
+                crate::SurfaceOptions::default(),
+                Arc::downgrade(&mux),
+            )
+            .unwrap();
+            let (release, release_receiver) = sync_channel(1);
+            let reader = std::thread::spawn(move || release_receiver.recv().unwrap());
+            surface.install_terminal_reader_for_test(reader);
+            mux.insert_surface_runtime_for_test(surface);
+            releases.push(release);
+        }
+
+        let started = Instant::now();
+        mux.shutdown();
+
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "terminal reader shutdown applied its deadline once per surface"
+        );
+        for release in releases {
+            release.send(()).unwrap();
+        }
     }
 
     #[cfg(unix)]

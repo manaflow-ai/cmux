@@ -4646,8 +4646,9 @@ impl Mux {
         };
         let remaining = deadline.saturating_duration_since(Instant::now());
         anyhow::ensure!(!remaining.is_zero(), "session journal commit deadline expired");
-        let commits = registry.append_journal_ingress_events_with_busy_timeout(
+        let commits = registry.append_journal_ingress_events_with_deadline(
             events,
+            deadline,
             remaining.min(sqlite_wait_cap),
         )?;
         self.publish_journal_event();
@@ -4663,6 +4664,18 @@ impl Mux {
         let _registry = self.workspace_registry.lock().unwrap();
         entered.send(()).unwrap();
         release.recv().unwrap();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_journal_before_commit_for_test(
+        &self,
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: std::sync::mpsc::Receiver<()>,
+    ) {
+        self.workspace_registry
+            .lock()
+            .unwrap()
+            .set_journal_before_commit_for_test(entered, release);
     }
 
     pub(crate) fn journal_event_epoch(&self) -> u64 {
@@ -8163,8 +8176,9 @@ impl Mux {
         for surface in &surfaces {
             surface.shutdown_for_daemon();
         }
+        let terminal_reader_deadline = Instant::now() + TERMINAL_READER_SHUTDOWN_TIMEOUT;
         for surface in surfaces {
-            surface.finish_terminal_reader(TERMINAL_READER_SHUTDOWN_TIMEOUT);
+            surface.finish_terminal_reader(terminal_reader_deadline);
         }
         // Each terminal reader has drained or its journal capture gate has
         // closed within the shutdown deadline. Fence the terminal ingress lane
