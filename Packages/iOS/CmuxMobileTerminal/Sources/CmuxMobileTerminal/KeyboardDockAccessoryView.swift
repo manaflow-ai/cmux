@@ -22,6 +22,12 @@ final class KeyboardDockAccessoryView: UIInputView {
     private let composerSlot: UIView
     private let toolbarHeight: NSLayoutConstraint
     private let composerHeight: NSLayoutConstraint
+    /// Paints the accessory's region BELOW the safe-area bottom (the
+    /// home-indicator inset in the docked state). The content pins to the
+    /// safe-area bottom, so without this the strip under the composer band
+    /// renders the bare window — a black remainder at the screen's very
+    /// bottom. On the keyboard the inset is zero and the fill collapses.
+    private let bottomFill = UIView()
 
     /// Creates the dock accessory around the surface-owned toolbar and
     /// composer container views.
@@ -43,6 +49,8 @@ final class KeyboardDockAccessoryView: UIInputView {
 
         toolbar.translatesAutoresizingMaskIntoConstraints = false
         composer.translatesAutoresizingMaskIntoConstraints = false
+        bottomFill.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(bottomFill)
         addSubview(toolbar)
         addSubview(composer)
         NSLayoutConstraint.activate([
@@ -57,7 +65,19 @@ final class KeyboardDockAccessoryView: UIInputView {
             // Safe-area pin: docked = clears the home indicator; on the
             // keyboard = flush (the keyboard region has no bottom inset).
             composer.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
+            // Overlap the fill one point into the band so no hairline seam
+            // shows between the band's background and the inset fill.
+            bottomFill.topAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -1),
+            bottomFill.leadingAnchor.constraint(equalTo: leadingAnchor),
+            bottomFill.trailingAnchor.constraint(equalTo: trailingAnchor),
+            bottomFill.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+    }
+
+    /// Matches the fill to the terminal theme's bar background; the surface
+    /// re-applies it on theme changes.
+    func setBottomFillColor(_ color: UIColor) {
+        bottomFill.backgroundColor = color
     }
 
     @available(*, unavailable)
