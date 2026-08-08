@@ -1336,28 +1336,7 @@ jobs:
           # job), and their test runners link a C stub for the @_silgen_name
           # symbol instead of the GhosttyKit archive.
           PACKAGES=(
-            CMUXAuthCore
-            CmuxBrowser
-            CmuxCanvasUI
-            CmuxCore
-            CmuxRemoteDaemon
-            CmuxRemoteWorkspace
-            CmuxRemoteSession
-            CmuxAgentChat
-            CmuxAuthRuntime
-            CmuxBrowser
-            CmuxIrohTransport
-            CmuxCommandPalette
-            CmuxControlSocket
             CmuxFoundation
-            CmuxGit
-            CmuxNotifications
-            CmuxSettings
-            CmuxSettingsUI
-            CmuxTerminal
-            CmuxTerminalCore
-            CmuxUpdater
-            CMUXAgentLaunch
           )
           # SwiftPM emits an error-severity diagnostic while planning the
           # GhosttyKit binaryTarget (the xcframework's static archive is not
