@@ -501,6 +501,7 @@ public final class ResourceApiTest {
 
         Snapshots.TerminalSnapshot terminal = Client.decodeTerminal(Map.of(
             "id", "term_" + HEX,
+            "tab_id", "tab_" + HEX,
             "tab_ids", List.of("tab_" + HEX),
             "title", "done",
             "cols", 80,
@@ -519,6 +520,33 @@ public final class ResourceApiTest {
                 terminal.exit().orElseThrow().outcome() instanceof
                     Results.TerminalExitCode,
             "terminal snapshot exposes typed lifecycle and exit"
+        );
+        Snapshots.TerminalSnapshot legacyTerminal = Client.decodeTerminal(Map.of(
+            "id", "term_" + HEX,
+            "tab_id", "tab_" + HEX,
+            "title", "legacy",
+            "cols", 80,
+            "rows", 24,
+            "running", true,
+            "lifecycle", "running"
+        ));
+        require(
+            legacyTerminal.tabIds().equals(List.of(legacyTerminal.tabId().orElseThrow())),
+            "protocol-one terminal tab_id expands to tabIds"
+        );
+        Map<String, Object> legacyDetachedFields = new LinkedHashMap<>();
+        legacyDetachedFields.put("id", "term_" + HEX);
+        legacyDetachedFields.put("tab_id", null);
+        legacyDetachedFields.put("title", "legacy detached");
+        legacyDetachedFields.put("cols", 80);
+        legacyDetachedFields.put("rows", 24);
+        legacyDetachedFields.put("running", true);
+        legacyDetachedFields.put("lifecycle", "running");
+        Snapshots.TerminalSnapshot legacyDetached =
+            Client.decodeTerminal(legacyDetachedFields);
+        require(
+            legacyDetached.tabId().isEmpty() && legacyDetached.tabIds().isEmpty(),
+            "protocol-one detached terminal expands to empty tabIds"
         );
         expect(
             ProtocolError.class,

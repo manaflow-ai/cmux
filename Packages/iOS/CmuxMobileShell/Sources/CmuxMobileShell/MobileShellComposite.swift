@@ -111,6 +111,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let browserStreamCapability = MobileBrowserStreamCapability.identifier
     static let browserStreamViewportCapability = MobileBrowserStreamCapability.viewportIdentifier
     static let browserStreamDialogCapability = MobileBrowserStreamCapability.dialogIdentifier
+    static let browserStreamCreateCapability = MobileBrowserStreamCapability.createIdentifier
     static let terminalReplayCapability = "terminal.replay.v1"
     static let terminalInputOrderedCapability = "terminal.input.ordered.v1"
     static let maxTerminalReplayBarrierDroppedOutputBeforeFailOpen: UInt64 = 256
@@ -367,10 +368,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var notificationFeedUnreadCount: Int = 0
     /// Last authoritative chat-session snapshots, keyed by the workspace row id the UI renders.
     var chatSessionSnapshotsByWorkspaceID: [String: [ChatSessionDescriptor]] = [:]
-    /// The group sections the UI renders. A materialized derivation of
-    /// ``workspacesByMac`` (currently the foreground Mac's groups). Each group's
-    /// `isCollapsed` reflects this device's choice (see ``groupCollapseStore``),
-    /// not the Mac's live value.
+    /// The group sections the UI renders. A materialized derivation of every
+    /// entry in ``workspacesByMac``. Each group's `isCollapsed` reflects this
+    /// device's choice (see ``groupCollapseStore``), not the Mac's live value.
     public internal(set) var workspaceGroups: [MobileWorkspaceGroupPreview] = []
 
     /// The distinct per-Mac color index map (the SAME assignment the aggregated
@@ -515,6 +515,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 b: terminalInputText.isEmpty ? 1 : 0
             ))
             #endif
+            if !isLoadingDraft,
+               !terminalInputText.isEmpty,
+               terminalInputText != oldValue,
+               let terminalID = selectedTerminalID?.rawValue {
+                clearSettledTerminalSendStatus(forTerminalID: terminalID)
+            }
             // Persist the live edit under the CURRENT terminal so it survives a
             // terminal switch. Skipped while a draft is being loaded (the load is
             // the saved value, re-saving it is redundant and would race the
@@ -595,11 +601,65 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// this spans the entire image-then-text run. Not observed: it gates an
     /// async flow, not view state.
     @ObservationIgnored private var isSubmittingComposer = false
+    /// The last user-visible send settlement for each terminal. Unlike the
+    /// re-entrancy flags above, this is observed by both the composer button and
+    /// terminal command status pill.
+    private var terminalSendStatusesByTerminalID: [String: MobileTerminalSendStatus] = [:]
+    /// Latest operation identity per terminal. A late result from an older send
+    /// cannot overwrite the state of a newer retry.
+    @ObservationIgnored private var terminalSendOperationIDsByTerminalID: [String: UUID] = [:]
+    /// Raw-command operations are tracked separately so a focus/connection
+    /// pipeline clear can settle only those sends without disturbing an
+    /// independently in-flight composer paste pinned to the same terminal.
+    @ObservationIgnored private var rawTerminalSendOperationIDsByTerminalID: [String: UUID] = [:]
     /// Pending image attachments per terminal, keyed by terminal id so switching
     /// terminals keeps each draft's own attachments (mirroring how the text draft
     /// is keyed). Observed so the composer's chip row re-renders on add/remove.
     /// Sent in order on the next submit and then cleared for that terminal.
     private var pendingAttachmentsByTerminalID: [String: [MobilePendingAttachment]] = [:]
+
+    public func terminalSendStatus(forTerminalID terminalID: String) -> MobileTerminalSendStatus {
+        terminalSendStatusesByTerminalID[terminalID] ?? .idle
+    }
+
+    @discardableResult
+    private func beginTerminalSend(forTerminalID terminalID: String) -> UUID {
+        let operationID = UUID()
+        terminalSendOperationIDsByTerminalID[terminalID] = operationID
+        terminalSendStatusesByTerminalID[terminalID] = .sending
+        return operationID
+    }
+
+    private func finishTerminalSend(
+        _ operationID: UUID?,
+        forTerminalID terminalID: String,
+        succeeded: Bool
+    ) {
+        guard let operationID,
+              terminalSendOperationIDsByTerminalID[terminalID] == operationID else { return }
+        terminalSendStatusesByTerminalID[terminalID] = succeeded ? .sent : .failed
+    }
+
+    private func clearSettledTerminalSendStatus(forTerminalID terminalID: String) {
+        guard terminalSendStatusesByTerminalID[terminalID] != .sending else { return }
+        terminalSendStatusesByTerminalID[terminalID] = nil
+        terminalSendOperationIDsByTerminalID[terminalID] = nil
+    }
+
+    private func finishRawTerminalSend(
+        _ operationID: UUID?,
+        forTerminalID terminalID: String,
+        succeeded: Bool
+    ) {
+        guard let operationID,
+              rawTerminalSendOperationIDsByTerminalID[terminalID] == operationID else { return }
+        rawTerminalSendOperationIDsByTerminalID[terminalID] = nil
+        finishTerminalSend(
+            operationID,
+            forTerminalID: terminalID,
+            succeeded: succeeded
+        )
+    }
 
     /// Max number of staged attachments per terminal. Enforced in
     /// ``addPendingAttachment(_:format:forTerminalID:)`` against the CURRENT
@@ -1276,6 +1336,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaces.first { $0.id == id }?.rpcWorkspaceID ?? id
     }
 
+    /// Resolve an aggregate group id back to the Mac-local id expected by RPC.
+    func remoteWorkspaceGroupID(
+        for id: MobileWorkspaceGroupPreview.ID
+    ) -> MobileWorkspaceGroupPreview.ID {
+        workspaceGroups.first { $0.id == id }?.rpcGroupID ?? id
+    }
+
     /// Resolve a Mac-local workspace id to the current UI row id.
     func rowWorkspaceID(
         forRemoteWorkspaceID remoteID: MobileWorkspacePreview.ID,
@@ -1558,6 +1625,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceChangesSummaryTrailingTask?.cancel()
         pullToRefreshTask?.cancel()
         foregroundWorkspaceMutationRefreshTask?.cancel()
+        for task in computerVisibilityMutationTasksByID.values {
+            task.cancel()
+        }
         foregroundWorkspaceMutationRefreshPending = false
         foregroundWorkspaceMutationRefreshGeneration = UUID()
         notificationFeedOpenTask?.cancel()
@@ -1603,6 +1673,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     public func signOut() {
+        cancelComputerVisibilityMutations()
         // Reset analytics identity to anonymous on the signed-in→signed-out edge
         // only (this is called on every unauthenticated auth-state sync).
         if isSignedIn {
@@ -1759,6 +1830,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// never drops the terminal the user is in (the chosen "keep session, re-scope
     /// lists" behavior).
     public func currentTeamDidChange() {
+        cancelComputerVisibilityMutations()
         secondaryAggregationScopeGeneration &+= 1
         let teamScopeGeneration = secondaryAggregationScopeGeneration
         // Presence: cancel + re-subscribe so the online dots reflect the new team
@@ -2713,6 +2785,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var hiddenComputers: [MobileHiddenComputer] = []
     /// True when the current account/team scope has at least one hidden computer.
     public internal(set) var hasHiddenComputers = false
+    /// Computer identities whose visibility preference is being persisted.
+    public internal(set) var computerVisibilityMutationIDs: Set<String> = []
+    @ObservationIgnored var computerVisibilityMutationTasksByID: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored var computerVisibilityMutationOperationIDsByID: [String: UUID] = [:]
 
     var pairedMacsForIdentityMatching: [MobilePairedMac] {
         storedPairedMacs.isEmpty ? pairedMacs : storedPairedMacs
@@ -4494,11 +4570,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             return .permanentFailure
         }
-        return .received(response.workspaces.map { remote in
+        let workspaces = response.workspaces.map { remote in
             var workspace = MobileWorkspacePreview(remote: remote)
             workspace.macDeviceID = macDeviceID
             return workspace
-        })
+        }
+        let groups = Self.remoteWorkspaceGroups(
+            from: response,
+            acceptsEmptyGroupSnapshot: !response.workspaces.contains { workspace in
+                workspace.groupID?.isEmpty == false
+            }
+        )
+        return .received(SecondaryWorkspaceSnapshot(
+            workspaces: workspaces,
+            groups: groups
+        ))
     }
 
     /// Ensure a live read-only subscription exists for every signed-in paired Mac
@@ -6105,13 +6191,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 let wasSuperseded =
                     subscription.workspaceRefreshGeneration
                     != requestGeneration
-                let previews: [MobileWorkspacePreview]
+                let snapshot: SecondaryWorkspaceSnapshot
                 switch attempt {
                 case let .received(value):
                     // Publish every successful snapshot. Discarding a leading
                     // success lets sustained event churn starve the aggregate
                     // forever while requests keep completing.
-                    previews = value
+                    snapshot = value
                 case .transientFailure:
                     if wasSuperseded, completedPassCount < 2 {
                         continue refreshLoop
@@ -6130,7 +6216,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     macDeviceID: macID,
                     instanceTag: subscription.storedInstanceTag,
                     displayName: displayName ?? subscription.displayName,
-                    workspaces: previews,
+                    workspaces: snapshot.workspaces,
+                    groups: snapshot.groups
+                        ?? self.workspacesByMac[ownerKey]?.groups
+                        ?? [],
                     status: .connected,
                     actionCapabilities: subscription.actionCapabilities
                 )
@@ -6472,8 +6561,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let statesByAggregateKey = Dictionary(
             uniqueKeysWithValues: workspacesByMac.map { ($0.key.pairingID, $0.value) }
         )
+        let macIDsInDisplayOrder = workspaceAggregation.orderedMacIDs(
+            statesByMac: statesByAggregateKey,
+            foregroundMacDeviceID: foregroundKey
+        )
         var derived = workspaceAggregation.derivedWorkspaces(
-            statesByMac: statesByAggregateKey, foregroundMacDeviceID: foregroundKey, machineColorIndex: stableMacColorSlots)
+            statesByMac: statesByAggregateKey,
+            foregroundMacDeviceID: foregroundKey,
+            machineColorIndex: stableMacColorSlots,
+            macIDsInDisplayOrder: macIDsInDisplayOrder
+        )
         // Stamp per-Mac user color/icon overrides from pairedMacs so every
         // workspace avatar matches its computer's customization (same place the
         // aggregation already assigned the automatic color index).
@@ -6514,8 +6611,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             self.selectedWorkspaceID = remapped?.id ?? derived.first?.id
         }
         if selectedWorkspaceID != nil { syncSelectedTerminalForWorkspace() }
-        workspaceGroups = workspaceAggregation.derivedGroups(
-            statesByMac: statesByAggregateKey, foregroundMacDeviceID: foregroundKey)
+        let derivedGroups = workspaceAggregation.derivedGroups(
+            statesByMac: statesByAggregateKey,
+            foregroundMacDeviceID: foregroundKey,
+            macIDsInDisplayOrder: macIDsInDisplayOrder
+        )
+        workspaceGroups = groupCollapseStore.apply(to: derivedGroups)
     }
 
     private func pruneChatSessionSnapshots(to visibleWorkspaces: [MobileWorkspacePreview]) {
@@ -7322,10 +7423,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// send fails (no connection, or an older host that does not implement
     /// `terminal.paste` and answers `method_not_found`), the composed text is
     /// kept so the user can retry instead of silently losing the message.
-    public func submitComposerInput() async {
+    @discardableResult
+    public func submitComposerInput() async -> Bool {
         guard let workspaceID = selectedWorkspace?.id,
-              let terminalID = selectedTerminalID else { return }
-        await submitComposerInput(workspaceID: workspaceID, terminalID: terminalID)
+              let terminalID = selectedTerminalID else { return false }
+        return await submitComposerInput(
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
     }
 
     /// Submit the composer's text to an explicitly captured terminal. Used by
@@ -7397,22 +7502,33 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// attachments staged AND keeps the text unsent, so the user can retry
     /// instead of silently losing photos (matching the text-keep-on-failure
     /// semantics of ``submitComposerInput()``).
-    public func submitComposer() async {
+    @discardableResult
+    public func submitComposer() async -> Bool {
         // Reject a re-entrant submit (e.g. a double tap on Send): the button
         // stays enabled while the first image RPC awaits, and a second submit
         // would capture the same still-staged attachments and re-upload them.
         // Set/cleared on the main actor around the awaits, so no second call can
         // slip past. A failed send keeps the attachments staged (below), so the
         // user can retry once this flag clears.
-        guard !isSubmittingComposer else { return }
+        guard !isSubmittingComposer else { return false }
         isSubmittingComposer = true
         defer { isSubmittingComposer = false }
         guard let workspaceID = selectedWorkspace?.id,
               let submittedTerminalID = selectedTerminalID else {
             // No target: fall back to the text-only path, which is itself a no-op
             // without a selected terminal.
-            await submitComposerInput()
-            return
+            return await submitComposerInput()
+        }
+        let sendOperationID = beginTerminalSend(
+            forTerminalID: submittedTerminalID.rawValue
+        )
+        var sendSucceeded = false
+        defer {
+            finishTerminalSend(
+                sendOperationID,
+                forTerminalID: submittedTerminalID.rawValue,
+                succeeded: sendSucceeded
+            )
         }
         // Snapshot the text BEFORE any await (the image sends below). Threaded
         // through the text submit + the post-send reconcile so a terminal switch
@@ -7452,7 +7568,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 signIn: submitSignInGeneration,
                 connection: submitConnectionGeneration,
                 client: submitClient
-            ) else { return }
+            ) else { return false }
             // Re-check the attachment is still staged for the captured terminal
             // before uploading it. The user can delete a not-yet-acked chip while
             // an earlier image's send is in flight; that removes it from
@@ -7469,7 +7585,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 workspaceID: workspaceID,
                 terminalID: submittedTerminalID
             )
-            guard sent else { return }
+            guard sent else { return false }
             removePendingAttachment(id: attachment.id, forTerminalID: submittedTerminalID.rawValue)
         }
         // Re-check the captured identity one last time before the text send. The
@@ -7481,16 +7597,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             signIn: submitSignInGeneration,
             connection: submitConnectionGeneration,
             client: submitClient
-        ) else { return }
+        ) else { return false }
         // Submit the captured text to the captured terminal (a no-op when empty,
         // e.g. an images-only send). All images acked by here, so the text
         // follows. Passing the snapshot (not the live field) keeps this immune to
         // a switch/edit that happened during the image awaits above.
-        await submitComposerInput(
+        sendSucceeded = await submitComposerInput(
             workspaceID: workspaceID,
             terminalID: submittedTerminalID,
             capturedText: submittedText
         )
+        return sendSucceeded
     }
 
     /// Whether the session + connection identity captured at the start of a
@@ -7572,11 +7689,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             #endif
             return
         }
+        let sendStatusOperationID = prepareTerminalSendStatusForRawInput(
+            text,
+            terminalID: terminalID.rawValue
+        )
         let enqueueResult = rawTerminalInputBuffer.enqueue(
             text,
             workspaceID: workspaceID,
-            terminalID: terminalID
+            terminalID: terminalID,
+            sendStatusOperationID: sendStatusOperationID
         )
+        if enqueueResult == .rejected {
+            finishRawTerminalSend(
+                sendStatusOperationID,
+                forTerminalID: terminalID.rawValue,
+                succeeded: false
+            )
+        }
         handleSynchronousRawTerminalInputEnqueueResult(enqueueResult)
     }
 
@@ -7586,11 +7715,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         guard let workspaceID = workspaceID(forTerminalID: surfaceID) else { return }
+        let sendStatusOperationID = prepareTerminalSendStatusForRawInput(
+            text,
+            terminalID: surfaceID
+        )
         let enqueueResult = rawTerminalInputBuffer.enqueue(
             text,
             workspaceID: workspaceID,
-            terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
+            terminalID: MobileTerminalPreview.ID(rawValue: surfaceID),
+            sendStatusOperationID: sendStatusOperationID
         )
+        if enqueueResult == .rejected {
+            finishRawTerminalSend(
+                sendStatusOperationID,
+                forTerminalID: surfaceID,
+                succeeded: false
+            )
+        }
         handleSynchronousRawTerminalInputEnqueueResult(enqueueResult)
     }
 
@@ -7606,6 +7747,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         case .rejected:
             handleRawTerminalInputOverflow()
+        }
+    }
+
+    private func prepareTerminalSendStatusForRawInput(
+        _ text: String,
+        terminalID: String
+    ) -> UUID? {
+        if Self.containsTerminalSubmission(text) {
+            let operationID = beginTerminalSend(
+                forTerminalID: terminalID
+            )
+            rawTerminalSendOperationIDsByTerminalID[terminalID] = operationID
+            return operationID
+        } else {
+            clearSettledTerminalSendStatus(forTerminalID: terminalID)
+            return nil
+        }
+    }
+
+    private nonisolated static func containsTerminalSubmission(_ text: String) -> Bool {
+        text.unicodeScalars.contains { scalar in
+            scalar.value == 0x0D || scalar.value == 0x0A
         }
     }
 
@@ -7699,7 +7862,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 chunk.text,
                 workspaceID: chunk.workspaceID,
                 terminalID: chunk.terminalID,
-                latencyBatchNumber: latencyBatchNumberForSend
+                latencyBatchNumber: latencyBatchNumberForSend,
+                sendStatusOperationID: chunk.sendStatusOperationID
             )
         }
     }
@@ -7714,6 +7878,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func clearPendingTerminalInputForFocusChange() {
         rawTerminalInputBuffer.clear()
         terminalInputRPCPipeline.clear()
+        let pendingRawSends = rawTerminalSendOperationIDsByTerminalID
+        for (terminalID, operationID) in pendingRawSends {
+            finishRawTerminalSend(
+                operationID,
+                forTerminalID: terminalID,
+                succeeded: false
+            )
+        }
         resumeRawTerminalInputDrainWaiters()
     }
 
@@ -9662,13 +9834,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ text: String,
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID,
-        latencyBatchNumber: UInt64? = nil
+        latencyBatchNumber: UInt64? = nil,
+        sendStatusOperationID: UUID? = nil
     ) async {
         guard let client = remoteClient else {
             #if DEBUG
             mobileShellLog.info("skip remote terminal input remoteClient=0")
             #endif
             Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: false)
+            finishRawTerminalSend(
+                sendStatusOperationID,
+                forTerminalID: terminalID.rawValue,
+                succeeded: false
+            )
             return
         }
         let generation = connectionGeneration
@@ -9703,6 +9881,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             latencyBatchNumber,
                             succeeded: false
                         )
+                        finishRawTerminalSend(
+                            sendStatusOperationID,
+                            forTerminalID: terminalID.rawValue,
+                            succeeded: false
+                        )
                         return
                     }
                     if terminalInputRPCPipeline.hasAmbiguousFailure(
@@ -9729,12 +9912,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             switch laneResult {
             case .sent:
                 Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: true)
+                finishRawTerminalSend(
+                    sendStatusOperationID,
+                    forTerminalID: terminalID.rawValue,
+                    succeeded: true
+                )
                 return
             case .failed:
                 mobileShellLog.error(
                     "independent terminal input failed surface=\(terminalID.rawValue, privacy: .public)"
                 )
                 Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: false)
+                finishRawTerminalSend(
+                    sendStatusOperationID,
+                    forTerminalID: terminalID.rawValue,
+                    succeeded: false
+                )
                 return
             case .unavailable:
                 break
@@ -9767,6 +9960,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                                 latencyBatchNumber,
                                 succeeded: true
                             )
+                            self?.finishRawTerminalSend(
+                                sendStatusOperationID,
+                                forTerminalID: terminalID.rawValue,
+                                succeeded: true
+                            )
                             guard let self, let client else { return }
                             guard self.isCurrentRemoteOperation(
                                 client: client,
@@ -9779,6 +9977,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         case let .failure(error):
                             Self.stampTerminalInputSettlement(
                                 latencyBatchNumber,
+                                succeeded: false
+                            )
+                            self?.finishRawTerminalSend(
+                                sendStatusOperationID,
+                                forTerminalID: terminalID.rawValue,
                                 succeeded: false
                             )
                             guard let self, let client else { return }
@@ -9797,6 +10000,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // operational failure, regardless of whether the caller also
                 // rotated connectionGeneration.
                 Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: false)
+                finishRawTerminalSend(
+                    sendStatusOperationID,
+                    forTerminalID: terminalID.rawValue,
+                    succeeded: false
+                )
                 if error is CancellationError { return }
                 handleTerminalInputFailure(
                     error,
@@ -9818,12 +10026,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             guard isCurrentRemoteOperation(client: client, generation: generation) else {
                 Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: false)
+                finishRawTerminalSend(
+                    sendStatusOperationID,
+                    forTerminalID: terminalID.rawValue,
+                    succeeded: false
+                )
                 return
             }
             handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
             Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: true)
+            finishRawTerminalSend(
+                sendStatusOperationID,
+                forTerminalID: terminalID.rawValue,
+                succeeded: true
+            )
         } catch {
             Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: false)
+            finishRawTerminalSend(
+                sendStatusOperationID,
+                forTerminalID: terminalID.rawValue,
+                succeeded: false
+            )
             handleTerminalInputFailure(
                 error,
                 client: client,
@@ -12222,13 +12445,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         groupsAreAuthoritative: Bool
     ) -> [MobileWorkspaceGroupPreview]? {
         guard !mergeExistingWorkspaces, groupsAreAuthoritative else { return nil }
+        return Self.remoteWorkspaceGroups(
+            from: response,
+            acceptsEmptyGroupSnapshot: canAcceptEmptyGroupSnapshot(from: response)
+        )
+    }
+
+    /// Resolve one response's group-field completeness into update-or-preserve
+    /// semantics shared by foreground and secondary workspace snapshots.
+    private static func remoteWorkspaceGroups(
+        from response: MobileSyncWorkspaceListResponse,
+        acceptsEmptyGroupSnapshot: Bool
+    ) -> [MobileWorkspaceGroupPreview]? {
         guard response.groupsFieldWasPresent else { return nil }
         let groups = response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
-        guard groups.isEmpty else {
-            return groupCollapseStore.apply(to: groups)
-        }
-        guard canAcceptEmptyGroupSnapshot(from: response) else { return nil }
-        return []
+        guard groups.isEmpty else { return groups }
+        return acceptsEmptyGroupSnapshot ? [] : nil
     }
 
     private func canAcceptEmptyGroupSnapshot(

@@ -66,6 +66,10 @@ struct WorkspaceDetailView: View {
     @State private var contentWidth: CGFloat = 0
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
+    /// Identity of the in-flight New Browser creation. A late RPC result must
+    /// not activate its panel over a selection the user made in the meantime,
+    /// so completion applies only while its request is still current.
+    @State private var browserCreateRequest: UUID?
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
@@ -365,6 +369,19 @@ struct WorkspaceDetailView: View {
                 .padding(.top, 10)
                 .padding(.leading, 10)
         }
+        #if os(iOS)
+        .overlay(alignment: .topTrailing) {
+            if let terminalID = selectedTerminal?.id.rawValue,
+               !store.isComposerPresented {
+                TerminalSendStatusPill(
+                    status: store.terminalSendStatus(forTerminalID: terminalID)
+                )
+                .allowsHitTesting(false)
+                .padding(.top, 10)
+                .padding(.trailing, 10)
+            }
+        }
+        #endif
         #if os(iOS) && DEBUG
         // DEBUG/UI-test-only store-side composer probe.
         .overlay {
@@ -607,7 +624,7 @@ struct WorkspaceDetailView: View {
                 createWorkspace: createWorkspaceFromToolbar,
                 createTerminal: createTerminalFromToolbar,
                 openBrowser: openBrowserFromToolbar,
-                selectBrowserStream: selectBrowserStreamFromToolbar,
+                selectBrowserStream: { selectBrowserStreamFromToolbar($0) },
                 openTextSheet: openTextSheetFromMenu,
                 copyDebugLogs: {
                     #if DEBUG
@@ -841,6 +858,7 @@ struct WorkspaceDetailView: View {
 
     private func createTerminalFromToolbar() {
         dismissTerminalKeyboardForChrome()
+        browserCreateRequest = nil
         // Creating a terminal from the (shared) chrome must surface it. If a
         // browser pane is up, close it so `body` leaves the browser branch and
         // shows the new terminal instead of staying on the browser.
@@ -851,15 +869,42 @@ struct WorkspaceDetailView: View {
 
     private func openBrowserFromToolbar() {
         dismissTerminalKeyboardForChrome()
-        // Opens (or reveals the existing) browser pane for this workspace. The
-        // detail view flips to the browser because `activeBrowser` becomes
-        // non-nil; the picker shows a check next to "New Browser" while it is up.
+        // New Browser creates a real Mac browser pane and streams it, so it
+        // shows the same surface as the Mac Browsers rows. The phone-local
+        // WKWebView pane remains only as a fallback for Macs that cannot
+        // create panels (older builds, disconnected, or creation rejected).
+        guard store.supportsBrowserStreamCreate else {
+            openLocalBrowserFallback()
+            return
+        }
+        let workspaceID = workspace.rpcWorkspaceID.rawValue
+        let request = UUID()
+        browserCreateRequest = request
+        Task {
+            let descriptor = await store.createMobileBrowserPanel(workspaceID: workspaceID)
+            guard browserCreateRequest == request else { return }
+            browserCreateRequest = nil
+            guard let descriptor else {
+                openLocalBrowserFallback()
+                return
+            }
+            selectBrowserStreamFromToolbar(descriptor.panelID, dismissKeyboard: false)
+        }
+    }
+
+    /// Opens (or reveals) the phone-local browser pane for this workspace. The
+    /// detail view flips to the browser because `activeBrowser` becomes
+    /// non-nil; the picker shows a check next to "New Browser" while it is up.
+    private func openLocalBrowserFallback() {
         browserStore.openBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
     }
 
-    private func selectBrowserStreamFromToolbar(_ panelID: String) {
-        dismissTerminalKeyboardForChrome()
+    private func selectBrowserStreamFromToolbar(_ panelID: String, dismissKeyboard: Bool = true) {
+        if dismissKeyboard {
+            dismissTerminalKeyboardForChrome()
+        }
+        browserCreateRequest = nil
         browserStore.closeBrowser(for: workspace.id.rawValue)
         if let previous = activeBrowserStream, previous.id != panelID {
             Task { await store.stopMobileBrowserStream(panelID: previous.id) }
@@ -876,6 +921,7 @@ struct WorkspaceDetailView: View {
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
+        browserCreateRequest = nil
         // Choosing a terminal returns from the browser pane (if up) to the
         // terminal. Closing the browser is enough to flip the detail view back.
         browserStore.closeBrowser(for: workspace.id.rawValue)

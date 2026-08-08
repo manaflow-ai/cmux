@@ -4334,6 +4334,86 @@ impl Mux {
             .context("created tab no longer has a live view")
     }
 
+    pub(crate) fn resource_selectors_for_pane(
+        &self,
+        pane: Option<PaneId>,
+    ) -> anyhow::Result<crate::ResourceSelectors> {
+        let state = self.state.lock().unwrap();
+        let pane = pane.or_else(|| state.active_pane()).context("session has no active pane")?;
+        let (workspace_index, screen_index) =
+            state.screen_of(pane).context("pane has no containing screen")?;
+        let workspace = &state.workspaces[workspace_index];
+        let screen = &workspace.screens[screen_index];
+        let pane =
+            state.resource_indexes.pane_ids.get(&pane).context("pane has no public identity")?;
+        Ok(crate::ResourceSelectors {
+            machine: Some("current".to_string()),
+            session: Some("current".to_string()),
+            workspace: Some(workspace.public_id.to_string()),
+            screen: Some(screen.public_id.to_string()),
+            pane: Some(pane.to_string()),
+            ..crate::ResourceSelectors::default()
+        })
+    }
+
+    pub(crate) fn resource_selectors_for_workspace(
+        &self,
+        workspace: Option<WorkspaceId>,
+    ) -> anyhow::Result<crate::ResourceSelectors> {
+        let state = self.state.lock().unwrap();
+        let workspace = match workspace {
+            Some(workspace) => state
+                .workspaces
+                .iter()
+                .find(|candidate| candidate.id == workspace)
+                .context("workspace does not exist")?,
+            None => state
+                .workspaces
+                .get(state.active_workspace)
+                .context("session has no active workspace")?,
+        };
+        Ok(crate::ResourceSelectors {
+            machine: Some("current".to_string()),
+            session: Some("current".to_string()),
+            workspace: Some(workspace.public_id.to_string()),
+            ..crate::ResourceSelectors::default()
+        })
+    }
+
+    pub(crate) fn resource_surface_for_created_path(
+        &self,
+        result: &Value,
+    ) -> anyhow::Result<SurfaceId> {
+        let tab = TabPublicId::parse(
+            result["tab_id"]
+                .as_str()
+                .context("creation receipt omitted its tab identity")?
+                .to_string(),
+        )
+        .map_err(anyhow::Error::new)?;
+        self.state
+            .lock()
+            .unwrap()
+            .resource_indexes
+            .tabs
+            .get(&tab)
+            .copied()
+            .context("created tab no longer has a live view")
+    }
+
+    pub(crate) fn has_durable_terminal_receipt(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> anyhow::Result<bool> {
+        let registry = self.workspace_registry.lock().unwrap();
+        let Some(host_id) = registry.terminal_host_id(terminal_id)? else {
+            return Ok(false);
+        };
+        Ok(registry
+            .terminal_record(&host_id)?
+            .is_some_and(|terminal| terminal.lifecycle != TerminalLifecycle::Tombstoned))
+    }
+
     /// Read only public terminal completion state. The host UUID and
     /// incarnation remain an internal fencing mechanism and never enter the
     /// resource API result.
@@ -7515,7 +7595,11 @@ impl Mux {
         Ok(())
     }
 
-    fn terminate_discovered_terminal_host(&self, terminal_id: &str, incarnation: Option<&str>) {
+    pub(crate) fn terminate_discovered_terminal_host(
+        &self,
+        terminal_id: &str,
+        incarnation: Option<&str>,
+    ) {
         #[cfg(unix)]
         {
             let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
@@ -7527,8 +7611,9 @@ impl Mux {
             for (path, record) in records {
                 if record.terminal_id == terminal_id
                     && incarnation.is_none_or(|expected| record.incarnation == expected)
+                    && !terminate_host_record(record.clone(), path.clone())
                 {
-                    terminate_host_record(record, path);
+                    schedule_terminal_host_record_cleanup(record, path);
                 }
             }
             let record_path = root.join(format!("{terminal_id}.json"));
@@ -8530,6 +8615,7 @@ impl Mux {
             }
             budget.blocked_surfaces.remove(&runtime_id);
         }
+        self.kitty_image_budget_changed.notify_all();
         self.start_kitty_image_budget_worker();
         Ok(())
     }
@@ -10272,6 +10358,34 @@ impl Mux {
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn create_raw_terminal_in_workspace_with_mutation(
+        self: &Arc<Self>,
+        workspace: WorkspaceId,
+        argv: Option<Vec<String>>,
+        cwd: Option<String>,
+        name: Option<String>,
+        size: Option<(u16, u16)>,
+        requested_terminal_id: Option<&str>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<TerminalPlacementResult> {
+        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_execution = self.resource_creation_execution.lock().unwrap();
+        self.create_terminal_in_workspace_with_mutation(
+            workspace,
+            argv,
+            cwd,
+            name,
+            size,
+            requested_terminal_id,
+            expected_generation,
+            expected_revision,
+            mutation,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_terminal_in_workspace_with_mutation(
         self: &Arc<Self>,
         workspace: WorkspaceId,
         argv: Option<Vec<String>>,
@@ -14306,6 +14420,7 @@ fn terminal_exit_snapshot_in_state(
     let (cols, rows) = surface.map(|surface| surface.size()).unwrap_or((80, 24));
     let mut snapshot = serde_json::json!({
         "id": public_id,
+        "tab_id": tab_ids.first(),
         "tab_ids": tab_ids,
         "title": surface.map(|surface| surface.title()).unwrap_or_default(),
         "cols": cols.max(1),
@@ -14501,6 +14616,41 @@ fn acknowledge_terminal_exit_sidecar(
         Ok(true) => true,
         Ok(false) => !exit_path.exists(),
         Err(_) => false,
+    }
+}
+
+#[cfg(unix)]
+fn schedule_terminal_host_record_cleanup(
+    record: crate::terminal_host_runtime::TerminalHostRecord,
+    record_path: std::path::PathBuf,
+) {
+    let fallback_record = record.clone();
+    let fallback_path = record_path.clone();
+    let name = format!("terminal-clean-{}", record.terminal_id);
+    if std::thread::Builder::new()
+        .name(name)
+        .spawn(move || retry_terminal_host_record_cleanup(record, record_path))
+        .is_err()
+    {
+        // Thread exhaustion cannot turn a durable close into a permanent
+        // orphan. The request may remain blocked, but the exact host keeps
+        // being reconciled until it accepts termination or proves itself dead.
+        retry_terminal_host_record_cleanup(fallback_record, fallback_path);
+    }
+}
+
+#[cfg(unix)]
+fn retry_terminal_host_record_cleanup(
+    record: crate::terminal_host_runtime::TerminalHostRecord,
+    record_path: std::path::PathBuf,
+) {
+    let mut delay = Duration::from_millis(25);
+    loop {
+        std::thread::sleep(delay);
+        if cleanup_terminal_host_record(&record, &record_path) {
+            return;
+        }
+        delay = (delay * 2).min(Duration::from_secs(5));
     }
 }
 
@@ -17690,6 +17840,51 @@ mod tests {
     }
 
     #[test]
+    fn terminal_close_runs_runtime_cleanup_outside_creation_fence() {
+        let mux = test_mux();
+        let created = public_request(
+            &mux,
+            "create-terminal-workspace",
+            "workspace.create",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "name":"close fence",
+                "initial_content":"terminal",
+            }),
+            Some("create-terminal-workspace"),
+        );
+        let terminal = created["result"]["value"]["terminal_id"].clone();
+        let cleanup_held_creation_fence = Arc::new(AtomicBool::new(false));
+        mux.set_resource_close_cleanup_hook_for_test(Some(Arc::new({
+            let cleanup_held_creation_fence = cleanup_held_creation_fence.clone();
+            let mux = Arc::downgrade(&mux);
+            move || {
+                cleanup_held_creation_fence.store(
+                    mux.upgrade()
+                        .is_some_and(|mux| mux.resource_creation_execution.try_lock().is_err()),
+                    Ordering::Release,
+                );
+            }
+        })));
+        public_request(
+            &mux,
+            "close-terminal",
+            "terminal.close",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal,
+            }),
+            Some("close-terminal"),
+        );
+        assert!(
+            !cleanup_held_creation_fence.load(Ordering::Acquire),
+            "terminal cleanup ran while holding the global creation fence"
+        );
+    }
+
+    #[test]
     fn persistent_mux_restart_restores_auxiliary_resources_and_exact_replay() {
         let root = std::env::temp_dir().join(format!(
             "cmux-resource-auxiliary-restart-{}",
@@ -17722,6 +17917,7 @@ mod tests {
         );
         let created_value = created["result"]["value"].clone();
         let terminal_id = created_value["terminal_id"].as_str().unwrap().to_string();
+        let terminal_public_id = TerminalPublicId::parse(&terminal_id).unwrap();
         let notification_params = serde_json::json!({
             "machine":"current",
             "session":"current",
@@ -17833,6 +18029,13 @@ mod tests {
         assert!(after["notifications"].as_array().unwrap().contains(&notification_value));
         assert!(after["agents"].as_array().unwrap().contains(&agent_value));
         assert!(after["frontend_projections"].as_array().unwrap().contains(&projection_value));
+        assert_eq!(after["terminals"], serde_json::json!([]));
+        assert_eq!(reopened.resource_surface_for_terminal(&terminal_public_id), None);
+        let exited =
+            reopened.wait_for_terminal_exit(&terminal_public_id, Some(Duration::ZERO)).unwrap();
+        assert_eq!(exited["state"], "exited");
+        assert_eq!(exited["outcome"]["kind"], "unknown");
+        assert_eq!(exited["outcome"]["reason"], "missing-host-record");
         let notifications = public_request(
             &reopened,
             "notifications",
@@ -18546,6 +18749,51 @@ mod tests {
     }
 
     #[test]
+    fn killed_kitty_surface_cannot_block_the_next_terminal_reservation() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let mut survivors = Vec::new();
+        for _ in 1..4 {
+            survivors.push(mux.new_tab(Some(pane), None, Some((80, 24))).unwrap());
+        }
+        wait_for_kitty_image_budget(&mux);
+
+        let first_id = first.id;
+        *mux.kitty_image_budget_operation.lock().unwrap() =
+            Some(Arc::new(move |surface, limits, _deadline| {
+                if surface.id == first_id {
+                    anyhow::bail!("a killed terminal host cannot acknowledge quota updates");
+                }
+                surface.set_kitty_graphics_limits(
+                    limits.image_bytes,
+                    limits.inflight_bytes,
+                    limits.images,
+                    limits.placements,
+                )
+            }));
+
+        first.kill();
+        let started = Instant::now();
+        let replacement = mux
+            .new_tab(Some(pane), None, Some((80, 24)))
+            .expect("a killed surface retained quota and blocked terminal creation");
+        assert!(
+            started.elapsed() < Duration::from_millis(250),
+            "terminal creation waited on a killed surface for {:?}",
+            started.elapsed()
+        );
+
+        *mux.kitty_image_budget_operation.lock().unwrap() = None;
+        assert!(mux.close_surface(replacement.id).unwrap());
+        for surface in survivors {
+            assert!(mux.close_surface(surface.id).unwrap());
+        }
+        assert!(mux.close_surface(first.id).unwrap());
+        wait_for_kitty_image_budget(&mux);
+    }
+
+    #[test]
     fn kitty_quota_updates_delay_terminal_creation_until_startup_is_safe() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();
@@ -19014,9 +19262,13 @@ mod tests {
         while mux.kitty_image_budget.lock().unwrap().worker_running && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(5));
         }
-        let (stopped, blocked) = {
+        let (stopped, survivor_blocked, closed_retired) = {
             let budget = mux.kitty_image_budget.lock().unwrap();
-            (!budget.worker_running, budget.blocked_surfaces.contains(&second.id))
+            (
+                !budget.worker_running,
+                budget.blocked_surfaces.contains(&first.id),
+                !budget.entries.contains_key(&second.id),
+            )
         };
 
         {
@@ -19037,7 +19289,11 @@ mod tests {
         }
 
         assert!(stopped, "Kitty quota worker retried pool admission forever");
-        assert!(blocked, "pool admission exhaustion did not fail closed for the surface");
+        assert!(
+            survivor_blocked,
+            "pool admission exhaustion did not fail closed for the live surface"
+        );
+        assert!(closed_retired, "a closed surface remained in the Kitty quota registry");
     }
 
     #[test]
@@ -19541,6 +19797,127 @@ mod tests {
         close_terminal_runtime_for_test(&mux, &source);
         wait_for_kitty_image_budget(&mux);
         assert!(mux.kitty_image_budget.lock().unwrap().entries.is_empty());
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        assert_eq!(mux.claim_terminal_geometry(surface.id, 0), Some(true));
+        surface.fail_next_test_master_resize();
+
+        assert!(mux.resize_surface_for_client(surface.id, 0, 100, 30).is_err());
+        let sizing = mux.client_sizing.lock().unwrap();
+        assert!(!sizing.surfaces.contains_key(&surface.id));
+        assert!(!sizing.report_order.contains_key(&(surface.id, 0)));
+        assert!(!sizing.terminal_runtime_by_placement.contains_key(&surface.id));
+    }
+
+    #[test]
+    fn concurrent_browser_viewer_reports_settle_at_the_shared_minimum() {
+        let mux = test_mux();
+        let surface = mux
+            .new_browser_tab("about:blank#concurrent-sizing".into(), None, Some((100, 30)))
+            .unwrap();
+        let surface_id = surface.id;
+        let pause_first = Arc::new(AtomicBool::new(true));
+        let (reached_tx, reached_rx) = std::sync::mpsc::sync_channel(1);
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let hook_release = release.clone();
+        mux.set_client_resize_before_apply(Some(Arc::new(move || {
+            if pause_first.swap(false, Ordering::SeqCst) {
+                reached_tx.send(()).unwrap();
+                let (lock, ready) = &*hook_release;
+                let mut released = lock.lock().unwrap();
+                while !*released {
+                    released = ready.wait(released).unwrap();
+                }
+            }
+        })));
+
+        let first_mux = mux.clone();
+        let first = std::thread::spawn(move || {
+            first_mux.resize_surface_for_client(surface_id, 1, 120, 40).unwrap();
+        });
+        reached_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let second_mux = mux.clone();
+        let second = std::thread::spawn(move || {
+            second_mux.resize_surface_for_client(surface_id, 2, 80, 50).unwrap();
+        });
+        let (lock, ready) = &*release;
+        *lock.lock().unwrap() = true;
+        ready.notify_all();
+        first.join().unwrap();
+        second.join().unwrap();
+
+        if let Some(pending) = surface.pending_resize_completion(80, 40).unwrap() {
+            assert_eq!(pending.completion.recv_timeout(Duration::from_secs(10)).unwrap(), Ok(()));
+        }
+        assert_eq!(surface.size(), (80, 40));
+        mux.set_client_resize_before_apply(None);
+        mux.shutdown();
+    }
+
+    fn projected_terminal_view(mux: &Arc<Mux>, source: &Arc<Surface>) -> Arc<Surface> {
+        let terminal_id = source
+            .terminal_public_id()
+            .cloned()
+            .expect("test terminal has a public content identity");
+        let pane = mux.with_state(|state| state.pane_of(source.id).unwrap());
+        mux.resource_project_terminal_selected(
+            crate::ResourceSelectors {
+                terminal: Some(terminal_id.to_string()),
+                ..Mux::ordinary_resource_selectors()
+            },
+            mux.ordinary_pane_selectors(pane).unwrap(),
+            usize::MAX,
+            None,
+            None,
+            &WorkspaceMutation::local("test-terminal-projection"),
+        )
+        .unwrap();
+        mux.with_state(|state| {
+            state
+                .placements_of_content(&ContentPublicId::Terminal(terminal_id))
+                .iter()
+                .copied()
+                .find(|placement| *placement != source.id)
+                .and_then(|placement| state.surfaces.get(&placement))
+                .cloned()
+                .expect("projected terminal view is materialized")
+        })
+    }
+
+    #[test]
+    fn projected_views_share_one_graphics_and_cell_pixel_owner() {
+        let mux = test_mux();
+        let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+        wait_for_kitty_image_budget(&mux);
+        assert_eq!(mux.kitty_image_budget.lock().unwrap().entries.len(), 1);
+
+        let projected = projected_terminal_view(&mux, &source);
+        wait_for_kitty_image_budget(&mux);
+        assert!(source.shares_terminal_runtime(&projected));
+        assert_eq!(mux.kitty_image_budget.lock().unwrap().entries.len(), 1);
+
+        let applications = Arc::new(AtomicUsize::new(0));
+        *mux.cell_pixel_operation.lock().unwrap() = Some(Arc::new({
+            let applications = applications.clone();
+            move |surface, target, _deadline| {
+                applications.fetch_add(1, Ordering::AcqRel);
+                surface.set_cell_pixel_size(target.0, target.1).map(|changed| changed.then_some(0))
+            }
+        }));
+        let update = mux.set_cell_pixel_size(9, 18);
+        assert!(update.failures.is_empty());
+        assert_eq!(applications.load(Ordering::Acquire), 1);
+        assert_eq!(source.test_cell_pixel_size(), (9, 18));
+        assert_eq!(projected.test_cell_pixel_size(), (9, 18));
+
+        assert!(mux.close_surface(source.id).unwrap());
+        wait_for_kitty_image_budget(&mux);
+        assert_eq!(mux.kitty_image_budget.lock().unwrap().entries.len(), 1);
+
+        close_terminal_runtime_for_test(&mux, &source);
+        wait_for_kitty_image_budget(&mux);
+        assert!(mux.kitty_image_budget.lock().unwrap().entries.is_empty());
     }
 
     #[test]
@@ -19665,6 +20042,277 @@ mod tests {
         mux.remove_surface_runtime_for_test(projected.id).unwrap();
         mux.emit_terminal_output(source.id);
         assert!(matches!(events.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn passive_terminal_viewports_never_resize_the_canonical_grid() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+
+        assert!(!mux.resize_surface_for_client(surface.id, 0, 120, 40).unwrap());
+        assert_eq!(surface.size(), (80, 24));
+        assert_eq!(mux.client_surface_size(surface.id, 0), Some((120, 40)));
+        assert!(!mux.client_size_participates(surface.id, 0));
+
+        assert_eq!(mux.claim_terminal_geometry(surface.id, 0), Some(true));
+        assert_eq!(surface.size(), (120, 40));
+        assert!(mux.client_size_participates(surface.id, 0));
+
+        assert!(!mux.resize_surface_for_client(surface.id, 7, 60, 20).unwrap());
+        assert_eq!(surface.size(), (120, 40));
+        assert_eq!(mux.client_surface_size(surface.id, 7), Some((60, 20)));
+        assert!(!mux.client_size_participates(surface.id, 7));
+    }
+
+    #[test]
+    fn geometry_authority_moves_between_views_of_one_terminal() {
+        let mux = test_mux();
+        let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let projected = projected_terminal_view(&mux, &source);
+
+        assert!(source.shares_terminal_runtime(&projected));
+        assert!(!mux.resize_surface_for_client(source.id, 0, 110, 35).unwrap());
+        assert!(!mux.resize_surface_for_client(projected.id, 0, 60, 20).unwrap());
+
+        assert_eq!(mux.claim_terminal_geometry(source.id, 0), Some(true));
+        assert_eq!(source.size(), (110, 35));
+        assert_eq!(projected.size(), (110, 35));
+
+        assert_eq!(mux.claim_terminal_geometry(projected.id, 0), Some(true));
+        assert_eq!(source.size(), (60, 20));
+        assert_eq!(projected.size(), (60, 20));
+        assert!(!mux.client_size_participates(source.id, 0));
+        assert!(mux.client_size_participates(projected.id, 0));
+    }
+
+    #[test]
+    fn terminal_runtime_events_fan_out_only_to_materialized_views() {
+        let mux = test_mux();
+        let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let projected = projected_terminal_view(&mux, &source);
+        let events = mux.subscribe();
+        let expected = HashSet::from([source.id, projected.id]);
+
+        let collect_two = |map: fn(MuxEvent) -> Option<SurfaceId>| {
+            (0..2)
+                .map(|_| events.recv_timeout(Duration::from_secs(1)).unwrap())
+                .filter_map(map)
+                .collect::<HashSet<_>>()
+        };
+
+        mux.emit_terminal_output(source.id);
+        assert_eq!(
+            collect_two(|event| match event {
+                MuxEvent::SurfaceOutput(surface) => Some(surface),
+                _ => None,
+            }),
+            expected
+        );
+        mux.emit_terminal_title(source.id, Arc::from("shared title"));
+        assert_eq!(
+            collect_two(|event| match event {
+                MuxEvent::TitleChanged { surface, .. } => Some(surface),
+                _ => None,
+            }),
+            expected
+        );
+        mux.emit_terminal_bell(source.id);
+        assert_eq!(
+            collect_two(|event| match event {
+                MuxEvent::Bell(surface) => Some(surface),
+                _ => None,
+            }),
+            expected
+        );
+        mux.emit_terminal_resized(source.id, 100, 30, Some(7));
+        assert_eq!(
+            collect_two(|event| match event {
+                MuxEvent::SurfaceResized { surface, .. } => Some(surface),
+                _ => None,
+            }),
+            expected
+        );
+        mux.emit_terminal_scroll(source.id, 4, false);
+        assert_eq!(
+            collect_two(|event| match event {
+                MuxEvent::ScrollChanged { surface, .. } => Some(surface),
+                _ => None,
+            }),
+            expected
+        );
+        mux.emit_terminal_exited(source.id);
+        assert_eq!(
+            collect_two(|event| match event {
+                MuxEvent::SurfaceExited(surface) => Some(surface),
+                _ => None,
+            }),
+            expected
+        );
+
+        mux.set_default_colors(DefaultColors {
+            fg: Some(crate::Rgb { r: 0x11, g: 0x22, b: 0x33 }),
+            ..Default::default()
+        });
+        assert_eq!(
+            collect_two(|event| match event {
+                MuxEvent::SurfaceOutput(surface) => Some(surface),
+                _ => None,
+            }),
+            expected
+        );
+        assert!(matches!(events.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)));
+
+        mux.remove_surface_runtime_for_test(source.id).unwrap();
+        mux.remove_surface_runtime_for_test(projected.id).unwrap();
+        mux.emit_terminal_output(source.id);
+        assert!(matches!(events.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)));
+    fn hosted_terminal_exit_atomically_detaches_every_projected_view() {
+        let mux = test_mux();
+        let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let projected = projected_terminal_view(&mux, &source);
+        let terminal_id = source
+            .terminal_public_id()
+            .cloned()
+            .expect("hosted terminal has a public content identity");
+        let host = mux
+            .resource_terminal_host_identity(&source)
+            .expect("hosted terminal has a durable process identity");
+        let runtime_id = source.terminal_runtime_id().expect("hosted terminal has a runtime");
+        let placements = HashSet::from([source.id, projected.id]);
+        let tab_ids = mux.with_state(|state| {
+            placements
+                .iter()
+                .map(|surface| state.resource_indexes.tab_ids[surface].clone())
+                .collect::<Vec<_>>()
+        });
+        let before_revision = mux.workspace_registry.lock().unwrap().resource_revision().unwrap();
+        let events = mux.subscribe();
+
+        mux.surface_exited(source.id);
+
+        mux.with_state(|state| {
+            assert!(
+                state
+                    .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
+                    .is_empty(),
+                "an exited runtime retained a projected view"
+            );
+            assert!(
+                !state.terminal_catalog.contains_key(&terminal_id),
+                "an exited runtime remained catalog-owned"
+            );
+            assert!(
+                !state.terminal_catalog_by_runtime.contains_key(&runtime_id),
+                "an exited runtime retained its reverse catalog entry"
+            );
+        });
+        let resolved = mux.resolve_terminal(&host.terminal_id).unwrap().unwrap();
+        assert_eq!(resolved.surface, None);
+        assert_eq!(resolved.terminal.lifecycle, TerminalLifecycle::Exited);
+        let waited = mux.wait_for_terminal_exit(&terminal_id, Some(Duration::ZERO)).unwrap();
+        assert_eq!(waited["state"], "exited");
+
+        let batches = mux.resource_events_after(before_revision).unwrap().batches;
+        assert_eq!(batches.len(), 1, "exit lifecycle and topology split across revisions");
+        let changes = batches[0].changes.as_array().unwrap();
+        for tab_id in tab_ids {
+            assert!(
+                changes.iter().any(|change| {
+                    change["kind"] == "delete"
+                        && change["resource"] == "tab"
+                        && change["id"] == tab_id.as_str()
+                }),
+                "atomic exit omitted projected tab {tab_id}"
+            );
+        }
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut exited = HashSet::new();
+        while exited != placements {
+            assert!(Instant::now() < deadline, "not every projected view observed terminal exit");
+            if let Ok(MuxEvent::SurfaceExited(surface)) =
+                events.recv_timeout(Duration::from_millis(20))
+            {
+                exited.insert(surface);
+            }
+        }
+        mux.shutdown();
+    }
+
+    #[test]
+    fn receipted_creation_atomically_uses_client_local_fallback_and_replays_it() {
+        let mux = test_mux();
+        let fallback = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let fallback_pane = mux.with_state(|state| state.pane_of(fallback.id).unwrap());
+        let primary = mux.split(fallback_pane, SplitDir::Right, Some((40, 24))).unwrap();
+        let primary_pane = mux.with_state(|state| state.pane_of(primary.id).unwrap());
+        let candidates = vec![
+            mux.resource_selectors_for_pane(Some(primary_pane)).unwrap(),
+            mux.resource_selectors_for_pane(Some(fallback_pane)).unwrap(),
+        ];
+        assert!(mux.close_pane(primary_pane).unwrap());
+
+        let mutation = WorkspaceMutation::new(
+            "selector-fallback-receipt-00000001".to_string(),
+            "selector-fallback-test".to_string(),
+        )
+        .unwrap();
+        let fields = Map::from_iter([
+            ("direction".to_string(), serde_json::json!("right")),
+            ("cols".to_string(), serde_json::json!(40)),
+            ("rows".to_string(), serde_json::json!(24)),
+        ]);
+        let (created, replayed) = mux
+            .receipted_surface_creation(
+                ResourceOperation::PaneSplit,
+                candidates.clone(),
+                fields.clone(),
+                &mutation,
+            )
+            .unwrap();
+        assert!(!replayed);
+        assert_ne!(created, fallback.id);
+        assert!(mux.with_state(|state| state.pane_of(created).is_some()));
+
+        assert!(mux.close_pane(fallback_pane).unwrap());
+        let (replayed_surface, replayed) = mux
+            .receipted_surface_creation(ResourceOperation::PaneSplit, candidates, fields, &mutation)
+            .unwrap();
+        assert!(replayed);
+        assert_eq!(replayed_surface, created);
+        mux.close_surface(created).unwrap();
+    }
+
+    #[test]
+    fn receipted_creation_rejects_fallbacks_that_drop_to_backend_selection() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        let pane_selectors = mux.resource_selectors_for_pane(Some(pane)).unwrap();
+        let session_selectors = crate::ResourceSelectors {
+            machine: pane_selectors.machine.clone(),
+            session: pane_selectors.session.clone(),
+            ..crate::ResourceSelectors::default()
+        };
+        let mutation = WorkspaceMutation::new(
+            "selector-fallback-receipt-00000002".to_string(),
+            "selector-fallback-test".to_string(),
+        )
+        .unwrap();
+
+        let error = mux
+            .receipted_surface_creation(
+                ResourceOperation::TabCreateTerminal,
+                vec![pane_selectors, session_selectors],
+                Map::new(),
+                &mutation,
+            )
+            .unwrap_err();
+
+        assert_eq!(error.to_string(), "creation selector fallbacks require pane selectors");
+        assert_eq!(mux.with_state(|state| state.surfaces.len()), 1);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[cfg(unix)]
@@ -19912,6 +20560,104 @@ mod tests {
         assert!(!mux.client_size_participates(projected.id, 0));
     }
 
+    #[test]
+    fn only_authoritative_reports_seed_future_terminal_geometry() {
+        let mux = test_mux();
+        let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+
+        mux.resize_surface_for_client(source.id, 0, 111, 33).unwrap();
+        mux.claim_terminal_geometry(source.id, 0).unwrap();
+        assert_eq!(mux.new_workspace(None, None).unwrap().size(), (111, 33));
+
+        mux.resize_surface_for_client(source.id, 7, 50, 15).unwrap();
+        assert_eq!(mux.new_workspace(None, None).unwrap().size(), (111, 33));
+    fn failed_atomic_exit_retries_without_exposing_partial_topology() {
+        const TERMINAL: &str = "0000000000004000800000000000003f";
+        const INCARNATION: &str = "1000000000004000800000000000003f";
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(
+                Some("failed-atomic-exit".into()),
+                Some("018f6e21-7b70-7e70-8000-00000000103f".into()),
+                None,
+            )
+            .unwrap();
+        let surface =
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let public_id =
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+
+        mux.surface_exited(surface);
+
+        mux.with_state(|state| {
+            assert_eq!(
+                state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())),
+                &[surface],
+                "failed transaction exposed a partial detach"
+            );
+            assert!(state.terminal_catalog.contains_key(&public_id));
+        });
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Running
+        );
+        assert!(mux.terminal_exit_detaches.contains(TERMINAL));
+
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while mux.resolve_terminal(TERMINAL).unwrap().unwrap().surface.is_some() {
+            assert!(Instant::now() < deadline, "atomic exit retry did not detach the terminal");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(
+            mux.resolve_terminal(TERMINAL).unwrap().unwrap().terminal.lifecycle,
+            TerminalLifecycle::Exited
+        );
+        assert!(
+            mux.terminal_exit_detaches.wait_until_finished(TERMINAL, deadline),
+            "terminal detach retry worker did not release its ownership"
+        );
+    }
+
+    #[test]
+    fn releasing_geometry_authority_freezes_the_terminal() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+
+        mux.resize_surface_for_client(surface.id, 0, 100, 30).unwrap();
+        mux.claim_terminal_geometry(surface.id, 0).unwrap();
+        assert_eq!(surface.size(), (100, 30));
+
+        assert_eq!(mux.release_terminal_geometry(surface.id), Some(true));
+        assert!(!mux.resize_surface_for_client(surface.id, 0, 70, 20).unwrap());
+        assert_eq!(surface.size(), (100, 30));
+
+        assert_eq!(mux.claim_terminal_geometry(surface.id, 0), Some(true));
+        assert_eq!(surface.size(), (70, 20));
+    }
+
+    #[test]
+    fn removing_the_authoritative_viewport_freezes_the_terminal() {
+        let mux = test_mux();
+        let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let projected = projected_terminal_view(&mux, &source);
+
+        mux.resize_surface_for_client(projected.id, 0, 96, 28).unwrap();
+        mux.claim_terminal_geometry(projected.id, 0).unwrap();
+        assert_eq!(source.size(), (96, 28));
+
+        mux.remove_surface_size_client(projected.id, 0);
+        assert!(!mux.resize_surface_for_client(source.id, 7, 55, 18).unwrap());
+        assert_eq!(source.size(), (96, 28));
+        assert!(!mux.client_size_participates(projected.id, 0));
+    }
     #[test]
     fn only_authoritative_reports_seed_future_terminal_geometry() {
         let mux = test_mux();
@@ -20284,6 +21030,14 @@ mod tests {
 
         mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
         assert!(mux.list_agents(None, None).is_empty());
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
+        assert_eq!(
+            crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
         assert!(mux.surface_notification(first.id).is_none());
         assert!(mux.surface(first.id).is_none());
     }
@@ -23672,7 +24426,15 @@ mod tests {
                             },
                             ResourceChange::SetScreenOrder {
                                 workspace_id: workspace.public_id.clone(),
-                                screen_ids: vec![screen],
+                                screen_ids: vec![screen.clone()],
+                            },
+                            ResourceChange::SetTabOrder {
+                                pane_id: pane.clone(),
+                                tab_ids: vec![tab.clone()],
+                            },
+                            ResourceChange::SetTabOrder {
+                                pane_id: pane,
+                                tab_ids: vec![tab.clone()],
                             },
                             ResourceChange::SetTabOrder {
                                 pane_id: pane,
@@ -23875,12 +24637,141 @@ mod tests {
         drop(mux);
 
         let reopened = Mux::open_persistent("recover-exited", options, &root).unwrap();
-        let closed = reopened.resolve_terminal(TERMINAL).unwrap().unwrap();
-        assert_eq!(closed.surface, None);
-        assert_eq!(closed.terminal.lifecycle, TerminalLifecycle::Tombstoned);
+        let exited = reopened.resolve_terminal(TERMINAL).unwrap().unwrap();
+        assert_eq!(exited.surface, None);
+        assert_eq!(exited.terminal.lifecycle, TerminalLifecycle::Exited);
+        assert_eq!(exited.terminal.exit.unwrap()["outcome"]["reason"], "persisted-exit");
         reopened.shutdown();
         drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosted_terminal_exit_removes_sole_surface_but_preserves_exact_wait_result() {
+        const TERMINAL: &str = "0000000000004000800000000000003c";
+        const INCARNATION: &str = "1000000000004000800000000000003c";
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(
+                Some("sole-exit".into()),
+                Some("018f6e21-7b70-7e70-8000-00000000103c".into()),
+                None,
+            )
+            .unwrap();
+        let surface =
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let terminal =
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+        let exit = TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 23 },
+            exited_at_ms: 7_654_321,
+        };
+        assert!(mux.persist_terminal_exit_for_test(&terminal, &exit).unwrap());
+
+        mux.surface_exited(surface);
+
+        let resolved = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
+        assert_eq!(resolved.surface, None);
+        assert_eq!(resolved.terminal.lifecycle, TerminalLifecycle::Exited);
+        assert_eq!(
+            mux.wait_for_terminal_exit(&terminal, Some(Duration::ZERO)).unwrap(),
+            serde_json::json!({
+                "state":"exited",
+                "terminal_id":terminal,
+                "lifecycle":"exited",
+                "outcome":{"kind":"exit","code":23},
+                "exited_at":"7654321",
+                "revision":"3",
+            })
+        );
+        mux.with_state(|state| {
+            assert!(!state.surfaces.contains_key(&surface));
+            assert!(state.workspaces[0].screens.is_empty());
+            assert_eq!(state.active_pane(), None);
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosted_terminal_exit_selects_live_tab_and_duplicate_exit_is_idempotent() {
+        const TERMINAL: &str = "0000000000004000800000000000003d";
+        const INCARNATION: &str = "1000000000004000800000000000003d";
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(
+                Some("tab-neighbor-exit".into()),
+                Some("018f6e21-7b70-7e70-8000-00000000103d".into()),
+                None,
+            )
+            .unwrap();
+        let exited =
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(exited).unwrap());
+        let neighbor = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let terminal =
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+        let exit = TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Signal {
+                signal: libc::SIGTERM,
+                core_dumped: false,
+            },
+            exited_at_ms: 8_765_432,
+        };
+        assert!(mux.persist_terminal_exit_for_test(&terminal, &exit).unwrap());
+
+        mux.surface_exited(exited);
+
+        mux.with_state(|state| {
+            assert!(!state.surfaces.contains_key(&exited));
+            assert_eq!(state.panes[&pane].tabs, vec![neighbor.id]);
+            assert_eq!(state.panes[&pane].active_surface(), Some(neighbor.id));
+        });
+        assert_eq!(mux.active_surface(), Some(neighbor.id));
+        let revision = mux.workspace_registry.lock().unwrap().resource_revision().unwrap();
+        let waited = mux.wait_for_terminal_exit(&terminal, Some(Duration::ZERO)).unwrap();
+
+        mux.surface_exited(exited);
+
+        assert_eq!(mux.workspace_registry.lock().unwrap().resource_revision().unwrap(), revision);
+        assert_eq!(mux.wait_for_terminal_exit(&terminal, Some(Duration::ZERO)).unwrap(), waited);
+        mux.with_state(|state| {
+            assert_eq!(state.panes[&pane].tabs, vec![neighbor.id]);
+        });
+        assert_eq!(mux.active_surface(), Some(neighbor.id));
+        mux.close_surface(neighbor.id).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_exit_detach_retry_does_not_keep_mux_alive() {
+        const TERMINAL: &str = "0000000000004000800000000000003e";
+        const INCARNATION: &str = "1000000000004000800000000000003e";
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(
+                Some("failed-exit-detach".into()),
+                Some("018f6e21-7b70-7e70-8000-00000000103e".into()),
+                None,
+            )
+            .unwrap();
+        let surface =
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+
+        mux.surface_exited(surface);
+
+        assert!(mux.terminal_exit_detaches.active.lock().unwrap().contains(TERMINAL));
+        let weak = Arc::downgrade(&mux);
+        drop(mux);
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while weak.upgrade().is_some() {
+            assert!(
+                Instant::now() < deadline,
+                "detach retry retained the mux after its owner left"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 
     #[cfg(unix)]
@@ -24008,6 +24899,80 @@ mod tests {
         assert_eq!(terminal.workspace_key, second.key);
         assert_eq!(terminal.lifecycle, TerminalLifecycle::Exited);
         assert_eq!(terminal.launch_spec, serde_json::json!({"command_present":true}));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pending_topology_accepts_current_host_reconnect_without_advancing_lifecycle() {
+        const TERMINAL: &str = "00000000000040008000000000000012";
+        const INCARNATION: &str = "10000000000040008000000000000012";
+        const PENDING_SURFACE: SurfaceId = 4242;
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001112".into()), None)
+            .unwrap();
+        let identity =
+            TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() };
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            commit_terminal_transition(
+                &mut registry,
+                "terminal-reserved",
+                "reserve-terminal",
+                &RegistryTerminal {
+                    terminal_id: TERMINAL.into(),
+                    workspace_key: workspace.key,
+                    incarnation: None,
+                    lifecycle: TerminalLifecycle::Launching,
+                    launch_spec: serde_json::json!({}),
+                    exit: None,
+                },
+            )
+            .unwrap();
+        }
+
+        assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
+        assert!(mux.terminal_host_reconnected(
+            PENDING_SURFACE,
+            &identity,
+            KittyGraphicsLimits::disabled(),
+        ));
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Launching
+        );
+
+        mux.transition_terminal_lifecycle(
+            "terminal-adopting",
+            "test-adoption",
+            TERMINAL,
+            TerminalLifecycle::Adopting,
+            Some(INCARNATION),
+            None,
+        )
+        .unwrap();
+        assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
+        assert!(mux.terminal_host_reconnected(
+            PENDING_SURFACE,
+            &identity,
+            KittyGraphicsLimits::disabled(),
+        ));
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Adopting
+        );
     }
 
     #[test]
