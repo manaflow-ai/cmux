@@ -843,45 +843,29 @@ impl WorkspaceRegistry {
                     generation: event.generation().into(),
                     role: "frontend.observer".into(),
                 };
-                let duplicate = tx
+                let duplicate_sequence = tx
                     .query_row(
-                        "SELECT kind, class, replay_policy, producer_json, authority_json,
-                                sensitivity, payload_json
-                         FROM session_journal WHERE event_id = ?1",
+                        "SELECT sequence FROM journal_event_index WHERE event_id = ?1",
                         [event.event_id()],
-                        |row| {
-                            Ok((
-                                row.get::<_, String>(0)?,
-                                row.get::<_, String>(1)?,
-                                row.get::<_, String>(2)?,
-                                row.get::<_, String>(3)?,
-                                row.get::<_, String>(4)?,
-                                row.get::<_, String>(5)?,
-                                row.get::<_, String>(6)?,
-                            ))
-                        },
+                        |row| row.get::<_, i64>(0),
                     )
-                    .optional()?;
-                if let Some((
-                    stored_kind,
-                    stored_class,
-                    stored_replay,
-                    stored_producer,
-                    stored_authority,
-                    stored_sensitivity,
-                    stored_payload,
-                )) = duplicate
-                {
+                    .optional()?
+                    .map(u64::try_from)
+                    .transpose()
+                    .context("frontend journal sequence is negative")?;
+                if let Some(sequence) = duplicate_sequence {
+                    let mut records = query_session_journal_sequences(&tx, &[sequence])?;
+                    let stored = records
+                        .pop()
+                        .context("frontend journal event index points to an absent record")?;
                     anyhow::ensure!(
-                        stored_kind == kind
-                            && stored_class == JournalClass::Observation.as_str()
-                            && stored_replay == JournalReplayPolicy::Advisory.as_str()
-                            && stored_producer
-                                == canonical_json(&serde_json::to_value(&producer)?)?
-                            && stored_authority
-                                == canonical_json(&serde_json::to_value(&authority)?)?
-                            && stored_sensitivity == JournalSensitivity::Metadata.as_str()
-                            && stored_payload == canonical_json(&payload)?,
+                        stored.kind == kind
+                            && stored.class == JournalClass::Observation
+                            && stored.replay == JournalReplayPolicy::Advisory
+                            && stored.producer == producer
+                            && stored.authority.as_ref() == Some(&authority)
+                            && stored.sensitivity == JournalSensitivity::Metadata
+                            && stored.payload == payload,
                         "frontend journal event id was reused with different content"
                     );
                     commits.push(None);

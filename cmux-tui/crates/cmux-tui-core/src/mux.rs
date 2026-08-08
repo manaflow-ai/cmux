@@ -8082,6 +8082,12 @@ impl Mux {
         for surface in surfaces {
             surface.shutdown_for_daemon();
         }
+        // Surface shutdown stops every terminal input source. Fence the
+        // terminal ingress lane while this Mux still owns the registry so the
+        // writer cannot lose parser-accepted output when the last Arc drops.
+        if let Err(error) = self.flush_terminal_journal() {
+            eprintln!("cmux-tui: flush terminal journal during shutdown: {error:#}");
+        }
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
             runtime.shutdown();
         }

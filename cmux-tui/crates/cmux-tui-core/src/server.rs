@@ -5156,6 +5156,12 @@ impl JournalStreamFilter {
             })
             .transpose()?
             .or(Some(JournalSensitivity::Sensitive));
+        if max_sensitivity == Some(JournalSensitivity::Secret) {
+            return Err(ResourceError::validation_invalid(
+                Some("filter.max_sensitivity"),
+                "journal subscriptions cannot include secret records",
+            ));
+        }
         let regex = object.get("regex").map(JournalCompiledRegex::parse).transpose()?;
         Ok(Self {
             exact_kinds,
@@ -12579,6 +12585,16 @@ mod tests {
             default_socket_path_in_runtime_dir("main", runtime_dir.clone()),
             runtime_dir.join("main.sock")
         );
+    }
+
+    #[test]
+    fn journal_filter_rejects_secret_max_sensitivity() {
+        let error = JournalStreamFilter::parse(Some(&json!({
+            "max_sensitivity":"secret",
+        })))
+        .unwrap_err();
+        assert_eq!(error.code, "validation.invalid");
+        assert_eq!(error.details["field"], "filter.max_sensitivity");
     }
 
     #[cfg(unix)]
