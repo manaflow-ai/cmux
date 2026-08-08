@@ -2248,8 +2248,7 @@ impl RemoteSession {
                 let Some(surface) = surface_id() else { return };
                 let Some(state) = value.get("state").and_then(Value::as_str) else { return };
                 let Some(source) = value.get("source").and_then(Value::as_str) else { return };
-                let Some(updated_at_ms) = value.get("updated_at_ms").and_then(Value::as_u64)
-                else {
+                let Some(updated_at_ms) = value.get("updated_at_ms").and_then(Value::as_u64) else {
                     return;
                 };
                 let session = value.get("session").and_then(Value::as_str).map(str::to_string);
@@ -6867,6 +6866,39 @@ mod tests {
         cache.replace(tree("fresh snapshot"), refresh_generation);
 
         assert_eq!(cache.view.workspaces[0].screens[0].panes[0].tabs[0].title, "fresh snapshot");
+    }
+
+    #[test]
+    fn agent_refresh_does_not_restore_an_update_for_a_removed_surface() {
+        let tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "screens": [{
+                    "id": 2,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "tabs": [{"surface": 4, "title": "agent terminal"}],
+                    }],
+                }],
+            }],
+        }));
+        let mut cache = RemoteTreeCache::default();
+        cache.replace(tree, 0);
+        let refresh_generation = cache.agent_generation();
+        cache.update_agent(AgentInfo {
+            surface: 4,
+            state: "working".into(),
+            source: "hook".into(),
+            session: Some("review".into()),
+            updated_at_ms: 41,
+        });
+
+        let title_generation = cache.title_generation();
+        cache.replace(TreeView::default(), title_generation);
+        cache.replace_agents(Vec::new(), refresh_generation);
+
+        assert!(cache.agents.is_empty());
     }
 
     #[test]

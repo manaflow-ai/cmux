@@ -9360,8 +9360,8 @@ impl App {
                 action
             }
             MachineControllerCompletion::ReplacementPrepared { action_id, action } => {
-                let connection_canceled = self
-                    .connection_attempt_was_canceled(self.machine_action_connection_attempt);
+                let connection_canceled =
+                    self.connection_attempt_was_canceled(self.machine_action_connection_attempt);
                 if self.pending_machine_replacement.is_some() {
                     if let Some(worker) = self.machine_action_worker.as_ref() {
                         let _ = worker.abort_replacement(action_id);
@@ -37669,13 +37669,12 @@ mod tests {
         let (mut app, events) = test_app_with_events(Session::Local(first));
         app.replace_tree(app.session.tree());
         app.machine_ui = Some(provider_machine_ui());
-        let (controller, requests) = fake_controller(FakeMachineAction::Return(Box::new(
-            MachineActionResult::replace(
+        let (controller, requests) =
+            fake_controller(FakeMachineAction::Return(Box::new(MachineActionResult::replace(
                 provider_machine_ui(),
                 Session::Local(second),
                 "second".into(),
-            ),
-        )));
+            ))));
         install_machine_controller(&mut app, controller);
         app.begin_machine_connection("mini.local".into(), MachineConnectRoute::Local);
         let request = MachineRequest::Connect {
