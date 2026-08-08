@@ -2758,15 +2758,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
     }
 
-    /// Clears current intent and resigns before the Photos picker starts presenting.
+    /// Records the modal phase before the Photos picker starts presenting.
+    /// The active text owner keeps its seat (see the reducer's
+    /// `.modalWillPresent` rationale); if nothing holds the keyboard, the
+    /// surface takes the keyboard-down seat so the dock stays mounted (and
+    /// with it the hosted picker binding that must deliver the dismissal).
     public func photoPickerWillPresent() {
         synchronizeActualInputOwner()
         inputSession.send(.modalWillPresent)
-        // The reducer just resigned the text owner and cleared the retained
-        // focus request, so nothing re-seats the dock after dismissal. Take
-        // the keyboard-down seat now (the same re-seat as
-        // ``resignCurrentInput()``) so the dock stays seated behind the picker
-        // instead of unmounting with the keyboard.
         reseatDockAccessoryIfUnowned()
     }
 
@@ -2778,15 +2777,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Reconciles any focus request retained while the picker was on screen.
     public func photoPickerDidDismiss() {
         inputSession.send(.modalDidDismiss)
-        // The presentation can strip the surface's seat (full-screen remote
-        // pickers resign the presenting window's responder). This fires on the
-        // binding flip, while the sheet is still animating out, so a denied
-        // seat is retried once on the next main-queue turn.
-        if !reseatDockAccessoryIfUnowned() {
-            DispatchQueue.main.async { [weak self] in
-                _ = self?.reseatDockAccessoryIfUnowned()
-            }
+        reconcileDockSeatAfterModalDismissal()
+        // This fires on the binding flip, while the sheet is still animating
+        // out, so responder work that UIKit denies mid-transition is retried
+        // once on the next main-queue turn.
+        DispatchQueue.main.async { [weak self] in
+            self?.reconcileDockSeatAfterModalDismissal()
         }
+    }
+
+    /// Post-modal seat reconciliation. The sheet hides the keyboard while the
+    /// text owner keeps first responder; a later tap on that still-focused
+    /// field is a responder no-op, so it could never re-summon the keyboard.
+    /// Release the text seat (the surface re-takes the keyboard-down seat, so
+    /// the dock stays docked) and the next tap runs the normal focus path.
+    private func reconcileDockSeatAfterModalDismissal() {
+        if inputSession.state.actualOwner != nil, !keyboardVisible {
+            resignCurrentInput()
+        }
+        reseatDockAccessoryIfUnowned()
     }
 
     /// Takes the surface's keyboard-down first-responder seat when no cmux

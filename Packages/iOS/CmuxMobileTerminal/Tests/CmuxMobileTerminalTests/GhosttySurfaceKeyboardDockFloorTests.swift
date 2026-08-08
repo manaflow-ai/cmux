@@ -290,12 +290,13 @@ struct GhosttySurfaceKeyboardDockFloorTests {
         defer { tearDown(harness) }
 
         // Mirror the report: the composer field was focused when Attach was
-        // tapped. The reducer's owner state is what the modal path resigns.
+        // tapped.
         harness.view.composerInputFocusChanged(true)
 
-        // Presenting resigns the text owner AND clears the retained focus
-        // request, so the surface itself must take the keyboard-down seat or
-        // the dock unmounts with nothing to bring it back.
+        // Presenting keeps the text owner seated (no real field holds first
+        // responder in this harness, so the surface takes the keyboard-down
+        // seat); either way SOMETHING must hold the seat or the dock unmounts
+        // with nothing to bring it back.
         harness.view.photoPickerWillPresent()
         #expect(harness.view.isFirstResponder)
 

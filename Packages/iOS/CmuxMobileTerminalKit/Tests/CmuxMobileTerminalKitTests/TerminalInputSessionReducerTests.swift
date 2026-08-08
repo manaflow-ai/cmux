@@ -144,24 +144,48 @@ import Testing
         #expect(state.actualOwner == .composer)
     }
 
-    @Test func photoPickerWillPresentResignsTheCurrentOwner() {
+    @Test func photoPickerPresentationKeepsTheCurrentOwnerSeated() {
+        // The composer band is hosted inside the keyboard dock accessory, so
+        // resigning the owner on presentation unmounts the very view whose
+        // picker binding must deliver the dismissal (wedging the phase at
+        // `.presented` with the dock gone). The owner keeps its seat; a
+        // responder the presentation strips is restored at didDismiss from
+        // the retained request.
         var state = TerminalInputSessionState()
         _ = state.handle(.requestFocus(.composer))
         _ = state.handle(.focusCompleted(owner: .composer, succeeded: true))
 
         let willPresent = state.handle(.modalWillPresent)
         #expect(state.modalPhase == .willPresent)
-        #expect(state.requestedOwner == nil)
+        #expect(state.requestedOwner == .composer)
         #expect(state.actualOwner == .composer)
-        #expect(willPresent.commands == [.resign(.composer)])
-
-        _ = state.handle(.resignCompleted(owner: .composer, succeeded: true))
-        #expect(state.actualOwner == nil)
-        #expect(state.modalPhase == .willPresent)
+        #expect(willPresent.commands.isEmpty)
 
         _ = state.handle(.modalDidPresent)
         #expect(state.modalPhase == .presented)
+        #expect(state.actualOwner == .composer)
+
+        // Undisturbed presentation: dismissal has nothing to restore.
+        let didDismiss = state.handle(.modalDidDismiss)
+        #expect(state.modalPhase == .none)
+        #expect(didDismiss.commands.isEmpty)
+    }
+
+    @Test func photoPickerDismissalRestoresAnOwnerThePresentationStripped() {
+        var state = TerminalInputSessionState()
+        _ = state.handle(.requestFocus(.composer))
+        _ = state.handle(.focusCompleted(owner: .composer, succeeded: true))
+        _ = state.handle(.modalWillPresent)
+        _ = state.handle(.modalDidPresent)
+
+        // The system presentation resigned the field out from under us.
+        _ = state.handle(.responderChanged(owner: .composer, isFirstResponder: false))
         #expect(state.actualOwner == nil)
+        #expect(state.requestedOwner == .composer)
+
+        let didDismiss = state.handle(.modalDidDismiss)
+        #expect(state.modalPhase == .none)
+        #expect(didDismiss.commands == [.focus(.composer)])
     }
 
     @Test func focusRequestedDuringPickerDismissalRunsAtDidDismissBoundary() {
@@ -231,18 +255,24 @@ import Testing
         #expect(mounted.commands == [.focus(.composer)])
     }
 
-    @Test func responderObservationCannotLeaveAnOwnerActiveUnderAModal() {
+    @Test func responderObservationUnderAModalRecordsTheOwnerWithoutResign() {
+        // Same accessory-hosting rationale as presentation: forcing a resign
+        // under a modal unmounts the dock. An owner observed focused while a
+        // modal is up is recorded as fact and left seated; the modal phase
+        // still blocks NEW focus commands until dismissal.
         var state = TerminalInputSessionState()
         _ = state.handle(.modalWillPresent)
         _ = state.handle(.modalDidPresent)
 
-        let unexpected = state.handle(
+        let observed = state.handle(
             .responderChanged(owner: .terminal, isFirstResponder: true)
         )
         #expect(state.actualOwner == .terminal)
-        #expect(unexpected.commands == [.resign(.terminal)])
+        #expect(observed.commands.isEmpty)
 
-        _ = state.handle(.resignCompleted(owner: .terminal, succeeded: true))
-        #expect(state.actualOwner == nil)
+        let didDismiss = state.handle(.modalDidDismiss)
+        #expect(state.modalPhase == .none)
+        #expect(didDismiss.commands.isEmpty)
+        #expect(state.actualOwner == .terminal)
     }
 }
