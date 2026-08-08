@@ -2768,17 +2768,20 @@ class GhosttyApp {
     }
 
     @MainActor
-    private func ringBell() {
+    private func ringBell(tabID: UUID?, surfaceID: UUID?) {
         let features = bellFeatures()
         let customAudioEnabled = (features & (1 << 1)) != 0
-        // Ghostty bit 2 requests process-level attention. cmux deliberately
-        // leaves it out: Stage Manager can promote the entire window set, while
-        // cmux-owned notification state already presents background attention.
         terminalBellService.ring(
             systemSoundEnabled: (features & (1 << 0)) != 0,
             customAudioPath: customAudioEnabled ? bellAudioPath() : nil,
             customAudioVolume: customAudioEnabled ? bellAudioVolume() : 0.5
         )
+        if (features & (1 << 2)) != 0 {
+            AppDelegate.shared?.routeTerminalBellAttention(
+                preferredTabID: tabID,
+                surfaceID: surfaceID
+            )
+        }
     }
 
     private func applyDefaultBackground(
@@ -3100,7 +3103,7 @@ class GhosttyApp {
 
             if action.tag == GHOSTTY_ACTION_RING_BELL {
                 performOnMain {
-                    self.ringBell()
+                    self.ringBell(tabID: nil, surfaceID: nil)
                 }
                 return true
             }
@@ -3183,7 +3186,12 @@ class GhosttyApp {
                 return tabManager.createSplit(tabId: tabId, surfaceId: surfaceId, direction: direction) != nil
             }
         case GHOSTTY_ACTION_RING_BELL:
-            performOnMain { self.ringBell() }
+            performOnMain {
+                self.ringBell(
+                    tabID: callbackTabId ?? surfaceView.tabId,
+                    surfaceID: callbackSurfaceId ?? surfaceView.terminalSurface?.id
+                )
+            }
             return true
         case GHOSTTY_ACTION_SELECTION_CHANGED:
             surfaceView.selectionAccessibilitySignal.request()

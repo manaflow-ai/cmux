@@ -275,9 +275,13 @@ final class FeedCoordinator: @unchecked Sendable {
                     let attentionTarget = liveWorkspaceId.map {
                         (workspaceId: $0, surfaceId: liveSurfaceId)
                     } ?? resolvedAttentionTarget
+                    let attentionTabManager = attentionTarget.flatMap {
+                        AppDelegate.shared?.tabManagerFor(tabId: $0.workspaceId)
+                    }
                     if let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
                         event: acceptedEvent,
-                        resolved: attentionTarget
+                        resolved: attentionTarget,
+                        tabManager: attentionTabManager
                     ) {
                         var shouldConcludeImmediately = false
                         FeedCoordinator.shared.waiterLock.lock()
@@ -606,12 +610,14 @@ extension FeedCoordinator {
     ///
     /// - Parameter resolved: the target resolved off the main actor before UI
     ///   mutation, since hook-session lookup may read from disk.
+    /// - Parameter tabManager: the window-local manager that owns `resolved`.
     /// - Returns: the target to conclude once the decision ends, or `nil` if
     ///   nothing was surfaced (no resolvable workspace).
     @MainActor
     func surfaceBlockingDecisionAttention(
         event: WorkstreamEvent,
-        resolved: (workspaceId: UUID, surfaceId: UUID?)?
+        resolved: (workspaceId: UUID, surfaceId: UUID?)?,
+        tabManager: TabManager?
     ) -> AttentionTarget? {
         guard Self.isBlockingDecisionEvent(event.hookEventName) else { return nil }
 
@@ -631,7 +637,7 @@ extension FeedCoordinator {
             return nil
         }
 
-        guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: resolved.workspaceId),
+        guard let tabManager,
               let tab = tabManager.tabs.first(where: { $0.id == resolved.workspaceId })
         else {
             #if DEBUG

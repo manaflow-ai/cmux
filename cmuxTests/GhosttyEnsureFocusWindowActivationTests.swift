@@ -1,6 +1,5 @@
 import AppKit
 import CMUXAgentLaunch
-import ObjectiveC.runtime
 import Testing
 
 #if canImport(cmux_DEV)
@@ -10,7 +9,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite("Window activation", .serialized)
+@Suite("Window activation")
 struct GhosttyEnsureFocusWindowActivationTests {
     @Test
     func allowsActivationForActiveManager() {
@@ -68,12 +67,8 @@ struct GhosttyEnsureFocusWindowActivationTests {
     }
 
     @Test
-    func backgroundAgentAttentionDoesNotRequestApplicationAttention() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
+    func backgroundAgentAttentionStaysInsideCmux() throws {
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
-        AppDelegate.shared = appDelegate
-        appDelegate.tabManager = tabManager
         let workspace = tabManager.addWorkspace(select: true)
         var attentionTarget: FeedCoordinator.AttentionTarget?
         defer {
@@ -83,80 +78,57 @@ struct GhosttyEnsureFocusWindowActivationTests {
             if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
                 tabManager.closeWorkspace(workspace)
             }
-            appDelegate.tabManager = nil
-            AppDelegate.shared = previousAppDelegate
         }
 
-        let recorder = ApplicationAttentionRequestRecorder()
-        try recorder.interceptRequests {
-            attentionTarget = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
-                event: WorkstreamEvent(
-                    sessionId: "issue-9466-stage-manager",
-                    hookEventName: .permissionRequest,
-                    source: "claude",
-                    workspaceId: workspace.id.uuidString,
-                    requestId: "issue-9466-stage-manager-request"
-                ),
-                resolved: (
-                    workspaceId: workspace.id,
-                    surfaceId: workspace.focusedPanelId
-                )
-            )
-        }
-
-        #expect(attentionTarget != nil)
-        #expect(
-            recorder.requestCount == 0,
-            "background agent attention must remain in-app and never request process-level AppKit attention"
+        attentionTarget = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+            event: WorkstreamEvent(
+                sessionId: "issue-9466-stage-manager",
+                hookEventName: .permissionRequest,
+                source: "claude",
+                workspaceId: workspace.id.uuidString,
+                requestId: "issue-9466-stage-manager-request"
+            ),
+            resolved: (
+                workspaceId: workspace.id,
+                surfaceId: workspace.focusedPanelId
+            ),
+            tabManager: tabManager
         )
+
+        let target = try #require(attentionTarget)
+        let panelID = try #require(target.panelId)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["claude_code"] == .needsInput)
+        #expect(workspace.statusEntries["claude_code"]?.value == FeedCoordinator.needsInputStatusValue)
     }
-}
 
-@MainActor
-private final class ApplicationAttentionRequestRecorder: NSObject {
-    static let didRequestNotification = Notification.Name(
-        "cmuxTests.issue9466.didRequestApplicationAttention"
-    )
-
-    private(set) var requestCount = 0
-
-    func interceptRequests(_ action: () -> Void) throws {
-        let originalSelector = #selector(NSApplication.requestUserAttention(_:))
-        let replacementSelector = #selector(NSApplication.cmuxTests_requestUserAttention(_:))
-        let originalMethod = try #require(
-            class_getInstanceMethod(NSApplication.self, originalSelector)
-        )
-        let replacementMethod = try #require(
-            class_getInstanceMethod(NSApplication.self, replacementSelector)
-        )
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(didRequestApplicationAttention(_:)),
-            name: Self.didRequestNotification,
-            object: NSApp
-        )
-        method_exchangeImplementations(originalMethod, replacementMethod)
+    @Test
+    func backgroundTerminalBellMarksPaneUnreadWithoutFocusingIt() throws {
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        appDelegate.tabManager = tabManager
+        let targetWorkspace = tabManager.addWorkspace(select: true)
+        let targetPanelID = try #require(targetWorkspace.focusedPanelId)
+        let selectedWorkspace = tabManager.addWorkspace(select: true)
         defer {
-            method_exchangeImplementations(originalMethod, replacementMethod)
-            NotificationCenter.default.removeObserver(self)
+            if tabManager.tabs.contains(where: { $0.id == targetWorkspace.id }) {
+                tabManager.closeWorkspace(targetWorkspace)
+            }
+            if tabManager.tabs.contains(where: { $0.id == selectedWorkspace.id }) {
+                tabManager.closeWorkspace(selectedWorkspace)
+            }
+            appDelegate.tabManager = nil
         }
-        action()
-    }
 
-    @objc private func didRequestApplicationAttention(_ notification: Notification) {
-        requestCount += 1
-    }
-}
+        #expect(targetWorkspace.manualUnreadPanelIds.isEmpty)
+        #expect(tabManager.selectedTabId == selectedWorkspace.id)
 
-private extension NSApplication {
-    @objc func cmuxTests_requestUserAttention(
-        _ requestType: NSApplication.RequestUserAttentionType
-    ) -> Int {
-        NotificationCenter.default.post(
-            name: ApplicationAttentionRequestRecorder.didRequestNotification,
-            object: self
+        let routed = appDelegate.routeTerminalBellAttention(
+            preferredTabID: targetWorkspace.id,
+            surfaceID: targetPanelID
         )
-        return 0
+
+        #expect(routed)
+        #expect(targetWorkspace.manualUnreadPanelIds == Set([targetPanelID]))
+        #expect(tabManager.selectedTabId == selectedWorkspace.id)
     }
 }
