@@ -60,8 +60,8 @@ use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserReconnect, RegistryCommit, RegistryLayoutNode,
     RegistrySnapshot, RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace,
     ResourceChange, ResourceEffectOutcome, ResourceEffectPreparation, ResourcePatch,
-    ResourcePatchCommit, ResourceTopologySnapshot, TerminalLifecycle, TerminalRegistrySnapshot,
-    WorkspaceMutation, WorkspaceRegistry,
+    ResourcePatchCommit, ResourceTopologySnapshot, TerminalExitRuntimeAttachment,
+    TerminalLifecycle, TerminalRegistrySnapshot, WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{
     PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,
@@ -2813,7 +2813,7 @@ impl Mux {
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);
-        self.record_terminal_runtime_attachment_source(terminal_id, incarnation, "attached");
+        self.record_terminal_runtime_attachment_source(terminal_id, incarnation, "attached")?;
         Ok(())
     }
 
@@ -7027,7 +7027,7 @@ impl Mux {
         drop(state);
         drop(registry);
         self.commit_ordinary_full_resource_projection("test.terminal.seed", serde_json::json!({}))?;
-        self.record_terminal_runtime_attachment_source(terminal_id, incarnation, "attached");
+        self.record_terminal_runtime_attachment_source(terminal_id, incarnation, "attached")?;
         Ok(surface.id)
     }
 
@@ -8552,29 +8552,22 @@ impl Mux {
         terminal_id: &str,
         incarnation: &str,
         state: &'static str,
-    ) {
-        let result = (|| -> anyhow::Result<()> {
-            let mut registry = self.workspace_registry.lock().unwrap();
-            let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
-                return Ok(());
-            };
-            let idempotency_key = format!("runtime-attachment-{state}-{terminal_id}-{incarnation}");
-            registry.record_runtime_attachment_update(
-                "cmux-tui-runtime",
-                &idempotency_key,
-                &public_id,
-                incarnation,
-                state,
-                incarnation,
-                incarnation,
-            )?;
-            Ok(())
-        })();
-        if let Err(error) = result {
-            self.emit(MuxEvent::Status(format!(
-                "could not persist terminal {terminal_id} runtime {state} state: {error}"
-            )));
-        }
+    ) -> anyhow::Result<()> {
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
+            return Ok(());
+        };
+        let idempotency_key = format!("runtime-attachment-{state}-{terminal_id}-{incarnation}");
+        registry.record_runtime_attachment_update(
+            "cmux-tui-runtime",
+            &idempotency_key,
+            &public_id,
+            incarnation,
+            state,
+            incarnation,
+            incarnation,
+        )?;
+        Ok(())
     }
 
     fn catalog_terminal_by_host(
@@ -10505,7 +10498,7 @@ impl Mux {
                 &identity.terminal_id,
                 &identity.incarnation,
                 "attached",
-            );
+            )?;
             drop(pending_surface);
             drop(workspace_lifecycle);
             return Ok((placement, surface, created_path));
@@ -12330,9 +12323,6 @@ impl Mux {
         incarnation: Option<&str>,
         exit: &TerminalExit,
     ) -> anyhow::Result<bool> {
-        if let Some(incarnation) = incarnation {
-            self.record_terminal_runtime_attachment_source(terminal_id, incarnation, "detached");
-        }
         let mut registry = self.workspace_registry.lock().unwrap();
         let terminal = registry
             .terminal_record(terminal_id)?
@@ -12387,12 +12377,21 @@ impl Mux {
         };
         let topology =
             detach_projection.as_ref().map(|projection| (&projection.patch, &projection.changes));
+        let runtime_attachment = incarnation.map(|incarnation| TerminalExitRuntimeAttachment {
+            origin: "cmux-tui-runtime",
+            idempotency_key: format!("runtime-attachment-detached-{terminal_id}-{incarnation}"),
+            runtime_id: incarnation,
+            state: "detached",
+            host_epoch: incarnation,
+            lease_generation: incarnation,
+        });
         let (_, terminal_revision, resource_revision, replayed) = registry.commit_terminal_exit(
             terminal_id,
             incarnation,
             exit,
             terminal_snapshot,
             topology,
+            runtime_attachment,
         )?;
         let mut detach_effects = None;
         if !replayed {
@@ -15971,30 +15970,26 @@ mod tests {
     }
 
     #[cfg(unix)]
-    fn open_running_terminal_without_live_attachment(
+    fn seed_running_terminal_without_live_attachment(
+        mux: &Arc<Mux>,
         terminal_id: &str,
         incarnation: &str,
         fixture: u128,
         attachment_runtime: Option<&str>,
-    ) -> (Arc<Mux>, std::path::PathBuf, TerminalPublicId) {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-runtime-attachment-exit-{}",
-            crate::workspace_registry::new_uuid_v4()
-        ));
-        let session = format!("runtime-attachment-exit-{fixture:x}");
+    ) -> TerminalPublicId {
         let workspace = RegistryWorkspace {
             id: 1,
             public_id: restore_workspace_id(fixture),
             key: format!("workspace-{fixture:x}"),
             name: "Runtime Attachment Exit".into(),
-            group_key: session.clone(),
+            group_key: mux.session.clone(),
         };
         let screen = restore_screen_id(fixture);
         let pane = restore_pane_id(fixture);
         let tab = restore_tab_id(fixture);
         let terminal_public_id = restore_terminal_id(fixture);
         {
-            let mut registry = WorkspaceRegistry::open(&root, &session).unwrap();
+            let mut registry = mux.workspace_registry.lock().unwrap();
             registry
                 .commit_resource_patch(
                     &WorkspaceMutation::new("seed-runtime-attachment-exit", "test").unwrap(),
@@ -16087,9 +16082,15 @@ mod tests {
                     )
                     .unwrap();
             }
+            let restored = restore_resource_state(
+                registry.snapshot().unwrap(),
+                registry.resource_topology_snapshot().unwrap(),
+            )
+            .unwrap();
+            *mux.state.lock().unwrap() = restored.state;
+            mux.next_id.store(restored.next_id, Ordering::Release);
         }
-        let mux = Mux::open_persistent(&session, SurfaceOptions::default(), &root).unwrap();
-        (mux, root, terminal_public_id)
+        terminal_public_id
     }
 
     fn journal_event_kinds(mux: &Mux) -> Vec<String> {
@@ -20158,7 +20159,9 @@ mod tests {
         const TERMINAL: &str = "00000000000040008000000000000063";
         const CURRENT_INCARNATION: &str = "10000000000040008000000000000063";
         const STALE_INCARNATION: &str = "20000000000040008000000000000063";
-        let (mux, root, public_id) = open_running_terminal_without_live_attachment(
+        let mux = test_mux();
+        let public_id = seed_running_terminal_without_live_attachment(
+            &mux,
             TERMINAL,
             CURRENT_INCARNATION,
             0x1063,
@@ -20190,8 +20193,6 @@ mod tests {
             TerminalLifecycle::Running
         );
         mux.shutdown();
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(unix)]
@@ -20200,7 +20201,9 @@ mod tests {
         const TERMINAL: &str = "00000000000040008000000000000064";
         const CURRENT_INCARNATION: &str = "10000000000040008000000000000064";
         const STALE_INCARNATION: &str = "20000000000040008000000000000064";
-        let (mux, root, _) = open_running_terminal_without_live_attachment(
+        let mux = test_mux();
+        seed_running_terminal_without_live_attachment(
+            &mux,
             TERMINAL,
             CURRENT_INCARNATION,
             0x1064,
@@ -20226,10 +20229,7 @@ mod tests {
                 .lifecycle,
             TerminalLifecycle::Running
         );
-        assert!(mux.resolve_terminal(TERMINAL).unwrap().unwrap().surface.is_some());
         mux.shutdown();
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

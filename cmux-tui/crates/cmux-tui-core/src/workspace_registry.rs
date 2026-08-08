@@ -87,6 +87,7 @@ pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
 use session_persistence_store::{
     create_session_persistence_schema, rebuild_session_persistence_from_journal,
 };
+pub(crate) use terminal_exit_store::TerminalExitRuntimeAttachment;
 
 // Schema 9 shipped independently on the journal and multiview development
 // branches. Schema 10 shipped the journal extensions. Version 11 is the first
