@@ -2116,7 +2116,6 @@ mod tests {
         let _ = oversized.read();
         oversized.write(registered(1, None));
         oversized.writer.write_all(&vec![b'x'; protocol::MAX_FRAME_BYTES + 1]).unwrap();
-        oversized.writer.write_all(b"\n").unwrap();
 
         let Message::Hello(reconnected) = malformed.read().message else {
             panic!("oversized input did not reconnect");

@@ -27,6 +27,36 @@ on:
         required: false
         default: false
         type: boolean
+      target_set:
+        description: "Binary targets to build: all or macos-arm64"
+        required: false
+        default: all
+        type: string
+      build_cloudflare_relay:
+        description: "Build and verify the Cloudflare relay"
+        required: false
+        default: true
+        type: boolean
+      verify_linux_arm64:
+        description: "Run package entrypoint verification on native Linux ARM64"
+        required: false
+        default: true
+        type: boolean
+      macos_runner:
+        description: "Optional macOS runner label override"
+        required: false
+        default: ""
+        type: string
+      linux_runner:
+        description: "Optional Linux x64 runner label override"
+        required: false
+        default: ""
+        type: string
+      windows_runner:
+        description: "Optional Windows runner label override"
+        required: false
+        default: ""
+        type: string
       checkout_ref:
         description: "Optional git ref to build instead of the caller ref"
         required: false
@@ -35,44 +65,111 @@ on:
 
 permissions: {}
 
-env:
-  RUST_TOOLCHAIN: "1.95.0"
-
 jobs:
+  plan-build:
+    name: select binary targets
+    runs-on: ${{ inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+      linux_package_matrix: ${{ steps.targets.outputs.linux_package_matrix }}
+    steps:
+      - name: Select binary targets
+        id: targets
+        env:
+          TARGET_SET: ${{ inputs.target_set }}
+          PACKAGE_NPM: ${{ inputs.package_npm }}
+          PACKAGE_PYPI: ${{ inputs.package_pypi }}
+          MACOS_RUNNER: ${{ inputs.macos_runner != '' && inputs.macos_runner || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+          LINUX_RUNNER: ${{ inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+          LINUX_ARM64_RUNNER: ${{ vars.LINUX_ARM64_RUNNER || 'ubuntu-24.04-arm' }}
+          VERIFY_LINUX_ARM64: ${{ inputs.verify_linux_arm64 }}
+        shell: bash
+        run: |
+          python3 <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+
+          targets = [
+              {
+                  "target": "aarch64-apple-darwin",
+                  "build_target": "aarch64-apple-darwin",
+                  "runner": os.environ["MACOS_RUNNER"],
+                  "cross": False,
+                  "ext": "",
+                  "compatibility_target": "",
+              },
+              {
+                  "target": "x86_64-apple-darwin",
+                  "build_target": "x86_64-apple-darwin",
+                  "runner": os.environ["MACOS_RUNNER"],
+                  "cross": True,
+                  "ext": "",
+                  "compatibility_target": "",
+              },
+              {
+                  "target": "x86_64-unknown-linux-musl",
+                  "build_target": "x86_64-unknown-linux-musl",
+                  "runner": os.environ["LINUX_RUNNER"],
+                  "cross": True,
+                  "ext": "",
+                  "compatibility_target": "x86_64-unknown-linux-gnu",
+              },
+              {
+                  "target": "aarch64-unknown-linux-musl",
+                  "build_target": "aarch64-unknown-linux-musl",
+                  "runner": os.environ["LINUX_RUNNER"],
+                  "cross": True,
+                  "ext": "",
+                  "compatibility_target": "aarch64-unknown-linux-gnu",
+              },
+          ]
+          target_set = os.environ["TARGET_SET"]
+          if target_set == "all":
+              selected = targets
+          elif target_set == "macos-arm64":
+              selected = targets[:1]
+          else:
+              raise SystemExit(f"unsupported target_set: {target_set!r}")
+
+          packages_requested = (
+              os.environ["PACKAGE_NPM"] == "true"
+              or os.environ["PACKAGE_PYPI"] == "true"
+          )
+          if packages_requested and target_set != "all":
+              raise SystemExit("npm and PyPI packaging require target_set=all")
+
+          print("matrix=" + json.dumps({"include": selected}, separators=(",", ":")))
+
+          linux_package_targets = [
+              {
+                  "architecture": "x64",
+                  "runner": os.environ["LINUX_RUNNER"],
+              }
+          ]
+          if os.environ["VERIFY_LINUX_ARM64"] == "true":
+              linux_package_targets.append(
+                  {
+                      "architecture": "arm64",
+                      "runner": os.environ["LINUX_ARM64_RUNNER"],
+                  }
+              )
+          print(
+              "linux_package_matrix="
+              + json.dumps({"include": linux_package_targets}, separators=(",", ":"))
+          )
+          PY
+
   build:
     name: build ${{ matrix.target }}
+    needs: plan-build
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     permissions:
       contents: read
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - target: aarch64-apple-darwin
-            build_target: aarch64-apple-darwin
-            runner: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-            cross: false
-            ext: ""
-            compatibility_target: ""
-          - target: x86_64-apple-darwin
-            build_target: x86_64-apple-darwin
-            runner: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-            cross: true
-            ext: ""
-            compatibility_target: ""
-          - target: x86_64-unknown-linux-musl
-            build_target: x86_64-unknown-linux-musl
-            runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-            cross: true
-            ext: ""
-            compatibility_target: x86_64-unknown-linux-gnu
-          - target: aarch64-unknown-linux-musl
-            build_target: aarch64-unknown-linux-musl
-            runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-            cross: true
-            ext: ""
-            compatibility_target: aarch64-unknown-linux-gnu
+      matrix: ${{ fromJSON(needs.plan-build.outputs.matrix) }}
     steps:
       - name: Checkout caller ref
         if: inputs.checkout_ref == ''
@@ -108,12 +205,8 @@ jobs:
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
 
-      - name: Install Rust toolchain
-        shell: bash
-        run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
-          rustup default "$RUST_TOOLCHAIN"
-          rustc --version
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Install Rust target
         shell: bash
@@ -255,7 +348,8 @@ jobs:
 
   cloudflare-relay:
     name: Cloudflare Durable Object relay
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    if: inputs.build_cloudflare_relay
+    runs-on: ${{ inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
       RUSTUP_TOOLCHAIN: "1.91.0"
@@ -311,7 +405,7 @@ jobs:
   build-windows:
     name: build x86_64-pc-windows-gnu
     if: inputs.include_windows
-    runs-on: ${{ vars.WINDOWS_RUNNER || 'windows-latest' }}
+    runs-on: ${{ inputs.windows_runner != '' && inputs.windows_runner || vars.WINDOWS_RUNNER || 'windows-latest' }}
     timeout-minutes: 60
     permissions:
       contents: read
@@ -344,12 +438,8 @@ jobs:
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
 
-      - name: Install Rust toolchain
-        shell: bash
-        run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
-          rustup default "$RUST_TOOLCHAIN"
-          rustc --version
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Install Rust target
         shell: bash
@@ -407,7 +497,7 @@ jobs:
     name: package distributions
     needs: build
     if: inputs.package_npm || inputs.package_pypi
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -570,7 +660,9 @@ jobs:
 
   verify-linux-packages:
     name: verify Linux package entrypoints (${{ matrix.architecture }})
-    needs: package
+    needs:
+      - plan-build
+      - package
     if: ${{ inputs.package_npm || inputs.package_pypi }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
@@ -578,15 +670,7 @@ jobs:
       contents: read
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - architecture: x64
-            runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-          # Run ARM64 containers on native hardware. QEMU registration is not
-          # persistent on every third-party x64 runner and can disappear
-          # between setup and the package smoke test.
-          - architecture: arm64
-            runner: ${{ vars.LINUX_ARM64_RUNNER || 'ubuntu-24.04-arm' }} # github-hosted-required: package smoke tests need native ARM64 execution
+      matrix: ${{ fromJSON(needs.plan-build.outputs.linux_package_matrix) }}
     env:
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:

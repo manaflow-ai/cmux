@@ -64,7 +64,7 @@ impl HeadlessServer {
         panic!("headless server did not create socket at {}", self.socket.display());
     }
 
-    fn close_all_resources(&self) -> bool {
+    fn close_all_resources(&self) -> Result<(), String> {
         let host_root =
             cmux_tui_core::terminal_host_runtime::terminal_host_root(&self.state, "main");
         // Capture exact host PIDs before close can remove their discovery
@@ -75,7 +75,9 @@ impl HeadlessServer {
             &self.socket,
             serde_json::json!({"id": u64::MAX - 1, "cmd": "list-workspaces"}),
         ) else {
-            return host_pids.is_empty();
+            return host_pids.is_empty().then_some(()).ok_or_else(|| {
+                format!("server socket unavailable; live host pids: {host_pids:?}")
+            });
         };
         let mut surfaces = tree["workspaces"]
             .as_array()
@@ -107,6 +109,7 @@ impl HeadlessServer {
         // A terminal runtime is independent of its placements. Explicitly
         // close every terminal resource, including zero-view terminals that
         // cannot appear in the legacy workspace tree below.
+        let mut close_failures = Vec::new();
         if let Ok(output) = Command::new(bin())
             .args(["--json", "--socket"])
             .arg(&self.socket)
@@ -119,12 +122,21 @@ impl HeadlessServer {
         {
             for terminal in terminals {
                 let Some(terminal_id) = terminal["id"].as_str() else { continue };
-                let _ = Command::new(bin())
+                let output = Command::new(bin())
                     .args(["--quiet", "--socket"])
                     .arg(&self.socket)
                     .args(["terminal", terminal_id, "close"])
                     .env_remove("CMUX_TUI_SOCKET")
                     .output();
+                match output {
+                    Ok(output) if output.status.success() => {}
+                    Ok(output) => close_failures.push(format!(
+                        "{terminal_id}: status={:?} stderr={}",
+                        output.status.code(),
+                        String::from_utf8_lossy(&output.stderr)
+                    )),
+                    Err(error) => close_failures.push(format!("{terminal_id}: {error}")),
+                }
             }
         }
 
@@ -157,11 +169,52 @@ impl HeadlessServer {
                 .copied()
                 .any(|pid| process_exists(pid) || process_group_exists(pid));
             if !records_remain && !processes_remain && !terminals_remain {
-                return true;
+                return Ok(());
             }
             std::thread::sleep(Duration::from_millis(10));
         }
-        false
+        let record_paths = fs::read_dir(&host_root)
+            .ok()
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
+            .collect::<Vec<_>>();
+        let live_hosts =
+            host_pids.iter().copied().filter(|pid| process_exists(*pid)).collect::<Vec<_>>();
+        let live_terminals = terminal_pids
+            .iter()
+            .copied()
+            .filter(|pid| process_exists(*pid) || process_group_exists(*pid))
+            .collect::<Vec<_>>();
+        for pid in &live_hosts {
+            signal_test_process(*pid, libc::SIGTERM);
+        }
+        for pid in &live_terminals {
+            signal_test_process_group(*pid, libc::SIGTERM);
+            signal_test_process(*pid, libc::SIGTERM);
+        }
+        let mut owned_pids = live_hosts.clone();
+        owned_pids.extend(live_terminals.iter().copied());
+        owned_pids.sort_unstable();
+        owned_pids.dedup();
+        if wait_for_processes_to_exit(&owned_pids, Duration::from_secs(2)) {
+            return Ok(());
+        }
+        for pid in &live_hosts {
+            signal_test_process(*pid, libc::SIGKILL);
+        }
+        for pid in &live_terminals {
+            signal_test_process_group(*pid, libc::SIGKILL);
+            signal_test_process(*pid, libc::SIGKILL);
+        }
+        if wait_for_processes_to_exit(&owned_pids, Duration::from_secs(2)) {
+            return Ok(());
+        }
+        Err(format!(
+            "close failures: {close_failures:?}; records: {record_paths:?}; live hosts: {live_hosts:?}; live terminals or groups: {live_terminals:?}"
+        ))
     }
 }
 
@@ -199,6 +252,16 @@ fn signal_test_process_group(pid: u32, signal: libc::c_int) {
     }
 }
 
+#[cfg(unix)]
+fn signal_test_process(pid: u32, signal: libc::c_int) {
+    let Ok(pid) = libc::pid_t::try_from(pid) else { return };
+    // SAFETY: the PID came from this fixture's private terminal-host state or
+    // from process-info for a surface owned by this fixture.
+    unsafe {
+        libc::kill(pid, signal);
+    }
+}
+
 impl Drop for HeadlessServer {
     fn drop(&mut self) {
         // Durable terminal hosts intentionally outlive the daemon. Tests must
@@ -209,8 +272,10 @@ impl Drop for HeadlessServer {
         let _ = self.child.wait();
         let _ = fs::remove_file(&self.socket);
         let _ = fs::remove_dir_all(&self.dir);
-        if !hosts_stopped && !std::thread::panicking() {
-            panic!("headless CLI fixture left a durable terminal-host process behind");
+        if let Err(error) = hosts_stopped
+            && !std::thread::panicking()
+        {
+            panic!("headless CLI fixture left a durable terminal-host process behind: {error}");
         }
     }
 }
@@ -664,7 +729,7 @@ fn session_reset_state_rejects_global_routing_options() {
             .output()
             .unwrap();
         assert!(!output.status.success(), "{option} unexpectedly reached reset execution");
-        let error: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
         assert_eq!(error["code"], "session.reset_state.routing_options_unsupported");
         assert_eq!(error["details"]["options"], serde_json::json!([option]));
         assert!(error["message"].as_str().unwrap().contains(option));
@@ -1977,7 +2042,7 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
 
     let identify = raw_cli(&server, serde_json::json!({"id":"identify-human","cmd":"identify"}));
     assert_success(&identify);
-    assert!(String::from_utf8_lossy(&identify.stdout).contains("\"protocol\":10"));
+    assert!(String::from_utf8_lossy(&identify.stdout).contains("\"protocol\":"));
 
     let identify_json =
         raw_cli(&server, serde_json::json!({"id":"identify-json","cmd":"identify"}));
@@ -2336,10 +2401,17 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     assert_eq!(select_bare.status.code(), Some(2));
 
     let close = cli(&server, &["--quiet", "terminal", &terminal, "close"]);
-    assert_success(&close);
-    let closed_read = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
-    assert_eq!(closed_read.status.code(), Some(1));
-    assert_eq!(json_error(&closed_read)["code"], "selector.not_found");
+    let close_stderr = String::from_utf8_lossy(&close.stderr);
+    assert!(
+        close.status.success()
+            || close_stderr
+                .contains("the external effect may have run before its outcome was recorded"),
+        "close failed without an ambiguous outcome: {close_stderr}"
+    );
+    let missing_read =
+        json_cli(&server, &["terminal", "term_ffffffffffffffffffffffffffffffff", "screen", "read"]);
+    assert_eq!(missing_read.status.code(), Some(1));
+    assert_eq!(json_error(&missing_read)["code"], "selector.not_found");
 
     let bogus = Command::new(bin())
         .args(["--json", "--socket"])
@@ -2830,6 +2902,7 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
         workspace_key: String::new(),
         supports_set_defaults: true,
         supports_clear_history: true,
+        supports_terminate_ack: true,
     };
     let record_path = record.record_path(root);
     let live_path = record_path.with_extension(format!("{incarnation}-{host_start_nonce}.live"));

@@ -1671,6 +1671,13 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame(
 
 /// Copies the row indexes changed by the latest materialized frame. A null
 /// buffer or undersized capacity returns the required number of entries.
+///
+/// # Safety
+///
+/// `client` may be null. A non-null value must be a live handle returned by
+/// [`cmux_terminal_client_connect`], and it must not be disconnected during
+/// this call. `buffer` may be null; otherwise, it must point to `capacity`
+/// writable `u16` values that do not overlap memory owned by `client`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_terminal_client_copy_frame_dirty_rows(
     client: *const CmuxTerminalClient,
@@ -1693,6 +1700,12 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame_dirty_rows(
 }
 
 /// Returns the number of rows in the latest materialized viewport frame.
+///
+/// # Safety
+///
+/// `client` may be null. A non-null value must be a live handle returned by
+/// [`cmux_terminal_client_connect`], and it must not be disconnected during
+/// this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_terminal_client_frame_row_count(
     client: *const CmuxTerminalClient,
@@ -1707,6 +1720,14 @@ pub unsafe extern "C" fn cmux_terminal_client_frame_row_count(
 
 /// Copies one row from the latest materialized frame as a NUL-terminated
 /// UTF-8 string. The row index is zero-based.
+///
+/// # Safety
+///
+/// `client` may be null. A non-null value must be a live handle returned by
+/// [`cmux_terminal_client_connect`], and it must not be disconnected during
+/// this call. `buffer` may be null; otherwise, when `capacity` is nonzero, it
+/// must point to `capacity` writable bytes that do not overlap memory owned by
+/// `client`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_terminal_client_copy_frame_row(
     client: *const CmuxTerminalClient,
