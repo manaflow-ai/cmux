@@ -178,7 +178,7 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
       {accountState.kind === "notConfigured" ? (
         <StatusPanel title={t("notConfiguredTitle")} body={t("notConfiguredBody")} />
       ) : accountState.kind === "migrationPending" ? (
-        <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
+        <StatusPanel title={t("migrationPendingTitle")} body={t("migrationPendingBody")} />
       ) : accountState.kind === "error" ? (
         <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
       ) : (
