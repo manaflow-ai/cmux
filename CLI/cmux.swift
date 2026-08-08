@@ -29668,7 +29668,10 @@ export default CMUXSessionRestore;
         return false
     }
 
-    private func installAgentHooks(_ def: AgentHookDef) throws {
+    private func installAgentHooks(
+        _ def: AgentHookDef,
+        automaticReconciliation: Bool = false
+    ) throws {
         if def.name == "opencode" { try installOpenCodePluginHooks(def); return }
         if def.name == "pi" { try installPiExtensionHooks(def); return }
         if def.name == "omp" { try installOmpExtensionHooks(def); return }
@@ -29697,7 +29700,8 @@ export default CMUXSessionRestore;
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
         let filePath = "\(configDir)/\(def.configFile)"
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+        let skipConfirm = automaticReconciliation
+            || ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
         let configDirectoryFileError = String.localizedStringWithFormat(
@@ -29713,7 +29717,9 @@ export default CMUXSessionRestore;
             if def.createConfigDirIfMissing {
                 throw CLIError(message: configDirectoryFileError)
             }
-            print("Required agent configuration is missing. Run `cmux hooks setup` after installing your agent CLI.")
+            if !automaticReconciliation {
+                print("Required agent configuration is missing. Run `cmux hooks setup` after installing your agent CLI.")
+            }
             return
         }
         if !configPathExists {
@@ -29724,7 +29730,9 @@ export default CMUXSessionRestore;
                     throw CLIError(message: configDirectoryFileError)
                 }
             } else {
-                print("Required agent configuration is missing. Run `cmux hooks setup` after installing your agent CLI.")
+                if !automaticReconciliation {
+                    print("Required agent configuration is missing. Run `cmux hooks setup` after installing your agent CLI.")
+                }
                 return
             }
         }
@@ -29735,6 +29743,12 @@ export default CMUXSessionRestore;
                 throw CLIError(message: "\(filePath) exists but is not valid JSON. Fix or remove it before installing hooks.")
             }
             existing = json
+        }
+
+        let existingHooksValue: Any = existing["hooks"] ?? [String: Any]()
+        if automaticReconciliation,
+           !Self.jsonHookValueContainsCmuxOwnedCommand(existingHooksValue, for: def) {
+            return
         }
 
         var hooks = existing["hooks"] as? [String: Any] ?? [:]
@@ -29880,7 +29894,9 @@ export default CMUXSessionRestore;
 
         if oldString == newString {
             // No-op install; skip the write and the prompt entirely.
-            print("\(def.displayName) hooks already up to date at \(filePath)")
+            if !automaticReconciliation {
+                print("\(def.displayName) hooks already up to date at \(filePath)")
+            }
         } else {
             if !skipConfirm {
                 Self.printInstallPreview(
@@ -29896,10 +29912,12 @@ export default CMUXSessionRestore;
                 }
             }
             try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
-            print("\(def.displayName) hooks installed at \(filePath)")
+            if !automaticReconciliation {
+                print("\(def.displayName) hooks installed at \(filePath)")
+            }
         }
 
-        if let note = def.postInstallNote {
+        if !automaticReconciliation, let note = def.postInstallNote {
             print(note)
         }
 
@@ -29945,13 +29963,39 @@ export default CMUXSessionRestore;
                         }
                     }
                     try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
-                    if def.name == "codex", !codexHookTrustEntries.isEmpty, trustInstall.installedTrust {
-                        print("Enabled hooks and approved cmux hooks in \(configPath)")
-                    } else {
-                        print("Enabled hooks in \(configPath)")
+                    if !automaticReconciliation {
+                        if def.name == "codex", !codexHookTrustEntries.isEmpty, trustInstall.installedTrust {
+                            print("Enabled hooks and approved cmux hooks in \(configPath)")
+                        } else {
+                            print("Enabled hooks in \(configPath)")
+                        }
                     }
                 }
             }
+        }
+
+        if def.name == "codex", !automaticReconciliation {
+            Self.garbageCollectCodexHookScripts(
+                retaining: Self.currentCodexWrapperHookScriptFilenames(for: def)
+                    .union(Self.installedCodexHookScriptFilenames(for: def))
+            )
+        }
+    }
+
+    /// Repairs an opted-in persistent Codex channel before wrapper launch.
+    func reconcileCodexPersistentHooksForWrapper() -> Bool {
+        guard let def = Self.agentDef(named: "codex") else { return false }
+        try? installAgentHooks(def, automaticReconciliation: true)
+
+        let fileURL = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+            .appendingPathComponent(def.configFile, isDirectory: false)
+        guard let data = try? Data(contentsOf: fileURL),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let hooks = root["hooks"] as? [String: Any] else {
+            return false
+        }
+        return hooks.values.contains {
+            Self.jsonHookValueContainsCmuxOwnedCommand($0, for: def)
         }
     }
 
@@ -32690,6 +32734,21 @@ export default CMUXSessionRestore;
         }
     }
 
+    /// The absolute deadline for the whole native-approval-prompt attention
+    /// delivery (connect, authentication, live-target resolution, and the
+    /// acknowledged send) before the feed hook gives up and returns.
+    static let feedAttentionAcknowledgeTimeoutSeconds: TimeInterval = 2
+
+    /// Portion of the attention deadline reserved for the essential
+    /// notify/clear send. The optional live-target probe may never consume
+    /// this: a stalled probe that ate the whole budget would starve the very
+    /// notification the attention lane exists to deliver.
+    static let feedAttentionSendReserveSeconds: TimeInterval = 0.75
+
+    /// Upper bound on the optional live-target probe, independent of the
+    /// remaining deadline.
+    static let feedAttentionProbeTimeoutCapSeconds: TimeInterval = 1.0
+
     private func sendFeedTelemetry(
         client: SocketClient,
         source: String,
@@ -32699,7 +32758,28 @@ export default CMUXSessionRestore;
         surfaceId: String? = nil,
         socketPassword: String? = nil
     ) {
-        let hookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
+        let fallbackHookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
+        let reportedHookEventName = parsedInput.object.flatMap {
+            firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
+        } ?? parsedInput.rawObject.flatMap {
+            firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
+        }
+        let hookEventName: String
+        if source == "codex",
+           let reportedHookEventName,
+           reportedHookEventName.replacingOccurrences(of: "_", with: "").lowercased()
+               == "permissionrequest" {
+            // A single notification handler now owns Codex PermissionRequest.
+            // Preserve the existing non-blocking Feed classification while that
+            // same handler drives the needs-input lifecycle and alert.
+            hookEventName = FeedEventClassifier.classify(
+                source: source,
+                event: reportedHookEventName,
+                toolName: ""
+            ).hookEventName
+        } else {
+            hookEventName = fallbackHookEventName
+        }
         guard !hookEventName.isEmpty else { return }
         let promptText = hookEventName == "UserPromptSubmit"
             ? (feedPromptText(from: parsedInput.object) ?? parsedInput.rawFallback)
@@ -32761,6 +32841,15 @@ export default CMUXSessionRestore;
         guard let data = try? JSONSerialization.data(withJSONObject: frame),
               let line = String(data: data, encoding: .utf8)
         else { return }
+        // Deliberately NO native-approval-prompt clear on this lane: the
+        // wrapper-injected codex hooks that reach it (`hooks codex
+        // post-tool-use`) run as fire-and-forget nohup workers with no
+        // ordering guarantee, so a delayed completion worker's clear could
+        // erase a NEWER request's live permission notification — silencing a
+        // blocked agent (#9592). Only the synchronous feed-hook path
+        // (`runFeedHook`), whose events arrive in codex's own order, emits
+        // the clear; wrapper-path staleness self-heals at the next
+        // `prompt-submit`, which already clears the pane.
         sendBestEffortFeedTelemetry(socketPath: client.socketPath, line: line, socketPassword: socketPassword)
     }
 
@@ -34644,6 +34733,146 @@ export default CMUXSessionRestore;
 
     // MARK: - Feed (workstream) hook bridge
 
+    /// Delivers the pane-attention command (permission notify / resolved
+    /// clear) for a classified feed event: resolves the LIVE pane identity,
+    /// builds the command via the shared, unit-tested builder
+    /// (``FeedEventClassifier/nativeApprovalPromptAttentionCommand``), and
+    /// sends it request/response, AWAITING the app's `OK`.
+    ///
+    /// Live-identity resolution uses the same alias-safe
+    /// `agent.resolve_delivery_target` `{surface_id}` re-home probe Claude's
+    /// hooks use: on a restored remote pane the ambient env IDs are snapshot
+    /// aliases, and the relay remaps IDs only inside JSON requests — a plain
+    /// V1 command built from ambient IDs would target a stale pane. The
+    /// probe's request IS remapped, so the app answers with live identities;
+    /// when it is unsupported or fails, the ambient identities are the
+    /// fallback (correct for local panes).
+    ///
+    /// Awaiting the attention line is what makes cross-process hook ordering
+    /// real: one-way writes return before the app's detached per-connection
+    /// worker has enqueued the mutation, so a completed hook process is no
+    /// proof its clear was applied — a delayed clear could then erase a
+    /// NEWER request's live notification (#9592's silence, reintroduced).
+    /// Codex runs these feed hooks synchronously, so blocking this process
+    /// until the app acknowledges the mutation (same request/response
+    /// contract Claude's and Hermes' hooks use) guarantees the next hook's
+    /// process starts only after this mutation is in the app's ordered lane.
+    ///
+    /// Everything runs under ONE absolute deadline spanning connect,
+    /// authentication, resolution, and the acknowledged send: this line is
+    /// the essential payload, and the budget must survive a relay-backed
+    /// connection's multi-round-trip handshake — unlike the telemetry
+    /// lane's deliberate 50 ms fast-fail bounds. Failures never propagate:
+    /// the hook always returns `{}` after the bounded wait.
+    private func deliverNativeApprovalPromptAttention(
+        classification: FeedEventClassification,
+        source: String,
+        toolName: String,
+        eventDict: [String: Any],
+        env: [String: String],
+        client: SocketClient?,
+        socketPath: String?,
+        socketPassword: String?
+    ) {
+        let ambientWorkspaceId = (eventDict["workspace_id"] as? String) ?? env["CMUX_WORKSPACE_ID"]
+        let ambientSurfaceId = (eventDict["surface_id"] as? String) ?? env["CMUX_SURFACE_ID"]
+        let deadline = Date().addingTimeInterval(Self.feedAttentionAcknowledgeTimeoutSeconds)
+        func remainingBudget() -> TimeInterval {
+            max(deadline.timeIntervalSinceNow, 0.05)
+        }
+
+        var ownedClient: SocketClient?
+        defer { ownedClient?.close() }
+        let activeClient: SocketClient
+        if let client {
+            activeClient = client
+        } else if let socketPath {
+            let attentionClient = SocketClient(path: socketPath)
+            do {
+                try attentionClient.connectWithoutRetry(responseTimeout: remainingBudget())
+                try authenticateClientIfNeeded(
+                    attentionClient,
+                    explicitPassword: socketPassword,
+                    socketPath: socketPath,
+                    responseTimeout: remainingBudget(),
+                    deadline: deadline
+                )
+            } catch {
+                attentionClient.close()
+                return
+            }
+            ownedClient = attentionClient
+            activeClient = attentionClient
+        } else {
+            return
+        }
+
+        let liveTarget = resolvedAttentionDeliveryTarget(
+            workspaceId: ambientWorkspaceId,
+            surfaceId: ambientSurfaceId,
+            client: activeClient,
+            deadline: deadline
+        )
+        guard let attentionLine = FeedEventClassifier.nativeApprovalPromptAttentionCommand(
+            classification: classification,
+            displayName: Self.agentDef(named: source)?.displayName ?? source,
+            toolName: toolName,
+            workspaceId: liveTarget?.workspaceId ?? ambientWorkspaceId,
+            surfaceId: liveTarget?.surfaceId ?? ambientSurfaceId
+        ) else { return }
+        _ = try? activeClient.send(
+            command: attentionLine,
+            responseTimeout: remainingBudget(),
+            deadline: deadline
+        )
+    }
+
+    /// The `{surface_id}` live-pane probe backing
+    /// ``deliverNativeApprovalPromptAttention``. Only a `source == "surface"`
+    /// answer with a live workspace UUID counts; anything else falls back to
+    /// the ambient identities. The probe's timeout is capped and always
+    /// leaves ``feedAttentionSendReserveSeconds`` of the shared deadline for
+    /// the essential send — a stalled probe degrades to ambient addressing,
+    /// never to a starved notification.
+    private func resolvedAttentionDeliveryTarget(
+        workspaceId: String?,
+        surfaceId: String?,
+        client: SocketClient,
+        deadline: Date
+    ) -> (workspaceId: String, surfaceId: String)? {
+        guard let surfaceRaw = surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              UUID(uuidString: surfaceRaw) != nil else {
+            return nil
+        }
+        let probeTimeout = min(
+            deadline.timeIntervalSinceNow - Self.feedAttentionSendReserveSeconds,
+            Self.feedAttentionProbeTimeoutCapSeconds
+        )
+        guard probeTimeout > 0.05 else { return nil }
+        var params: [String: Any] = ["surface_id": surfaceRaw]
+        if let workspaceRaw = workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           UUID(uuidString: workspaceRaw) != nil {
+            params["workspace_id"] = workspaceRaw
+        }
+        guard let payload = try? client.sendV2(
+                method: "agent.resolve_delivery_target",
+                params: params,
+                responseTimeout: probeTimeout
+              ),
+              (payload["source"] as? String) == "surface",
+              let liveWorkspaceId = (payload["workspace_id"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              UUID(uuidString: liveWorkspaceId) != nil else {
+            return nil
+        }
+        let liveSurfaceId = (payload["surface_id"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let liveSurfaceId, UUID(uuidString: liveSurfaceId) != nil {
+            return (liveWorkspaceId, liveSurfaceId)
+        }
+        return (liveWorkspaceId, surfaceRaw)
+    }
+
     /// Reads an agent hook JSON payload from stdin, forwards it to the
     /// running cmux app via the `feed.push` V2 socket verb, and (for
     /// actionable events: ExitPlanMode, AskUserQuestion, permission-
@@ -34722,11 +34951,13 @@ export default CMUXSessionRestore;
         // Decide whether this event is Feed-actionable. Non-actionable
         // events are forwarded as telemetry (non-blocking) and exit `{}`
         // so the agent proceeds without a decision.
-        let (hookEventName, isActionable) = FeedEventClassifier.classify(
+        let classification = FeedEventClassifier.classify(
             source: source,
             event: rawEvent,
             toolName: toolName
         )
+        let hookEventName = classification.hookEventName
+        let isActionable = classification.isActionable
         let env = ProcessInfo.processInfo.environment
         if Self.shouldSuppressKiroFeedEvent(
             source: source,
@@ -34853,7 +35084,46 @@ export default CMUXSessionRestore;
         if waitTimeout == 0 && !shouldAwaitTelemetryIngestion {
             let payload = try JSONSerialization.data(withJSONObject: request)
             let line = String(data: payload, encoding: .utf8) ?? "{}"
-            if let client {
+            // Codex-style agents block in their own approval UI while this
+            // (telemetry) event is their only signal, so the permission-prompt
+            // notification — and the clear once execution proceeds — ride
+            // alongside the feed frame. The attention signal goes FIRST and
+            // is AWAITED (bounded); the feed frame stays one-way best-effort
+            // telemetry on its own bounded connection — a relay-backed `send`
+            // closes its socket after the acknowledged command, and an
+            // implicit reconnect inside `sendOneWay` is not bounded by the
+            // write timeout.
+            //
+            // Known accepted residual: codex's fire-and-forget prompt-submit
+            // worker clears the pane at turn start from a DETACHED process.
+            // If that worker is slower than the model's first approval-needing
+            // tool call, its late clear can remove this notification — the
+            // same pre-existing exposure the wrapper-path notification
+            // (`hooks codex notification`) has always had. Fencing clears by
+            // origin time is a cross-layer protocol change deliberately out
+            // of scope here.
+            let sendsAttention = classification.notifiesNativeApprovalPrompt
+                || classification.clearsNativeApprovalPrompt
+            if sendsAttention {
+                deliverNativeApprovalPromptAttention(
+                    classification: classification,
+                    source: source,
+                    toolName: toolName,
+                    eventDict: eventDict,
+                    env: env,
+                    client: client,
+                    socketPath: socketPath,
+                    socketPassword: socketPassword
+                )
+                let telemetrySocketPath = socketPath ?? client?.socketPath
+                if let telemetrySocketPath {
+                    sendBestEffortFeedTelemetry(
+                        socketPath: telemetrySocketPath,
+                        line: line,
+                        socketPassword: socketPassword
+                    )
+                }
+            } else if let client {
                 _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
             } else if let socketPath {
                 sendBestEffortFeedTelemetry(

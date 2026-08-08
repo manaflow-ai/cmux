@@ -135,6 +135,31 @@
     "faqFeatureA": "Queremos saberlo. Abre un <issuesLink>issue</issuesLink> o un <prLink>pull request</prLink> en GitHub, o <mailLink>escríbenos</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "vista general",
+      "team": "equipo"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "Distribuye solicitudes LLM entre cuentas de proveedores con conmutación por error y programación según el uso.",
+      "coderouterLink": "abrir coderouter"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Gestiona cuentas de IA compartidas y distribuye solicitudes con coderouter.",
+      "title": "coderouter",
+      "description": "coderouter distribuye solicitudes LLM entre cuentas de proveedores con conmutación por error y programación según el uso."
+    },
+    "accountMenu": {
+      "label": "Menú de la cuenta",
+      "settings": "Configuración",
+      "billing": "Facturación",
+      "signOut": "Cerrar sesión",
+      "signingOut": "Cerrando sesión…",
+      "signOutError": "No se pudo cerrar la sesión. Inténtalo de nuevo.",
+      "signIn": "Iniciar sesión"
+    },
     "aiAccounts": {
       "metaTitle": "Cuentas de IA — cmux",
       "metaDescription": "Gestiona las cuentas de proveedores de IA del equipo para cmux.",
