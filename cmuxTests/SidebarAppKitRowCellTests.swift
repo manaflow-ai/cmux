@@ -81,6 +81,7 @@ struct SidebarAppKitRowCellTests {
             settings: resolvedSettings,
             isActive: isActive,
             isMultiSelected: false,
+            hasUserCustomTitle: false,
             canCloseWorkspace: canClose,
             accessibilityWorkspaceCount: 1,
             unreadCount: 0,
