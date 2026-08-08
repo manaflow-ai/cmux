@@ -23806,14 +23806,6 @@ mod tests {
                                 pane_id: pane.clone(),
                                 tab_ids: vec![tab.clone()],
                             },
-                            ResourceChange::SetTabOrder {
-                                pane_id: pane,
-                                tab_ids: vec![tab.clone()],
-                            },
-                            ResourceChange::SetTabOrder {
-                                pane_id: pane,
-                                tab_ids: vec![tab.clone()],
-                            },
                             ResourceChange::SetActiveWorkspace {
                                 workspace_id: Some(workspace.public_id),
                             },

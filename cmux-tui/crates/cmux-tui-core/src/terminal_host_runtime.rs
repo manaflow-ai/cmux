@@ -1869,7 +1869,7 @@ mod unix {
                 // Current records guarantee the current smart protocol. Keep
                 // startup and reconnect head-of-line blocking to one bounded
                 // handshake; only legacy records need version probing.
-                connect_current_record_with_timeout(record, record_path, HOST_HANDSHAKE_TIMEOUT)
+                adopt_current_terminal_host(record, record_path)
             } else {
                 connect_record(record, record_path)
             }
@@ -6773,6 +6773,7 @@ mod unix {
                 next_request: AtomicU64::new(2),
                 viewer_size: Mutex::new(None),
                 launch_process: None,
+                launch_activation_pending: false,
             };
             let responder = thread::spawn(move || {
                 let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();

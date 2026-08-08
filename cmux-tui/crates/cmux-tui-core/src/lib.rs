@@ -84,8 +84,7 @@ pub use workspace_registry::{
     JournalSensitivity, JournalSubject, PersistentSessionStateReset,
     PersistentSessionStateResetPreview, PersistentSessionStateResetter, ProjectionCommit,
     RegistryCommit, RegistryEvent, RegistrySnapshot, RegistryWorkspace, SessionJournalPage,
-    SessionJournalRecord, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation,
-    WorkspaceRegistry,
+    SessionJournalRecord, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
 };
 
 pub use cmux_remote_protocol::REMOTE_SESSION_MESSAGE_MAX_BYTES;
