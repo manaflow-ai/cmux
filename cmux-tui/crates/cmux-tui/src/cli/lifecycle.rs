@@ -22,6 +22,12 @@ pub(super) enum ServerAction {
 }
 
 pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
+    if global.machine.is_some() {
+        return usage_error(
+            crate::localization::catalog().local_server.machine_not_supported,
+            global.output,
+        );
+    }
     if let Some(session) = plan.session {
         if global.session.as_deref().is_some_and(|global| global != session) {
             return usage_error(
