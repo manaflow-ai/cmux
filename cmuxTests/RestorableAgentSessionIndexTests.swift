@@ -448,6 +448,71 @@ struct RestorableAgentSessionIndexTests {
         )
     }
 
+    @Test
+    func testPanelFallbackPrefersLiveDetectedSessionAcrossOwnerRotation() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-live-panel-fallback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+
+        let panelId = UUID()
+        let staleWorkspaceId = UUID()
+        let liveWorkspaceId = UUID()
+        let restoredWorkspaceId = UUID()
+        let staleSessionId = "stale-exited-session"
+        let liveSessionId = "live-detected-session"
+        let liveProcessId = 4_242
+
+        try writeHookStore(
+            root: root,
+            storeFilename: "codex-hook-sessions.json",
+            sessions: [
+                staleSessionId: driftedAgentHookRecord(
+                    launcher: "codex",
+                    sessionId: staleSessionId,
+                    workspaceId: staleWorkspaceId,
+                    panelId: panelId,
+                    recordedCwd: cwd.path,
+                    launchCwd: cwd.path,
+                    updatedAt: 100
+                ),
+            ]
+        )
+
+        let liveKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: liveWorkspaceId,
+            panelId: panelId
+        )
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                liveKey: (
+                    snapshot: SessionRestorableAgentSnapshot(
+                        kind: .codex,
+                        sessionId: liveSessionId,
+                        workingDirectory: cwd.path
+                    ),
+                    updatedAt: 0,
+                    processIDs: [liveProcessId],
+                    agentProcessIDs: [liveProcessId],
+                    sessionIDSource: .explicit
+                ),
+            ],
+            processArgumentsProvider: { _ in nil }
+        )
+
+        let restoredEntry = try XCTUnwrap(
+            index.entry(workspaceId: restoredWorkspaceId, panelId: panelId)
+        )
+        XCTAssertEqual(restoredEntry.snapshot.sessionId, liveSessionId)
+        XCTAssertEqual(restoredEntry.processIDs, [liveProcessId])
+    }
+
     // A Claude session can start in one directory and `cd` into another (e.g. a repo root then a
     // worktree); the hook-reported `cwd` drifts to the latter, but Claude keeps the transcript in
     // the start directory's project folder. Fork/resume must cd into the directory that actually

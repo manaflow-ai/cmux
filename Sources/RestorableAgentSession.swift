@@ -2301,8 +2301,10 @@ struct RestorableAgentSessionIndex: Sendable {
         self.entriesByPanel = entriesByPanel
         var entriesByPanelId: [UUID: Entry] = [:]
         for (key, entry) in entriesByPanel {
-            let existing = entriesByPanelId[key.panelId]
-            if existing == nil || entry.updatedAt >= (existing?.updatedAt ?? 0) {
+            if Self.shouldReplaceHookEntry(
+                existing: entriesByPanelId[key.panelId],
+                incoming: entry
+            ) {
                 entriesByPanelId[key.panelId] = entry
             }
         }
