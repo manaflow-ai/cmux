@@ -1983,7 +1983,11 @@ mod unix {
             }
             records.push((path, record));
         }
-        records.sort_by(|left, right| left.0.cmp(&right.0));
+        // Reset uses records only for marker membership and liveness checks, so
+        // keep its fail-closed scan linear.
+        if !fail_closed {
+            records.sort_by(|left, right| left.0.cmp(&right.0));
+        }
         Ok(records)
     }
 
