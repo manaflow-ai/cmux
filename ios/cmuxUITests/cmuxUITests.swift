@@ -1210,19 +1210,55 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
 
+        // Selecting a result pushes the detail inside the search tab (system
+        // back), leaving the search session and its query intact behind it.
+        // Whether the system keeps its bottom search control over the pushed
+        // detail is platform chrome, deliberately not asserted.
         tap(docsRow, in: app)
         let workspaceDetail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
-        XCTAssertTrue(workspaceDetail.waitForExistence(timeout: 3))
-        XCTAssertTrue(minimizedSearch.waitForNonExistence(timeout: 3))
+        guard workspaceDetail.waitForExistence(timeout: 3) else {
+            return XCTFail("Search-stack detail never appeared after tapping the result")
+        }
 
-        let backButton = app.buttons["MobileWorkspaceBackButton"]
-        XCTAssertTrue(waitForHittable(backButton, timeout: 3))
-        tap(backButton, in: app)
-        XCTAssertNotNil(waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3))
-        XCTAssertTrue(minimizedSearch.waitForExistence(timeout: 3))
-        XCTAssertTrue(waitForKeyboardDismissal(in: app))
-        XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
-        XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
+        let systemBack = app.navigationBars.buttons.element(boundBy: 0)
+        guard waitForHittable(systemBack, timeout: 3) else {
+            return XCTFail("No hittable system back control on the search-stack detail")
+        }
+        tap(systemBack, in: app)
+        guard waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3) != nil else {
+            return XCTFail("Search results list did not return after popping the detail")
+        }
+        // Popping the detail returns to the LIVE search session, so the field
+        // may re-present with the keyboard; that is the designed behavior.
+        guard waitForHittable(docsRow, timeout: 3) else {
+            return XCTFail("Matching row missing from the restored search results")
+        }
+        guard waitForNotHittable(mainRow, timeout: 3) else {
+            return XCTFail("Query filter lost on the restored search results")
+        }
+
+        // Selecting a result must NOT commit the query; leaving Search by
+        // choosing a primary tab still does (pre-existing contract). The
+        // committed filter must then survive a list refresh there.
+        guard workspacesTab.waitForExistence(timeout: 3) else {
+            return XCTFail("Workspaces tab pill missing after popping the search detail")
+        }
+        tap(workspacesTab, in: app)
+        guard waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3) != nil else {
+            return XCTFail("Workspaces root list missing after leaving search")
+        }
+        guard waitForKeyboardDismissal(in: app) else {
+            return XCTFail("Keyboard stayed up after leaving search for the Workspaces tab")
+        }
+        guard minimizedSearch.waitForExistence(timeout: 3) else {
+            return XCTFail("Minimized search control missing on the Workspaces tab")
+        }
+        guard waitForHittable(docsRow, timeout: 3) else {
+            return XCTFail("Committed-filter match missing on the Workspaces tab")
+        }
+        guard waitForNotHittable(mainRow, timeout: 3) else {
+            return XCTFail("Committed query filter not applied on the Workspaces tab")
+        }
 
         let previewRefreshButtons = app.buttons.matching(
             NSPredicate(format: "identifier == %@", "MobileWorkspaceListPreviewRefresh")
@@ -1676,6 +1712,80 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
         XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
         XCTAssertEqual(searchMatches.count, 1)
+    }
+
+    /// Regression for the "stuck after selecting a search result" wedge (the
+    /// workspaces list stranded with no tab bar, no search field, and a stale
+    /// query filter): selecting a workspace from the search tab's results must
+    /// open the detail inside the search tab and pop back to the live results.
+    /// The old flow deactivated search, transitioned to the Workspaces tab, and
+    /// pushed onto that off-window stack mid search-dismissal, which could
+    /// record the push without performing it.
+    @MainActor
+    func testWorkspaceSearchSelectionOpensDetailInsideSearchTab() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The detached workspace search control requires iOS 26.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+        defer { app.terminate() }
+
+        let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
+
+        let searchButton = app.tabBars.buttons
+            .matching(NSPredicate(format: "label == %@", "Search"))
+            .firstMatch
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
+        tap(searchButton, in: app)
+
+        let searchField = app.searchFields["Search workspaces"]
+        XCTAssertTrue(waitForHittable(searchField, timeout: 3))
+        XCTAssertTrue(focusTextInput(searchField, in: app))
+        searchField.typeText("Docs")
+
+        let docsRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-docs"]
+        let mainRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
+        XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
+        tap(docsRow, in: app)
+
+        let workspaceDetail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
+        XCTAssertTrue(workspaceDetail.waitForExistence(timeout: 3))
+
+        // Pop back. The detail sits inside the search tab's stack behind the
+        // system back control; the old cross-tab flow used the custom
+        // workspaces back button, so accept either to keep the pop itself
+        // out of the regression's scope.
+        let customBack = app.buttons["MobileWorkspaceBackButton"]
+        if customBack.waitForExistence(timeout: 1) {
+            tap(customBack, in: app)
+        } else {
+            let systemBack = app.navigationBars.buttons.element(boundBy: 0)
+            XCTAssertTrue(waitForHittable(systemBack, timeout: 3))
+            tap(systemBack, in: app)
+        }
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
+        XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
+        XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
+
+        // The selection must not have handed the user to the Workspaces tab,
+        // whose list would be silently filtered by the committed query with no
+        // visible control to clear it.
+        let workspacesTab = app.tabBars.buttons["Workspaces"]
+        XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
+        XCTAssertFalse(
+            workspacesTab.isSelected,
+            "Selecting a search result must keep the user inside the search tab"
+        )
+
+        // And the tab bar must remain usable: leaving search restores the
+        // Workspaces root with its bottom controls.
+        tap(workspacesTab, in: app)
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
     }
 
     @MainActor
