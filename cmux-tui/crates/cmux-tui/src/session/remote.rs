@@ -4104,11 +4104,6 @@ mod tests {
     }
 
     #[test]
-    fn per_surface_client_sizing_requires_protocol_10() {
-        assert!(SUPPORTED_PROTOCOL_VERSION >= 10);
-    }
-
-    #[test]
     fn protocol_10_identity_is_rejected_before_workspace_loading() {
         let error =
             validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 10})).unwrap_err();
