@@ -459,7 +459,7 @@ impl Session {
     pub fn daemon_shutdown_requested(&self) -> bool {
         match self {
             Session::Local(mux) => mux.daemon_shutdown_requested(),
-            Session::Remote(remote) => remote.shutdown_requested(),
+            Session::Remote(_) => false,
         }
     }
     pub fn invalidate_remote_tree(&self) {
@@ -2604,12 +2604,12 @@ mod tests {
     }
 
     #[test]
-    fn remote_session_exposes_owner_shutdown_to_the_frontend_loop() {
+    fn remote_transport_shutdown_is_not_a_local_owner_shutdown() {
         let session = super::test_remote_session_without_provider_authority();
 
         assert!(!session.daemon_shutdown_requested());
         session.begin_shutdown();
-        assert!(session.daemon_shutdown_requested());
+        assert!(!session.daemon_shutdown_requested());
     }
 
     #[test]

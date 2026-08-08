@@ -40,7 +40,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             return print_success(
                 json!({
                     "status":"not_running",
-                    "session":session,
+                    "session":expected_session,
                     "socket":socket,
                     "message":crate::localization::catalog().local_server.not_running,
                 }),
@@ -250,7 +250,7 @@ fn exchange(
     require_time_remaining(connection, deadline)?;
     writeln!(connection.get_mut(), "{request}")
         .and_then(|()| connection.get_mut().flush())
-        .map_err(|_| ExchangeError::Transport)?;
+        .map_err(exchange_io_error)?;
     loop {
         let Some(response) = read_response(connection, deadline)? else {
             return Err(ExchangeError::Closed);
@@ -313,7 +313,16 @@ fn require_time_remaining(
     connection
         .get_mut()
         .set_read_timeout(Some(remaining))
+        .and_then(|()| connection.get_mut().set_write_timeout(Some(remaining)))
         .map_err(|_| ExchangeError::Transport)
+}
+
+fn exchange_io_error(error: std::io::Error) -> ExchangeError {
+    if matches!(error.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock) {
+        ExchangeError::Timeout
+    } else {
+        ExchangeError::Transport
+    }
 }
 
 fn is_absent(error: &std::io::Error) -> bool {

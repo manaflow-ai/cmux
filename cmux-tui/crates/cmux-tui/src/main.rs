@@ -1142,6 +1142,26 @@ fn is_cli_invocation(args: &[String]) -> bool {
     false
 }
 
+fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), String> {
+    if raw_args.first().map(String::as_str) != Some("remote") {
+        return Ok(());
+    }
+    match raw_args.get(1).map(String::as_str) {
+        Some("stop") => {
+            raw_args.drain(..2);
+            raw_args.insert(0, "remote-stop".to_string());
+        }
+        Some("connect" | "ssh" | "forward" | "rpc" | "enroll" | "known-daemons") => {
+            raw_args.remove(0);
+        }
+        Some("-h" | "--help") | None => {}
+        Some(action) => {
+            return Err(localization::catalog().remote_client.unknown_action("remote", action));
+        }
+    }
+    Ok(())
+}
+
 fn main() {
     let mut raw_args = std::env::args().skip(1).collect::<Vec<_>>();
     // Private process mode used by the daemon when it launches one durable
@@ -1179,17 +1199,9 @@ fn main() {
     if let Some(exit_code) = provider_authority::try_run(&raw_args) {
         std::process::exit(exit_code);
     }
-    if raw_args.first().map(String::as_str) == Some("remote") {
-        match raw_args.get(1).map(String::as_str) {
-            Some("stop") => {
-                raw_args.drain(..2);
-                raw_args.insert(0, "remote-stop".to_string());
-            }
-            Some("connect" | "ssh" | "forward" | "rpc" | "enroll" | "known-daemons") => {
-                raw_args.remove(0);
-            }
-            _ => {}
-        }
+    if let Err(error) = normalize_remote_resource_args(&mut raw_args) {
+        eprintln!("cmux-tui: {error}");
+        std::process::exit(1);
     }
     if remote_cli::is_remote_invocation(&raw_args) {
         discard_provider_secret_environment();

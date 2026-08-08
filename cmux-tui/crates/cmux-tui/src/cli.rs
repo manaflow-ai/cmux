@@ -55,6 +55,12 @@ pub(super) struct GlobalArgs {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct UsageError(pub String);
 
+#[derive(Debug)]
+struct ParseFailure {
+    error: UsageError,
+    output: OutputMode,
+}
+
 impl UsageError {
     pub(super) fn new(message: impl Into<String>) -> Self {
         Self(message.into())
@@ -95,42 +101,34 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
         },
-        Err(error) => {
+        Err(failure) => {
             wire::print_local_error(
                 &serde_json::json!({
                     "code":"usage.invalid",
-                    "message":error.to_string(),
+                    "message":failure.error.to_string(),
                     "details":{},
                     "retryable":false,
                 }),
-                requested_output_mode(args),
+                failure.output,
                 2,
             )
         }
     }
 }
 
-fn requested_output_mode(args: &[String]) -> OutputMode {
-    let mut requested = None;
-    for arg in args.iter().take_while(|arg| arg.as_str() != "--") {
-        let mode = match arg.as_str() {
-            "--json" => Some(OutputMode::Json),
-            "--jsonl" => Some(OutputMode::JsonLines),
-            "--quiet" => Some(OutputMode::Quiet),
-            _ => None,
-        };
-        if let Some(mode) = mode {
-            if requested.is_some() {
-                return OutputMode::Human;
-            }
-            requested = Some(mode);
-        }
-    }
-    requested.unwrap_or(OutputMode::Human)
+fn parse(args: &[String]) -> Result<ParsedCommand, ParseFailure> {
+    let (global, command_args) = parse_globals(args).map_err(|(error, output)| ParseFailure {
+        error,
+        output,
+    })?;
+    let output = global.output;
+    parse_command(global, command_args).map_err(|error| ParseFailure { error, output })
 }
 
-fn parse(args: &[String]) -> Result<ParsedCommand, UsageError> {
-    let (global, command_args) = parse_globals(args)?;
+fn parse_command(
+    global: GlobalArgs,
+    command_args: Vec<String>,
+) -> Result<ParsedCommand, UsageError> {
     if command_args.is_empty() {
         return Err(UsageError::new("missing resource scope; use --help to list scopes"));
     }
@@ -210,7 +208,9 @@ fn edit_distance(left: &str, right: &str) -> usize {
     previous[right.len()]
 }
 
-fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), UsageError> {
+fn parse_globals(
+    args: &[String],
+) -> Result<(GlobalArgs, Vec<String>), (UsageError, OutputMode)> {
     let mut global = GlobalArgs::default();
     let mut command = Vec::new();
     let mut index = 0;
@@ -230,27 +230,34 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), UsageErro
         }
         match value.as_str() {
             "--socket" => {
-                global.socket = Some(PathBuf::from(global_value(args, index, value)?));
+                global.socket = Some(PathBuf::from(
+                    global_value(args, index, value).map_err(|error| (error, global.output))?,
+                ));
                 index += 2;
             }
             "--session" => {
-                global.session = Some(global_value(args, index, value)?);
+                global.session =
+                    Some(global_value(args, index, value).map_err(|error| (error, global.output))?);
                 index += 2;
             }
             "--machine" => {
-                global.machine = Some(global_value(args, index, value)?);
+                global.machine =
+                    Some(global_value(args, index, value).map_err(|error| (error, global.output))?);
                 index += 2;
             }
             "--json" => {
-                set_output_mode(&mut global, OutputMode::Json, value)?;
+                set_output_mode(&mut global, OutputMode::Json, value)
+                    .map_err(|error| (error, global.output))?;
                 index += 1;
             }
             "--jsonl" => {
-                set_output_mode(&mut global, OutputMode::JsonLines, value)?;
+                set_output_mode(&mut global, OutputMode::JsonLines, value)
+                    .map_err(|error| (error, global.output))?;
                 index += 1;
             }
             "--quiet" => {
-                set_output_mode(&mut global, OutputMode::Quiet, value)?;
+                set_output_mode(&mut global, OutputMode::Quiet, value)
+                    .map_err(|error| (error, global.output))?;
                 index += 1;
             }
             _ => {
@@ -564,7 +571,8 @@ mod tests {
     fn global_modes_are_mutually_exclusive() {
         let error =
             parse_globals(&strings(&["--json", "--quiet", "workspace", "list"])).unwrap_err();
-        assert!(error.0.contains("another output mode"));
+        assert!(error.0.0.contains("another output mode"));
+        assert_eq!(error.1, OutputMode::Json);
     }
 
     #[test]

@@ -285,7 +285,22 @@ fn wait_for_socket_path(path: &std::path::Path) {
 }
 
 fn lifecycle_cli(args: &[&str]) -> Output {
-    Command::new(bin()).args(args).env_remove("CMUX_TUI_SOCKET").output().unwrap()
+    Command::new(bin())
+        .args(args)
+        .env_remove("CMUX_TUI_SOCKET")
+        .env_remove("CMUX_MUX_SOCKET")
+        .output()
+        .unwrap()
+}
+
+#[cfg(unix)]
+struct SocketFileGuard(PathBuf);
+
+#[cfg(unix)]
+impl Drop for SocketFileGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
 }
 
 #[test]
@@ -390,6 +405,7 @@ fn explicit_session_overrides_an_inherited_socket_route() {
     let socket = cmux_tui_core::server::default_socket_path(&session);
     fs::create_dir_all(socket.parent().unwrap()).unwrap();
     let _ = fs::remove_file(&socket);
+    let _socket_guard = SocketFileGuard(socket.clone());
     let listener = UnixListener::bind(&socket).unwrap();
     listener.set_nonblocking(true).unwrap();
     let expected_session = session.clone();
@@ -440,7 +456,6 @@ fn explicit_session_overrides_an_inherited_socket_route() {
     thread.join().unwrap();
     assert_success(&output);
     assert_eq!(json_output(&output)["session"], session);
-    fs::remove_file(socket).unwrap();
 }
 
 #[test]

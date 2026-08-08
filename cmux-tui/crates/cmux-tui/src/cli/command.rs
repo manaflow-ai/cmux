@@ -185,6 +185,11 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         ["status"] => super::lifecycle::ServerAction::Status,
         ["stop"] => super::lifecycle::ServerAction::Stop { force: flags.boolean("force") },
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
+        ["start"] => {
+            return Err(UsageError::new(
+                crate::localization::catalog().local_server.start_options_after_action,
+            ));
+        }
         [action] => {
             let messages = &crate::localization::catalog().local_server;
             return Err(UsageError::new(messages.unknown_server_action(

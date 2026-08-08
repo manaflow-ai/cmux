@@ -189,7 +189,8 @@ machine <selector> session list
 machine <selector> session <selector> open
 
 session list
-session <selector> open|show|snapshot|events|ping|shutdown|stop
+session <selector> open|show|snapshot|events|ping|shutdown
+session <name>|current stop
 session <name> reset-state [--force --confirm-reset <token>] [--state <path>]
 session <selector> creation <correlation-key> resolve
 session <selector> config reload
