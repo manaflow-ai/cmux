@@ -225,7 +225,7 @@ extension CmxIrohHostRuntimeTests {
         await clock.waitUntilSleepCount(3)
 
         await broker.enqueueSubsequentRegistrationError(.connectivity)
-        await endpoint.emit(.networkChanged)
+        await runtime.requestRegistrationRefresh()
         await broker.waitForRegistrationCount(4)
         await clock.waitUntilSleepCount(4)
         let resetRetry = try #require(clock.observedSleepDeadlines().last)
@@ -399,6 +399,33 @@ extension CmxIrohHostRuntimeTests {
         #expect(retried.wasPersisted)
         #expect(await deactivations.values() == [fixture.binding.bindingID])
         #expect(await runtime.snapshot().state == .inactive)
+    }
+
+    @Test
+    func successfulSignOutClearsRegistrationPublicationState() async throws {
+        let fixture = try HostRuntimeFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let store = TestControllableSecureCredentialStore()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: TestIrohHostBroker(
+                registrationBinding: fixture.binding,
+                discovery: fixture.discovery
+            ),
+            configuration: fixture.configuration,
+            pendingRevocations: CmxIrohPendingRevocationOutbox(secureStore: store),
+            handleTransport: { session, _ in await session.close() }
+        )
+        try await runtime.start()
+        #expect(await runtime.lastRegistrationRefreshState != nil)
+
+        let preparation = await runtime.deactivateForSignOut()
+
+        #expect(preparation.wasPersisted)
+        #expect(await runtime.snapshot().state == .inactive)
+        // A stale fingerprint surviving sign-out could suppress the next
+        // account's non-forced publications when reachability matches.
+        #expect(await runtime.lastRegistrationRefreshState == nil)
     }
 
     @Test
@@ -625,6 +652,67 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
+    func repeatedUnchangedNetworkEventsDoNotContactBroker() async throws {
+        let fixture = try HostRuntimeFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let refreshes = HostRuntimeLANRefreshRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() },
+            handleLANRefresh: { await refreshes.record() }
+        )
+        try await runtime.start()
+        let initialDiscoveryCount = await broker.observedDiscoveryCount()
+
+        for _ in 0..<1_000 {
+            await endpoint.emit(.networkChanged)
+        }
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<100 {
+                group.addTask { await endpoint.emit(.networkChanged) }
+            }
+        }
+        #expect(await refreshes.waitForCount(1_100, timeout: .seconds(5)))
+
+        #expect(await broker.observedRegistrationCount() == 1)
+        #expect(await broker.observedDiscoveryCount() == initialDiscoveryCount)
+        await runtime.stop()
+    }
+
+    @Test
+    func changedDirectPortPublishesImmediately() async throws {
+        let fixture = try HostRuntimeFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() }
+        )
+        try await runtime.start()
+
+        await endpoint.setDirectAddresses(["0.0.0.0:50909"])
+        await endpoint.emit(.networkChanged)
+
+        #expect(
+            await broker.waitForRegistrationCount(2, timeout: .seconds(1))
+        )
+        await runtime.stop()
+    }
+
+    @Test
     func endpointOnlineRequestsImmediateReachabilityRefresh() async throws {
         let fixture = try HostRuntimeFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
@@ -687,7 +775,7 @@ extension CmxIrohHostRuntimeTests {
         )
         try await runtime.start()
 
-        await endpoint.emit(.networkChanged)
+        await runtime.requestRegistrationRefresh()
         await broker.waitForRegistrationCount(2)
         await runtime.waitForRegistrationRefreshForTesting()
 
