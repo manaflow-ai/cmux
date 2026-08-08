@@ -9,6 +9,8 @@ export { MANAGED_RELAY_URLS } from "./publicationPolicy";
 
 export const IROH_ALPN = "cmux/mobile/1";
 export const IROH_PAIR_SCOPE = "cmux.mobile.attach";
+export const IROH_TUI_ALPN = "cmux/tui/1";
+export const IROH_TUI_PAIR_SCOPE = "cmux.tui.attach";
 export const IROH_PAIR_GRANT_TYP = "cmux-pair-grant+jwt";
 export const IROH_ENDPOINT_ATTESTATION_VERSION = 1;
 export const IROH_ENDPOINT_ATTESTATION_TYP = "cmux-endpoint-attestation-v1+jwt";
@@ -22,6 +24,53 @@ export const IROH_RELAY_TOKEN_LIFETIME_SECONDS = 24 * 60 * 60;
 export const IROH_RELAY_TOKEN_REFRESH_SECONDS = 12 * 60 * 60;
 export const IROH_ROUTE_CONTRACT_VERSION = 1;
 export const POSTGRES_INT32_MAX = 2_147_483_647;
+
+/**
+ * Platforms an iroh endpoint binding may register as. "linux" is a headless
+ * cmux-tui session server (often a Docker container); it participates in TUI
+ * pair grants only, never in the mobile-attach or offline-pairing profiles.
+ */
+export const IROH_PLATFORMS = ["mac", "ios", "linux"] as const;
+export type IrohPlatform = (typeof IROH_PLATFORMS)[number];
+
+export function isIrohPlatform(value: unknown): value is IrohPlatform {
+  return (IROH_PLATFORMS as readonly unknown[]).includes(value);
+}
+
+export type IrohPairGrantProfile = {
+  readonly alpn: typeof IROH_ALPN | typeof IROH_TUI_ALPN;
+  readonly scope: typeof IROH_PAIR_SCOPE | typeof IROH_TUI_PAIR_SCOPE;
+  readonly initiatorPlatforms: readonly IrohPlatform[];
+};
+
+/**
+ * The pair-grant profile is selected by the ACCEPTOR's platform. A Mac
+ * acceptor keeps the original mobile-attach rule byte-for-byte (iOS initiator
+ * only). A Linux acceptor is a headless cmux-tui session server: any
+ * same-account mac/ios/linux peer may initiate, and the minted claims carry
+ * the TUI ALPN and scope so a mobile grant can never admit a TUI stream, and
+ * vice versa. Every layer (route gate, repository audit, claims validation on
+ * sign and verify) derives the profile from this one function.
+ */
+export function pairGrantProfileForAcceptorPlatform(
+  platform: string,
+): IrohPairGrantProfile | null {
+  if (platform === "mac") {
+    return {
+      alpn: IROH_ALPN,
+      scope: IROH_PAIR_SCOPE,
+      initiatorPlatforms: ["ios"],
+    };
+  }
+  if (platform === "linux") {
+    return {
+      alpn: IROH_TUI_ALPN,
+      scope: IROH_TUI_PAIR_SCOPE,
+      initiatorPlatforms: ["mac", "ios", "linux"],
+    };
+  }
+  return null;
+}
 
 export type IrohPathHint = {
   readonly kind: "direct_address" | "relay_url";
@@ -46,7 +95,7 @@ export type IrohRegistrationPayload = {
   readonly deviceId: string;
   readonly appInstanceId: string;
   readonly tag: string;
-  readonly platform: "mac" | "ios";
+  readonly platform: IrohPlatform;
   readonly displayName?: string;
   readonly endpointId: string;
   readonly identityGeneration: number;
@@ -169,7 +218,7 @@ export function parseRegistrationPayload(value: unknown, now: Date): IrohRegistr
     deviceId: uuid(body.deviceId, "invalid_device_id"),
     appInstanceId: uuid(body.appInstanceId, "invalid_app_instance_id"),
     tag: safeTag(body.tag),
-    platform: oneOf(body.platform, ["mac", "ios"] as const, "invalid_platform"),
+    platform: oneOf(body.platform, IROH_PLATFORMS, "invalid_platform"),
     ...(body.displayName === undefined || body.displayName === null
       ? {}
       : { displayName: safeDisplayName(body.displayName) }),

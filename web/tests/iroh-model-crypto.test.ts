@@ -32,6 +32,8 @@ import {
   IROH_ENDPOINT_ATTESTATION_VERSION,
   IROH_PAIR_GRANT_TYP,
   IROH_PAIR_SCOPE,
+  IROH_TUI_ALPN,
+  IROH_TUI_PAIR_SCOPE,
   MANAGED_RELAY_URLS,
   parseRegistrationPayload,
 } from "../services/iroh/model";
@@ -206,10 +208,18 @@ describe("Iroh route wire contract", () => {
     expect(parseRegistrationPayload(registrationPayload(hint), NOW).pathHints[0]?.value).toBe("[fd00::1]:4433");
   });
 
-  test("rejects an unknown platform before it can affect Mac pairability", () => {
-    expect(() => parseRegistrationPayload({
+  test("accepts a linux headless registration and still rejects unknown platforms", () => {
+    expect(parseRegistrationPayload({
       ...registrationPayload(directHint({ value: "8.8.8.8:4433" })),
       platform: "linux",
+    }, NOW).platform).toBe("linux");
+    expect(parseRegistrationPayload({
+      ...registrationPayload(directHint({ value: "8.8.8.8:4433" })),
+      platform: "ios",
+    }, NOW).platform).toBe("ios");
+    expect(() => parseRegistrationPayload({
+      ...registrationPayload(directHint({ value: "8.8.8.8:4433" })),
+      platform: "windows",
     }, NOW)).toThrow();
   });
 
@@ -363,6 +373,72 @@ describe("Iroh pair-grant verification", () => {
     test(`rejects invalid ${name}`, () => {
       const token = manuallySignedJws(header, changedClaims, current.privateKey);
       expect(() => verifyPairGrant(token, keys, { initiator, acceptor, nowSeconds })).toThrow();
+    });
+  }
+
+  // TUI profile: a linux acceptor carries cmux/tui/1 + cmux.tui.attach and
+  // admits mac, ios, and linux initiators. The mobile profile above stays the
+  // authority for mac acceptors, so a grant minted for one profile can never
+  // verify under the other.
+  const tuiAcceptor: PairGrantPeer = { ...acceptor, platform: "linux", tag: "tui" };
+  const tuiClaims: PairGrantClaims = {
+    ...claims,
+    alpn: IROH_TUI_ALPN,
+    scope: IROH_TUI_PAIR_SCOPE,
+    acceptor: tuiAcceptor,
+  };
+
+  for (const platform of ["mac", "ios", "linux"] as const) {
+    test(`accepts a TUI grant for a linux acceptor from a ${platform} initiator`, () => {
+      const tuiInitiator: PairGrantPeer = { ...initiator, platform };
+      const token = signPairGrant({
+        privateKeyPem: currentPrivate,
+        kid: "current",
+        claims: { ...tuiClaims, initiator: tuiInitiator },
+      });
+      const verified = verifyPairGrant(token, keys, {
+        initiator: tuiInitiator,
+        acceptor: tuiAcceptor,
+        nowSeconds: claims.iat,
+      });
+      expect(verified.alpn).toBe(IROH_TUI_ALPN);
+      expect(verified.scope).toBe(IROH_TUI_PAIR_SCOPE);
+    });
+  }
+
+  test("refuses to sign a grant whose ALPN or scope disagrees with the acceptor profile", () => {
+    expect(() => signPairGrant({
+      privateKeyPem: currentPrivate,
+      kid: "current",
+      claims: { ...tuiClaims, alpn: IROH_ALPN, scope: IROH_PAIR_SCOPE },
+    })).toThrow();
+    expect(() => signPairGrant({
+      privateKeyPem: currentPrivate,
+      kid: "current",
+      claims: { ...claims, alpn: IROH_TUI_ALPN, scope: IROH_TUI_PAIR_SCOPE },
+    })).toThrow();
+  });
+
+  for (const [name, crossClaims] of [
+    ["a mobile ALPN on a TUI grant", { ...tuiClaims, alpn: IROH_ALPN }],
+    ["a mobile scope on a TUI grant", { ...tuiClaims, scope: IROH_PAIR_SCOPE }],
+    ["a TUI ALPN on a mobile grant", { ...claims, alpn: IROH_TUI_ALPN }],
+    ["a TUI scope on a mobile grant", { ...claims, scope: IROH_TUI_PAIR_SCOPE }],
+    ["an iOS acceptor", { ...tuiClaims, acceptor: { ...tuiAcceptor, platform: "ios" } }],
+    ["a linux initiator toward a mac acceptor", { ...claims, initiator: { ...initiator, platform: "linux" } }],
+  ] as const) {
+    test(`rejects ${name}`, () => {
+      const token = manuallySignedJws(
+        { alg: "EdDSA", typ: IROH_PAIR_GRANT_TYP, kid: "current" },
+        crossClaims,
+        current.privateKey,
+      );
+      const expected = crossClaims as PairGrantClaims;
+      expect(() => verifyPairGrant(token, keys, {
+        initiator: expected.initiator,
+        acceptor: expected.acceptor,
+        nowSeconds: claims.iat,
+      })).toThrow();
     });
   }
 });

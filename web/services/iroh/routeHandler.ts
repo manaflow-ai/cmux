@@ -100,13 +100,20 @@ export async function handleIrohRoute(
       "cache-control": "no-store",
     });
   } catch (error) {
-    const expected = irohExpectedError(error);
-    if (expected) return expectedErrorResponse(expected);
-    // Do not include EndpointIDs, hints, grants, or tokens in logs. The route
-    // and coarse failure class are enough for operational correlation.
-    console.error("iroh trust broker request failed", { operation, failure: "unexpected" });
-    return jsonResponse({ error: "iroh_internal_error" }, 500);
+    return irohErrorResponse(error, operation);
   }
+}
+
+/**
+ * Maps any thrown Iroh domain error to its typed JSON response, and everything
+ * else to an opaque 500. Do not include EndpointIDs, hints, grants, or tokens
+ * in logs; the route and coarse failure class are enough for correlation.
+ */
+export function irohErrorResponse(error: unknown, operation: string): Response {
+  const expected = irohExpectedError(error);
+  if (expected) return expectedErrorResponse(expected);
+  console.error("iroh trust broker request failed", { operation, failure: "unexpected" });
+  return jsonResponse({ error: "iroh_internal_error" }, 500);
 }
 
 function mutationRevision(

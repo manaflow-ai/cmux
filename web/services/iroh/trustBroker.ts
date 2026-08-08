@@ -39,11 +39,12 @@ import {
   IROH_ENDPOINT_ATTESTATION_SCOPE,
   IROH_ENDPOINT_ATTESTATION_VERSION,
   IROH_PAIR_GRANT_LIFETIME_SECONDS,
-  IROH_PAIR_SCOPE,
   IROH_RELAY_TOKEN_LIFETIME_SECONDS,
   IROH_RELAY_TOKEN_REFRESH_SECONDS,
   assertChallengeMatchesPayload,
   decodeRegistrationPayload,
+  isIrohPlatform,
+  pairGrantProfileForAcceptorPlatform,
   parseBindingIdBody,
   parseChallengeRequest,
   parseIrohPathHint,
@@ -51,6 +52,7 @@ import {
   parseRegisterRequest,
   sha256,
   type IrohPathHint,
+  type IrohPlatform,
 } from "./model";
 import {
   IrohRepository,
@@ -434,7 +436,15 @@ export function makeIrohTrustBroker(
       const initiator = byId.get(request.initiatorBindingId);
       const acceptor = byId.get(request.acceptorBindingId);
       if (!initiator || !acceptor) return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
-      if (initiator.platform !== "ios" || acceptor.platform !== "mac" || !acceptor.pairingEnabled) {
+      // The grant profile follows the ACCEPTOR's platform: a Mac acceptor keeps
+      // the mobile rule (iOS initiator), a Linux TUI acceptor admits any
+      // same-account mac/ios/linux initiator. Both require pairingEnabled.
+      const profile = pairGrantProfileForAcceptorPlatform(acceptor.platform);
+      if (
+        !profile ||
+        !(profile.initiatorPlatforms as readonly string[]).includes(initiator.platform) ||
+        !acceptor.pairingEnabled
+      ) {
         return yield* Effect.fail(new IrohForbiddenError({ code: "target_not_pairable" }));
       }
       if (initiator.deviceUuid === acceptor.deviceUuid) {
@@ -446,8 +456,8 @@ export function makeIrohTrustBroker(
         iat: issuedAtSeconds,
         nbf: issuedAtSeconds - 5,
         exp: issuedAtSeconds + IROH_PAIR_GRANT_LIFETIME_SECONDS,
-        alpn: IROH_ALPN,
-        scope: IROH_PAIR_SCOPE,
+        alpn: profile.alpn,
+        scope: profile.scope,
         initiator: grantPeer(initiator),
         acceptor: grantPeer(acceptor),
       };
@@ -469,8 +479,8 @@ export function makeIrohTrustBroker(
         initiator: claims.initiator,
         acceptor: claims.acceptor,
         signingKeyId,
-        alpn: IROH_ALPN,
-        scope: IROH_PAIR_SCOPE,
+        alpn: profile.alpn,
+        scope: profile.scope,
         issuedAt: new Date(claims.iat * 1_000),
         notBefore: new Date(claims.nbf * 1_000),
         expiresAt: new Date(claims.exp * 1_000),
@@ -635,8 +645,8 @@ function signingVerificationKeys(config: IrohTrustBrokerConfigShape) {
   return verificationKeys;
 }
 
-function bindingPlatform(binding: IrohBindingRecord): "mac" | "ios" {
-  if (binding.platform !== "mac" && binding.platform !== "ios") {
+function bindingPlatform(binding: IrohBindingRecord): IrohPlatform {
+  if (!isIrohPlatform(binding.platform)) {
     throw new IrohConfigurationError({ component: "grant_signing" });
   }
   return binding.platform;

@@ -18,9 +18,14 @@ import {
   IROH_PAIR_GRANT_LIFETIME_SECONDS,
   IROH_PAIR_GRANT_TYP,
   IROH_PAIR_SCOPE,
+  IROH_TUI_ALPN,
+  IROH_TUI_PAIR_SCOPE,
   endpointId,
+  isIrohPlatform,
+  pairGrantProfileForAcceptorPlatform,
   POSTGRES_INT32_MAX,
   sha256,
+  type IrohPlatform,
 } from "./model";
 import { IrohConfigurationError, IrohForbiddenError, IrohInvalidInputError } from "./errors";
 
@@ -30,7 +35,7 @@ export type PairGrantPeer = {
   readonly bindingId: string;
   readonly deviceId: string;
   readonly tag: string;
-  readonly platform: "mac" | "ios";
+  readonly platform: IrohPlatform;
   readonly endpointId: string;
   readonly identityGeneration: number;
 };
@@ -40,8 +45,8 @@ export type PairGrantClaims = {
   readonly iat: number;
   readonly nbf: number;
   readonly exp: number;
-  readonly alpn: typeof IROH_ALPN;
-  readonly scope: typeof IROH_PAIR_SCOPE;
+  readonly alpn: typeof IROH_ALPN | typeof IROH_TUI_ALPN;
+  readonly scope: typeof IROH_PAIR_SCOPE | typeof IROH_TUI_PAIR_SCOPE;
   readonly initiator: PairGrantPeer;
   readonly acceptor: PairGrantPeer;
 };
@@ -77,7 +82,7 @@ export type EndpointAttestationClaims = {
   readonly deviceId: string;
   readonly endpointId: string;
   readonly identityGeneration: number;
-  readonly platform: "mac" | "ios";
+  readonly platform: IrohPlatform;
   readonly iat: number;
   readonly nbf: number;
   readonly exp: number;
@@ -90,7 +95,7 @@ export type EndpointAttestationExpectation = {
   readonly deviceId: string;
   readonly endpointId: string;
   readonly identityGeneration: number;
-  readonly platform: "mac" | "ios";
+  readonly platform: IrohPlatform;
   readonly nowSeconds: number;
 };
 
@@ -515,8 +520,6 @@ function validatePairGrantClaims(
   if (typeof value.jti !== "string" || !UUID_PATTERN.test(value.jti)) {
     throw new IrohForbiddenError({ code: "invalid_pair_grant_claims" });
   }
-  if (value.alpn !== IROH_ALPN) throw new IrohForbiddenError({ code: "invalid_pair_grant_alpn" });
-  if (value.scope !== IROH_PAIR_SCOPE) throw new IrohForbiddenError({ code: "invalid_pair_grant_scope" });
   if (!Number.isSafeInteger(value.iat) || !Number.isSafeInteger(value.nbf) || !Number.isSafeInteger(value.exp)) {
     throw new IrohForbiddenError({ code: "invalid_pair_grant_expiry" });
   }
@@ -531,9 +534,14 @@ function validatePairGrantClaims(
   }
   validatePeer(value.initiator, "initiator");
   validatePeer(value.acceptor, "acceptor");
-  if (value.initiator.platform !== "ios" || value.acceptor.platform !== "mac") {
+  // The ALPN and scope are bound to the acceptor-platform profile: a grant for
+  // a Linux TUI acceptor carrying the mobile ALPN must fail, and vice versa.
+  const profile = pairGrantProfileForAcceptorPlatform(value.acceptor.platform);
+  if (!profile || !profile.initiatorPlatforms.includes(value.initiator.platform)) {
     throw new IrohForbiddenError({ code: "invalid_pair_grant_platforms" });
   }
+  if (value.alpn !== profile.alpn) throw new IrohForbiddenError({ code: "invalid_pair_grant_alpn" });
+  if (value.scope !== profile.scope) throw new IrohForbiddenError({ code: "invalid_pair_grant_scope" });
   if (
     value.initiator.bindingId === value.acceptor.bindingId ||
     value.initiator.deviceId === value.acceptor.deviceId ||
@@ -579,7 +587,7 @@ function validateEndpointAttestationClaims(
     !Number.isSafeInteger(value.identityGeneration) ||
     value.identityGeneration < 1 ||
     value.identityGeneration > POSTGRES_INT32_MAX ||
-    (value.platform !== "mac" && value.platform !== "ios") ||
+    !isIrohPlatform(value.platform) ||
     value.alpn !== IROH_ALPN ||
     value.scope !== IROH_ENDPOINT_ATTESTATION_SCOPE
   ) {
@@ -620,7 +628,7 @@ function validatePeer(peer: PairGrantPeer, side: string): void {
     !Number.isSafeInteger(peer.identityGeneration) ||
     peer.identityGeneration < 1 ||
     peer.identityGeneration > POSTGRES_INT32_MAX ||
-    (peer.platform !== "mac" && peer.platform !== "ios")
+    !isIrohPlatform(peer.platform)
   ) {
     throw new IrohForbiddenError({ code: `invalid_pair_grant_${side}` });
   }
@@ -801,7 +809,7 @@ function validateOfflinePairSessionWindow(nowSeconds: number, expiresAtSeconds: 
 
 function validateEndpointExpectation(
   value: OfflinePairVerificationExpectation["acceptor"],
-  platform: "mac" | "ios",
+  platform: IrohPlatform,
 ): void {
   if (
     !UUID_PATTERN.test(value.bindingId) ||

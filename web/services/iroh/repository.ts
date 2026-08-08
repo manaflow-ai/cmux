@@ -25,9 +25,11 @@ import type { PairGrantPeer } from "./crypto";
 import type { IrohDiscoveryCursor } from "./discoveryPagination";
 import {
   nextPathHintExpiry,
+  pairGrantProfileForAcceptorPlatform,
   parseIrohPathHint,
   sha256,
   type IrohPathHint,
+  type IrohPlatform,
   type IrohRegistrationPayload,
 } from "./model";
 import type { IrohDiscoveryScope } from "./discoveryScope";
@@ -147,7 +149,7 @@ export type IrohRepositoryShape = {
     readonly deviceId: string;
     readonly endpointId: string;
     readonly identityGeneration: number;
-    readonly platform: "mac" | "ios";
+    readonly platform: IrohPlatform;
   }) => Effect.Effect<void, RepositoryError>;
   readonly recordPairGrant: (input: {
     readonly userId: string;
@@ -873,8 +875,19 @@ function makeLiveRepository(): IrohRepositoryShape {
         if (initiator.deviceUuid === acceptor.deviceUuid) {
           throw new IrohForbiddenError({ code: "pair_grant_same_device" });
         }
-        if (initiator.platform !== "ios" || acceptor.platform !== "mac" || !acceptor.pairingEnabled) {
+        // Re-derive the acceptor-platform profile under the row locks and bind
+        // the audited ALPN/scope to it, so a raced platform change between the
+        // route gate and this commit cannot record a cross-profile grant.
+        const profile = pairGrantProfileForAcceptorPlatform(acceptor.platform);
+        if (
+          !profile ||
+          !(profile.initiatorPlatforms as readonly string[]).includes(initiator.platform) ||
+          !acceptor.pairingEnabled
+        ) {
           throw new IrohForbiddenError({ code: "target_not_pairable" });
+        }
+        if (input.alpn !== profile.alpn || input.scope !== profile.scope) {
+          throw new IrohConflictError({ code: "pair_grant_profile_mismatch" });
         }
         await tx.insert(irohPairGrantIssuances).values({
           userId: input.userId,
@@ -1542,7 +1555,7 @@ function databaseCause(cause: unknown): {
   return null;
 }
 
-async function assertIrohUserMutationAllowed(
+export async function assertIrohUserMutationAllowed(
   tx: CloudDbTransaction,
   userId: string,
 ): Promise<void> {
