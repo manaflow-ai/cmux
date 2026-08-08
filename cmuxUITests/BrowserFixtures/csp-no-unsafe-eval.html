@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="script-src 'unsafe-inline'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="script-src 'nonce-cmux-fixture'; object-src 'none'">
 <title>csp-no-unsafe-eval</title>
 </head>
 <body>
@@ -10,7 +10,13 @@
 <span id="counter">0</span>
 <div id="status">PENDING</div>
 <pre id="event-log"></pre>
-<script>
+<script nonce="cmux-fixture">
+  try {
+    eval('0');
+    document.documentElement.dataset.pageEvalBlocked = 'false';
+  } catch (_) {
+    document.documentElement.dataset.pageEvalBlocked = 'true';
+  }
   window.__cmuxLog = [];
   const logEl = document.getElementById('event-log');
   const statusEl = document.getElementById('status');

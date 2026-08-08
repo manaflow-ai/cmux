@@ -349,18 +349,75 @@ jobs:
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           ONLY_TESTING="-only-testing:$TEST_SELECTOR"
           DISPLAY_ENV_PREFIX=()
+          BROWSER_FIXTURE_BASE_URL=""
+          BROWSER_FIXTURE_BASE_URL_FILE=""
+          BROWSER_FIXTURE_SERVER_PID=""
+          BROWSER_FIXTURE_SERVER_LOG=""
+          MANIFEST_PATH=""
+
+          cleanup_test_harnesses() {
+            if [ -n "$BROWSER_FIXTURE_SERVER_PID" ]; then
+              kill "$BROWSER_FIXTURE_SERVER_PID" 2>/dev/null || true
+              wait "$BROWSER_FIXTURE_SERVER_PID" 2>/dev/null || true
+            fi
+            if [ -n "$BROWSER_FIXTURE_BASE_URL_FILE" ]; then
+              rm -f "$BROWSER_FIXTURE_BASE_URL_FILE"
+            fi
+            if [ -n "$MANIFEST_PATH" ]; then
+              rm -f "$MANIFEST_PATH"
+            fi
+          }
+          trap cleanup_test_harnesses EXIT
 
           if [ "$TEST_TARGET" = "cmuxUITests" ] && [ "$NORMALIZED_FILTER" = "DisplayResolutionRegressionUITests" ]; then
             HELPER_PATH="/tmp/create-virtual-display"
             MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
 
             rm -f "$MANIFEST_PATH"
-            trap 'rm -f "$MANIFEST_PATH"' EXIT
 
             clang -framework Foundation -framework CoreGraphics \
               -o "$HELPER_PATH" scripts/create-virtual-display.m
 
             printf '%s\n' "{\"helperBinaryPath\":\"$HELPER_PATH\"}" > "$MANIFEST_PATH"
+          fi
+
+          if [ "$TEST_TARGET" = "cmuxUITests" ]; then
+            case "$NORMALIZED_FILTER" in
+              BrowserFixtureInteractionUITests|BrowserFixtureInteractionUITests/*|BrowserReliabilityRegressionUITests|BrowserReliabilityRegressionUITests/*)
+                BROWSER_FIXTURE_SERVER_LOG="$RUNNER_TEMP/cmux-browser-fixture-server.log"
+                BROWSER_FIXTURE_BASE_URL_FILE="$PWD/cmuxUITests/BrowserFixtures/.cmux-ui-test-base-url"
+                rm -f "$BROWSER_FIXTURE_SERVER_LOG"
+                rm -f "$BROWSER_FIXTURE_BASE_URL_FILE"
+                python3 -u scripts/ci/serve-browser-fixtures.py \
+                  cmuxUITests/BrowserFixtures \
+                  --strict-csp-fixture csp-no-unsafe-eval.html \
+                  --configuration-file "$BROWSER_FIXTURE_BASE_URL_FILE" \
+                  >"$BROWSER_FIXTURE_SERVER_LOG" 2>&1 &
+                BROWSER_FIXTURE_SERVER_PID=$!
+
+                for _ in $(seq 1 100); do
+                  if grep -Eq '^READY [0-9]+$' "$BROWSER_FIXTURE_SERVER_LOG" 2>/dev/null && \
+                     [ -s "$BROWSER_FIXTURE_BASE_URL_FILE" ]; then
+                    break
+                  fi
+                  if ! kill -0 "$BROWSER_FIXTURE_SERVER_PID" 2>/dev/null; then
+                    echo "::error::Browser fixture server exited before readiness"
+                    cat "$BROWSER_FIXTURE_SERVER_LOG"
+                    exit 1
+                  fi
+                  sleep 0.1
+                done
+
+                BROWSER_FIXTURE_PORT="$(awk '/^READY [0-9]+$/ { print $2; exit }' "$BROWSER_FIXTURE_SERVER_LOG")"
+                if [ -z "$BROWSER_FIXTURE_PORT" ]; then
+                  echo "::error::Timed out waiting for browser fixture server readiness"
+                  cat "$BROWSER_FIXTURE_SERVER_LOG"
+                  exit 1
+                fi
+                BROWSER_FIXTURE_BASE_URL="http://127.0.0.1:$BROWSER_FIXTURE_PORT/"
+                echo "Browser fixture server ready at $BROWSER_FIXTURE_BASE_URL (PID $BROWSER_FIXTURE_SERVER_PID)"
+                ;;
+            esac
           fi
 
           # Start recording right before the test (after build/resolve).
@@ -419,7 +476,6 @@ jobs:
           if [ "${#DISPLAY_ENV_PREFIX[@]}" -gt 0 ]; then
             XCODEBUILD_ENV+=("${DISPLAY_ENV_PREFIX[@]}")
           fi
-
           RUN_XCODEBUILD=(env "${XCODEBUILD_ENV[@]}")
           if [ "$TEST_TARGET" = "cmuxUITests" ]; then
             CURRENT_USER="$(id -un)"
