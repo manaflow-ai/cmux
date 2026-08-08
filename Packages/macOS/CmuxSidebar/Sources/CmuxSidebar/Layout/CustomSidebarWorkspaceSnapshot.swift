@@ -72,6 +72,9 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
     /// Pull-request value objects already projected in display order, mapped to
     /// `workspaces[i].pr` (first) and `workspaces[i].prs` (all).
     public let pullRequestValues: [SwiftValue]
+    /// Native sidebar status entries in the same visibility and display order as
+    /// the built-in workspace sidebar (`workspaces[i].status` / `.statuses`).
+    public let statusEntries: [SidebarStatusEntry]
     /// Progress projection; omitted when `nil` (`workspaces[i].progress`).
     public let progress: Progress?
     /// Latest conversation message; omitted when `nil`/empty
@@ -102,6 +105,7 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
         gitBranch: String?,
         gitIsDirty: Bool,
         pullRequestValues: [SwiftValue],
+        statusEntries: [SidebarStatusEntry] = [],
         progress: Progress?,
         latestConversationMessage: String?,
         latestSubmittedMessage: String?,
@@ -123,6 +127,7 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
         self.gitBranch = gitBranch
         self.gitIsDirty = gitIsDirty
         self.pullRequestValues = pullRequestValues
+        self.statusEntries = statusEntries
         self.progress = progress
         self.latestConversationMessage = latestConversationMessage
         self.latestSubmittedMessage = latestSubmittedMessage

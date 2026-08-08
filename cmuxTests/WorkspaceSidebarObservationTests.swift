@@ -77,6 +77,39 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func customSidebarSnapshotUsesNativeStatusDisplayOrder() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Idle",
+            icon: "pause.circle.fill",
+            color: "#8E8E93",
+            priority: 100
+        )
+        workspace.statusEntries["review"] = SidebarStatusEntry(
+            key: "review",
+            value: "Waiting",
+            priority: 20
+        )
+        workspace.recordAgentPID(
+            key: "codex.session-native-status-test",
+            pid: 12_347,
+            panelId: panelId,
+            refreshPorts: false
+        )
+        let expected = workspace.sidebarStatusEntriesInDisplayOrder()
+
+        let snapshot = workspace.customSidebarWorkspaceSnapshot(
+            index: 0,
+            selectedId: workspace.id,
+            unreadCount: 0
+        )
+
+        #expect(snapshot.statusEntries == expected)
+        #expect(snapshot.statusEntries.contains { $0.key == "codex" })
+    }
+
     @Test func terminalAgentContextDoesNotObserveAgentRuntimeMaps() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
