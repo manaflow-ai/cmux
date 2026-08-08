@@ -613,10 +613,9 @@ enum PendingSessionResetKind {
 fn pending_session_reset_kind(rest: &str) -> Option<PendingSessionResetKind> {
     let (kind, reset_id) = if let Some(reset_id) = rest.strip_prefix("session-") {
         (PendingSessionResetKind::Session, reset_id)
-    } else if let Some(reset_id) = rest.strip_prefix("terminal-hosts-") {
-        (PendingSessionResetKind::TerminalHosts, reset_id)
     } else {
-        return None;
+        let reset_id = rest.strip_prefix("terminal-hosts-")?;
+        (PendingSessionResetKind::TerminalHosts, reset_id)
     };
     is_canonical_reset_uuid_v4(reset_id).then_some(kind)
 }
@@ -1937,7 +1936,14 @@ fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
 
 #[cfg(unix)]
 fn reset_stat_device(stat: &libc::stat) -> u64 {
-    stat.st_dev as u64
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        stat.st_dev
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    {
+        stat.st_dev as u64
+    }
 }
 
 #[cfg(unix)]
