@@ -4543,8 +4543,10 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
 
+        let mut command = Command::new(&binary);
+        command.stdout(Stdio::piped()).stderr(Stdio::null());
         let defaults = match ghostty_defaults_from_helper_command(
-            Command::new(&binary),
+            command,
             Duration::from_secs(2),
         ) {
             GhosttyHelperDefaults::Resolved(defaults) => defaults,
