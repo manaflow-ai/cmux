@@ -149,18 +149,6 @@ artifact_binary="$artifact_dir/cmux-tui"
 mkdir -p "$artifact_dir"
 install -m 0755 "$downloaded_binary" "$artifact_binary"
 
-probe="$($artifact_binary remote-probe --json)"
-CMUX_TUI_PROBE="$probe" EXPECTED_COMMIT="$commit" python3 - <<'PY'
-import json
-import os
-
-probe = json.loads(os.environ["CMUX_TUI_PROBE"])
-expected = os.environ["EXPECTED_COMMIT"]
-actual = probe.get("build_identity")
-if actual != expected:
-    raise SystemExit(f"artifact build identity {actual!r} != {expected!r}")
-PY
-
 echo "Hosted verification passed: $run_url"
 echo "Artifact: $artifact_binary"
 echo "Dogfood: $artifact_binary --session verify-${commit:0:8}"

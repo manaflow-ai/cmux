@@ -35,7 +35,7 @@ permissions:
 jobs:
   validate-inputs:
     name: validate exact commit request
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 5
     steps:
       - name: Validate dispatch inputs
@@ -76,7 +76,7 @@ jobs:
   web-frontend:
     needs: validate-inputs
     if: inputs.mode == 'full'
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -115,7 +115,7 @@ jobs:
     name: valgrind-leak-check (${{ matrix.shard }})
     needs: validate-inputs
     if: inputs.mode == 'full'
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # The core, remote, and application suites are intentionally serialized
     # under instrumentation. Isolate them so none can consume another test
     # binary group's runtime budget.
@@ -310,7 +310,7 @@ jobs:
     name: valgrind-leak-check
     if: always() && inputs.mode == 'full'
     needs: valgrind-leak-check-shard
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 2
     steps:
       - name: Require every Valgrind shard
@@ -328,9 +328,9 @@ jobs:
       matrix:
         include:
           - os: macos
-            runner: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+            runner: blacksmith-6vcpu-macos-15
           - os: linux
-            runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+            runner: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -410,7 +410,7 @@ jobs:
   bindings-e2e:
     needs: validate-inputs
     if: inputs.mode == 'full'
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -503,11 +503,15 @@ jobs:
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
       version: 0.0.0-verify.${{ inputs.commit }}
-      package_npm: false
-      package_pypi: false
+      package_npm: ${{ inputs.mode == 'full' }}
+      package_pypi: ${{ inputs.mode == 'full' }}
       include_windows: ${{ inputs.mode == 'full' }}
       target_set: ${{ inputs.mode == 'full' && 'all' || 'macos-arm64' }}
       build_cloudflare_relay: false
+      verify_linux_arm64: false
+      macos_runner: blacksmith-6vcpu-macos-15
+      linux_runner: blacksmith-4vcpu-ubuntu-2404
+      windows_runner: windows-latest
       checkout_ref: ${{ inputs.commit }}
 
   hosted-verification:
@@ -520,7 +524,7 @@ jobs:
       - test
       - bindings-e2e
       - build-artifacts
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 5
     env:
       MODE: ${{ inputs.mode }}
