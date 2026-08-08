@@ -85,6 +85,12 @@ const DAYTONA_SNAPSHOT_CREATE_TIMEOUT_MS = positiveIntFromEnv(
   20 * 60 * 1000,
 );
 const DAYTONA_ENTRYPOINT_PATH = "/usr/local/bin/cmux-daytona-entrypoint";
+// cmux TUI release baked into every cloud image at /usr/local/bin/cmux-tui. The npm
+// platform packages ship static musl Linux binaries with no `bin` field, so the
+// installer copies the file out of node_modules instead of relying on npm linking.
+// Devbox sandboxes (CMUX_DEVBOX=1) boot straight into it via cmux-cloud-shell.
+const CMUX_TUI_VERSION_ENV = "CMUX_CLOUD_IMAGE_CMUX_TUI_VERSION";
+const CMUX_TUI_DEFAULT_VERSION = "0.9.9";
 const CLOUD_AGENT_TOOLS = [
   {
     name: "claude",
@@ -517,7 +523,7 @@ function cloudShellProfileCommands(): string[] {
     "cat > /etc/cmux/zshrc <<'CMUX_ZSHRC'\n# cmux default zsh profile. Put personal overrides in ~/.zshrc.local.\nexport PATH=\"/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}\"\nexport SHELL=\"$(command -v zsh)\"\nmkdir -p \"$HOME/.cmux\" 2>/dev/null || true\nprintf '%s' '/tmp/cmux-cloud-cli.sock' > \"$HOME/.cmux/socket_addr\" 2>/dev/null || true\nexport CMUX_SOCKET_PATH=\"${CMUX_SOCKET_PATH:-/tmp/cmux-cloud-cli.sock}\"\nautoload -Uz colors 2>/dev/null && colors\nsetopt prompt_subst interactivecomments no_beep hist_ignore_dups share_history 2>/dev/null || true\nPROMPT_EOL_MARK=''\nunsetopt prompt_sp 2>/dev/null || true\nHISTFILE=\"${HISTFILE:-$HOME/.zsh_history}\"\nHISTSIZE=\"${HISTSIZE:-50000}\"\nSAVEHIST=\"${SAVEHIST:-50000}\"\nbindkey -e 2>/dev/null || true\nif [ -r /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]; then\n  source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh\n  ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE=\"${ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE:-fg=8}\"\nfi\n: ${CMUX_PROMPT_USER:=cmux-cloud}\n: ${CMUX_PROMPT_CHAR:=$'\\u03bb'}\nPROMPT='%F{magenta}${CMUX_PROMPT_USER}%f in %F{green}%~%f ${CMUX_PROMPT_CHAR} '\nCMUX_ZSHRC",
     "cat > /home/cmux/.zshrc <<'CMUX_USER_ZSHRC'\n# cmux-managed zsh defaults. Edit ~/.zshrc.local for personal overrides.\nmkdir -p \"$HOME/.cmux\" 2>/dev/null || true\nprintf '%s' '/tmp/cmux-cloud-cli.sock' > \"$HOME/.cmux/socket_addr\" 2>/dev/null || true\nexport CMUX_SOCKET_PATH=\"${CMUX_SOCKET_PATH:-/tmp/cmux-cloud-cli.sock}\"\n[ -r /etc/cmux/zshrc ] && source /etc/cmux/zshrc\n[ -r \"$HOME/.zshrc.local\" ] && source \"$HOME/.zshrc.local\"\nif [ \"${CMUX_CLOUD_WELCOME:-1}\" != \"0\" ] && [ -z \"${CMUX_CLOUD_WELCOME_SHOWN:-}\" ] && [ -t 1 ]; then\n  export CMUX_CLOUD_WELCOME_SHOWN=1\n  printf '\\033[38;2;0;212;255m  ::\\033[0m\\n'\n  printf '\\033[38;2;24;181;250m    ::::              \\033[38;2;0;212;255mc\\033[38;2;24;181;250mm\\033[38;2;48;150;245mu\\033[38;2;124;58;237mx cloud\\033[0m\\n'\n  printf '\\033[38;2;48;150;245m      ::::::\\033[0m\\n'\n  printf '\\033[38;2;72;119;241m        ::::::\\033[0m        \\033[38;2;130;130;140mpersistent cloud VM\\033[0m\\n'\n  printf '\\033[38;2;96;88;239m      ::::::\\033[0m          \\033[38;2;130;130;140mready for coding agents\\033[0m\\n'\n  printf '\\033[38;2;110;73;238m    ::::\\033[0m\\n'\n  printf '\\033[38;2;124;58;237m  ::\\033[0m\\n'\n  printf '\\n'\nfi\nCMUX_USER_ZSHRC",
     "cat > /home/cmux/.zshrc.local <<'CMUX_LOCAL_ZSHRC'\n# Personal zsh overrides for this cloud VM.\n# Examples:\n#   CMUX_CLOUD_WELCOME=0\n#   CMUX_PROMPT_USER='cmux-cloud'\n#   CMUX_PROMPT_CHAR='>'\n#   PROMPT='%F{cyan}%n%f:%F{green}%~%f %# '\nCMUX_LOCAL_ZSHRC",
-    "cat > /usr/local/bin/cmux-cloud-shell <<'CMUX_CLOUD_SHELL'\n#!/bin/sh\ncd /home/cmux 2>/dev/null || true\nexport HOME=/home/cmux\nexport USER=cmux\nexport LOGNAME=cmux\nexport SHELL=/bin/zsh\nexec runuser -u cmux -- /bin/zsh -l\nCMUX_CLOUD_SHELL\nchmod 0755 /usr/local/bin/cmux-cloud-shell",
+    "cat > /usr/local/bin/cmux-cloud-shell <<'CMUX_CLOUD_SHELL'\n#!/bin/sh\ncd /home/cmux 2>/dev/null || true\nexport HOME=/home/cmux\nexport USER=cmux\nexport LOGNAME=cmux\nexport SHELL=/bin/zsh\n# Devbox sandboxes boot straight into the cmux TUI; every other cloud VM keeps\n# the zsh login shell. CMUX_DEVBOX is set on the sandbox at create time.\nif [ \"${CMUX_DEVBOX:-0}\" = \"1\" ] && [ -x /usr/local/bin/cmux-tui ]; then\n  exec runuser -u cmux -- /usr/local/bin/cmux-tui --session devbox\nfi\nexec runuser -u cmux -- /bin/zsh -l\nCMUX_CLOUD_SHELL\nchmod 0755 /usr/local/bin/cmux-cloud-shell",
     "touch /home/cmux/.hushlogin",
     "chown -R cmux:cmux /home/cmux/.zshrc /home/cmux/.zshrc.local /home/cmux/.hushlogin /home/cmux/.config /home/cmux/.cmux",
   ];
@@ -582,6 +588,9 @@ export function cloudImageSmokeTestCommands(): string[] {
     `${toolchainEnv} rustup show active-toolchain >/tmp/cmux-rustup-toolchain.txt 2>&1 && grep -q '^stable' /tmp/cmux-rustup-toolchain.txt && rustc --version >/tmp/cmux-rustc-version.txt 2>&1 && cargo --version >/tmp/cmux-cargo-version.txt 2>&1`,
     "mise --version >/tmp/cmux-mise-version.txt 2>&1",
     "test -x /usr/local/bin/cmuxd-remote && test -x /usr/local/bin/cmux",
+    ...(cmuxTuiResolvedVersion()
+      ? ["/usr/local/bin/cmux-tui --version >/tmp/cmux-tui-version.txt 2>&1"]
+      : []),
     "cmux --help >/tmp/cmux-cli-help.txt 2>&1",
     "cmux --socket /tmp/cmux-browser-smoke.sock browser >/tmp/cmux-browser-help.txt 2>&1; status=$?; test \"$status\" -eq 2 && grep -q 'requires a subcommand' /tmp/cmux-browser-help.txt",
     "cmuxd-remote version >/tmp/cmuxd-remote-version.txt 2>&1",
@@ -640,6 +649,7 @@ export function cloudToolInstallCommands(): string[] {
     toolPackages.length > 0
       ? `npm install -g --omit=dev --no-audit --fund=false ${toolPackages.map((tool) => shellQuote(tool.packageSpec)).join(" ")} >/tmp/cmux-npm-install.txt 2>&1`
       : "true",
+    cmuxTuiInstallCommand(),
     miseInstallCommand(),
     rustupInstallCommand(),
     toolchainProfileCommand(),
@@ -649,6 +659,32 @@ export function cloudToolInstallCommands(): string[] {
 
 function isDisabledValue(value: string): boolean {
   return ["0", "false", "off", "disabled", "none"].includes(value.trim().toLowerCase());
+}
+
+export function cmuxTuiResolvedVersion(): string | null {
+  const raw = process.env[CMUX_TUI_VERSION_ENV]?.trim();
+  if (raw && isDisabledValue(raw)) return null;
+  const version = raw || CMUX_TUI_DEFAULT_VERSION;
+  if (!STRICT_SEMVER_RE.test(version)) {
+    throw new Error(`${CMUX_TUI_VERSION_ENV} must be an exact version like ${CMUX_TUI_DEFAULT_VERSION}; got ${version}`);
+  }
+  return version;
+}
+
+function cmuxTuiInstallCommand(): string {
+  const version = cmuxTuiResolvedVersion();
+  if (!version) return "true";
+  const commands = [
+    "set -eu",
+    "arch=\"$(dpkg --print-architecture)\"",
+    "case \"$arch\" in amd64) pkg=\"cmux-tui-linux-x64\" ;; arm64) pkg=\"cmux-tui-linux-arm64\" ;; *) echo \"unsupported architecture: $arch\"; exit 1 ;; esac",
+    "rm -rf /tmp/cmux-tui-install",
+    "mkdir -p /tmp/cmux-tui-install",
+    `npm install --prefix /tmp/cmux-tui-install --omit=dev --no-audit --fund=false "$pkg@${version}"`,
+    "install -m 0755 \"/tmp/cmux-tui-install/node_modules/$pkg/bin/cmux-tui\" /usr/local/bin/cmux-tui",
+    "rm -rf /tmp/cmux-tui-install",
+  ];
+  return `{ ${commands.join(" && ")}; } >/tmp/cmux-tui-install.txt 2>&1`;
 }
 
 function bunInstallCommand(): string {

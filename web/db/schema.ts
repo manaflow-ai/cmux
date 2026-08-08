@@ -80,6 +80,33 @@ export const cloudVms = pgTable(
   ],
 );
 
+// Devbox product: exactly one persistent Daytona VM per user, backed by a per-user
+// provider volume that survives VM destroy/recreate. The VM itself is a normal
+// `cloud_vms` row (leases, usage events, reconcile, and account deletion all apply);
+// this table is the single-active claim plus the volume binding. The partial unique
+// index is the invariant: one unreleased claim per user, enforced by Postgres.
+export const cloudDevboxes = pgTable(
+  "cloud_devboxes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    vmId: uuid("vm_id")
+      .notNull()
+      .references(() => cloudVms.id),
+    volumeId: text("volume_id").notNull(),
+    volumeName: text("volume_name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("cloud_devboxes_user_active_unique")
+      .on(table.userId)
+      .where(sql`${table.releasedAt} is null`),
+    index("cloud_devboxes_vm_id_idx").on(table.vmId),
+  ],
+);
+
 export const accountDeletionTombstones = pgTable(
   "account_deletion_tombstones",
   {

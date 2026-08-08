@@ -22,6 +22,40 @@ db/
   migrations/         SQL migrations applied by `bun db:migrate`
 ```
 
+## Devbox: one persistent VM per user
+
+The devbox is a separate product on the same control plane: exactly one Daytona VM per
+user, with a per-user Daytona Volume mounted at `/home/cmux/persist` so data survives
+destroy/recreate, explicit pause/resume, and the cmux TUI as the sandbox shell.
+
+The VM is a normal `cloud_vms` row (leases, usage events, reconcile, billing, and
+account deletion all apply). `cloud_devboxes` adds the single-active claim and the
+volume binding; the partial unique index on `(user_id) WHERE released_at is null` is
+the one-per-user invariant, enforced by Postgres. Concurrent first-creates are resolved
+by that index: the loser destroys its VM and adopts the winner's claim.
+
+Routes (`services/vms/devbox.ts` workflows):
+
+- `POST /api/devbox` get-or-create (201 created, 200 existing). Accepts `Idempotency-Key`.
+- `GET /api/devbox` current devbox with provider-reconciled status, or `null`.
+- `POST /api/devbox/pause` Daytona stop: filesystem preserved, processes killed.
+- `POST /api/devbox/resume` limit-gated Daytona start plus cmuxd health repair.
+- `POST /api/devbox/attach-endpoint` WebSocket PTY lease; auto-resumes a paused devbox.
+- `DELETE /api/devbox` destroys the VM, releases the claim, keeps the volume. The next
+  create reattaches the same volume by stable per-user name (`cmux-devbox-<sha256[:24]>`).
+
+Devbox sandboxes are created with `CMUX_DEVBOX=1`, which makes `cmux-cloud-shell` exec
+`cmux-tui --session devbox` instead of zsh (falls back to zsh when the TUI binary is
+missing). The TUI is baked into cloud images from the published static musl npm package
+(`cmux-tui-linux-{x64,arm64}`), pinned by `CMUX_CLOUD_IMAGE_CMUX_TUI_VERSION` in
+`web/scripts/build-cloud-vm-images.ts`.
+
+Kill switch: `CMUX_DEVBOX_ENABLED=0` blocks devbox create while keeping get, pause,
+resume, attach, and delete available. Devbox create also passes the normal
+`CMUX_VM_CREATE_ENABLED`/`CMUX_VM_DAYTONA_ENABLED` gates, consumes an active-VM slot
+under the team plan limit, and uses the standard Daytona image manifest entry
+(`DAYTONA_SANDBOX_SNAPSHOT`).
+
 ## HTTP surface
 
 - `/api/vm`, authenticated `GET` list and `POST` create.

@@ -23,6 +23,17 @@ export function assertVmCreateEnabled(
   }
 }
 
+// Devbox product kill switch. Opt-out like the other VM switches: unset means
+// enabled. The devbox also passes the normal Daytona create gates.
+export function assertDevboxEnabled(env: VmRuntimeEnv = process.env): void {
+  if (isFalseFlag(env.CMUX_DEVBOX_ENABLED)) {
+    throw new VmCreateDisabledError({
+      provider: "daytona",
+      reason: "Devbox creation is disabled",
+    });
+  }
+}
+
 export function providerEnabledEnvKey(provider: ProviderId): string {
   switch (provider) {
     case "e2b":
