@@ -3614,39 +3614,51 @@ class TabManager: ObservableObject {
     }
 
     func selectNextTab() {
-        guard let currentId = selectedTabId,
-              let currentIndex = tabs.firstIndex(where: { $0.id == currentId }) else { return }
-        let nextIndex = (currentIndex + 1) % tabs.count
+        selectAdjacentTab(step: 1, debugLabel: "next")
+    }
+
+    func selectPreviousTab() {
+        selectAdjacentTab(step: -1, debugLabel: "prev")
+    }
+
+    /// Cycle selection through the rows the sidebar shows, wrapping at the
+    /// edges. Stops come from `SidebarWorkspaceRenderItem.renderItems`, so a
+    /// collapsed group is one stop (its header) and its hidden members are
+    /// skipped. Previously cycling visited every workspace in `tabs` order,
+    /// which expanded collapsed groups as a side effect.
+    private func selectAdjacentTab(step: Int, debugLabel: String) {
+        guard let currentId = selectedTabId else { return }
+        let groupsById = Dictionary(
+            workspaceGroups.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let stops = SidebarWorkspaceRenderItem
+            .renderItems(tabs: tabs, groupsById: groupsById)
+            .map(\.rowWorkspaceId)
+        // A hidden selection (member of a collapsed group) steps from its header.
+        let fallbackStop = tabs.first(where: { $0.id == currentId })?
+            .groupId.flatMap { groupsById[$0]?.anchorWorkspaceId }
+        guard let target = WorkspaceAdjacentSelection.target(
+            stops: stops,
+            current: currentId,
+            fallbackStop: fallbackStop,
+            step: step
+        ) else { return }
 #if DEBUG
-        let nextId = tabs[nextIndex].id
-        debugPrepareWorkspaceSwitch("next", from: currentId, to: nextId)
+        if target != currentId {
+            debugPrepareWorkspaceSwitch(debugLabel, from: currentId, to: target)
+        }
 #endif
         activateWorkspaceCycleHotWindow()
         selectWorkspaceId(
-            tabs[nextIndex].id,
+            target,
             notificationDismissalContext: .explicitWorkspaceResume
         )
         // Keyboard nav is an explicit "focus one workspace" gesture, so drop
         // any stale sidebar multi-selection (Shift-click range) so subsequent
         // batch actions don't operate on workspaces the user thought they
         // had unselected by moving on.
-        clearSidebarMultiSelection(except: tabs[nextIndex].id)
-    }
-
-    func selectPreviousTab() {
-        guard let currentId = selectedTabId,
-              let currentIndex = tabs.firstIndex(where: { $0.id == currentId }) else { return }
-        let prevIndex = (currentIndex - 1 + tabs.count) % tabs.count
-#if DEBUG
-        let prevId = tabs[prevIndex].id
-        debugPrepareWorkspaceSwitch("prev", from: currentId, to: prevId)
-#endif
-        activateWorkspaceCycleHotWindow()
-        selectWorkspaceId(
-            tabs[prevIndex].id,
-            notificationDismissalContext: .explicitWorkspaceResume
-        )
-        clearSidebarMultiSelection(except: tabs[prevIndex].id)
+        clearSidebarMultiSelection(except: target)
     }
 
     /// Reduce sidebar multi-selection to a single workspace (or clear if
