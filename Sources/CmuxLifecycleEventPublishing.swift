@@ -289,7 +289,7 @@ extension AppDelegate {
     }
 
     func publishCmuxWindowLifecycle(name: String, windowId: UUID, origin: String) {
-        let manager = tabManagerFor(windowId: windowId)
+        let manager = tabManagerForWindowTeardown(windowId: windowId)
         let workspaceId = manager?.selectedTabId
         let selectedWorkspaceIndex = workspaceId.flatMap { selectedId in
             manager?.tabs.firstIndex(where: { $0.id == selectedId })

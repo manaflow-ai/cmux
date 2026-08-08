@@ -40,12 +40,15 @@ extension AppDelegate.MainWindowContext {
     func windowDockSessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex?,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
+        downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool = false
     ) -> SessionSplitContainerSnapshot? {
         existingWindowDock()?.sessionSnapshot(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+            downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable:
+                downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable
         )
     }
 

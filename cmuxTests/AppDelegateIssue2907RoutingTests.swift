@@ -1600,7 +1600,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertTrue(located.tabManager === manager)
     }
 
-    func testRecoveredRouteRequiresTerminalOwnedBySameTabManager() throws {
+    func testRecoveredRouteUsesRegisteredOwnerWithoutTerminalHeuristics() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -1660,8 +1660,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
 
         app.unregisterMainWindowContextForTesting(windowId: browserOnlyWindowId)
 
-        XCTAssertNil(app.tabManagerFor(windowId: browserOnlyWindowId))
-        XCTAssertFalse(app.listMainWindowSummaries().contains { $0.windowId == browserOnlyWindowId })
+        XCTAssertTrue(app.tabManagerFor(windowId: browserOnlyWindowId) === browserOnlyManager)
+        XCTAssertTrue(app.listMainWindowSummaries().contains { $0.windowId == browserOnlyWindowId })
         XCTAssertTrue(app.tabManagerFor(windowId: terminalWindowId) === terminalManager)
     }
 

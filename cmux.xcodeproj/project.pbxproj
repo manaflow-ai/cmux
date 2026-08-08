@@ -1294,6 +1294,13 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C05000000000000000001 /* MainWindowFocusController.swift */; };
 		6512F0C06512F0C06512F002 /* MainWindowFocusRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6512F0C06512F0C06512F001 /* MainWindowFocusRestoreTests.swift */; };
 		B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000006 /* MainWindowFocusTypes.swift */; };
+		9666C0019666C0019666C001 /* MainWindowLifecycleCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666C0029666C0029666C002 /* MainWindowLifecycleCoordinator.swift */; };
+		9666E0019666E0019666E001 /* MainWindowLifecyclePhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666E0029666E0029666E002 /* MainWindowLifecyclePhase.swift */; };
+		9666E0039666E0039666E003 /* MainWindowLifecycleRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666E0049666E0049666E004 /* MainWindowLifecycleRecord.swift */; };
+		9666F1019666F1019666F101 /* MainWindowPersistenceRouteSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666F1029666F1029666F102 /* MainWindowPersistenceRouteSnapshot.swift */; };
+		9666F0019666F0019666F001 /* MainWindowRouteAutosaveProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666F0029666F0029666F002 /* MainWindowRouteAutosaveProjection.swift */; };
+		9666A0019666A0019666A001 /* MainWindowRouteDockState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666A0029666A0029666A002 /* MainWindowRouteDockState.swift */; };
+		9666D0019666D0019666D001 /* MainWindowRouteSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666D0029666D0029666D002 /* MainWindowRouteSnapshot.swift */; };
 		40ED33F6C1CEB26EAE7C9476 /* MainWindowSelfSizingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 570ED364A7E41085FB2D31FE /* MainWindowSelfSizingTests.swift */; };
 		A6D1F0300000000000000002 /* MainWindowVisibilityController+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0300000000000000001 /* MainWindowVisibilityController+Lifecycle.swift */; };
 		2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C06000000000000000001 /* MainWindowVisibilityController.swift */; };
@@ -1582,6 +1589,9 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A64610010000000000000001 /* QuitConfirmationAlertPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64610010000000000000002 /* QuitConfirmationAlertPresenter.swift */; };
 		A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64610020000000000000002 /* QuitConfirmationAlertPresenterTests.swift */; };
 		A500RG01 /* ReactGrab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500RG00 /* ReactGrab.swift */; };
+		966600019666000196660001 /* RecoverableMainWindowLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 966600029666000296660002 /* RecoverableMainWindowLifecycleTests.swift */; };
+		9666B0019666B0019666B001 /* RecoverableMainWindowRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666B0029666B0029666B002 /* RecoverableMainWindowRoute.swift */; };
+		9666F3019666F3019666F301 /* RecoverableMainWindowRoutePayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666F3029666F3029666F302 /* RecoverableMainWindowRoutePayload.swift */; };
 		A6D1F0000000000000000002 /* ReleasingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0000000000000000001 /* ReleasingWindowController.swift */; };
 		A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0400000000000000001 /* ReleasingWindowControllerTests.swift */; };
 		EE30D5000000000000000002 /* RemoteDaemonStrings+App.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */; };
@@ -1844,6 +1854,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		FE00310B /* SessionTranscriptPopoverLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00300B /* SessionTranscriptPopoverLayout.swift */; };
 		FE00310C /* SessionTranscriptPopoverSizeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00300C /* SessionTranscriptPopoverSizeModel.swift */; };
 		F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */; };
+		9666F2019666F2019666F201 /* SessionWindowSnapshot+Scrollback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666F2029666F2029666F202 /* SessionWindowSnapshot+Scrollback.swift */; };
 		583A675AA1224E8D82A44883 /* SetAutoTitleSocketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F92AB6D1CB714189A8F167E5 /* SetAutoTitleSocketTests.swift */; };
 		D10000000000000000A00020 /* SettingsAccountJSONResetBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00021 /* SettingsAccountJSONResetBehaviorUITests.swift */; };
 		D10000000000000000A00012 /* SettingsAppBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00013 /* SettingsAppBehaviorUITests.swift */; };
@@ -3943,6 +3954,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		2F0C05000000000000000001 /* MainWindowFocusController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusController.swift; sourceTree = "<group>"; };
 		6512F0C06512F0C06512F001 /* MainWindowFocusRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusRestoreTests.swift; sourceTree = "<group>"; };
 		B37A00000000000000000006 /* MainWindowFocusTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusTypes.swift; sourceTree = "<group>"; };
+		9666C0029666C0029666C002 /* MainWindowLifecycleCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowLifecycleCoordinator.swift; sourceTree = "<group>"; };
+		9666E0029666E0029666E002 /* MainWindowLifecyclePhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowLifecyclePhase.swift; sourceTree = "<group>"; };
+		9666E0049666E0049666E004 /* MainWindowLifecycleRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowLifecycleRecord.swift; sourceTree = "<group>"; };
+		9666F1029666F1029666F102 /* MainWindowPersistenceRouteSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowPersistenceRouteSnapshot.swift; sourceTree = "<group>"; };
+		9666F0029666F0029666F002 /* MainWindowRouteAutosaveProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowRouteAutosaveProjection.swift; sourceTree = "<group>"; };
+		9666A0029666A0029666A002 /* MainWindowRouteDockState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowRouteDockState.swift; sourceTree = "<group>"; };
+		9666D0029666D0029666D002 /* MainWindowRouteSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowRouteSnapshot.swift; sourceTree = "<group>"; };
 		570ED364A7E41085FB2D31FE /* MainWindowSelfSizingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowSelfSizingTests.swift; sourceTree = "<group>"; };
 		A6D1F0300000000000000001 /* MainWindowVisibilityController+Lifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/MainWindowVisibilityController+Lifecycle.swift"; sourceTree = "<group>"; };
 		2F0C06000000000000000001 /* MainWindowVisibilityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowVisibilityController.swift; sourceTree = "<group>"; };
@@ -4229,6 +4247,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A64610010000000000000002 /* QuitConfirmationAlertPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitConfirmationAlertPresenter.swift; sourceTree = "<group>"; };
 		A64610020000000000000002 /* QuitConfirmationAlertPresenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitConfirmationAlertPresenterTests.swift; sourceTree = "<group>"; };
 		A500RG00 /* ReactGrab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ReactGrab.swift; sourceTree = "<group>"; };
+		966600029666000296660002 /* RecoverableMainWindowLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoverableMainWindowLifecycleTests.swift; sourceTree = "<group>"; };
+		9666B0029666B0029666B002 /* RecoverableMainWindowRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoverableMainWindowRoute.swift; sourceTree = "<group>"; };
+		9666F3029666F3029666F302 /* RecoverableMainWindowRoutePayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoverableMainWindowRoutePayload.swift; sourceTree = "<group>"; };
 		A6D1F0000000000000000001 /* ReleasingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ReleasingWindowController.swift; sourceTree = "<group>"; };
 		A6D1F0400000000000000001 /* ReleasingWindowControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleasingWindowControllerTests.swift; sourceTree = "<group>"; };
 		EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteDaemonStrings+App.swift"; sourceTree = "<group>"; };
@@ -4485,6 +4506,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		FE00300B /* SessionTranscriptPopoverLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptPopoverLayout.swift; sourceTree = "<group>"; };
 		FE00300C /* SessionTranscriptPopoverSizeModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptPopoverSizeModel.swift; sourceTree = "<group>"; };
 		F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptTypes.swift; sourceTree = "<group>"; };
+		9666F2029666F2029666F202 /* SessionWindowSnapshot+Scrollback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionWindowSnapshot+Scrollback.swift"; sourceTree = "<group>"; };
 		F92AB6D1CB714189A8F167E5 /* SetAutoTitleSocketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetAutoTitleSocketTests.swift; sourceTree = "<group>"; };
 		D10000000000000000A00021 /* SettingsAccountJSONResetBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAccountJSONResetBehaviorUITests.swift; sourceTree = "<group>"; };
 		D10000000000000000A00013 /* SettingsAppBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAppBehaviorUITests.swift; sourceTree = "<group>"; };
@@ -6601,6 +6623,16 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				895500000000000000000006 /* AppDelegate+WindowFrameRestoration.swift */,
 				D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */,
 				2907A0022907A0022907A002 /* AppDelegate+RecoverableMainWindowRoutes.swift */,
+				9666F0029666F0029666F002 /* MainWindowRouteAutosaveProjection.swift */,
+				9666A0029666A0029666A002 /* MainWindowRouteDockState.swift */,
+				9666D0029666D0029666D002 /* MainWindowRouteSnapshot.swift */,
+				9666F1029666F1029666F102 /* MainWindowPersistenceRouteSnapshot.swift */,
+				9666B0029666B0029666B002 /* RecoverableMainWindowRoute.swift */,
+				9666F3029666F3029666F302 /* RecoverableMainWindowRoutePayload.swift */,
+				9666C0029666C0029666C002 /* MainWindowLifecycleCoordinator.swift */,
+				9666E0029666E0029666E002 /* MainWindowLifecyclePhase.swift */,
+				9666E0049666E0049666E004 /* MainWindowLifecycleRecord.swift */,
+				9666F2029666F2029666F202 /* SessionWindowSnapshot+Scrollback.swift */,
 				797800010000000000000002 /* AppDelegate+RemoteSessionPower.swift */,
 				797800020000000000000002 /* RemoteSessionPowerObserver.swift */,
 				C0DE74140000000000000002 /* AppDelegate+SavedLayoutMenu.swift */,
@@ -7778,6 +7810,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				875900000000000000000002 /* Issue8759FreezeRegressionTests.swift */,
 				C6711B030000000000000001 /* AppDelegateSurfaceResumeTerminalIdTests.swift */,
 				7375A0047375A0047375A004 /* ClosedMainWindowRoutingTests.swift */,
+				966600029666000296660002 /* RecoverableMainWindowLifecycleTests.swift */,
 				E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */,
 				C0DE49950000000000000002 /* FilePreviewKindResolverTests.swift */,
 				C0DE86520000000000000118 /* FilePreviewNativeRefreshStateTests.swift */,
@@ -9297,6 +9330,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				895500000000000000000003 /* MainWindowController.swift in Sources */,
 				2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */,
 				B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */,
+				9666C0019666C0019666C001 /* MainWindowLifecycleCoordinator.swift in Sources */,
+				9666E0019666E0019666E001 /* MainWindowLifecyclePhase.swift in Sources */,
+				9666E0039666E0039666E003 /* MainWindowLifecycleRecord.swift in Sources */,
+				9666F1019666F1019666F101 /* MainWindowPersistenceRouteSnapshot.swift in Sources */,
+				9666F0019666F0019666F001 /* MainWindowRouteAutosaveProjection.swift in Sources */,
+				9666A0019666A0019666A001 /* MainWindowRouteDockState.swift in Sources */,
+				9666D0019666D0019666D001 /* MainWindowRouteSnapshot.swift in Sources */,
 				A6D1F0300000000000000002 /* MainWindowVisibilityController+Lifecycle.swift in Sources */,
 				2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */,
 				730600020000000000000002 /* MainWindowVisibleFrameFitRescue.swift in Sources */,
@@ -9507,6 +9547,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE86520000000000000115 /* QuickLookPreviewView.swift in Sources */,
 					A64610010000000000000001 /* QuitConfirmationAlertPresenter.swift in Sources */,
 				A500RG01 /* ReactGrab.swift in Sources */,
+				9666B0019666B0019666B001 /* RecoverableMainWindowRoute.swift in Sources */,
+				9666F3019666F3019666F301 /* RecoverableMainWindowRoutePayload.swift in Sources */,
 				A6D1F0000000000000000002 /* ReleasingWindowController.swift in Sources */,
 				EE30D5000000000000000002 /* RemoteDaemonStrings+App.swift in Sources */,
 				791102010000000000000001 /* RemoteDisconnectPreparationService.swift in Sources */,
@@ -9672,6 +9714,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FE00310B /* SessionTranscriptPopoverLayout.swift in Sources */,
 				FE00310C /* SessionTranscriptPopoverSizeModel.swift in Sources */,
 				F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */,
+				9666F2019666F2019666F201 /* SessionWindowSnapshot+Scrollback.swift in Sources */,
 				D9CCF002D9CCF002D9CCF002 /* SettingsLazyLoadHelpers.swift in Sources */,
 				D5671401D5671401D5671401 /* SettingsNavigation+TerminalScrollSpeed.swift in Sources */,
 				A50019A0 /* SettingsNavigation.swift in Sources */,
@@ -10885,6 +10928,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */,
 				C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */,
 				A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */,
+				966600019666000196660001 /* RecoverableMainWindowLifecycleTests.swift in Sources */,
 				A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */,
 				791100030000000000000001 /* RemoteDisconnectLifecycleTests.swift in Sources */,
 				835000000000000000000006 /* RemoteInitialCommandBootstrapFailureTests.swift in Sources */,

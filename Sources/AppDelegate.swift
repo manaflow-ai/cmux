@@ -545,6 +545,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
+    /// Owns every main-window registration, recovery, and close phase.
+    let mainWindowLifecycleCoordinator = MainWindowLifecycleCoordinator()
     /// Composition-root lifetime owner shared by every window's font-size
     /// queue. Window coordinators receive this dependency explicitly; no
     /// coordinator reaches back through `AppDelegate.shared`.
@@ -1029,7 +1031,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
-    var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
+    var mainWindowContexts: [ObjectIdentifier: MainWindowContext] {
+        mainWindowLifecycleCoordinator.registeredContextsByLookupKey
+    }
     private var mainWindowControllers: [MainWindowController] = []
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
@@ -1076,6 +1080,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     private var lastSessionAutosaveFingerprint: Int?
     private var lastSessionAutosavePersistedAt: Date = .distantPast
+    private var lastPersistedSessionWindowIds: [UUID] = []
     private var lastTypingActivityAt: TimeInterval = 0
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
@@ -4097,35 +4102,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !includeScrollback else { return nil }
 
         var hasher = Hasher()
-        let contexts = mainWindowContexts.values.sorted { lhs, rhs in
-            lhs.windowId.uuidString < rhs.windowId.uuidString
+        let routes = orderedSessionRouteSnapshots()
+        let routeProjection = MainWindowRouteAutosaveProjection(
+            orderedWindowIds: routes.map(\.windowId),
+            previouslyPersistedWindowIds: lastPersistedSessionWindowIds,
+            maximumFingerprintWindows: SessionPersistencePolicy.maxWindowsPerSnapshot
+        )
+        hasher.combine(mainWindowLifecycleCoordinator.persistenceTopologyRevision)
+        hasher.combine(routeProjection.orderedWindowIds.count)
+
+        // Lifecycle topology is cached by the coordinator. Per-route work here
+        // stays constant-time; deep workspace/panel fingerprints are reserved
+        // for the bounded persisted-window projection below.
+        for route in routes {
+            hasher.combine(route.windowId)
+            hasher.combine(route.workspaceCount)
+            hasher.combine(route.selectedWorkspaceId)
+            hasher.combine(route.hasWindowDock)
         }
-        hasher.combine(contexts.count)
 
-        for context in contexts.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot) {
-            hasher.combine(context.windowId)
-            hasher.combine(
-                context.tabManager.sessionAutosaveFingerprint(
-                    restorableAgentIndex: restorableAgentIndex,
-                    surfaceResumeBindingIndex: surfaceResumeBindingIndex
+        let routesByWindowId = Dictionary(
+            uniqueKeysWithValues: routes.map { ($0.windowId, $0) }
+        )
+        hasher.combine(routeProjection.fingerprintWindowIds.count)
+        for windowId in routeProjection.fingerprintWindowIds {
+            guard let route = routesByWindowId[windowId] else { continue }
+            switch route {
+            case .live(let liveRoute):
+                hasher.combine(
+                    liveRoute.tabManager.sessionAutosaveFingerprint(
+                        restorableAgentIndex: restorableAgentIndex,
+                        surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                    )
                 )
-            )
-            hasher.combine(context.sidebarState.isVisible)
-            hasher.combine(
-                Int(SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth)).rounded())
-            )
+                hasher.combine(liveRoute.sidebar.isVisible)
+                hasher.combine(
+                    Int(
+                        SessionPersistencePolicy.sanitizedSidebarWidth(
+                            Double(liveRoute.sidebar.persistedWidth)
+                        ).rounded()
+                    )
+                )
 
-            switch context.sidebarSelectionState.selection {
-            case .tabs:
-                hasher.combine(0)
-            case .notifications:
-                hasher.combine(1)
-            }
+                switch liveRoute.sidebarSelection.selection {
+                case .tabs:
+                    hasher.combine(0)
+                case .notifications:
+                    hasher.combine(1)
+                }
 
-            if let window = context.window ?? windowForMainWindowId(context.windowId) {
-                Self.hashFrame(window.frame, into: &hasher)
-            } else {
-                hasher.combine(-1)
+                if let window = liveRoute.window {
+                    Self.hashFrame(window.frame, into: &hasher)
+                } else {
+                    hasher.combine(-1)
+                }
+            case .frozen:
+                // Frozen routes are immutable. Their transition increments the
+                // coordinator revision, so repeated autosaves need no deep walk.
+                hasher.combine("frozen")
             }
         }
 
@@ -4189,6 +4223,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             return false
         }
+        if !includeScrollback {
+            lastPersistedSessionWindowIds = snapshot.windows.compactMap(\.windowId)
+        }
 
         let persistedGeometryData = snapshot.windows.first.flatMap { primaryWindow in
             Self.encodedPersistedWindowGeometryData(
@@ -4250,8 +4287,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func debugSeedSessionSnapshotScrollback(charactersPerTerminal: Int) -> [String: Any] {
-        let workspaces = sortedMainWindowContextsForSessionSnapshot().flatMap { context in
-            context.tabManager.tabs.filter { !$0.isRemoteWorkspace }
+        let workspaces = mainWindowRouteSnapshots().flatMap { route in
+            route.tabManager.tabs.filter { !$0.isRemoteWorkspace }
         }
         return SessionSnapshotDebugBenchmark.seedScrollback(
             workspaces: workspaces,
@@ -4594,23 +4631,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> (snapshot: AppSessionSnapshot?, removedCrashDiagnosticState: Bool) {
-        let contexts = sortedMainWindowContextsForSessionSnapshot()
-        guard !contexts.isEmpty else { return (nil, false) }
+        let routes = orderedSessionRouteSnapshots()
+        guard !routes.isEmpty else { return (nil, false) }
         let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
         var windows: [SessionWindowSnapshot] = []
         var removedCrashDiagnosticState = false
         let createdAt = Date().timeIntervalSince1970
-        for context in contexts {
-            let windowSnapshot = sessionWindowSnapshot(
-                for: context,
-                includeScrollback: includeScrollback,
-                restorableAgentIndex: restorableAgentIndex,
-                surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
-            )
-            // A window whose live workspaces are only remote-tmux mirrors needs
-            // live SSH control connections and should not restore as an empty
-            // shell. If local workspaces were dragged in, keep those snapshots.
-            if windowSnapshot.omitsRemoteMirrorOnlyWindow(liveWorkspaces: context.tabManager.tabs) { continue }
+        for route in routes {
+            let windowSnapshot: SessionWindowSnapshot
+            switch route {
+            case .live(let liveRoute):
+                windowSnapshot = sessionWindowSnapshot(
+                    for: liveRoute,
+                    includeScrollback: includeScrollback,
+                    restorableAgentIndex: restorableAgentIndex,
+                    surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
+                )
+                // A window whose live workspaces are only remote-tmux mirrors
+                // needs live SSH control connections and should not restore as
+                // an empty shell. If local workspaces were dragged in, keep it.
+                if windowSnapshot.omitsRemoteMirrorOnlyWindow(
+                    liveWorkspaces: liveRoute.tabManager.tabs
+                ) {
+                    continue
+                }
+            case .frozen(_, let frozenWindowSnapshot):
+                windowSnapshot = frozenWindowSnapshot.respectingScrollbackInclusion(
+                    includeScrollback
+                )
+            }
 
             let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(
                 from: AppSessionSnapshot(
@@ -4636,19 +4685,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return (snapshot, removedCrashDiagnosticState)
     }
 
-    private func sessionWindowSnapshot(
+    func sessionWindowSnapshot(
         for context: MainWindowContext,
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionWindowSnapshot {
-        let tabManagerSnapshot = context.tabManager.sessionSnapshot(
+        sessionWindowSnapshot(
+            for: registeredMainWindowRouteSnapshot(for: context),
+            includeScrollback: includeScrollback,
+            restorableAgentIndex: restorableAgentIndex,
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+        )
+    }
+
+    func sessionWindowSnapshot(
+        for route: MainWindowRouteSnapshot,
+        includeScrollback: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+    ) -> SessionWindowSnapshot {
+        let tabManagerSnapshot = route.tabManager.sessionSnapshot(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
             surfaceResumeBindingIndex: surfaceResumeBindingIndex
         )
 
-        let window = context.window ?? windowForMainWindowId(context.windowId)
+        let window = route.window
         // Fold the live window's current frame into its per-config ring so the
         // saved snapshot always carries the freshest geometry for the current
         // configuration (subject to the capture firewall).
@@ -4656,17 +4719,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             captureWindowConfigFrame(window, reason: "sessionSnapshot")
         }
         return SessionWindowSnapshot(
-            windowId: context.windowId,
+            windowId: route.windowId,
             frame: window.map { SessionRectSnapshot($0.frame) },
             display: displaySnapshot(for: window),
             tabManager: tabManagerSnapshot,
             sidebar: SessionSidebarSnapshot(
-                isVisible: context.sidebarState.isVisible,
-                selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
-                width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
+                isVisible: route.sidebar.isVisible,
+                selection: SessionSidebarSelection(selection: route.sidebarSelection.selection),
+                width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(route.sidebar.persistedWidth))
             ),
-            configFrames: windowConfigFrames[context.windowId]?.entries,
-            dock: context.windowDockSessionSnapshot(includeScrollback: includeScrollback, restorableAgentIndex: restorableAgentIndex, surfaceResumeBindingIndex: surfaceResumeBindingIndex)
+            configFrames: windowConfigFrames[route.windowId]?.entries,
+            dock: route.dock?.sessionSnapshot(
+                includeScrollback: includeScrollback,
+                restorableAgentIndex: restorableAgentIndex,
+                surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            )
         )
     }
 
@@ -4758,7 +4825,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cmuxConfigStore: CmuxConfigStore? = nil
     ) {
         let key = ObjectIdentifier(window)
-        forgetRecoverableMainWindowRoute(windowId: windowId)
         #if DEBUG
         let priorManagerToken = debugManagerToken(self.tabManager)
         #endif
@@ -4831,7 +4897,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 workspaceTerminalFontSizeArbiter:
                     workspaceTerminalFontSizeArbiter
             )
-            mainWindowContexts[key] = context
+            mainWindowLifecycleCoordinator.register(context, lookupKey: key)
             context.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         }
         commandPaletteWindowStore.registerWindow(windowId)
@@ -5880,7 +5946,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func focusMainWindow(windowId: UUID) -> Bool {
-        guard let window = windowForMainWindowId(windowId) else { return false }
+        guard let window = mainWindowRouteSnapshot(windowId: windowId)?.window else { return false }
         let didFocus = mainWindowVisibilityController.focus(window, reason: .focusMainWindow)
         if didFocus {
             publishCmuxWindowLifecycle(name: "window.focused", windowId: windowId, origin: "focus_request")
@@ -6062,24 +6128,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func reindexMainWindowContextIfNeeded(_ context: MainWindowContext, for window: NSWindow) {
         let desiredKey = ObjectIdentifier(window)
-        if mainWindowContexts[desiredKey] === context {
+        if mainWindowLifecycleCoordinator.registeredContext(for: desiredKey) === context {
             context.window = window
             return
         }
 
-        let contextKeys = mainWindowContexts.compactMap { key, value in
-            value === context ? key : nil
-        }
-        for key in contextKeys {
-            mainWindowContexts.removeValue(forKey: key)
-        }
-
-        if let conflicting = mainWindowContexts[desiredKey], conflicting !== context {
+        if let conflicting = mainWindowLifecycleCoordinator.registeredContext(for: desiredKey),
+           conflicting !== context {
             context.window = window
             return
         }
 
-        mainWindowContexts[desiredKey] = context
+        guard mainWindowLifecycleCoordinator.reindex(context, lookupKey: desiredKey) else {
+            return
+        }
         context.window = window
         notifyMainWindowContextsDidChange()
     }
@@ -6121,14 +6183,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func unregisterMainWindowContext(for window: NSWindow) -> MainWindowContext? {
         guard let removed = contextForMainTerminalWindow(window, reindex: false) else { return nil }
+        guard transitionMainWindowContextToClosing(removed, window: window) else { return nil }
         removed.teardownWindowDock()
-        let removedKeys = mainWindowContexts.compactMap { key, value in
-            value === removed ? key : nil
-        }
-        for key in removedKeys {
-            mainWindowContexts.removeValue(forKey: key)
-        }
-        rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
         removeMobileWorkspaceListObserverIfUnused(for: removed.tabManager)
         notifyMainWindowContextsDidChange()
         return removed
@@ -6136,28 +6192,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // Internal (not private): see notifyMainWindowContextsDidChange.
     func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
+        guard transitionMainWindowContextToOrphaned(context) else { return }
         context.teardownWindowDock()
-        let contextKeys = mainWindowContexts.compactMap { key, value in
-            value === context ? key : nil
-        }
-        for key in contextKeys {
-            mainWindowContexts.removeValue(forKey: key)
-        }
-        rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
         removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
         notifyMainWindowContextsDidChange()
 
-        commandPaletteWindowStore.removeWindow(context.windowId)
-
         if tabManager === context.tabManager {
             activateMainWindowContext(Array(mainWindowContexts.values).first { resolvedWindow(for: $0) != nil } ?? (allowWindowlessFallback ? mainWindowContexts.values.first : nil))
-        }
-
-        if let store = notificationStore {
-            store.clearNotifications(forTabId: context.windowId)
-            for tab in context.tabManager.tabs {
-                store.clearNotifications(forTabId: tab.id)
-            }
         }
     }
 
@@ -9117,7 +9158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         controller.onClose = { [weak self, weak controller] in
             guard let self, let controller else { return }
-            let manager = self.tabManagerFor(windowId: windowId)
+            let manager = self.tabManagerForWindowTeardown(windowId: windowId)
             // An explicit close of the window's LAST remote workspace (a tab/session
             // close) kills its remote session(s) — synced with tmux — even though it
             // also closes the app window. A plain window/quit close leaves the marker
@@ -9510,6 +9551,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func captureMainWindowVisibilityRestoreTargetsForApplicationHide() {
         mainWindowVisibilityController.captureHiddenWindowRestoreTargets(windows: mainWindowsForVisibilityController())
+    }
+
+    func mainWindowRemainsInRestoreTopology(_ window: NSWindow) -> Bool {
+        mainWindowVisibilityController.windowRemainsInRestoreTopology(window)
     }
 
     func dismissMainWindowFromWindowChrome(_ window: NSWindow) {
@@ -15783,13 +15828,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         debugDetachedContextWindows.append(detachedWindow)
 
-        let contextKeys = mainWindowContexts.compactMap { key, value in
-            value === context ? key : nil
+        guard mainWindowLifecycleCoordinator.reindex(
+            context,
+            lookupKey: ObjectIdentifier(detachedWindow)
+        ) else {
+            return false
         }
-        for key in contextKeys {
-            mainWindowContexts.removeValue(forKey: key)
-        }
-        mainWindowContexts[ObjectIdentifier(detachedWindow)] = context
         context.window = window
         return true
     }
@@ -17021,23 +17065,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func unregisterMainWindow(_ window: NSWindow) {
+    func unregisterMainWindow(_ window: NSWindow) {
         // Reset cascade point so the next new window appears near the closing
         // window's position, matching upstream Ghostty behavior.
         let frame = window.frame
         lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
         let closingContext = contextForMainTerminalWindow(window, reindex: false)
-        let closingWindowIsCrashDiagnostic = closingContext.map { context in
+        let closingRoute: MainWindowRouteSnapshot?
+        if let closingContext {
+            closingRoute = registeredMainWindowRouteSnapshot(for: closingContext)
+        } else {
+            closingRoute = recoverableMainWindowRouteSnapshotForClose(window)
+        }
+        let closingWindowIsCrashDiagnostic = closingRoute.map { route in
             closeWindowSnapshotPruningCrashDiagnostics(
-                for: context,
+                for: route,
                 includeScrollback: false,
                 restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() ?? .empty
             )
                 .isCrashDiagnostic
         } ?? false
 
-        if let closingContext, !closingWindowIsCrashDiagnostic {
-            recordClosedWindowHistoryIfNeeded(for: closingContext)
+        if let closingRoute, !closingWindowIsCrashDiagnostic {
+            recordClosedWindowHistoryIfNeeded(for: closingRoute)
         }
 
         // Keep geometry available as a fallback for the next window placement,
@@ -17048,20 +17098,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         mainWindowVisibilityController.discardClosedWindow(window)
 
-        guard let removed = unregisterMainWindowContext(for: window) else { return }
-        windowConfigFrames.removeValue(forKey: removed.windowId)
-        publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
-        commandPaletteWindowStore.removeWindow(removed.windowId)
+        guard let closingRoute else { return }
+        if closingContext != nil {
+            guard unregisterMainWindowContext(for: window) != nil else { return }
+        } else {
+            guard transitionRecoverableMainWindowRouteToTeardown(
+                windowId: closingRoute.windowId,
+                window: window
+            ) else {
+                return
+            }
+        }
+        windowConfigFrames.removeValue(forKey: closingRoute.windowId)
+        publishCmuxWindowLifecycle(name: "window.closed", windowId: closingRoute.windowId, origin: "appkit_close")
+        commandPaletteWindowStore.removeWindow(closingRoute.windowId)
 
         // Avoid stale notifications that can no longer be opened once the owning window is gone.
         if let store = notificationStore {
-            store.clearNotifications(forTabId: removed.windowId)
-            for tab in removed.tabManager.tabs {
+            store.clearNotifications(forTabId: closingRoute.windowId)
+            for tab in closingRoute.tabManager.tabs {
                 store.clearNotifications(forTabId: tab.id)
             }
         }
 
-        if tabManager === removed.tabManager {
+        if tabManager === closingRoute.tabManager {
             // Repoint "active" pointers to any remaining main terminal window.
             let nextContext: MainWindowContext? = {
                 if let keyWindow = shortcutRoutingKeyWindow,
@@ -17073,6 +17133,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             activateMainWindowContext(nextContext)
         }
+
+        // Terminal-backed routes retire from the registry callback after their
+        // surfaces finish closing. Browser-only windows have no such callback,
+        // so finalize those closing records synchronously.
+        retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(
+            reason: "window.finalization"
+        )
 
         // During app termination we already persisted a full snapshot (with scrollback)
         // in applicationShouldTerminate/applicationWillTerminate. Saving again here would
@@ -17087,12 +17154,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func closeWindowSnapshotPruningCrashDiagnostics(
-        for context: MainWindowContext,
+        for route: MainWindowRouteSnapshot,
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex
     ) -> (snapshot: SessionWindowSnapshot?, isCrashDiagnostic: Bool) {
         let windowSnapshot = sessionWindowSnapshot(
-            for: context,
+            for: route,
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex
         )
@@ -17109,8 +17176,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func recordClosedWindowHistoryIfNeeded(for context: MainWindowContext) {
-        let shouldSuppressClosedWindowHistory = closedWindowHistorySuppressedWindowIds.remove(context.windowId) != nil
+    private func recordClosedWindowHistoryIfNeeded(for route: MainWindowRouteSnapshot) {
+        let shouldSuppressClosedWindowHistory = closedWindowHistorySuppressedWindowIds.remove(route.windowId) != nil
         guard !shouldSuppressClosedWindowHistory,
               !isTerminatingApp,
               !isApplyingSessionRestore else {
@@ -17119,7 +17186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let restorableAgentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
             ?? RestorableAgentSessionIndex.load()
         guard let snapshot = closeWindowSnapshotPruningCrashDiagnostics(
-            for: context,
+            for: route,
             includeScrollback: true,
             restorableAgentIndex: restorableAgentIndex
         ).snapshot else {
@@ -17129,7 +17196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         ClosedItemHistoryStore.shared.push(.window(ClosedWindowHistoryEntry(
-            windowId: context.windowId,
+            windowId: route.windowId,
             snapshot: snapshot,
             workspaceIds: snapshot.tabManager.workspaces.compactMap(\.workspaceId)
         )))
@@ -17142,7 +17209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func recordClosedWindowHistoryForTesting(windowId: UUID) {
         guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else { return }
-        recordClosedWindowHistoryIfNeeded(for: context)
+        recordClosedWindowHistoryIfNeeded(for: registeredMainWindowRouteSnapshot(for: context))
     }
 
     func isClosedWindowHistorySuppressedForTesting(windowId: UUID) -> Bool {

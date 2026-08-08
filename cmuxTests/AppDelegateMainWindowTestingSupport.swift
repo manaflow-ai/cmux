@@ -64,7 +64,7 @@ extension AppDelegate {
         fileExplorerState: FileExplorerState? = nil
     ) -> UUID {
         tabManager.windowId = windowId
-        mainWindowContexts[ObjectIdentifier(tabManager)] = MainWindowContext(
+        let context = MainWindowContext(
             windowId: windowId,
             tabManager: tabManager,
             sidebarState: SidebarState(),
@@ -74,6 +74,10 @@ extension AppDelegate {
             window: nil,
             workspaceTerminalFontSizeArbiter:
                 workspaceTerminalFontSizeArbiter
+        )
+        mainWindowLifecycleCoordinator.register(
+            context,
+            lookupKey: ObjectIdentifier(tabManager)
         )
         // Context-based tests exercise observer pipelines without a live phone
         // subscriber; force presence on so the graph attaches (pre-gate
@@ -98,7 +102,21 @@ extension AppDelegate {
         let previousActiveBelongsToRemovedWindow = previousActive.map { active in
             mainWindowContexts.values.contains { $0.windowId == windowId && $0.tabManager === active }
         } ?? false
-        mainWindowContexts.values.filter { $0.windowId == windowId }.forEach { discardOrphanedMainWindowContext($0, allowWindowlessFallback: true) }
+        let contexts = mainWindowContexts.values.filter { $0.windowId == windowId }
+        guard !contexts.isEmpty else {
+            forgetRecoverableMainWindowRoute(windowId: windowId)
+            if !previousActiveBelongsToRemovedWindow {
+                TerminalController.shared.setActiveTabManager(previousActive)
+            }
+            return
+        }
+        let hasWindowBackedContext = contexts.contains { $0.window != nil }
+        contexts.forEach {
+            discardOrphanedMainWindowContext($0, allowWindowlessFallback: true)
+        }
+        if !hasWindowBackedContext {
+            forgetRecoverableMainWindowRoute(windowId: windowId)
+        }
         if !previousActiveBelongsToRemovedWindow {
             TerminalController.shared.setActiveTabManager(previousActive)
         }
