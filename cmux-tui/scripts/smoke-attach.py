@@ -585,20 +585,23 @@ try:
     live_screen = rpc({"id": 3, "cmd": "read-screen", "surface": surface_id})
     assert "live-after-reattach" in live_screen["data"]["text"], live_screen["data"]["text"]
 
-    # Resize churn while an attach mirror is live must not strand zsh's
-    # reverse-video partial-line marker in the final client frame.
-    storm_start = len(c2.output)
+    # Create split surfaces while one mirror is live, then detach before that
+    # client consumes the resulting redraws. A fresh attach must converge from
+    # replay alone, including bash's macOS default-shell banner and prompt.
     for i in range(4):
         ws = rpc({"id": 100 + i, "cmd": "list-workspaces"})
         pane = ws["data"]["workspaces"][0]["screens"][0]["panes"][0]["id"]
         direction = "right" if i % 2 == 0 else "down"
         split = rpc({"id": 110 + i, "cmd": "split", "pane": pane, "dir": direction})
         assert split["ok"], split
-        time.sleep(0.03)
-        c2.drain(0.2)
+    c2.detach()
+    c2 = Client()
+    storm_start = 0
     c2.drain_until_quiet()
     frame = render_client_frame(c2.output)
     assert not reverse_percent_cells(frame), c2.output[storm_start:][-2000:]
+    assert_client_matches_server(c2)
+    print("split storm detach + reattach converged without repaint")
 
     repaint = base64.b64encode(b"\x0c").decode()
     for surface in active_surfaces():
