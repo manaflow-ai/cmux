@@ -1924,6 +1924,19 @@ mod unix {
     pub fn load_terminal_host_records(
         root: &Path,
     ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
+        load_terminal_host_records_with_policy(root, false)
+    }
+
+    pub(crate) fn load_terminal_host_records_for_reset(
+        root: &Path,
+    ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
+        load_terminal_host_records_with_policy(root, true)
+    }
+
+    fn load_terminal_host_records_with_policy(
+        root: &Path,
+        fail_closed: bool,
+    ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
         let mut records = Vec::new();
         let mut identities = HashSet::new();
         let entries = match fs::read_dir(root) {
@@ -1939,14 +1952,33 @@ mod unix {
             }
             let bytes = match fs::read(&path) {
                 Ok(bytes) => bytes,
-                Err(_) => continue,
+                Err(_) if !fail_closed => continue,
+                Err(error) => {
+                    return Err(error)
+                        .with_context(|| format!("read terminal-host record {}", path.display()));
+                }
             };
-            let Ok(record) = serde_json::from_slice::<TerminalHostRecord>(&bytes) else {
+            let record = match serde_json::from_slice::<TerminalHostRecord>(&bytes) {
+                Ok(record) => record,
+                Err(_) if !fail_closed => continue,
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("decode terminal-host record {}", path.display())
+                    });
+                }
+            };
+            if let Err(error) = validate_terminal_host_record(&path, &record) {
+                if fail_closed {
+                    return Err(error).with_context(|| {
+                        format!("validate terminal-host record {}", path.display())
+                    });
+                }
                 continue;
-            };
-            if validate_terminal_host_record(&path, &record).is_err()
-                || !identities.insert((record.terminal_id.clone(), record.incarnation.clone()))
-            {
+            }
+            if !identities.insert((record.terminal_id.clone(), record.incarnation.clone())) {
+                if fail_closed {
+                    anyhow::bail!("duplicate terminal-host identity in {}", path.display());
+                }
                 continue;
             }
             records.push((path, record));
@@ -6932,7 +6964,7 @@ mod unix {
 pub(crate) use unix::{
     ControlResponses, DecodedHostResize, DeferredCellPixelResolution,
     acquire_terminal_host_reset_lock, adopt_terminal_host_with_kitty_limits,
-    decode_host_resize_payload_for_version,
+    decode_host_resize_payload_for_version, load_terminal_host_records_for_reset,
 };
 #[cfg(unix)]
 pub use unix::{

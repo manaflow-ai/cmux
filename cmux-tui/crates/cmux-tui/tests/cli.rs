@@ -743,6 +743,9 @@ fn session_reset_state_refuses_live_terminal_host_state() {
             "--state",
         ])
         .arg(&state)
+        .env("LC_ALL", "C")
+        .env("LC_MESSAGES", "C")
+        .env("LANG", "C")
         .env_remove("CMUX_TUI_SOCKET")
         .output()
         .unwrap();

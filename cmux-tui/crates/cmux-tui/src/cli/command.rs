@@ -2308,6 +2308,15 @@ fn reset_failure_advice(error: &anyhow::Error) -> ResetFailureAdvice {
         }
     } else if reset_error_starts_with(
         error,
+        &["safe saved-state reset is not supported on this platform"],
+    ) {
+        ResetFailureAdvice {
+            code: "session.reset_state.unsupported",
+            reason: messages.reason_reset_unsupported,
+            recovery: messages.recovery_reset_unsupported,
+        }
+    } else if reset_error_starts_with(
+        error,
         &[
             "workspace state root is not a directory",
             "workspace session state path is not a directory",
@@ -2418,6 +2427,15 @@ mod tests {
         ));
         assert_eq!(advice.code, "session.reset_state.state_too_large");
         assert!(advice.recovery.contains("reduce the scoped saved state"), "{}", advice.recovery);
+    }
+
+    #[test]
+    fn reset_failure_advice_classifies_unsupported_checked_deletion() {
+        let advice = reset_failure_advice(&anyhow::anyhow!(
+            "safe saved-state reset is not supported on this platform because cmux cannot verify saved state during deletion"
+        ));
+        assert_eq!(advice.code, "session.reset_state.unsupported");
+        assert!(advice.recovery.contains("supported platform build"), "{}", advice.recovery);
     }
 
     #[test]

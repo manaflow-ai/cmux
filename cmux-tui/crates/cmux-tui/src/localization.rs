@@ -121,6 +121,7 @@ pub(crate) struct SessionMessages {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct SessionResetMessages {
+    pub help: &'static str,
     pub exact_name_required: &'static str,
     pub non_empty_name_required: &'static str,
     pub no_state_root: &'static str,
@@ -133,6 +134,8 @@ pub(crate) struct SessionResetMessages {
     pub recovery_terminal_hosts_live: &'static str,
     pub reason_terminal_hosts_unsupported: &'static str,
     pub recovery_terminal_hosts_unsupported: &'static str,
+    pub reason_reset_unsupported: &'static str,
+    pub recovery_reset_unsupported: &'static str,
     pub reason_invalid_state_path: &'static str,
     pub recovery_invalid_state_path: &'static str,
     pub reason_state_changed: &'static str,
@@ -980,6 +983,7 @@ static ENGLISH: Catalog = Catalog {
         operation_canceled: "Session operation was canceled",
     },
     session_reset: SessionResetMessages {
+        help: "  cmux session <name> reset-state [--force --confirm-reset <token>] [--state <path>]\n    Preview or confirm a scoped saved-state reset",
         exact_name_required: "session reset-state requires an exact session name",
         non_empty_name_required: "session reset-state requires a non-empty name",
         no_state_root: "cannot determine durable state directory; pass --state <path>",
@@ -992,6 +996,8 @@ static ENGLISH: Catalog = Catalog {
         recovery_terminal_hosts_live: "reopen this session with a compatible cmux and stop it cleanly before retrying the reset",
         reason_terminal_hosts_unsupported: "terminal-host liveness cannot be verified on this platform",
         recovery_terminal_hosts_unsupported: "use a platform build that can verify terminal-host liveness, or start a separate session",
+        reason_reset_unsupported: "safe saved-state reset is not supported on this platform",
+        recovery_reset_unsupported: "use a supported platform build to reset this saved state, or start a separate session",
         reason_invalid_state_path: "the state path is not a directory",
         recovery_invalid_state_path: "rerun the preview with the intended --state path",
         reason_state_changed: "the scoped session state changed during reset",
@@ -1492,6 +1498,7 @@ static JAPANESE: Catalog = Catalog {
         operation_canceled: "セッション操作はキャンセルされました",
     },
     session_reset: SessionResetMessages {
+        help: "  cmux session <name> reset-state [--force --confirm-reset <token>] [--state <path>]\n    スコープ付き保存状態のリセットをプレビューまたは確認実行",
         exact_name_required: "session reset-state には正確なセッション名が必要です",
         non_empty_name_required: "session reset-state には空でない名前が必要です",
         no_state_root: "永続状態ディレクトリを特定できません。--state <path> を指定してください",
@@ -1504,6 +1511,8 @@ static JAPANESE: Catalog = Catalog {
         recovery_terminal_hosts_live: "互換性のある cmux でこのセッションを再度開き、正常に停止してからリセットを再試行してください",
         reason_terminal_hosts_unsupported: "このプラットフォームではターミナルホストの生存確認ができません",
         recovery_terminal_hosts_unsupported: "ターミナルホストの生存確認に対応したプラットフォームのビルドを使うか、別のセッションを開始してください",
+        reason_reset_unsupported: "このプラットフォームでは安全な保存状態リセットに対応していません",
+        recovery_reset_unsupported: "対応プラットフォームのビルドで保存状態をリセットするか、別のセッションを開始してください",
         reason_invalid_state_path: "状態パスがディレクトリではありません",
         recovery_invalid_state_path: "意図した --state パスでプレビューを再実行してください",
         reason_state_changed: "スコープ付きセッション状態がリセット中に変更されました",

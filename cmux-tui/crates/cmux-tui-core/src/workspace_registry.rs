@@ -1535,10 +1535,16 @@ fn reset_dir_child_names(
     }
     let mut names = Vec::new();
     loop {
+        set_reset_readdir_errno(0);
         // SAFETY: stream owns a valid DIR pointer for the duration of this loop.
         let entry = unsafe { libc::readdir(stream.0) };
         if entry.is_null() {
-            break;
+            let errno = reset_readdir_errno();
+            if errno == 0 {
+                break;
+            }
+            return Err(std::io::Error::from_raw_os_error(errno))
+                .with_context(|| format!("read {label} {}", display_path.display()));
         }
         // SAFETY: d_name is a nul-terminated C string for a live dirent.
         let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) };
@@ -1549,6 +1555,88 @@ fn reset_dir_child_names(
         names.push(std::ffi::OsStr::from_bytes(name).to_os_string());
     }
     Ok(names)
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn set_reset_readdir_errno(value: libc::c_int) {
+    // SAFETY: libc returns this thread's writable errno location.
+    unsafe { *libc::__errno_location() = value };
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn reset_readdir_errno() -> libc::c_int {
+    // SAFETY: libc returns this thread's readable errno location.
+    unsafe { *libc::__errno_location() }
+}
+
+#[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "dragonfly"))]
+fn set_reset_readdir_errno(value: libc::c_int) {
+    // SAFETY: libc returns this thread's writable errno location.
+    unsafe { *libc::__error() = value };
+}
+
+#[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "dragonfly"))]
+fn reset_readdir_errno() -> libc::c_int {
+    // SAFETY: libc returns this thread's readable errno location.
+    unsafe { *libc::__error() }
+}
+
+#[cfg(any(target_os = "netbsd", target_os = "openbsd"))]
+fn set_reset_readdir_errno(value: libc::c_int) {
+    // SAFETY: libc returns this thread's writable errno location.
+    unsafe { *libc::__errno() = value };
+}
+
+#[cfg(any(target_os = "netbsd", target_os = "openbsd"))]
+fn reset_readdir_errno() -> libc::c_int {
+    // SAFETY: libc returns this thread's readable errno location.
+    unsafe { *libc::__errno() }
+}
+
+#[cfg(any(target_os = "solaris", target_os = "illumos"))]
+fn set_reset_readdir_errno(value: libc::c_int) {
+    // SAFETY: libc returns this thread's writable errno location.
+    unsafe { *libc::___errno() = value };
+}
+
+#[cfg(any(target_os = "solaris", target_os = "illumos"))]
+fn reset_readdir_errno() -> libc::c_int {
+    // SAFETY: libc returns this thread's readable errno location.
+    unsafe { *libc::___errno() }
+}
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "solaris",
+        target_os = "illumos"
+    ))
+))]
+fn set_reset_readdir_errno(_value: libc::c_int) {}
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "solaris",
+        target_os = "illumos"
+    ))
+))]
+fn reset_readdir_errno() -> libc::c_int {
+    0
 }
 
 #[cfg(unix)]
@@ -1691,7 +1779,7 @@ fn reset_rename_child_exclusive(
     }
 }
 
-#[cfg(all(unix, not(any(target_os = "ios", target_os = "macos"))))]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn reset_rename_child_exclusive(
     parent_fd: std::os::fd::RawFd,
     from: &std::ffi::OsStr,
@@ -1699,16 +1787,20 @@ fn reset_rename_child_exclusive(
     from_display: &Path,
     to_display: &Path,
 ) -> anyhow::Result<()> {
-    if reset_child_stat(parent_fd, to, to_display).is_ok() {
-        return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists)).with_context(|| {
-            format!("private reset path already exists: {}", to_display.display())
-        });
-    }
     let from = reset_child_c_string(from, from_display)?;
     let to = reset_child_c_string(to, to_display)?;
     loop {
-        // SAFETY: renameat reads nul-terminated names relative to a valid parent directory fd.
-        let result = unsafe { libc::renameat(parent_fd, from.as_ptr(), parent_fd, to.as_ptr()) };
+        // SAFETY: renameat2 reads nul-terminated names relative to a valid parent directory fd.
+        let result = unsafe {
+            libc::syscall(
+                libc::SYS_renameat2,
+                parent_fd,
+                from.as_ptr(),
+                parent_fd,
+                to.as_ptr(),
+                libc::RENAME_NOREPLACE,
+            )
+        };
         if result == 0 {
             return Ok(());
         }
@@ -1724,6 +1816,20 @@ fn reset_rename_child_exclusive(
             )
         });
     }
+}
+
+#[cfg(all(
+    unix,
+    not(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))
+))]
+fn reset_rename_child_exclusive(
+    _parent_fd: std::os::fd::RawFd,
+    _from: &std::ffi::OsStr,
+    _to: &std::ffi::OsStr,
+    from_display: &Path,
+    _to_display: &Path,
+) -> anyhow::Result<()> {
+    unsupported_checked_reset_deletion(from_display, "saved state")
 }
 
 #[cfg(unix)]
@@ -1825,18 +1931,26 @@ fn ensure_checked_reset_deletion_supported(root: &Path) -> anyhow::Result<()> {
             return unsupported_checked_reset_deletion(root, "saved state");
         }
     }
-    #[cfg(unix)]
+    #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
     {
         let _ = root;
         Ok(())
     }
-    #[cfg(not(unix))]
+    #[cfg(not(any(
+        target_os = "ios",
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "android"
+    )))]
     {
         unsupported_checked_reset_deletion(root, "saved state")
     }
 }
 
-#[cfg(any(not(unix), test))]
+#[cfg(any(
+    test,
+    not(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))
+))]
 fn unsupported_checked_reset_deletion(path: &Path, label: &str) -> anyhow::Result<()> {
     anyhow::bail!(
         "safe saved-state reset is not supported on this platform because cmux cannot verify {label} during deletion: {}",
@@ -1986,15 +2100,20 @@ impl WorkspaceRegistry {
     }
 
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
+        let session_dir = root.join(session_storage_component(session_name));
+        let db_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
+        if db_path.is_file()
+            && let Some(error) = preflight_unsupported_schema(&db_path)
+        {
+            return Err(error.into());
+        }
         let session_guard = acquire_session_guard(root, session_name)?;
         let machine_id = load_or_create_machine_id(root)?;
         let resource_effect_pepper = load_or_create_resource_effect_pepper(root)?;
-        let session_dir = root.join(session_storage_component(session_name));
         fs::create_dir_all(&session_dir).with_context(|| {
             format!("create workspace state directory {}", session_dir.display())
         })?;
         platform::restrict_directory(&session_dir)?;
-        let db_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
         if db_path.is_file()
             && let Some(error) = preflight_unsupported_schema(&db_path)
         {
@@ -4402,24 +4521,29 @@ fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<Sess
 
 fn acquire_existing_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
     platform::restrict_directory(root)?;
-    acquire_session_guard_from_private_dir(root, session_name)
+    acquire_session_guard_from_private_dir(root, session_name, false)
 }
 
 fn acquire_existing_session_reset_guard(
     root: &Path,
     session_name: &str,
 ) -> anyhow::Result<SessionLease> {
-    acquire_session_guard_from_private_dir(root, session_name)
+    acquire_session_guard_from_private_dir(root, session_name, true)
 }
 
 fn acquire_session_guard_from_private_dir(
     root: &Path,
     session_name: &str,
+    bounded: bool,
 ) -> anyhow::Result<SessionLease> {
     let lock_dir = prepare_session_guard_dir(root)?;
-    let _coordinator =
-        SessionLease::acquire_coordinator(&session_guard_coordinator_path(&lock_dir))
-            .with_context(|| format!("coordinate session lock directory {}", lock_dir.display()))?;
+    let coordinator_path = session_guard_coordinator_path(&lock_dir);
+    let _coordinator = if bounded {
+        SessionLease::acquire_coordinator(&coordinator_path)
+    } else {
+        SessionLease::acquire_coordinator_blocking(&coordinator_path)
+    }
+    .with_context(|| format!("coordinate session lock directory {}", lock_dir.display()))?;
     let lock_path = session_guard_lock_path(&lock_dir, session_name);
     SessionLease::acquire(&lock_path)
 }
@@ -4464,7 +4588,8 @@ fn prepare_terminal_host_root_for_reset(
 ) -> anyhow::Result<Vec<TerminalHostLiveMarkerLease>> {
     use std::os::unix::fs::MetadataExt;
 
-    let records = crate::terminal_host_runtime::load_terminal_host_records(root)?;
+    let records = crate::terminal_host_runtime::load_terminal_host_records_for_reset(root)
+        .context("terminal host state still has live or unverified hosts")?;
     let expected_uid = fs::metadata(root)?.uid();
     let mut live_marker_leases = Vec::new();
     let expected_live_markers = records
@@ -4866,6 +4991,16 @@ impl SessionLease {
                 }
             }
         }
+        Ok(Self { file, path: path.to_path_buf() })
+    }
+
+    fn acquire_coordinator_blocking(path: &Path) -> anyhow::Result<Self> {
+        let file = open_session_lock_file(path)?;
+        restrict_session_lock_file(path, &file)?;
+        validate_session_lock_file(path, &file)?;
+        FileExt::lock(&file)
+            .with_context(|| format!("lock workspace session coordinator: {}", path.display()))?;
+        validate_session_lock_file(path, &file)?;
         Ok(Self { file, path: path.to_path_buf() })
     }
 }

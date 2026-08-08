@@ -685,6 +685,32 @@ fn reset_rejects_unpublished_terminal_host_publication() {
 
 #[cfg(unix)]
 #[test]
+fn reset_refuses_unparseable_terminal_host_record() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_root("reset-refuses-unparseable-terminal-host-record");
+    let session = "reset-refuses-unparseable-terminal-host-record";
+    drop(WorkspaceRegistry::open(&root, session).unwrap());
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    crate::terminal_host_runtime::prepare_terminal_host_publication_lock(&host_root).unwrap();
+    let record_path = host_root.join(format!("{TERMINAL_ONE}.json"));
+    fs::write(&record_path, b"{").unwrap();
+
+    let preview = resetter.preview(session).unwrap();
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(format!("{error:#}").contains("live or unverified hosts"), "{error:#}");
+    assert!(session_dir.exists(), "reset removed the registry before host verification");
+    assert!(record_path.exists(), "reset removed an unverified terminal-host record");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
@@ -885,6 +911,49 @@ fn reset_private_rename_rejects_late_terminal_host_file() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_exclusive_rename_preserves_an_existing_private_target() {
+    use std::ffi::OsStr;
+    use std::os::fd::AsRawFd;
+
+    let root = temp_root("reset-exclusive-rename-existing-target");
+    fs::create_dir_all(&root).unwrap();
+    let source = root.join("source");
+    let target = root.join("target");
+    fs::write(&source, b"source").unwrap();
+    fs::write(&target, b"target").unwrap();
+    let directory = File::open(&root).unwrap();
+
+    let error = reset_rename_child_exclusive(
+        directory.as_raw_fd(),
+        OsStr::new("source"),
+        OsStr::new("target"),
+        &source,
+        &target,
+    )
+    .unwrap_err();
+
+    assert!(format!("{error:#}").contains("move reset path"));
+    assert_eq!(fs::read(&source).unwrap(), b"source");
+    assert_eq!(fs::read(&target).unwrap(), b"target");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_directory_scan_clears_stale_errno_before_readdir() {
+    let root = temp_root("reset-readdir-clears-errno");
+    fs::create_dir_all(&root).unwrap();
+    let directory = File::open(&root).unwrap();
+    set_reset_readdir_errno(libc::EIO);
+
+    let names = reset_dir_child_names(&directory, &root, "saved state").unwrap();
+
+    assert!(names.is_empty());
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn session_guard_rejects_symlinked_lock_directory() {
@@ -905,14 +974,17 @@ fn session_guard_rejects_symlinked_lock_directory() {
 }
 
 #[test]
-fn session_guard_coordinator_busy_fails_without_waiting_forever() {
+fn reset_session_guard_coordinator_busy_fails_without_waiting_forever() {
     let root = temp_root("session-guard-coordinator-busy");
     fs::create_dir_all(&root).unwrap();
     let lock_dir = prepare_session_guard_dir(&root).unwrap();
     let _held = SessionLease::acquire(&session_guard_coordinator_path(&lock_dir)).unwrap();
     let started = std::time::Instant::now();
 
-    let error = WorkspaceRegistry::open(&root, "blocked-by-coordinator").unwrap_err();
+    let error = match acquire_existing_session_reset_guard(&root, "blocked-by-coordinator") {
+        Ok(_) => panic!("reset acquired a busy session coordinator"),
+        Err(error) => error,
+    };
 
     assert!(started.elapsed() < std::time::Duration::from_secs(1));
     assert!(format!("{error:#}").contains("workspace session coordinator is busy"));
