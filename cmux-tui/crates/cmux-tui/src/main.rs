@@ -2189,6 +2189,23 @@ mod tests {
         assert!(applied.get());
     }
 
+    #[test]
+    fn local_owner_reload_subscription_ignores_unrelated_event_overflow() {
+        let mux = Mux::new("owner-reload-overflow", SurfaceOptions::default());
+        let events = local_owner_reload_events(&mux);
+
+        for surface in 0..=4_096 {
+            mux.emit(cmux_tui_core::MuxEvent::Bell(surface));
+        }
+        mux.emit(cmux_tui_core::MuxEvent::ConfigReloadRequested);
+
+        assert!(matches!(
+            events.recv().unwrap(),
+            cmux_tui_core::MuxEvent::ConfigReloadRequested
+        ));
+        assert!(!events.overflowed());
+    }
+
     #[cfg(windows)]
     #[test]
     fn recovery_commands_identify_the_powershell_dialect() {
