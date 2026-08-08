@@ -37,6 +37,7 @@ class WrapperResult:
     launch_observed: bool
     hermes_home: str
     original_tmpdir: str
+    tui_tmpdir_cleaned_before_teardown: bool | None
     profile_homes: dict[str, str]
 
 
@@ -87,6 +88,8 @@ def run_wrapper(
     active_profile: str | None = None,
     profile_names: tuple[str, ...] = (),
     tui_session_ids: tuple[str, ...] = (),
+    tui_multiple_active_files: bool = False,
+    expected_cmux_call_count: int | None = None,
 ) -> WrapperResult:
     with tempfile.TemporaryDirectory(prefix="cmux-hermes-wrapper-test-") as td:
         tmp = Path(td)
@@ -156,8 +159,15 @@ printf '%s\\0' "$@" >> "$FAKE_REAL_ARGS_LOG"
   printf 'REAL_PID=%s\\n' "$$"
 } > "$FAKE_REAL_ENV_LOG"
 if [[ -n "${FAKE_TUI_SESSION_IDS:-}" ]]; then
-  active_session_file="$TMPDIR/hermes-tui-active-session-fake.json"
+  # Collapse Hermes's Python launcher and its TUI child into this fake: the
+  # launcher creates the tempfile, then passes its exact path to the child.
+  active_session_file="$TMPDIR/hermes-tui-active-session-$$.json"
+  export HERMES_TUI_ACTIVE_SESSION_FILE="$active_session_file"
+  printf 'HERMES_TUI_ACTIVE_SESSION_FILE=%s\n' "$HERMES_TUI_ACTIVE_SESSION_FILE" >> "$FAKE_REAL_ENV_LOG"
   : > "$active_session_file"
+  if [[ "${FAKE_TUI_MULTIPLE_ACTIVE_FILES:-0}" == "1" ]]; then
+    : > "$TMPDIR/hermes-tui-active-session-extra.json"
+  fi
   IFS=',' read -r -a fake_tui_session_ids <<< "$FAKE_TUI_SESSION_IDS"
   for fake_tui_session_id in "${fake_tui_session_ids[@]}"; do
     printf '{"session_id":"%s"}\\n' "$fake_tui_session_id" > "$active_session_file"
@@ -217,6 +227,7 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
             env["FAKE_TUI_SESSION_IDS"] = ",".join(tui_session_ids)
         else:
             env.pop("FAKE_TUI_SESSION_IDS", None)
+        env["FAKE_TUI_MULTIPLE_ACTIVE_FILES"] = "1" if tui_multiple_active_files else "0"
         if in_cmux:
             env["CMUX_SURFACE_ID"] = "11111111-1111-1111-1111-111111111111"
             env["CMUX_WORKSPACE_ID"] = "22222222-2222-2222-2222-222222222222"
@@ -259,13 +270,25 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
         if deadline_exceeded:
             stderr = f"{stderr.strip()}\nwrapper execution deadline exceeded".strip()
 
+        tui_tmpdir_cleaned_before_teardown: bool | None = None
         if tui_session_ids:
             lifecycle_deadline = time.monotonic() + 2
-            expected_call_count = len(tui_session_ids) + 2
+            expected_call_count = expected_cmux_call_count or len(tui_session_ids) + 2
             while time.monotonic() < lifecycle_deadline:
                 if len(read_calls(cmux_calls_log)) >= expected_call_count:
                     break
                 time.sleep(0.01)
+            if real_env_log.exists():
+                hermes_tmpdir = read_environment(real_env_log).get("TMPDIR")
+                while (
+                    hermes_tmpdir
+                    and Path(hermes_tmpdir).exists()
+                    and time.monotonic() < lifecycle_deadline
+                ):
+                    time.sleep(0.01)
+                tui_tmpdir_cleaned_before_teardown = bool(hermes_tmpdir) and not Path(
+                    hermes_tmpdir
+                ).exists()
 
         return WrapperResult(
             returncode=proc.returncode,
@@ -283,6 +306,7 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
             launch_observed=launch_observed,
             hermes_home=str(hermes_home),
             original_tmpdir=str(original_tmpdir),
+            tui_tmpdir_cleaned_before_teardown=tui_tmpdir_cleaned_before_teardown,
             profile_homes={name: str(path) for name, path in profile_homes.items()},
         )
 
@@ -398,17 +422,81 @@ def test_tui_active_session_file_bridges_lifecycle(failures: list[str]) -> None:
         expect(payloads == expected_events, f"TUI bridge: unexpected lifecycle payloads: {payloads}", failures)
 
     hermes_tmpdir = result.real_environment.get("TMPDIR")
+    active_session_file = result.real_environment.get("HERMES_TUI_ACTIVE_SESSION_FILE")
     expect(
         hermes_tmpdir not in (None, "__UNSET__", result.original_tmpdir),
         f"TUI bridge: Hermes did not receive an invocation-private TMPDIR: {result.real_environment}",
         failures,
     )
+    expect(
+        bool(active_session_file)
+        and Path(active_session_file).parent == Path(hermes_tmpdir or "")
+        and Path(active_session_file).name.startswith("hermes-tui-active-session-")
+        and Path(active_session_file).suffix == ".json",
+        f"TUI bridge: fake launcher did not pass Hermes's active-session file contract: {result.real_environment}",
+        failures,
+    )
     if hermes_tmpdir not in (None, "__UNSET__", result.original_tmpdir):
         expect(
-            not Path(hermes_tmpdir).exists(),
+            result.tui_tmpdir_cleaned_before_teardown is True,
             f"TUI bridge: invocation-private TMPDIR was not cleaned up: {hermes_tmpdir}",
             failures,
         )
+
+
+def test_tui_bridge_fails_closed_on_untrusted_session_files(failures: list[str]) -> None:
+    cases = (
+        (
+            "invalid session ID",
+            {"tui_session_ids": ("../../not-a-hermes-session",)},
+        ),
+        (
+            "multiple active files",
+            {
+                "tui_session_ids": ("20260807_171025_620d3a",),
+                "tui_multiple_active_files": True,
+            },
+        ),
+    )
+    for label, kwargs in cases:
+        result = run_wrapper(
+            ["--tui"],
+            expected_cmux_call_count=1,
+            **kwargs,
+        )
+        expected_install = [
+            "--socket",
+            result.socket_path,
+            "hooks",
+            "hermes-agent",
+            "install",
+            "--yes",
+        ]
+        expect(
+            result.cmux_calls == [expected_install],
+            f"TUI bridge {label}: untrusted file emitted lifecycle calls: {result.cmux_calls}",
+            failures,
+        )
+        expect(
+            result.cmux_payloads == [""],
+            f"TUI bridge {label}: untrusted file emitted lifecycle payloads: {result.cmux_payloads}",
+            failures,
+        )
+        hermes_tmpdir = result.real_environment.get("TMPDIR")
+        expect(
+            bool(hermes_tmpdir) and result.tui_tmpdir_cleaned_before_teardown is True,
+            f"TUI bridge {label}: invocation-private TMPDIR was not cleaned up: {hermes_tmpdir}",
+            failures,
+        )
+
+
+def test_explicit_classic_cli_skips_tui_watcher(failures: list[str]) -> None:
+    result = run_wrapper(["--cli"])
+    expect(
+        result.real_environment.get("TMPDIR") == result.original_tmpdir,
+        f"classic CLI: wrapper unexpectedly replaced TMPDIR: {result.real_environment}",
+        failures,
+    )
 
 
 def test_profile_scoped_hook_install(failures: list[str]) -> None:
@@ -569,6 +657,8 @@ def main() -> int:
     else:
         test_session_entrypoints(failures)
         test_tui_active_session_file_bridges_lifecycle(failures)
+        test_tui_bridge_fails_closed_on_untrusted_session_files(failures)
+        test_explicit_classic_cli_skips_tui_watcher(failures)
         test_profile_scoped_hook_install(failures)
         test_administrative_entrypoints_bypass_install(failures)
         test_administrative_passthrough_strips_shim_path(failures)

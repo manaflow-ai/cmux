@@ -3,9 +3,9 @@
 #
 # A per-surface `hermes` shim routes here. Interactive launches idempotently
 # install cmux's lifecycle hooks and first-use consent approvals, then exec the
-# real Hermes binary unchanged. Hermes hook subprocesses inherit this process's
-# cmux environment, so one persistent hook definition routes to the correct
-# workspace, surface, socket, and tagged app for every launch.
+# real Hermes binary unchanged. A private TMPDIR watcher also bridges the TUI's
+# authoritative active-session file because its fresh Python gateway process
+# cannot inherit the launcher's process-local hook registry.
 #
 # Deliberately no `set -e`/`set -u`: hook setup is best-effort and must never
 # prevent the user's Hermes executable from starting.
@@ -152,6 +152,235 @@ run_hermes_hook_installer() {
             exit(($? & 127) ? 128 + ($? & 127) : $? >> 8);
         ' "$timeout_seconds" "$@"
 }
+
+hermes_tui_session_id_is_valid() {
+    [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]]
+}
+
+CMUX_HERMES_TUI_ACTIVE_SESSION_FILE_RESULT=""
+hermes_tui_active_session_file() {
+    local directory="$1"
+    local files=()
+    local nullglob_was_set=0
+    shopt -q nullglob && nullglob_was_set=1
+    shopt -s nullglob
+    files=("$directory"/hermes-tui-active-session-*.json)
+    (( nullglob_was_set == 1 )) || shopt -u nullglob
+
+    if (( ${#files[@]} == 0 )); then
+        return 1
+    fi
+    if (( ${#files[@]} != 1 )); then
+        return 2
+    fi
+    [[ -f "${files[0]}" && ! -L "${files[0]}" ]] || return 2
+    CMUX_HERMES_TUI_ACTIVE_SESSION_FILE_RESULT="${files[0]}"
+}
+
+hermes_tui_read_session_id() {
+    local active_session_file="$1"
+    local session_id
+    [[ -x /usr/bin/plutil ]] || return 1
+    session_id="$(
+        /usr/bin/plutil -extract session_id raw -expect string -o - \
+            "$active_session_file" 2>/dev/null
+    )" || return 1
+    hermes_tui_session_id_is_valid "$session_id" || return 1
+    printf '%s' "$session_id"
+}
+
+emit_hermes_tui_lifecycle_event() {
+    local cli="$1"
+    local subcommand="$2"
+    local hook_event_name="$3"
+    local session_id="$4"
+    local cwd="${CMUX_AGENT_LAUNCH_CWD:-$PWD}"
+    local payload_file="$TMPDIR/.cmux-hermes-tui-event.plist"
+    /bin/rm -f -- "$payload_file" 2>/dev/null || true
+    /usr/bin/plutil -create xml1 "$payload_file" >/dev/null 2>&1 &&
+        /bin/chmod 600 "$payload_file" >/dev/null 2>&1 &&
+        /usr/bin/plutil -insert cwd -string "$cwd" "$payload_file" >/dev/null 2>&1 &&
+        /usr/bin/plutil -insert hook_event_name -string "$hook_event_name" \
+            "$payload_file" >/dev/null 2>&1 &&
+        /usr/bin/plutil -insert platform -string "tui" "$payload_file" >/dev/null 2>&1 &&
+        /usr/bin/plutil -insert session_id -string "$session_id" \
+            "$payload_file" >/dev/null 2>&1 || {
+        /bin/rm -f -- "$payload_file" 2>/dev/null || true
+        return 0
+    }
+
+    if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
+        /usr/bin/plutil -convert json -o - "$payload_file" 2>/dev/null |
+            run_hermes_hook_installer "$cli" --socket "$CMUX_SOCKET_PATH" \
+                hooks hermes-agent "$subcommand" >/dev/null 2>&1 || true
+    else
+        /usr/bin/plutil -convert json -o - "$payload_file" 2>/dev/null |
+            run_hermes_hook_installer "$cli" \
+                hooks hermes-agent "$subcommand" >/dev/null 2>&1 || true
+    fi
+    /bin/rm -f -- "$payload_file" 2>/dev/null || true
+}
+
+cleanup_hermes_tui_watcher_directory() {
+    local directory="$1"
+    local files=()
+    local nullglob_was_set=0
+    shopt -q nullglob && nullglob_was_set=1
+    shopt -s nullglob
+    files=("$directory"/hermes-tui-active-session-*.json)
+    (( nullglob_was_set == 1 )) || shopt -u nullglob
+
+    local file
+    for file in "${files[@]}"; do
+        /bin/rm -f -- "$file" 2>/dev/null || true
+    done
+    /bin/rm -f -- "$directory/.cmux-hermes-tui-event.plist" 2>/dev/null || true
+    /bin/rm -f -- "$directory/.cmux-hermes-tui-watcher-wait" 2>/dev/null || true
+    /bin/rmdir "$directory" 2>/dev/null || true
+}
+
+run_hermes_tui_watcher() {
+    local parent_pid="${CMUX_HERMES_TUI_WATCHER_PARENT_PID:-}"
+    local directory="${CMUX_HERMES_TUI_WATCHER_TMPDIR:-}"
+    local cli="${CMUX_HERMES_TUI_WATCHER_CLI:-}"
+    [[ "$parent_pid" =~ ^[1-9][0-9]*$ ]] || return 0
+    [[ "$directory" == */cmux-hermes-tui.?????? &&
+       -d "$directory" &&
+       -x "$cli" ]] || return 0
+    unset CMUX_HERMES_AGENT_INTERNAL_MODE
+    unset CMUX_HERMES_TUI_WATCHER_PARENT_PID
+    unset CMUX_HERMES_TUI_WATCHER_TMPDIR
+    unset CMUX_HERMES_TUI_WATCHER_CLI
+
+    trap '' HUP INT TERM
+    local wait_fifo="$directory/.cmux-hermes-tui-watcher-wait"
+    if ! /usr/bin/mkfifo -m 600 "$wait_fifo" 2>/dev/null ||
+       ! exec 9<> "$wait_fifo"; then
+        cleanup_hermes_tui_watcher_directory "$directory"
+        return 0
+    fi
+
+    local last_session_id=""
+    local last_active_session_file=""
+    local last_active_session_contents=""
+    local ambiguous=0
+    local active_session_file active_session_contents
+    local session_id file_status hook_event_name watcher_tick
+
+    while true; do
+        if (( ambiguous == 0 )); then
+            CMUX_HERMES_TUI_ACTIVE_SESSION_FILE_RESULT=""
+            hermes_tui_active_session_file "$directory"
+            file_status=$?
+            if (( file_status == 2 )); then
+                ambiguous=1
+            elif (( file_status == 0 )); then
+                active_session_file="$CMUX_HERMES_TUI_ACTIVE_SESSION_FILE_RESULT"
+                active_session_contents=""
+                IFS= read -r active_session_contents < "$active_session_file" || true
+                if [[ "$active_session_file" != "$last_active_session_file" ||
+                      "$active_session_contents" != "$last_active_session_contents" ]]; then
+                    last_active_session_file="$active_session_file"
+                    last_active_session_contents="$active_session_contents"
+                    session_id="$(hermes_tui_read_session_id "$active_session_file")"
+                    if [[ -n "$session_id" && "$session_id" != "$last_session_id" ]]; then
+                        hook_event_name="on_session_start"
+                        [[ -n "$last_session_id" ]] && hook_event_name="on_session_reset"
+                        emit_hermes_tui_lifecycle_event \
+                            "$cli" "session-start" "$hook_event_name" "$session_id"
+                        last_session_id="$session_id"
+                    fi
+                fi
+            else
+                last_active_session_file=""
+                last_active_session_contents=""
+            fi
+        fi
+
+        if [[ "$PPID" != "$parent_pid" ]] ||
+           ! kill -0 "$parent_pid" 2>/dev/null; then
+            break
+        fi
+        IFS= read -r -t 0.1 -u 9 watcher_tick || true
+    done
+
+    if [[ -n "$last_session_id" ]]; then
+        emit_hermes_tui_lifecycle_event \
+            "$cli" "session-finalize" "on_session_finalize" "$last_session_id"
+    fi
+    exec 9>&-
+    cleanup_hermes_tui_watcher_directory "$directory"
+}
+
+should_watch_hermes_tui() {
+    local argument
+    local explicitly_tui=0
+    for argument in "$@"; do
+        case "$argument" in
+            --cli)
+                return 1
+                ;;
+            --tui)
+                explicitly_tui=1
+                ;;
+            --)
+                break
+                ;;
+        esac
+    done
+    (( explicitly_tui == 1 )) && return 0
+    [[ -t 0 && -t 1 ]]
+}
+
+start_hermes_tui_watcher() {
+    local cli="$1"
+    local temp_root watcher_directory watcher_pid
+    temp_root="$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P)" || temp_root="/tmp"
+    watcher_directory="$(
+        /usr/bin/mktemp -d "$temp_root/cmux-hermes-tui.XXXXXX" 2>/dev/null
+    )" || {
+        [[ "$temp_root" != "/tmp" ]] || return 0
+        temp_root="/tmp"
+        watcher_directory="$(
+            /usr/bin/mktemp -d "$temp_root/cmux-hermes-tui.XXXXXX" 2>/dev/null
+        )" || return 0
+    }
+    /bin/chmod 700 "$watcher_directory" 2>/dev/null || {
+        /bin/rmdir "$watcher_directory" 2>/dev/null || true
+        return 0
+    }
+
+    local original_tmpdir="${TMPDIR-}"
+    local original_tmpdir_was_set=0
+    [[ "${TMPDIR+x}" == "x" ]] && original_tmpdir_was_set=1
+    export TMPDIR="$watcher_directory"
+    CMUX_HERMES_AGENT_INTERNAL_MODE="tui-watcher" \
+        CMUX_HERMES_TUI_WATCHER_PARENT_PID="$$" \
+        CMUX_HERMES_TUI_WATCHER_TMPDIR="$watcher_directory" \
+        CMUX_HERMES_TUI_WATCHER_CLI="$cli" \
+        "$0" </dev/null >/dev/null 2>&1 &
+    watcher_pid=$!
+    if ! kill -0 "$watcher_pid" 2>/dev/null; then
+        /bin/rmdir "$watcher_directory" 2>/dev/null || true
+        if (( original_tmpdir_was_set == 1 )); then
+            export TMPDIR="$original_tmpdir"
+        else
+            unset TMPDIR
+        fi
+    fi
+}
+
+if [[ "${CMUX_HERMES_AGENT_INTERNAL_MODE:-}" == "tui-watcher" &&
+      -n "${CMUX_HERMES_TUI_WATCHER_PARENT_PID:-}" &&
+      -n "${CMUX_HERMES_TUI_WATCHER_TMPDIR:-}" &&
+      -n "${CMUX_HERMES_TUI_WATCHER_CLI:-}" ]]; then
+    run_hermes_tui_watcher
+    exit 0
+fi
+unset CMUX_HERMES_AGENT_INTERNAL_MODE
+unset CMUX_HERMES_TUI_WATCHER_PARENT_PID
+unset CMUX_HERMES_TUI_WATCHER_TMPDIR
+unset CMUX_HERMES_TUI_WATCHER_CLI
 
 hermes_option_consumes_value() {
     case "$1" in
@@ -429,5 +658,11 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
 # session identity comes from Hermes's on_session_start payload.
 unset CMUX_AGENT_RESTORE_LAUNCH
 unset CMUX_AGENT_RESUME_LAUNCH
+
+if should_watch_hermes_tui "$@" &&
+   CMUX_HERMES_TUI_CLI="$(resolve_cmux_cli)"; then
+    start_hermes_tui_watcher "$CMUX_HERMES_TUI_CLI"
+fi
+unset CMUX_HERMES_TUI_CLI
 
 exec "$REAL_HERMES" "$@"
