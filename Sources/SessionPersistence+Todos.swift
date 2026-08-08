@@ -29,6 +29,9 @@ struct SessionChecklistItemSnapshot: Codable, Equatable, Sendable {
     var state: String
     var origin: String
     var attachments: [WorkspaceChecklistAttachment] = []
+    /// The agent task this row mirrors. Persisted so a resumed session can
+    /// still update and retire exactly the rows it owns after a restart.
+    var agentTaskRef: WorkspaceAgentTaskRef?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -36,6 +39,7 @@ struct SessionChecklistItemSnapshot: Codable, Equatable, Sendable {
         case state
         case origin
         case attachments
+        case agentTaskRef
     }
 
     init(
@@ -43,13 +47,15 @@ struct SessionChecklistItemSnapshot: Codable, Equatable, Sendable {
         text: String,
         state: String,
         origin: String,
-        attachments: [WorkspaceChecklistAttachment] = []
+        attachments: [WorkspaceChecklistAttachment] = [],
+        agentTaskRef: WorkspaceAgentTaskRef? = nil
     ) {
         self.id = id
         self.text = text
         self.state = state
         self.origin = origin
         self.attachments = attachments
+        self.agentTaskRef = agentTaskRef
     }
 
     init(from decoder: any Decoder) throws {
@@ -59,6 +65,7 @@ struct SessionChecklistItemSnapshot: Codable, Equatable, Sendable {
         self.state = try container.decode(String.self, forKey: .state)
         self.origin = try container.decode(String.self, forKey: .origin)
         self.attachments = (try? container.decode(LossySessionChecklistAttachments.self, forKey: .attachments))?.attachments ?? []
+        self.agentTaskRef = try? container.decodeIfPresent(WorkspaceAgentTaskRef.self, forKey: .agentTaskRef)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -67,6 +74,7 @@ struct SessionChecklistItemSnapshot: Codable, Equatable, Sendable {
         try container.encode(text, forKey: .text)
         try container.encode(state, forKey: .state)
         try container.encode(origin, forKey: .origin)
+        try container.encodeIfPresent(agentTaskRef, forKey: .agentTaskRef)
         if !attachments.isEmpty {
             try container.encode(attachments, forKey: .attachments)
         }
@@ -81,7 +89,8 @@ extension SessionChecklistItemSnapshot {
             text: item.text,
             state: item.state.rawValue,
             origin: item.origin.rawValue,
-            attachments: item.attachments
+            attachments: item.attachments,
+            agentTaskRef: item.agentTaskRef
         )
     }
 
@@ -95,7 +104,8 @@ extension SessionChecklistItemSnapshot {
             text: normalizedText,
             state: WorkspaceChecklistItem.State(rawValue: state) ?? .pending,
             origin: WorkspaceChecklistItem.Origin(rawValue: origin) ?? .user,
-            attachments: attachments
+            attachments: attachments,
+            agentTaskRef: agentTaskRef
         )
     }
 }

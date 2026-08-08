@@ -17,6 +17,38 @@ import Foundation
 /// request — and unknown / future event names default to non-actionable
 /// telemetry that never notifies. Conflating a tool-start with an approval
 /// is the bug behind https://github.com/manaflow-ai/cmux/issues/4985.
+/// Whether a tool name is one of the agent task tools whose calls drive the
+/// workspace todo checklist.
+///
+/// Duplicated from `isWorkstreamTaskTool` in CMUXAgentLaunch because the CLI
+/// target does not link that package; both are compiled into the test target
+/// so the two lists cannot drift silently.
+func isWorkstreamTaskToolName(_ toolName: String) -> Bool {
+    switch toolName {
+    case "TodoWrite", "TaskCreate", "TaskUpdate": return true
+    default: return false
+    }
+}
+
+/// Whether a `feed.push` response reports that the app actually admitted the
+/// event.
+///
+/// A response alone is not admission: the app answers `ok:false` while it is
+/// still starting up, when its ingress queue is saturated, or when the target
+/// workspace is gone. Callers of authoritative deltas must not treat those as
+/// delivered.
+func taskFeedPushWasAcknowledged(_ response: String) -> Bool {
+    guard let data = response.data(using: .utf8),
+          let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let ok = root["ok"] as? Bool, ok
+    else { return false }
+    guard let result = root["result"] as? [String: Any] else { return true }
+    if let status = result["status"] as? String {
+        return status != "unavailable" && status != "not_found"
+    }
+    return true
+}
+
 struct FeedEventClassifier {
     /// Classifies a raw agent hook event into our wire `hook_event_name`
     /// plus an `isActionable` flag that drives whether the Feed bridge

@@ -242,6 +242,25 @@ extension CMUXCLI {
 
     /// `{surface_id}` probe: the workspace that CURRENTLY owns a known
     /// identity surface. Only a `source == "surface"` answer counts.
+    /// Re-homes a hook to the workspace that currently owns `surfaceId`.
+    ///
+    /// A hook process inherits `CMUX_WORKSPACE_ID` at spawn, so that value
+    /// goes stale the moment its surface is moved to another workspace. The
+    /// surface id travels with the terminal, so asking the app who owns it now
+    /// is the only live answer. Returns `nil` when the app cannot resolve it,
+    /// leaving the caller on its inherited value.
+    func rehomedWorkspaceIdForSurface(
+        surfaceId: String?,
+        claimedWorkspaceId: String?,
+        client: SocketClient
+    ) -> String? {
+        rehomedClaudeHookDeliveryTarget(
+            surfaceId: surfaceId,
+            claimedWorkspaceId: claimedWorkspaceId,
+            client: client
+        )?.workspaceId
+    }
+
     private func rehomedClaudeHookDeliveryTarget(
         surfaceId: String?,
         claimedWorkspaceId: String?,

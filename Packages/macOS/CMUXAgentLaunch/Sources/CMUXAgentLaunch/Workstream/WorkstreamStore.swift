@@ -47,6 +47,23 @@ public final class WorkstreamStore {
     /// carries forward prompt/preamble context from nearby telemetry rows.
     private var lastContextByWorkstream: [String: WorkstreamContext] = [:]
 
+    /// Running task list per workstream, accumulated from the agent's
+    /// per-task tool calls (`TaskCreate` / `TaskUpdate`), which report one
+    /// task at a time rather than the whole list.
+    ///
+    /// Each accumulator caps its own retained tasks and ids, and the map
+    /// evicts the least recently updated workstream. Entries deliberately
+    /// outlive `SessionEnd`: a session can be resumed under the same id, and
+    /// its ownership map is the only thing that says which checklist rows
+    /// belong to it.
+    private var taskToolTodosByWorkstream: [String: WorkstreamTaskToolTodos] = [:]
+    private var taskToolWorkstreamsByRecency: [String] = []
+
+    /// Upper bound on tracked workstreams. Well above any plausible number of
+    /// concurrently live agent sessions, so eviction only ever reaches
+    /// abandoned ones.
+    private static let maxTrackedTaskToolWorkstreams = 64
+
     /// Creates a store for Feed workstream items.
     ///
     /// - Parameters:
@@ -138,6 +155,82 @@ public final class WorkstreamStore {
             Task { [persistence, item] in
                 try? await persistence.append(item)
             }
+        }
+    }
+
+    /// Applies one completed task-tool call, keeping the per-workstream map
+    /// bounded so an agent that dies without a `SessionEnd` cannot leak its
+    /// accumulator for the life of the process.
+    private func applyTaskTool(
+        workstreamId: String,
+        toolName: String,
+        toolInputJSON: String?,
+        toolResponseJSON: String?,
+        isError: Bool
+    ) -> WorkstreamTaskToolOutcome {
+        var accumulator = taskToolTodosByWorkstream[workstreamId] ?? WorkstreamTaskToolTodos()
+        let outcome = accumulator.apply(
+            toolName: toolName,
+            toolInputJSON: toolInputJSON,
+            toolResponseJSON: toolResponseJSON,
+            isError: isError
+        )
+        guard case .list = outcome else { return outcome }
+        taskToolTodosByWorkstream[workstreamId] = accumulator
+        touchTaskToolWorkstream(workstreamId)
+        return outcome
+    }
+
+    /// Every agent task id this workstream currently owns, including tasks it
+    /// has since deleted.
+    ///
+    /// - Parameter workstreamId: The workstream (agent session) id.
+    /// - Returns: The owned agent task ids, empty when nothing was accumulated.
+    public func ownedTaskIds(forWorkstream workstreamId: String) -> Set<String> {
+        taskToolTodosByWorkstream[workstreamId]?.ownedIds ?? []
+    }
+
+    /// Whether this workstream has any accumulated task state.
+    ///
+    /// - Parameter workstreamId: The workstream (agent session) id.
+    /// - Returns: `false` when the accumulator is absent or empty, meaning a
+    ///   caller holding persisted rows should seed it before the next delta.
+    public func hasTaskTodos(forWorkstream workstreamId: String) -> Bool {
+        guard let accumulator = taskToolTodosByWorkstream[workstreamId] else { return false }
+        return !accumulator.isEmpty
+    }
+
+    /// Restores a workstream's task list from rows recovered elsewhere.
+    ///
+    /// The in-memory accumulator is process-local, so an app restart, a
+    /// dropped event, or LRU eviction leaves it empty while the workspace
+    /// checklist still holds the agent's rows. Seeding from those rows lets an
+    /// ordinary status-only `TaskUpdate` land instead of being ignored as an
+    /// unknown id.
+    ///
+    /// - Parameters:
+    ///   - workstreamId: The workstream (agent session) id.
+    ///   - todos: The recovered tasks, in display order.
+    public func seedTaskTodos(forWorkstream workstreamId: String, todos: [WorkstreamTaskTodo]) {
+        guard !todos.isEmpty else { return }
+        var accumulator = taskToolTodosByWorkstream[workstreamId] ?? WorkstreamTaskToolTodos()
+        guard accumulator.isEmpty else { return }
+        accumulator.seed(with: todos)
+        taskToolTodosByWorkstream[workstreamId] = accumulator
+        touchTaskToolWorkstream(workstreamId)
+    }
+
+    /// Marks a workstream most-recently-used and evicts past the bound.
+    ///
+    /// Shared by seeding and by applied deltas: seeding alone used to skip
+    /// eviction, so a restored workstream whose next delta was ignored stayed
+    /// retained outside the documented cap.
+    private func touchTaskToolWorkstream(_ workstreamId: String) {
+        taskToolWorkstreamsByRecency.removeAll { $0 == workstreamId }
+        taskToolWorkstreamsByRecency.append(workstreamId)
+        while taskToolWorkstreamsByRecency.count > Self.maxTrackedTaskToolWorkstreams {
+            let evicted = taskToolWorkstreamsByRecency.removeFirst()
+            taskToolTodosByWorkstream[evicted] = nil
         }
     }
 
@@ -308,11 +401,30 @@ public final class WorkstreamStore {
                 )
             )
         case .preToolUse:
+            // Task-tool calls are deliberately NOT applied here: a pre-execution
+            // event only states intent, and TaskCreate has no id yet. The
+            // checklist is driven from PostToolUse instead.
             return (.toolUse, .toolUse(toolName: event.toolName ?? "", toolInputJSON: toolInput))
         case .postToolUse:
+            let toolName = event.toolName ?? ""
+            // Claude's task tools (and the legacy whole-list TodoWrite) reach
+            // us as ordinary tool calls; fold the completed ones into the
+            // workstream's running checklist instead of anonymous telemetry.
+            if isWorkstreamTaskTool(toolName) {
+                let outcome = applyTaskTool(
+                    workstreamId: event.sessionId,
+                    toolName: toolName,
+                    toolInputJSON: event.toolInputJSON,
+                    toolResponseJSON: event.toolResponseJSON,
+                    isError: event.isError ?? false
+                )
+                if case .list(let todos) = outcome {
+                    return (.todos, .todos(todos))
+                }
+            }
             return (
                 .toolResult,
-                .toolResult(toolName: event.toolName ?? "", resultJSON: toolInput, isError: event.isError ?? false)
+                .toolResult(toolName: toolName, resultJSON: toolInput, isError: event.isError ?? false)
             )
         case .preCompact:
             return (.toolUse, .toolUse(toolName: titleProvider(event) ?? event.hookEventName.rawValue, toolInputJSON: toolInput))
@@ -337,11 +449,33 @@ public final class WorkstreamStore {
         case .sessionStart:
             return (.sessionStart, .sessionStart)
         case .sessionEnd:
+            // The accumulator is deliberately NOT cleared here. A Claude
+            // session can be resumed under the same id, and a resumed
+            // status-only TaskUpdate carries no subject, so discarding the
+            // ownership map would leave its checklist rows permanently stale.
+            // Delayed asynchronous PostToolUse hooks race SessionEnd for the
+            // same reason. Growth is bounded by the LRU on
+            // `taskToolTodosByWorkstream` instead.
             return (.sessionEnd, .sessionEnd)
         case .stop:
             return (.stop, .stop(reason: Self.stopReason(from: event.toolInputJSON)))
         case .todoWrite:
-            return (.todos, .todos(Self.todos(from: event.toolInputJSON)))
+            // Whole-list producers (the OpenCode plugin) go through the same
+            // accumulator so ownership unions across snapshots and a task
+            // dropped from a later report can still be retired.
+            let outcome = applyTaskTool(
+                workstreamId: event.sessionId,
+                toolName: "TodoWrite",
+                toolInputJSON: event.toolInputJSON,
+                toolResponseJSON: nil,
+                isError: false
+            )
+            guard case .list(let todos) = outcome else {
+                // An unparseable payload is not an authoritative empty plan;
+                // publishing one would retire every row this workstream owns.
+                return (.toolUse, .toolUse(toolName: "TodoWrite", toolInputJSON: toolInput))
+            }
+            return (.todos, .todos(todos))
         case .notification:
             return (.toolResult, .toolResult(toolName: "notification", resultJSON: toolInput, isError: false))
         }
@@ -488,39 +622,5 @@ public final class WorkstreamStore {
                 ?? (dict["cause"] as? String)
         }
         return nil
-    }
-
-    private static func todos(from json: String?) -> [WorkstreamTaskTodo] {
-        let rawTodos: [Any]
-        if let dict = jsonObject(from: json) as? [String: Any] {
-            rawTodos = dict["todos"] as? [Any] ?? []
-        } else {
-            rawTodos = jsonObject(from: json) as? [Any] ?? []
-        }
-        return rawTodos.enumerated().compactMap { idx, raw in
-            guard let dict = raw as? [String: Any] else { return nil }
-            let content = (dict["content"] as? String)
-                ?? (dict["text"] as? String)
-                ?? (dict["title"] as? String)
-                ?? ""
-            guard !content.isEmpty else { return nil }
-            let rawState = (dict["state"] as? String)
-                ?? (dict["status"] as? String)
-                ?? "pending"
-            let state: WorkstreamTaskTodo.State
-            switch rawState {
-            case "completed", "done":
-                state = .completed
-            case "inProgress", "in_progress", "active":
-                state = .inProgress
-            default:
-                state = .pending
-            }
-            return WorkstreamTaskTodo(
-                id: (dict["id"] as? String) ?? "todo\(idx)",
-                content: content,
-                state: state
-            )
-        }
     }
 }

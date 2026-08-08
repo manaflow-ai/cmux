@@ -15,18 +15,23 @@ public struct WorkspaceChecklistReplacementItem: Sendable, Equatable {
     /// The origin for newly created items; `nil` defaults to `.user`.
     /// Matched items always keep their existing origin.
     public let origin: WorkspaceChecklistItem.Origin?
+    /// The agent task this row mirrors. Applied to matched items too, so a
+    /// restored row can be re-attributed to the workstream that owns it.
+    public let agentTaskRef: WorkspaceAgentTaskRef?
 
     /// Creates a replacement item.
     public init(
         id: UUID? = nil,
         text: String,
         state: WorkspaceChecklistItem.State? = nil,
-        origin: WorkspaceChecklistItem.Origin? = nil
+        origin: WorkspaceChecklistItem.Origin? = nil,
+        agentTaskRef: WorkspaceAgentTaskRef? = nil
     ) {
         self.id = id
         self.text = text
         self.state = state
         self.origin = origin
+        self.agentTaskRef = agentTaskRef
     }
 }
 
@@ -85,14 +90,16 @@ extension Array where Element == WorkspaceChecklistItem {
                     text: normalized,
                     state: item.state ?? existing.state,
                     origin: existing.origin,
-                    attachments: existing.attachments
+                    attachments: existing.attachments,
+                    agentTaskRef: item.agentTaskRef ?? existing.agentTaskRef
                 ))
             } else {
                 result.append(WorkspaceChecklistItem(
                     id: item.id ?? UUID(),
                     text: normalized,
                     state: item.state ?? .pending,
-                    origin: item.origin ?? .user
+                    origin: item.origin ?? .user,
+                    agentTaskRef: item.agentTaskRef
                 ))
             }
         }

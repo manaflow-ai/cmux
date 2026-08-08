@@ -34834,7 +34834,8 @@ export default CMUXSessionRestore;
             "_source": source,
             "_ppid": agentPid,
         ]
-        if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
+        let resolvedFeedWorkspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"])
+        if let workspaceId = resolvedFeedWorkspaceId {
             eventDict["workspace_id"] = workspaceId
         }
         let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
@@ -34870,6 +34871,14 @@ export default CMUXSessionRestore;
                 eventDict["tool_input"] = feedToolInput
             }
         }
+        // Claude reports a created task's authoritative id only in the tool
+        // result, so forward it alongside the request for the task tools.
+        // https://github.com/manaflow-ai/cmux/issues/8960
+        if hookEventName == "PostToolUse",
+           toolName == "TaskCreate" || toolName == "TaskUpdate" || toolName == "TodoWrite",
+           let postToolUseResponseInput {
+            eventDict["tool_response"] = postToolUseResponseInput
+        }
         if let context = feedContextForEvent(
             source: source,
             hookEventName: hookEventName,
@@ -34902,6 +34911,13 @@ export default CMUXSessionRestore;
         // the agent kills (and may deny) the hook subprocess.
         let waitTimeout = isActionable ? Self.feedHookDecisionWaitSeconds : 0
         let shouldAwaitTelemetryIngestion = source == "pi"
+        // Task-tool deltas drive the persistent workspace checklist. A dropped
+        // create or final update cannot be reconstructed from later traffic,
+        // and the connected path is also what makes a live client available to
+        // re-home the event onto the surface's current workspace.
+        // https://github.com/manaflow-ai/cmux/issues/8960
+        let shouldAwaitTaskIngestion = !shouldAwaitTelemetryIngestion
+            && isWorkstreamTaskToolName(toolName)
         let params: [String: Any] = [
             "event": eventDict,
             "wait_timeout_seconds": waitTimeout,
@@ -34911,11 +34927,11 @@ export default CMUXSessionRestore;
             "method": "feed.push",
             "params": params,
         ]
-        if waitTimeout > 0 || shouldAwaitTelemetryIngestion {
+        if waitTimeout > 0 || shouldAwaitTelemetryIngestion || shouldAwaitTaskIngestion {
             request["id"] = UUID().uuidString
         }
 
-        if waitTimeout == 0 && !shouldAwaitTelemetryIngestion {
+        if waitTimeout == 0 && !shouldAwaitTelemetryIngestion && !shouldAwaitTaskIngestion {
             let payload = try JSONSerialization.data(withJSONObject: request)
             let line = String(data: payload, encoding: .utf8) ?? "{}"
             if let client {
@@ -34934,7 +34950,9 @@ export default CMUXSessionRestore;
         var ownedClient: SocketClient?
         defer { ownedClient?.close() }
         let clientDeadline = Date().addingTimeInterval(
-            shouldAwaitTelemetryIngestion ? 4 : Self.feedHookClientDeadlineSeconds
+            (shouldAwaitTelemetryIngestion || shouldAwaitTaskIngestion)
+                ? 4
+                : Self.feedHookClientDeadlineSeconds
         )
 
         func remainingResponseTime() throws -> TimeInterval {
@@ -34974,6 +34992,28 @@ export default CMUXSessionRestore;
             return
         }
 
+        if shouldAwaitTaskIngestion {
+            // Now that a live client exists, ask the app which workspace owns
+            // this surface. The hook inherited CMUX_WORKSPACE_ID at spawn, so
+            // it is stale once the surface has been moved.
+            if let rehomed = rehomedWorkspaceIdForSurface(
+                surfaceId: env["CMUX_SURFACE_ID"],
+                claimedWorkspaceId: eventDict["workspace_id"] as? String,
+                client: activeClient
+            ) {
+                eventDict["workspace_id"] = rehomed
+            }
+            // Carry the surface so the app can revalidate ownership at its own
+            // acceptance boundary; the probe above races a move that lands
+            // between it and the push.
+            if let surfaceId = env["CMUX_SURFACE_ID"], !surfaceId.isEmpty {
+                eventDict["surface_id"] = surfaceId
+            }
+            request["params"] = [
+                "event": eventDict,
+                "wait_timeout_seconds": waitTimeout,
+            ]
+        }
         if shouldAwaitTelemetryIngestion {
             if let target = try resolvePiFeedClaim(commandArgs: commandArgs, client: activeClient) {
                 if let workspaceId = target.workspaceId {
@@ -35006,6 +35046,23 @@ export default CMUXSessionRestore;
         if shouldAwaitTelemetryIngestion {
             let acknowledgedTarget = try validatePiFeedAcknowledgment(response)
             print(piHookResolvedTargetOutput(acknowledgedTarget))
+            return
+        }
+        if shouldAwaitTaskIngestion {
+            // A response is not admission: feed.push answers ok:false while
+            // starting up, when overloaded, or when the target is gone. Losing
+            // a TaskCreate is permanent, since later status-only updates
+            // cannot reconstruct its subject, so retry once within the hook's
+            // remaining deadline before giving up.
+            if !taskFeedPushWasAcknowledged(response),
+               let retried = try? activeClient.send(
+                   command: line,
+                   responseTimeout: try remainingResponseTime(),
+                   deadline: clientDeadline
+               ) {
+                _ = taskFeedPushWasAcknowledged(retried)
+            }
+            print("{}")
             return
         }
         guard let respData = response.data(using: .utf8),

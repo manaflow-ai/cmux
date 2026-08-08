@@ -25,6 +25,26 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
     public let receivedAt: Date
     public let extraFieldsJSON: String?
 
+    /// The agent's `tool_response` payload, when the hook forwarded one.
+    ///
+    /// Not a first-class wire field: `PostToolUse` producers that carry a tool
+    /// result put it in the passthrough bag, and this reads it back out. Used
+    /// to adopt authoritative ids reported only by a completed tool call.
+    public var toolResponseJSON: String? {
+        guard let extraFieldsJSON,
+              let data = extraFieldsJSON.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        for key in ["tool_response", "toolResponse", "tool_result", "toolResult"] {
+            guard let value = root[key] else { continue }
+            if let string = value as? String { return string }
+            if let encoded = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .fragmentsAllowed]) {
+                return String(data: encoded, encoding: .utf8)
+            }
+        }
+        return nil
+    }
+
     public init(
         sessionId: String,
         hookEventName: HookEventName,

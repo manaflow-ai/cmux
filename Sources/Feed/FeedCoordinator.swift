@@ -43,6 +43,16 @@ final class FeedCoordinator: @unchecked Sendable {
     private let waiterLock = NSLock()
     private var waiters: [String: PendingWaiter] = [:]
 
+    /// The workspace each workstream was last seen writing checklist rows to.
+    ///
+    /// A fast path only: when it already names the workspace being written,
+    /// there is nothing stranded elsewhere and the app-wide retirement scan is
+    /// skipped. Correctness never depends on it — the scan is driven by the
+    /// `agentTaskRef` persisted on each row, so a restart that empties this
+    /// map costs one sweep, not a missed retirement.
+    @MainActor var lastTodoWorkspaceByWorkstream: [String: UUID] = [:]
+
+
     /// One kqueue-backed DispatchSource per distinct agent PID we've
     /// ever seen. The kernel fires `.exit` the instant the process
     /// dies (or immediately if it's already dead). When that fires
@@ -134,7 +144,13 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor
     func ingestRevalidatedOnMainActor(_ event: WorkstreamEvent) -> UUID? {
         guard let store else { return nil }
+        // Restore any persisted task state for this workstream before the
+        // delta lands, so a post-restart update is not dropped as unknown.
+        recoverAgentTodosIfNeeded(for: event)
         store.ingest(event)
+        if let item = store.items.last {
+            applyAgentTodos(from: item, event: event)
+        }
         if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
         }
@@ -732,7 +748,7 @@ extension FeedCoordinator {
     /// session store when the event omits a parseable id. The surface comes
     /// from the session store only when its workspace matches the resolved
     /// workspace, so a stale entry can't point the panel elsewhere.
-    private static func resolveAttentionTarget(
+    static func resolveAttentionTarget(
         event: WorkstreamEvent
     ) -> (workspaceId: UUID, surfaceId: UUID?)? {
         let sessionMatch: (workspaceId: UUID, surfaceId: UUID?)? = {
