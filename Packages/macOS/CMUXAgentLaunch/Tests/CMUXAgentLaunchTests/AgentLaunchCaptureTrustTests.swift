@@ -18,9 +18,20 @@ struct AgentLaunchCaptureTrustTests {
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("claudeTeams", kind: "claude"))
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("codexTeams", kind: "codex"))
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("omo", kind: "opencode"))
+        #expect(AgentLaunchCaptureTrust.launcherDescribesKind("omo-slim", kind: "opencode"))
+        #expect(AgentLaunchCaptureTrust.launcherDescribesKind("omos", kind: "opencode"))
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("omx", kind: "opencode"))
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("omc", kind: "opencode"))
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("omp", kind: "pi"))
+    }
+
+    @Test func openCodeSessionWrappersAreRecognized() {
+        for launcher in ["omo", "omo-slim", "omos"] {
+            #expect(AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper(launcher))
+        }
+        #expect(AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper("  OMOS  "))
+        #expect(!AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper("opencode"))
+        #expect(!AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper(nil))
     }
 
     @Test func crossAgentLauncherIsDistrusted() {
