@@ -55,6 +55,7 @@ struct MuxEventMailboxState {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum CoalescedEventKey {
+    Agent(SurfaceId),
     Title(SurfaceId),
     SurfaceOutput(SurfaceId),
     Scroll(SurfaceId),
@@ -148,6 +149,7 @@ impl SurfaceSessionScope {
             | MuxEvent::Bell(surface) => *surface == self.surface,
             MuxEvent::SurfaceResized { surface, .. }
             | MuxEvent::SurfaceResizeFailed { surface, .. }
+            | MuxEvent::AgentChanged { surface, .. }
             | MuxEvent::TitleChanged { surface, .. }
             | MuxEvent::ScrollChanged { surface, .. } => *surface == self.surface,
             MuxEvent::Notification(notification) => {
@@ -223,6 +225,9 @@ impl MuxEventMailbox {
         let sequence = state.next_sequence;
         state.next_sequence = state.next_sequence.saturating_add(1);
         let accepted = match event {
+            event @ MuxEvent::AgentChanged { surface, .. } => {
+                state.push_coalesced(sequence, CoalescedEventKey::Agent(surface), event)
+            }
             event @ MuxEvent::TitleChanged { surface, .. } => {
                 state.push_coalesced(sequence, CoalescedEventKey::Title(surface), event)
             }
@@ -308,6 +313,7 @@ impl MuxEventMailboxState {
     }
 
     fn discard_surface_state(&mut self, surface: SurfaceId) {
+        self.discard_coalesced(CoalescedEventKey::Agent(surface));
         self.discard_coalesced(CoalescedEventKey::Title(surface));
         self.discard_coalesced(CoalescedEventKey::SurfaceOutput(surface));
         self.discard_coalesced(CoalescedEventKey::Scroll(surface));
@@ -433,6 +439,52 @@ mod tests {
     }
 
     #[test]
+    fn agent_churn_keeps_one_latest_value_per_surface() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe();
+
+        for index in 0..10_000 {
+            broadcaster.emit(MuxEvent::AgentChanged {
+                surface: 1,
+                state: format!("one-{index}").into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: index,
+            });
+            broadcaster.emit(MuxEvent::AgentChanged {
+                surface: 2,
+                state: format!("two-{index}").into(),
+                source: "socket".into(),
+                session: Some("agent-session".into()),
+                updated_at_ms: index,
+            });
+        }
+
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::AgentChanged {
+                surface: 1,
+                state,
+                updated_at_ms: 9_999,
+                ..
+            } if state.as_ref() == "one-9999"
+        ));
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::AgentChanged {
+                surface: 2,
+                state,
+                source,
+                session: Some(session),
+                updated_at_ms: 9_999,
+            } if state.as_ref() == "two-9999"
+                && source.as_ref() == "socket"
+                && session.as_ref() == "agent-session"
+        ));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
     fn title_fanout_shares_the_payload_allocation() {
         let broadcaster = MuxEventBroadcaster::default();
         let first = broadcaster.subscribe();
@@ -473,6 +525,24 @@ mod tests {
         let events = broadcaster.subscribe();
 
         broadcaster.emit(MuxEvent::TitleChanged { surface: 4, title: "gone".into() });
+        broadcaster.emit(MuxEvent::SurfaceExited(4));
+
+        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(4)));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn surface_exit_discards_its_pending_agent_state() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe();
+
+        broadcaster.emit(MuxEvent::AgentChanged {
+            surface: 4,
+            state: "working".into(),
+            source: "hook".into(),
+            session: None,
+            updated_at_ms: 1,
+        });
         broadcaster.emit(MuxEvent::SurfaceExited(4));
 
         assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(4)));

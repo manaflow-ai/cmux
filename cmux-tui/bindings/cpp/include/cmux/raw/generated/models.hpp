@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 11U;
-inline constexpr std::string_view kProtocolIrSha256 = "5299d9228d2d800423d244630722c8606297370f5962458962b88af542fd5cc1";
+inline constexpr std::string_view kProtocolIrSha256 = "53474226ce24d06e7248ba1f4ce31f1a5dcf7189ea291ed13994cce8dbc5237b";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -211,6 +211,7 @@ struct UndoLayoutRequest;
 struct VtStateRequest;
 struct WaitForRequest;
 struct ZoomPaneRequest;
+struct AgentChangedEvent;
 struct BellEvent;
 struct BrowserStateEvent;
 struct ClientAttachedEvent;
@@ -299,6 +300,15 @@ enum class AgentState {
 struct Id {
     std::uint64_t value{};
     friend bool operator==(const Id&, const Id&) = default;
+};
+
+struct AgentChangedEvent {
+    std::optional<std::string> session{};
+    AgentSource source{};
+    AgentState state{};
+    Id surface{};
+    std::uint64_t updated_at_ms{};
+    friend bool operator==(const AgentChangedEvent&, const AgentChangedEvent&) = default;
 };
 
 struct AgentRecord {
@@ -3563,6 +3573,12 @@ template <>
 struct Codec<ZoomPaneRequest> {
     static Result<Json> encode(const ZoomPaneRequest& value);
     static Result<ZoomPaneRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentChangedEvent> {
+    static Result<Json> encode(const AgentChangedEvent& value);
+    static Result<AgentChangedEvent> decode(const Json& value);
 };
 
 template <>

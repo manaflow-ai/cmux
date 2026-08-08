@@ -8825,6 +8825,68 @@
     }
   },
   "events": {
+    "agent-changed": {
+      "since": 11,
+      "capability": null,
+      "streams": [
+        "subscribe"
+      ],
+      "emission": "emitted",
+      "payload": {
+        "kind": "object",
+        "fields": {
+          "event": {
+            "type": {
+              "kind": "literal",
+              "value": "agent-changed"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "surface": {
+            "type": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "state": {
+            "type": {
+              "kind": "ref",
+              "name": "AgentState"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "source": {
+            "type": {
+              "kind": "ref",
+              "name": "AgentSource"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "session": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "required",
+            "nullable": true
+          },
+          "updated_at_ms": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "presence": "required",
+            "nullable": false
+          }
+        },
+        "additional_properties": false
+      }
+    },
     "bell": {
       "since": 5,
       "capability": null,

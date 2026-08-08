@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 11
-IR_SHA256 = '5299d9228d2d800423d244630722c8606297370f5962458962b88af542fd5cc1'
+IR_SHA256 = '53474226ce24d06e7248ba1f4ce31f1a5dcf7189ea291ed13994cce8dbc5237b'
 
 
 @dataclass(frozen=True)
@@ -1309,6 +1309,7 @@ COMMANDS = {
 }
 
 EVENTS = {
+    'agent-changed': EventMetadata('agent-changed', 11, None, ('subscribe',), 'emitted'),
     'bell': EventMetadata('bell', 5, None, ('subscribe',), 'emitted'),
     'browser-state': EventMetadata('browser-state', 6, None, ('attach-browser',), 'emitted'),
     'client-attached': EventMetadata('client-attached', 6, None, ('subscribe',), 'emitted'),

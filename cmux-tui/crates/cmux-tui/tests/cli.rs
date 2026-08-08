@@ -664,7 +664,7 @@ fn session_reset_state_rejects_global_routing_options() {
             .output()
             .unwrap();
         assert!(!output.status.success(), "{option} unexpectedly reached reset execution");
-        let error: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let error = json_error(&output);
         assert_eq!(error["code"], "session.reset_state.routing_options_unsupported");
         assert_eq!(error["details"]["options"], serde_json::json!([option]));
         assert!(error["message"].as_str().unwrap().contains(option));
@@ -1977,7 +1977,10 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
 
     let identify = raw_cli(&server, serde_json::json!({"id":"identify-human","cmd":"identify"}));
     assert_success(&identify);
-    assert!(String::from_utf8_lossy(&identify.stdout).contains("\"protocol\":10"));
+    assert!(
+        String::from_utf8_lossy(&identify.stdout)
+            .contains(&format!("\"protocol\":{}", cmux_tui_core::server::PROTOCOL_VERSION))
+    );
 
     let identify_json =
         raw_cli(&server, serde_json::json!({"id":"identify-json","cmd":"identify"}));
@@ -2830,6 +2833,7 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
         workspace_key: String::new(),
         supports_set_defaults: true,
         supports_clear_history: true,
+        supports_terminate_ack: false,
     };
     let record_path = record.record_path(root);
     let live_path = record_path.with_extension(format!("{incarnation}-{host_start_nonce}.live"));

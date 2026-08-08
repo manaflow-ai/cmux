@@ -3581,7 +3581,7 @@ mod unix {
                 let master = self.master.lock().unwrap();
                 if let Err(error) = master.resize(next_size) {
                     self.smart.close_failed_transition(source_cursor);
-                    return Err(error.into());
+                    return Err(error);
                 }
                 if let Err(error) =
                     term.resize(size.0, size.1, u32::from(next.0), u32::from(next.1))

@@ -3048,6 +3048,39 @@ fn request_response(path: &Path, value: serde_json::Value) -> serde_json::Value 
     serde_json::from_str(&line).unwrap()
 }
 
+#[test]
+fn terminal_launch_rejection_preserves_the_host_error() {
+    let mut harness = RecoveryHarness::start_unstarted("launch-rejection-detail");
+    let child = harness.daemon_command().spawn().unwrap();
+    harness.child = Some(child);
+    wait_for_socket(&harness.socket);
+
+    let missing = format!("/tmp/cmux-terminal-host-missing-{}", std::process::id());
+    let response = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": [missing],
+            "new_workspace": true,
+            "name": "must-fail",
+            "cols": 80,
+            "rows": 24,
+        }),
+    );
+
+    assert_eq!(response["ok"], false, "missing command unexpectedly launched: {response}");
+    let error = response["error"].as_str().expect("rejection includes an error string");
+    assert!(
+        error.contains("No such file") || error.contains("not found"),
+        "terminal host discarded its launch error: {error}"
+    );
+    assert!(
+        !error.contains("closed before launch ready"),
+        "launcher exposed transport fallout instead of the host error: {error}"
+    );
+}
+
 fn resource_request(
     path: &Path,
     id: &str,

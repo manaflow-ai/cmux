@@ -21,7 +21,7 @@ public final class GeneratedCoverageTest {
         check(Protocol.VERSION == 11, "protocol version");
         check("1.0.0".equals(Protocol.SDK_VERSION), "SDK release version");
         check(Commands.ALL.size() == 97, "all 97 commands generated");
-        check(Events.ALL.size() == 45, "all 45 events generated");
+        check(Events.ALL.size() == 46, "all 46 events generated");
 
         Map<String, Method> methods = Arrays.stream(GeneratedCmuxClient.class.getDeclaredMethods())
             .filter(method -> Modifier.isPublic(method.getModifiers()))
