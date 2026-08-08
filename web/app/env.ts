@@ -50,6 +50,18 @@ const requireVercelNonPreviewValue = (
       });
     }
   });
+const requireVercelProductionValue = (
+  name: string,
+  schema: z.ZodType<string> = z.string().min(1),
+): z.ZodType<string | undefined> =>
+  schema.optional().superRefine((value, context) => {
+    if (isVercelProductionDeployment && !value) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${name} is required for deployed production runtimes`,
+      });
+    }
+  });
 const requireVercelRelayValue = (
   schema: z.ZodString = z.string().min(1),
 ): z.ZodType<string | undefined> =>
@@ -201,6 +213,12 @@ export const env = createEnv({
     CMUX_TESTFLIGHT_APP_ID: z.string().min(1).optional(),
     CMUX_PRO_TESTFLIGHT_GROUP_ID: z.string().min(1).optional(),
     SENTRY_DSN: z.string().url().optional(),
+    // Hosted coderouter requires an active personal cmux Pro subscription.
+    // Self-hosted deployments leave this unset (or set it to "0").
+    CODEROUTER_HOSTED_PRO_REQUIRED: requireVercelProductionValue(
+      "CODEROUTER_HOSTED_PRO_REQUIRED",
+      z.enum(["0", "1"]),
+    ),
     CRON_SECRET: z.string().min(1).optional(),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: z.string().url().optional(),
     CMUX_VM_ALERT_CREATE_FAILURES_15M: z.string().regex(/^\d+$/).optional(),
@@ -344,6 +362,9 @@ export const env = createEnv({
     CMUX_TESTFLIGHT_APP_ID: trimEnv(process.env.CMUX_TESTFLIGHT_APP_ID),
     CMUX_PRO_TESTFLIGHT_GROUP_ID: trimEnv(process.env.CMUX_PRO_TESTFLIGHT_GROUP_ID),
     SENTRY_DSN: trimEnv(process.env.SENTRY_DSN),
+    CODEROUTER_HOSTED_PRO_REQUIRED: trimEnv(
+      process.env.CODEROUTER_HOSTED_PRO_REQUIRED,
+    ),
     CRON_SECRET: trimEnv(process.env.CRON_SECRET),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: trimEnv(process.env.CMUX_ALERTS_SLACK_WEBHOOK_URL),
     CMUX_VM_ALERT_CREATE_FAILURES_15M: trimEnv(process.env.CMUX_VM_ALERT_CREATE_FAILURES_15M),

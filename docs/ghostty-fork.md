@@ -12,9 +12,12 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `19d03fa4d`, suppressing empty opener
-stderr diagnostics on top of `f0f8273b7`, which adds the iOS startup
-locale/crash-reporting order fix. That commit follows `88357634c`, the fork-main
+The submodule pinned by this branch is `11aa609d7`, which exposes whether the
+VT parser is at a ground-state stream boundary. cmux uses that contract to
+retain incomplete escape-sequence bytes across distributed snapshot handoff.
+It builds on `19d03fa4d`, which suppresses empty opener stderr diagnostics on
+top of `f0f8273b7`, the iOS startup locale/crash-reporting order fix. That
+commit follows `88357634c`, the fork-main
 merge of https://github.com/manaflow-ai/ghostty/pull/175. That previous merge combines
 the initial cmux theme-picker render fix at `5068b3a37` with terminal-owned
 semantic-prompt row lifecycle enforcement through `2d6e944e3` from
@@ -27,6 +30,21 @@ commits on current fork main and clarified the callback's non-reentrant
 contract. PR 172 then recorded the original font branch as ancestry without
 changing the integrated tree, so the final pin descends from both former
 gitlinks (`cd1f8e012` and `80d7fb35a`).
+
+### VT stream-boundary visibility
+
+- Commit: `11aa609d7` (Expose safe VT stream snapshot boundary)
+- Files: `include/ghostty/vt/terminal.h`, `src/terminal/c/terminal.zig`,
+  `src/lib_vt.zig`
+- Summary:
+  - Exposes a read-only libghostty query that reports whether the VT stream
+    parser has no incomplete escape sequence buffered.
+  - Lets cmux cut a distributed terminal snapshot only at a replay-safe byte
+    boundary, while retaining later raw PTY bytes for each smart client.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-11aa609d75dec882ef2f83171e2cbe887aeddbc5-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `1a4acbcc9e0e5b20c0b4dad6660d0c08546a5d36192053834df960144fa8fdb9`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
 
 The renderer line was reviewed in
 https://github.com/manaflow-ai/ghostty/pull/168, following the merged

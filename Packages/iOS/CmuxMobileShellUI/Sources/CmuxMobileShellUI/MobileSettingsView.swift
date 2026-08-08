@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -122,6 +123,18 @@ struct MobileSettingsView: View {
                                 L10n.string("mobile.settings.mac", defaultValue: "Computer"),
                                 value: connectedHostName
                             )
+                        }
+                        if let store,
+                           store.connectionState == .connected,
+                           let routeKind = store.activeRoute?.kind {
+                            LabeledContent(
+                                L10n.string(
+                                    "mobile.settings.activeTransport",
+                                    defaultValue: "Active Transport"
+                                ),
+                                value: activeTransportName(routeKind)
+                            )
+                            .accessibilityIdentifier("MobileSettingsActiveTransport")
                         }
                     }
                 }
@@ -382,7 +395,12 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsTerminalScrollback")
                 }
 
+                // Release builds keep the section to the single agent-alerts
+                // toggle the app always had; the delivery-status diagnostics,
+                // Mac forwarding controls, and test actions are a dev surface
+                // and stay DEBUG-only.
                 Section(L10n.string("mobile.settings.notifications", defaultValue: "Push Alerts")) {
+#if DEBUG
                     MobilePushSettingsContent(
                         readiness: pushCoordinator.readiness(
                             macStatus: store?.phonePushMacStatus,
@@ -397,7 +415,6 @@ struct MobileSettingsView: View {
                         onMacMutation: updateMacPhonePush,
                         onSendTest: sendPhonePushTest
                     )
-#if DEBUG
                     Button {
                         Task { @MainActor in
                             debugReplyScheduled = await pushCoordinator
@@ -422,6 +439,22 @@ struct MobileSettingsView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     }
+#else
+                    Toggle(
+                        L10n.string(
+                            "mobile.notifications.phoneEnabled",
+                            defaultValue: "Allow Push Alerts on This iPhone"
+                        ),
+                        isOn: Binding(
+                            get: { notificationsEnabled },
+                            set: { enabled in
+                                Task { @MainActor in
+                                    notificationsEnabled = await updatePhonePushEnabled(enabled)
+                                }
+                            }
+                        )
+                    )
+                    .accessibilityIdentifier("MobileSettingsNotifications")
 #endif
                 }
 
@@ -530,6 +563,31 @@ struct MobileSettingsView: View {
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
+    }
+
+    private func activeTransportName(_ kind: CmxAttachTransportKind) -> String {
+        switch kind {
+        case .tailscale:
+            L10n.string(
+                "mobile.settings.activeTransport.tailscale",
+                defaultValue: "Tailscale"
+            )
+        case .iroh:
+            L10n.string(
+                "mobile.settings.activeTransport.iroh",
+                defaultValue: "Iroh"
+            )
+        case .websocket:
+            L10n.string(
+                "mobile.settings.activeTransport.websocket",
+                defaultValue: "WebSocket"
+            )
+        case .debugLoopback:
+            L10n.string(
+                "mobile.settings.activeTransport.simulator",
+                defaultValue: "Simulator"
+            )
+        }
     }
 
     @MainActor

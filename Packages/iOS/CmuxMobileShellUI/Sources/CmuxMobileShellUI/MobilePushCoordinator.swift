@@ -82,6 +82,14 @@ public final class MobilePushCoordinator {
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var pendingReplyState = PendingReplyState()
     @ObservationIgnored private var replySendInFlight = false
+    /// One-shot delayed re-evaluation armed after a FAILED reply send: a
+    /// transient RPC failure with unchanged topology fires no store/channel
+    /// event, so without this the re-parked reply would sit until its 120 s
+    /// lifetime dropped it. Each retry re-arms on failure, so attempts stay
+    /// bounded by the reply lifetime; success or a fresh park cancels it.
+    @ObservationIgnored private var replyRetryTask: Task<Void, Never>?
+    @ObservationIgnored private let replyRetrySleep: @Sendable (Duration) async throws -> Void
+    private static let replyRetryDelay: Duration = .seconds(5)
     /// The iOS API endpoint that accepted this installation's APNs token.
     public let phoneAPIOrigin: String
     /// Live OS authorization, refreshed at launch, on foreground, and when
@@ -141,9 +149,13 @@ public final class MobilePushCoordinator {
         },
         unregisterForRemoteNotifications: @escaping @MainActor () -> Void = {
             UIApplication.shared.unregisterForRemoteNotifications()
+        },
+        replyRetrySleep: @escaping @Sendable (Duration) async throws -> Void = {
+            try await ContinuousClock().sleep(for: $0)
         }
     ) {
         self.registration = registration
+        self.replyRetrySleep = replyRetrySleep
         self.analytics = analytics
         self.phoneAPIOrigin = phoneAPIOrigin
         self.defaults = defaults
@@ -799,17 +811,31 @@ public final class MobilePushCoordinator {
         if !sent {
             // A failed RPC send must not consume the reply: re-park it (with
             // its original createdAt, so the 120 s lifetime still bounds the
-            // total retry window) and let the next store/channel readiness
-            // event retry, instead of looping here against a channel that
-            // just proved unhealthy. A reply parked mid-send wins instead —
-            // latest user intent replaces the failed one.
+            // total retry window). A reply parked mid-send wins instead —
+            // latest user intent replaces the failed one. Store/channel
+            // readiness events retry immediately; the armed delay covers a
+            // transient failure whose topology never changes.
             mobilePushLog.error("inline reply terminal input failed; re-parking for retry")
             if pendingReplyState.pending == nil {
                 pendingReplyState.park(ready)
             }
+            scheduleReplyRetry()
             return
         }
+        replyRetryTask?.cancel()
+        replyRetryTask = nil
         await applyPendingReplyIfReady()
+    }
+
+    /// Arms one delayed `applyPendingReplyIfReady` pass (see `replyRetryTask`).
+    private func scheduleReplyRetry() {
+        replyRetryTask?.cancel()
+        replyRetryTask = Task { @MainActor [weak self, replyRetrySleep] in
+            guard (try? await replyRetrySleep(Self.replyRetryDelay)) != nil else { return }
+            guard let self, !Task.isCancelled else { return }
+            self.replyRetryTask = nil
+            await self.applyPendingReplyIfReady()
+        }
     }
 
     /// Forward a phone-side notification dismissal to the paired Mac so it marks

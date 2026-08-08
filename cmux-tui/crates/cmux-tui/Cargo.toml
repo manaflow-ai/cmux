@@ -36,15 +36,17 @@ terminput.workspace = true
 terminput-crossterm.workspace = true
 parking_lot.workspace = true
 sha2.workspace = true
+uuid.workspace = true
+wait-timeout.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
 tokio.workspace = true
 url.workspace = true
-uuid.workspace = true
 async-trait.workspace = true
 
 [dev-dependencies]
+cmux-pty.workspace = true
 tempfile = "3"
 rusqlite.workspace = true

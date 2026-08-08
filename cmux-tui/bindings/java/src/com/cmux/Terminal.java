@@ -198,6 +198,24 @@ public final class Terminal {
         return response.parts().withValue(snapshot);
     }
 
+    public MutationResult<Snapshots.TabSnapshot> project(
+        Options.TerminalProject options
+    ) {
+        Map<String, Object> params = withExtra(params(), options.mutation().extra());
+        params.put("destination_workspace", options.workspace());
+        params.put("destination_screen", options.screen());
+        params.put("destination_pane", options.pane());
+        params.put("index", options.index());
+        options.name().ifPresent(value -> params.put(Wire.NAME, value));
+        Client.MutationResponse response = client.mutation(
+            Operations.TERMINAL_PROJECT, params, options.mutation()
+        );
+        Snapshots.TabSnapshot projected = Client.decodeTab(
+            Client.resourcePayload(response.result(), Wire.TAB)
+        );
+        return response.parts().withValue(projected);
+    }
+
     public ResourceStream<TerminalAttachmentItem> attach(
         Options.TerminalAttach options
     ) {

@@ -1,28 +1,16 @@
 public import UserNotifications
 
-/// A narrow seam over `UNUserNotificationCenter` used by
-/// ``NotificationDeliveryCoordinator`` to install categories and its delegate.
+/// A narrow seam used by ``NotificationDeliveryCoordinator`` to install categories and its delegate.
 @MainActor
-public protocol UserNotificationCenterConfiguring: AnyObject {
-    /// Reads the currently registered notification categories.
-    func currentNotificationCategories() async -> Set<UNNotificationCategory>
-
-    /// Installs the notification categories the app can deliver or respond to.
-    func setNotificationCategories(_ categories: Set<UNNotificationCategory>)
+public protocol UserNotificationCenterConfiguring: Sendable {
+    /// Installs notification categories without blocking the main actor.
+    /// - Parameter categories: Every category the application can deliver.
+    /// - Returns: Success, a framework error, or a bounded timeout.
+    func setNotificationCategories(
+        _ categories: Set<UNNotificationCategory>
+    ) async -> Result<Void, UserNotificationCenterFailure>
 
     /// Installs the notification-center delegate that receives delivery and
     /// response callbacks.
     func setDelegate(_ delegate: (any UNUserNotificationCenterDelegate)?)
-}
-
-extension UNUserNotificationCenter: UserNotificationCenterConfiguring {
-    /// Reads the categories currently registered on the notification center.
-    public func currentNotificationCategories() async -> Set<UNNotificationCategory> {
-        await notificationCategories()
-    }
-
-    /// Installs `delegate` on the underlying `UNUserNotificationCenter`.
-    public func setDelegate(_ delegate: (any UNUserNotificationCenterDelegate)?) {
-        self.delegate = delegate
-    }
 }

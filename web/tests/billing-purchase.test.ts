@@ -16,7 +16,11 @@ process.env.STACK_SECRET_SERVER_KEY ??= "test-stack-secret";
 process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "00000000-0000-4000-8000-000000000000";
 process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ??= "test-stack-publishable";
 
-const { applySubscriptionUpdate, recordCheckoutCompletion } = await import(
+const {
+  applySubscriptionUpdate,
+  isActiveStripeSubscriptionStatus,
+  recordCheckoutCompletion,
+} = await import(
   "../services/billing/purchase"
 );
 
@@ -184,6 +188,26 @@ function teamCheckoutInput(customerId = "cus_team", stackUserId?: string) {
     },
   };
 }
+
+describe("Stripe subscription entitlement states", () => {
+  for (const status of ["active", "trialing", "past_due"]) {
+    test(`${status} retains Pro access`, () => {
+      expect(isActiveStripeSubscriptionStatus(status)).toBe(true);
+    });
+  }
+
+  for (const status of [
+    "canceled",
+    "incomplete",
+    "incomplete_expired",
+    "paused",
+    "unpaid",
+  ]) {
+    test(`${status} revokes Pro access`, () => {
+      expect(isActiveStripeSubscriptionStatus(status)).toBe(false);
+    });
+  }
+});
 
 describe("recordCheckoutCompletion", () => {
   beforeEach(() => {

@@ -1,4 +1,4 @@
-//! Opaque public resource identities and protocol-v1 shared types.
+//! Opaque public resource identities and protocol-v2 shared types.
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-pub const PROTOCOL: &str = "cmux.protocol/1";
+pub const PROTOCOL: &str = "cmux.protocol/2";
 pub const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 pub const STREAM_EVENT_CAPACITY: usize = 256;
 pub const STREAM_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
@@ -292,6 +292,8 @@ pub enum ResourceOperation {
     TerminalViewportScroll,
     #[serde(rename = "terminal.move")]
     TerminalMove,
+    #[serde(rename = "terminal.project")]
+    TerminalProject,
     #[serde(rename = "terminal.attach")]
     TerminalAttach,
     #[serde(rename = "terminal.close")]
@@ -475,7 +477,7 @@ impl RequestEnvelope {
         if self.protocol != PROTOCOL || self.envelope_type != EnvelopeType::Request {
             return Err(ResourceError::validation_invalid(
                 Some("protocol"),
-                "expected a cmux.protocol/1 request envelope",
+                "expected a cmux.protocol/2 request envelope",
             ));
         }
         if !self.params.is_object() {
@@ -542,7 +544,7 @@ impl ResponseEnvelope {
         if self.protocol != PROTOCOL || self.envelope_type != EnvelopeType::Response {
             return Err(ResourceError::validation_invalid(
                 Some("protocol"),
-                "expected a cmux.protocol/1 response envelope",
+                "expected a cmux.protocol/2 response envelope",
             ));
         }
         match (self.ok, self.result.is_some(), self.error.is_some()) {
@@ -759,7 +761,7 @@ impl ResourceError {
         let code = code.into();
         assert!(
             is_catalog_error_code(&code),
-            "resource error code {code:?} is absent from spec/resource-operations-v1.json"
+            "resource error code {code:?} is absent from spec/resource-operations-v2.json"
         );
         assert!(
             catalog_error_contract_matches(&code, &details, retryable),
@@ -856,6 +858,15 @@ impl ResourceError {
         Self::new("transport.closed", reason.clone(), json!({"reason":reason}), true)
     }
 
+    pub fn terminal_closed(terminal_id: &TerminalPublicId) -> Self {
+        Self::new(
+            "terminal.closed",
+            format!("terminal {terminal_id} is closed"),
+            json!({"terminal_id":terminal_id}),
+            false,
+        )
+    }
+
     pub fn idempotency_conflict(idempotency_key: &str, committed_operation: &str) -> Self {
         Self::new(
             "idempotency.conflict",
@@ -942,6 +953,7 @@ pub(crate) const RESOURCE_ERROR_CODES: &[&str] = &[
     "selector.invalid",
     "selector.not_found",
     "selector.wrong_parent",
+    "terminal.closed",
     "transport.closed",
     "validation.invalid",
 ];
@@ -953,7 +965,7 @@ pub(crate) fn is_catalog_error_code(code: &str) -> bool {
 fn error_catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
     CATALOG.get_or_init(|| {
-        serde_json::from_str(include_str!("../../../spec/resource-operations-v1.json"))
+        serde_json::from_str(include_str!("../../../spec/resource-operations-v2.json"))
             .expect("checked-in resource operation catalog")
     })
 }
@@ -1366,7 +1378,9 @@ pub struct PublicSlotIndexes {
     pub screens: HashMap<ScreenPublicId, crate::ScreenId>,
     pub panes: HashMap<PanePublicId, crate::PaneId>,
     pub tabs: HashMap<TabPublicId, crate::SurfaceId>,
-    pub content: HashMap<ContentPublicId, crate::SurfaceId>,
+    /// Every view placement of a content resource. Terminal content may have
+    /// any number of placements; browser content currently has one.
+    pub content_placements: HashMap<ContentPublicId, Vec<crate::SurfaceId>>,
     pub workspace_ids: HashMap<crate::WorkspaceId, WorkspacePublicId>,
     pub screen_ids: HashMap<crate::ScreenId, ScreenPublicId>,
     pub pane_ids: HashMap<crate::PaneId, PanePublicId>,
@@ -1386,7 +1400,7 @@ mod tests {
     #[test]
     fn locally_emittable_error_codes_exactly_match_the_catalog() {
         let catalog: Value =
-            serde_json::from_str(include_str!("../../../spec/resource-operations-v1.json"))
+            serde_json::from_str(include_str!("../../../spec/resource-operations-v2.json"))
                 .unwrap();
         let mut declared =
             catalog["errors"].as_object().unwrap().keys().map(String::as_str).collect::<Vec<_>>();
@@ -1600,6 +1614,11 @@ mod tests {
         {
             assert!(serde_json::from_value::<WireDecimal>(invalid).is_err());
         }
+    }
+
+    #[test]
+    fn terminal_multiview_uses_a_new_public_protocol_version() {
+        assert_eq!(PROTOCOL, "cmux.protocol/2");
     }
 
     #[test]

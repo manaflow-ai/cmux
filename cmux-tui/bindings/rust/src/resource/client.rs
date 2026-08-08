@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, TryLockError};
 use std::time::{Duration, Instant};
 
-const PROTOCOL: &str = "cmux.protocol/1";
+const PROTOCOL: &str = "cmux.protocol/2";
 const DEFAULT_REQUEST_BYTES: usize = 4 * 1024 * 1024;
 const DEFAULT_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const DEFAULT_STREAM_ITEMS: usize = 256;
@@ -868,7 +868,7 @@ pub(crate) fn decode_response(response: Value, expected_id: &str) -> Result<Valu
         || object.get("type").and_then(Value::as_str) != Some("response")
     {
         return Err(Error::UnexpectedEnvelope(
-            "expected cmux.protocol/1 response envelope".to_string(),
+            "expected cmux.protocol/2 response envelope".to_string(),
         ));
     }
     if object.get("id").and_then(Value::as_str) != Some(expected_id) {
@@ -973,10 +973,10 @@ mod tests {
 
     #[test]
     fn cancellable_connect_reuses_one_socket_across_poll_slices() {
-        let probe = crate::codec::ForcedPendingConnectProbe::install();
+        let probe = crate::codec::ForcedPendingConnectProbe::install_with_poll_limit(3);
         let cancellation = super::super::options::CancellationToken::new();
         let options = RequestOptions::new()
-            .with_timeout(Duration::from_millis(35))
+            .with_timeout(Duration::from_secs(1))
             .unwrap()
             .with_cancellation(cancellation);
         let budget = CallBudget::new(options, Duration::from_secs(1)).unwrap();
@@ -986,7 +986,7 @@ mod tests {
             connect_with_budget(&config, ops::SESSION_LIST, &budget),
             Err(Error::Timeout(_))
         ));
-        assert!(probe.polls() >= 2, "the connect should span several cancellation polls");
+        assert_eq!(probe.polls(), 3, "the connect should span the configured poll slices");
         assert_eq!(
             probe.attempts(),
             1,
@@ -996,28 +996,33 @@ mod tests {
 
     #[test]
     fn pending_connect_observes_cancellation_while_reusing_its_socket() {
-        let probe = crate::codec::ForcedPendingConnectProbe::install();
         let cancellation = super::super::options::CancellationToken::new();
         let cancel_from_thread = cancellation.clone();
+        let (pending_tx, pending_rx) = std::sync::mpsc::channel();
+        let (cancelled_tx, cancelled_rx) = std::sync::mpsc::channel();
         let canceler = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(25));
+            pending_rx.recv().unwrap();
             cancel_from_thread.cancel();
+            cancelled_tx.send(()).unwrap();
         });
+        let probe =
+            crate::codec::ForcedPendingConnectProbe::install_with_after_first_poll(move || {
+                pending_tx.send(()).unwrap();
+                cancelled_rx.recv().unwrap();
+            });
         let options = RequestOptions::new()
             .with_timeout(Duration::from_secs(1))
             .unwrap()
             .with_cancellation(cancellation);
         let budget = CallBudget::new(options, Duration::from_secs(1)).unwrap();
         let config = Config::from_socket_path("cancel-pending-connect.sock");
-        let started = Instant::now();
 
         assert!(matches!(
             connect_with_budget(&config, ops::SESSION_LIST, &budget),
             Err(Error::Cancelled(_))
         ));
         canceler.join().unwrap();
-        assert!(started.elapsed() < Duration::from_millis(250));
-        assert!(probe.polls() >= 2, "the cancellation should interrupt a pending connect");
+        assert_eq!(probe.polls(), 1, "the cancellation should interrupt the next poll check");
         assert_eq!(probe.attempts(), 1, "cancellation must close one pending Unix socket");
     }
 

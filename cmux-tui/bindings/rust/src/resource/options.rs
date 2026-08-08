@@ -343,6 +343,18 @@ pub struct MoveDestination {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TerminalProjectOptions {
+    pub destination: MoveDestination,
+    pub name: Option<String>,
+}
+
+impl TerminalProjectOptions {
+    pub const fn new(destination: MoveDestination) -> Self {
+        Self { destination, name: None }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PaneSwapOptions {
     pub other_workspace: Selector<WorkspaceId>,
     pub other_screen: Selector<ScreenId>,
