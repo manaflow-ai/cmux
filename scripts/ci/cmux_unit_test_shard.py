@@ -7,6 +7,11 @@ scripts/ci/generate_test_timings.py from a green main run's shard logs).
 Suites and methods missing from the manifest fall back to a per-test estimate,
 so new or renamed tests never break sharding — they just pack less precisely
 until the manifest is refreshed.
+
+Each machine shard can additionally be split into bounded process batches.
+Every batch is a separate xcodebuild invocation and therefore a fresh app host,
+preventing one long-lived XCTest process from retaining unbounded AppKit/WebKit
+state while preserving the existing cross-machine shard balance.
 """
 
 from __future__ import annotations
@@ -309,6 +314,40 @@ def shard_selectors(
     return sorted(buckets[shard_index - 1], key=lambda selector: selector.identifier)
 
 
+def process_batches(
+    selectors: list[TestSelector], maximum_selectors: int
+) -> list[list[TestSelector]]:
+    """Pack one machine shard into timing-balanced, size-bounded processes."""
+    if maximum_selectors < 1:
+        raise SystemExit("--batch-size must be >= 1")
+
+    batch_count = (len(selectors) + maximum_selectors - 1) // maximum_selectors
+    batches: list[list[TestSelector]] = [[] for _ in range(batch_count)]
+    batch_weights = [0 for _ in range(batch_count)]
+    ordered = sorted(
+        selectors,
+        key=lambda selector: (
+            -selector.weight,
+            hashlib.sha256(selector.identifier.encode("utf-8")).hexdigest(),
+            selector.identifier,
+        ),
+    )
+    for selector in ordered:
+        candidates = [
+            index
+            for index, batch in enumerate(batches)
+            if len(batch) < maximum_selectors
+        ]
+        batch_index = min(candidates, key=lambda index: (batch_weights[index], index))
+        batches[batch_index].append(selector)
+        batch_weights[batch_index] += selector.weight
+
+    return [
+        sorted(batch, key=lambda selector: selector.identifier)
+        for batch in batches
+    ]
+
+
 def write_output(path: Path, selectors: list[TestSelector]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -323,6 +362,8 @@ def main() -> int:
     parser.add_argument("--shard-index", type=int)
     parser.add_argument("--shard-total", type=int)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--batch-size", type=int)
+    parser.add_argument("--batch-output-directory", type=Path)
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--validate", action="store_true")
     parser.add_argument("--timings", type=Path, default=DEFAULT_TIMINGS_PATH)
@@ -348,15 +389,41 @@ def main() -> int:
             print(f"{selector.identifier}\t{selector.weight}\t{selector.path}:{selector.line}")
         return 0
 
-    if args.shard_index is None or args.shard_total is None or args.output is None:
-        parser.error("--shard-index, --shard-total, and --output are required unless --list or --validate is used")
+    if args.shard_index is None or args.shard_total is None:
+        parser.error("--shard-index and --shard-total are required unless --list or --validate is used")
+    if args.output is not None and args.batch_output_directory is not None:
+        parser.error("--output and --batch-output-directory are mutually exclusive")
+    if args.batch_output_directory is None and args.output is None:
+        parser.error("--output or --batch-output-directory is required")
+    if args.batch_output_directory is not None and args.batch_size is None:
+        parser.error("--batch-size is required with --batch-output-directory")
+    if args.batch_output_directory is None and args.batch_size is not None:
+        parser.error("--batch-size requires --batch-output-directory")
 
     selected = shard_selectors(selectors, args.shard_index, args.shard_total)
     if not selected:
         raise SystemExit(f"Shard {args.shard_index}/{args.shard_total} is empty")
 
-    write_output(args.output, selected)
     total_weight = sum(selector.weight for selector in selected)
+    if args.batch_output_directory is not None:
+        batches = process_batches(selected, args.batch_size)
+        args.batch_output_directory.mkdir(parents=True, exist_ok=True)
+        for batch_index, batch in enumerate(batches, start=1):
+            batch_path = args.batch_output_directory / f"batch-{batch_index:03d}.args"
+            write_output(batch_path, batch)
+            batch_weight = sum(selector.weight for selector in batch)
+            print(
+                f"  Batch {batch_index}/{len(batches)}: {len(batch)} selectors, "
+                f"est {batch_weight / 60000:.1f} min serial, args {batch_path}"
+            )
+        print(
+            f"Shard {args.shard_index}/{args.shard_total}: "
+            f"{len(selected)} selectors in {len(batches)} process batches, "
+            f"est {total_weight / 60000:.1f} min serial"
+        )
+        return 0
+
+    write_output(args.output, selected)
     print(
         f"Shard {args.shard_index}/{args.shard_total}: "
         f"{len(selected)} selectors, est {total_weight / 60000:.1f} min serial, args {args.output}"
