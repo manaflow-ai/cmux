@@ -7,7 +7,7 @@ public import Observation
 /// pull-request presentation state the legacy `Workspace` god object kept as
 /// loose `@Published` stored properties (`statusEntries`, `metadataBlocks`,
 /// `logEntries`, `progress`, `gitBranch`, `panelGitBranches`, `pullRequest`,
-/// `panelPullRequests`).
+/// `panelPullRequests`), plus repository-link presentation state.
 ///
 /// `Workspace` owns one instance and forwards each former stored property
 /// through a computed `get`/`set` pair, so every call site (`statusEntries[key]
@@ -73,6 +73,16 @@ public final class WorkspaceSidebarMetadataModel {
         didSet { panelPullRequestsSubject.send(panelPullRequests) }
     }
 
+    /// The workspace-level repository link shown in the sidebar.
+    public var repositoryLink: SidebarRepositoryLinkState? {
+        didSet { repositoryLinkSubject.send(repositoryLink) }
+    }
+
+    /// Per-panel repository links keyed by panel id.
+    public var panelRepositoryLinks: [UUID: SidebarRepositoryLinkState] = [:] {
+        didSet { panelRepositoryLinksSubject.send(panelRepositoryLinks) }
+    }
+
     /// Per-panel directory display labels keyed by panel id, reported via
     /// `report_pwd <label> --path=<real-path>`. Display-only sidebar text:
     /// the File Explorer, Finder root, and git probing always use the real
@@ -96,6 +106,10 @@ public final class WorkspaceSidebarMetadataModel {
     private lazy var gitBranchSubject = CurrentValueSubject<SidebarGitBranchState?, Never>(gitBranch)
     @ObservationIgnored
     private lazy var panelGitBranchesSubject = CurrentValueSubject<[UUID: SidebarGitBranchState], Never>(panelGitBranches)
+    @ObservationIgnored
+    private lazy var repositoryLinkSubject = CurrentValueSubject<SidebarRepositoryLinkState?, Never>(repositoryLink)
+    @ObservationIgnored
+    private lazy var panelRepositoryLinksSubject = CurrentValueSubject<[UUID: SidebarRepositoryLinkState], Never>(panelRepositoryLinks)
     @ObservationIgnored
     private lazy var pullRequestSubject = CurrentValueSubject<SidebarPullRequestState?, Never>(pullRequest)
     @ObservationIgnored
@@ -145,6 +159,18 @@ public final class WorkspaceSidebarMetadataModel {
     /// every change (replaces the legacy `Workspace.$panelGitBranches`).
     public var panelGitBranchesPublisher: AnyPublisher<[UUID: SidebarGitBranchState], Never> {
         panelGitBranchesSubject.eraseToAnyPublisher()
+    }
+
+    /// Emits the current workspace repository link on subscription, then on
+    /// every change.
+    public var repositoryLinkPublisher: AnyPublisher<SidebarRepositoryLinkState?, Never> {
+        repositoryLinkSubject.eraseToAnyPublisher()
+    }
+
+    /// Emits the current per-panel repository links on subscription, then on
+    /// every change.
+    public var panelRepositoryLinksPublisher: AnyPublisher<[UUID: SidebarRepositoryLinkState], Never> {
+        panelRepositoryLinksSubject.eraseToAnyPublisher()
     }
 
     /// Emits the current workspace pull-request state on subscription, then on
@@ -224,6 +250,18 @@ public final class WorkspaceSidebarMetadataModel {
     /// - Parameter pullRequest: The new pull-request state, or `nil` to clear.
     public func updatePullRequest(_ pullRequest: SidebarPullRequestState?) {
         self.pullRequest = pullRequest
+    }
+
+    /// Sets or clears the workspace-level repository link.
+    /// - Parameter repositoryLink: The new repository-link state, or `nil` to clear it.
+    public func updateRepositoryLink(_ repositoryLink: SidebarRepositoryLinkState?) {
+        self.repositoryLink = repositoryLink
+    }
+
+    /// Replaces the immutable per-panel repository-link snapshot.
+    /// - Parameter panelRepositoryLinks: Repository-link state keyed by panel id.
+    public func updatePanelRepositoryLinks(_ panelRepositoryLinks: [UUID: SidebarRepositoryLinkState]) {
+        self.panelRepositoryLinks = panelRepositoryLinks
     }
 
     /// Returns the metadata blocks sorted for sidebar display: descending

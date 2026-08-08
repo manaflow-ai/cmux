@@ -304,6 +304,7 @@ final class RemoteTmuxController {
             title: sessionName, titleSource: .auto,
             select: false,
             autoWelcomeIfNeeded: false,
+            autoRefreshMetadata: false,
             applyCreationTitleAsCustomTitle: false
         )
         workspace.isRemoteTmuxMirror = true

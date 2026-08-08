@@ -312,6 +312,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         cancelWorkspaceGitProbeTask(for: key)
         stopWorkspaceGitMetadataWatcher(for: key)
         updateWorkspaceGitMetadataFallbackTimer()
+        host?.clearPanelRepositoryLink(workspaceId: key.workspaceId, panelId: key.panelId)
     }
 
     func finishWorkspaceGitProbeAttempt(_ key: WorkspaceGitProbeKey) {
@@ -341,6 +342,8 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     public func clearWorkspaceGitProbes(workspaceId: UUID) {
         let keys = Set(workspaceGitProbeStateByKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitProbeTasksByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspaceGitTrackedDirectoryByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspaceGitMetadataWatcherSourceDirectoryByKey.keys.filter { $0.workspaceId == workspaceId })
         for key in keys {
             clearWorkspaceGitProbe(key)
         }
@@ -364,6 +367,8 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     public func resetAllWorkspaceGitProbeTracking() {
         let existingProbeKeys = Set(workspaceGitProbeStateByKey.keys)
             .union(workspaceGitProbeTasksByKey.keys)
+            .union(workspaceGitTrackedDirectoryByKey.keys)
+            .union(workspaceGitMetadataWatcherSourceDirectoryByKey.keys)
         for key in existingProbeKeys {
             clearWorkspaceGitProbe(key)
         }

@@ -1,21 +1,37 @@
 import Foundation
 
+struct GitRemoteConfigSnapshot: Sendable {
+    let remoteVOutput: String?
+    let configURLs: [URL]
+}
+
 extension GitMetadataService {
     /// A synthesized `git remote -v`-style listing built by reading remote URLs
     /// straight from the reachable config files (no `git` process). `nil` when
     /// no remote URL is found.
     nonisolated static func gitRemoteVOutput(repository: ResolvedGitRepository) -> String? {
+        gitRemoteConfigSnapshot(repository: repository).remoteVOutput
+    }
+
+    nonisolated static func gitRemoteConfigSnapshot(
+        repository: ResolvedGitRepository
+    ) -> GitRemoteConfigSnapshot {
         var lines: [String] = []
         var seenConfigPaths: Set<String> = []
+        var configURLs: [URL] = []
         for configURL in gitRootConfigURLs(repository: repository) {
             appendGitRemoteVLines(
                 fromConfigURL: configURL,
                 repository: repository,
                 seenConfigPaths: &seenConfigPaths,
+                configURLs: &configURLs,
                 lines: &lines
             )
         }
-        return lines.isEmpty ? nil : lines.joined()
+        return GitRemoteConfigSnapshot(
+            remoteVOutput: lines.isEmpty ? nil : lines.joined(),
+            configURLs: configURLs
+        )
     }
 
     /// The repository's top-level config files (common directory, then git
@@ -92,11 +108,15 @@ extension GitMetadataService {
         fromConfigURL configURL: URL,
         repository: ResolvedGitRepository,
         seenConfigPaths: inout Set<String>,
+        configURLs: inout [URL],
         lines: inout [String]
     ) {
         let configURL = configURL.standardizedFileURL
-        guard seenConfigPaths.insert(configURL.path).inserted,
-              let config = try? String(contentsOf: configURL, encoding: .utf8) else {
+        guard seenConfigPaths.insert(configURL.path).inserted else {
+            return
+        }
+        configURLs.append(configURL)
+        guard let config = try? String(contentsOf: configURL, encoding: .utf8) else {
             return
         }
 
@@ -150,6 +170,7 @@ extension GitMetadataService {
                 fromConfigURL: includeURL,
                 repository: repository,
                 seenConfigPaths: &seenConfigPaths,
+                configURLs: &configURLs,
                 lines: &lines
             )
         }

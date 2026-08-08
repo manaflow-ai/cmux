@@ -37,14 +37,28 @@ public struct GitWorkspaceMetadata: Equatable, Sendable {
     /// commit, or reset.
     public let headSignature: String?
 
+    /// The preferred sanitized browser link for a configured Git remote, or
+    /// `nil` when no configured remote is safe to open in a browser.
+    public let repositoryLink: GitRepositoryLink?
+
     /// Creates a workspace-metadata snapshot.
+    ///
+    /// - Parameters:
+    ///   - isRepository: Whether the inspected directory resolved to a repository.
+    ///   - branch: The current branch name, or `nil` for a detached or unreadable `HEAD`.
+    ///   - isDirty: Whether tracked working-tree content differs from the index.
+    ///   - indexSignature: The raw index-file signature, when available.
+    ///   - indexContentSignature: The tracked-content signature, when available.
+    ///   - headSignature: The resolved `HEAD` signature, when available.
+    ///   - repositoryLink: The preferred sanitized browser link, when available.
     public init(
         isRepository: Bool,
         branch: String?,
         isDirty: Bool,
         indexSignature: String?,
         indexContentSignature: String?,
-        headSignature: String?
+        headSignature: String?,
+        repositoryLink: GitRepositoryLink? = nil
     ) {
         self.isRepository = isRepository
         self.branch = branch
@@ -52,6 +66,7 @@ public struct GitWorkspaceMetadata: Equatable, Sendable {
         self.indexSignature = indexSignature
         self.indexContentSignature = indexContentSignature
         self.headSignature = headSignature
+        self.repositoryLink = repositoryLink
     }
 
     /// The metadata for a directory that is not inside any git repository.
@@ -61,6 +76,7 @@ public struct GitWorkspaceMetadata: Equatable, Sendable {
         isDirty: false,
         indexSignature: nil,
         indexContentSignature: nil,
-        headSignature: nil
+        headSignature: nil,
+        repositoryLink: nil
     )
 }

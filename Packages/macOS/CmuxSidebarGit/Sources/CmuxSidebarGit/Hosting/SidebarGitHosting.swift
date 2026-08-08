@@ -2,7 +2,8 @@ public import Foundation
 
 /// The window-side seam the sidebar git services drive: snapshot reads of
 /// workspace/panel state, synchronous projection writes of branch and
-/// pull-request badges, and the environment toggles the schedulers honor.
+/// pull-request badges / repository links, and the environment toggles the
+/// schedulers honor.
 ///
 /// **Why a synchronous two-way protocol and not an AsyncStream of results.**
 /// Every state transition in the legacy subsystem is one MainActor turn that
@@ -45,6 +46,16 @@ public protocol SidebarGitHosting: AnyObject {
     func hasTrustedRemotePanelDirectory(workspaceId: UUID, panelId: UUID) -> Bool
     /// The panel's currently displayed git branch state, if any.
     func panelGitBranch(workspaceId: UUID, panelId: UUID) -> SidebarPanelGitBranch?
+    /// Returns the panel's currently displayed repository-link primitives.
+    ///
+    /// - Parameters:
+    ///   - workspaceId: The workspace containing the panel.
+    ///   - panelId: The panel whose repository link is requested.
+    /// - Returns: The displayed remote name, label, and destination, or `nil`.
+    func panelRepositoryLink(
+        workspaceId: UUID,
+        panelId: UUID
+    ) -> (remoteName: String, displayName: String, url: URL)?
     /// Panel ids currently showing a git branch in the workspace.
     func panelGitBranchPanelIds(in workspaceId: UUID) -> Set<UUID>
     /// The panel's currently displayed pull-request badge, if any.
@@ -53,8 +64,8 @@ public protocol SidebarGitHosting: AnyObject {
     func panelPullRequestPanelIds(in workspaceId: UUID) -> Set<UUID>
     /// The workspace's focused panel id, if any.
     func focusedPanelId(in workspaceId: UUID) -> UUID?
-    /// Whether the workspace shows a workspace-level git branch or
-    /// pull-request signal (the legacy `gitBranch != nil || pullRequest != nil`).
+    /// Whether the workspace shows a workspace-level branch, pull-request, or
+    /// repository-link signal.
     func hasWorkspaceLevelGitSignal(_ workspaceId: UUID) -> Bool
     /// Whether the panel is the focused panel of the selected workspace
     /// (drives the faster selected-panel PR poll cadence).
@@ -75,6 +86,27 @@ public protocol SidebarGitHosting: AnyObject {
     func updatePanelGitBranch(workspaceId: UUID, panelId: UUID, branch: String, isDirty: Bool)
     /// Clears the panel's branch (and any dependent badge state).
     func clearPanelGitBranch(workspaceId: UUID, panelId: UUID)
+    /// Shows a browser-safe repository link on the panel.
+    ///
+    /// - Parameters:
+    ///   - workspaceId: The workspace containing the panel.
+    ///   - panelId: The panel receiving the repository link.
+    ///   - remoteName: The Git remote name that supplied the link.
+    ///   - displayName: The compact repository path shown in the sidebar.
+    ///   - url: The sanitized HTTP(S) browser destination.
+    func updatePanelRepositoryLink(
+        workspaceId: UUID,
+        panelId: UUID,
+        remoteName: String,
+        displayName: String,
+        url: URL
+    )
+    /// Clears the panel's repository link.
+    ///
+    /// - Parameters:
+    ///   - workspaceId: The workspace containing the panel.
+    ///   - panelId: The panel whose repository link should be cleared.
+    func clearPanelRepositoryLink(workspaceId: UUID, panelId: UUID)
     /// Shows `badge` on the panel.
     func updatePanelPullRequest(workspaceId: UUID, panelId: UUID, badge: SidebarPullRequestBadge)
     /// Clears the panel's pull-request badge.
@@ -82,7 +114,7 @@ public protocol SidebarGitHosting: AnyObject {
     /// Asks the host to re-probe the panel's local git metadata because the
     /// pull-request branch disagrees with the current sidebar branch projection.
     func schedulePanelGitMetadataProbe(workspaceId: UUID, panelId: UUID, reason: String)
-    /// Clears every workspace's sidebar git metadata (branches and badges).
+    /// Clears every workspace's sidebar git metadata (branches, links, and badges).
     func clearAllSidebarGitMetadata()
     /// Clears every workspace's sidebar pull-request badges.
     func clearAllSidebarPullRequestMetadata()

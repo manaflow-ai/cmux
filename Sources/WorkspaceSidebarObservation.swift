@@ -186,6 +186,8 @@ private struct SidebarObservationState: Equatable {
     let progress: SidebarProgressState?
     let gitBranch: SidebarGitBranchState?
     let panelGitBranches: [UUID: SidebarGitBranchState]
+    let repositoryLink: SidebarRepositoryLinkState?
+    let panelRepositoryLinks: [UUID: SidebarRepositoryLinkState]
     let pullRequest: SidebarPullRequestState?
     let panelPullRequests: [UUID: SidebarPullRequestState]
     let remoteConfiguration: WorkspaceRemoteConfiguration?
@@ -285,6 +287,10 @@ extension Workspace {
         let gitFields = Publishers.CombineLatest4(
             sidebarMetadata.gitBranchPublisher,
             sidebarMetadata.panelGitBranchesPublisher,
+            sidebarMetadata.repositoryLinkPublisher,
+            sidebarMetadata.panelRepositoryLinksPublisher
+        )
+        let reviewFields = Publishers.CombineLatest(
             sidebarMetadata.pullRequestPublisher,
             sidebarMetadata.panelPullRequestsPublisher
         )
@@ -299,17 +305,17 @@ extension Workspace {
             workspaceFields,
             metadataFields,
             gitFields,
-            remoteFields
+            reviewFields
         )
-            .combineLatest($listeningPorts, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
+            .combineLatest(remoteFields, $listeningPorts, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
             .combineLatest(directoryChangeRevision)
             .compactMap { [weak self] values, directoryChangeRevision -> SidebarObservationState? in
                 guard let self else { return nil }
-                let (groupedFields, listeningPorts, panelDirectoryDisplayLabels) = values
+                let (groupedFields, remoteFields, listeningPorts, panelDirectoryDisplayLabels) = values
                 let workspaceFields = groupedFields.0
                 let metadataFields = groupedFields.1
                 let gitFields = groupedFields.2
-                let remoteFields = groupedFields.3
+                let reviewFields = groupedFields.3
                 return SidebarObservationState(
                     currentDirectory: workspaceFields.0,
                     extensionSidebarProjectRootPath: workspaceFields.1,
@@ -323,8 +329,10 @@ extension Workspace {
                     progress: metadataFields.3,
                     gitBranch: gitFields.0,
                     panelGitBranches: gitFields.1,
-                    pullRequest: gitFields.2,
-                    panelPullRequests: gitFields.3,
+                    repositoryLink: gitFields.2,
+                    panelRepositoryLinks: gitFields.3,
+                    pullRequest: reviewFields.0,
+                    panelPullRequests: reviewFields.1,
                     remoteConfiguration: remoteFields.0,
                     remoteConnectionState: remoteFields.1,
                     remoteConnectionDetail: remoteFields.2,

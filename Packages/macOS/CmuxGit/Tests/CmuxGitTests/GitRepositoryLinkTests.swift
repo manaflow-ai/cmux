@@ -1,0 +1,210 @@
+import Foundation
+import Testing
+@testable import CmuxGit
+
+@Suite struct GitRepositoryLinkTests {
+    @Test(arguments: [
+        ("origin\thttps://github.com/manaflow-ai/cmux.git (fetch)\n", "manaflow-ai/cmux", "https://github.com/manaflow-ai/cmux"),
+        ("origin\thttp://git.example.com/group/repo.git (fetch)\n", "group/repo", "http://git.example.com/group/repo"),
+        ("origin\tgit@gitlab.example.com:group/subgroup/repo.git (fetch)\n", "group/subgroup/repo", "https://gitlab.example.com/group/subgroup/repo"),
+        ("origin\tssh://deploy@git.example.com/group/repo.git?token=secret#fragment (fetch)\n", "group/repo", "https://git.example.com/group/repo"),
+        ("origin\tgit://bitbucket.example.com/team/repo.git (fetch)\n", "team/repo", "https://bitbucket.example.com/team/repo"),
+        ("origin\tssh://git@example.com:2222/group/repo.git (fetch)\n", "group/repo", "https://example.com/group/repo"),
+        ("origin\tgit://example.com:9418/group/repo.git (fetch)\n", "group/repo", "https://example.com/group/repo"),
+    ])
+    func normalizesBrowsableRemote(output: String, displayName: String, url: String) {
+        let link = GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)
+        #expect(link?.displayName == displayName)
+        #expect(link?.url.absoluteString == url)
+    }
+
+    @Test(arguments: [
+        ("git@192.168.1.20:username/repo.git", "http://192.168.1.20/username/repo"),
+        ("ssh://git@10.0.0.1:22/group/repo.git", "http://10.0.0.1/group/repo"),
+        ("git://172.16.0.1:9418/group/repo.git", "http://172.16.0.1/group/repo"),
+        ("git@172.31.255.254:group/repo.git", "http://172.31.255.254/group/repo"),
+    ])
+    func normalizesPrivateIPv4NonHTTPRemotesToHTTP(remoteURL: String, url: String) {
+        let output = "origin\t\(remoteURL) (fetch)\n"
+        let link = GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)
+        #expect(link?.url.absoluteString == url)
+        #expect(link?.url.port == nil)
+    }
+
+    @Test(arguments: [
+        ("git@172.15.255.255:group/repo.git", "https://172.15.255.255/group/repo"),
+        ("ssh://git@172.32.0.1:22/group/repo.git", "https://172.32.0.1/group/repo"),
+        ("git://8.8.8.8:9418/group/repo.git", "https://8.8.8.8/group/repo"),
+        ("git@127.0.0.1:group/repo.git", "https://127.0.0.1/group/repo"),
+        ("ssh://git@169.254.1.1:22/group/repo.git", "https://169.254.1.1/group/repo"),
+        ("git@forge.internal:group/repo.git", "https://forge.internal/group/repo"),
+        ("git://[fd00::1]:9418/group/repo.git", "https://[fd00::1]/group/repo"),
+    ])
+    func keepsNonPrivateIPv4NonHTTPRemotesOnHTTPS(remoteURL: String, url: String) {
+        let output = "origin\t\(remoteURL) (fetch)\n"
+        let link = GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)
+        #expect(link?.url.absoluteString == url)
+        #expect(link?.url.port == nil)
+    }
+
+    @Test(arguments: [
+        "/local/repo.git",
+        "../repo",
+        "file:///tmp/repo.git",
+        "file:/tmp/repo.git",
+        "ftp://host/repo.git",
+        "ftp:host/repo.git",
+        "svn:host/repo.git",
+        "custom:host/repo.git",
+        "https:///group/repo.git",
+        "ssh://git@/group/repo.git",
+    ])
+    func rejectsNonBrowsableRemote(remoteURL: String) {
+        let output = "origin\t\(remoteURL) (fetch)\n"
+        #expect(GitMetadataService.repositoryLink(fromGitRemoteVOutput: output) == nil)
+    }
+
+    @Test(arguments: [
+        ("git@gitlab.example.com:group/repo.git", "https://gitlab.example.com/group/repo"),
+        ("git.example.com:group/repo.git", "https://git.example.com/group/repo"),
+    ])
+    func preservesUnambiguousSCPRemotes(remoteURL: String, url: String) {
+        let output = "origin\t\(remoteURL) (fetch)\n"
+        #expect(GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)?.url.absoluteString == url)
+    }
+
+    @Test func ignoresPushOnlyRemotes() {
+        let output = "origin\thttps://github.com/manaflow-ai/cmux.git (push)\n"
+        #expect(GitMetadataService.repositoryLink(fromGitRemoteVOutput: output) == nil)
+    }
+
+    @Test func prefersOriginOverUpstream() {
+        let output = """
+        upstream\thttps://github.com/canonical/cmux.git (fetch)
+        origin\thttps://github.com/fork/cmux.git (fetch)
+        """
+        let link = GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)
+        #expect(link?.remoteName == "origin")
+        #expect(link?.displayName == "fork/cmux")
+    }
+
+    @Test func prefersUpstreamOverAlphabeticFallback() {
+        let output = """
+        backup\thttps://github.com/backup/cmux.git (fetch)
+        upstream\thttps://github.com/canonical/cmux.git (fetch)
+        """
+        let link = GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)
+        #expect(link?.remoteName == "upstream")
+    }
+
+    @Test func ordersFallbackRemotesCaseInsensitivelyWithCaseSensitiveTieBreak() {
+        let output = """
+        zebra\thttps://github.com/zebra/cmux.git (fetch)
+        Alpha\thttps://github.com/upper/cmux.git (fetch)
+        alpha\thttps://github.com/lower/cmux.git (fetch)
+        """
+        let link = GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)
+        #expect(link?.remoteName == "Alpha")
+    }
+
+    @Test func ignoresDuplicateRemoteLines() {
+        let output = """
+        origin\thttps://github.com/fork/cmux.git (fetch)
+        origin\thttps://github.com/fork/cmux.git (fetch)
+        upstream\thttps://github.com/canonical/cmux.git (fetch)
+        """
+        let link = GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)
+        #expect(link?.remoteName == "origin")
+        #expect(link?.url.absoluteString == "https://github.com/fork/cmux")
+    }
+
+    @Test func fallsThroughInvalidOriginToValidUpstream() {
+        let output = """
+        origin\tfile:///tmp/cmux.git (fetch)
+        upstream\thttps://github.com/manaflow-ai/cmux.git (fetch)
+        """
+        let link = GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)
+        #expect(link?.remoteName == "upstream")
+    }
+
+    @Test func attachesRepositoryLinkToWorkspaceMetadata() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [remote "origin"]
+            url = git@gitlab.example.com:group/subgroup/repo.git
+        """)
+
+        let metadata = await GitMetadataService().workspaceMetadata(for: fixture.root.path)
+
+        #expect(metadata.repositoryLink?.remoteName == "origin")
+        #expect(metadata.repositoryLink?.displayName == "group/subgroup/repo")
+        #expect(metadata.repositoryLink?.url.absoluteString == "https://gitlab.example.com/group/subgroup/repo")
+    }
+
+    @Test func repositoryLinkCacheInvalidatesWhenConfigStatusChanges() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [remote "origin"]
+            url = https://github.com/first/repo.git
+        """)
+        let reader = CountingGitFileStatusReader()
+        let service = GitMetadataService(fileStatusReader: reader)
+        let configPath = fixture.gitDirectory.appendingPathComponent("config").path
+
+        let first = await service.workspaceMetadata(for: fixture.root.path)
+        #expect(first.repositoryLink?.url.absoluteString == "https://github.com/first/repo")
+
+        try fixture.writeConfig("""
+        [remote "origin"]
+            url = https://github.com/second/repo.git
+        """)
+        let changedStatus = GitFileStatus(
+            mode: 0o100644,
+            size: 99,
+            mtimeSeconds: 123,
+            mtimeNanoseconds: 456
+        )
+        reader.overrideStatus(changedStatus, atPath: configPath)
+
+        let second = await service.workspaceMetadata(for: fixture.root.path)
+        #expect(second.repositoryLink?.url.absoluteString == "https://github.com/second/repo")
+    }
+
+    @Test func repositoryLinkCacheInvalidatesWhenOnBranchIncludeChanges() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main", commit: String(repeating: "a", count: 40))
+        try fixture.writeConfig("""
+        [includeIf "onbranch:main"]
+            path = main.inc
+        [includeIf "onbranch:feature/*"]
+            path = feature.inc
+        """)
+        try """
+        [remote "origin"]
+            url = https://github.com/main/repo.git
+        """.write(
+            to: fixture.gitDirectory.appendingPathComponent("main.inc"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        [remote "origin"]
+            url = https://github.com/feature/repo.git
+        """.write(
+            to: fixture.gitDirectory.appendingPathComponent("feature.inc"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let service = GitMetadataService()
+
+        let main = await service.workspaceMetadata(for: fixture.root.path)
+        #expect(main.repositoryLink?.url.absoluteString == "https://github.com/main/repo")
+
+        try fixture.writeBranch("feature/cache", commit: String(repeating: "b", count: 40))
+
+        let feature = await service.workspaceMetadata(for: fixture.root.path)
+        #expect(feature.repositoryLink?.url.absoluteString == "https://github.com/feature/repo")
+    }
+}

@@ -6,7 +6,7 @@ import CmuxFoundation
 /// A reader returning canned metadata, with an optional gate the test holds
 /// closed to control exactly when a snapshot probe completes.
 actor GatedMetadataReader: WorkspaceGitMetadataReading {
-    private let metadata: GitWorkspaceMetadata
+    private var metadata: GitWorkspaceMetadata
     private let gated: Bool
     private var gateWaiters: [CheckedContinuation<Void, Never>] = []
     private var isOpen = false
@@ -26,6 +26,10 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
         }
     }
 
+    func setMetadata(_ metadata: GitWorkspaceMetadata) {
+        self.metadata = metadata
+    }
+
     func waitForTrackedPathEventGenerationProbe(
         count minimumCount: Int = 1,
         maxYields: Int = 5_000
@@ -34,7 +38,7 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
             if probedTrackedPathEventGenerations.count >= minimumCount {
                 return true
             }
-            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
         }
         return probedTrackedPathEventGenerations.count >= minimumCount
     }
@@ -44,7 +48,7 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
             if probedDirectories.count >= minimumCount {
                 return true
             }
-            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
         }
         return probedDirectories.count >= minimumCount
     }
@@ -126,14 +130,19 @@ struct ForbiddenCommandRunner: CommandRunning {
 }
 
 extension GitWorkspaceMetadata {
-    static func repository(branch: String, isDirty: Bool = false) -> GitWorkspaceMetadata {
+    static func repository(
+        branch: String?,
+        isDirty: Bool = false,
+        repositoryLink: GitRepositoryLink? = nil
+    ) -> GitWorkspaceMetadata {
         GitWorkspaceMetadata(
             isRepository: true,
             branch: branch,
             isDirty: isDirty,
             indexSignature: "index",
             indexContentSignature: "content",
-            headSignature: "head"
+            headSignature: "head",
+            repositoryLink: repositoryLink
         )
     }
 
