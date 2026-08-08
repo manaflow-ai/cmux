@@ -1880,9 +1880,17 @@ fn reset_stat_metadata_fingerprint(stat: &libc::stat) -> String {
     )
 }
 
-#[cfg(all(unix, not(target_vendor = "apple")))]
+#[cfg(all(
+    unix,
+    not(any(target_vendor = "apple", target_os = "aix", target_os = "hurd"))
+))]
 fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
     stat.st_mtime
+}
+
+#[cfg(any(target_os = "aix", target_os = "hurd"))]
+fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
+    stat.st_mtim.tv_sec
 }
 
 #[cfg(all(unix, target_vendor = "apple"))]
@@ -1891,9 +1899,17 @@ fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
     stat.st_mtime
 }
 
-#[cfg(all(unix, not(target_vendor = "apple")))]
+#[cfg(all(
+    unix,
+    not(any(target_vendor = "apple", target_os = "aix", target_os = "hurd"))
+))]
 fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
     stat.st_mtime_nsec
+}
+
+#[cfg(any(target_os = "aix", target_os = "hurd"))]
+fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
+    stat.st_mtim.tv_nsec
 }
 
 #[cfg(all(unix, target_vendor = "apple"))]
