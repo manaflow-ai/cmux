@@ -12592,7 +12592,8 @@ mod tests {
         let error = JournalStreamFilter::parse(Some(&json!({
             "max_sensitivity":"secret",
         })))
-        .unwrap_err();
+        .err()
+        .expect("secret journal sensitivity must be rejected");
         assert_eq!(error.code, "validation.invalid");
         assert_eq!(error.details["field"], "filter.max_sensitivity");
     }
