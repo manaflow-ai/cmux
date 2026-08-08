@@ -34,6 +34,7 @@ struct SurfaceSessionScope {
     pane: PaneId,
 }
 
+#[derive(Clone)]
 pub struct MuxEventReceiver {
     mailbox: Arc<MuxEventMailbox>,
 }
@@ -350,6 +351,10 @@ impl MuxEventMailboxState {
 }
 
 impl MuxEventReceiver {
+    pub fn close(&self) {
+        self.mailbox.close();
+    }
+
     pub fn overflowed(&self) -> bool {
         self.mailbox.state.lock().unwrap().overflowed
     }

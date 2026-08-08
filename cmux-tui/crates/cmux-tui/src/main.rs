@@ -1711,8 +1711,7 @@ fn run_server(
             Err(error) => Err(error),
         }
     };
-    owner_event_stop.store(true, Ordering::Release);
-    mux.emit(cmux_tui_core::MuxEvent::Empty);
+    owner_event_stop.close();
     let owner_event_result = owner_event_thread
         .join()
         .map_err(|_| anyhow::anyhow!("local owner event loop panicked"));
@@ -1738,25 +1737,19 @@ fn local_owner_reload_events(mux: &Mux) -> cmux_tui_core::MuxEventReceiver {
 
 fn start_local_owner_event_loop(
     mux: &Arc<Mux>,
-) -> (Arc<AtomicBool>, std::thread::JoinHandle<()>) {
-    let stop = Arc::new(AtomicBool::new(false));
-    let thread_stop = stop.clone();
+) -> (cmux_tui_core::MuxEventReceiver, std::thread::JoinHandle<()>) {
     let weak_mux = Arc::downgrade(mux);
     let events = local_owner_reload_events(mux);
+    let stop = events.clone();
     let thread = std::thread::spawn(move || {
-        while !thread_stop.load(Ordering::Acquire) {
-            match events.recv() {
-                Ok(event) => {
-                    let mux = weak_mux.upgrade();
-                    dispatch_local_owner_event(&event, move || {
-                        if let Some(mux) = mux {
-                            let config = config::load();
-                            session::apply_config_to_local_owner(&mux, &config);
-                        }
-                    });
+        while let Ok(event) = events.recv() {
+            let mux = weak_mux.upgrade();
+            dispatch_local_owner_event(&event, move || {
+                if let Some(mux) = mux {
+                    let config = config::load();
+                    session::apply_config_to_local_owner(&mux, &config);
                 }
-                Err(_) => break,
-            }
+            });
         }
     });
     (stop, thread)
@@ -2216,7 +2209,7 @@ mod tests {
         let (stop, thread) = start_local_owner_event_loop(&mux);
         let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
 
-        stop.store(true, Ordering::Release);
+        stop.close();
         std::thread::spawn(move || done_tx.send(thread.join()).unwrap());
         let stopped_without_event = match done_rx.recv_timeout(Duration::from_secs(1)) {
             Ok(result) => {
