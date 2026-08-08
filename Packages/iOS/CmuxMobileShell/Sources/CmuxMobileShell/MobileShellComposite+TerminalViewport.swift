@@ -13,12 +13,25 @@ nonisolated private let terminalViewportLog = Logger(
 /// replay request before the asynchronous viewport RPC starts.
 public struct MobileTerminalViewportPreparation: Sendable {
     fileprivate let workspaceID: MobileWorkspacePreview.ID
+    fileprivate let ownerKey: MacPairingKey
     fileprivate let surfaceID: String
     fileprivate let viewportSize: MobileTerminalViewportSize
     fileprivate let generation: UInt64
 }
 
 extension MobileShellComposite {
+    func terminalViewportGeneration(
+        for surfaceID: String,
+        ownerKey: MacPairingKey? = nil
+    ) -> UInt64? {
+        viewportReportGenerationsBySequenceKey[
+            MobileTerminalViewportSequenceKey(
+                ownerKey: ownerKey ?? foregroundMacKey,
+                surfaceID: surfaceID
+            )
+        ]
+    }
+
     /// Report this device's natural terminal grid to the Mac and return the
     /// effective grid the Mac computed (the smallest across all attached
     /// devices, capped to the Mac pane). The caller pins its libghostty surface
@@ -73,10 +86,17 @@ extension MobileShellComposite {
         // dimensions above must never ride a piggyback without a generation,
         // or a reordered stale piggyback could overwrite a newer dedicated
         // report after reconnect.
-        let requestGeneration = (viewportReportGenerationsBySurfaceID[surfaceID] ?? 0) + 1
-        viewportReportGenerationsBySurfaceID[surfaceID] = requestGeneration
+        let ownerKey = foregroundMacKey
+        let sequenceKey = MobileTerminalViewportSequenceKey(
+            ownerKey: ownerKey,
+            surfaceID: surfaceID
+        )
+        let requestGeneration =
+            (viewportReportGenerationsBySequenceKey[sequenceKey] ?? 0) + 1
+        viewportReportGenerationsBySequenceKey[sequenceKey] = requestGeneration
         return MobileTerminalViewportPreparation(
             workspaceID: workspaceID,
+            ownerKey: ownerKey,
             surfaceID: surfaceID,
             viewportSize: reportedGrid,
             generation: requestGeneration
@@ -99,13 +119,18 @@ extension MobileShellComposite {
         let columns = reportedGrid.columns
         let rows = reportedGrid.rows
         let requestGeneration = preparation.generation
+        let sequenceKey = MobileTerminalViewportSequenceKey(
+            ownerKey: preparation.ownerKey,
+            surfaceID: surfaceID
+        )
         let key = MobileTerminalViewportKey(
             workspaceID: preparedWorkspaceID,
             terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
         )
-        guard workspaceID(forTerminalID: surfaceID) == preparedWorkspaceID,
+        guard foregroundMacKey == preparation.ownerKey,
+              workspaceID(forTerminalID: surfaceID) == preparedWorkspaceID,
               reportedViewportSizesByTerminalKey[key] == reportedGrid,
-              viewportReportGenerationsBySurfaceID[surfaceID] == requestGeneration else {
+              viewportReportGenerationsBySequenceKey[sequenceKey] == requestGeneration else {
             return nil
         }
         guard let client = remoteClient else { return nil }
@@ -137,7 +162,7 @@ extension MobileShellComposite {
                 )
                 return nil
             }
-            guard viewportReportGenerationsBySurfaceID[surfaceID] == requestGeneration else {
+            guard viewportReportGenerationsBySequenceKey[sequenceKey] == requestGeneration else {
                 // A newer viewport request now owns any pending pre-ACK barrier.
                 return nil
             }
@@ -206,7 +231,7 @@ extension MobileShellComposite {
                 renderRevisionFloor: payload.renderRevisionFloor
             )
         } catch {
-            guard viewportReportGenerationsBySurfaceID[surfaceID] == requestGeneration else {
+            guard viewportReportGenerationsBySequenceKey[sequenceKey] == requestGeneration else {
                 // A newer viewport request now owns any pending pre-ACK barrier.
                 return nil
             }
@@ -235,9 +260,15 @@ extension MobileShellComposite {
         // The generation entry deliberately outlives the surface: it is the
         // monotonic fence that keeps a still-in-flight viewport report from
         // applying after detach and blocks generation reuse across re-attach.
-        // Entries are per-connection; resetTerminalOutputTracking() wipes them.
-        let clearGeneration = (viewportReportGenerationsBySurfaceID[surfaceID] ?? 0) + 1
-        viewportReportGenerationsBySurfaceID[surfaceID] = clearGeneration
+        // Warm focus swaps keep the peer connection alive, so its fence must
+        // outlive the focused role. The account boundary clears all sequences.
+        let sequenceKey = MobileTerminalViewportSequenceKey(
+            ownerKey: foregroundMacKey,
+            surfaceID: surfaceID
+        )
+        let clearGeneration =
+            (viewportReportGenerationsBySequenceKey[sequenceKey] ?? 0) + 1
+        viewportReportGenerationsBySequenceKey[sequenceKey] = clearGeneration
         reportedTerminalViewportSizesBySurfaceID.removeValue(forKey: surfaceID)
         guard let client = remoteClient,
               let workspaceID = workspaceID(forTerminalID: surfaceID) else {

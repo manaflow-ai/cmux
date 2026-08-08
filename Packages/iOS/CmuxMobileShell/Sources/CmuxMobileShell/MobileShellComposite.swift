@@ -1129,7 +1129,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var secondaryAggregationScopeGeneration = 0
     var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     var effectiveViewportSizesBySurfaceID: [String: MobileTerminalViewportSize]; var reportedTerminalViewportSizesBySurfaceID: [String: MobileTerminalViewportSize]
-    var viewportReportGenerationsBySurfaceID: [String: UInt64]
+    /// Monotonic viewport fences scoped to the Mac app instance that consumes
+    /// them. Warm Iroh focus swaps keep both peer connections alive, so their
+    /// counters must survive independently for the signed-in account lifetime.
+    var viewportReportGenerationsBySequenceKey: [MobileTerminalViewportSequenceKey: UInt64]
     var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     /// Pre-barrier delivered high-water mark: rejects buffered pre-barrier
     /// frames, and is restored as the baseline on an empty barrier release.
@@ -1466,7 +1469,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.chatEventSourceGeneration = UUID()
         self.reportedViewportSizesByTerminalKey = [:]
         self.effectiveViewportSizesBySurfaceID = [:]; self.reportedTerminalViewportSizesBySurfaceID = [:]
-        self.viewportReportGenerationsBySurfaceID = [:]
+        self.viewportReportGenerationsBySequenceKey = [:]
         self.deliveredTerminalByteEndSeqBySurfaceID = [:]
         self.terminalPreBarrierDeliveredEndSeqBySurfaceID = [:]
         self.terminalRenderGridBaselineReplayRequestCountsBySurfaceID = [:]
@@ -1707,6 +1710,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalInputRPCPipeline.clear()
         resumeRawTerminalInputDrainWaiters()
         reportedViewportSizesByTerminalKey = [:]
+        viewportReportGenerationsBySequenceKey = [:]
         terminalPreBarrierDeliveredEndSeqBySurfaceID = [:]
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID = [:]
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID = [:]
@@ -9154,7 +9158,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func resetTerminalOutputTracking() {
         cancelAllTerminalReplayTasks()
         effectiveViewportSizesBySurfaceID = [:]; reportedTerminalViewportSizesBySurfaceID = [:]
-        viewportReportGenerationsBySurfaceID = [:]
+        // Keep viewport sequences for the account lifetime. A warm peer keeps
+        // its Mac-side tombstone, while a reconnected peer safely accepts a
+        // higher generation. The account boundary clears the owner-keyed map.
         // reportedViewportSizesByTerminalKey deliberately survives this reset:
         // geometry seeded before or between connections must still ride the
         // next connection's piggybacks (pre-connect reports are part of the
@@ -10030,9 +10036,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let viewportSize = reportedViewportSizesByTerminalKey[key] {
             params["viewport_columns"] = viewportSize.columns
             params["viewport_rows"] = viewportSize.rows
-            if let generation = viewportReportGenerationsBySurfaceID[
-                terminalID.rawValue
-            ] {
+            if let generation = terminalViewportGeneration(
+                for: terminalID.rawValue
+            ) {
                 params["viewport_generation"] = Int(clamping: generation)
             }
         }
@@ -10112,7 +10118,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // Carry the dedicated-report generation so the Mac's fence can
                 // reject this piggyback if it arrives after a newer report or
                 // a clear (request tasks can reorder in transit).
-                if let generation = viewportReportGenerationsBySurfaceID[terminalID.rawValue] {
+                if let generation = terminalViewportGeneration(for: terminalID.rawValue) {
                     params["viewport_generation"] = Int(clamping: generation)
                 }
             }
@@ -11525,7 +11531,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         let reportedViewport = reportedViewportSizesByTerminalKey[viewportKey]
             .map { (clientID: clientID, columns: $0.columns, rows: $0.rows,
-                    generation: viewportReportGenerationsBySurfaceID[surfaceID]) }
+                    generation: terminalViewportGeneration(for: surfaceID)) }
         let replayTask = Task { @MainActor [weak self] in
             let replayResult: Result<Data, any Error>
             do {
