@@ -346,7 +346,10 @@ jobs:
         shell: bash
         run: |
           if [[ "$MODE" == "full" ]]; then
-            cargo test --workspace --locked
+            # Several integration tests own durable terminal hosts, PTYs, and
+            # bounded cleanup deadlines. Keep their private OS resources from
+            # competing inside one test binary.
+            cargo test --workspace --locked -- --test-threads=1
             exit 0
           fi
           cargo test --workspace --locked "$TEST_FILTER" -- --list \
