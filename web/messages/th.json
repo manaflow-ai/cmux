@@ -135,6 +135,31 @@
     "faqFeatureA": "เราอยากได้ยิน เปิด <issuesLink>issue</issuesLink> หรือ <prLink>pull request</prLink> บน GitHub หรือ <mailLink>ส่งอีเมลถึงเรา</mailLink>"
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "ภาพรวม",
+      "team": "ทีม"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "กำหนดเส้นทางคำขอ LLM ระหว่างบัญชีผู้ให้บริการ พร้อมการสลับเมื่อขัดข้องและการจัดตารางตามการใช้งาน",
+      "coderouterLink": "เปิด coderouter"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "จัดการบัญชี AI ที่แชร์และกำหนดเส้นทางคำขอด้วย coderouter",
+      "title": "coderouter",
+      "description": "coderouter กำหนดเส้นทางคำขอ LLM ระหว่างบัญชีผู้ให้บริการ พร้อมการสลับเมื่อขัดข้องและการจัดตารางตามการใช้งาน"
+    },
+    "accountMenu": {
+      "label": "เมนูบัญชี",
+      "settings": "การตั้งค่า",
+      "billing": "การเรียกเก็บเงิน",
+      "signOut": "ออกจากระบบ",
+      "signingOut": "กำลังออกจากระบบ…",
+      "signOutError": "ออกจากระบบไม่ได้ โปรดลองอีกครั้ง",
+      "signIn": "เข้าสู่ระบบ"
+    },
     "aiAccounts": {
       "metaTitle": "บัญชี AI — cmux",
       "metaDescription": "จัดการบัญชีผู้ให้บริการ AI ของทีมสำหรับ cmux",
