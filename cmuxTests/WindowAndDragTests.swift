@@ -2023,16 +2023,47 @@ final class DraggableFolderHitTests: XCTestCase {
 }
 
 @MainActor
-final class MainWindowDragBehaviorTests: XCTestCase {
-    func testMainWindowHostingViewCannotMoveWindowViaMouseDown() {
+@Suite("Main window drag behavior")
+struct MainWindowDragBehaviorTests {
+    @Test func mainWindowHostingViewCannotMoveWindowViaMouseDown() {
         let view = MainWindowHostingView(rootView: Color.clear)
-        XCTAssertFalse(
-            view.mouseDownCanMoveWindow,
+        #expect(
+            !view.mouseDownCanMoveWindow,
             "Main content must never become an implicit AppKit window-drag region; explicit titlebar chrome owns app-window dragging"
         )
     }
 
-    func testMainWindowDragBehaviorRequiresExplicitDragZones() {
+    @Test func mainWindowDragBehaviorKeepsNativeWindowMovementEligible() {
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        window.isMovable = false
+        window.isMovableByWindowBackground = true
+
+        configureCmuxMainWindowDragBehavior(window)
+
+        #expect(
+            window.isMovable,
+            "Main windows must remain eligible for AppKit window-management commands"
+        )
+        #expect(!window.isMovableByWindowBackground)
+
+        let previous = withTemporaryWindowMovableEnabled(window: window) {
+            #expect(window.isMovable)
+        }
+
+        #expect(previous == true)
+        #expect(
+            window.isMovable,
+            "Explicit chrome drag zones must preserve the AppKit-movable baseline"
+        )
+    }
+
+    @Test func mainWindowDragBehaviorPreservesActiveMoveSuppression() {
         let window = CmuxMainWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -2041,25 +2072,21 @@ final class MainWindowDragBehaviorTests: XCTestCase {
         )
         defer { window.orderOut(nil) }
         window.isMovable = true
-        window.isMovableByWindowBackground = true
+
+        #expect(
+            beginWindowMoveSuppressionSequence(window: window, reason: .bonsplitPaneTabDrag)
+                == .bonsplitPaneTabDrag
+        )
+        #expect(!window.isMovable)
 
         configureCmuxMainWindowDragBehavior(window)
 
-        XCTAssertFalse(
-            window.isMovable,
-            "Main windows must not use native AppKit titlebar dragging because pane tabs live in the titlebar band"
+        #expect(
+            !window.isMovable,
+            "A titlebar refresh must not re-enable whole-window movement during a pane-tab drag"
         )
-        XCTAssertFalse(window.isMovableByWindowBackground)
-
-        let previous = withTemporaryWindowMovableEnabled(window: window) {
-            XCTAssertTrue(window.isMovable)
-        }
-
-        XCTAssertEqual(previous, false)
-        XCTAssertFalse(
-            window.isMovable,
-            "Explicit chrome drag zones may temporarily enable movement, but the main window must return to pane-tab-safe immovable state"
-        )
+        #expect(finishWindowMoveSuppressionSequence(window: window) == .bonsplitPaneTabDrag)
+        #expect(window.isMovable)
     }
 }
 
@@ -2457,7 +2484,7 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
         XCTAssertNil(activeWindowMoveSuppressionSequenceReason(window: window))
     }
 
-    func testBonsplitPaneTabSuppressionRestoresImmovableMainWindow() {
+    func testBonsplitPaneTabSuppressionRestoresPreexistingImmovableWindow() {
         let (window, contentView) = makeWindowWithContentView()
         window.isMovable = false
         let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
@@ -2477,7 +2504,7 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
         XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .bonsplitPaneTabDrag)
         XCTAssertFalse(
             window.isMovable,
-            "Tab-drag suppression must not restore native AppKit window dragging when the main window baseline is immovable"
+            "Tab-drag suppression must preserve a preexisting immovable baseline"
         )
     }
 
