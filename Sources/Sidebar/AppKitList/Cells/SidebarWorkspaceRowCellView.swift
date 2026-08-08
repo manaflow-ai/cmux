@@ -1009,12 +1009,24 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         renameField.onCancel = { [weak self] in
             self?.endInlineRename(commit: false)
         }
-        let tookFocus = window?.makeFirstResponder(renameField) ?? false
-#if DEBUG
-        cmuxDebugLog("sidebar.row.beginInlineRename tookFocus=\(tookFocus ? 1 : 0) window=\(window == nil ? 0 : 1)")
-#endif
-        renameField.selectText(nil)
+        // Lay out (and thus size/position `renameField`) BEFORE attaching the
+        // field editor. Setting a text field's frame while its field editor is
+        // attached ends editing — AppKit tears the editor down on frame change,
+        // which fires controlTextDidEndEditing and instantly commits the
+        // untouched title, so the field flashes and the user can never type.
         needsLayout = true
+        layoutSubtreeIfNeeded()
+#if DEBUG
+        let tookFocus = window?.makeFirstResponder(renameField) ?? false
+        cmuxDebugLog("sidebar.row.beginInlineRename tookFocus=\(tookFocus ? 1 : 0) window=\(window == nil ? 0 : 1)")
+#else
+        _ = window?.makeFirstResponder(renameField)
+#endif
+        // Do NOT call selectText(nil) here: makeFirstResponder already starts
+        // editing an editable NSTextField (selecting all by default), and the
+        // extra selectText(nil) re-enters the field-editor machinery and
+        // synchronously fires controlTextDidEndEditing, which commits the
+        // untouched title before the user can type.
     }
 
     private func endInlineRename(commit: Bool) {
@@ -1353,6 +1365,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 final class SidebarRowInlineRenameField: NSTextField, NSTextFieldDelegate {
     var onCommit: ((String) -> Void)?
     var onCancel: (() -> Void)?
+    /// Prior field-editor styling captured in controlTextDidBeginEditing and
+    /// restored on end-editing so the shared editor does not leak its
+    /// transparent background to later controls in the window.
+    private var savedEditorDrawsBackground: Bool?
+    private var savedEditorBackgroundColor: NSColor?
 
     init() {
         super.init(frame: .zero)
@@ -1381,7 +1398,33 @@ final class SidebarRowInlineRenameField: NSTextField, NSTextFieldDelegate {
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {
+        // Restore the shared field editor's prior styling before committing,
+        // so the transparent background set in controlTextDidBeginEditing
+        // does not leak to the next control edited in this window.
+        restoreFieldEditorStyling()
         guard !isHidden else { return }
         onCommit?(stringValue)
+    }
+
+    func controlTextDidBeginEditing(_ obj: Notification) {
+        // The shared field editor (NSTextView) AppKit loans to edit this
+        // borderless field draws its own white background by default, putting
+        // white selected-row text on a white box. Make it transparent so the
+        // row's accent fill shows through, matching how the title renders.
+        guard let editor = window?.firstResponder as? NSTextView else { return }
+        savedEditorDrawsBackground = editor.drawsBackground
+        savedEditorBackgroundColor = editor.backgroundColor
+        editor.drawsBackground = false
+        editor.backgroundColor = .clear
+    }
+
+    private func restoreFieldEditorStyling() {
+        let drawsBackground = savedEditorDrawsBackground
+        let backgroundColor = savedEditorBackgroundColor
+        savedEditorDrawsBackground = nil
+        savedEditorBackgroundColor = nil
+        guard let editor = window?.firstResponder as? NSTextView else { return }
+        if let drawsBackground { editor.drawsBackground = drawsBackground }
+        if let backgroundColor { editor.backgroundColor = backgroundColor }
     }
 }
