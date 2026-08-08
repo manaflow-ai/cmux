@@ -711,6 +711,10 @@ private extension CmuxVaultAgentSessionIDSource {
                 return nil
             }
             return VaultAgentSessionIDResolution(sessionId: sessionId, source: .inferredLatestSessionFile)
+        case .cmuxHookStore:
+            // The hook store owns the thread identity. Process argv is only
+            // liveness evidence and must never invent a replacement id.
+            return nil
         }
     }
 }

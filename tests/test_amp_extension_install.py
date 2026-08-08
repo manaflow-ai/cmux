@@ -6,6 +6,7 @@ Regression test: the generated Amp plugin is importable and emits cmux hook call
 from __future__ import annotations
 
 import base64
+import json
 import os
 import shutil
 import subprocess
@@ -79,6 +80,29 @@ def main() -> int:
         if "cmux-amp-session-extension-marker" not in extension_text:
             print(f"FAIL: expected cmux marker in {extension_path}")
             return 1
+        installed_stat = extension_path.stat()
+        refresh = subprocess.run(
+            [cli_path, "hooks", "amp", "install", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=20,
+        )
+        refreshed_stat = extension_path.stat()
+        if refresh.returncode != 0 or "already up to date" not in refresh.stdout:
+            print("FAIL: idempotent Amp plugin refresh did not report an up-to-date install")
+            print(f"exit={refresh.returncode}")
+            print(f"stdout={refresh.stdout.strip()}")
+            print(f"stderr={refresh.stderr.strip()}")
+            return 1
+        if (
+            refreshed_stat.st_ino != installed_stat.st_ino
+            or refreshed_stat.st_mtime_ns != installed_stat.st_mtime_ns
+            or extension_path.read_text(encoding="utf-8") != extension_text
+        ):
+            print("FAIL: idempotent Amp plugin refresh rewrote the managed extension")
+            return 1
 
         fake_cmux = root / "fake-cmux"
         fake_args_log = root / "fake-cmux-args.log"
@@ -115,17 +139,122 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
         check_env["PWD"] = "/tmp/amp-project"
         check_env["PATH"] = f"{fake_bin}{os.pathsep}{env.get('PATH', '')}"
         check_source = """
+import * as fs from "node:fs";
 const extensionPath = process.env.CMUX_TEST_AMP_EXTENSION_PATH;
 const mod = await import(extensionPath);
 if (typeof mod.default !== "function") throw new Error("missing default export");
 const handlers = new Map();
+let stateSubscriber = null;
+let titleSubscriber = null;
+let currentState = "idle";
+let titleGetter = async () => "Initial Amp title";
+const thread = {
+  id: "T-amp-session-test",
+  state: {
+    get: async () => currentState,
+    subscribe(cb) {
+      stateSubscriber = cb;
+      return { unsubscribe() {} };
+    }
+  },
+  title: {
+    get: () => titleGetter(),
+    subscribe(cb) {
+      titleSubscriber = cb;
+      return { unsubscribe() {} };
+    }
+  }
+};
+let secondStateSubscriber = null;
+let secondState = "idle";
+const secondThread = {
+  id: "T-amp-session-second",
+  state: {
+    get: async () => secondState,
+    subscribe(cb) {
+      secondStateSubscriber = cb;
+      return { unsubscribe() {} };
+    }
+  },
+  title: {
+    get: async () => "Second Amp title",
+    subscribe() { return { unsubscribe() {} }; }
+  }
+};
+let thirdStateSubscriber = null;
+let thirdState = "idle";
+const thirdThread = {
+  id: "T-amp-session-third",
+  state: {
+    get: async () => thirdState,
+    subscribe(cb) {
+      thirdStateSubscriber = cb;
+      return { unsubscribe() {} };
+    }
+  },
+  title: {
+    get: async () => "Third Amp title",
+    subscribe() { return { unsubscribe() {} }; }
+  }
+};
+const legacyThread = {
+  id: "T-amp-session-legacy",
+  title: {
+    get: async () => "Legacy Amp title",
+    subscribe() { return { unsubscribe() {} }; }
+  }
+};
+let activeThreadSubscriber = null;
+const activeThread = {
+  current: thread,
+  subscribe(cb) {
+    activeThreadSubscriber = cb;
+    return { unsubscribe() {} };
+  }
+};
 mod.default({
   on(name, handler) {
     handlers.set(name, handler);
-  }
+  },
+  thread,
+  activeThread
 });
-for (const name of ["session.start", "agent.start", "agent.end"]) {
+for (const name of ["session.start", "agent.start", "tool.call", "agent.end"]) {
   if (typeof handlers.get(name) !== "function") throw new Error(`missing ${name}`);
+}
+function selectThread(nextThread) {
+  activeThread.current = nextThread;
+  activeThreadSubscriber(nextThread);
+}
+async function waitForProjectedStatus(fragment) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const text = fs.existsSync(process.env.FAKE_CMUX_ARGS_LOG)
+      ? fs.readFileSync(process.env.FAKE_CMUX_ARGS_LOG, "utf8")
+      : "";
+    const statuses = text.split("\\n").filter((line) => line.startsWith("set-status amp "));
+    if (statuses.at(-1)?.includes(fragment)) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`last Amp status did not contain ${fragment}`);
+}
+function commandCount(fragment) {
+  const text = fs.existsSync(process.env.FAKE_CMUX_ARGS_LOG)
+    ? fs.readFileSync(process.env.FAKE_CMUX_ARGS_LOG, "utf8")
+    : "";
+  return text.split("\\n").filter((line) => line.includes(fragment)).length;
+}
+async function waitForCommandCount(fragment, minimumCount) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (commandCount(fragment) >= minimumCount) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`cmux command count did not reach ${minimumCount} for ${fragment}`);
+}
+function projectedStatusCount() {
+  const text = fs.existsSync(process.env.FAKE_CMUX_ARGS_LOG)
+    ? fs.readFileSync(process.env.FAKE_CMUX_ARGS_LOG, "utf8")
+    : "";
+  return text.split("\\n").filter((line) => line.startsWith("set-status amp ")).length;
 }
 process.argv.splice(
   0,
@@ -135,11 +264,157 @@ process.argv.splice(
   "--mode",
   "geppetto"
 );
-const thread = { id: "T-amp-session-test" };
 const ctx = { thread };
 await handlers.get("session.start")({ thread }, ctx);
+if (typeof stateSubscriber !== "function") throw new Error("missing thread.state subscription");
+if (typeof activeThreadSubscriber !== "function") throw new Error("missing activeThread subscription");
+let resolveStaleTitle = null;
+titleGetter = () => new Promise((resolve) => { resolveStaleTitle = resolve; });
 await handlers.get("agent.start")({ thread, message: "hello amp", id: "msg-user-1" }, ctx);
+currentState = "running";
+await stateSubscriber(currentState);
+if (typeof titleSubscriber === "function") titleSubscriber("Updated Amp title");
+if (typeof resolveStaleTitle !== "function") throw new Error("missing deferred title lookup");
+resolveStaleTitle("Stale Amp title");
 await handlers.get("agent.end")({ thread, message: "hello amp", id: "msg-user-1", status: "done", messages: [] }, ctx);
+currentState = "awaiting-approval";
+await stateSubscriber(currentState);
+currentState = "idle";
+await stateSubscriber(currentState);
+
+titleGetter = async () => "Updated Amp title";
+await handlers.get("agent.start")({ thread, message: "settle first", id: "msg-user-2" }, ctx);
+currentState = "running";
+await stateSubscriber(currentState);
+currentState = "idle";
+await stateSubscriber(currentState);
+await handlers.get("agent.end")({ thread, message: "settle first", id: "msg-user-2", status: "done", messages: [] }, ctx);
+
+await handlers.get("agent.start")({ thread, message: "fail now", id: "msg-user-3" }, ctx);
+currentState = "running";
+await stateSubscriber(currentState);
+await handlers.get("agent.end")({ thread, message: "fail now", id: "msg-user-3", status: "error", messages: [] }, ctx);
+currentState = "error";
+await stateSubscriber(currentState);
+
+await handlers.get("agent.start")({ thread, message: "idle error", id: "msg-user-4" }, ctx);
+currentState = "running";
+await stateSubscriber(currentState);
+await handlers.get("agent.end")({ thread, message: "idle error", id: "msg-user-4", status: "error", messages: [] }, ctx);
+currentState = "idle";
+await stateSubscriber(currentState);
+
+await handlers.get("session.start")({ thread: secondThread }, { thread: secondThread });
+await handlers.get("session.start")({ thread: thirdThread }, { thread: thirdThread });
+if (typeof secondStateSubscriber !== "function" || typeof thirdStateSubscriber !== "function") {
+  throw new Error("missing per-thread state subscriptions");
+}
+await handlers.get("agent.start")(
+  { thread: secondThread, message: "finish second", id: "turn-second" },
+  { thread: secondThread }
+);
+secondState = "running";
+await secondStateSubscriber(secondState);
+await handlers.get("tool.call")({
+  thread: secondThread,
+  tool: "Bash",
+  input: { command: "echo second" }
+});
+selectThread(secondThread);
+await waitForProjectedStatus("running --icon terminal --color #ffd700");
+selectThread(thread);
+secondState = "awaiting-approval";
+await secondStateSubscriber(secondState);
+selectThread(secondThread);
+await waitForProjectedStatus("needs input --icon bell.fill --color #4C8DFF");
+secondState = "running";
+await secondStateSubscriber(secondState);
+await handlers.get("agent.start")(
+  { thread: thirdThread, message: "fail third", id: "turn-third" },
+  { thread: thirdThread }
+);
+thirdState = "running";
+await thirdStateSubscriber(thirdState);
+await handlers.get("agent.end")({
+  thread: secondThread,
+  id: "turn-second",
+  status: "done",
+  messages: [{
+    role: "assistant",
+    content: [{ type: "text", text: "Second thread completed" }]
+  }]
+}, { thread: secondThread });
+secondState = "idle";
+await secondStateSubscriber(secondState);
+selectThread(thread);
+
+// Amp can begin another turn through a thread-state transition without
+// emitting a second agent.start event. That transition must re-arm terminal
+// delivery so the follow-up completion is not swallowed by the prior turn.
+secondState = "running";
+await secondStateSubscriber(secondState);
+await handlers.get("agent.end")({
+  thread: secondThread,
+  id: "turn-second-follow-up",
+  status: "done",
+  messages: [{
+    role: "assistant",
+    content: [{ type: "text", text: "Second thread follow-up completed" }]
+  }]
+}, { thread: secondThread });
+secondState = "idle";
+await secondStateSubscriber(secondState);
+
+await handlers.get("agent.end")({
+  thread: thirdThread,
+  id: "turn-third",
+  status: "error",
+  messages: [{
+    role: "assistant",
+    content: [{ type: "text", text: "Third thread failed" }]
+  }]
+}, { thread: thirdThread });
+thirdState = "error";
+await thirdStateSubscriber(thirdState);
+selectThread(thirdThread);
+await waitForProjectedStatus("error --icon xmark.circle --color #ff5555");
+const clearCountBeforeNoActiveThread = commandCount("clear-status amp");
+selectThread(null);
+await waitForCommandCount("clear-status amp", clearCountBeforeNoActiveThread + 1);
+const statusCountWithoutActiveThread = projectedStatusCount();
+secondState = "running";
+await secondStateSubscriber(secondState);
+const primaryStatusMarker = "set-status amp error --icon xmark.circle --color #ff5555";
+const primaryStatusCount = commandCount(primaryStatusMarker);
+selectThread(thread);
+await waitForCommandCount(primaryStatusMarker, primaryStatusCount + 1);
+if (projectedStatusCount() !== statusCountWithoutActiveThread + 1) {
+  throw new Error("a background Amp thread repainted status with no active thread");
+}
+
+process.argv.splice(
+  0,
+  process.argv.length,
+  "/Users/example/custom-amp-launcher",
+  "--mode",
+  "fallback"
+);
+await handlers.get("session.start")({ thread: legacyThread }, { thread: legacyThread });
+await handlers.get("agent.start")(
+  { thread: legacyThread, message: "legacy finish", id: "turn-legacy" },
+  { thread: legacyThread }
+);
+const legacyEnd = {
+  thread: legacyThread,
+  id: "turn-legacy",
+  status: "done",
+  messages: [{
+    role: "assistant",
+    content: [{ type: "text", text: "Legacy thread completed" }]
+  }]
+};
+await handlers.get("agent.end")(legacyEnd, { thread: legacyThread });
+await handlers.get("agent.end")(legacyEnd, { thread: legacyThread });
 """
         check_script = root / "check.mjs"
         check_script.write_text(check_source, encoding="utf-8")
@@ -167,8 +442,15 @@ await handlers.get("agent.end")({ thread, message: "hello amp", id: "msg-user-1"
             if (
                 "hooks amp session-start" in args_log
                 and "hooks amp prompt-submit" in args_log
-                and "hooks amp stop" in args_log
+                and "hooks amp title-update" in args_log
+                and "hooks amp lifecycle" in args_log
                 and '"session_id":"T-amp-session-test"' in stdin_log
+                and '"session_id":"T-amp-session-second"' in stdin_log
+                and '"session_id":"T-amp-session-third"' in stdin_log
+                and '"session_id":"T-amp-session-legacy"' in stdin_log
+                and '"turn_id":"turn-second-follow-up"' in stdin_log
+                and '"turn_id":"turn-third"' in stdin_log
+                and '"turn_id":"turn-legacy"' in stdin_log
                 and "argv=" in env_log
             ):
                 break
@@ -179,13 +461,113 @@ await handlers.get("agent.end")({ thread, message: "hello amp", id: "msg-user-1"
         for expected in [
             "hooks amp session-start",
             "hooks amp prompt-submit",
-            "hooks amp stop",
+            "hooks amp title-update",
+            "hooks amp lifecycle",
         ]:
             if expected not in args_log:
                 print(f"FAIL: plugin did not invoke {expected}, got {args_log!r}")
                 return 1
         if '"session_id":"T-amp-session-test"' not in stdin_log:
             print(f"FAIL: plugin did not pass session id, got {stdin_log!r}")
+            return 1
+        payloads = []
+        for chunk in stdin_log.split("\n---\n"):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            try:
+                payloads.append(json.loads(chunk))
+            except json.JSONDecodeError:
+                continue
+        lifecycle = [
+            payload for payload in payloads
+            if payload.get("hook_event_name") == "Lifecycle"
+        ]
+        primary_lifecycle = [
+            payload for payload in lifecycle
+            if payload.get("session_id") == "T-amp-session-test"
+        ]
+        states = [payload.get("agent_state") for payload in primary_lifecycle]
+        for expected_state in ["running", "awaiting-approval", "idle", "error"]:
+            if expected_state not in states:
+                print(f"FAIL: plugin did not publish authoritative state {expected_state!r}, got {lifecycle!r}")
+                return 1
+        idle_outcomes = [
+            payload.get("turn_outcome") for payload in primary_lifecycle
+            if payload.get("agent_state") == "idle" and payload.get("turn_outcome")
+        ]
+        if idle_outcomes != ["done", "done", "error"]:
+            print(f"FAIL: idle reconciliation lost the completed turn outcome, got {idle_outcomes!r}")
+            return 1
+        idle_errors = [
+            payload for payload in primary_lifecycle
+            if payload.get("agent_state") == "idle" and payload.get("turn_outcome") == "error"
+        ]
+        if len(idle_errors) != 1 or idle_errors[0].get("notification_type") != "error":
+            print(f"FAIL: idle-after-error was not classified as an error, got {idle_errors!r}")
+            return 1
+        error_outcomes = [
+            payload.get("turn_outcome") for payload in primary_lifecycle
+            if payload.get("agent_state") == "error"
+        ]
+        if error_outcomes != ["error"]:
+            print(f"FAIL: error reconciliation lost the failed turn outcome, got {error_outcomes!r}")
+            return 1
+        second_completions = [
+            payload for payload in lifecycle
+            if payload.get("session_id") == "T-amp-session-second"
+            and payload.get("agent_state") == "idle"
+            and payload.get("turn_outcome") == "done"
+        ]
+        if len(second_completions) != 2:
+            print(f"FAIL: second Amp thread did not re-arm terminal delivery, got {second_completions!r}")
+            return 1
+        if [payload.get("turn_id") for payload in second_completions] != [
+            "turn-second",
+            "turn-second-follow-up",
+        ]:
+            print(f"FAIL: second Amp thread lost a turn identity, got {second_completions!r}")
+            return 1
+        if [payload.get("last_assistant_message") for payload in second_completions] != [
+            "Second thread completed",
+            "Second thread follow-up completed",
+        ]:
+            print(f"FAIL: second Amp thread lost its turn payload, got {second_completions!r}")
+            return 1
+        third_errors = [
+            payload for payload in lifecycle
+            if payload.get("session_id") == "T-amp-session-third"
+            and payload.get("agent_state") == "error"
+            and payload.get("turn_outcome") == "error"
+        ]
+        if len(third_errors) != 1 or third_errors[0].get("turn_id") != "turn-third":
+            print(f"FAIL: third Amp thread did not retain independent error state, got {third_errors!r}")
+            return 1
+        legacy_completions = [
+            payload for payload in lifecycle
+            if payload.get("session_id") == "T-amp-session-legacy"
+            and payload.get("agent_state") == "idle"
+            and payload.get("turn_outcome") == "done"
+        ]
+        if len(legacy_completions) != 1:
+            print(f"FAIL: legacy Amp thread did not emit exactly one completion, got {legacy_completions!r}")
+            return 1
+        if legacy_completions[0].get("last_assistant_message") != "Legacy thread completed":
+            print(f"FAIL: legacy Amp completion lost its assistant message, got {legacy_completions!r}")
+            return 1
+        title_updates = [
+            payload.get("title") for payload in payloads
+            if payload.get("hook_event_name") == "TitleUpdate"
+            and payload.get("session_id") == "T-amp-session-test"
+        ]
+        if title_updates[-1:] != ["Updated Amp title"]:
+            print(f"FAIL: plugin did not persist the latest Amp title, got {title_updates!r}")
+            return 1
+        if "Stale Amp title" in title_updates:
+            print(f"FAIL: a stale async title lookup overwrote the observed Amp title, got {title_updates!r}")
+            return 1
+        if "hooks amp stop" in args_log:
+            print(f"FAIL: extension bypassed lifecycle reconciliation with a direct stop, got {args_log!r}")
             return 1
         if "kind=amp" not in env_log or "cwd=/tmp/amp-project" not in env_log or "argv=" not in env_log:
             print(f"FAIL: plugin did not pass launch metadata environment, got {env_log!r}")
@@ -211,6 +593,27 @@ await handlers.get("agent.end")({ thread, message: "hello amp", id: "msg-user-1"
         ]
         if decoded_argv != expected_argv:
             print(f"FAIL: plugin captured wrong Amp launch argv; expected {expected_argv!r}, got {decoded_argv!r}")
+            return 1
+        fallback_argv_lines = [
+            line[len("argv="):]
+            for line in env_log.splitlines()
+            if line.startswith("argv=")
+        ]
+        try:
+            fallback_argv = [
+                value
+                for value in base64.b64decode(fallback_argv_lines[-1]).decode("utf-8").split("\0")
+                if value
+            ]
+        except Exception as exc:
+            print(f"FAIL: fallback plugin launch argv was not valid base64 NUL data: {exc}; env={env_log!r}")
+            return 1
+        expected_fallback_argv = [str(fake_amp), "--mode", "fallback"]
+        if fallback_argv != expected_fallback_argv:
+            print(
+                "FAIL: plugin dropped unrecognized launch arguments; "
+                f"expected {expected_fallback_argv!r}, got {fallback_argv!r}"
+            )
             return 1
 
     print("PASS: generated Amp plugin installs and emits cmux hooks")

@@ -1335,6 +1335,7 @@ jobs:
             CmuxRemoteWorkspace
             CmuxRemoteSession
             CmuxAgentChat
+            CmuxAgentSessionStore
             CmuxAuthRuntime
             CmuxBrowser
             CmuxIrohTransport

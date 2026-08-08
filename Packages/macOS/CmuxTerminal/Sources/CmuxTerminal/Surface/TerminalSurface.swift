@@ -53,8 +53,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     // other files use.
     public typealias NamedKeySendResult = CmuxTerminalCore.NamedKeySendResult
     public typealias InputSendResult = CmuxTerminalCore.InputSendResult
-    public typealias ClaudeCommandShim = TerminalSurfaceClaudeCommandShim
-    public typealias CodexCommandShim = TerminalSurfaceCodexCommandShim
+    /// The managed command shims installed for this terminal surface.
+    public typealias AgentCommandShimSet = TerminalSurfaceAgentCommandShimSet
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
     private var runtimeSurface: ghostty_surface_t?
     var runtimeControllingTTYName: String?
@@ -285,11 +285,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         TerminalSurfaceRuntimeTeardownReservation?
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
-    var claudeCommandShim: ClaudeCommandShim?
-    var claudeCommandShimInstallTask: Task<ClaudeCommandShim?, Never>?
-    var claudeCommandShimCompletionTask: Task<Void, Never>?
-    var claudeCommandShimInstallCompleted = false
-    var claudeCommandShimPendingCreationSource: RuntimeSurfaceCreationSource?
+    var agentCommandShims: AgentCommandShimSet?
+    var agentCommandShimInstallTask: Task<AgentCommandShimSet?, Never>?
+    var agentCommandShimCompletionTask: Task<Void, Never>?
+    var agentCommandShimInstallCompleted = false
+    var agentCommandShimPendingCreationSource: RuntimeSurfaceCreationSource?
     /// The retained byte-tee lease for the libghostty PTY tee callback (cmux
     /// fork extension). Installed in `createSurface` after
     /// `ghostty_surface_new` succeeds. The Mac sync server reads the tee'd
@@ -613,8 +613,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     deinit {
-        claudeCommandShimInstallTask?.cancel()
-        claudeCommandShimCompletionTask?.cancel()
+        agentCommandShimInstallTask?.cancel()
+        agentCommandShimCompletionTask?.cancel()
         registry.unregister(self)
         markPortalLifecycleClosed(reason: "deinit")
         // Mirror closeHeadlessStartupWindowIfNeeded: deinit is nonisolated, so
