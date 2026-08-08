@@ -234,6 +234,61 @@ import Testing
         #expect(frame == CGRect(x: 45, y: 140, width: 180, height: 30))
     }
 
+    @Test func dragStartForwardsThresholdMoveToCancelPendingSwiftUIPress() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 320),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let hostView = try #require(window.contentView)
+        let monitor = SidebarWorkspaceDragSourceMonitor()
+        let workspaceId = UUID()
+        var beganWorkspaceId: UUID?
+
+        monitor.attach(to: hostView)
+        monitor.start(
+            resolveCandidate: { _ in
+                SidebarWorkspaceDragCandidate(
+                    workspaceId: workspaceId,
+                    swiftUIFrame: CGRect(x: 0, y: 0, width: 120, height: 48)
+                )
+            },
+            onBeginDrag: { workspaceId, _, _, _, _ in
+                beganWorkspaceId = workspaceId
+                return true
+            }
+        )
+        defer { monitor.stop() }
+
+        let mouseDown = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: NSPoint(x: 20, y: 300),
+            modifierFlags: [],
+            timestamp: 1,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+        let mouseDragged = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDragged,
+            location: NSPoint(x: 30, y: 290),
+            modifierFlags: [],
+            timestamp: 2,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 2,
+            clickCount: 1,
+            pressure: 1
+        ))
+
+        #expect(monitor.handle(mouseDown) === mouseDown)
+        #expect(monitor.handle(mouseDragged) === mouseDragged)
+        #expect(beganWorkspaceId == workspaceId)
+    }
+
     @Test func menuTrackingReconciliationIgnoresSubmenuEndNotifications() {
         let rootMenu = NSMenu()
         let submenu = NSMenu()

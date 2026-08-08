@@ -52,7 +52,7 @@ final class SidebarWorkspaceDragSourceMonitor {
         pendingDrag = nil
     }
 
-    private func handle(_ event: NSEvent) -> NSEvent? {
+    func handle(_ event: NSEvent) -> NSEvent? {
         switch event.type {
         case .leftMouseDown:
             trackMouseDown(event)
@@ -117,14 +117,17 @@ final class SidebarWorkspaceDragSourceMonitor {
         ), let onBeginDrag else {
             return event
         }
-        let didBegin = onBeginDrag(
+        _ = onBeginDrag(
             pendingDrag.candidate.workspaceId,
             hostView,
             pendingDrag.mouseDownEvent,
             representation.frame,
             representation.image
         )
-        return didBegin ? nil : event
+        // The threshold-crossing move must still reach SwiftUI so its pending
+        // tap/button press fails normally. AppKit owns the native drag from
+        // here, but swallowing this event can strand the original press tracker.
+        return event
     }
 
     private func dragRepresentation(
