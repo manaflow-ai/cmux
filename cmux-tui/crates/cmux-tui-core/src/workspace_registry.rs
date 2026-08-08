@@ -765,11 +765,7 @@ fn pending_session_reset_dirs_at(
         if !reset_stat_is_dir(&stat) {
             anyhow::bail!("private reset path is not a directory: {}", path.display());
         }
-        ensure_reset_device_boundary(
-            &path,
-            Some(root_device),
-            Some(reset_stat_device(&stat)),
-        )?;
+        ensure_reset_device_boundary(&path, Some(root_device), Some(reset_stat_device(&stat)))?;
         reset_dirs.push(PendingSessionResetDir { path, kind });
     }
     reset_dirs.sort_by(|left, right| left.path.cmp(&right.path));
@@ -921,10 +917,7 @@ fn collect_reset_directory_fingerprints_at(
                 open_reset_child_dir(directory.as_raw_fd(), &name, &child_display)?;
             let opened = child_directory.metadata()?;
             if reset_metadata_fingerprint(&opened) != reset_stat_metadata_fingerprint(&stat) {
-                anyhow::bail!(
-                    "reset path changed during fingerprint: {}",
-                    child_display.display()
-                );
+                anyhow::bail!("reset path changed during fingerprint: {}", child_display.display());
             }
             collect_reset_directory_fingerprints_at(
                 &child_directory,
@@ -937,10 +930,7 @@ fn collect_reset_directory_fingerprints_at(
             )?;
             let current = reset_child_stat(directory.as_raw_fd(), &name, &child_display)?;
             if reset_stat_metadata_fingerprint(&current) != reset_stat_metadata_fingerprint(&stat) {
-                anyhow::bail!(
-                    "reset path changed during fingerprint: {}",
-                    child_display.display()
-                );
+                anyhow::bail!("reset path changed during fingerprint: {}", child_display.display());
             }
         }
     }
@@ -1689,13 +1679,8 @@ fn remove_reset_dir_all_at(
         .file_name()
         .ok_or_else(|| anyhow::anyhow!("reset path has no file name: {}", path.display()))?;
     let mut budget = ResetFingerprintBudget::default();
-    let manifest = reset_dir_manifest_at(
-        root_directory,
-        name,
-        fingerprint_label,
-        path,
-        &mut budget,
-    )?;
+    let manifest =
+        reset_dir_manifest_at(root_directory, name, fingerprint_label, path, &mut budget)?;
     if manifest.fingerprint != expected_fingerprint {
         anyhow::bail!("reset path changed during reset: {}", path.display());
     }
@@ -1724,12 +1709,7 @@ fn remove_reset_dir_all_at(
     {
         anyhow::bail!("reset path changed during reset: {}", path.display());
     }
-    reset_unlink_child(
-        root_directory.as_raw_fd(),
-        name,
-        path,
-        libc::AT_REMOVEDIR,
-    )
+    reset_unlink_child(root_directory.as_raw_fd(), name, path, libc::AT_REMOVEDIR)
 }
 
 #[cfg(unix)]
@@ -5124,9 +5104,8 @@ static RESET_REPLACE_STATE_ROOT_BEFORE_GUARD: std::sync::Mutex<
     Option<(PathBuf, PathBuf, PathBuf)>,
 > = std::sync::Mutex::new(None);
 #[cfg(all(unix, test))]
-static RESET_REPLACE_STATE_ROOT_AFTER_GUARD: std::sync::Mutex<
-    Option<(PathBuf, PathBuf, PathBuf)>,
-> = std::sync::Mutex::new(None);
+static RESET_REPLACE_STATE_ROOT_AFTER_GUARD: std::sync::Mutex<Option<(PathBuf, PathBuf, PathBuf)>> =
+    std::sync::Mutex::new(None);
 #[cfg(all(unix, test))]
 static RESET_REPLACE_SESSION_DIR_BEFORE_WRITER_LOCK: std::sync::Mutex<
     Option<(PathBuf, PathBuf, PathBuf)>,
@@ -5257,13 +5236,7 @@ fn rename_session_dir_for_guard(
     session_dir: &Path,
     expected: &str,
 ) -> anyhow::Result<PathBuf> {
-    rename_session_dir_for_reset_at(
-        &guard.root,
-        root,
-        session_name,
-        session_dir,
-        expected,
-    )
+    rename_session_dir_for_reset_at(&guard.root, root, session_name, session_dir, expected)
 }
 
 #[cfg(not(unix))]
@@ -5302,12 +5275,7 @@ fn rename_terminal_host_dir_for_guard(
     terminal_host_root: &Path,
     expected: &str,
 ) -> anyhow::Result<PathBuf> {
-    rename_terminal_host_dir_for_reset(
-        root,
-        session_name,
-        terminal_host_root,
-        expected,
-    )
+    rename_terminal_host_dir_for_reset(root, session_name, terminal_host_root, expected)
 }
 
 #[cfg(unix)]
@@ -5334,10 +5302,7 @@ fn remove_reset_dir_all_for_guard(
 
 #[cfg(unix)]
 fn sync_reset_root_for_guard(guard: &SessionResetGuard, root: &Path) -> anyhow::Result<()> {
-    guard
-        .root
-        .sync_all()
-        .with_context(|| format!("sync workspace state root {}", root.display()))
+    guard.root.sync_all().with_context(|| format!("sync workspace state root {}", root.display()))
 }
 
 #[cfg(not(unix))]
