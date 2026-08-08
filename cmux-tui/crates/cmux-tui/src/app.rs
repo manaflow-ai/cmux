@@ -365,6 +365,7 @@ impl Drop for SessionEventWorker {
 
 struct PendingFrontendJournalEvent {
     sequence: u64,
+    retry_at: Instant,
     session: Session,
     event: Box<FrontendJournalEvent>,
 }
@@ -407,6 +408,7 @@ impl FrontendJournalQueue {
         let sequence = state.next_sequence;
         state.pending[slot] = Some(PendingFrontendJournalEvent {
             sequence,
+            retry_at: Instant::now(),
             session,
             event: Box::new(event),
         });
@@ -417,39 +419,51 @@ impl FrontendJournalQueue {
     fn take(&self) -> Option<PendingFrontendJournalEvent> {
         let mut state = self.state.lock().unwrap();
         loop {
+            if state.stopping {
+                return None;
+            }
+            let now = Instant::now();
             if let Some(slot) = state
                 .pending
                 .iter()
                 .enumerate()
-                .filter_map(|(slot, pending)| pending.as_ref().map(|pending| (slot, pending.sequence)))
+                .filter_map(|(slot, pending)| {
+                    pending
+                        .as_ref()
+                        .filter(|pending| pending.retry_at <= now)
+                        .map(|pending| (slot, pending.sequence))
+                })
                 .min_by_key(|(_, sequence)| *sequence)
                 .map(|(slot, _)| slot)
             {
                 return state.pending[slot].take();
             }
-            if state.stopping {
-                return None;
+            if let Some(retry_at) =
+                state.pending.iter().flatten().map(|pending| pending.retry_at).min()
+            {
+                let wait = retry_at.saturating_duration_since(now);
+                (state, _) = self.changed.wait_timeout(state, wait).unwrap();
+            } else {
+                state = self.changed.wait(state).unwrap();
             }
-            state = self.changed.wait(state).unwrap();
         }
     }
 
-    fn retry(&self, pending: PendingFrontendJournalEvent) -> Option<PendingFrontendJournalEvent> {
-        let state = self.state.lock().unwrap();
-        if state.stopping || state.pending[pending.slot()].is_some() {
-            None
-        } else {
-            Some(pending)
+    fn retry(&self, mut pending: PendingFrontendJournalEvent) {
+        let slot = pending.slot();
+        let mut state = self.state.lock().unwrap();
+        if state.stopping || state.pending[slot].is_some() {
+            return;
         }
+        pending.retry_at = Instant::now() + Duration::from_millis(100);
+        state.pending[slot] = Some(pending);
+        drop(state);
+        self.changed.notify_one();
     }
 
     fn stop(&self) {
         self.state.lock().unwrap().stopping = true;
         self.changed.notify_one();
-    }
-
-    fn stopping(&self) -> bool {
-        self.state.lock().unwrap().stopping
     }
 
     #[cfg(test)]
@@ -501,19 +515,9 @@ impl Drop for FrontendJournalWorker {
 }
 
 fn run_frontend_journal_worker(queue: &FrontendJournalQueue) {
-    while let Some(mut pending) = queue.take() {
-        loop {
-            if pending.session.journal_frontend_event(pending.event.as_ref().clone()).is_ok() {
-                break;
-            }
-            let Some(retry) = queue.retry(pending) else {
-                if queue.stopping() {
-                    return;
-                }
-                break;
-            };
-            pending = retry;
-            std::thread::sleep(Duration::from_millis(100));
+    while let Some(pending) = queue.take() {
+        if pending.session.journal_frontend_event(pending.event.as_ref().clone()).is_err() {
+            queue.retry(pending);
         }
     }
 }
@@ -19212,12 +19216,34 @@ mod tests {
                 settled: true,
             },
         );
-        queue.push(session, focus("focus-latest"));
+        queue.push(session.clone(), focus("focus-latest"));
 
         assert_eq!(queue.pending_count(), 3);
         assert_eq!(queue.take().unwrap().event.event_id(), "resize-latest");
         assert_eq!(queue.take().unwrap().event.event_id(), "viewport-latest");
         assert_eq!(queue.take().unwrap().event.event_id(), "focus-latest");
+
+        queue.push(session.clone(), focus("focus-retry"));
+        queue.push(
+            session,
+            FrontendJournalEvent::Resize {
+                event_id: "resize-ready".into(),
+                frontend_projection_id: projection,
+                generation: "generation-1".into(),
+                cols: 81,
+                rows: 24,
+                cell_width: 8,
+                cell_height: 16,
+            },
+        );
+        let failed = queue.take().unwrap();
+        assert_eq!(failed.event.event_id(), "focus-retry");
+        queue.retry(failed);
+        assert_eq!(
+            queue.take().unwrap().event.event_id(),
+            "resize-ready",
+            "a delayed retry must not block another coalesced event type"
+        );
     }
 
     #[test]

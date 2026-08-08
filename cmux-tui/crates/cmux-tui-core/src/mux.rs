@@ -8133,10 +8133,10 @@ impl Mux {
         for surface in surfaces {
             surface.finish_terminal_reader(TERMINAL_READER_SHUTDOWN_TIMEOUT);
         }
-        // Each terminal reader has drained or its journal capture gate closed
-        // at an idle capture epoch. Fence the terminal ingress lane while this
-        // Mux still owns the registry. The closed gate prevents a timed-out
-        // reader from inserting output after this barrier.
+        // Each terminal reader has drained or its journal capture gate has
+        // closed within the shutdown deadline. Fence the terminal ingress lane
+        // while this Mux still owns the registry. The closed gate prevents a
+        // timed-out reader from inserting output after this barrier.
         if let Err(error) = self.flush_terminal_journal() {
             eprintln!("cmux-tui: flush terminal journal during shutdown: {error:#}");
         }

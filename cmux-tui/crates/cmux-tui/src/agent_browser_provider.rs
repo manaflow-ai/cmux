@@ -25,7 +25,7 @@ const SOCKET_TIMEOUT: Duration = Duration::from_secs(2);
 
 const INTEGRATION_MARKER: &str = "CMUX_TUI_AGENT_BROWSER_PROVIDER";
 const EXACT_TAB_ENV: [&str; 2] = ["CMUX_TUI_BROWSER_TAB_ID", "CMUX_BROWSER_TAB_ID"];
-const WORKSPACE_ENV: [&str; 2] = ["CMUX_TUI_WORKSPACE_ID", "CMUX_WORKSPACE_ID"];
+const WORKSPACE_ENV: [&str; 1] = ["CMUX_TUI_WORKSPACE_ID"];
 
 pub(crate) fn configure_surface_options(options: &mut SurfaceOptions) -> anyhow::Result<()> {
     let executable = std::env::current_exe()
@@ -273,7 +273,7 @@ fn select_workspace_target(
         .ok_or_else(|| anyhow!("cmux-tui returned an invalid workspace snapshot"))?;
     let mut candidates = Vec::new();
     let mut terminal_location = None;
-    let workspace_hint = scope.workspace.as_ref().or(scope.session_hint.as_ref());
+    let terminal_workspace_hint = scope.workspace.as_ref();
     for (workspace_index, workspace) in workspaces.iter().enumerate() {
         let workspace_id = stable_string(workspace, "resource_id")
             .or_else(|| stable_string(workspace, "key"))
@@ -301,7 +301,7 @@ fn select_workspace_target(
                         .terminal
                         .as_ref()
                         .is_some_and(|terminal| terminal_ids.iter().any(|value| value == terminal))
-                        && workspace_hint.is_none_or(|workspace_hint| {
+                        && terminal_workspace_hint.is_none_or(|workspace_hint| {
                             workspace_keys.iter().any(|key| key == workspace_hint)
                         })
                     {
@@ -354,7 +354,7 @@ fn select_workspace_target(
         return Ok(selected(candidate, "terminal-workspace"));
     }
 
-    if let Some(workspace_hint) = workspace_hint {
+    if let Some(workspace_hint) = scope.workspace.as_ref().or(scope.session_hint.as_ref()) {
         let (_, candidate) = candidates
             .iter()
             .find(|(_, candidate)| candidate.workspace_keys.iter().any(|key| key == workspace_hint))
@@ -482,6 +482,20 @@ mod tests {
     fn caller_terminal_selects_same_pane_without_using_active_state() {
         let scope = ProviderScope { terminal: Some("term_one".into()), ..Default::default() };
         let selected = select_workspace_target(&topology(), &targets(), &scope).unwrap();
+        assert_eq!(selected.tab_id, "tab_same_pane");
+        assert_eq!(selected.selection, "terminal-workspace");
+    }
+
+    #[test]
+    fn trusted_terminal_is_not_constrained_by_a_session_name() {
+        let scope = ProviderScope {
+            terminal: Some("term_one".into()),
+            session_hint: Some("unrelated-outer-session".into()),
+            ..Default::default()
+        };
+
+        let selected = select_workspace_target(&topology(), &targets(), &scope).unwrap();
+
         assert_eq!(selected.tab_id, "tab_same_pane");
         assert_eq!(selected.selection, "terminal-workspace");
     }

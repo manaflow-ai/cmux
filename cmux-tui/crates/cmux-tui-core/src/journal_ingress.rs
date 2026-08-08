@@ -201,8 +201,22 @@ fn json_value_resident_bytes(value: &serde_json::Value) -> usize {
 
 #[derive(Debug)]
 enum JournalIngressCompletion {
-    Durable(SyncSender<Result<(), String>>),
-    Producer(SyncSender<Result<crate::JournalAppendCommit, String>>),
+    Durable {
+        sender: SyncSender<Result<(), String>>,
+        deadline: Instant,
+    },
+    Producer {
+        sender: SyncSender<Result<crate::JournalAppendCommit, String>>,
+        deadline: Instant,
+    },
+}
+
+impl JournalIngressCompletion {
+    fn deadline(&self) -> Instant {
+        match self {
+            Self::Durable { deadline, .. } | Self::Producer { deadline, .. } => *deadline,
+        }
+    }
 }
 
 pub(crate) struct QueuedJournalEvent {
@@ -211,6 +225,10 @@ pub(crate) struct QueuedJournalEvent {
 }
 
 impl QueuedJournalEvent {
+    fn deadline(&self) -> Option<Instant> {
+        self.completion.as_ref().map(JournalIngressCompletion::deadline)
+    }
+
     fn merge_output(&mut self, next: Self) -> Option<Self> {
         if self.completion.is_some() || next.completion.is_some() {
             return Some(next);
@@ -367,7 +385,10 @@ impl JournalIngressSender {
             sender,
             QueuedJournalEvent {
                 event,
-                completion: Some(JournalIngressCompletion::Durable(completion)),
+                completion: Some(JournalIngressCompletion::Durable {
+                    sender: completion,
+                    deadline,
+                }),
             },
             deadline,
         )
@@ -404,7 +425,8 @@ impl JournalIngressSender {
             anyhow::bail!("session journal writer is unavailable")
         };
         let (completion, result) = sync_channel(1);
-        self.enqueue(
+        let deadline = Instant::now() + JOURNAL_DURABLE_WAIT;
+        self.enqueue_until(
             sender,
             QueuedJournalEvent {
                 event: JournalIngressEvent::Producer {
@@ -413,13 +435,25 @@ impl JournalIngressSender {
                     origin,
                     idempotency_key,
                 },
-                completion: Some(JournalIngressCompletion::Producer(completion)),
+                completion: Some(JournalIngressCompletion::Producer {
+                    sender: completion,
+                    deadline,
+                }),
             },
+            deadline,
         )
         .map_err(anyhow::Error::msg)?;
         result
-            .recv()
-            .map_err(|_| anyhow::Error::msg(self.writer_error()))?
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .map_err(|error| match error {
+                std::sync::mpsc::RecvTimeoutError::Timeout => anyhow::anyhow!(
+                    "timed out after {} ms waiting for a session journal producer receipt",
+                    JOURNAL_DURABLE_WAIT.as_millis()
+                ),
+                std::sync::mpsc::RecvTimeoutError::Disconnected => {
+                    anyhow::Error::msg(self.writer_error())
+                }
+            })?
             .map_err(anyhow::Error::msg)
     }
 
@@ -505,6 +539,11 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
             let mut delay = Duration::from_millis(10);
             let mut reported_error = None;
             let mut uncompleted_nonretryable_failures = 0_usize;
+            let retry_deadline = batch
+                .iter()
+                .filter_map(QueuedJournalEvent::deadline)
+                .min()
+                .unwrap_or_else(|| Instant::now() + JOURNAL_DURABLE_WAIT);
             loop {
                 let Some(mux) = mux.upgrade() else {
                     let error = "session journal stopped".to_string();
@@ -514,6 +553,16 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     }
                     return;
                 };
+                if Instant::now() >= retry_deadline {
+                    stop_writer_after_retry_deadline(
+                        &mux,
+                        &receivers,
+                        &batch,
+                        pending,
+                        "the batch deadline expired before commit",
+                    );
+                    return;
+                }
                 let events = batch.iter().map(|queued| &queued.event).collect::<Vec<_>>();
                 match mux.commit_session_journal_events(&events) {
                     Ok(commits) => {
@@ -527,8 +576,19 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             reported_error = Some(summary.clone());
                         }
                         if retryable_sqlite_error(&error) {
+                            let remaining = retry_deadline.saturating_duration_since(Instant::now());
+                            if remaining.is_zero() {
+                                stop_writer_after_retry_deadline(
+                                    &mux,
+                                    &receivers,
+                                    &batch,
+                                    pending,
+                                    &format!("locked database: {summary}"),
+                                );
+                                return;
+                            }
                             let epoch = mux.journal_event_epoch();
-                            mux.wait_for_journal_event(epoch, delay);
+                            mux.wait_for_journal_event(epoch, delay.min(remaining));
                             delay = (delay * 2).min(Duration::from_secs(1));
                             continue;
                         }
@@ -563,6 +623,34 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                 }
             }
         }
+    }
+}
+
+fn stop_writer_after_retry_deadline(
+    mux: &Mux,
+    receivers: &JournalIngressReceivers,
+    batch: &[QueuedJournalEvent],
+    pending: VecDeque<Vec<QueuedJournalEvent>>,
+    detail: &str,
+) {
+    let failure = receivers.state.fail(format!(
+        "session journal writer timed out after {} ms: {detail}",
+        JOURNAL_DURABLE_WAIT.as_millis()
+    ));
+    mux.request_daemon_shutdown();
+    complete_batch_error(batch, failure.clone());
+    for pending_batch in pending {
+        complete_batch_error(&pending_batch, failure.clone());
+    }
+    complete_queued_error(receivers, &failure);
+}
+
+fn complete_queued_error(receivers: &JournalIngressReceivers, error: &str) {
+    while let Ok(queued) = receivers.terminal.try_recv() {
+        complete_batch_error(std::slice::from_ref(&queued), error.to_string());
+    }
+    while let Ok(queued) = receivers.durable.try_recv() {
+        complete_batch_error(std::slice::from_ref(&queued), error.to_string());
     }
 }
 
@@ -643,13 +731,13 @@ fn complete_batch_success(
     }
     for (queued, commit) in batch.iter().zip(commits) {
         match &queued.completion {
-            Some(JournalIngressCompletion::Durable(completion)) => {
-                let _ = completion.send(Ok(()));
+            Some(JournalIngressCompletion::Durable { sender, .. }) => {
+                let _ = sender.send(Ok(()));
             }
-            Some(JournalIngressCompletion::Producer(completion)) => {
+            Some(JournalIngressCompletion::Producer { sender, .. }) => {
                 let result = commit
                     .ok_or_else(|| "session journal omitted a producer append receipt".into());
-                let _ = completion.send(result);
+                let _ = sender.send(result);
             }
             None => {}
         }
@@ -659,11 +747,11 @@ fn complete_batch_success(
 fn complete_batch_error(batch: &[QueuedJournalEvent], error: String) {
     for queued in batch {
         match &queued.completion {
-            Some(JournalIngressCompletion::Durable(completion)) => {
-                let _ = completion.send(Err(error.clone()));
+            Some(JournalIngressCompletion::Durable { sender, .. }) => {
+                let _ = sender.send(Err(error.clone()));
             }
-            Some(JournalIngressCompletion::Producer(completion)) => {
-                let _ = completion.send(Err(error.clone()));
+            Some(JournalIngressCompletion::Producer { sender, .. }) => {
+                let _ = sender.send(Err(error.clone()));
             }
             None => {}
         }
@@ -904,8 +992,74 @@ mod tests {
             started.elapsed() < JOURNAL_DURABLE_WAIT + Duration::from_secs(2),
             "a locked journal must not prevent shutdown forever"
         );
+        assert!(
+            mux.daemon_shutdown_requested(),
+            "a journal lock beyond the fixed deadline must stop the daemon"
+        );
         blocker.execute_batch("ROLLBACK;").unwrap();
-        mux.flush_terminal_journal().unwrap();
+        assert!(
+            mux.flush_terminal_journal().unwrap_err().to_string().contains("timed out"),
+            "later writes must observe the terminal journal failure"
+        );
+        drop(blocker);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn producer_receipt_and_sqlite_retries_share_one_deadline() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-producer-locked-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "journal-producer-locked",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let database_path = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+            .find(|path| path.is_file())
+            .expect("persistent journal database");
+        let blocker = rusqlite::Connection::open(database_path).unwrap();
+        blocker.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        let ingress = crate::agent_hook_journal_ingress(
+            "codex",
+            "SubagentStop",
+            None,
+            serde_json::json!({
+                "session_id":"locked-producer-root",
+                "root_session_id":"locked-producer-root",
+                "parent_session_id":"locked-producer-root",
+                "child_agent_id":"locked-producer-child",
+                "message":"must return at the fixed deadline",
+            }),
+        )
+        .unwrap();
+
+        let started = Instant::now();
+        let error = mux
+            .append_journal_ingress(&ingress, "client_locked_producer", "locked_producer_1")
+            .unwrap_err();
+
+        assert!(error.to_string().contains("timed out"));
+        assert!(
+            started.elapsed() < JOURNAL_DURABLE_WAIT + Duration::from_secs(2),
+            "a producer receipt must not wait without a limit"
+        );
+        let shutdown_deadline = Instant::now() + Duration::from_secs(1);
+        while !mux.daemon_shutdown_requested() && Instant::now() < shutdown_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            mux.daemon_shutdown_requested(),
+            "a producer database lock beyond the deadline must stop the daemon"
+        );
+        blocker.execute_batch("ROLLBACK;").unwrap();
         drop(blocker);
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
