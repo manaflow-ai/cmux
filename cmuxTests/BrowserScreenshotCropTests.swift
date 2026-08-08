@@ -75,6 +75,37 @@ struct BrowserScreenshotCropTests {
     }()
 
     @Test
+    func selectionCancelUsesResolvedCommandPlaneCharacter() throws {
+        let cancelEvent = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: ".",
+            charactersIgnoringModifiers: "e",
+            isARepeat: false,
+            keyCode: 47
+        ))
+        let nonCancelEvent = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "e",
+            charactersIgnoringModifiers: ".",
+            isARepeat: false,
+            keyCode: 47
+        ))
+
+        #expect(BrowserScreenshotSelectionOverlayView.isCancelEvent(cancelEvent))
+        #expect(!BrowserScreenshotSelectionOverlayView.isCancelEvent(nonCancelEvent))
+    }
+
+    @Test
     func extremeAspectRatioBoundIsConstantTimeAndWithinPixelLimit() throws {
         let size = try BrowserScreenshotCaptureBounds.boundedOutputSize(
             for: NSSize(width: 100_000_000, height: 1),

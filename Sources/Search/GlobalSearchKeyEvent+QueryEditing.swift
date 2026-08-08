@@ -26,8 +26,13 @@ extension GlobalSearchKeyEvent {
     }
 
     private var isCommandEditingCharacter: Bool {
-        guard let character = charactersIgnoringModifiers?.lowercased() else { return false }
+        guard let character = characters?.lowercased() else { return false }
         return ["a", "c", "v", "x", "z"].contains(character)
+    }
+
+    var isSystemCommand: Bool {
+        guard let character = characters?.lowercased() else { return false }
+        return ["h", "m", "q", "w", ","].contains(character)
     }
 
     private var isControlEditingCharacter: Bool {

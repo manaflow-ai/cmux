@@ -61,9 +61,21 @@ func shortcutResponderAcceptsTextEditing(_ responder: NSResponder) -> Bool {
     return false
 }
 
-struct ShortcutEventFocusContextCache {
+final class ShortcutEventFocusContextCache {
     let event: NSEvent
-    let context: ShortcutEventFocusContext
+    var context: ShortcutEventFocusContext?
+    var characterResolver: ShortcutEventCharacterResolver?
+
+    init(
+        event: NSEvent,
+        context: ShortcutEventFocusContext?,
+        characterResolver: ShortcutEventCharacterResolver?
+    ) {
+        self.event = event
+        self.context = context
+        self.characterResolver = characterResolver
+    }
+
 }
 
 extension Notification.Name {
@@ -95,8 +107,22 @@ extension AppDelegate {
     }
 
     func shortcutEventFocusContext(_ event: NSEvent) -> ShortcutEventFocusContext {
-        if let cache = shortcutEventFocusContextCache, cache.event === event {
-            return cache.context
+        if let cache = shortcutEventFocusContextCache,
+           cache.event === event,
+           let context = cache.context {
+            return context
+        }
+        let cache: ShortcutEventFocusContextCache
+        if let existingCache = shortcutEventFocusContextCache,
+           existingCache.event === event {
+            cache = existingCache
+        } else {
+            cache = ShortcutEventFocusContextCache(
+                event: event,
+                context: nil,
+                characterResolver: nil
+            )
+            shortcutEventFocusContextCache = cache
         }
 
         let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
@@ -132,8 +158,35 @@ extension AppDelegate {
             rightSidebarFocused: rightSidebarFocused,
             shortcutContext: buildShortcutContext(focusState: focusState, window: shortcutWindow)
         )
-        shortcutEventFocusContextCache = ShortcutEventFocusContextCache(event: event, context: context)
+        cache.context = context
         return context
+    }
+
+    /// The event-scoped character resolver shared by every shortcut candidate
+    /// routed through AppDelegate. It lives with the existing focus snapshot so
+    /// both caches have the same NSEvent identity and cleanup boundary.
+    func shortcutEventCharacterResolver(
+        for event: NSEvent
+    ) -> ShortcutEventCharacterResolver {
+        if let cache = shortcutEventFocusContextCache,
+           cache.event === event,
+           let characterResolver = cache.characterResolver {
+            return characterResolver
+        }
+        let characterResolver = ShortcutEventCharacterResolver.live(
+            for: event,
+            layoutCharacterProvider: shortcutLayoutCharacterProvider
+        )
+        if let cache = shortcutEventFocusContextCache, cache.event === event {
+            cache.characterResolver = characterResolver
+        } else {
+            shortcutEventFocusContextCache = ShortcutEventFocusContextCache(
+                event: event,
+                context: nil,
+                characterResolver: characterResolver
+            )
+        }
+        return characterResolver
     }
 
     /// Builds the full ``ShortcutContext`` for a shortcut event: the focus atoms

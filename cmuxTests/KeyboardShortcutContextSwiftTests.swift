@@ -1,3 +1,4 @@
+import AppKit
 import CmuxCommandPalette
 import CmuxSettings
 import Foundation
@@ -273,6 +274,399 @@ extension CMUXCLIErrorOutputRegressionTests {
 
 @Suite("Stored shortcut physical-key matching")
 struct StoredShortcutPhysicalKeyMatchingTests {
+    @Test("Command-plane character matches on Dvorak – QWERTY Command")
+    func commandPlaneCharacterMatchesOnDvorakQwertyCommand() throws {
+        let shortcut = SimulatorStoredShortcut(
+            key: "t",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "t",
+            charactersIgnoringModifiers: "y",
+            isARepeat: false,
+            keyCode: 17
+        ))
+
+        #expect(KeyboardLayout.normalizedCharacters(for: event) == "t")
+        var providerWasCalled = false
+        #expect(shortcut.matches(
+            event: event,
+            layoutCharacterProvider: { _, _ in
+                providerWasCalled = true
+                return "y"
+            }
+        ))
+        let unmodifiedPlaneShortcut = SimulatorStoredShortcut(
+            key: "y",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+        #expect(!unmodifiedPlaneShortcut.matches(
+            event: event,
+            layoutCharacterProvider: { _, _ in
+                providerWasCalled = true
+                return "y"
+            }
+        ))
+        #expect(!providerWasCalled)
+    }
+
+    @Test("Command-Option matching keeps the base shortcut key")
+    func commandOptionMatchingKeepsBaseShortcutKey() throws {
+        let shortcut = StoredShortcut(
+            key: "n",
+            command: true,
+            shift: false,
+            option: true,
+            control: false
+        )
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .option],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "~",
+            charactersIgnoringModifiers: "n",
+            isARepeat: false,
+            keyCode: 45
+        ))
+
+        var resolvedFlags: NSEvent.ModifierFlags?
+        var fallbackCallCount = 0
+        let characterResolver = ShortcutEventCharacterResolver(
+            event: event,
+            exactCharacterProvider: { _, flags in
+                resolvedFlags = flags
+                return "n"
+            },
+            layoutCharacterProvider: { _, _ in
+                fallbackCallCount += 1
+                return "n"
+            }
+        )
+        #expect(shortcut.matches(
+            event: event,
+            characterResolver: characterResolver
+        ))
+        #expect(resolvedFlags == [.command])
+        #expect(fallbackCallCount == 0)
+    }
+
+    @Test("Command palette field editor uses the Command plane")
+    @MainActor
+    func commandPaletteFieldEditorUsesCommandPlane() throws {
+        let previousShortcut = StoredShortcut(
+            key: "n",
+            command: true,
+            shift: false,
+            option: true,
+            control: false
+        )
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .option],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "~",
+            charactersIgnoringModifiers: "n",
+            isARepeat: false,
+            keyCode: 45
+        ))
+
+        var exactModifiers: NSEvent.ModifierFlags?
+        var fallbackCallCount = 0
+        #expect(
+            commandPaletteSelectionDeltaForFieldEditorCommand(
+                #selector(NSResponder.moveUp(_:)),
+                event: event,
+                previousShortcut: previousShortcut,
+                exactCharacterProvider: { _, modifiers in
+                    exactModifiers = modifiers
+                    return "n"
+                },
+                layoutCharacterProvider: { _, _ in
+                    fallbackCallCount += 1
+                    return "n"
+                }
+            ) == -1
+        )
+        #expect(exactModifiers == [.command])
+        #expect(fallbackCallCount == 0)
+    }
+
+    @Test("Modifier mismatch performs no character translation")
+    func modifierMismatchPerformsNoCharacterTranslation() throws {
+        let shortcut = StoredShortcut(
+            key: "n",
+            command: true,
+            shift: false,
+            option: true,
+            control: false
+        )
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "n",
+            charactersIgnoringModifiers: "n",
+            isARepeat: false,
+            keyCode: 45
+        ))
+
+        var exactCallCount = 0
+        var fallbackCallCount = 0
+        let characterResolver = ShortcutEventCharacterResolver(
+            event: event,
+            exactCharacterProvider: { _, _ in
+                exactCallCount += 1
+                return "n"
+            },
+            layoutCharacterProvider: { _, _ in
+                fallbackCallCount += 1
+                return "n"
+            }
+        )
+
+        #expect(!shortcut.matches(
+            event: event,
+            characterResolver: characterResolver
+        ))
+        #expect(exactCallCount == 0)
+        #expect(fallbackCallCount == 0)
+    }
+
+    @Test("Recorded key code performs no character translation")
+    func recordedKeyCodePerformsNoCharacterTranslation() throws {
+        let shortcut = StoredShortcut(
+            key: "n",
+            command: true,
+            shift: false,
+            option: true,
+            control: false,
+            keyCode: 45
+        )
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .option],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "~",
+            charactersIgnoringModifiers: "n",
+            isARepeat: false,
+            keyCode: 45
+        ))
+
+        var exactCallCount = 0
+        var fallbackCallCount = 0
+        let characterResolver = ShortcutEventCharacterResolver(
+            event: event,
+            exactCharacterProvider: { _, _ in
+                exactCallCount += 1
+                return "n"
+            },
+            layoutCharacterProvider: { _, _ in
+                fallbackCallCount += 1
+                return "n"
+            }
+        )
+
+        #expect(shortcut.matches(
+            event: event,
+            characterResolver: characterResolver
+        ))
+        #expect(exactCallCount == 0)
+        #expect(fallbackCallCount == 0)
+    }
+
+    @Test("Multiple candidates share one exact and fallback translation")
+    func multipleCandidatesShareCharacterTranslation() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .option],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "~",
+            charactersIgnoringModifiers: "n",
+            isARepeat: false,
+            keyCode: 45
+        ))
+
+        var exactCallCount = 0
+        var fallbackCallCount = 0
+        let characterResolver = ShortcutEventCharacterResolver(
+            event: event,
+            exactCharacterProvider: { _, _ in
+                exactCallCount += 1
+                return "ø"
+            },
+            layoutCharacterProvider: { _, _ in
+                fallbackCallCount += 1
+                return "z"
+            }
+        )
+        let firstCandidate = StoredShortcut(
+            key: "x",
+            command: true,
+            shift: false,
+            option: true,
+            control: false
+        )
+        let secondCandidate = StoredShortcut(
+            key: "z",
+            command: true,
+            shift: false,
+            option: true,
+            control: false
+        )
+
+        #expect(!firstCandidate.matches(
+            event: event,
+            characterResolver: characterResolver
+        ))
+        #expect(secondCandidate.matches(
+            event: event,
+            characterResolver: characterResolver
+        ))
+        #expect(exactCallCount == 1)
+        #expect(fallbackCallCount == 1)
+    }
+
+    @Test("Exact Unicode Command plane wins before ASCII fallback")
+    func exactUnicodeCommandPlaneWinsBeforeASCIIFallback() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .option],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "~",
+            charactersIgnoringModifiers: "ㄴ",
+            isARepeat: false,
+            keyCode: 45
+        ))
+        var fallbackCallCount = 0
+        let characterResolver = ShortcutEventCharacterResolver(
+            event: event,
+            exactCharacterProvider: { _, _ in "ㄴ" },
+            layoutCharacterProvider: { _, _ in
+                fallbackCallCount += 1
+                return "n"
+            }
+        )
+        let shortcut = StoredShortcut(
+            key: "ㄴ",
+            command: true,
+            shift: false,
+            option: true,
+            control: false
+        )
+
+        #expect(shortcut.matches(
+            event: event,
+            characterResolver: characterResolver
+        ))
+        #expect(fallbackCallCount == 0)
+    }
+
+    @Test("Missing exact translation preserves non-ASCII event characters")
+    func missingExactTranslationPreservesUnicodeEventCharacters() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .option],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "ㄴ",
+            isARepeat: false,
+            keyCode: 45
+        ))
+        var fallbackCallCount = 0
+        let characterResolver = ShortcutEventCharacterResolver(
+            event: event,
+            exactCharacterProvider: { _, _ in nil },
+            layoutCharacterProvider: { _, _ in
+                fallbackCallCount += 1
+                return "n"
+            }
+        )
+        let shortcut = StoredShortcut(
+            key: "ㄴ",
+            command: true,
+            shift: false,
+            option: true,
+            control: false
+        )
+
+        #expect(shortcut.matches(
+            event: event,
+            characterResolver: characterResolver
+        ))
+        #expect(fallbackCallCount == 0)
+    }
+
+    @Test("Dead-key exact miss falls back to the ASCII shortcut plane")
+    func deadKeyExactMissFallsBackToASCIIPlane() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .option],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "n",
+            isARepeat: false,
+            keyCode: 45
+        ))
+        var fallbackCallCount = 0
+        let characterResolver = ShortcutEventCharacterResolver(
+            event: event,
+            exactCharacterProvider: { _, _ in nil },
+            layoutCharacterProvider: { _, _ in
+                fallbackCallCount += 1
+                return "n"
+            }
+        )
+        let shortcut = StoredShortcut(
+            key: "n",
+            command: true,
+            shift: false,
+            option: true,
+            control: false
+        )
+
+        #expect(shortcut.matches(
+            event: event,
+            characterResolver: characterResolver
+        ))
+        #expect(fallbackCallCount == 1)
+    }
+
     @Test("recorded Option shortcut matches its physical key across layouts")
     func recordedOptionShortcutMatchesPhysicalKeyAcrossLayouts() {
         let shortcut = StoredShortcut(

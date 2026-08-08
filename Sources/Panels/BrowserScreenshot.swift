@@ -56,7 +56,7 @@ private enum BrowserScreenshotFlash {
 }
 
 @MainActor
-private final class BrowserScreenshotSelectionOverlayView: NSView {
+final class BrowserScreenshotSelectionOverlayView: NSView {
     private let onFinish: (NSRect?) -> Void
     private let instructionBadgeView = FileDropHintBadgeView(frame: .zero)
     private var dragStart: NSPoint?
@@ -183,12 +183,14 @@ private final class BrowserScreenshotSelectionOverlayView: NSView {
         )
     }
 
-    private static func isCancelEvent(_ event: NSEvent) -> Bool {
+    nonisolated static func isCancelEvent(_ event: NSEvent) -> Bool {
         if event.keyCode == 53 {
             return true
         }
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        return modifiers.contains(.command) && event.charactersIgnoringModifiers == "."
+        let modifiers = event.modifierFlags.intersection(
+            .deviceIndependentFlagsMask
+        )
+        return modifiers.contains(.command) && event.characters == "."
     }
 
     private func clampedPoint(_ point: NSPoint) -> NSPoint {

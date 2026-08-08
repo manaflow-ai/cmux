@@ -255,6 +255,34 @@ extension GlobalSearchShortcutBehaviorTests {
         )
     }
 
+    @Test func commandPlaneDrivesDvorakEditingAndSystemCommands() throws {
+        let copyEvent = try makeKeyDownEvent(
+            key: "j",
+            characters: "c",
+            modifiers: [.command],
+            keyCode: 8,
+            windowNumber: 0
+        )
+        let quitEvent = try makeKeyDownEvent(
+            key: "'",
+            characters: "q",
+            modifiers: [.command],
+            keyCode: 12,
+            windowNumber: 0
+        )
+        let settingsEvent = try makeKeyDownEvent(
+            key: "w",
+            characters: ",",
+            modifiers: [.command],
+            keyCode: 43,
+            windowNumber: 0
+        )
+
+        #expect(GlobalSearchKeyEvent(copyEvent).queryOwnsEditingShortcut)
+        #expect(GlobalSearchKeyEvent(quitEvent).isSystemCommand)
+        #expect(GlobalSearchKeyEvent(settingsEvent).isSystemCommand)
+    }
+
     @Test func visibleGlobalSearchQueryOwnsBareSpaceShortcut() throws {
 #if DEBUG
         let appDelegate = try #require(AppDelegate.shared)
