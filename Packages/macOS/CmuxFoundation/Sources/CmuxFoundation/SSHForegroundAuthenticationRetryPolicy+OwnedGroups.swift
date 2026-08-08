@@ -432,8 +432,12 @@ extension SSHForegroundAuthenticationRetryPolicy {
             esac
             cmux_ssh_auth_stop_budget_allows_signal || break
             cmux_ssh_auth_expected_identity="$cmux_ssh_auth_group|$cmux_ssh_auth_started"
-            cmux_ssh_auth_current_identity=$(cmux_ssh_auth_stable_identity \
-              "$cmux_ssh_auth_pid")
+            if cmux_ssh_auth_current_identity=$(cmux_ssh_auth_stable_identity \
+              "$cmux_ssh_auth_pid" "$cmux_ssh_auth_deadline_millis"); then
+              :
+            else
+              case "$?" in 124) return 1 ;; *) continue ;; esac
+            fi
             if [ "$cmux_ssh_auth_current_identity" != \
               "$cmux_ssh_auth_expected_identity" ]; then continue; fi
             printf '%s %s %s %s %s\n' "$cmux_ssh_auth_group" \
@@ -484,8 +488,12 @@ extension SSHForegroundAuthenticationRetryPolicy {
             # transactions resnapshot and continue with the remaining set.
             cmux_ssh_auth_stop_budget_allows_signal || break
             cmux_ssh_auth_expected_identity="$cmux_ssh_auth_group|$cmux_ssh_auth_started"
-            cmux_ssh_auth_current_identity=$(cmux_ssh_auth_stable_identity \
-              "$cmux_ssh_auth_pid")
+            if cmux_ssh_auth_current_identity=$(cmux_ssh_auth_stable_identity \
+              "$cmux_ssh_auth_pid" "$cmux_ssh_auth_deadline_millis"); then
+              :
+            else
+              case "$?" in 124) return 1 ;; *) continue ;; esac
+            fi
             if [ "$cmux_ssh_auth_current_identity" != "$cmux_ssh_auth_expected_identity" ]; then
               continue
             fi

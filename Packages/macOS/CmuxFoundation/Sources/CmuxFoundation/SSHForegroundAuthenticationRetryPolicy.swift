@@ -164,11 +164,21 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     func processIdentityShellFunctions() -> String {
         #"""
         cmux_ssh_auth_kernel_process_identity() {
-          /usr/bin/perl -e '
+          /usr/bin/perl -MTime::HiRes=alarm,time -e '
             use strict;
             use warnings;
             my $raw_pid = shift;
+            my $raw_deadline_millis = shift;
             exit 1 unless defined($raw_pid) && $raw_pid =~ /\A[1-9][0-9]*\z/;
+            my $deadline_active = 0;
+            local $SIG{ALRM} = sub { exit 124 };
+            if (defined($raw_deadline_millis) && length($raw_deadline_millis) > 0) {
+              exit 1 unless $raw_deadline_millis =~ /\A[1-9][0-9]*\z/;
+              my $remaining_millis = (0 + $raw_deadline_millis) - (time() * 1000);
+              exit 124 if $remaining_millis <= 0;
+              alarm($remaining_millis / 1000);
+              $deadline_active = 1;
+            }
             my $pid = 0 + $raw_pid;
             my $buffer = "\0" x 136;
             # Darwin SYS_proc_info(2), PROC_INFO_CALL_PIDINFO(2),
@@ -182,14 +192,16 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             my $group = unpack("L<", substr($buffer, 100, 4));
             my $seconds = unpack("Q<", substr($buffer, 120, 8));
             my $microseconds = unpack("Q<", substr($buffer, 128, 8));
+            alarm(0) if $deadline_active;
             exit 1 if $observed_pid != $pid || $group == 0 ||
               $seconds == 0 || $microseconds >= 1_000_000 || $status == 5;
             print "$parent|$group|$status|K_${seconds}_${microseconds}\n";
-          ' "$1"
+          ' "$1" "${2:-}"
         }
 
         cmux_ssh_auth_identity() {
-          cmux_ssh_auth_kernel_record=$(cmux_ssh_auth_kernel_process_identity "$1") || return 1
+          cmux_ssh_auth_kernel_record=$(cmux_ssh_auth_kernel_process_identity \
+            "$1" "${2:-}") || return $?
           cmux_ssh_auth_kernel_parent=${cmux_ssh_auth_kernel_record%%|*}
           cmux_ssh_auth_kernel_remainder=${cmux_ssh_auth_kernel_record#*|}
           cmux_ssh_auth_kernel_group=${cmux_ssh_auth_kernel_remainder%%|*}
@@ -204,7 +216,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         }
 
         cmux_ssh_auth_stable_identity() {
-          cmux_ssh_auth_full_identity=$(cmux_ssh_auth_identity "$1")
+          cmux_ssh_auth_full_identity=$(cmux_ssh_auth_identity \
+            "$1" "${2:-}") || return $?
           cmux_ssh_auth_stable_remainder=${cmux_ssh_auth_full_identity#*|}
           if [ "$cmux_ssh_auth_stable_remainder" = \
             "$cmux_ssh_auth_full_identity" ]; then return 1; fi
@@ -358,7 +371,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "$cmux_ssh_auth_cleanup_group_dir/cleanup.owner.new"; do
             if [ -s "$cmux_ssh_auth_cleanup_record_file" ]; then break; fi
           done
-          if [ ! -s "$cmux_ssh_auth_cleanup_record_file" ]; then return 1; fi
+          if [ ! -s "$cmux_ssh_auth_cleanup_record_file" ]; then return 0; fi
           cmux_ssh_auth_parse_recorded_process "$cmux_ssh_auth_cleanup_record_file" || return 1
           [ "$(cmux_ssh_auth_stable_identity "$CMUX_SSH_AUTH_RECORDED_PID")" != \
             "$CMUX_SSH_AUTH_RECORDED_STABLE_IDENTITY" ]
@@ -1251,10 +1264,14 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         cmux_ssh_schedule_failed_auth_group_recovery() {
           if ! command -v cmux_ssh_resume_failed_auth_group_reapers \
             >/dev/null 2>&1; then return 0; fi
+          case "${CMUX_SSH_AUTH_RECOVERY_BACKOFF_SECONDS:-}" in
+            1|2|4|8|16|32|60) ;;
+            *) CMUX_SSH_AUTH_RECOVERY_BACKOFF_SECONDS=1 ;;
+          esac
 
           # Claim one per-user recovery worker before forking. A live worker
-          # coalesces duplicate schedule requests; the pending marker preserves
-          # a wake-up when another queue segment arrives during its bounded pass.
+          # coalesces duplicate schedule requests. The durable queue preserves
+          # work that remains after each bounded pass.
           cmux_ssh_auth_recovery_lock || return 0
           cmux_ssh_auth_recovery_sweep_lock="$cmux_ssh_auth_recovery_root/sweep.lock"
           if [ -L "$cmux_ssh_auth_recovery_sweep_lock" ]; then
@@ -1359,12 +1376,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 cmux_ssh_auth_reaper_owner_matches_generation \
                   "$cmux_ssh_auth_recovery_sweep_lock" \
                   "$cmux_ssh_auth_recovery_sweep_generation"; then
-                cmux_ssh_auth_recovery_sweep_pending=$(/bin/cat -- \
-                  "$cmux_ssh_auth_recovery_sweep_lock/pending" \
-                  2>/dev/null || true)
-                if [ "$cmux_ssh_auth_recovery_sweep_pending" = \
-                    "$cmux_ssh_auth_recovery_sweep_generation" ] && \
-                  cmux_ssh_auth_recovery_queue_has_work_locked; then
+                if cmux_ssh_auth_recovery_queue_has_work_locked; then
                   cmux_ssh_auth_recovery_sweep_reschedule=1
                 fi
                 /bin/rm -f -- "$cmux_ssh_auth_recovery_sweep_lock/owner" \
@@ -1382,9 +1394,19 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             fi
             trap - EXIT HUP INT TERM
             if [ "$cmux_ssh_auth_recovery_sweep_reschedule" = 1 ]; then
+              cmux_ssh_auth_recovery_backoff=\
+                "$CMUX_SSH_AUTH_RECOVERY_BACKOFF_SECONDS"
+              /bin/sleep "$cmux_ssh_auth_recovery_backoff"
+              cmux_ssh_auth_recovery_next_backoff=\
+                $((cmux_ssh_auth_recovery_backoff * 2))
+              if [ "$cmux_ssh_auth_recovery_next_backoff" -gt 60 ]; then
+                cmux_ssh_auth_recovery_next_backoff=60
+              fi
+              CMUX_SSH_AUTH_RECOVERY_BACKOFF_SECONDS=\
+                "$cmux_ssh_auth_recovery_next_backoff"
               cmux_ssh_schedule_failed_auth_group_recovery
             fi
-          ) &
+          ) </dev/null >/dev/null 2>&1 &
           cmux_ssh_auth_recovery_sweep_pid=$!
           cmux_ssh_auth_recovery_sweep_identity=$(cmux_ssh_auth_stable_identity \
             "$cmux_ssh_auth_recovery_sweep_pid")
@@ -1483,8 +1505,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               "$cmux_ssh_auth_recovery_group_dir"; then
               /bin/rm -f -- "$cmux_ssh_auth_recovery_group_dir/orphaned" \
                 "$cmux_ssh_auth_recovery_group_dir/orphaned.new" 2>/dev/null || true
-              printf '%s\n' "$cmux_ssh_auth_recovery_group_dir" \
-                >> "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.retry"
+              # A live publisher owns its exit cleanup. It enqueues and schedules
+              # recovery if cleanup fails, so polling here would duplicate work.
               continue
             fi
             if cmux_ssh_auth_group_anchor_is_live \
