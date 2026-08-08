@@ -76,6 +76,7 @@ export default function CmuxHistoryBlogPage() {
         src="/blog/cmux-history.mp4"
         width={1280}
         height={990}
+        aria-label={t("title")}
         autoPlay
         loop
         muted

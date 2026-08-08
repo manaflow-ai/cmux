@@ -1,0 +1,132 @@
+name: React Doctor Web
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "web/**"
+      - ".github/workflows/react-doctor-web.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - ".github/workflows/react-doctor-web.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  react-doctor-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22.22.2
+          package-manager-cache: false
+
+      - name: Run React Doctor full web scan
+        id: react-doctor
+        shell: bash
+        run: |
+          set -euo pipefail
+          report_file="$RUNNER_TEMP/react-doctor-web-report.json"
+          echo "report-file=$report_file" >> "$GITHUB_OUTPUT"
+          npm exec --yes --package react-doctor@0.9.4 -- \
+            react-doctor web \
+            --scope full \
+            --no-cache \
+            --json \
+            --json-compact \
+            --no-score \
+            --fail-on none \
+            > "$report_file"
+
+      - name: Require an accessible web scan
+        if: always()
+        shell: bash
+        env:
+          REPORT_FILE: ${{ steps.react-doctor.outputs.report-file }}
+        run: |
+          set -euo pipefail
+          if [ -z "${REPORT_FILE:-}" ] || [ ! -f "$REPORT_FILE" ]; then
+            echo "React Doctor report was not generated." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          node <<'NODE'
+          const fs = require("fs");
+
+          const report = JSON.parse(fs.readFileSync(process.env.REPORT_FILE, "utf8"));
+          const diagnostics =
+            report.diagnostics ??
+            report.projects?.flatMap((project) => project.diagnostics ?? []) ??
+            [];
+          const accessibilityDiagnostics = diagnostics.filter(
+            (diagnostic) => diagnostic.category === "Accessibility",
+          );
+          const counts = new Map();
+          for (const diagnostic of accessibilityDiagnostics) {
+            counts.set(diagnostic.rule, (counts.get(diagnostic.rule) ?? 0) + 1);
+          }
+          const ruleRows = [...counts.entries()]
+            .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+            .map(([rule, count]) => `| ${rule} | ${count} |`)
+            .join("\n");
+          const summary = [
+            "# React Doctor Web",
+            "",
+            `- Version: ${report.version ?? "(unknown)"}`,
+            `- Errors: ${report.summary?.errorCount ?? 0}`,
+            `- Warnings: ${report.summary?.warningCount ?? 0}`,
+            `- Accessibility diagnostics: ${accessibilityDiagnostics.length}`,
+            "",
+            "## Accessibility rules",
+            "",
+            "| Rule | Count |",
+            "| --- | ---: |",
+            ruleRows || "| (none) | 0 |",
+            "",
+          ].join("\n");
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+
+          const escapeData = (value) =>
+            String(value).replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
+          for (const diagnostic of accessibilityDiagnostics) {
+            const properties = [
+              diagnostic.filePath ? `file=web/${diagnostic.filePath}` : null,
+              diagnostic.line ? `line=${diagnostic.line}` : null,
+              diagnostic.column ? `col=${diagnostic.column}` : null,
+            ].filter(Boolean).join(",");
+            console.error(
+              `::error ${properties}::${escapeData(`[${diagnostic.rule}] ${diagnostic.message}`)}`,
+            );
+          }
+
+          if (accessibilityDiagnostics.length > 0) {
+            console.error(
+              `React Doctor found ${accessibilityDiagnostics.length} accessibility diagnostic(s).`,
+            );
+            process.exit(1);
+          }
+
+          console.log("React Doctor found 0 accessibility diagnostics.");
+          NODE
+
+      - name: Upload React Doctor report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: react-doctor-web-report
+          path: ${{ steps.react-doctor.outputs.report-file }}
+          if-no-files-found: error

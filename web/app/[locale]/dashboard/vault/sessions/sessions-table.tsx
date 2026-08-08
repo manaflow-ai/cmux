@@ -43,7 +43,8 @@ export function SessionsTable({
   const [relativeNowIso, refreshRelativeNow] = useRelativeNow(initialNowIso);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
-  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
+  const [scrollElement, setScrollElement] =
+    useState<HTMLTableSectionElement | null>(null);
   const loadingRef = useRef(false);
   const requestIdRef = useRef(0);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -200,46 +201,69 @@ export function SessionsTable({
         </label>
       </div>
 
-      <div className="overflow-hidden border border-border">
-        <div
-          role="row"
-          className="grid min-w-[1040px] grid-cols-[92px_180px_minmax(260px,1fr)_112px_132px_112px_152px_152px] border-b border-border px-3 py-2 text-xs font-medium text-muted"
-        >
-          <div role="columnheader">{t("agent")}</div>
-          <div role="columnheader">{t("session")}</div>
-          <div role="columnheader">{t("cwd")}</div>
-          <div role="columnheader">{t("rawSize")}</div>
-          <div role="columnheader">{t("compressedSize")}</div>
-          <div role="columnheader">{t("snapshots")}</div>
-          <div role="columnheader">{t("firstUploaded")}</div>
-          <div role="columnheader">{t("lastUploaded")}</div>
-        </div>
-        <div
-          ref={setScrollElement}
-          onScroll={maybeLoadMore}
-          role="table"
+      <div className="overflow-x-auto border border-border">
+        <table
           aria-label={t("tableLabel")}
-          className="h-[calc(100vh-20rem)] min-h-[360px] overflow-auto"
+          className="block w-full min-w-[1216px]"
         >
-          <div
-            className="relative min-w-[1040px]"
-            style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+          <thead className="block">
+            <tr className="grid w-full grid-cols-[92px_180px_minmax(260px,1fr)_112px_132px_112px_152px_152px] border-b border-border px-3 py-2 text-xs font-medium text-muted">
+              <th scope="col" className="text-left font-medium">
+                {t("agent")}
+              </th>
+              <th scope="col" className="text-left font-medium">
+                {t("session")}
+              </th>
+              <th scope="col" className="text-left font-medium">
+                {t("cwd")}
+              </th>
+              <th scope="col" className="text-left font-medium">
+                {t("rawSize")}
+              </th>
+              <th scope="col" className="text-left font-medium">
+                {t("compressedSize")}
+              </th>
+              <th scope="col" className="text-left font-medium">
+                {t("snapshots")}
+              </th>
+              <th scope="col" className="text-left font-medium">
+                {t("firstUploaded")}
+              </th>
+              <th scope="col" className="text-left font-medium">
+                {t("lastUploaded")}
+              </th>
+            </tr>
+          </thead>
+          <tbody
+            ref={setScrollElement}
+            onScroll={maybeLoadMore}
+            className="relative block h-[calc(100vh-20rem)] min-h-[360px] overflow-x-hidden overflow-y-auto"
           >
+            {/* This invisible row supplies the virtual scroll height; the
+                rendered session rows below retain native table semantics. */}
+            <tr
+              aria-hidden="true"
+              className="invisible block w-full"
+              style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+            >
+              <td className="block p-0" />
+            </tr>
             {virtualItems.map((virtualRow) => {
               const row = rows[virtualRow.index];
               if (!row) {
                 return (
-                  <div
+                  <tr
                     key="status"
-                    role="row"
-                    className="absolute left-0 top-0 flex w-full items-center px-3 text-muted"
+                    className="absolute left-0 top-0 flex w-full items-center text-muted"
                     style={{
                       height: `${virtualRow.size}px`,
                       transform: `translateY(${virtualRow.start}px)`,
                     }}
                   >
-                    {status}
-                  </div>
+                    <td colSpan={8} className="w-full px-3">
+                      {status}
+                    </td>
+                  </tr>
                 );
               }
               return (
@@ -259,8 +283,8 @@ export function SessionsTable({
                 />
               );
             })}
-          </div>
-        </div>
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -300,44 +324,32 @@ function SessionRow({
   readonly onNavigate: () => void;
   readonly style: React.CSSProperties;
 }) {
-  const router = useRouter();
   const [copied, setCopied] = useState(false);
   const cwd = row.cwd || unknownCwd;
   const basename = pathBasename(row.cwd) || unknownCwd;
-  const openSession = () => {
-    onNavigate();
-    router.push(`/dashboard/vault/sessions/${row.id}`);
-  };
 
   return (
-    <div
-      role="row"
-      // The row cannot be an anchor because it contains a nested copy button,
-      // so give it explicit keyboard semantics instead.
-      tabIndex={0}
-      onClick={openSession}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        openSession();
-      }}
-      className="group absolute left-0 top-0 grid w-full cursor-pointer grid-cols-[92px_180px_minmax(260px,1fr)_112px_132px_112px_152px_152px] items-center border-b border-border px-3 text-xs focus-visible:outline focus-visible:-outline-offset-1 focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
+    <tr
+      className="group absolute left-0 top-0 grid w-full grid-cols-[92px_180px_minmax(260px,1fr)_112px_132px_112px_152px_152px] items-center border-b border-border px-3 text-xs hover:bg-foreground hover:text-background"
       style={style}
     >
-      <div role="cell">
+      <td>
         <span className="border border-border px-2 py-1 font-mono text-xs font-medium">
           {row.agent}
         </span>
-      </div>
-      <div role="cell" className="flex min-w-0 items-center gap-2">
-        <span className="truncate font-mono text-xs" title={row.agentSessionId}>
+      </td>
+      <td className="flex min-w-0 items-center gap-2">
+        <Link
+          href={`/dashboard/vault/sessions/${row.id}`}
+          onClick={onNavigate}
+          className="truncate font-mono text-xs focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:underline"
+          title={row.agentSessionId}
+        >
           {truncateMiddle(row.agentSessionId, 18)}
-        </span>
+        </Link>
         <button
           type="button"
-          onClick={(event) => {
-            event.stopPropagation();
+          onClick={() => {
             void navigator.clipboard.writeText(row.agentSessionId);
             setCopied(true);
           }}
@@ -347,38 +359,36 @@ function SessionRow({
         >
           {copied ? copiedLabel : copyLabel}
         </button>
-      </div>
-      <div role="cell" className="min-w-0 pr-5">
+      </td>
+      <td className="min-w-0 pr-5">
         <div className="truncate font-mono text-xs" title={cwd}>
           {basename}
         </div>
         <div className="truncate font-mono text-xs text-muted group-hover:text-background" title={cwd}>
           {truncateMiddle(cwd, 72)}
         </div>
-      </div>
-      <div role="cell" className="font-mono text-xs tabular-nums">
+      </td>
+      <td className="font-mono text-xs tabular-nums">
         {formatBytes(row.sizeBytes, locale)}
-      </div>
-      <div role="cell" className="font-mono text-xs tabular-nums">
+      </td>
+      <td className="font-mono text-xs tabular-nums">
         {formatBytes(row.compressedSizeBytes, locale)}
-      </div>
-      <div role="cell" className="font-mono text-xs tabular-nums">
+      </td>
+      <td className="font-mono text-xs tabular-nums">
         {row.snapshotCount.toLocaleString(locale)}
-      </div>
-      <div
-        role="cell"
+      </td>
+      <td
         className="font-mono text-xs text-muted group-hover:text-background"
         title={formatDate(row.firstUploadedAt, locale)}
       >
         {formatDate(row.firstUploadedAt, locale)}
-      </div>
-      <div
-        role="cell"
+      </td>
+      <td
         className="font-mono text-xs text-muted group-hover:text-background"
         title={formatDate(row.lastUploadedAt, locale)}
       >
         {formatRelativeTime(row.lastUploadedAt, locale, now)}
-      </div>
-    </div>
+      </td>
+    </tr>
   );
 }

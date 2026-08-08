@@ -61,6 +61,7 @@ export default function PasskeyAuthPage() {
         src="/blog/passkey-browser-import.mp4"
         width={1280}
         height={988}
+        aria-label={t("title")}
         autoPlay
         loop
         muted

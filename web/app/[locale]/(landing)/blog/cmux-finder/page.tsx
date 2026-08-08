@@ -58,6 +58,7 @@ export default function CmuxFinderPage() {
         src="/blog/cmux-finder.mp4"
         width={1280}
         height={736}
+        aria-label={t("title")}
         autoPlay
         loop
         muted
