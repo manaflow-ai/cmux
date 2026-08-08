@@ -50,6 +50,17 @@ if [[ "$mode" == "focused" && ! "$test_filter" =~ ^[A-Za-z0-9_][A-Za-z0-9_:.-]{0
   exit 2
 fi
 
+timeout_seconds="${CMUX_TUI_HOSTED_TIMEOUT_SECONDS:-7200}"
+if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
+  echo "error: CMUX_TUI_HOSTED_TIMEOUT_SECONDS must be a positive integer" >&2
+  exit 2
+fi
+poll_seconds="${CMUX_TUI_HOSTED_POLL_SECONDS:-30}"
+if [[ ! "$poll_seconds" =~ ^[1-9][0-9]*$ ]]; then
+  echo "error: CMUX_TUI_HOSTED_POLL_SECONDS must be a positive integer" >&2
+  exit 2
+fi
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(git -C "$script_dir" rev-parse --show-toplevel)"
 cd "$repo_root"
@@ -120,17 +131,6 @@ fi
 
 run_url="https://github.com/$REPO/actions/runs/$run_id"
 echo "Run: $run_url"
-timeout_seconds="${CMUX_TUI_HOSTED_TIMEOUT_SECONDS:-7200}"
-if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
-  echo "error: CMUX_TUI_HOSTED_TIMEOUT_SECONDS must be a positive integer" >&2
-  exit 2
-fi
-poll_seconds="${CMUX_TUI_HOSTED_POLL_SECONDS:-30}"
-if [[ ! "$poll_seconds" =~ ^[1-9][0-9]*$ ]]; then
-  echo "error: CMUX_TUI_HOSTED_POLL_SECONDS must be a positive integer" >&2
-  exit 2
-fi
-
 deadline=$((SECONDS + timeout_seconds))
 last_report=$SECONDS
 run_status=""
