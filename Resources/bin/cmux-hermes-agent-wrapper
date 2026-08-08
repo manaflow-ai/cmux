@@ -3,9 +3,9 @@
 #
 # A per-surface `hermes` shim routes here. Interactive launches idempotently
 # install cmux's lifecycle hooks and first-use consent approvals, then exec the
-# real Hermes binary unchanged. A private TMPDIR watcher also bridges the TUI's
-# authoritative active-session file because its fresh Python gateway process
-# cannot inherit the launcher's process-local hook registry.
+# real Hermes binary unchanged. A private TMPDIR watcher bridges the TUI's
+# authoritative active-session file, while a scoped Python bootstrap registers
+# turn hooks inside the fresh gateway processes that own the actual agent work.
 #
 # Deliberately no `set -e`/`set -u`: hook setup is best-effort and must never
 # prevent the user's Hermes executable from starting.
@@ -235,6 +235,8 @@ cleanup_hermes_tui_watcher_directory() {
         /bin/rm -f -- "$file" 2>/dev/null || true
     done
     /bin/rm -f -- "$directory/.cmux-hermes-tui-event.plist" 2>/dev/null || true
+    /bin/rm -f -- "$directory/sitecustomize.py" 2>/dev/null || true
+    /bin/rm -f -- "$directory"/.cmux-hermes-sitecustomize.* 2>/dev/null || true
     /bin/rmdir "$directory" 2>/dev/null || true
 }
 
@@ -357,6 +359,29 @@ should_watch_hermes_tui() {
     [[ -t 0 && -t 1 ]]
 }
 
+configure_hermes_tui_python_bridge() {
+    local self_dir python_wrapper sitecustomize configured resolved
+    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 0
+    python_wrapper="$self_dir/cmux-hermes-python-wrapper"
+    sitecustomize="$self_dir/cmux-hermes-sitecustomize.py"
+    [[ -f "$python_wrapper" && -x "$python_wrapper" && ! -L "$python_wrapper" &&
+       -f "$sitecustomize" && ! -L "$sitecustomize" ]] || return 0
+
+    unset CMUX_HERMES_TUI_REAL_PYTHON
+    configured="${HERMES_PYTHON:-}"
+    if [[ -n "$configured" ]]; then
+        resolved="$configured"
+        if [[ "$resolved" != */* ]]; then
+            resolved="$(command -v "$resolved" 2>/dev/null || true)"
+        fi
+        if [[ -n "$resolved" && -f "$resolved" && -x "$resolved" ]] &&
+           ! [[ "$resolved" -ef "$python_wrapper" ]]; then
+            export CMUX_HERMES_TUI_REAL_PYTHON="$resolved"
+        fi
+    fi
+    export HERMES_PYTHON="$python_wrapper"
+}
+
 start_hermes_tui_watcher() {
     local cli="$1"
     local temp_root watcher_directory watcher_pid
@@ -393,6 +418,8 @@ start_hermes_tui_watcher() {
         else
             unset TMPDIR
         fi
+    else
+        configure_hermes_tui_python_bridge
     fi
 }
 
