@@ -61,6 +61,7 @@ struct SidebarWorkspaceRowRetirementTests {
         )
 
         await removeMountedRow(mounted)
+        await waitUntilOrderedOff(popoverWindow)
 
         #expect(!popoverWindow.isVisible)
     }
@@ -85,6 +86,7 @@ struct SidebarWorkspaceRowRetirementTests {
         )
 
         await removeMountedRow(mounted)
+        await waitUntilOrderedOff(popoverWindow)
 
         #expect(!popoverWindow.isVisible)
     }
@@ -129,8 +131,12 @@ struct SidebarWorkspaceRowRetirementTests {
         mounted.container.layoutSubtreeIfNeeded()
         mounted.container.tableView.layoutSubtreeIfNeeded()
 
-        var reconfigurations = 0
-        mounted.controller.reconfigurationProbe = { reconfigurations += 1 }
+        let replacementCell = try #require(
+            mounted.container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
+                as? SidebarWorkspaceRowTableCellView
+        )
+        var applies = 0
+        replacementCell.applyModelProbeForTesting = { _ in applies += 1 }
         let rowRect = mounted.container.tableView.rect(ofRow: 0)
         let windowPoint = mounted.container.tableView.convert(
             NSPoint(x: rowRect.midX, y: rowRect.midY),
@@ -138,7 +144,7 @@ struct SidebarWorkspaceRowRetirementTests {
         )
         mounted.container.tableView.setPointerWindowLocation(windowPoint)
 
-        #expect(reconfigurations > 0, "A retired menu must not suppress hover on replacement rows.")
+        #expect(applies > 0, "A retired menu must not suppress hover on replacement rows.")
     }
 
     private func mount(
@@ -214,6 +220,16 @@ struct SidebarWorkspaceRowRetirementTests {
         )
         await flushStagedTableMutations()
         mounted.container.tableView.layoutSubtreeIfNeeded()
+    }
+
+    private func waitUntilOrderedOff(_ window: NSWindow) async {
+        guard window.isVisible else { return }
+        for await _ in NotificationCenter.default.notifications(
+            named: NSWindow.didOrderOffNotification,
+            object: window
+        ) {
+            return
+        }
     }
 
     private func makeTableActions() -> SidebarWorkspaceTableActions {
