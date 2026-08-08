@@ -873,6 +873,7 @@ pub enum AgentState {
     Blocked,
     Idle,
     Done,
+    Interrupted,
     Unknown,
 }
 
@@ -883,6 +884,7 @@ impl AgentState {
             AgentState::Blocked => "blocked",
             AgentState::Idle => "idle",
             AgentState::Done => "done",
+            AgentState::Interrupted => "interrupted",
             AgentState::Unknown => "unknown",
         }
     }

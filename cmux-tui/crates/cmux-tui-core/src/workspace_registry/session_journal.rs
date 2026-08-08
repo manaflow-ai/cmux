@@ -592,7 +592,7 @@ pub(super) fn append_resource_journal_record(
     patch: Option<&ResourcePatch>,
     result: &Value,
     changes: &Value,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<u64> {
     append_resource_journal_record_at(
         transaction,
         revision,
@@ -706,7 +706,7 @@ fn append_resource_journal_record_at(
     result: &Value,
     changes: &Value,
     occurred_at_ms: u64,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<u64> {
     validate_identifier("journal operation", operation)?;
     let kind = semantic_journal_kind(operation);
     let session_id = transaction.query_row(
@@ -750,8 +750,7 @@ fn append_resource_journal_record_at(
             resource_revision: Some(revision),
             previous_resource_revision: Some(previous_revision),
         },
-    )?;
-    Ok(())
+    )
 }
 
 pub(super) fn append_journal_record(

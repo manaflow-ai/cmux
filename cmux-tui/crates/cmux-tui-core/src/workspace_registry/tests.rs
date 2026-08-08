@@ -4092,6 +4092,105 @@ fn terminal_journal_persists_exact_output_and_geometry_in_order() {
 }
 
 #[test]
+fn agent_projection_is_derived_from_pi_journal_and_reopen_preserves_continuity() {
+    let root = temp_root("agent-pi-journal-projection");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let original_agent_projection_json = {
+        let mut registry = WorkspaceRegistry::open(&root, "agent-pi-journal-projection").unwrap();
+        commit_terminal_topology(&mut registry, "agent-pi-journal-projection-seed");
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            Some(terminal_id.as_str()),
+            json!({
+                "context":{"session_id":"pi-real-session-1","cwd":"/tmp/project"},
+                "event":{"agent":{"id":"pi-worker-1"}}
+            }),
+        )
+        .unwrap();
+        let validated = crate::journal_kernel::ValidatedJournalIngress {
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Advisory,
+            sensitivity: JournalSensitivity::Sensitive,
+        };
+        let commit = registry
+            .append_journal_ingress(&ingress, &validated, "client_test", "pi_agent_start")
+            .unwrap();
+        assert!(!commit.replayed);
+
+        let agents = registry.public_projections().unwrap().agents;
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].terminal_id, terminal_id);
+        assert_eq!(agents[0].state, "working");
+        assert_eq!(agents[0].source, "hook");
+        assert_eq!(agents[0].source_session.as_deref(), Some("pi-real-session-1"));
+        assert_eq!(registry.resource_agent_projection_count_for_test().unwrap(), 1);
+        let projection_json = registry
+            .connection
+            .query_row(
+                "SELECT result_json FROM resource_agent_projections WHERE terminal_id = ?1",
+                [terminal_id.as_str()],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+
+        registry.connection.execute("DELETE FROM resource_agent_projections", []).unwrap();
+        assert!(
+            registry.public_projections().unwrap().agents.is_empty(),
+            "test must prove the projection can be rebuilt from the journal"
+        );
+        projection_json
+    };
+
+    let reopened = WorkspaceRegistry::open(&root, "agent-pi-journal-projection").unwrap();
+    let rebuilt = reopened.public_projections().unwrap().agents;
+    assert_eq!(rebuilt.len(), 1);
+    assert_eq!(rebuilt[0].terminal_id, terminal_id);
+    assert_eq!(rebuilt[0].state, "working");
+    assert_eq!(rebuilt[0].source, "hook");
+    assert_eq!(rebuilt[0].source_session.as_deref(), Some("pi-real-session-1"));
+    let rebuilt_agent_projection_json = reopened
+        .connection
+        .query_row(
+            "SELECT result_json FROM resource_agent_projections WHERE terminal_id = ?1",
+            [terminal_id.as_str()],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    assert_eq!(
+        rebuilt_agent_projection_json, original_agent_projection_json,
+        "AgentProjection rebuild must be byte-for-byte deterministic"
+    );
+    let interrupted = reopened
+        .session_journal_after(0, 1024)
+        .unwrap()
+        .records
+        .into_iter()
+        .filter(|record| record.kind == "agent.session.interrupted")
+        .collect::<Vec<_>>();
+    assert!(
+        interrupted.is_empty(),
+        "registry reopen must not classify interruption without durable host-death evidence"
+    );
+    drop(reopened);
+
+    let reopened_again = WorkspaceRegistry::open(&root, "agent-pi-journal-projection").unwrap();
+    let interrupted_again = reopened_again
+        .session_journal_after(0, 1024)
+        .unwrap()
+        .records
+        .into_iter()
+        .filter(|record| record.kind == "agent.session.interrupted")
+        .count();
+    assert_eq!(
+        interrupted_again, 0,
+        "duplicate reopen must not invent or duplicate interruption records"
+    );
+    drop(reopened_again);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 #[ignore = "manual release-mode journal writer throughput probe"]
 fn terminal_journal_writer_throughput_probe() {
     const BATCH_SIZE: usize = 1_024;

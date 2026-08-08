@@ -27,6 +27,7 @@ use crate::resource::{
     WorkspacePublicId,
 };
 
+mod agent_projection_store;
 mod effect_store;
 mod journal_extensions;
 mod public_projection_store;
@@ -34,6 +35,7 @@ mod resource_store;
 mod session_journal;
 mod terminal_exit_store;
 
+use agent_projection_store::rebuild_agent_projections_from_journal;
 pub(crate) use effect_store::ResourceWorkspaceClose;
 pub use effect_store::{
     ResourceCreationPreparation, ResourceCreationRecovery, ResourceEffectOutcome,
@@ -752,6 +754,7 @@ impl WorkspaceRegistry {
             initialize_resource_mutation_retention(&tx)?;
             tx.commit()?;
         }
+        rebuild_agent_projections_from_journal(&connection)?;
         let stored_name = required_meta(&connection, "session_name")?;
         if stored_name != session_name {
             anyhow::bail!(

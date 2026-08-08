@@ -1,3 +1,4 @@
+use super::agent_projection_store::apply_agent_projection_journal_record;
 use super::*;
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
@@ -467,15 +468,6 @@ impl WorkspaceRegistry {
         let sqlite_revision =
             i64::try_from(revision).context("resource revision exceeds SQLite range")?;
         tx.execute(
-            "INSERT INTO resource_agent_projections(
-               terminal_id, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3)
-             ON CONFLICT(terminal_id) DO UPDATE SET
-               result_json = excluded.result_json,
-               committed_revision = excluded.committed_revision",
-            params![terminal_id.as_str(), result_json, sqlite_revision],
-        )?;
-        tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
         )?;
@@ -492,7 +484,7 @@ impl WorkspaceRegistry {
                 sqlite_revision,
             ],
         )?;
-        append_resource_journal_record(
+        let sequence = append_resource_journal_record(
             &tx,
             revision,
             previous_revision,
@@ -502,6 +494,22 @@ impl WorkspaceRegistry {
             None,
             result,
             deltas,
+        )?;
+        let producer =
+            JournalProducer { kind: "resource_operation".into(), id: mutation.origin.clone() };
+        let payload = serde_json::json!({
+            "idempotency_key": mutation.id,
+            "result": result,
+            "changes": deltas,
+        });
+        apply_agent_projection_journal_record(
+            &tx,
+            sequence,
+            OPERATION,
+            unix_epoch_ms()?,
+            &producer,
+            &[],
+            &payload,
         )?;
         prune_resource_mutations(&tx)?;
         tx.commit()?;

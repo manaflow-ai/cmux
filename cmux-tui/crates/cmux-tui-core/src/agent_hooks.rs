@@ -10,9 +10,12 @@ use crate::{
 pub const AGENT_HOOK_PRODUCER_ID: &str = "cmux_agent";
 pub const AGENT_HOOK_MANIFEST_VERSION: u32 = 1;
 const AGENT_HOOK_FORMAT: &str = "cmux.agent-hook.v1";
+const AGENT_CANONICAL_NATIVE_FORMAT: &str = "cmux.agent-native.canonical.v1";
 const MAX_AGENT_SOURCE_BYTES: usize = 64;
 const MAX_NATIVE_EVENT_BYTES: usize = 128;
 const NORMALIZED_TEXT_BYTES: usize = 8 * 1024;
+const MAX_OPAQUE_IDENTIFIER_BYTES: usize = 512;
+const MAX_LABEL_BYTES: usize = 128;
 
 const AGENT_EVENT_KINDS: [&str; 12] = [
     "agent.session.started",
@@ -41,6 +44,7 @@ pub fn agent_hook_journal_ingress(
     let mut normalized = normalized_fields(&native);
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
     let kind = semantic_kind(source, native_event, &normalized);
+    let native = canonical_native_payload(source, native_event, &normalized);
     let mut subjects = Vec::with_capacity(4);
     if let Some(terminal_id) = terminal_id {
         subjects.push(JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() });
@@ -96,7 +100,65 @@ pub(crate) fn built_in_agent_producer_manifest() -> JournalProducerManifest {
             },
             "native_event":{"type":"string","minLength":1,"maxLength":MAX_NATIVE_EVENT_BYTES},
             "normalized":{"type":"object"},
-            "native":{}
+            "native":{
+                "type":"object",
+                "required":["format","provider","native_event","identifiers","checkpoint","topology","lifecycle"],
+                "properties":{
+                    "format":{"const":AGENT_CANONICAL_NATIVE_FORMAT},
+                    "provider":{
+                        "type":"string",
+                        "minLength":1,
+                        "maxLength":MAX_AGENT_SOURCE_BYTES,
+                        "pattern":"^[a-z0-9_-]+$"
+                    },
+                    "native_event":{"type":"string","minLength":1,"maxLength":MAX_NATIVE_EVENT_BYTES},
+                    "identifiers":{
+                        "type":"object",
+                        "properties":{
+                            "agent_session_id":{"type":"string"},
+                            "turn_id":{"type":"string"},
+                            "tool_use_id":{"type":"string"},
+                            "native_agent_id":{"type":"string"},
+                            "native_child_agent_id":{"type":"string"},
+                            "native_parent_agent_id":{"type":"string"},
+                            "native_root_agent_id":{"type":"string"},
+                            "root_agent_session_id":{"type":"string"},
+                            "parent_agent_session_id":{"type":"string"}
+                        },
+                        "additionalProperties":false
+                    },
+                    "checkpoint":{
+                        "type":"object",
+                        "properties":{
+                            "cwd":{"type":"string"},
+                            "transcript_path":{"type":"string"}
+                        },
+                        "additionalProperties":false
+                    },
+                    "topology":{
+                        "type":"object",
+                        "properties":{
+                            "agent_tree_id":{"type":"string"},
+                            "agent_node_id":{"type":"string"},
+                            "parent_agent_node_id":{"type":"string"},
+                            "agent_relation":{"type":"string"},
+                            "agent_identity_quality":{"type":"string"}
+                        },
+                        "additionalProperties":false
+                    },
+                    "lifecycle":{
+                        "type":"object",
+                        "properties":{
+                            "tool_name":{"type":"string"},
+                            "agent_name":{"type":"string"},
+                            "agent_type":{"type":"string"},
+                            "agent_depth":{"type":"integer","minimum":0}
+                        },
+                        "additionalProperties":false
+                    }
+                },
+                "additionalProperties":false
+            }
         },
         "additionalProperties":false
     });
@@ -483,9 +545,10 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
             ][..],
         ),
     ] {
-        if let Some(value) = first_string_at(native, paths) {
-            normalized
-                .insert(field.into(), Value::String(truncate_utf8(value, NORMALIZED_TEXT_BYTES)));
+        if let Some(value) = first_string_at(native, paths)
+            && let Some(value) = normalized_provider_string(field, value)
+        {
+            normalized.insert(field.into(), Value::String(value));
         }
     }
     if let Some(depth) = first_value_at(
@@ -505,6 +568,106 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
         normalized.insert("agent_depth".into(), Value::from(depth));
     }
     normalized
+}
+
+fn normalized_provider_string(field: &str, value: &str) -> Option<String> {
+    match field {
+        "message" => None,
+        "agent_session_id"
+        | "turn_id"
+        | "tool_use_id"
+        | "native_agent_id"
+        | "native_child_agent_id"
+        | "native_parent_agent_id"
+        | "native_root_agent_id"
+        | "root_agent_session_id"
+        | "parent_agent_session_id" => {
+            let value = truncate_utf8(value, MAX_OPAQUE_IDENTIFIER_BYTES);
+            safe_opaque_identifier(&value).then_some(value)
+        }
+        "cwd" | "transcript_path" => {
+            let value = truncate_utf8(value, NORMALIZED_TEXT_BYTES);
+            safe_checkpoint_path(&value).then_some(value)
+        }
+        "tool_name" | "agent_name" | "agent_type" => {
+            let value = truncate_utf8(value, MAX_LABEL_BYTES);
+            safe_label(&value).then_some(value)
+        }
+        _ => None,
+    }
+}
+
+fn safe_opaque_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_OPAQUE_IDENTIFIER_BYTES
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+}
+
+fn safe_checkpoint_path(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= NORMALIZED_TEXT_BYTES
+        && !value.contains("://")
+        && !value.chars().any(char::is_control)
+}
+
+fn safe_label(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_LABEL_BYTES
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+}
+
+fn canonical_native_payload(
+    source: &str,
+    native_event: &str,
+    normalized: &Map<String, Value>,
+) -> Value {
+    json!({
+        "format":AGENT_CANONICAL_NATIVE_FORMAT,
+        "provider":source,
+        "native_event":native_event,
+        "identifiers":canonical_field_group(normalized, &[
+            "agent_session_id",
+            "turn_id",
+            "tool_use_id",
+            "native_agent_id",
+            "native_child_agent_id",
+            "native_parent_agent_id",
+            "native_root_agent_id",
+            "root_agent_session_id",
+            "parent_agent_session_id",
+        ]),
+        "checkpoint":canonical_field_group(normalized, &[
+            "cwd",
+            "transcript_path",
+        ]),
+        "topology":canonical_field_group(normalized, &[
+            "agent_tree_id",
+            "agent_node_id",
+            "parent_agent_node_id",
+            "agent_relation",
+            "agent_identity_quality",
+        ]),
+        "lifecycle":canonical_field_group(normalized, &[
+            "tool_name",
+            "agent_name",
+            "agent_type",
+            "agent_depth",
+        ]),
+    })
+}
+
+fn canonical_field_group(normalized: &Map<String, Value>, fields: &[&str]) -> Value {
+    let mut group = Map::new();
+    for field in fields {
+        if let Some(value) = normalized.get(*field) {
+            group.insert((*field).into(), value.clone());
+        }
+    }
+    Value::Object(group)
 }
 
 fn add_agent_topology(
@@ -692,7 +855,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn completion_hooks_share_one_semantic_kind_and_keep_native_payload() {
+    fn completion_hooks_share_one_semantic_kind_and_keep_canonical_native_payload() {
         for (source, event) in [
             ("codex", "Stop"),
             ("claude", "Stop"),
@@ -704,8 +867,11 @@ mod tests {
             let native = json!({"session_id":"native-1","message":"done","opaque":{"v":42}});
             let ingress = agent_hook_journal_ingress(source, event, None, native.clone()).unwrap();
             assert_eq!(ingress.kind, "agent.turn.completed");
-            assert_eq!(ingress.payload["native"], native);
             assert_eq!(ingress.payload["normalized"]["agent_session_id"], "native-1");
+            assert!(ingress.payload["normalized"].get("message").is_none());
+            assert_eq!(ingress.payload["native"]["format"], "cmux.agent-native.canonical.v1");
+            assert_eq!(ingress.payload["native"]["identifiers"]["agent_session_id"], "native-1");
+            assert!(ingress.payload["native"].get("opaque").is_none());
             assert_eq!(ingress.payload["adapter"]["id"], source);
             assert_eq!(ingress.sensitivity, Some(JournalSensitivity::Sensitive));
         }
@@ -752,7 +918,7 @@ mod tests {
     }
 
     #[test]
-    fn provider_envelopes_normalize_nested_fields_without_losing_native_data() {
+    fn provider_envelopes_normalize_nested_fields_without_raw_native_data() {
         let native = json!({
             "event": {
                 "thread": {"id":"amp-thread-1"},
@@ -765,12 +931,17 @@ mod tests {
         });
         let ingress = agent_hook_journal_ingress("amp", "Stop", None, native.clone()).unwrap();
         assert_eq!(ingress.kind, "agent.turn.completed");
-        assert_eq!(ingress.payload["native"], native);
+        assert_eq!(ingress.payload["native"]["format"], "cmux.agent-native.canonical.v1");
         assert_eq!(ingress.payload["normalized"]["agent_session_id"], "amp-thread-1");
         assert_eq!(ingress.payload["normalized"]["turn_id"], "turn-7");
         assert_eq!(ingress.payload["normalized"]["cwd"], "/tmp/project");
         assert_eq!(ingress.payload["normalized"]["tool_name"], "Bash");
-        assert_eq!(ingress.payload["normalized"]["message"], "done");
+        assert!(ingress.payload["normalized"].get("message").is_none());
+        assert_eq!(ingress.payload["native"]["identifiers"]["agent_session_id"], "amp-thread-1");
+        assert_eq!(ingress.payload["native"]["identifiers"]["turn_id"], "turn-7");
+        assert_eq!(ingress.payload["native"]["checkpoint"]["cwd"], "/tmp/project");
+        assert_eq!(ingress.payload["native"]["lifecycle"]["tool_name"], "Bash");
+        assert!(ingress.payload["native"].get("provider_only").is_none());
     }
 
     #[test]
@@ -783,7 +954,7 @@ mod tests {
     }
 
     #[test]
-    fn wrapped_opencode_events_keep_native_shape_and_normalize_properties() {
+    fn wrapped_opencode_events_keep_canonical_native_and_normalize_properties() {
         let native = json!({
             "event": {
                 "type":"session.created",
@@ -799,9 +970,15 @@ mod tests {
         let ingress =
             agent_hook_journal_ingress("opencode", "session.created", None, native.clone())
                 .unwrap();
-        assert_eq!(ingress.payload["native"], native);
+        assert_eq!(ingress.payload["native"]["format"], "cmux.agent-native.canonical.v1");
         assert_eq!(ingress.payload["normalized"]["agent_session_id"], "opencode-session");
         assert_eq!(ingress.payload["normalized"]["cwd"], "/tmp/opencode");
+        assert_eq!(
+            ingress.payload["native"]["identifiers"]["agent_session_id"],
+            "opencode-session"
+        );
+        assert_eq!(ingress.payload["native"]["checkpoint"]["cwd"], "/tmp/opencode");
+        assert!(ingress.payload["native"].get("event").is_none());
         assert_eq!(ingress.kind, "agent.session.started");
 
         let approval = agent_hook_journal_ingress(
@@ -1070,7 +1247,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_identity_is_a_subject_and_unknown_events_remain_lossless() {
+    fn terminal_identity_is_a_subject_and_unknown_events_remain_canonical() {
         let terminal = "term_00000000000000000000000000000001";
         let native = json!({"future":true});
         let ingress = agent_hook_journal_ingress(
@@ -1081,7 +1258,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(ingress.kind, "agent.state.changed");
-        assert_eq!(ingress.payload["native"], native);
+        assert_eq!(ingress.payload["native"]["format"], "cmux.agent-native.canonical.v1");
+        assert_eq!(ingress.payload["native"]["provider"], "future-agent");
+        assert_eq!(ingress.payload["native"]["native_event"], "NewLifecycle");
+        assert!(ingress.payload["native"].get("future").is_none());
         assert!(
             ingress
                 .subjects
@@ -1090,6 +1270,63 @@ mod tests {
         );
         assert!(ingress.subjects.iter().any(|subject| subject.kind == "agent_tree"));
         assert!(ingress.subjects.iter().any(|subject| subject.kind == "agent_node"));
+    }
+
+    #[test]
+    fn canonical_native_payload_rejects_secrets_live_capabilities_and_unknown_extensions() {
+        let ingress = agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            None,
+            json!({
+                "session_id":"pi-session-1",
+                "cwd":"/tmp/project",
+                "api_key":"marker-api-key",
+                "authorization":"Bearer marker-auth",
+                "ssh_private_key":"marker-private-key",
+                "cmux_socket":"/tmp/marker-capability.sock",
+                "label":"marker-secret-under-benign-key",
+                "items":["marker-array-secret", {"name":"tool", "url":"https://user:marker-url-secret@example.com/?token=marker-query-secret"}],
+                "callback_url":"https://example.com/callback?token=marker-callback-secret",
+                "command":["sh", "-c", "echo marker-command-secret"],
+                "env":{"SAFE_NAME":"marker-env-secret"},
+                "AuThOrIzAtIoN":"Bearer marker-mixed-case-secret",
+                "nested":{
+                    "token":"marker-token",
+                    "capability":"marker-live-handle",
+                    "safe_value":"marker-nested-benign-secret"
+                },
+                "futureExtension":{"innocent":"marker-extension-secret"}
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(ingress.payload["normalized"]["agent_session_id"], "pi-session-1");
+        assert_eq!(ingress.payload["normalized"]["cwd"], "/tmp/project");
+        assert_eq!(ingress.payload["native"]["format"], "cmux.agent-native.canonical.v1");
+        assert_eq!(ingress.payload["native"]["identifiers"]["agent_session_id"], "pi-session-1");
+        assert_eq!(ingress.payload["native"]["checkpoint"]["cwd"], "/tmp/project");
+        let serialized = serde_json::to_string(&ingress.payload).unwrap();
+        for marker in [
+            "marker-api-key",
+            "marker-auth",
+            "marker-private-key",
+            "marker-capability",
+            "marker-secret-under-benign-key",
+            "marker-array-secret",
+            "marker-url-secret",
+            "marker-query-secret",
+            "marker-callback-secret",
+            "marker-command-secret",
+            "marker-env-secret",
+            "marker-mixed-case-secret",
+            "marker-token",
+            "marker-live-handle",
+            "marker-nested-benign-secret",
+            "marker-extension-secret",
+        ] {
+            assert!(!serialized.contains(marker), "persisted marker {marker}");
+        }
     }
 
     #[test]
@@ -1130,7 +1367,9 @@ mod tests {
         assert_eq!(record.producer.kind, "agent_adapter");
         assert_eq!(record.producer.id, AGENT_HOOK_PRODUCER_ID);
         assert_eq!(record.authority.as_ref().unwrap().role, "agent.adapter");
-        assert_eq!(record.payload["native"]["opaque"]["v"], 42);
+        assert_eq!(record.payload["native"]["format"], "cmux.agent-native.canonical.v1");
+        assert_eq!(record.payload["native"]["identifiers"]["agent_session_id"], "native-session");
+        assert!(record.payload["native"].get("opaque").is_none());
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }
