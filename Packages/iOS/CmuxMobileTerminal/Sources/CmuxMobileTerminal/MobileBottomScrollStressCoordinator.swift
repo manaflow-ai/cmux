@@ -49,6 +49,11 @@ final class MobileBottomScrollStressCoordinator: NSObject, GhosttySurfaceViewDel
         _ = await waitUntil(timeoutNanoseconds: 2_000_000_000) {
             view.isBottomScrollStressAtBottom
         }
+        // The harness drives a primary-screen scrollback session on the local
+        // mirror alone; no paired Mac exists to deliver the render-grid frame
+        // that normally confirms the screen, so declare it explicitly to put
+        // native bounded scrolling under test.
+        view.setNativeScrollScreen(.primary)
         guard let initialTargetHeight = probeInt("targetViewportHeight", in: view.composerDockProbeValue) else {
             view.setBottomScrollStressPhase("timeout")
             return

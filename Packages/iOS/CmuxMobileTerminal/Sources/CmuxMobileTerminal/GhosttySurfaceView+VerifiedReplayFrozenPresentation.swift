@@ -119,6 +119,10 @@ extension GhosttySurfaceView {
         frozenLayer.zPosition = 2_000
         frozenLayer.masksToBounds = false
         frozenLayer.actions = Self.verifiedReplayDisabledLayerActions
+        // The container owns the scroll translation (its content child stays
+        // untransformed), so the snapshot aligns with the live renderer's
+        // current offset from the moment of the freeze.
+        frozenLayer.transform = CATransform3DMakeTranslation(0, nativeScrollContentTranslationY, 0)
         return frozenLayer
     }
 
@@ -152,7 +156,9 @@ extension GhosttySurfaceView {
         copy.anchorPoint = renderer.anchorPoint
         copy.bounds = renderer.bounds
         copy.position = renderer.position
-        copy.transform = renderer.transform
+        // The renderer's transform is exclusively the native-scroll
+        // translation, which the frozen CONTAINER carries; copying it here
+        // too would apply the offset twice.
         copy.opacity = renderer.opacity
         copy.actions = Self.verifiedReplayDisabledLayerActions
         copy.zPosition = 1
