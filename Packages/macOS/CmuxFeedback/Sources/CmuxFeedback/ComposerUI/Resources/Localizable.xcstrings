@@ -28,6 +28,12 @@
             "state": "translated",
             "value": "첨부"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加"
+          }
         }
       }
     },
@@ -56,6 +62,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "이미지 첨부"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加图片"
           }
         }
       }
@@ -86,6 +98,12 @@
             "state": "translated",
             "value": "이미지 첨부"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加图片"
+          }
         }
       }
     },
@@ -114,6 +132,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "최대 10장의 이미지."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最多 10 张图片。"
           }
         }
       }
@@ -144,6 +168,12 @@
             "state": "translated",
             "value": "취소"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消"
+          }
         }
       }
     },
@@ -172,6 +202,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "피드백을 보내지 못했습니다. 연결을 확인하고 다시 시도하세요."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "反馈发送失败。检查网络连接后重试。"
           }
         }
       }
@@ -202,6 +238,12 @@
             "state": "translated",
             "value": "완료"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完成"
+          }
         }
       }
     },
@@ -230,6 +272,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "이메일 주소"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的邮箱"
           }
         }
       }
@@ -260,6 +308,12 @@
             "state": "translated",
             "value": "you@example.com"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "you@example.com"
+          }
         }
       }
     },
@@ -288,6 +342,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "보내기 전에 메시지를 입력하세요."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发送前先输入内容。"
           }
         }
       }
@@ -318,6 +378,12 @@
             "state": "translated",
             "value": "현재 피드백을 사용할 수 없습니다. 대신 founders@manaflow.com으로 이메일을 보내주세요."
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "反馈功能暂时不可用。可改为发邮件至 founders@manaflow.com。"
+          }
         }
       }
     },
@@ -346,6 +412,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "피드백을 보내지 못했습니다. 다시 시도하세요."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "反馈发送失败。请重试。"
           }
         }
       }
@@ -376,6 +448,12 @@
             "state": "translated",
             "value": "올바른 이메일 주소를 입력하세요."
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "输入有效的邮箱地址。"
+          }
         }
       }
     },
@@ -404,6 +482,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "선택한 파일 중 하나를 첨부할 수 없습니다."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所选文件中有一个无法添加。"
           }
         }
       }
@@ -434,6 +518,12 @@
             "state": "translated",
             "value": "메시지"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内容"
+          }
         }
       }
     },
@@ -462,6 +552,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "피드백, 기능 요청 또는 문제를 공유하세요."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分享反馈、功能建议或问题。"
           }
         }
       }
@@ -492,6 +588,12 @@
             "state": "translated",
             "value": "메시지가 너무 깁니다."
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内容过长。"
+          }
         }
       }
     },
@@ -520,6 +622,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "founders@manaflow.com으로도 연락하실 수 있습니다."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你也可以发邮件到 founders@manaflow.com 联系我们。"
           }
         }
       }
@@ -550,6 +658,12 @@
             "state": "translated",
             "value": "피드백 시도가 너무 많습니다. 나중에 다시 시도하세요."
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "反馈提交次数过多。请稍后重试。"
+          }
         }
       }
     },
@@ -578,6 +692,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "제거"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移除"
           }
         }
       }
@@ -608,6 +728,12 @@
             "state": "translated",
             "value": "보내기"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发送"
+          }
         }
       }
     },
@@ -636,6 +762,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "founders@manaflow.com으로도 연락하실 수 있습니다."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你也可以发邮件到 founders@manaflow.com 联系我们。"
           }
         }
       }
@@ -666,6 +798,12 @@
             "state": "translated",
             "value": "피드백을 보내주셔서 감사합니다."
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "感谢你的反馈。"
+          }
         }
       }
     },
@@ -694,6 +832,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "피드백 보내기"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发送反馈"
           }
         }
       }
@@ -724,6 +868,12 @@
             "state": "translated",
             "value": "최대 10장의 이미지를 첨부할 수 있습니다."
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最多可添加 10 张图片。"
+          }
         }
       }
     },
@@ -753,6 +903,12 @@
             "state": "translated",
             "value": "이미지가 너무 커서 함께 보낼 수 없습니다. 몇 개를 제거하고 다시 시도하세요."
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这些图片总体积过大，无法一起发送。移除几张后重试。"
+          }
         }
       }
     },
@@ -781,6 +937,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "메시지와 첨부 파일을 확인한 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "检查内容和附件后重试。"
           }
         }
       }
