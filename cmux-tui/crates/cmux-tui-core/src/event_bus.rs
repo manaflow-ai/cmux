@@ -134,9 +134,7 @@ impl MuxEventFilter {
     fn accepts(&mut self, event: &MuxEvent) -> bool {
         match self {
             Self::All => true,
-            Self::ConfigReload => {
-                matches!(event, MuxEvent::ConfigReloadRequested | MuxEvent::Empty)
-            }
+            Self::ConfigReload => matches!(event, MuxEvent::ConfigReloadRequested),
             Self::AttachedSurface(surface) => match event {
                 MuxEvent::Notification(notification) => notification.surface == Some(*surface),
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => {

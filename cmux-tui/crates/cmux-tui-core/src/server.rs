@@ -3399,6 +3399,9 @@ struct ResourceClientRecord {
 struct ClientRegistryState {
     clients: BTreeMap<u64, ClientRecord>,
     attached_by_surface: HashMap<SurfaceId, HashSet<u64>>,
+    /// Shares the registry lock with registration so accepting a handoff and
+    /// admitting a new owner cannot pass each other.
+    daemon_handoff_pending: bool,
 }
 
 pub(crate) struct ClientRegistry {
@@ -3426,7 +3429,13 @@ impl ClientRegistry {
 
     fn register(&self, transport: ClientTransport, writer: MessageWriter) -> u64 {
         let client = self.next_id.fetch_add(1, Ordering::Relaxed);
-        self.state.lock().unwrap().clients.insert(
+        let mut state = self.state.lock().unwrap();
+        if state.daemon_handoff_pending {
+            drop(state);
+            writer.close();
+            return client;
+        }
+        state.clients.insert(
             client,
             ClientRecord {
                 transport,
@@ -3452,6 +3461,11 @@ impl ClientRegistry {
 
     fn client_ids(&self) -> Vec<u64> {
         self.state.lock().unwrap().clients.keys().copied().collect()
+    }
+
+    #[cfg(test)]
+    fn daemon_handoff_pending(&self) -> bool {
+        self.state.lock().unwrap().daemon_handoff_pending
     }
 
     fn is_unix(&self, client: u64) -> bool {
@@ -3611,12 +3625,9 @@ impl ClientRegistry {
         name: Option<String>,
         kind: Option<String>,
         capabilities: Option<Vec<String>>,
-        daemon_handoff_pending: &AtomicBool,
     ) -> anyhow::Result<(Option<String>, Option<String>)> {
         let mut state = self.state.lock().unwrap();
-        if kind.as_deref() == Some("native-browser")
-            && daemon_handoff_pending.load(Ordering::Acquire)
-        {
+        if kind.as_deref() == Some("native-browser") && state.daemon_handoff_pending {
             anyhow::bail!("daemon handoff is already in progress");
         }
         let record = state
@@ -3646,13 +3657,12 @@ impl ClientRegistry {
         client: u64,
         name: Option<Option<String>>,
         kind: Option<Option<String>>,
-        daemon_handoff_pending: &AtomicBool,
     ) -> Result<(Option<String>, Option<String>), ResourceError> {
         let name = name.map(|name| validate_resource_client_label("name", name)).transpose()?;
         let kind = kind.map(|kind| validate_resource_client_label("kind", kind)).transpose()?;
         let mut state = self.state.lock().unwrap();
         if kind.as_ref().and_then(|kind| kind.as_deref()) == Some("native-browser")
-            && daemon_handoff_pending.load(Ordering::Acquire)
+            && state.daemon_handoff_pending
         {
             return Err(ResourceError::operation_failed(
                 "client.metadata.update",
@@ -3749,10 +3759,9 @@ impl ClientRegistry {
     pub(crate) fn begin_daemon_handoff(
         &self,
         requesting_client: u64,
-        daemon_handoff_pending: &AtomicBool,
         force: bool,
     ) -> anyhow::Result<()> {
-        let state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
         let requester = state
             .clients
             .get(&requesting_client)
@@ -3767,10 +3776,15 @@ impl ClientRegistry {
         {
             anyhow::bail!("another native-browser frontend still owns this daemon");
         }
-        daemon_handoff_pending
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .map_err(|_| anyhow::anyhow!("daemon handoff is already in progress"))?;
+        if state.daemon_handoff_pending {
+            anyhow::bail!("daemon handoff is already in progress");
+        }
+        state.daemon_handoff_pending = true;
         Ok(())
+    }
+
+    pub(crate) fn cancel_daemon_handoff(&self) {
+        self.state.lock().unwrap().daemon_handoff_pending = false;
     }
 
     pub(crate) fn list_json(&self, requesting_client: u64) -> Value {
@@ -5536,7 +5550,7 @@ fn resource_client_metadata_update(
     let name = request.fields.get("name").map(|value| value.as_str().map(str::to_string));
     let kind = request.fields.get("kind").map(|value| value.as_str().map(str::to_string));
     let (name, kind) =
-        mux.control_clients.set_resource_info(target, name, kind, &mux.daemon_handoff_pending)?;
+        mux.control_clients.set_resource_info(target, name, kind)?;
     mux.emit(MuxEvent::ClientChanged { client: target, name, kind });
     let record = mux
         .control_clients
@@ -9078,13 +9092,7 @@ fn handle_command_with_cancellation(
             "protocol": PROTOCOL_VERSION,
         })),
         Command::SetClientInfo { name, kind, capabilities } => {
-            let (name, kind) = mux.control_clients.set_info(
-                client,
-                name,
-                kind,
-                capabilities,
-                &mux.daemon_handoff_pending,
-            )?;
+            let (name, kind) = mux.control_clients.set_info(client, name, kind, capabilities)?;
             mux.emit(MuxEvent::ClientChanged { client, name, kind });
             Ok(json!({}))
         }
@@ -13314,7 +13322,7 @@ mod tests {
         assert_eq!(rejected["ok"], false);
         assert!(rejected["error"]["message"].as_str().unwrap().contains("trusted local"));
         assert!(!mux.daemon_shutdown_requested());
-        assert!(!mux.daemon_handoff_pending.load(Ordering::Acquire));
+        assert!(!mux.control_clients.daemon_handoff_pending());
 
         let (local_writer, local_outbound) = captured_writer();
         let local = mux.control_clients.register(ClientTransport::Unix, local_writer.clone());
@@ -13335,7 +13343,7 @@ mod tests {
         assert_eq!(rejected["ok"], false);
         assert!(rejected["error"]["message"].as_str().unwrap().contains("still owns"));
         assert!(!mux.daemon_shutdown_requested());
-        assert!(!mux.daemon_handoff_pending.load(Ordering::Acquire));
+        assert!(!mux.control_clients.daemon_handoff_pending());
 
         let forced_request = resource_request(
             "forced-shutdown",
@@ -13349,7 +13357,7 @@ mod tests {
         // Observing shutdown means the durable result was returned and queued
         // before the owning loop was asked to exit.
         assert!(mux.daemon_shutdown_requested());
-        assert!(mux.daemon_handoff_pending.load(Ordering::Acquire));
+        assert!(mux.control_clients.daemon_handoff_pending());
         let accepted = pop_json(&local_outbound);
         assert_eq!(accepted["ok"], true);
         assert_eq!(accepted["result"]["value"]["accepted"], true);
@@ -13379,7 +13387,7 @@ mod tests {
         closed_writer.close();
         assert!(!handle_connection_message(&first, client, &request, &closed_writer, &scheduler,));
         assert!(!first.daemon_shutdown_requested());
-        assert!(!first.daemon_handoff_pending.load(Ordering::Acquire));
+        assert!(!first.control_clients.daemon_handoff_pending());
         drop(scheduler);
         drop(first);
 
@@ -13391,7 +13399,7 @@ mod tests {
             Arc::new(ConnectionSurfaceScheduler::new(reopened.surface_operation_admission.clone()));
         assert!(handle_connection_message(&reopened, client, &request, &writer, &scheduler,));
         assert!(reopened.daemon_shutdown_requested());
-        assert!(reopened.daemon_handoff_pending.load(Ordering::Acquire));
+        assert!(reopened.control_clients.daemon_handoff_pending());
         let replay = pop_json(&outbound);
         assert_eq!(replay["ok"], true);
         assert_eq!(replay["result"]["value"]["accepted"], true);
