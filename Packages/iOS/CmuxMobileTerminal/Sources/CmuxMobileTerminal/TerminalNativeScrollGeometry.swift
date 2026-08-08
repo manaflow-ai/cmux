@@ -2,7 +2,7 @@
 import CoreGraphics
 
 /// Maps Ghostty's row-based viewport onto UIKit's point-based scroll range.
-struct TerminalNativeScrollGeometry: Equatable, Sendable {
+nonisolated struct TerminalNativeScrollGeometry: Equatable, Sendable {
     struct Boundary: Equatable, Sendable {
         let totalRows: UInt64
         let viewportOffsetRows: UInt64
