@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import CmuxFoundation
@@ -25,5 +26,28 @@ import Testing
             isLocalWorkspace: isLocalWorkspace,
             isSourceGroupAnchor: false
         ))
+    }
+
+    @Test func liveLocalSessionRestoresDismissedPresentationIdentity() {
+        let workspaceId = UUID()
+
+        #expect(policy.resolvedLocalWorkspaceId(
+            liveSessionWorkspaceId: workspaceId,
+            isLocalWorkspace: true
+        ) == workspaceId)
+    }
+
+    @Test(arguments: [true, false])
+    func missingOrForeignSessionCannotDriveLocalPresentation(isLocalWorkspace: Bool) {
+        #expect(policy.resolvedLocalWorkspaceId(
+            liveSessionWorkspaceId: nil,
+            isLocalWorkspace: isLocalWorkspace
+        ) == nil)
+
+        let foreignWorkspaceId = UUID()
+        #expect(policy.resolvedLocalWorkspaceId(
+            liveSessionWorkspaceId: foreignWorkspaceId,
+            isLocalWorkspace: false
+        ) == nil)
     }
 }

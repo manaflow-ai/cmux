@@ -10735,13 +10735,22 @@ struct VerticalTabsSidebar: View, Equatable {
         MinimalModeChromeMetrics.titlebarHeight
     }
 
-    /// Adapter binding for unmigrated consumers (extension sidebar drop
-    /// delegates, bonsplit overlays) that still expect @Binding<UUID?>. Reads
-    /// flow through `dragState.draggedTabId` so @Observable per-property
-    /// tracking still applies to whoever calls the binding's get.
+    /// Adapter binding for extension sidebar drop delegates that still expect
+    /// `@Binding<UUID?>`. Reads resolve from the retained native session rather
+    /// than window-local presentation, which may disappear during sidebar
+    /// reconstruction while AppKit keeps the drag alive.
     private var draggedTabIdBinding: Binding<UUID?> {
         Binding(
-            get: { dragState.draggedTabId },
+            get: {
+                let liveWorkspaceId = dragState.currentWorkspaceDragId
+                let isLocalWorkspace = liveWorkspaceId.map { workspaceId in
+                    tabManager.tabs.contains { $0.id == workspaceId }
+                } ?? false
+                return SidebarWorkspaceDragActivationPolicy().resolvedLocalWorkspaceId(
+                    liveSessionWorkspaceId: liveWorkspaceId,
+                    isLocalWorkspace: isLocalWorkspace
+                )
+            },
             // The extension/browser-stack drop delegates signal completion by
             // writing nil. Finish the coordinator session from either its source
             // or a mirrored destination so no process-wide identity survives.

@@ -22,6 +22,25 @@ public struct SidebarShortcutHintFreezePolicy {
 public struct SidebarWorkspaceDragActivationPolicy: Sendable {
     public init() {}
 
+    /// Resolves the workspace identity that may drive a local drop surface.
+    ///
+    /// A retained AppKit source session is the lifecycle authority. Window-local
+    /// presentation can disappear during sidebar reconstruction, so a live
+    /// session may restore its identity only in the window that still owns the
+    /// workspace.
+    ///
+    /// - Parameters:
+    ///   - liveSessionWorkspaceId: The process-wide native drag identity.
+    ///   - isLocalWorkspace: Whether that workspace still belongs to this window.
+    /// - Returns: The live workspace identity when it is local; otherwise `nil`.
+    public func resolvedLocalWorkspaceId(
+        liveSessionWorkspaceId: UUID?,
+        isLocalWorkspace: Bool
+    ) -> UUID? {
+        guard isLocalWorkspace else { return nil }
+        return liveSessionWorkspaceId
+    }
+
     /// Group anchors cannot move across windows because moving only the anchor
     /// would dissolve the source group and strand its members.
     public func shouldRejectMirroring(
