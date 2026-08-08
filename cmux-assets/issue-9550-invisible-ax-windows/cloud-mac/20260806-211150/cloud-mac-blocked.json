@@ -1,0 +1,12 @@
+{
+  "status": "blocked_before_runner",
+  "branch": "issue-9550-invisible-ax-windows",
+  "run_url": "https://github.com/manaflow-ai/cmux-loader/actions/runs/31146656539",
+  "run_id": 31146656539,
+  "runner_label": "blacksmith-6vcpu-macos-26",
+  "tailscale_hostname": "cmux-loader-31146656539",
+  "tailscale_dns_suffix": "tail137216.ts.net",
+  "gui_ready": false,
+  "video_available": false,
+  "failure": "The GitHub Actions lease job remained queued for the provisioner's 900-second timeout, so no Tailscale device, SSH host, GUI desktop, screenshot, or recording existed."
+}

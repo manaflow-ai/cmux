@@ -1,0 +1,15 @@
+Run: https://github.com/manaflow-ai/cmux-loader/actions/runs/31146656539
+Requested runner: blacksmith-6vcpu-macos-26
+Tailscale hostname: cmux-loader-31146656539
+Tailnet DNS suffix: tail137216.ts.net
+
+Provisioner result:
+timed out waiting for Tailscale device: cmux-loader-31146656539
+
+GitHub status after timeout:
+workflow status=queued
+job status=queued
+job steps=[]
+
+No runner started. GUI readiness, CUA bootstrap, screenshots, and the mandatory
+full-screen recording were therefore impossible.
