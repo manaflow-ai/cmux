@@ -1003,10 +1003,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// terminal renderer is not Auto Layout-backed, so its display-link pass reads the
     /// constrained toolbar's presentation frame until it reaches the model target.
     private func advanceBottomDockTransition() {
+        let isTransitioning = bottomDockTransitionInFlight
         #if DEBUG
+        if isTransitioning, !bottomDockTransitionObserved {
+            maximumInternalDockPresentationGap = 0
+        }
         sampleInternalDockPresentationGap()
         #endif
-        let isTransitioning = bottomDockTransitionInFlight
         guard isTransitioning || bottomDockTransitionObserved else { return }
         bottomDockTransitionObserved = isTransitioning
         layoutRenderedTerminalForCurrentViewport()
