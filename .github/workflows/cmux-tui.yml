@@ -503,7 +503,8 @@ jobs:
       contents: read
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
-      version: 0.0.0-verify.${{ inputs.commit }}
+      version: 0.0.0-nightly.19700101.0
+      pypi_version: 0.0.0.dev197001010
       package_npm: ${{ inputs.mode == 'full' }}
       package_pypi: ${{ inputs.mode == 'full' }}
       include_windows: ${{ inputs.mode == 'full' }}
