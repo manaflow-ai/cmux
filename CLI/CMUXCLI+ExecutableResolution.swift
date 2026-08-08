@@ -80,8 +80,32 @@ extension CMUXCLI {
         searchPath: String?,
         skip: ((String) -> Bool)? = nil
     ) -> String? {
-        let entries = providerExecutableSearchDirectories(searchPath: searchPath)
-        for entry in entries where !entry.isEmpty {
+        resolveExecutable(
+            name,
+            searchDirectories: providerExecutableSearchDirectories(searchPath: searchPath),
+            skip: skip
+        )
+    }
+
+    /// Resolves an executable only from the supplied `PATH`, without provider fallbacks.
+    func resolveExecutableInSuppliedSearchPath(
+        _ name: String,
+        searchPath: String?,
+        skip: ((String) -> Bool)? = nil
+    ) -> String? {
+        resolveExecutable(
+            name,
+            searchDirectories: suppliedExecutableSearchDirectories(searchPath: searchPath),
+            skip: skip
+        )
+    }
+
+    private func resolveExecutable(
+        _ name: String,
+        searchDirectories: [String],
+        skip: ((String) -> Bool)?
+    ) -> String? {
+        for entry in searchDirectories where !entry.isEmpty {
             let candidate = URL(fileURLWithPath: entry, isDirectory: true)
                 .appendingPathComponent(name, isDirectory: false)
                 .path
@@ -329,11 +353,30 @@ extension CMUXCLI {
             "/bin"
         ])
 
-        var seen: Set<String> = []
-        return directories.compactMap { rawDirectory in
+        let trimmedDirectories = directories.compactMap { rawDirectory -> String? in
             let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            let standardized = URL(fileURLWithPath: trimmed, isDirectory: true)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return normalizedExecutableSearchDirectories(trimmedDirectories)
+    }
+
+    private func suppliedExecutableSearchDirectories(searchPath: String?) -> [String] {
+        guard let searchPath else { return [] }
+        let currentDirectory = FileManager.default.currentDirectoryPath
+        guard !searchPath.isEmpty else {
+            return normalizedExecutableSearchDirectories([currentDirectory])
+        }
+        let directories = searchPath
+            .split(separator: ":", omittingEmptySubsequences: false)
+            .map { $0.isEmpty ? currentDirectory : String($0) }
+        return normalizedExecutableSearchDirectories(directories)
+    }
+
+    private func normalizedExecutableSearchDirectories(_ directories: [String]) -> [String] {
+        var seen: Set<String> = []
+        return directories.compactMap { directory in
+            guard !directory.isEmpty else { return nil }
+            let standardized = URL(fileURLWithPath: directory, isDirectory: true)
                 .standardizedFileURL
                 .path
             guard !isCmuxAppBundleResourceBinDirectory(standardized) else { return nil }
