@@ -39,6 +39,76 @@ struct TextBoxEscapePassthroughTests {
     }
 
     @Test
+    func focusedTextBoxKeyDownRoutesOneEscapeToRunningAgent() throws {
+        let fixture = try makeWorkspaceFixture()
+        defer { closeWindow(fixture.windowID) }
+
+        fixture.workspace.setAgentLifecycle(
+            key: "claude_code",
+            panelId: fixture.panel.id,
+            lifecycle: .running
+        )
+        defer {
+            _ = fixture.workspace.clearAgentLifecycle(
+                key: "claude_code",
+                panelId: fixture.panel.id
+            )
+        }
+
+        let windowIdentifier = "cmux.main.\(fixture.windowID.uuidString)"
+        let window = try #require(
+            NSApp.windows.first { $0.identifier?.rawValue == windowIdentifier }
+        )
+        let contentView = try #require(window.contentView)
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        let scrollView = NSScrollView(frame: textView.frame)
+        scrollView.documentView = textView
+        contentView.addSubview(scrollView)
+        defer { scrollView.removeFromSuperview() }
+
+        textView.onFocusTextBox = { fixture.panel.textBoxDidBecomeFocused() }
+        textView.onEscape = { fixture.panel.handleTextBoxEscape() }
+        fixture.panel.hostedView.setVisibleInUI(true)
+        fixture.panel.hostedView.setActive(true)
+        fixture.panel.hostedView.moveFocus()
+        fixture.panel.registerTextBoxInputView(textView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        let sentinelDraft = "unsubmitted sentinel draft"
+        textView.string = sentinelDraft
+        #expect(window.makeFirstResponder(textView))
+        #expect(window.firstResponder === textView)
+
+        let escapeEvent = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "\u{1b}",
+                charactersIgnoringModifiers: "\u{1b}",
+                isARepeat: false,
+                keyCode: 53
+            )
+        )
+        let before = fixture.panel.surface.debugPendingSocketInputForTesting()
+
+        textView.keyDown(with: escapeEvent)
+
+        let after = fixture.panel.surface.debugPendingSocketInputForTesting()
+        #expect(
+            after.keyEvents == before.keyEvents + 1,
+            "A physical Escape handled by the focused TextBox must enqueue exactly one PTY key event"
+        )
+        #expect(textView.string == sentinelDraft, "Escape must preserve the unsubmitted TextBox draft")
+        #expect(fixture.panel.isTextBoxActive, "The first Escape must leave TextBox visible")
+        #expect(window.firstResponder !== textView, "The first Escape must transfer focus back to the terminal")
+    }
+
+    @Test
     func idleAgentDoesNotReceiveEscapeFromTextBox() throws {
         let fixture = try makeWorkspaceFixture()
         defer { closeWindow(fixture.windowID) }
