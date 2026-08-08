@@ -282,11 +282,13 @@ mod tests {
         TreeView {
             workspaces: vec![WorkspaceView {
                 id: 1,
+                resource_id: None,
                 key: "workspace-1".into(),
                 short_id: "w1".into(),
                 name: "project".into(),
                 screens: vec![ScreenView {
                     id: 2,
+                    resource_id: None,
                     short_id: "s2".into(),
                     name: None,
                     layout: Node::Leaf(3),
@@ -296,6 +298,7 @@ mod tests {
                     viewport_splits: Default::default(),
                     panes: vec![PaneView {
                         id: 3,
+                        resource_id: None,
                         short_id: "p3".into(),
                         name: Some("editor".into()),
                         tabs: vec![tab(4, "shell"), tab(5, "codex")],

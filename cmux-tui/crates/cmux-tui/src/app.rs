@@ -8399,14 +8399,18 @@ impl App {
         )
     }
 
+    fn focused_rail_kind(&self) -> Option<RailKind> {
+        match self.focus {
+            FocusTarget::MachineRail => Some(RailKind::Machine),
+            FocusTarget::WorkspaceRail => Some(RailKind::Workspace),
+            FocusTarget::TabsRail => Some(RailKind::Tabs),
+            FocusTarget::ProjectionRail(index) => Some(RailKind::Projection(index)),
+            FocusTarget::Pane => None,
+        }
+    }
+
     fn focused_sidebar_view_id(&self) -> Option<String> {
-        let rail = match self.focus {
-            FocusTarget::MachineRail => RailKind::Machine,
-            FocusTarget::WorkspaceRail => RailKind::Workspace,
-            FocusTarget::TabsRail => RailKind::Tabs,
-            FocusTarget::ProjectionRail(index) => RailKind::Projection(index),
-            FocusTarget::Pane => return None,
-        };
+        let rail = self.focused_rail_kind()?;
         self.view_index_for_rail(rail)
             .and_then(|index| self.config.sidebar.views.get(index))
             .map(|view| view.id.clone())
@@ -8731,6 +8735,23 @@ impl App {
         };
         self.focus_rail(order[next]);
         true
+    }
+
+    fn move_focus_between_sidebar_rails(&mut self, direction: Direction) -> bool {
+        let Some(kind) = self.focused_rail_kind() else { return false };
+        match direction {
+            Direction::Left => {
+                self.focus_adjacent_rail(kind, -1);
+                true
+            }
+            Direction::Right => {
+                if !self.focus_adjacent_rail(kind, 1) {
+                    self.focus = FocusTarget::Pane;
+                }
+                true
+            }
+            Direction::Up | Direction::Down => false,
+        }
     }
 
     fn focus_rightmost_sidebar_rail(&mut self) -> bool {
@@ -16847,6 +16868,9 @@ impl App {
     }
 
     fn move_focus(&mut self, direction: Direction) {
+        if self.move_focus_between_sidebar_rails(direction) {
+            return;
+        }
         let Some(screen) = self.tree.active_screen() else {
             if matches!(direction, Direction::Left) {
                 self.focus_rightmost_sidebar_rail();
@@ -34262,6 +34286,33 @@ mod tests {
     }
 
     #[test]
+    fn active_machine_enter_returns_focus_to_pane() {
+        let mux = Mux::new("active-machine-enter-focus-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![MachineDescriptor {
+                key: MachineKey(41),
+                id: "machine-41".into(),
+                name: "active".into(),
+                subtitle: "local".into(),
+                status: MachineStatus::Running,
+            }],
+            active: Some(MachineKey(41)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.session_available = true;
+        app.machine_ui = Some(ui);
+        app.machine_selection_intent = Some(MachineKey(41));
+        app.machine_presented = Some(MachineKey(41));
+        app.focus = FocusTarget::MachineRail;
+
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+
+        assert_eq!(app.focus, FocusTarget::Pane);
+        assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+    }
+
+    #[test]
     fn machine_switch_is_requested_on_mouse_down() {
         let mux = Mux::new("machine-mouse-down-switch-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -36511,6 +36562,71 @@ mod tests {
     }
 
     #[test]
+    fn projection_enter_on_active_surface_returns_focus_to_pane() {
+        let (mux, surface) = test_mux("projection-active-surface-enter-test", None);
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("agent-session".into()),
+        )
+        .unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "workspace-agents".into(),
+            levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+        app.projection_rail_state_mut(0).selected = 1;
+        app.focus = FocusTarget::ProjectionRail(0);
+
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+
+        assert_eq!(app.tree.active_surface(), Some(surface.id));
+        assert_eq!(app.focus, FocusTarget::Pane);
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn projection_agent_rows_hide_finished_reports() {
+        let (mux, surface) = test_mux("projection-finished-agent-test", None);
+        mux.report_agent(
+            surface.id,
+            AgentState::Done,
+            AgentSource::Hook,
+            Some("agent-session".into()),
+        )
+        .unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+
+        assert!(
+            app.projection_rows(0).is_empty(),
+            "finished reports must not leave stale agent rows"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn tabs_column_context_menu_renames_the_exact_clicked_tab() {
         let (mux, first) = test_mux("tabs-column-rename-test", None);
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
@@ -36867,11 +36983,11 @@ mod tests {
         app.machine_ui = Some(ui);
 
         app.open_machine_connection_menu(1, 3);
-        assert_eq!(app.menu.as_ref().unwrap().levels[0].items[0].label(), Some("buildbox"));
-        assert_eq!(
-            app.menu.as_ref().unwrap().levels[0].items.last().and_then(MenuItem::label),
-            Some("Add SSH host…")
-        );
+        let items = &app.menu.as_ref().unwrap().levels[0].items;
+        assert_eq!(items[0].label(), Some("Add SSH host…"));
+        assert_eq!(items[1], MenuItem::Separator);
+        assert_eq!(items[2].label(), Some("buildbox"));
+        assert_eq!(items.last().and_then(MenuItem::label), Some("mini"));
         assert_eq!(
             app.menu
                 .as_ref()
@@ -36889,7 +37005,10 @@ mod tests {
         for character in "mini".chars() {
             app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE)).unwrap();
         }
-        assert_eq!(app.menu.as_ref().unwrap().levels[0].items[0].label(), Some("mini"));
+        let items = &app.menu.as_ref().unwrap().levels[0].items;
+        assert_eq!(items[0].label(), Some("Add SSH host…"));
+        assert_eq!(items[1], MenuItem::Separator);
+        assert_eq!(items[2].label(), Some("mini"));
         app.handle_menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
         assert_eq!(
             app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
