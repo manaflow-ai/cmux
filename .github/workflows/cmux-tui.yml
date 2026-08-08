@@ -246,21 +246,12 @@ jobs:
             valgrind_args=(--track-origins=yes)
             test_args=()
             case "$(basename "$bin")" in
-              pty-*|cmux_tui_core-*|cmux_tui-[[:xdigit:]]*)
+              pty-*|terminal-*|cmux_tui_core-*|cmux_tui-[[:xdigit:]]*)
                 # These tests own bounded worker pools, PTYs, sockets, and
                 # stateful terminal replay. Valgrind serializes their CPU work
                 # internally, so test-harness parallelism creates scheduler
                 # starvation and shared terminal-state races.
                 test_args+=(--test-threads=1)
-                ;;
-              terminal-*)
-                # The normal Linux and macOS suites cover replay equivalence.
-                # Valgrind's baseline-CPU build changes origin-mode pending-wrap
-                # behavior, so keep memory coverage for every other terminal test.
-                test_args+=(
-                  --test-threads=1
-                  --skip pending_wrap_replay_preserves_cursor_with_origin_mode
-                )
                 ;;
               cmux_remote-[[:xdigit:]]*)
                 # Remote-runtime tests also own real schedulers, sockets, and
