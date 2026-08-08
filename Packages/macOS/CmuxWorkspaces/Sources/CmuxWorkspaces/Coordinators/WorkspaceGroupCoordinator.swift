@@ -334,41 +334,30 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     /// `setWorkspaceGroupCollapsed` is the right call for socket/CLI paths
     /// that must preserve focus (the socket focus policy in CLAUDE.md).
     public func toggleWorkspaceGroupCollapsed(groupId: UUID) {
-        guard let host else { return }
-        guard let index = model.workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
-        let nextCollapsed = !model.workspaceGroups[index].isCollapsed
-        if nextCollapsed {
-            let anchorId = model.workspaceGroups[index].anchorWorkspaceId
-            if let selectedTabId = model.selectedTabId,
-               selectedTabId != anchorId,
-               let selectedTab = model.tabs.first(where: { $0.id == selectedTabId }),
-               selectedTab.groupId == groupId,
-               let anchor = model.tabs.first(where: { $0.id == anchorId }) {
-                host.selectWorkspace(anchor)
-            }
-            // Strip any sidebar multi-selection entries that point at
-            // now-hidden non-anchor children of this group. Without this, a
-            // close/group shortcut fired after the collapse would still act
-            // on workspaces the user can no longer see.
-            let hiddenMemberIds: Set<UUID> = Set(
-                model.tabs
-                    .filter { $0.groupId == groupId && $0.id != anchorId }
-                    .map(\.id)
-            )
-            if !hiddenMemberIds.isEmpty,
-               !host.sidebarSelectedWorkspaceIds.isDisjoint(with: hiddenMemberIds) {
-                // Use the "did hide" event (not collapse-to-one) so the
-                // SwiftUI sidebar only strips the hidden ids and keeps any
-                // visible multi-selection entries that sit outside the group.
-                // focusedWorkspaceId rides along only when focus moved.
-                let focusedWorkspaceId: UUID? = (model.selectedTabId == anchorId) ? anchorId : nil
-                host.subtractSidebarSelection(
-                    hiddenWorkspaceIds: hiddenMemberIds,
-                    focusedWorkspaceId: focusedWorkspaceId
-                )
-            }
-        }
-        setWorkspaceGroupCollapsed(groupId: groupId, isCollapsed: nextCollapsed)
+        guard let group = model.workspaceGroups.first(where: { $0.id == groupId }) else { return }
+        applyWorkspaceGroupDisclosure(
+            groupIds: [groupId],
+            isCollapsed: !group.isCollapsed
+        )
+    }
+
+    /// Collapses every expanded group in one coordinated sidebar mutation.
+    ///
+    /// Focus moves to the selected child's group anchor when needed, and
+    /// sidebar multi-selection is reconciled once for all newly hidden rows.
+    public func collapseAllWorkspaceGroups() {
+        applyWorkspaceGroupDisclosure(
+            groupIds: Set(model.workspaceGroups.map(\.id)),
+            isCollapsed: true
+        )
+    }
+
+    /// Expands every collapsed workspace group without changing selection.
+    public func expandAllWorkspaceGroups() {
+        applyWorkspaceGroupDisclosure(
+            groupIds: Set(model.workspaceGroups.map(\.id)),
+            isCollapsed: false
+        )
     }
 
     /// Pure data mutation — flips the collapse flag without touching
@@ -378,6 +367,60 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         guard let index = model.workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
         guard model.workspaceGroups[index].isCollapsed != isCollapsed else { return }
         model.workspaceGroups[index].isCollapsed = isCollapsed
+    }
+
+    /// Runs single-row and bulk disclosure actions through the same UI
+    /// transaction so focus and multi-selection cannot drift between entry
+    /// points. The final group-array replacement emits one model update.
+    private func applyWorkspaceGroupDisclosure(
+        groupIds: Set<UUID>,
+        isCollapsed: Bool
+    ) {
+        guard let host else { return }
+        let changingGroups = model.workspaceGroups.filter {
+            groupIds.contains($0.id) && $0.isCollapsed != isCollapsed
+        }
+        guard !changingGroups.isEmpty else { return }
+
+        let changingGroupsById = Dictionary(
+            uniqueKeysWithValues: changingGroups.map { ($0.id, $0) }
+        )
+        let changingGroupIds = Set(changingGroupsById.keys)
+
+        if isCollapsed {
+            let hiddenMemberIds = Set(model.tabs.compactMap { tab -> UUID? in
+                guard let groupId = tab.groupId,
+                      let group = changingGroupsById[groupId],
+                      group.anchorWorkspaceId != tab.id else {
+                    return nil
+                }
+                return tab.id
+            })
+
+            var focusedWorkspaceId: UUID?
+            if let selectedTabId = model.selectedTabId,
+               let selectedGroupId = model.tabs.first(where: { $0.id == selectedTabId })?.groupId,
+               let selectedGroup = changingGroupsById[selectedGroupId],
+               selectedGroup.anchorWorkspaceId != selectedTabId,
+               let anchor = model.tabs.first(where: { $0.id == selectedGroup.anchorWorkspaceId }) {
+                host.selectWorkspace(anchor)
+                focusedWorkspaceId = anchor.id
+            }
+
+            if !hiddenMemberIds.isEmpty,
+               !host.sidebarSelectedWorkspaceIds.isDisjoint(with: hiddenMemberIds) {
+                host.subtractSidebarSelection(
+                    hiddenWorkspaceIds: hiddenMemberIds,
+                    focusedWorkspaceId: focusedWorkspaceId
+                )
+            }
+        }
+
+        var groups = model.workspaceGroups
+        for index in groups.indices where changingGroupIds.contains(groups[index].id) {
+            groups[index].isCollapsed = isCollapsed
+        }
+        model.workspaceGroups = groups
     }
 
     /// Toggle the pinned state of a whole group. Pinned groups float above
