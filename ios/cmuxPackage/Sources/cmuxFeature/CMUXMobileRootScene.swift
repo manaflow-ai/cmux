@@ -349,17 +349,26 @@ public struct CMUXMobileRootScene: View {
     @MainActor
     private func makeMobileAppView() -> CMUXMobileAppView {
         let browserStreamStore = BrowserStreamStore()
+        let simulatorStreamStore = MobileSimulatorStreamStore()
         #if os(iOS)
         return CMUXMobileAppView(
-            store: makeStore(browserStreamEvents: browserStreamStore),
+            store: makeStore(
+                browserStreamEvents: browserStreamStore,
+                simulatorStreamStore: simulatorStreamStore
+            ),
             browserStreamStore: browserStreamStore,
+            simulatorStreamStore: simulatorStreamStore,
             onboardingStore: onboardingStore,
             signOutHook: signOutHook
         )
         #else
         return CMUXMobileAppView(
-            store: makeStore(browserStreamEvents: browserStreamStore),
+            store: makeStore(
+                browserStreamEvents: browserStreamStore,
+                simulatorStreamStore: simulatorStreamStore
+            ),
             browserStreamStore: browserStreamStore,
+            simulatorStreamStore: simulatorStreamStore,
             signOutHook: signOutHook
         )
         #endif
@@ -367,7 +376,8 @@ public struct CMUXMobileRootScene: View {
 
     @MainActor
     package func makeStore(
-        browserStreamEvents: (any BrowserStreamEventReceiving)? = nil
+        browserStreamEvents: (any BrowserStreamEventReceiving)? = nil,
+        simulatorStreamStore: MobileSimulatorStreamStore? = nil
     ) -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
         let buildScope = MobileIOSBuildScope.current()
@@ -410,7 +420,8 @@ public struct CMUXMobileRootScene: View {
             feedbackStampProvider: feedbackStampProvider,
             draftStore: draftStore,
             taskTemplateStore: UserDefaultsMobileTaskTemplateStore(defaults: .standard),
-            browserStreamEvents: browserStreamEvents
+            browserStreamEvents: browserStreamEvents,
+            simulatorStreamStore: simulatorStreamStore
         )
     }
 }

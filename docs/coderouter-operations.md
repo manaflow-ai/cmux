@@ -75,4 +75,3 @@ the authenticated output if it contains a principal identifier.
   identity, and actual subscription cost basis.
 - PostHog must never contain prompts, outputs, bodies, credentials, route
   tokens, email, payment-method details, or provider-account identifiers.
-

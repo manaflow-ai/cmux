@@ -393,6 +393,7 @@ final class MobileHostService {
     private var readinessWaiters: [CheckedContinuation<MobileHostServiceStatus, Never>] = []
     private var readinessTimeoutTask: Task<Void, Never>?
     let mobileBrowserStreamCoordinator = MobileBrowserStreamCoordinator()
+    let mobileSimulatorStreamCoordinator = MobileSimulatorStreamCoordinator()
     #if DEBUG
     private var debugAcceptedStackAuthToken: String?
     #endif
@@ -553,6 +554,8 @@ final class MobileHostService {
         switch topic {
         case MobileHostEventTopicPolicy.renderGridTopic, "terminal.bytes":
             return payload["surface_id"] as? String
+        case MobileHostEventTopicPolicy.simulatorFrameTopic:
+            return payload["panel_id"] as? String
         default:
             return nil
         }
@@ -611,6 +614,13 @@ final class MobileHostService {
                 )
             }
             #endif
+            if topic == MobileHostEventTopicPolicy.simulatorFrameTopic,
+               !result.simulatorFrameShedPanelIDs.isEmpty {
+                MobileSimulatorDiagnostics.recordFrameQueueShed(
+                    panelIDStrings: result.simulatorFrameShedPanelIDs,
+                    shedByteCount: result.shedByteCount
+                )
+            }
             resyncSurfaceIDs.formUnion(result.renderGridResyncSurfaceIDs)
             if result.startDrain {
                 Task { await connection.drainQueuedEvents() }
@@ -1314,6 +1324,7 @@ final class MobileHostService {
             },
             onClose: { id in
                 await MobileHostService.shared.mobileBrowserStreamCoordinator.connectionClosed(id)
+                await MobileHostService.shared.mobileSimulatorStreamCoordinator.connectionClosed(id)
                 MobileHostConnectionRegistry.shared.remove(id: id)
                 await MobileHostService.shared.removeConnection(id: id)
             }
@@ -2764,6 +2775,13 @@ actor MobileHostConnection {
         if !result.renderGridResyncSurfaceIDs.isEmpty {
             MobileTerminalRenderObserver.requestRenderGridFullResync(
                 surfaceIDStrings: result.renderGridResyncSurfaceIDs
+            )
+        }
+        if topic == MobileHostEventTopicPolicy.simulatorFrameTopic,
+           !result.simulatorFrameShedPanelIDs.isEmpty {
+            MobileSimulatorDiagnostics.recordFrameQueueShed(
+                panelIDStrings: result.simulatorFrameShedPanelIDs,
+                shedByteCount: result.shedByteCount
             )
         }
         if result.startDrain {

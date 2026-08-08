@@ -12,6 +12,10 @@ import Foundation
 ///   the full frame arrives. The iOS client has no delta-continuity check, so a
 ///   silently dropped delta would corrupt its grid invisibly; the
 ///   poison-until-full rule makes a shed unobservable beyond one stale paint.
+/// - `simulator.frame`: video-style JPEG frames are absolute snapshots keyed by
+///   panel id. When a phone cannot drain at the simulator's frame cadence, the
+///   newest frame replaces older queued frames; simulator state and ownership
+///   events stay lossless.
 /// - `terminal.bytes`: chunks carry a byte-offset `seq`; the client detects the
 ///   gap and requests a replay on its own.
 /// - `terminal.updated` / `workspace.updated`: level-triggered pings; the newer
@@ -23,12 +27,17 @@ import Foundation
 /// lossless bound.
 enum MobileHostEventTopicPolicy {
     static let renderGridTopic = "terminal.render_grid"
+    static let simulatorFrameTopic = "simulator.frame"
 
     static func isDroppable(topic: String, coalesceKey: String?) -> Bool {
         switch topic {
         case renderGridTopic:
             // A render-grid event without a surface key cannot be resynced
             // per-surface, so it keeps the lossless close-on-overflow path.
+            return coalesceKey != nil
+        case simulatorFrameTopic:
+            // Simulator frames are whole-screen snapshots; a later frame fully
+            // supersedes an earlier one for the same panel.
             return coalesceKey != nil
         case "terminal.bytes", "terminal.updated", "workspace.updated":
             return true
@@ -52,14 +61,38 @@ struct MobileHostEventEnqueueResult: Sendable {
     let renderGridResyncSurfaceIDs: Set<String>
     /// Queue depth immediately after an admitted append.
     let depthAfterEnqueue: Int?
+    /// Count of queued droppable events removed to make room for this event.
+    let shedEventCount: Int
+    /// Bytes released by shedding droppable events.
+    let shedByteCount: Int
+    /// Simulator panel IDs whose queued frame snapshots were superseded.
+    let simulatorFrameShedPanelIDs: Set<String>
 
     static let rejected = MobileHostEventEnqueueResult(
         admitted: false,
         startDrain: false,
         shouldClose: false,
         renderGridResyncSurfaceIDs: [],
-        depthAfterEnqueue: nil
+        depthAfterEnqueue: nil,
+        shedEventCount: 0,
+        shedByteCount: 0,
+        simulatorFrameShedPanelIDs: []
     )
+}
+
+private struct MobileHostEventShedSummary: Sendable {
+    var eventCount = 0
+    var byteCount = 0
+    var simulatorFramePanelIDs: Set<String> = []
+
+    mutating func record(_ event: MobileHostConnectionEventQueue.QueuedEvent) {
+        eventCount += 1
+        byteCount += event.frame.count
+        if event.topic == MobileHostEventTopicPolicy.simulatorFrameTopic,
+           let coalesceKey = event.coalesceKey {
+            simulatorFramePanelIDs.insert(coalesceKey)
+        }
+    }
 }
 
 /// Bounded, synchronously-admitted mailbox between the event fan-out
@@ -163,8 +196,9 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
             return .rejected
         }
         var resyncSurfaceIDs = Set<String>()
+        var shedSummary = MobileHostEventShedSummary()
         if !hasRoomLocked(for: frame) {
-            shedDroppableEventsLocked(for: frame, resyncSurfaceIDs: &resyncSurfaceIDs)
+            shedSummary = shedDroppableEventsLocked(for: frame, resyncSurfaceIDs: &resyncSurfaceIDs)
         }
         if isRenderGrid,
            let coalesceKey,
@@ -178,7 +212,10 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
                 startDrain: false,
                 shouldClose: false,
                 renderGridResyncSurfaceIDs: resyncSurfaceIDs,
-                depthAfterEnqueue: nil
+                depthAfterEnqueue: nil,
+                shedEventCount: shedSummary.eventCount,
+                shedByteCount: shedSummary.byteCount,
+                simulatorFrameShedPanelIDs: shedSummary.simulatorFramePanelIDs
             )
         }
         guard hasRoomLocked(for: frame) else {
@@ -189,7 +226,10 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
                     startDrain: false,
                     shouldClose: true,
                     renderGridResyncSurfaceIDs: resyncSurfaceIDs,
-                    depthAfterEnqueue: nil
+                    depthAfterEnqueue: nil,
+                    shedEventCount: shedSummary.eventCount,
+                    shedByteCount: shedSummary.byteCount,
+                    simulatorFrameShedPanelIDs: shedSummary.simulatorFramePanelIDs
                 )
             }
             if isRenderGrid, let coalesceKey {
@@ -207,7 +247,10 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
                 startDrain: false,
                 shouldClose: false,
                 renderGridResyncSurfaceIDs: resyncSurfaceIDs,
-                depthAfterEnqueue: nil
+                depthAfterEnqueue: nil,
+                shedEventCount: shedSummary.eventCount,
+                shedByteCount: shedSummary.byteCount,
+                simulatorFrameShedPanelIDs: shedSummary.simulatorFramePanelIDs
             )
         }
         queuedEvents.append(
@@ -234,7 +277,10 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
             startDrain: startDrain,
             shouldClose: false,
             renderGridResyncSurfaceIDs: resyncSurfaceIDs,
-            depthAfterEnqueue: depthAfterEnqueue
+            depthAfterEnqueue: depthAfterEnqueue,
+            shedEventCount: shedSummary.eventCount,
+            shedByteCount: shedSummary.byteCount,
+            simulatorFrameShedPanelIDs: shedSummary.simulatorFramePanelIDs
         )
     }
 
@@ -309,7 +355,8 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
     private func shedDroppableEventsLocked(
         for frame: Data,
         resyncSurfaceIDs: inout Set<String>
-    ) {
+    ) -> MobileHostEventShedSummary {
+        var summary = MobileHostEventShedSummary()
         var index = 0
         while !hasRoomLocked(for: frame), index < queuedEvents.count {
             let event = queuedEvents[index]
@@ -322,6 +369,7 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
             }
             queuedEvents.remove(at: index)
             queuedByteCount -= event.frame.count
+            summary.record(event)
             if event.topic == MobileHostEventTopicPolicy.renderGridTopic,
                let surfaceID = event.coalesceKey,
                poisonedRenderGridSurfaceIDs.insert(surfaceID).inserted {
@@ -332,18 +380,20 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
         // queued render-grid frame for that surface — each builds on the shed
         // one — must go with it. The pending full-frame resync re-bases the
         // chain for the whole connection.
-        guard !resyncSurfaceIDs.isEmpty else { return }
-        var freedByteCount = 0
+        guard !resyncSurfaceIDs.isEmpty else { return summary }
         let brokenSurfaceIDs = resyncSurfaceIDs
+        var cascadeByteCount = 0
         queuedEvents.removeAll { event in
             guard event.topic == MobileHostEventTopicPolicy.renderGridTopic,
                   let surfaceID = event.coalesceKey,
                   brokenSurfaceIDs.contains(surfaceID) else {
                 return false
             }
-            freedByteCount += event.frame.count
+            summary.record(event)
+            cascadeByteCount += event.frame.count
             return true
         }
-        queuedByteCount -= freedByteCount
+        queuedByteCount -= cascadeByteCount
+        return summary
     }
 }

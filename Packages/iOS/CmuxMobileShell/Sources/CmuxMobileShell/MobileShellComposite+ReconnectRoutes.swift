@@ -312,6 +312,7 @@ extension MobileShellComposite {
             resyncTerminalOutput(reason: "foreground", restartEventStream: true)
         }
         restartActiveMobileBrowserStreams()
+        restartActiveMobileSimulatorStreams()
         recoverForegroundConnectionIfNeeded(resyncAfterHealthy: shouldResync)
         recoverDisconnectedOnForegroundIfNeeded()
         recoverPendingInactiveRecoveryIfNeeded()
@@ -335,6 +336,7 @@ extension MobileShellComposite {
         guard lastBackgroundedAt == nil else { return }
         lastBackgroundedAt = runtime?.now() ?? Date()
         stopActiveMobileBrowserStreamsForBackground()
+        stopActiveMobileSimulatorStreamsForBackground()
     }
 
     /// A foreground return while disconnected redials the stored Mac

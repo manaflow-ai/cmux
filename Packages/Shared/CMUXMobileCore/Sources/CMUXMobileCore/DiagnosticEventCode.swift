@@ -193,6 +193,8 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// `b` is ``DiagnosticPathKind`` for the affected path, and `c` is the
     /// matching positive, process-local session correlation ID.
     case transportPathEvent = 55
+    // MARK: Browser streaming and control
+
     /// A phone-driven browser stream session changed lifecycle state on the
     /// Mac. `a` is the stage (1 started, 2 replaced an existing session,
     /// 3 stopped, 4 first frame emitted), and `c` is the positive browser
@@ -213,6 +215,33 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// `a` is 1 on success else 0, and `c` is the panel correlation ID of the
     /// created panel (absent on failure).
     case browserPanelCreateResolved = 59
+
+    // MARK: Simulator streaming and control
+
+    /// A phone-controlled Simulator stream lifecycle edge. `surface` is a
+    /// process-local panel handle, `a` is
+    /// ``DiagnosticSimulatorStreamLifecycle``, `b` is
+    /// ``DiagnosticSimulatorOwnershipState``, and `c`, when present, is a
+    /// bounded count such as the active session count.
+    case simulatorStreamLifecycle = 60
+    /// One frame-pipeline edge. `surface` is a process-local panel handle,
+    /// `a` is ``DiagnosticSimulatorFrameLifecycle``, `b`, when present, is a
+    /// clamped frame sequence number, and `c`, when present, is a byte count.
+    case simulatorFrameLifecycle = 61
+    /// One phone-originated Simulator input edge. `surface` is a process-local
+    /// panel handle, `a` is ``DiagnosticSimulatorInputLifecycle``, `b` is
+    /// ``DiagnosticSimulatorInputKind``, and `c`, when present, is a
+    /// phase/button/text-size detail.
+    case simulatorInputLifecycle = 62
+    /// A phone touch point was mapped before dispatch. `surface` is a
+    /// process-local panel handle, `a` and `b` are normalized x/y in
+    /// ten-thousandths, and `c` is ``DiagnosticSimulatorCoordinateState``.
+    case simulatorCoordinateMapped = 63
+    /// A Simulator stream ownership descriptor changed. `surface` is a
+    /// process-local panel handle, `a` is the new
+    /// ``DiagnosticSimulatorOwnershipState``, and `b` is the previous state
+    /// when known.
+    case simulatorOwnershipChanged = 64
 }
 
 /// Scene phase carried by ``DiagnosticEventCode/appLifecycleChanged``.
@@ -220,4 +249,20 @@ public enum DiagnosticAppLifecyclePhase: Int, Sendable, Codable, CaseIterable {
     case background = 0
     case active = 1
     case inactive = 2
+}
+
+public extension DiagnosticEventCode {
+    /// Whether this event belongs to the Simulator streaming/control feature.
+    var isSimulatorDiagnosticEvent: Bool {
+        switch self {
+        case .simulatorStreamLifecycle,
+             .simulatorFrameLifecycle,
+             .simulatorInputLifecycle,
+             .simulatorCoordinateMapped,
+             .simulatorOwnershipChanged:
+            true
+        default:
+            false
+        }
+    }
 }

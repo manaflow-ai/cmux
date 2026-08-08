@@ -29,6 +29,9 @@ extension MobileHostService {
         mobileHostCapabilities(
             includingWorkspaceChanges: CmuxFeatureFlags.offMainEffectiveValue(
                 for: CmuxFeatureFlags.mobileWorkspaceChangesFlag
+            ),
+            includingSimulator: CmuxFeatureFlags.offMainEffectiveValue(
+                for: CmuxFeatureFlags.simulatorFlag
             )
         )
     }
@@ -38,14 +41,25 @@ extension MobileHostService {
     /// entry point (chip, toolbar button, hint, sheet, summary polling)
     /// feature-detects itself away. The RPC dispatch applies the same flag,
     /// so a phone holding a stale capability list cannot call through.
+    /// `includingSimulator` mirrors the same pattern for the simulator
+    /// capabilities: `mobile.simulator.list`, stream start, and simulator
+    /// input all refuse with `capability_disabled` when
+    /// `simulator-enabled-release` is off, so advertising the capabilities
+    /// unconditionally would make iOS show Simulator rows whose first stream
+    /// or input call then fails.
     nonisolated static func mobileHostCapabilities(
-        includingWorkspaceChanges: Bool
+        includingWorkspaceChanges: Bool,
+        includingSimulator: Bool = true
     ) -> [String] {
         var capabilities = [
             MobileBrowserStreamCapability.identifier,
             MobileBrowserStreamCapability.viewportIdentifier,
             MobileBrowserStreamCapability.dialogIdentifier,
             MobileBrowserStreamCapability.createIdentifier,
+            MobileSimulatorStreamCapability.current.identifier,
+            MobileSimulatorStreamCapability.current.inputIdentifier,
+            MobileSimulatorStreamCapability.current.ownershipIdentifier,
+            MobileSimulatorStreamCapability.current.keepaliveIdentifier,
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
@@ -97,6 +111,15 @@ extension MobileHostService {
         ]
         if !includingWorkspaceChanges {
             capabilities.removeAll { $0 == Self.workspaceChangesCapability }
+        }
+        if !includingSimulator {
+            let simulatorCapabilities: Set<String> = [
+                MobileSimulatorStreamCapability.current.identifier,
+                MobileSimulatorStreamCapability.current.inputIdentifier,
+                MobileSimulatorStreamCapability.current.ownershipIdentifier,
+                MobileSimulatorStreamCapability.current.keepaliveIdentifier,
+            ]
+            capabilities.removeAll { simulatorCapabilities.contains($0) }
         }
         return applyingDebugCapabilitySuppressions(capabilities)
     }
