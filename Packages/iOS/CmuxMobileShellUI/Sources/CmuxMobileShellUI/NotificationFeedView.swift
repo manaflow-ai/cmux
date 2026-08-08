@@ -9,6 +9,7 @@ struct NotificationFeedActions {
     let markRead: @MainActor (MobileNotificationFeedItem) -> Void
     let markUnread: @MainActor (MobileNotificationFeedItem) -> Void
     let markAllRead: @MainActor () -> Void
+    let reply: @MainActor @Sendable (MobileNotificationFeedItem, String) async -> Bool
     let refresh: @MainActor @Sendable () async -> Void
 }
 
@@ -90,6 +91,8 @@ private struct NotificationFeedFilterBar: View {
 }
 
 private struct NotificationFeedList: View {
+    @AppStorage(MobileNotificationFeedDesign.storageKey) private var designRaw =
+        MobileNotificationFeedDesign.timeline.rawValue
     let sections: [NotificationFeedDaySection]
     let sourceItemCount: Int
     let isSourceRebuilding: Bool
@@ -116,7 +119,11 @@ private struct NotificationFeedList: View {
                 ForEach(sections) { section in
                     Section {
                         ForEach(section.items) { model in
-                            NotificationFeedRow(model: model, actions: actions)
+                            NotificationFeedRow(
+                                model: model,
+                                design: MobileNotificationFeedDesign(rawValue: designRaw) ?? .timeline,
+                                actions: actions
+                            )
                                 .equatable()
                                 .disabled(hasStaleSourceSections)
                                 .allowsHitTesting(!hasStaleSourceSections)

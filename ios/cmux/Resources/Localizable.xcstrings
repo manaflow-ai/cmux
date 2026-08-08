@@ -3554,6 +3554,13 @@
         }
       }
     },
+    "mobile.notificationFeed.design.actionNeeded": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Action Needed"}},"ja":{"stringUnit":{"state":"translated","value":"対応が必要"}}}},
+    "mobile.notificationFeed.design.cards": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cards"}},"ja":{"stringUnit":{"state":"translated","value":"カード"}}}},
+    "mobile.notificationFeed.design.commandCenter": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Command Center"}},"ja":{"stringUnit":{"state":"translated","value":"コマンドセンター"}}}},
+    "mobile.notificationFeed.design.compact": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Compact"}},"ja":{"stringUnit":{"state":"translated","value":"コンパクト"}}}},
+    "mobile.notificationFeed.design.conversation": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Conversation"}},"ja":{"stringUnit":{"state":"translated","value":"会話"}}}},
+    "mobile.notificationFeed.design.timeline": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Timeline"}},"ja":{"stringUnit":{"state":"translated","value":"タイムライン"}}}},
+    "mobile.notificationFeed.design.update": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Update"}},"ja":{"stringUnit":{"state":"translated","value":"更新"}}}},
     "mobile.notificationFeed.open": {
       "extractionState": "manual",
       "localizations": {
@@ -4064,6 +4071,10 @@
         }
       }
     },
+    "mobile.notificationFeed.reply": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Reply"}},"ja":{"stringUnit":{"state":"translated","value":"返信"}}}},
+    "mobile.notificationFeed.reply.failed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Reply wasn't sent. Check the Mac connection and try again."}},"ja":{"stringUnit":{"state":"translated","value":"返信を送信できませんでした。Macの接続を確認して、もう一度お試しください。"}}}},
+    "mobile.notificationFeed.reply.placeholder": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Message the agent…"}},"ja":{"stringUnit":{"state":"translated","value":"エージェントにメッセージ…"}}}},
+    "mobile.notificationFeed.reply.send": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Send Reply"}},"ja":{"stringUnit":{"state":"translated","value":"返信を送信"}}}},
     "mobile.notificationFeed.retry": {
       "extractionState": "manual",
       "localizations": {
@@ -6444,6 +6455,9 @@
         }
       }
     },
+    "mobile.settings.cmuxLabs": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"CMUX Labs"}},"ja":{"stringUnit":{"state":"translated","value":"CMUX Labs"}}}},
+    "mobile.settings.cmuxLabs.feedDesign": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Feed Design"}},"ja":{"stringUnit":{"state":"translated","value":"フィードのデザイン"}}}},
+    "mobile.settings.cmuxLabs.feedDesign.footer": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Switch between five notification Feed experiments."}},"ja":{"stringUnit":{"state":"translated","value":"5つの通知フィードの実験デザインを切り替えます。"}}}},
     "mobile.settings.betaFeatures": {
       "extractionState": "manual",
       "localizations": {

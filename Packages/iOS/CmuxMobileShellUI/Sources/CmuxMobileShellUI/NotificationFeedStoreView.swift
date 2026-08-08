@@ -40,6 +40,9 @@ struct NotificationFeedStoreView: View {
             markAllRead: {
                 Task { await store.markNotificationFeedItemsRead(scopedTo: selectedMacDeviceIDs) }
             },
+            reply: { item, text in
+                await store.replyToNotificationFeedItem(item, text: text)
+            },
             refresh: {
                 await store.refreshNotificationFeed()
             }

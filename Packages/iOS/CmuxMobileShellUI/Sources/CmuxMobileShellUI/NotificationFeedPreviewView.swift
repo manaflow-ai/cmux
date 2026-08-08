@@ -157,6 +157,10 @@ public struct NotificationFeedPreviewView: View {
             markAllRead: {
                 items = items.map { $0.updating(isRead: true) }
             },
+            reply: { item, _ in
+                setRead(true, for: item.id)
+                return true
+            },
             refresh: {}
         )
     }

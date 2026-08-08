@@ -139,6 +139,41 @@ extension MobileShellComposite {
         await setNotificationFeedItemReadState(item, isRead: false)
     }
 
+    /// Sends a reply to the exact terminal that emitted a feed notification.
+    ///
+    /// The action keeps the current tab and navigation unchanged. Notifications
+    /// without a live terminal target fail closed instead of sending to the
+    /// currently selected terminal.
+    /// - Parameters:
+    ///   - item: The immutable notification carrying the Mac and surface target.
+    ///   - text: The non-empty reply to paste and submit.
+    /// - Returns: `true` after the owning Mac acknowledges the terminal input.
+    public func replyToNotificationFeedItem(
+        _ item: MobileNotificationFeedItem,
+        text: String
+    ) async -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              item.connectionStatus == .connected,
+              let surfaceID = item.remoteSurfaceID,
+              let workspaceID = workspaceID(
+                  matchingRemoteWorkspaceID: item.remoteWorkspaceID,
+                  macDeviceID: item.macDeviceID
+              ) ?? (item.retargetsToLiveSurfaceOwner
+                  ? workspaceID(
+                      containingSurfaceID: surfaceID,
+                      macDeviceID: item.macDeviceID
+                  )
+                  : nil) else {
+            return false
+        }
+        return await sendTerminalInput(
+            trimmed + "\r",
+            workspaceID: workspaceID,
+            terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
+        )
+    }
+
     private func setNotificationFeedItemReadState(
         _ item: MobileNotificationFeedItem,
         isRead: Bool
