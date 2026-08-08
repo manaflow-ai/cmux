@@ -18,6 +18,18 @@ case "${0##*/}" in
         *) shift ;;
       esac
     done
+    if [ "$fd_filter" = "txt" ] \
+      && [ -n "$pid_filter" ] \
+      && [ -n "${LEASE_RELEASE_READY_FIFO:-}" ] \
+      && [ -n "${CMUX_FAKE_LSOF_TXT_COUNTER:-}" ] \
+      && [ -n "${CMUX_FAKE_LSOF_READY_AFTER_TXT_CALLS:-}" ]; then
+      txt_call_count="$(< "$CMUX_FAKE_LSOF_TXT_COUNTER")"
+      txt_call_count=$((txt_call_count + 1))
+      printf '%s\n' "$txt_call_count" > "$CMUX_FAKE_LSOF_TXT_COUNTER"
+      if [ "$txt_call_count" -eq "$CMUX_FAKE_LSOF_READY_AFTER_TXT_CALLS" ]; then
+        printf 'ready\n' > "$LEASE_RELEASE_READY_FIFO"
+      fi
+    fi
     found=0
     while IFS='|' read -r state_pid state_executable; do
       [ -n "$state_pid" ] || continue
@@ -28,10 +40,11 @@ case "${0##*/}" in
         continue
       fi
       if [ -n "$path_filter" ]; then
-        if [ "$fd_filter" != "9" ]; then
-          continue
-        fi
-        printf 'p%s\nf9\naw\nn%s\n' "$state_pid" "$path_filter"
+        case "$fd_filter" in
+          9) printf 'p%s\nf9\naw\nn%s\n' "$state_pid" "$path_filter" ;;
+          10) printf 'p%s\nf10\nau\nn%s\n' "$state_pid" "$path_filter" ;;
+          *) continue ;;
+        esac
       else
         printf 'p%s\nftxt\nn%s\nftxt\nn/usr/lib/dyld\n' \
           "$state_pid" "$state_executable"
@@ -99,7 +112,12 @@ case "${0##*/}" in
         fi
         shift
         exec /usr/bin/env \
-          -u GITHUB_REPOSITORY_ID -u CARGO_HOME -u RUSTUP_HOME "$@"
+          -u GITHUB_REPOSITORY_ID -u CARGO_HOME -u RUSTUP_HOME \
+          -u LEASE_RELEASE_READY_FIFO \
+          -u CMUX_FAKE_LSOF_TXT_COUNTER \
+          -u CMUX_FAKE_LSOF_READY_AFTER_TXT_CALLS \
+          -u CMUX_APP_HOST_EXIT_WAIT_ATTEMPTS \
+          "$@"
         ;;
       *) exec "$@" ;;
     esac
@@ -114,7 +132,12 @@ TMP_DIR="$(cd "$TMP_DIR" && pwd -P)"
 APP_HOST_PID=""
 APP_HOST_HOME=""
 OUTSIDE_HOME=""
+LEASE_RELEASE_HELPER_PID=""
 cleanup() {
+  if [ -n "$LEASE_RELEASE_HELPER_PID" ]; then
+    /bin/kill -TERM "$LEASE_RELEASE_HELPER_PID" 2>/dev/null || true
+    wait "$LEASE_RELEASE_HELPER_PID" 2>/dev/null || true
+  fi
   if [ -n "$APP_HOST_PID" ]; then
     /bin/kill -KILL "$APP_HOST_PID" 2>/dev/null || true
     wait "$APP_HOST_PID" 2>/dev/null || true
@@ -150,6 +173,7 @@ export CMUX_DERIVED_DATA_PATH="$DERIVED_DATA_PATH"
 export CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER=1
 export CMUX_APP_HOST_LSOF="$FAKE_LSOF"
 export CMUX_FAKE_LSOF_STATE="$FAKE_LSOF_STATE"
+export CMUX_APP_HOST_EXIT_WAIT_ATTEMPTS=5
 export GITHUB_WORKSPACE="$ROOT_DIR"
 
 prepare_scope() {
@@ -233,13 +257,31 @@ mkdir -p "$(dirname "$APP_HOST_EXECUTABLE")"
 /bin/bash -c 'trap "exit 0" TERM; while :; do /bin/sleep 0.1; done' &
 APP_HOST_PID=$!
 printf '%s|%s\n' "$APP_HOST_PID" "$APP_HOST_EXECUTABLE" > "$FAKE_LSOF_STATE"
-printf 'version=2\nkey=%s\npid=%s\nexecutable=%s\nreceipt_fd=9\n' \
-  "$CMUX_APP_HOST_KEY" "$APP_HOST_PID" "$APP_HOST_EXECUTABLE" \
+APP_HOST_LEASE="$CMUX_APP_HOST_RECEIPT_DIR/app-host-attempt-1-$APP_HOST_PID.lease"
+: > "$APP_HOST_LEASE"
+chmod 600 "$APP_HOST_LEASE"
+printf 'version=3\nkey=%s\npid=%s\nexecutable=%s\nreceipt_fd=9\nlease=%s\nlease_fd=10\n' \
+  "$CMUX_APP_HOST_KEY" "$APP_HOST_PID" "$APP_HOST_EXECUTABLE" "$APP_HOST_LEASE" \
   > "$CMUX_APP_HOST_RECEIPT_DIR/app-host-$APP_HOST_PID.receipt"
+
+LEASE_RELEASE_READY_FIFO="$TMP_DIR/lease-release-ready.fifo"
+CMUX_FAKE_LSOF_TXT_COUNTER="$TMP_DIR/lease-release-lsof-count"
+mkfifo "$LEASE_RELEASE_READY_FIFO"
+printf '0\n' > "$CMUX_FAKE_LSOF_TXT_COUNTER"
+export LEASE_RELEASE_READY_FIFO
+export CMUX_FAKE_LSOF_TXT_COUNTER
+export CMUX_FAKE_LSOF_READY_AFTER_TXT_CALLS=3
 
 # Model the supported split-account runner: the console user owns the exact
 # app-host targets but cannot modify the runner account's RUNNER_TEMP parent.
 chmod 0555 "$RUNNER_TEMP_DIR"
+(
+  if IFS= read -r readiness < "$LEASE_RELEASE_READY_FIFO" \
+    && [ "$readiness" = "ready" ]; then
+    /bin/kill -TERM "$APP_HOST_PID" 2>/dev/null || true
+  fi
+) &
+LEASE_RELEASE_HELPER_PID=$!
 if ! PATH="$FAKE_BIN:$PATH" \
   bash "$ROOT_DIR/scripts/ci/run-in-console-session.sh" \
     scripts/ci/cleanup-app-host-home.sh \
@@ -248,6 +290,8 @@ if ! PATH="$FAKE_BIN:$PATH" \
   echo "FAIL: cleanup rejected a trusted split-account scope"
   exit 1
 fi
+wait "$LEASE_RELEASE_HELPER_PID"
+LEASE_RELEASE_HELPER_PID=""
 chmod 0755 "$RUNNER_TEMP_DIR"
 wait "$APP_HOST_PID" 2>/dev/null || true
 APP_HOST_PID=""
