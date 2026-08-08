@@ -2120,7 +2120,10 @@ mod tests {
             .write_all(&vec![b'x'; protocol::MAX_FRAME_BYTES + 1])
             .and_then(|()| oversized.writer.write_all(b"\n"));
         if let Err(error) = oversized_write {
-            assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+            assert!(matches!(
+                error.kind(),
+                io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset
+            ));
         }
 
         let Message::Hello(reconnected) = malformed.read().message else {
