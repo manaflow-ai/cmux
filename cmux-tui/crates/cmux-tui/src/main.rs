@@ -2173,6 +2173,18 @@ mod tests {
         mux.shutdown();
     }
 
+    #[test]
+    fn local_owner_event_dispatches_reload_to_the_shared_mutation_path() {
+        let applied = std::cell::Cell::new(false);
+
+        dispatch_local_owner_event(
+            &cmux_tui_core::MuxEvent::ConfigReloadRequested,
+            || applied.set(true),
+        );
+
+        assert!(applied.get());
+    }
+
     #[cfg(windows)]
     #[test]
     fn recovery_commands_identify_the_powershell_dialect() {
