@@ -2020,6 +2020,17 @@ mod tests {
         assert!(supported.contains("reset-state"), "{supported}");
         assert!(supported.contains("--state '/tmp/cmux state'"), "{supported}");
 
+        let main_supported = absent_socket_schema_recovery(
+            messages,
+            "main",
+            Some(state_root),
+            ResetStateRecoverySupport::Supported,
+        );
+        assert!(
+            main_supported.contains("cmux session main reset-state --state '/tmp/cmux state'"),
+            "{main_supported}"
+        );
+
         let unsupported = absent_socket_schema_recovery(
             messages,
             "future-session",
