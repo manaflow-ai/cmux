@@ -734,6 +734,31 @@ enum SchemaSocketOwner {
     Unverified,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResetStateRecoverySupport {
+    Supported,
+    #[cfg_attr(
+        any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"),
+        allow(dead_code)
+    )]
+    Unsupported,
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+fn reset_state_recovery_support() -> ResetStateRecoverySupport {
+    ResetStateRecoverySupport::Supported
+}
+
+#[cfg(not(any(
+    target_os = "ios",
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "android"
+)))]
+fn reset_state_recovery_support() -> ResetStateRecoverySupport {
+    ResetStateRecoverySupport::Unsupported
+}
+
 fn schema_socket_owner(
     socket_path: &Path,
     expected_session: &str,
@@ -801,6 +826,7 @@ fn workspace_schema_startup_error(
     error: anyhow::Error,
     session: &str,
     socket_path: &Path,
+    state_root: Option<&Path>,
 ) -> anyhow::Error {
     let Some(schema) = error.downcast_ref::<cmux_tui_core::UnsupportedWorkspaceRegistrySchema>()
     else {
@@ -826,7 +852,12 @@ fn workspace_schema_startup_error(
             );
             format!("{}\n  {stop_command}", messages.stop_newer_server)
         }
-        SchemaSocketOwner::Absent => messages.no_server_listening.to_string(),
+        SchemaSocketOwner::Absent => absent_socket_schema_recovery(
+            messages,
+            session,
+            state_root,
+            reset_state_recovery_support(),
+        ),
         SchemaSocketOwner::ForcedHandoffUnsupported => {
             messages.forced_handoff_unsupported.to_string()
         }
@@ -846,6 +877,48 @@ fn workspace_schema_startup_error(
         messages.start_separate_session,
         separate_command,
     ))
+}
+
+fn absent_socket_schema_recovery(
+    messages: &localization::StartupMessages,
+    session: &str,
+    state_root: Option<&Path>,
+    support: ResetStateRecoverySupport,
+) -> String {
+    match support {
+        ResetStateRecoverySupport::Supported => {
+            let reset_command = session_reset_state_command(session, state_root);
+            format!(
+                "{}\n{}\n  {}",
+                messages.no_server_listening, messages.reset_saved_state, reset_command
+            )
+        }
+        ResetStateRecoverySupport::Unsupported => {
+            format!("{}\n{}", messages.no_server_listening, messages.reset_saved_state_unsupported)
+        }
+    }
+}
+
+fn session_reset_state_command(session: &str, state_root: Option<&Path>) -> String {
+    let selector = session_selector_for_command(session);
+    let mut command =
+        format!("{}cmux session {} reset-state", shell_prompt(), shell_quote(&selector));
+    if let Some(state_root) = state_root {
+        command.push_str(" --state ");
+        command.push_str(&shell_quote(&state_root.display().to_string()));
+    }
+    command
+}
+
+fn session_selector_for_command(session: &str) -> String {
+    match cmux_tui_core::resource::Selector::parse(session) {
+        Ok(cmux_tui_core::resource::Selector::Name(name))
+            if name == session && !session.starts_with('-') =>
+        {
+            session.to_string()
+        }
+        _ => format!("name:{session}"),
+    }
 }
 
 impl Args {
@@ -1440,7 +1513,14 @@ fn run_server(
                 unreachable!("conflicting provider authority inputs rejected above")
             }
         }
-        .map_err(|error| workspace_schema_startup_error(error, &args.session, &socket_path))?;
+        .map_err(|error| {
+            workspace_schema_startup_error(
+                error,
+                &args.session,
+                &socket_path,
+                state_root.as_deref(),
+            )
+        })?;
     // Headless sessions have no host terminal to query, so seed the mux from
     // Ghostty's config before any protocol client can create a surface.
     mux.seed_default_colors_if_no_durable_override(config.terminal_defaults);
@@ -1940,6 +2020,42 @@ mod tests {
     fn recovery_commands_identify_the_powershell_dialect() {
         assert_eq!(shell_prompt(), "PowerShell> ");
         assert_eq!(shell_quote(r"C:\future session.sock"), r"'C:\future session.sock'");
+    }
+
+    #[test]
+    fn absent_socket_recovery_only_shows_reset_when_supported() {
+        let messages = &localization::catalog_for_locale("en_US.UTF-8").startup;
+        let state_root = Path::new("/tmp/cmux state");
+        let supported = absent_socket_schema_recovery(
+            messages,
+            "future-session",
+            Some(state_root),
+            ResetStateRecoverySupport::Supported,
+        );
+        assert!(supported.contains("no server is listening on this socket"), "{supported}");
+        assert!(supported.contains("reset-state"), "{supported}");
+        assert!(supported.contains("--state '/tmp/cmux state'"), "{supported}");
+
+        let main_supported = absent_socket_schema_recovery(
+            messages,
+            "main",
+            Some(state_root),
+            ResetStateRecoverySupport::Supported,
+        );
+        assert!(
+            main_supported.contains("cmux session 'main' reset-state --state '/tmp/cmux state'"),
+            "{main_supported}"
+        );
+
+        let unsupported = absent_socket_schema_recovery(
+            messages,
+            "future-session",
+            Some(state_root),
+            ResetStateRecoverySupport::Unsupported,
+        );
+        assert!(unsupported.contains("no server is listening on this socket"), "{unsupported}");
+        assert!(unsupported.contains("scoped saved-state reset is not supported"), "{unsupported}");
+        assert!(!unsupported.contains("reset-state"), "{unsupported}");
     }
 
     #[test]
