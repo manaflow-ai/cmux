@@ -151,6 +151,35 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
              )
            )
          );
+         CREATE TABLE IF NOT EXISTS journal_agent_states (
+           agent_node_id TEXT PRIMARY KEY NOT NULL,
+           agent_tree_id TEXT NOT NULL,
+           terminal_id TEXT NOT NULL,
+           provider TEXT NOT NULL,
+           state TEXT NOT NULL CHECK(state IN (
+             'working', 'blocked', 'idle', 'done', 'interrupted', 'unknown'
+           )),
+           source_session TEXT,
+           parent_agent_node_id TEXT,
+           agent_relation TEXT NOT NULL,
+           agent_identity_quality TEXT NOT NULL,
+           updated_at_ms INTEGER NOT NULL CHECK(updated_at_ms >= 0),
+           result_json TEXT NOT NULL,
+           committed_sequence INTEGER NOT NULL CHECK(committed_sequence >= 0),
+           CHECK (
+             json_valid(result_json)
+             AND COALESCE(json_extract(result_json, '$.format') = 'cmux.journal-agent-state.v1', 0)
+             AND COALESCE(json_extract(result_json, '$.agent_tree_id') = agent_tree_id, 0)
+             AND COALESCE(json_extract(result_json, '$.agent_node_id') = agent_node_id, 0)
+             AND COALESCE(json_extract(result_json, '$.terminal_id') = terminal_id, 0)
+             AND COALESCE(json_extract(result_json, '$.provider') = provider, 0)
+             AND COALESCE(json_extract(result_json, '$.state') = state, 0)
+           )
+         );
+         CREATE INDEX IF NOT EXISTS journal_agent_states_by_tree
+           ON journal_agent_states(agent_tree_id, agent_node_id);
+         CREATE INDEX IF NOT EXISTS journal_agent_states_by_terminal_sequence
+           ON journal_agent_states(terminal_id, committed_sequence DESC);
          DROP TRIGGER IF EXISTS resource_agent_projection_terminal_tombstone;
          CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
            ON resource_mutations(operation, committed_revision DESC);

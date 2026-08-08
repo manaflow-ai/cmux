@@ -101,6 +101,7 @@ fn agent_state(value: &str) -> anyhow::Result<AgentState> {
         "blocked" => Ok(AgentState::Blocked),
         "idle" => Ok(AgentState::Idle),
         "done" => Ok(AgentState::Done),
+        "interrupted" => Ok(AgentState::Interrupted),
         "unknown" => Ok(AgentState::Unknown),
         other => anyhow::bail!("invalid durable agent state {other:?}"),
     }
@@ -187,6 +188,46 @@ mod tests {
         assert_eq!(restored.notification_ledger[0].terminal_id.as_ref(), Some(&terminal));
         assert_eq!(restored.notification_ledger[0].surface, Some(runtime.id));
         assert!(restored.terminal_notifications[&terminal].unread);
+        mux.shutdown();
+    }
+
+    #[test]
+    fn interrupted_agent_projection_restores_to_runtime_record() {
+        let terminal = TerminalPublicId::parse("term_00000000000000000000000000000004").unwrap();
+        let mux = Mux::new_for_test("interrupted-agent-restore", SurfaceOptions::default());
+        let runtime = Surface::exited_terminal_placeholder_with_terminal_public_id(
+            78,
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+            TerminalHostIdentity {
+                terminal_id: "host-4".into(),
+                incarnation: "incarnation-4".into(),
+            },
+            terminal.clone(),
+        )
+        .unwrap();
+        let projections = RegistryPublicProjections {
+            notifications: Vec::new(),
+            agents: vec![RegistryAgentProjection {
+                id: AgentPublicId::parse("agent_00000000000000000000000000000004").unwrap(),
+                terminal_id: terminal.clone(),
+                state: "interrupted".into(),
+                source: "hook".into(),
+                updated_at_ms: 4,
+                source_session: Some("pi-real-session".into()),
+            }],
+            terminal_defaults: None,
+            frontend_projections: Vec::new(),
+        };
+        let mut state = empty_state();
+        state.terminal_catalog.insert(terminal.clone(), runtime.clone());
+        state
+            .terminal_catalog_by_runtime
+            .insert(runtime.terminal_runtime_id().unwrap(), terminal.clone());
+        let restored = restore_public_projections(&state, projections).unwrap();
+        let record = restored.agent_records.get(&terminal).unwrap();
+        assert_eq!(record.state, AgentState::Interrupted);
+        assert_eq!(record.session.as_deref(), Some("pi-real-session"));
         mux.shutdown();
     }
 

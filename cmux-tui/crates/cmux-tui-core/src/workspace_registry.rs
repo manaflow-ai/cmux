@@ -91,7 +91,9 @@ pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
 // one branch. Version 12 scopes receipts by origin. Version 13 adds immutable
 // binary content to journal rows. Version 14 gives resource API frontend
 // projections one owned envelope instead of storing anonymous projection JSON.
-const SCHEMA_VERSION: i64 = 14;
+// Version 15 adds canonical journal-derived agent state beside the
+// terminal-current compatibility projection.
+const SCHEMA_VERSION: i64 = 15;
 pub(crate) const RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION: u32 = 2;
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
@@ -521,7 +523,7 @@ impl WorkspaceRegistry {
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
-            Some(9..=13) => {
+            Some(9..=14) => {
                 let tx = connection.unchecked_transaction()?;
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;
