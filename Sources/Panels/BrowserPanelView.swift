@@ -7164,7 +7164,6 @@ struct WebViewRepresentable: NSViewRepresentable {
         var installedConstraints = false
         if anchorView.superview !== host {
             anchorView.removeFromSuperview()
-            anchorView.frame = host.bounds
             anchorView.translatesAutoresizingMaskIntoConstraints = false
             host.addSubview(anchorView)
             NSLayoutConstraint.activate([
@@ -7175,7 +7174,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             ])
             installedConstraints = true
         } else if anchorView.translatesAutoresizingMaskIntoConstraints {
-            anchorView.frame = host.bounds
             anchorView.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
                 anchorView.topAnchor.constraint(equalTo: host.topAnchor),
@@ -7185,10 +7183,14 @@ struct WebViewRepresentable: NSViewRepresentable {
             ])
             installedConstraints = true
         }
-        if installedConstraints {
-            // updateNSView can run inside SwiftUI's render transaction. Forcing the
-            // hosting view to lay out here re-enters that transaction; seed usable
-            // geometry above, then leave the real constraint pass to AppKit.
+        let didPublishGeometrySnapshot = anchorView.frame != host.bounds
+        if didPublishGeometrySnapshot {
+            anchorView.frame = host.bounds
+        }
+        if installedConstraints || didPublishGeometrySnapshot {
+            // updateNSView and the geometry fallback can run before SwiftUI's host
+            // finishes its render transaction. Publish current bounds for portal
+            // synchronization, then leave the real constraint pass to AppKit.
             host.needsLayout = true
         }
     }
