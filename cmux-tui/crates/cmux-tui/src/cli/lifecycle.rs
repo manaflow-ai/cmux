@@ -1,10 +1,12 @@
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::time::Duration;
 
 use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
+
+const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 
 #[derive(Clone, Debug)]
 pub(super) struct ServerPlan {
@@ -229,6 +231,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ExchangeError {
     Transport,
+    Timeout,
     Closed,
     InvalidResponse,
     Rejected,
@@ -242,14 +245,9 @@ fn exchange(
         .and_then(|()| connection.get_mut().flush())
         .map_err(|_| ExchangeError::Transport)?;
     loop {
-        let mut line = String::new();
-        match connection.read_line(&mut line) {
-            Ok(0) => return Err(ExchangeError::Closed),
-            Ok(_) => {}
-            Err(_) => return Err(ExchangeError::Transport),
-        }
-        let response: Value =
-            serde_json::from_str(&line).map_err(|_| ExchangeError::InvalidResponse)?;
+        let Some(response) = read_response(connection)? else {
+            return Err(ExchangeError::Closed);
+        };
         if response.get("event").is_some() || response["id"] != request["id"] {
             continue;
         }
@@ -260,19 +258,48 @@ fn exchange(
     }
 }
 
+fn read_response(
+    connection: &mut BufReader<Box<dyn transport::Stream>>,
+) -> Result<Option<Value>, ExchangeError> {
+    let mut bytes = Vec::new();
+    match connection
+        .by_ref()
+        .take((RESPONSE_LIMIT + 2) as u64)
+        .read_until(b'\n', &mut bytes)
+    {
+        Ok(0) => return Ok(None),
+        Ok(_) => {}
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+            ) =>
+        {
+            return Err(ExchangeError::Timeout);
+        }
+        Err(_) => return Err(ExchangeError::Transport),
+    }
+    if bytes.len() > RESPONSE_LIMIT || !bytes.ends_with(b"\n") {
+        return Err(ExchangeError::InvalidResponse);
+    }
+    bytes.pop();
+    if bytes.last() == Some(&b'\r') {
+        bytes.pop();
+    }
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .map_err(|_| ExchangeError::InvalidResponse)
+}
+
 fn is_absent(error: &std::io::Error) -> bool {
     matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
 }
 
 fn wait_for_close(connection: &mut BufReader<Box<dyn transport::Stream>>) -> Result<(), String> {
     loop {
-        let mut trailing = String::new();
-        match connection.read_line(&mut trailing) {
-            Ok(0) => return Ok(()),
-            Ok(_) => {
-                let event: Value = serde_json::from_str(&trailing).map_err(|_| {
-                    crate::localization::catalog().local_server.unexpected_after_stop.to_string()
-                })?;
+        match read_response(connection) {
+            Ok(None) => return Ok(()),
+            Ok(Some(event)) => {
                 if event.get("event").is_some() {
                     continue;
                 }
@@ -283,10 +310,7 @@ fn wait_for_close(connection: &mut BufReader<Box<dyn transport::Stream>>) -> Res
             }
             Err(error) => {
                 let messages = &crate::localization::catalog().local_server;
-                return Err(if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
-                ) {
+                return Err(if error == ExchangeError::Timeout {
                     messages.stop_timeout.to_string()
                 } else {
                     messages.communication_failed.to_string()
