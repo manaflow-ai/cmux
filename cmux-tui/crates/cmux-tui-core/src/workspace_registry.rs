@@ -4616,10 +4616,7 @@ fn inject_terminal_host_root_replacement_before_lock(path: &Path) -> anyhow::Res
     fs::rename(&target, &moved)
         .with_context(|| format!("move injected terminal-host root {}", target.display()))?;
     std::os::unix::fs::symlink(&outside, &target).with_context(|| {
-        format!(
-            "replace injected terminal-host root {} with symbolic link",
-            target.display()
-        )
+        format!("replace injected terminal-host root {} with symbolic link", target.display())
     })?;
     Ok(())
 }

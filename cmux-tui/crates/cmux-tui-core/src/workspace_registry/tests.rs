@@ -827,11 +827,8 @@ fn reset_terminal_host_root_symlink_swap_does_not_write_outside_state() {
     fs::write(host_root.join("stale-sidecar"), b"stale").unwrap();
     let moved_host_root = host_root.with_file_name("terminal-host-root-before-lock");
     let preview = resetter.preview(session).unwrap();
-    *RESET_REPLACE_TERMINAL_HOST_ROOT_BEFORE_LOCK.lock().unwrap() = Some((
-        host_root.clone(),
-        moved_host_root.clone(),
-        outside.clone(),
-    ));
+    *RESET_REPLACE_TERMINAL_HOST_ROOT_BEFORE_LOCK.lock().unwrap() =
+        Some((host_root.clone(), moved_host_root.clone(), outside.clone()));
 
     let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
     *RESET_REPLACE_TERMINAL_HOST_ROOT_BEFORE_LOCK.lock().unwrap() = None;
