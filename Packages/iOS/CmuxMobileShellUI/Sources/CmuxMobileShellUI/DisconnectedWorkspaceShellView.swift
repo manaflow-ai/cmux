@@ -135,7 +135,7 @@ struct DisconnectedWorkspaceShellView: View {
 
     @ViewBuilder
     private var content: some View {
-        if !savedComputers.isEmpty {
+        if !savedComputers.isEmpty || !(store?.hiddenComputers.isEmpty ?? true) {
             savedComputersList(savedComputers)
         } else {
             emptyState
@@ -143,28 +143,29 @@ struct DisconnectedWorkspaceShellView: View {
     }
 
     /// The returning-user state: a real list of the saved computers, one row per
-    /// logical Mac, with presence, last-seen, tap-to-reconnect, and
-    /// swipe-to-hide — the same row component as the Computers screen.
+    /// logical Mac, with presence, last-seen, tap-to-reconnect, and an inline
+    /// visibility switch. Hidden Macs stay in the same section with switches off.
     /// Snapshot boundary (see AGENTS.md): rows receive immutable
     /// ``MacComputerSnapshot`` values and closures only, never the store.
     private func savedComputersList(_ computers: [MacComputerSnapshot]) -> some View {
         List {
             Section {
-                ForEach(computers) { computer in
-                    MacComputerRow(
-                        computer: computer,
-                        hide: { _ in hideComputer(computer) },
-                        style: .reconnect,
-                        connect: { _ in connect(to: computer) },
-                        isConnecting: connectingMacID == computer.id
-                    )
-                }
+                ComputerVisibilityRows(
+                    visibleComputers: computers,
+                    hiddenComputers: store?.hiddenComputers ?? [],
+                    style: .reconnect,
+                    connect: connect,
+                    connectingComputerID: connectingMacID,
+                    mutatingComputerIDs: store?.computerVisibilityMutationIDs ?? [],
+                    hide: hideComputer,
+                    unhide: unhideComputer
+                )
             } header: {
                 Text(L10n.string("mobile.devices.savedTitle", defaultValue: "Your Computers"))
             } footer: {
                 Text(L10n.string(
                     "mobile.disconnected.listFooter",
-                    defaultValue: "Tap a computer to reconnect. Swipe left to hide one."
+                    defaultValue: "Tap a shown computer to reconnect. Use its switch to show or hide it on this iPhone."
                 ))
             }
             Section {
@@ -276,12 +277,17 @@ struct DisconnectedWorkspaceShellView: View {
     }
 
     private func hideComputer(_ computer: MacComputerSnapshot) {
-        Task {
-            await store?.hideStoredPairedMacEntries(
-                representativeID: computer.id,
-                aliasIDs: computer.aliasIDs
-            )
-        }
+        store?.requestHideStoredPairedMacEntries(
+            representativeID: computer.id,
+            aliasIDs: computer.aliasIDs
+        )
+    }
+
+    private func unhideComputer(_ computer: MobileHiddenComputer) {
+        store?.requestUnhideMacDeviceID(
+            computer.macDeviceID,
+            instanceTag: computer.instanceTag
+        )
     }
     #else
     /// Saved Macs restored/known on this device (macOS fallback shell).

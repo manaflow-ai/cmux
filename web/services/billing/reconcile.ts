@@ -5,6 +5,10 @@ import type Stripe from "stripe";
 import { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
 import { captureCoderouterError } from "../errors";
+import {
+  revokeRouteTokensForTeam,
+  revokeRouteTokensForUser,
+} from "../coderouter/repository";
 import { applySubscriptionUpdate } from "./purchase";
 import { stripe } from "./stripe";
 
@@ -69,8 +73,7 @@ async function reconcileStripeSubscriptionsLocked(
   const list = dependencies.list ?? listSubscriptionSnapshots;
   const retrieve = dependencies.retrieve ??
     ((id) => stripe().subscriptions.retrieve(id));
-  const apply = dependencies.apply ?? ((subscription) =>
-    applySubscriptionUpdate(subscription));
+  const apply = dependencies.apply ?? applySubscriptionUpdateAndRevokeRoutes;
   const markChecked = dependencies.markChecked ?? markSubscriptionsChecked;
   const captureError = dependencies.captureError ?? captureCoderouterError;
   const rows = await list(limit + 1);
@@ -120,6 +123,20 @@ async function reconcileStripeSubscriptionsLocked(
     message: "Stripe subscription reconciliation completed",
     data: result,
   });
+  return result;
+}
+
+async function applySubscriptionUpdateAndRevokeRoutes(
+  subscription: Stripe.Subscription,
+) {
+  const result = await applySubscriptionUpdate(subscription);
+  if (!("skipped" in result) && !result.isActive) {
+    if (result.scope === "user") {
+      await revokeRouteTokensForUser(result.stackUserId);
+    } else {
+      await revokeRouteTokensForTeam(result.stackTeamId);
+    }
+  }
   return result;
 }
 

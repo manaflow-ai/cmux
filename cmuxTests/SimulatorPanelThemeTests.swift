@@ -217,6 +217,22 @@ struct CanvasSimulatorPointerOwnershipTests {
         #expect(presentation.isFocused)
     }
 
+    @Test("Hosted canvas presentation carries attention color changes")
+    func hostedPresentationCarriesAttentionColor() {
+        let initialColor = WorkspaceAttentionColor(configuredHex: "#FF69B4")
+        let updatedColor = WorkspaceAttentionColor(configuredHex: "#33AA55")
+        let presentation = CanvasHostedPanelPresentation(
+            isFocused: false,
+            allowsPointerInput: true,
+            pointerInputOwner: NSView(frame: .zero),
+            workspaceAttentionColor: initialColor
+        )
+
+        #expect(presentation.workspaceAttentionColor == initialColor)
+        presentation.setWorkspaceAttentionColor(updatedColor)
+        #expect(presentation.workspaceAttentionColor == updatedColor)
+    }
+
     @Test("An overlapping pointer entry belongs only to the frontmost pane")
     func frontmostPaneOwnsPointerEntry() throws {
         let bounds = CGRect(x: 0, y: 0, width: 300, height: 300)
