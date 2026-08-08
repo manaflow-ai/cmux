@@ -77,6 +77,8 @@ func decodesEveryNativeLayoutShape() throws {
 
     let snapshot = try JSONDecoder().decode(ResourceSnapshot.self, from: data)
     #expect(snapshot.workspaces.first?.name == "agents")
+    #expect(snapshot.screenCount(in: "ws_33333333333333333333333333333333") == 1)
+    #expect(snapshot.screenCount(in: "ws_missing") == 0)
     #expect(snapshot.screens.first?.layout.root.paneIDs.count == 2)
     guard case .viewport(let baseWidth, let columns) = snapshot.screens[0].layout.root else {
         Issue.record("viewport root was not decoded")

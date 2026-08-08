@@ -149,6 +149,10 @@ struct ResourceSnapshot: Decodable, Sendable {
         screensByWorkspaceID[workspaceID] ?? []
     }
 
+    func screenCount(in workspaceID: String) -> Int {
+        screensByWorkspaceID[workspaceID]?.count ?? 0
+    }
+
     func pane(_ id: String) -> PaneSnapshot? {
         panesByID[id]
     }
