@@ -377,6 +377,20 @@ fn uvx_spelling_server_stop_is_absent_idempotent_with_stable_output_modes() {
     fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("absent.sock");
 
+    let status = lifecycle_cli(&[
+        "--json",
+        "server",
+        "status",
+        "--session",
+        "absent",
+        "--socket",
+        socket.to_str().unwrap(),
+    ]);
+    assert_eq!(status.status.code(), Some(3));
+    let error: serde_json::Value = serde_json::from_slice(&status.stderr).unwrap();
+    assert_eq!(error["code"], "server.unavailable");
+    assert!(!error["message"].as_str().unwrap().contains(socket.to_str().unwrap()));
+
     // This is the binary-level spelling reached by `uvx cmux server stop`.
     let human = lifecycle_cli(&[
         "server",
@@ -417,6 +431,69 @@ fn uvx_spelling_server_stop_is_absent_idempotent_with_stable_output_modes() {
     assert_success(&quiet);
     assert!(quiet.stdout.is_empty());
     assert!(quiet.stderr.is_empty());
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn lifecycle_errors_do_not_expose_raw_server_failures() {
+    let dir = unique_temp_dir("server-lifecycle-error-privacy");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("owned.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let thread = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let mut request = String::new();
+        reader.read_line(&mut request).unwrap();
+        let identify: serde_json::Value = serde_json::from_str(&request).unwrap();
+        writeln!(
+            writer,
+            "{}",
+            serde_json::json!({
+                "id": identify["id"],
+                "ok": true,
+                "data": {
+                    "app": "cmux-tui",
+                    "session": "private",
+                    "pid": 4242,
+                    "generation": "generation-a",
+                    "capabilities": []
+                }
+            })
+        )
+        .unwrap();
+        request.clear();
+        reader.read_line(&mut request).unwrap();
+        let reload: serde_json::Value = serde_json::from_str(&request).unwrap();
+        assert_eq!(reload["cmd"], "reload-config");
+        writeln!(
+            writer,
+            "{}",
+            serde_json::json!({
+                "id": reload["id"],
+                "ok": false,
+                "error": "secret token and /private/internal/config/path"
+            })
+        )
+        .unwrap();
+    });
+
+    let output = lifecycle_cli(&[
+        "server",
+        "reload-config",
+        "--session",
+        "private",
+        "--socket",
+        socket.to_str().unwrap(),
+    ]);
+    thread.join().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(error.contains("rejected the configuration reload"), "{error}");
+    assert!(!error.contains("secret token"), "{error}");
+    assert!(!error.contains("/private/internal"), "{error}");
     fs::remove_dir_all(dir).unwrap();
 }
 
@@ -511,7 +588,7 @@ fn named_server_status_stop_alias_and_durable_restart_preserve_topology() {
     let state = dir.join("state");
     let spawn = || {
         Command::new(bin())
-            .args(["server", "start", "--session", "durable", "--socket"])
+            .args(["--session", "durable", "server", "start", "--socket"])
             .arg(&socket)
             .arg("--state")
             .arg(&state)
@@ -550,8 +627,10 @@ fn named_server_status_stop_alias_and_durable_restart_preserve_topology() {
 
     let stop_alias = lifecycle_cli(&[
         "--quiet",
-        "session",
+        "--session",
         "durable",
+        "session",
+        "current",
         "stop",
         "--socket",
         socket.to_str().unwrap(),
