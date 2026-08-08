@@ -43,9 +43,29 @@ extension TerminalSurface {
                 guard !Task.isCancelled else { return }
                 guard let self else { return }
                 self.claudeCommandShim = shim
-                self.claudeCommandShimInstallCompleted = true
                 self.claudeCommandShimInstallTask = nil
                 self.claudeCommandShimCompletionTask = nil
+                self.claudeCommandShimDeadlineTask?.cancel()
+                self.claudeCommandShimDeadlineTask = nil
+                // The deadline may have already released spawn without the
+                // shim; the late result still serves future runtime creations.
+                guard !self.claudeCommandShimInstallCompleted else { return }
+                self.claudeCommandShimInstallCompleted = true
+                let source = self.claudeCommandShimPendingCreationSource ?? source
+                self.claudeCommandShimPendingCreationSource = nil
+                self.resumeSurfaceCreationAfterClaudeCommandShimReady(view: view, source: source)
+            }
+            // Bounded, cancellable deadline (injected clock): the wrapper shim
+            // is an optional PATH convenience, and a hung install (disk
+            // pressure, starved queues) must never starve PTY spawn (#9769).
+            let deadline = claudeCommandShimInstallDeadline
+            let clock = claudeCommandShimInstallDeadlineClock
+            claudeCommandShimDeadlineTask = Task { @MainActor [weak self, weak view] in
+                try? await clock.sleep(for: deadline, tolerance: nil)
+                guard !Task.isCancelled else { return }
+                guard let self, !self.claudeCommandShimInstallCompleted else { return }
+                self.claudeCommandShimInstallCompleted = true
+                self.claudeCommandShimDeadlineTask = nil
                 let source = self.claudeCommandShimPendingCreationSource ?? source
                 self.claudeCommandShimPendingCreationSource = nil
                 self.resumeSurfaceCreationAfterClaudeCommandShimReady(view: view, source: source)
@@ -61,7 +81,18 @@ extension TerminalSurface {
         claudeCommandShimCompletionTask = nil
         claudeCommandShimInstallTask?.cancel()
         claudeCommandShimInstallTask = nil
+        claudeCommandShimDeadlineTask?.cancel()
+        claudeCommandShimDeadlineTask = nil
         claudeCommandShimPendingCreationSource = nil
+        // A deadline-released spawn marks the install completed without a
+        // shim so that one spawn is not starved. Once the in-flight install
+        // is cancelled, that state must not become permanent: reopen the
+        // gate so the next runtime creation (e.g. after an agent-hibernation
+        // resume) attempts a fresh install instead of running shim-less
+        // forever.
+        if claudeCommandShim == nil {
+            claudeCommandShimInstallCompleted = false
+        }
     }
 
     @MainActor
