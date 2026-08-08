@@ -326,6 +326,10 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+      - name: Ghostty VT cursor replay tests
+        working-directory: ghostty
+        run: '"$CMUX_ZIG" build test-lib-vt -Dtest-filter="Terminal vt restores cursor"'
+
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
