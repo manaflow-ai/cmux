@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import heapq
 import json
 import re
 import sys
@@ -323,7 +324,8 @@ def process_batches(
 
     batch_count = (len(selectors) + maximum_selectors - 1) // maximum_selectors
     batches: list[list[TestSelector]] = [[] for _ in range(batch_count)]
-    batch_weights = [0 for _ in range(batch_count)]
+    available_batches = [(0, index) for index in range(batch_count)]
+    heapq.heapify(available_batches)
     ordered = sorted(
         selectors,
         key=lambda selector: (
@@ -333,14 +335,11 @@ def process_batches(
         ),
     )
     for selector in ordered:
-        candidates = [
-            index
-            for index, batch in enumerate(batches)
-            if len(batch) < maximum_selectors
-        ]
-        batch_index = min(candidates, key=lambda index: (batch_weights[index], index))
+        batch_weight, batch_index = heapq.heappop(available_batches)
         batches[batch_index].append(selector)
-        batch_weights[batch_index] += selector.weight
+        batch_weight += selector.weight
+        if len(batches[batch_index]) < maximum_selectors:
+            heapq.heappush(available_batches, (batch_weight, batch_index))
 
     return [
         sorted(batch, key=lambda selector: selector.identifier)
@@ -408,11 +407,11 @@ def main() -> int:
     if args.batch_output_directory is not None:
         batches = process_batches(selected, args.batch_size)
         args.batch_output_directory.mkdir(parents=True, exist_ok=True)
-        existing_batches = sorted(args.batch_output_directory.glob("batch-*.args"))
-        if existing_batches:
+        existing_batch = next(args.batch_output_directory.glob("batch-*.args"), None)
+        if existing_batch is not None:
             raise SystemExit(
                 "Batch output directory already contains process batches: "
-                f"{existing_batches[0]}"
+                f"{existing_batch}"
             )
         for batch_index, batch in enumerate(batches, start=1):
             batch_path = args.batch_output_directory / f"batch-{batch_index:03d}.args"

@@ -120,6 +120,23 @@ final class {name}: XCTestCase {{
             print(f"FAIL: batched shard helper exited {result.returncode}")
             return 1
 
+        invalid_size_command = [*batch_command]
+        invalid_size_command[invalid_size_command.index("--batch-size") + 1] = "0"
+        invalid_size = subprocess.run(
+            invalid_size_command,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if (
+            invalid_size.returncode == 0
+            or "--batch-size must be >= 1" not in invalid_size.stderr
+        ):
+            print(invalid_size.stdout, end="")
+            print(invalid_size.stderr, end="", file=sys.stderr)
+            print("FAIL: zero batch size must be rejected")
+            return 1
+
         batches = [
             path.read_text(encoding="utf-8").splitlines()
             for path in sorted(output_directory.glob("batch-*.args"))
