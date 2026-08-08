@@ -2144,6 +2144,29 @@ struct PtyChild {
 }
 
 #[cfg(unix)]
+struct TestTempDir(PathBuf);
+
+#[cfg(unix)]
+impl TestTempDir {
+    fn create(name: &str) -> Self {
+        let path = unique_temp_dir(name);
+        fs::create_dir_all(&path).unwrap();
+        Self(path)
+    }
+
+    fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+#[cfg(unix)]
+impl Drop for TestTempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+#[cfg(unix)]
 impl PtyChild {
     fn start(args: &[&str]) -> Self {
         Self::start_with_env(args, &[])
@@ -2290,9 +2313,8 @@ fn plain_launch_attaches_to_existing_local_session() {
 #[cfg(unix)]
 #[test]
 fn session_shutdown_exits_an_interactive_local_owner() {
-    let dir = unique_temp_dir("interactive-session-shutdown");
-    fs::create_dir_all(&dir).unwrap();
-    let socket = dir.join("mux.sock");
+    let dir = TestTempDir::create("interactive-session-shutdown");
+    let socket = dir.path().join("mux.sock");
     let socket_arg = socket.to_str().unwrap();
     let mut owner = PtyChild::start(&[
         "--session",
@@ -2335,7 +2357,8 @@ fn session_shutdown_exits_an_interactive_local_owner() {
 
     let exit_deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        if owner.child.try_wait().unwrap().is_some() {
+        if let Some(status) = owner.child.try_wait().unwrap() {
+            assert!(status.success(), "interactive owner exited unsuccessfully: {status}");
             break;
         }
         assert!(
@@ -2344,7 +2367,6 @@ fn session_shutdown_exits_an_interactive_local_owner() {
         );
         std::thread::sleep(Duration::from_millis(25));
     }
-    fs::remove_dir_all(dir).unwrap();
 }
 
 #[cfg(unix)]

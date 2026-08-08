@@ -16284,6 +16284,27 @@ mod tests {
         assert!(error.to_string().contains("handoff is already in progress"));
     }
 
+    #[test]
+    fn daemon_handoff_rejects_clients_registered_after_the_fence() {
+        let mux = test_mux();
+        let requester_writer = test_writer();
+        let requester =
+            mux.control_clients.register(ClientTransport::Unix, requester_writer.clone());
+        mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
+
+        let late_writer = test_writer();
+        let late = mux.control_clients.register(ClientTransport::Unix, late_writer.clone());
+
+        assert!(!mux.control_clients.contains(late));
+        assert!(!late_writer.is_open());
+
+        mux.cancel_daemon_handoff();
+        let retry_writer = test_writer();
+        let retry = mux.control_clients.register(ClientTransport::Unix, retry_writer.clone());
+        assert!(mux.control_clients.contains(retry));
+        assert!(retry_writer.is_open());
+    }
+
     #[cfg(unix)]
     #[test]
     fn pane_and_screen_close_detach_views_without_closing_terminal_hosts() {

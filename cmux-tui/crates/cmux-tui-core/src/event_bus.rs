@@ -679,6 +679,18 @@ mod tests {
     }
 
     #[test]
+    fn config_reload_subscription_keeps_a_pending_reload_when_the_mux_becomes_empty() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe_config_reload();
+
+        broadcaster.emit(MuxEvent::ConfigReloadRequested);
+        broadcaster.emit(MuxEvent::Empty);
+
+        assert!(matches!(events.recv().unwrap(), MuxEvent::ConfigReloadRequested));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
     fn empty_preempts_a_full_mailbox() {
         let broadcaster = MuxEventBroadcaster::default();
         let events = broadcaster.subscribe();
