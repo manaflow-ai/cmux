@@ -616,11 +616,16 @@ export const stripeSubscriptions = pgTable(
     raw: jsonb("raw").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
   },
   (table) => [
     index("stripe_subscriptions_customer_id_idx").on(table.customerId),
     index("stripe_subscriptions_stack_user_id_idx").on(table.stackUserId),
     index("stripe_subscriptions_stack_team_id_idx").on(table.stackTeamId),
+    index("stripe_subscriptions_reconcile_cursor_idx").on(
+      table.lastReconciledAt.asc().nullsFirst(),
+      table.id.asc(),
+    ),
   ],
 );
 
@@ -973,6 +978,12 @@ export const irohEndpointBindings = pgTable(
     index("iroh_endpoint_bindings_user_active_page_idx")
       .on(table.userId, table.id)
       .where(sql`${table.revokedAt} is null`),
+    index("iroh_endpoint_bindings_active_pairable_mac_scope_idx")
+      .on(table.userId, sql`lower(${table.tag})`, table.id)
+      .where(sql`${table.revokedAt} is null and ${table.platform} = 'mac' and ${table.pairingEnabled} = true`),
+    index("iroh_endpoint_bindings_active_ios_scope_idx")
+      .on(table.userId, table.id)
+      .where(sql`${table.revokedAt} is null and ${table.platform} = 'ios'`),
     index("iroh_endpoint_bindings_user_idx")
       .on(table.userId),
     index("iroh_endpoint_bindings_user_revoked_idx")
