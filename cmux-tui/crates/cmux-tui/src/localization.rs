@@ -888,6 +888,7 @@ pub(crate) struct StartupMessages {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct LocalServerMessages {
+    pub startup_lifecycle_usage: &'static str,
     pub root_remote_usage: &'static str,
     pub root_server_usage: &'static str,
     pub root_server_scope: &'static str,
@@ -999,6 +1000,7 @@ static ENGLISH: Catalog = Catalog {
         start_separate_session: "or start this build in a separate session:",
     },
     local_server: LocalServerMessages {
+        startup_lifecycle_usage: "  cmux server <ACTION>     Start, inspect, stop, or reload one local session\n  cmux remote connect <ROUTE>  Attach through an authenticated remote route\n  cmux remote ssh <HOST>       Bootstrap and attach over direct SSH\n  cmux remote forward <ROUTE> Forward a workspace TCP service locally\n  cmux remote rpc <ROUTE>     Run workspace coding-agent RPC requests\n  cmux remote enroll <ACTION> Enroll, approve, list, or revoke devices\n  cmux remote known-daemons   List client-pinned daemon identities and routes\n  cmux remote stop            Stop authenticated remote access explicitly",
         root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [OPTIONS]",
         root_server_usage: "  cmux server <start|status|stop|reload-config> [OPTIONS]",
         root_server_scope: "  server        Manage one named local durable session owner",
@@ -1218,7 +1220,7 @@ edits shell files. Authenticate with the configured host before retrying.
         terminal_restore_also_failed: "{error}; host terminal restoration also failed: {restore_error}",
     },
     remote_client: RemoteClientMessages {
-        connect_help: r#"USAGE: cmux-tui connect [ROUTE] [OPTIONS]
+        connect_help: r#"USAGE: cmux remote connect [ROUTE] [OPTIONS]
 
 ROUTES:
   unix:///ABSOLUTE/PATH | ssh://[USER@]HOST[:PORT] | ws:// | wss:// | iroh://
@@ -1251,7 +1253,7 @@ RECONNECT:
   --reconnect-jitter full|none  --heartbeat-interval-ms MS
   --heartbeat-timeout-ms MS
 "#,
-        ssh_help: r#"USAGE: cmux-tui ssh [USER@]HOST[:PORT] [OPTIONS]
+        ssh_help: r#"USAGE: cmux remote ssh [USER@]HOST[:PORT] [OPTIONS]
 
 Direct SSH uses one carrier by default. Pass --lanes auto or isolated to opt in
 to multiple carriers. The remote binary is probed and, unless --no-install is
@@ -1270,14 +1272,14 @@ OPTIONS:
   --reconnect-jitter full|none  --heartbeat-interval-ms MS
   --heartbeat-timeout-ms MS
 "#,
-        forward_help: r#"USAGE: cmux-tui forward [ROUTE] --workspace-root PATH --port PORT [OPTIONS]
+        forward_help: r#"USAGE: cmux remote forward [ROUTE] --workspace-root PATH --port PORT [OPTIONS]
 
 OPTIONS:
   --host HOST  --listen ADDR  --scheme http|https
   All identity, transport, SSH, relay, Iroh, and reconnect options accepted by
-  `cmux-tui connect` are also accepted.
+  `cmux remote connect` are also accepted.
 "#,
-        rpc_help: r#"USAGE: cmux-tui rpc [ROUTE] [OPTIONS]
+        rpc_help: r#"USAGE: cmux remote rpc [ROUTE] [OPTIONS]
 
 Reads one WorkspaceRequest JSON object per stdin line and writes one response
 per line. --request JSON sends one request and exits.
@@ -1285,9 +1287,9 @@ per line. --request JSON sends one request and exits.
 OPTIONS:
   --request WORKSPACE_REQUEST_JSON
   All identity, transport, SSH, relay, Iroh, and reconnect options accepted by
-  `cmux-tui connect` are also accepted.
+  `cmux remote connect` are also accepted.
 "#,
-        enroll_help: r#"USAGE: cmux-tui enroll ACTION [OPTIONS]
+        enroll_help: r#"USAGE: cmux remote enroll ACTION [OPTIONS]
 
 ACTIONS:
   status | create | pending | approve ID | deny ID | devices | connections
@@ -1299,13 +1301,13 @@ OPTIONS:
   create relay access: repeat --relay-route ROUTE --relay-slot SLOT with
     --relay-ticket-file PATH, in occurrence order,
     for up to two relay fallbacks
-  connect accepts every option documented by `cmux-tui connect`.
+  connect accepts every option documented by `cmux remote connect`.
 "#,
-        known_daemons_help: "USAGE: cmux-tui known-daemons [list] [--state-dir PATH] [--json]\n       cmux-tui known-daemons forget FINGERPRINT [--state-dir PATH] [--json]\n",
+        known_daemons_help: "USAGE: cmux remote known-daemons [list] [--state-dir PATH] [--json]\n       cmux remote known-daemons forget FINGERPRINT [--state-dir PATH] [--json]\n",
         remote_probe_help: "USAGE: cmux-tui remote-probe [--json]\n",
         remote_link_help: "USAGE: cmux-tui remote-link --stdio [--session NAME] [--state-dir PATH]\n",
         install_self_help: "USAGE: cmux-tui install-self --destination PATH\n",
-        command_help: "USAGE: cmux-tui connect|ssh|forward|rpc|enroll|known-daemons <OPTIONS>\n\nRun `cmux-tui COMMAND --help` for command-specific routes and options.\n",
+        command_help: "USAGE: cmux remote connect|ssh|forward|rpc|enroll|known-daemons <OPTIONS>\n\nRun `cmux remote COMMAND --help` for command-specific routes and options. Legacy top-level aliases remain available for one compatibility cycle.\n",
         remote_lifecycle_help: "USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]\n       cmux remote enroll <ACTION> [OPTIONS]\n       cmux remote known-daemons [OPTIONS]\n       cmux remote stop [OPTIONS]\n\nAuthenticated remote operations are explicit under `remote`. Start the owning process with `cmux server start` and explicit remote flags.\n",
         option_needs_value: "{option} needs a value",
         invalid_option_value: "{option} has an invalid value; expected {expected}",
@@ -1368,7 +1370,7 @@ OPTIONS:
         known_daemon_auth_carrier: "carrier",
     },
     remote: RemoteMessages {
-        remote_stop_help: "USAGE: cmux-tui remote-stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\n--acknowledge-legacy-finalization is only for an already-stopped pre-fence daemon. Verify that no legacy cmux-tui process remains before using it.\n",
+        remote_stop_help: "USAGE: cmux remote stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\n--acknowledge-legacy-finalization is only for an already-stopped pre-fence daemon. Verify that no legacy cmux-tui process remains before using it.\n",
         remote_stop_unknown_option: "unknown option {option} for remote-stop",
         remote_stop_no_positional: "remote-stop accepts no positional arguments",
         remote_stop_acknowledgements_mutually_exclusive: "--acknowledge-failed-finalization and --acknowledge-legacy-finalization are mutually exclusive",
@@ -1551,6 +1553,7 @@ static JAPANESE: Catalog = Catalog {
         start_separate_session: "または、このビルドを別のセッションで開始:",
     },
     local_server: LocalServerMessages {
+        startup_lifecycle_usage: "  cmux server <操作>       一つのローカルセッションを起動、確認、停止、再読み込み\n  cmux remote connect <ルート>  認証済みリモートルート経由で接続\n  cmux remote ssh <ホスト>       直接 SSH で導入して接続\n  cmux remote forward <ルート>  ワークスペースの TCP サービスをローカル転送\n  cmux remote rpc <ルート>       ワークスペースのコーディングエージェント RPC を実行\n  cmux remote enroll <操作>      デバイスを登録、承認、一覧、失効\n  cmux remote known-daemons      クライアントに固定したデーモン ID とルートを一覧表示\n  cmux remote stop               認証済みリモートアクセスを明示的に停止",
         root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [オプション]",
         root_server_usage: "  cmux server <start|status|stop|reload-config> [オプション]",
         root_server_scope: "  server        一つの名前付きローカル永続セッション所有者を管理",
@@ -1770,7 +1773,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         terminal_restore_also_failed: "{error}; ホストターミナルの復元にも失敗しました: {restore_error}",
     },
     remote_client: RemoteClientMessages {
-        connect_help: r#"使用方法: cmux-tui connect [ルート] [オプション]
+        connect_help: r#"使用方法: cmux remote connect [ルート] [オプション]
 
 ルート:
   unix:///絶対パス | ssh://[ユーザー@]ホスト[:ポート] | ws:// | wss:// | iroh://
@@ -1802,7 +1805,7 @@ ID とセッション:
   --reconnect-jitter full|none  --heartbeat-interval-ms ミリ秒
   --heartbeat-timeout-ms ミリ秒
 "#,
-        ssh_help: r#"使用方法: cmux-tui ssh [ユーザー@]ホスト[:ポート] [オプション]
+        ssh_help: r#"使用方法: cmux remote ssh [ユーザー@]ホスト[:ポート] [オプション]
 
 直接 SSH は既定で 1 本の搬送接続を使用します。複数接続を使うには
 --lanes auto または isolated を指定します。リモートバイナリを確認し、
@@ -1820,24 +1823,24 @@ ID とセッション:
   --reconnect-jitter full|none  --heartbeat-interval-ms ミリ秒
   --heartbeat-timeout-ms ミリ秒
 "#,
-        forward_help: r#"使用方法: cmux-tui forward [ルート] --workspace-root パス --port ポート [オプション]
+        forward_help: r#"使用方法: cmux remote forward [ルート] --workspace-root パス --port ポート [オプション]
 
 オプション:
   --host ホスト  --listen アドレス  --scheme http|https
-  `cmux-tui connect` の ID、トランスポート、SSH、リレー、Iroh、再接続の
+  `cmux remote connect` の ID、トランスポート、SSH、リレー、Iroh、再接続の
   全オプションも使用できます。
 "#,
-        rpc_help: r#"使用方法: cmux-tui rpc [ルート] [オプション]
+        rpc_help: r#"使用方法: cmux remote rpc [ルート] [オプション]
 
 標準入力の各行から WorkspaceRequest JSON を 1 件読み、応答を 1 行出力します。
 --request JSON は 1 件を送信して終了します。
 
 オプション:
   --request WORKSPACE_REQUEST_JSON
-  `cmux-tui connect` の ID、トランスポート、SSH、リレー、Iroh、再接続の
+  `cmux remote connect` の ID、トランスポート、SSH、リレー、Iroh、再接続の
   全オプションも使用できます。
 "#,
-        enroll_help: r#"使用方法: cmux-tui enroll 操作 [オプション]
+        enroll_help: r#"使用方法: cmux remote enroll 操作 [オプション]
 
 操作:
   status | create | pending | approve ID | deny ID | devices | connections
@@ -1848,13 +1851,13 @@ ID とセッション:
   create: --ttl 秒数  --advertise ルート
   create のリレーアクセスでは --relay-route、--relay-slot、
     --relay-ticket-file の組を出現順に最大 2 回指定します。
-  connect では `cmux-tui connect` の全オプションを使用できます。
+  connect では `cmux remote connect` の全オプションを使用できます。
 "#,
-        known_daemons_help: "使用方法: cmux-tui known-daemons [list] [--state-dir パス] [--json]\n          cmux-tui known-daemons forget フィンガープリント [--state-dir パス] [--json]\n",
+        known_daemons_help: "使用方法: cmux remote known-daemons [list] [--state-dir パス] [--json]\n          cmux remote known-daemons forget フィンガープリント [--state-dir パス] [--json]\n",
         remote_probe_help: "使用方法: cmux-tui remote-probe [--json]\n",
         remote_link_help: "使用方法: cmux-tui remote-link --stdio [--session 名前] [--state-dir パス]\n",
         install_self_help: "使用方法: cmux-tui install-self --destination パス\n",
-        command_help: "使用方法: cmux-tui connect|ssh|forward|rpc|enroll|known-daemons <オプション>\n\nコマンド別のルートとオプションは `cmux-tui コマンド --help` で表示します。\n",
+        command_help: "使用方法: cmux remote connect|ssh|forward|rpc|enroll|known-daemons <オプション>\n\nコマンド別のルートとオプションは `cmux remote コマンド --help` で表示します。従来のトップレベル別名は互換期間中も使用できます。\n",
         remote_lifecycle_help: "使用方法: cmux remote connect|ssh|forward|rpc [オプション]\n          cmux remote enroll <操作> [オプション]\n          cmux remote known-daemons [オプション]\n          cmux remote stop [オプション]\n\n認証済みリモート操作は `remote` で明示的に指定します。所有プロセスは明示的なリモートフラグを付けた `cmux server start` で起動します。\n",
         option_needs_value: "{option} には値が必要です",
         invalid_option_value: "{option} の値が無効です。{expected} を指定してください",
@@ -1917,7 +1920,7 @@ ID とセッション:
         known_daemon_auth_carrier: "信頼済み搬送路",
     },
     remote: RemoteMessages {
-        remote_stop_help: "使用方法: cmux-tui remote-stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\n--acknowledge-legacy-finalization は、停止済みでライフサイクルフェンス導入前のデーモン専用です。使用前に旧 cmux-tui プロセスが残っていないことを確認してください。\n",
+        remote_stop_help: "使用方法: cmux remote stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\n--acknowledge-legacy-finalization は、停止済みでライフサイクルフェンス導入前のデーモン専用です。使用前に旧 cmux-tui プロセスが残っていないことを確認してください。\n",
         remote_stop_unknown_option: "remote-stop の不明なオプションです: {option}",
         remote_stop_no_positional: "remote-stop に位置引数は指定できません",
         remote_stop_acknowledgements_mutually_exclusive: "--acknowledge-failed-finalization と --acknowledge-legacy-finalization は同時に指定できません",

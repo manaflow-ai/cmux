@@ -299,14 +299,7 @@ cmux - terminal multiplexer and resource client
 
 USAGE
   cmux [OPTIONS]           Start a session
-  cmux server <ACTION>     Start, inspect, stop, or reload one local session
-  cmux remote connect <ROUTE>  Attach through an authenticated remote route
-  cmux remote ssh <HOST>       Bootstrap and attach over direct SSH
-  cmux remote forward <ROUTE> Forward a workspace TCP service locally
-  cmux remote rpc <ROUTE>     Run workspace coding-agent RPC requests
-  cmux remote enroll <ACTION> Enroll, approve, list, or revoke devices
-  cmux remote known-daemons   List client-pinned daemon identities and routes
-  cmux remote stop            Stop authenticated remote access explicitly
+{lifecycle_usage}
   cmux attach [OPTIONS]    Attach to a session or one terminal
   cmux relay [OPTIONS]     Relay protocol bytes over stdio
   {machine_agent_usage}
@@ -357,10 +350,17 @@ fn usage_for(catalog: &localization::Catalog) -> String {
 }
 
 fn usage_for_platform(catalog: &localization::Catalog, supports_machine_agent: bool) -> String {
+    let usage = USAGE.replace(
+        "{lifecycle_usage}\n",
+        &format!("{}\n", catalog.local_server.startup_lifecycle_usage),
+    );
     if supports_machine_agent {
-        USAGE.replace("  {machine_agent_usage}\n", &format!("  {}\n", catalog.machine_agent.usage))
+        usage.replace(
+            "  {machine_agent_usage}\n",
+            &format!("  {}\n", catalog.machine_agent.usage),
+        )
     } else {
-        USAGE.replace("  {machine_agent_usage}\n", "")
+        usage.replace("  {machine_agent_usage}\n", "")
     }
 }
 
@@ -2524,10 +2524,15 @@ mod tests {
         let english = usage_for_platform(localization::catalog_for_locale("en_US.UTF-8"), true);
         assert!(english.contains("cmux machine-agent"));
         assert!(english.contains("Share one local session through the configured host"));
+        assert!(english.contains("cmux server <ACTION>"));
+        assert!(english.contains("Stop authenticated remote access explicitly"));
         let japanese = usage_for_platform(localization::catalog_for_locale("ja_JP.UTF-8"), true);
         assert!(japanese.contains("cmux machine-agent"));
         assert!(japanese.contains("設定したホスト経由でローカルセッションを共有"));
+        assert!(japanese.contains("cmux server <操作>"));
+        assert!(japanese.contains("認証済みリモートアクセスを明示的に停止"));
         assert!(!japanese.contains("Share one local session"));
+        assert!(!japanese.contains("Stop authenticated remote access explicitly"));
     }
 
     #[test]

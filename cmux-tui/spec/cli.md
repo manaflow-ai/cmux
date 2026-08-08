@@ -106,7 +106,10 @@ An ambiguous name returns `selector.ambiguous` with every candidate ID. It
 never chooses one or changes state.
 
 `--machine` and `--session` provide routing defaults. `--socket` selects an
-exact local socket.
+exact local socket. Local socket precedence is explicit `--socket`, explicit
+`--session`, inherited `CMUX_TUI_SOCKET` or `CMUX_MUX_SOCKET`, then the default
+`main` session. Thus an explicit session never targets an inherited caller
+socket from a different session.
 
 One endpoint describes exactly one local mux session. `machine list`,
 `machine get`, `session list`, `session get`, and `session open` expose that
@@ -126,7 +129,7 @@ The output modes are mutually exclusive:
 
 Standard output carries successful data. Human-mode diagnostics use standard
 error. JSON modes preserve the server's error code, message, details, and
-retryable flag.
+retryable flag, including local CLI syntax errors.
 
 | Exit | Meaning |
 | --- | --- |

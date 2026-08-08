@@ -1,5 +1,5 @@
 use std::io::{BufRead, BufReader, Read, Write};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
@@ -56,9 +56,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             );
         }
     };
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     let mut connection = BufReader::new(stream);
-    let identity = match exchange(&mut connection, json!({"id":1,"cmd":"identify"})) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let identity = match exchange(&mut connection, json!({"id":1,"cmd":"identify"}), deadline) {
         Ok(identity) => identity,
         Err(_) => {
             return local_error(
@@ -124,7 +124,11 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             global.output,
         ),
         ServerAction::ReloadConfig => {
-            let result = match exchange(&mut connection, json!({"id":2,"cmd":"reload-config"})) {
+            let result = match exchange(
+                &mut connection,
+                json!({"id":2,"cmd":"reload-config"}),
+                deadline,
+            ) {
                 Ok(result) => result,
                 Err(ExchangeError::Rejected) => {
                     return local_error(
@@ -183,6 +187,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     "generation":generation,
                     "force":force,
                 }),
+                deadline,
             ) {
                 Ok(result) => result,
                 Err(ExchangeError::Rejected) => {
@@ -210,7 +215,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     3,
                 );
             }
-            if let Err(message) = wait_for_close(&mut connection) {
+            if let Err(message) = wait_for_close(&mut connection, deadline) {
                 return local_error("server.stop_incomplete", message, global.output, 3);
             }
             print_success(
@@ -240,12 +245,14 @@ enum ExchangeError {
 fn exchange(
     connection: &mut BufReader<Box<dyn transport::Stream>>,
     request: Value,
+    deadline: Instant,
 ) -> Result<Value, ExchangeError> {
+    require_time_remaining(connection, deadline)?;
     writeln!(connection.get_mut(), "{request}")
         .and_then(|()| connection.get_mut().flush())
         .map_err(|_| ExchangeError::Transport)?;
     loop {
-        let Some(response) = read_response(connection)? else {
+        let Some(response) = read_response(connection, deadline)? else {
             return Err(ExchangeError::Closed);
         };
         if response.get("event").is_some() || response["id"] != request["id"] {
@@ -260,7 +267,9 @@ fn exchange(
 
 fn read_response(
     connection: &mut BufReader<Box<dyn transport::Stream>>,
+    deadline: Instant,
 ) -> Result<Option<Value>, ExchangeError> {
+    require_time_remaining(connection, deadline)?;
     let mut bytes = Vec::new();
     match connection
         .by_ref()
@@ -291,13 +300,32 @@ fn read_response(
         .map_err(|_| ExchangeError::InvalidResponse)
 }
 
+fn require_time_remaining(
+    connection: &mut BufReader<Box<dyn transport::Stream>>,
+    deadline: Instant,
+) -> Result<(), ExchangeError> {
+    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+        return Err(ExchangeError::Timeout);
+    };
+    if remaining.is_zero() {
+        return Err(ExchangeError::Timeout);
+    }
+    connection
+        .get_mut()
+        .set_read_timeout(Some(remaining))
+        .map_err(|_| ExchangeError::Transport)
+}
+
 fn is_absent(error: &std::io::Error) -> bool {
     matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
 }
 
-fn wait_for_close(connection: &mut BufReader<Box<dyn transport::Stream>>) -> Result<(), String> {
+fn wait_for_close(
+    connection: &mut BufReader<Box<dyn transport::Stream>>,
+    deadline: Instant,
+) -> Result<(), String> {
     loop {
-        match read_response(connection) {
+        match read_response(connection, deadline) {
             Ok(None) => return Ok(()),
             Ok(Some(event)) => {
                 if event.get("event").is_some() {
@@ -334,4 +362,57 @@ fn local_error(code: &str, message: &str, output: OutputMode, exit_code: i32) ->
 
 fn print_success(value: Value, output: OutputMode) -> i32 {
     super::wire::print_local_success(&value, output)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{self, Read, Write};
+    use std::net::Shutdown;
+
+    use super::*;
+
+    struct UnreadableStream;
+
+    impl Read for UnreadableStream {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            panic!("an expired lifecycle deadline must fail before reading")
+        }
+    }
+
+    impl Write for UnreadableStream {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl transport::Stream for UnreadableStream {
+        fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
+            Ok(Box::new(Self))
+        }
+
+        fn set_read_timeout(&self, _: Option<Duration>) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn set_write_timeout(&self, _: Option<Duration>) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn shutdown(&self, _: Shutdown) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn expired_deadline_fails_before_reading_another_frame() {
+        let stream: Box<dyn transport::Stream> = Box::new(UnreadableStream);
+        let mut connection = BufReader::new(stream);
+        let expired = Instant::now() - Duration::from_millis(1);
+
+        assert_eq!(read_response(&mut connection, expired), Err(ExchangeError::Timeout));
+    }
 }

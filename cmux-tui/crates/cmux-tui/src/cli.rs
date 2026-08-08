@@ -96,10 +96,37 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             CommandPlan::RawCommand(command) => raw::run(global, command),
         },
         Err(error) => {
-            eprintln!("cmux: {error}");
-            2
+            wire::print_local_error(
+                &serde_json::json!({
+                    "code":"usage.invalid",
+                    "message":error.to_string(),
+                    "details":{},
+                    "retryable":false,
+                }),
+                requested_output_mode(args),
+                2,
+            )
         }
     }
+}
+
+fn requested_output_mode(args: &[String]) -> OutputMode {
+    let mut requested = None;
+    for arg in args.iter().take_while(|arg| arg.as_str() != "--") {
+        let mode = match arg.as_str() {
+            "--json" => Some(OutputMode::Json),
+            "--jsonl" => Some(OutputMode::JsonLines),
+            "--quiet" => Some(OutputMode::Quiet),
+            _ => None,
+        };
+        if let Some(mode) = mode {
+            if requested.is_some() {
+                return OutputMode::Human;
+            }
+            requested = Some(mode);
+        }
+    }
+    requested.unwrap_or(OutputMode::Human)
 }
 
 fn parse(args: &[String]) -> Result<ParsedCommand, UsageError> {
