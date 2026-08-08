@@ -323,6 +323,10 @@ extension ControlWorkspaceContext {
         .tabManagerUnavailable
     }
 
+    func controlSelectLastForwardWorkspace(routing: ControlRoutingSelectors) -> ControlWorkspaceNavigationResolution {
+        .tabManagerUnavailable
+    }
+
     func controlEqualizeWorkspaceSplits(
         routing: ControlRoutingSelectors,
         orientationFilter: String?

@@ -47,6 +47,8 @@ extension ControlCommandCoordinator {
             return workspacePrevious(request.params)
         case "workspace.last":
             return workspaceLast(request.params)
+        case "workspace.last_forward":
+            return workspaceLastForward(request.params)
         case "workspace.equalize_splits":
             return workspaceEqualizeSplits(request.params)
         case "workspace.remote.configure":
@@ -667,6 +669,14 @@ extension ControlCommandCoordinator {
         workspaceNavigationResult(
             context?.controlSelectLastWorkspace(routing: routingSelectors(params)),
             notFoundMessage: "No previous workspace in history"
+        )
+    }
+
+    /// `workspace.last_forward` — navigate forward in workspace history.
+    func workspaceLastForward(_ params: [String: JSONValue]) -> ControlCallResult {
+        workspaceNavigationResult(
+            context?.controlSelectLastForwardWorkspace(routing: routingSelectors(params)),
+            notFoundMessage: "No next workspace in history"
         )
     }
 
