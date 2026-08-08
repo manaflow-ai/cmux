@@ -13,6 +13,19 @@ import Testing
 struct SidebarWorkspaceTableTests {
     @Test
     @MainActor
+    func reorderDropDestinationIsOverlayNotTable() throws {
+        let container = SidebarWorkspaceTableController().makeContainerView()
+        let pasteboardType = SidebarWorkspaceReorderDropOverlay.pasteboardType
+
+        #expect(!container.tableView.registeredDraggedTypes.contains(pasteboardType))
+        let reorderDropView = try #require(
+            container.subviews.lazy.compactMap { $0 as? SidebarWorkspaceReorderDropView }.first
+        )
+        #expect(reorderDropView.registeredDraggedTypes.contains(pasteboardType))
+    }
+
+    @Test
+    @MainActor
     func containerHasNoStructuralHorizontalRowInsetAndAlwaysActiveHoverTracking() throws {
         let container = SidebarWorkspaceTableController().makeContainerView()
         let column = try #require(container.tableView.tableColumns.first)
@@ -270,8 +283,8 @@ struct SidebarWorkspaceTableTests {
         await flushStagedTableMutations()
         #expect(computations == 0)
 
-        // Reorder drags resolve targets synchronously in validateDrop and
-        // must never wake the bonsplit geometry gate.
+        // Starting a reorder at the table must not wake the bonsplit-only
+        // geometry gate. The destination overlay resolves its own targets.
         controller.workspaceDragSessionDidBegin()
         controller.viewportDidChange()
         await flushStagedTableMutations()
@@ -293,7 +306,7 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
-    func reorderDragReplansFromStoredWindowPointOnViewportChange() async {
+    func reorderDragReplansFromStoredWindowPointOnViewportChange() async throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let ids = (0..<30).map { _ in UUID() }
@@ -306,12 +319,14 @@ struct SidebarWorkspaceTableTests {
         window.contentView = container
         var plannedPoints: [CGPoint] = []
         var plannedTargetCounts: [Int] = []
+        var plannedTargetY: [CGFloat?] = []
         var indicatorClears = 0
         let draggedId = ids[2]
         let actions = makeTableActions(
             updateWorkspaceDrag: { point, targets, _ in
                 plannedPoints.append(point)
                 plannedTargetCounts.append(targets.count)
+                plannedTargetY.append(targets.first { $0.workspaceId == ids[5] }?.frame.minY)
                 return SidebarWorkspaceTableReorderDropUpdate(
                     indicator: SidebarDropIndicator(tabId: ids[5], edge: .top),
                     scope: .raw,
@@ -339,9 +354,9 @@ struct SidebarWorkspaceTableTests {
         // Targets are the visible rows only, not the full 30-row model.
         #expect(plannedTargetCounts == [container.tableView.rows(in: container.tableView.visibleRect).length])
 
-        // Autoscroll moves content under a stationary pointer: same window
-        // point, new viewport, so the stored point must re-plan and resolve
-        // to a shifted table-space position.
+        // Autoscroll moves overlay-space targets under a stationary pointer.
+        // The stored window point re-plans with a stable overlay point and
+        // freshly converted target frames.
         let originBefore = container.clipView.bounds.origin.y
         container.clipView.scroll(to: NSPoint(x: 0, y: originBefore + 100))
         container.scrollView.reflectScrolledClipView(container.clipView)
@@ -349,7 +364,10 @@ struct SidebarWorkspaceTableTests {
         await flushStagedTableMutations()
         #expect(plannedPoints.count == 2)
         let scrolledBy = container.clipView.bounds.origin.y - originBefore
-        #expect(abs((plannedPoints[1].y - plannedPoints[0].y) - scrolledBy) < 0.5)
+        #expect(plannedPoints[1] == plannedPoints[0])
+        let targetYBefore = try #require(plannedTargetY[0])
+        let targetYAfter = try #require(plannedTargetY[1])
+        #expect(abs((targetYAfter - targetYBefore) + scrolledBy) < 0.5)
 
         // Leaving the table retires the stored point: later viewport changes
         // must not keep planning a drag that is no longer over the sidebar.
