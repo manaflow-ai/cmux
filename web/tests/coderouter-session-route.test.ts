@@ -21,7 +21,9 @@ const context = {
 describe("coderouter hosted entitlement", () => {
   test("validates an existing principal-scoped route session cheaply", async () => {
     const authenticate = async (token: string) =>
-      token === "crt_valid" ? { teamId: "team_1" } : null;
+      token === "crt_valid"
+        ? { teamId: "team_1", stackUserId: "stack-user-1" }
+        : null;
     const GET = makeCoderouterSessionGetHandler(authenticate);
 
     const valid = await GET(new Request(
@@ -37,14 +39,14 @@ describe("coderouter hosted entitlement", () => {
     expect(invalid.status).toBe(401);
   });
 
-  test("requires Pro before issuing a hosted route token", async () => {
+  test("requires Pro or Team before issuing a hosted route token", async () => {
     const issueToken = mock(async () => ({
       token: "crt_test",
       expiresAt: new Date("2026-09-01T00:00:00Z"),
     }));
     const POST = makeCoderouterSessionPostHandler({
       resolveContext: mock(async () => context) as never,
-      hasActivePro: mock(async () => false),
+      hasActiveEntitlement: mock(async () => false),
       issueToken,
       hostedProRequired: () => true,
     });
@@ -67,10 +69,10 @@ describe("coderouter hosted entitlement", () => {
       token: "crt_test",
       expiresAt: new Date("2026-09-01T00:00:00Z"),
     }));
-    const hasActivePro = mock(async () => false);
+    const hasActiveEntitlement = mock(async () => false);
     const POST = makeCoderouterSessionPostHandler({
       resolveContext: mock(async () => context) as never,
-      hasActivePro,
+      hasActiveEntitlement,
       issueToken,
       hostedProRequired: () => false,
     });
@@ -86,14 +88,14 @@ describe("coderouter hosted entitlement", () => {
       token: "crt_test",
       openaiBaseUrl: "https://router.example.com/v1",
     });
-    expect(hasActivePro).not.toHaveBeenCalled();
+    expect(hasActiveEntitlement).not.toHaveBeenCalled();
     expect(issueToken).toHaveBeenCalledWith("team_1", "user_1");
   });
 
   test("fails closed when hosted entitlement storage is unavailable", async () => {
     const POST = makeCoderouterSessionPostHandler({
       resolveContext: mock(async () => context) as never,
-      hasActivePro: mock(async () => {
+      hasActiveEntitlement: mock(async () => {
         throw new Error("database unavailable");
       }),
       issueToken: mock(async () => {
@@ -110,5 +112,31 @@ describe("coderouter hosted entitlement", () => {
 
     expect(response.status).toBe(503);
     expect(response.headers.get("retry-after")).toBeNull();
+  });
+
+  test("issues a hosted route token for a selected Team entitlement", async () => {
+    const issueToken = mock(async () => ({
+      token: "crt_team",
+      expiresAt: new Date("2026-09-01T00:00:00Z"),
+    }));
+    const hasActiveEntitlement = mock(async (...args: unknown[]) =>
+      args[0] === "user_1" && args[1] === "team_1"
+    );
+    const POST = makeCoderouterSessionPostHandler({
+      resolveContext: mock(async () => context) as never,
+      hasActiveEntitlement: hasActiveEntitlement as never,
+      issueToken,
+      hostedProRequired: () => true,
+    });
+
+    const response = await POST(
+      new Request("https://coderouter.dev/api/coderouter/session", {
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(hasActiveEntitlement).toHaveBeenCalledWith("user_1", "team_1");
+    expect(issueToken).toHaveBeenCalledWith("team_1", "user_1");
   });
 });

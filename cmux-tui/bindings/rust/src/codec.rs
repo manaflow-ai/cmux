@@ -50,6 +50,7 @@ impl ForcedPendingConnectProbe {
         });
         probe
     }
+
     pub(crate) fn attempts(&self) -> usize {
         FORCED_CONNECT_ATTEMPTS.with(std::cell::Cell::get)
     }

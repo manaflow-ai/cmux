@@ -177,25 +177,66 @@ public struct WorkspaceListLayoutPreviewView: View {
 
     private let reorderEnabled: Bool
 
+    /// A stable clock-time for seeded activity: capture rigs show these rows
+    /// under an 11:41 status bar, so same-day times stay in the morning and
+    /// `daysAgo` rows exercise the month/day trailing label.
+    private static func seedActivityTime(hour: Int, minute: Int, daysAgo: Int = 0) -> Date {
+        let calendar = Calendar.current
+        let day = calendar.date(byAdding: .day, value: -daysAgo, to: Date()) ?? Date()
+        return calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day) ?? day
+    }
+
     private static let defaultWorkspaces: [MobileWorkspacePreview] = [
+        MobileWorkspacePreview(
+            id: "workspace-login-crash",
+            macDeviceID: "preview-macbook-pro",
+            macDisplayName: "MacBook Pro",
+            name: "Fix login crash",
+            previewText: "Claude: found the session-restore race. 3 files changed, regression test added, PR opened.",
+            previewAt: seedActivityTime(hour: 11, minute: 32),
+            lastActivityAt: seedActivityTime(hour: 11, minute: 32),
+            hasUnread: true,
+            terminals: [
+                MobileTerminalPreview(id: "terminal-login-agent", name: "Agent"),
+            ]
+        ),
         MobileWorkspacePreview(
             id: "workspace-main",
             macDeviceID: "preview-macbook-pro",
             macDisplayName: "MacBook Pro",
             name: "cmux",
+            previewText: "Build succeeded in 3m 41s, 214 tests green",
+            previewAt: seedActivityTime(hour: 11, minute: 18),
+            lastActivityAt: seedActivityTime(hour: 11, minute: 18),
             terminals: [
                 MobileTerminalPreview(id: "terminal-build", name: "Build"),
                 MobileTerminalPreview(id: "terminal-agent", name: "Agent"),
             ]
         ),
         MobileWorkspacePreview(
-            id: "workspace-ios",
+            id: "workspace-rate-limit",
             macDeviceID: "preview-macbook-pro",
             macDisplayName: "MacBook Pro",
-            name: "iOS avatar tuning",
+            name: "API rate limiting",
+            previewText: "Codex needs approval: retry 429s with exponential backoff?",
+            previewAt: seedActivityTime(hour: 10, minute: 47),
+            lastActivityAt: seedActivityTime(hour: 10, minute: 47),
             hasUnread: true,
             terminals: [
-                MobileTerminalPreview(id: "terminal-ios", name: "Agent"),
+                MobileTerminalPreview(id: "terminal-rate-agent", name: "Agent"),
+            ]
+        ),
+        MobileWorkspacePreview(
+            id: "workspace-dark-mode",
+            macDeviceID: "preview-macbook-pro",
+            macDisplayName: "MacBook Pro",
+            name: "Dark mode pass",
+            previewText: "Screenshot diff clean across all 12 screens",
+            previewAt: seedActivityTime(hour: 9, minute: 54),
+            lastActivityAt: seedActivityTime(hour: 9, minute: 54),
+            terminals: [
+                MobileTerminalPreview(id: "terminal-dark-agent", name: "Agent"),
+                MobileTerminalPreview(id: "terminal-dark-tests", name: "Tests"),
             ]
         ),
         MobileWorkspacePreview(
@@ -203,8 +244,23 @@ public struct WorkspaceListLayoutPreviewView: View {
             macDeviceID: "preview-studio",
             macDisplayName: "Studio Display Bench With A Very Long Name",
             name: "Docs",
+            previewText: "Getting-started guide rewritten for the new pairing flow",
+            previewAt: seedActivityTime(hour: 9, minute: 12),
+            lastActivityAt: seedActivityTime(hour: 9, minute: 12),
             terminals: [
                 MobileTerminalPreview(id: "terminal-notes", name: "Notes"),
+            ]
+        ),
+        MobileWorkspacePreview(
+            id: "workspace-release",
+            macDeviceID: "preview-macbook-pro",
+            macDisplayName: "MacBook Pro",
+            name: "Release 1.4",
+            previewText: "Archive uploaded to TestFlight",
+            previewAt: seedActivityTime(hour: 18, minute: 6, daysAgo: 1),
+            lastActivityAt: seedActivityTime(hour: 18, minute: 6, daysAgo: 1),
+            terminals: [
+                MobileTerminalPreview(id: "terminal-release-build", name: "Build"),
             ]
         ),
     ]
@@ -268,6 +324,11 @@ public struct WorkspaceListLayoutPreviewView: View {
         let workspaces = (0..<count).map { index -> MobileWorkspacePreview in
             let groupIndex = index / 4
             let inGroup = groupIndex < groupCount
+            let macDeviceID = inGroup && !groupIndex.isMultiple(of: 2)
+                ? "preview-studio" : "preview-macbook-pro"
+            let macDisplayName = macDeviceID == "preview-studio"
+                ? "Studio Display Bench With A Very Long Name" : "MacBook Pro"
+            let macInstanceTag = macDeviceID == "preview-studio" ? "stable" : "nightly"
             let groupID = inGroup
                 ? MobileWorkspaceGroupPreview.ID(rawValue: "seed-group-\(groupIndex)") : nil
             let id = MobileWorkspacePreview.ID(rawValue: "workspace-seed-\(index)")
@@ -275,15 +336,17 @@ public struct WorkspaceListLayoutPreviewView: View {
                 groups.append(
                     MobileWorkspaceGroupPreview(
                         id: groupID,
+                        macDeviceID: macDeviceID,
+                        macInstanceTag: macInstanceTag,
                         name: "Group \(groupIndex + 1)",
                         anchorWorkspaceID: id
                     )
                 )
             }
-            return MobileWorkspacePreview(
+            var workspace = MobileWorkspacePreview(
                 id: id,
-                macDeviceID: "preview-macbook-pro",
-                macDisplayName: "MacBook Pro",
+                macDeviceID: macDeviceID,
+                macDisplayName: macDisplayName,
                 name: "\(seedNames[index % seedNames.count]) \(index)",
                 groupID: groupID,
                 previewText: seedPreviews[index % seedPreviews.count],
@@ -297,6 +360,8 @@ public struct WorkspaceListLayoutPreviewView: View {
                     ),
                 ]
             )
+            workspace.macInstanceTag = macInstanceTag
+            return workspace
         }
         return (workspaces, groups)
     }
