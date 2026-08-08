@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import signal
 import shutil
@@ -25,6 +26,7 @@ class WrapperResult:
     real_argv: list[str]
     real_environment: dict[str, str]
     cmux_calls: list[list[str]]
+    cmux_payloads: list[str]
     cmux_environment: dict[str, str]
     stderr: str
     real_path: str
@@ -34,6 +36,7 @@ class WrapperResult:
     installer_started: bool
     launch_observed: bool
     hermes_home: str
+    original_tmpdir: str
     profile_homes: dict[str, str]
 
 
@@ -63,6 +66,15 @@ def read_calls(path: Path) -> list[list[str]]:
     return calls
 
 
+def read_payloads(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    return [
+        base64.b64decode(line).decode("utf-8") if line else ""
+        for line in path.read_text(encoding="utf-8").splitlines()
+    ]
+
+
 def run_wrapper(
     argv: list[str],
     *,
@@ -74,6 +86,7 @@ def run_wrapper(
     cli_available: bool = True,
     active_profile: str | None = None,
     profile_names: tuple[str, ...] = (),
+    tui_session_ids: tuple[str, ...] = (),
 ) -> WrapperResult:
     with tempfile.TemporaryDirectory(prefix="cmux-hermes-wrapper-test-") as td:
         tmp = Path(td)
@@ -83,7 +96,8 @@ def run_wrapper(
         bundled_dir = tmp / "bundled cli"
         user_home = tmp / "user home"
         hermes_home = tmp / "hermes home"
-        for directory in (wrapper_dir, shim_dir, real_dir, bundled_dir, user_home, hermes_home):
+        original_tmpdir = tmp / "original tmp"
+        for directory in (wrapper_dir, shim_dir, real_dir, bundled_dir, user_home, hermes_home, original_tmpdir):
             directory.mkdir(parents=True)
 
         profile_homes = {
@@ -111,6 +125,7 @@ def run_wrapper(
         real_args_log = tmp / "real-args.log"
         real_env_log = tmp / "real-env.log"
         cmux_calls_log = tmp / "cmux-calls.log"
+        cmux_payloads_log = tmp / "cmux-payloads.log"
         cmux_env_log = tmp / "cmux-env.log"
         installer_started_log = tmp / "installer-started.log"
         installer_gate = tmp / "installer-gate"
@@ -136,9 +151,19 @@ printf '%s\\0' "$@" >> "$FAKE_REAL_ARGS_LOG"
   printf 'CMUX_AGENT_LAUNCH_ARGV_B64=%s\\n' "${CMUX_AGENT_LAUNCH_ARGV_B64-__UNSET__}"
   printf 'CMUX_AGENT_RESTORE_LAUNCH=%s\\n' "${CMUX_AGENT_RESTORE_LAUNCH-__UNSET__}"
   printf 'HERMES_HOME=%s\\n' "${HERMES_HOME-__UNSET__}"
+  printf 'TMPDIR=%s\\n' "${TMPDIR-__UNSET__}"
   printf 'PATH=%s\\n' "$PATH"
   printf 'REAL_PID=%s\\n' "$$"
 } > "$FAKE_REAL_ENV_LOG"
+if [[ -n "${FAKE_TUI_SESSION_IDS:-}" ]]; then
+  active_session_file="$TMPDIR/hermes-tui-active-session-fake.json"
+  : > "$active_session_file"
+  IFS=',' read -r -a fake_tui_session_ids <<< "$FAKE_TUI_SESSION_IDS"
+  for fake_tui_session_id in "${fake_tui_session_ids[@]}"; do
+    printf '{"session_id":"%s"}\\n' "$fake_tui_session_id" > "$active_session_file"
+    sleep 0.25
+  done
+fi
 """,
         )
 
@@ -150,6 +175,8 @@ printf '%s\\0' "$@" >> "$FAKE_REAL_ARGS_LOG"
 set -euo pipefail
 printf '\\036' >> "$FAKE_CMUX_CALLS_LOG"
 printf '%s\\0' "$@" >> "$FAKE_CMUX_CALLS_LOG"
+fake_cmux_payload_b64="$(/usr/bin/base64 | tr -d '\\n')"
+printf '%s\\n' "$fake_cmux_payload_b64" >> "$FAKE_CMUX_PAYLOADS_LOG"
 {
   printf 'CMUX_SURFACE_ID=%s\\n' "${CMUX_SURFACE_ID-__UNSET__}"
   printf 'CMUX_WORKSPACE_ID=%s\\n' "${CMUX_WORKSPACE_ID-__UNSET__}"
@@ -169,6 +196,7 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
         env["PATH"] = f"{shim_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
         env["HOME"] = str(user_home)
         env["HERMES_HOME"] = str(hermes_home)
+        env["TMPDIR"] = str(original_tmpdir)
         env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli)
         env["CMUX_HERMES_AGENT_WRAPPER_SHIM"] = str(shim)
         env["CMUX_HERMES_AGENT_WRAPPER_SHIM_ROOT"] = str(shim_dir)
@@ -176,6 +204,7 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
         env["FAKE_REAL_ARGS_LOG"] = str(real_args_log)
         env["FAKE_REAL_ENV_LOG"] = str(real_env_log)
         env["FAKE_CMUX_CALLS_LOG"] = str(cmux_calls_log)
+        env["FAKE_CMUX_PAYLOADS_LOG"] = str(cmux_payloads_log)
         env["FAKE_CMUX_ENV_LOG"] = str(cmux_env_log)
         env["FAKE_INSTALLER_EXIT_CODE"] = str(installer_exit_code)
         env["FAKE_INSTALLER_STARTED_LOG"] = str(installer_started_log)
@@ -184,6 +213,10 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
         else:
             env.pop("FAKE_INSTALLER_GATE", None)
         env["CMUX_HERMES_AGENT_HOOK_INSTALL_TIMEOUT_SECONDS"] = str(installer_timeout_seconds)
+        if tui_session_ids:
+            env["FAKE_TUI_SESSION_IDS"] = ",".join(tui_session_ids)
+        else:
+            env.pop("FAKE_TUI_SESSION_IDS", None)
         if in_cmux:
             env["CMUX_SURFACE_ID"] = "11111111-1111-1111-1111-111111111111"
             env["CMUX_WORKSPACE_ID"] = "22222222-2222-2222-2222-222222222222"
@@ -226,11 +259,20 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
         if deadline_exceeded:
             stderr = f"{stderr.strip()}\nwrapper execution deadline exceeded".strip()
 
+        if tui_session_ids:
+            lifecycle_deadline = time.monotonic() + 2
+            expected_call_count = len(tui_session_ids) + 2
+            while time.monotonic() < lifecycle_deadline:
+                if len(read_calls(cmux_calls_log)) >= expected_call_count:
+                    break
+                time.sleep(0.01)
+
         return WrapperResult(
             returncode=proc.returncode,
             real_argv=read_nul_values(real_args_log),
             real_environment=read_environment(real_env_log) if real_env_log.exists() else {},
             cmux_calls=read_calls(cmux_calls_log),
+            cmux_payloads=read_payloads(cmux_payloads_log),
             cmux_environment=read_environment(cmux_env_log) if cmux_env_log.exists() else {},
             stderr=stderr.strip(),
             real_path=str(real_hermes),
@@ -240,6 +282,7 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
             installer_started=installer_started_log.exists(),
             launch_observed=launch_observed,
             hermes_home=str(hermes_home),
+            original_tmpdir=str(original_tmpdir),
             profile_homes={name: str(path) for name, path in profile_homes.items()},
         )
 
@@ -305,6 +348,67 @@ def test_session_entrypoints(failures: list[str]) -> None:
     )
     for label, argv in entrypoints:
         assert_instrumented(argv, label, failures)
+
+
+def test_tui_active_session_file_bridges_lifecycle(failures: list[str]) -> None:
+    first_session_id = "20260807_171025_620d3a"
+    second_session_id = "20260807_171126_51fa8c"
+    result = run_wrapper(
+        ["--tui"],
+        tui_session_ids=(first_session_id, second_session_id),
+    )
+    expected_prefix = ["--socket", result.socket_path, "hooks", "hermes-agent"]
+    expected_calls = [
+        [*expected_prefix, "install", "--yes"],
+        [*expected_prefix, "session-start"],
+        [*expected_prefix, "session-start"],
+        [*expected_prefix, "session-finalize"],
+    ]
+
+    expect(result.returncode == 0, f"TUI bridge: wrapper exited {result.returncode}: {result.stderr}", failures)
+    expect(result.cmux_calls == expected_calls, f"TUI bridge: unexpected cmux calls: {result.cmux_calls}", failures)
+    expect(
+        len(result.cmux_payloads) == len(expected_calls),
+        f"TUI bridge: lifecycle payload count did not match calls: {result.cmux_payloads}",
+        failures,
+    )
+    if len(result.cmux_payloads) == len(expected_calls):
+        payloads = [json.loads(payload) if payload else {} for payload in result.cmux_payloads]
+        expected_events = [
+            {},
+            {
+                "cwd": result.working_directory,
+                "hook_event_name": "on_session_start",
+                "platform": "tui",
+                "session_id": first_session_id,
+            },
+            {
+                "cwd": result.working_directory,
+                "hook_event_name": "on_session_reset",
+                "platform": "tui",
+                "session_id": second_session_id,
+            },
+            {
+                "cwd": result.working_directory,
+                "hook_event_name": "on_session_finalize",
+                "platform": "tui",
+                "session_id": second_session_id,
+            },
+        ]
+        expect(payloads == expected_events, f"TUI bridge: unexpected lifecycle payloads: {payloads}", failures)
+
+    hermes_tmpdir = result.real_environment.get("TMPDIR")
+    expect(
+        hermes_tmpdir not in (None, "__UNSET__", result.original_tmpdir),
+        f"TUI bridge: Hermes did not receive an invocation-private TMPDIR: {result.real_environment}",
+        failures,
+    )
+    if hermes_tmpdir not in (None, "__UNSET__", result.original_tmpdir):
+        expect(
+            not Path(hermes_tmpdir).exists(),
+            f"TUI bridge: invocation-private TMPDIR was not cleaned up: {hermes_tmpdir}",
+            failures,
+        )
 
 
 def test_profile_scoped_hook_install(failures: list[str]) -> None:
@@ -464,6 +568,7 @@ def main() -> int:
         failures.append(f"missing Hermes launch wrapper: {SOURCE_WRAPPER}")
     else:
         test_session_entrypoints(failures)
+        test_tui_active_session_file_bridges_lifecycle(failures)
         test_profile_scoped_hook_install(failures)
         test_administrative_entrypoints_bypass_install(failures)
         test_administrative_passthrough_strips_shim_path(failures)
