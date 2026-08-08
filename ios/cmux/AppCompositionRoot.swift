@@ -110,7 +110,8 @@ final class AppCompositionRoot {
         // its own privacy gating (DEBUG always, Release behind the verbose
         // opt-in), so this mirror never widens what gets persisted.
         Task {
-            for await line in MobileDebugLog.shared.sink.lines() {
+            let sink = MobileDebugLog.shared.sink
+            for await line in await sink.lines() {
                 appLog.mirrorAppLine(line)
             }
         }
