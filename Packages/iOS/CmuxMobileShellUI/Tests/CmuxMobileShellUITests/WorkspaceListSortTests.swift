@@ -129,6 +129,38 @@ import Testing
         #expect(machineView.workspaceSortMenuMode == nil)
     }
 
+    @Test func sortMenuShowsWhenSecondComputerIsPairedButOffline() async throws {
+        // A wedged or offline secondary Mac contributes no workspace rows, but
+        // the user still owns two computers; hiding the sort control would make
+        // it undiscoverable exactly when cross-computer order matters.
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20),
+            pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 10),
+        ])
+        let view = workspaceListView(
+            workspaces: [workspace(id: "a-1", macDeviceID: "mac-a", activityAt: 100)],
+            store: store,
+            workspaceSortMode: .automatic
+        )
+
+        #expect(view.workspaceSortMenuMode == .automatic)
+        // The order editor lists the offline computer so it keeps its slot.
+        #expect(view.computerOrderSheetMachines.map(\.macDeviceID).contains("mac-b"))
+    }
+
+    @Test func sortMenuHiddenWhenOnlyOneComputerIsKnown() async throws {
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20),
+        ])
+        let view = workspaceListView(
+            workspaces: [workspace(id: "a-1", macDeviceID: "mac-a", activityAt: 100)],
+            store: store,
+            workspaceSortMode: .automatic
+        )
+
+        #expect(view.workspaceSortMenuMode == nil)
+    }
+
     @Test func computerOrderSheetListsStoredPriorityFirst() async throws {
         let store = await shellStore(pairedMacs: [
             pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20),

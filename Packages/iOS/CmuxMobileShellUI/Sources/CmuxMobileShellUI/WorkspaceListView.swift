@@ -223,11 +223,27 @@ struct WorkspaceListView: View {
         }
     }
 
+    /// Distinct physical computers this device knows about: computers with
+    /// visible workspace rows plus every paired Mac (paired-but-offline
+    /// computers count — the sort preference governs them the moment they
+    /// reconnect, and a wedged secondary connection must not hide the control).
+    var knownComputerDeviceIDs: Set<String> {
+        var ids = Set(
+            (machineSnapshots ?? liveMachineSnapshots).filterMachines.map(\.macDeviceID)
+        )
+        for mac in displayPairedMacsForPicker {
+            ids.insert(mac.macDeviceID)
+        }
+        ids.remove("")
+        return ids
+    }
+
     /// The sort mode the filter menu offers, or `nil` to hide the sort section:
     /// sorting is an All Computers concern, so a single-machine scope (whose
-    /// order is the Mac's own sidebar order) offers none.
+    /// order is the Mac's own sidebar order) offers none, and a device that has
+    /// only ever known one computer has nothing to sort.
     var workspaceSortMenuMode: MobileWorkspaceSortMode? {
-        guard setWorkspaceSortMode != nil else { return nil }
+        guard setWorkspaceSortMode != nil, knownComputerDeviceIDs.count > 1 else { return nil }
         switch visibleMacSelection {
         case .all, .automatic:
             return workspaceSortMode
@@ -236,11 +252,25 @@ struct WorkspaceListView: View {
         }
     }
 
-    /// Computers offered by the computer-order editor, one per physical Mac, in
-    /// their effective order: stored priority first, then the current display
-    /// order, so the sheet opens showing exactly what the list does.
+    /// Computers offered by the computer-order editor, one per physical Mac
+    /// (present machines plus paired-but-offline ones, which keep their slot
+    /// while disconnected), in their effective order: stored priority first,
+    /// then the current display order, so the sheet opens showing exactly what
+    /// the list does.
     var computerOrderSheetMachines: [WorkspaceFilterMachine] {
-        let machines = (machineSnapshots ?? liveMachineSnapshots).filterMachines
+        var machines = (machineSnapshots ?? liveMachineSnapshots).filterMachines
+        var seenDeviceIDs = Set(machines.map(\.macDeviceID))
+        let names = macDisplayNamesByID()
+        for mac in displayPairedMacsForPicker where !mac.macDeviceID.isEmpty {
+            guard seenDeviceIDs.insert(mac.macDeviceID).inserted else { continue }
+            machines.append(WorkspaceFilterMachine(
+                id: mac.macDeviceID,
+                macDeviceID: mac.macDeviceID,
+                instanceTag: nil,
+                name: names[mac.macDeviceID] ?? mac.resolvedName,
+                buildLabel: nil
+            ))
+        }
         var rank: [String: Int] = [:]
         for (index, deviceID) in workspaceComputerPriority.enumerated()
             where rank[deviceID] == nil {

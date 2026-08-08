@@ -13,9 +13,10 @@ struct WorkspaceListFilterMenu: View, Equatable {
     /// Machines available to filter by. When fewer than two, the machine section
     /// is hidden (nothing to disambiguate).
     let machines: [WorkspaceFilterMachine]
-    /// The All Computers sort mode, or `nil` to hide the sort section (single
-    /// machine scope, previews). Like the machine section, sorting is only
-    /// offered while more than one machine is present.
+    /// The All Computers sort mode, or `nil` to hide the sort section. The
+    /// caller owns the gate (All Computers scope with 2+ known computers,
+    /// counting paired-but-offline ones): a non-nil mode always renders, so a
+    /// wedged or offline secondary Mac cannot hide the control.
     var sortMode: MobileWorkspaceSortMode? = nil
     let actions: WorkspaceListFilterMenuActions
 
@@ -36,7 +37,7 @@ struct WorkspaceListFilterMenu: View, Equatable {
                 }
             }
 
-            if let sortMode, let setSortMode = actions.setSortMode, showsMachineSection {
+            if let sortMode, let setSortMode = actions.setSortMode {
                 Picker(
                     L10n.string("mobile.workspaces.sort", defaultValue: "Sort By"),
                     selection: Binding(get: { sortMode }, set: { setSortMode($0) })
