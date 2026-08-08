@@ -19,6 +19,32 @@ import Testing
         #expect(!policy.allows(instanceTag: nil))
     }
 
+    @Test func developmentAllowsOnlyExplicitSiblingTags() {
+        let policy = MobileMacBuildCompatibilityPolicy.development(
+            expectedInstanceTag: "phand1",
+            additionalInstanceTags: ["phand2", " PHAND3 "]
+        )
+
+        #expect(policy.allows(instanceTag: "phand1"))
+        #expect(policy.allows(instanceTag: "phand2"))
+        #expect(policy.allows(instanceTag: "phand3"))
+        #expect(!policy.allows(instanceTag: "phand4"))
+        #expect(!policy.allows(instanceTag: "default"))
+    }
+
+    @Test func currentDevelopmentPolicyParsesBuildMetadataAllowlist() throws {
+        let scope = try #require(MobileIOSBuildScope("phand1"))
+        let policy = MobileMacBuildCompatibilityPolicy.current(
+            buildScope: scope,
+            compatibleMacTags: "phand2, PHAND3 "
+        )
+
+        #expect(policy.allows(instanceTag: "phand1"))
+        #expect(policy.allows(instanceTag: "phand2"))
+        #expect(policy.allows(instanceTag: "phand3"))
+        #expect(!policy.allows(instanceTag: "unrelated"))
+    }
+
     @Test func officialKeepsStableAndNightlyAsDistinctAllowedIdentities() {
         let policy = MobileMacBuildCompatibilityPolicy.official
 

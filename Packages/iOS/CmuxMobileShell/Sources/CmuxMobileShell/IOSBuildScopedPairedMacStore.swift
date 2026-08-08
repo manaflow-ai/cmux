@@ -2,24 +2,20 @@ public import CMUXMobileCore
 public import CmuxMobilePairedMac
 public import Foundation
 
-/// Scopes the iOS saved-Mac list to one tagged iOS app build.
+/// Scopes the iOS saved-Mac list to one tagged iOS app build's data partition.
 ///
-/// The scoped store also enforces exact Mac app-instance compatibility, so a
-/// tagged iOS build cannot display, restore, or reconnect another tag that was
-/// saved into its partition by an older build.
+/// Mac app-instance compatibility is a separate authority boundary owned by
+/// ``MobileMacBuildCompatibilityPolicy``. The composition root wraps this store
+/// with that policy so one resolved policy governs discovery and persistence.
 public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     private static let separator = "\u{1F}"
 
-    private let rawInner: any MobilePairedMacStoring
     private let inner: any MobilePairedMacStoring
     private let scope: MobileIOSBuildScope
     private let mutationGate: PairedMacMutationGate
 
     public init(inner: any MobilePairedMacStoring, scope: MobileIOSBuildScope) {
-        self.rawInner = inner
-        self.inner = MobileMacBuildCompatibilityPolicy
-            .development(expectedInstanceTag: scope.value)
-            .scoping(inner)
+        self.inner = inner
         self.scope = scope
         self.mutationGate = PairedMacMutationGate()
     }
@@ -528,8 +524,8 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     }
 
     private func removeAllUnlocked() async throws {
-        for mac in try await rawInner.loadAll(stackUserID: nil, teamID: nil) where isScoped(mac) {
-            try await rawInner.remove(
+        for mac in try await inner.loadAll(stackUserID: nil, teamID: nil) where isScoped(mac) {
+            try await inner.remove(
                 macDeviceID: mac.macDeviceID,
                 instanceTag: mac.instanceTag,
                 stackUserID: mac.stackUserID,

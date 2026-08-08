@@ -35,9 +35,12 @@ public typealias CMUXMobileShellStore = MobileShellComposite
 @MainActor
 @Observable
 public final class MobileShellComposite: MobileTerminalOutputSinking {
-    /// One focused connection is additional to this control-only allowance.
-    /// Existing owners win admission so presence churn cannot rotate sockets.
-    static let maximumWarmControlConnectionCount = 8
+    /// Bound the peer fleet to five live sessions: one initial focus plus four
+    /// warm peers. After the first focus handoff, the focused peer may also keep
+    /// its control capability without consuming another transport session.
+    static let maximumLiveMacConnectionCount = 5
+    static let maximumWarmControlConnectionCount =
+        maximumLiveMacConnectionCount - 1
 
     static let maxTerminalReplayFailureRetries = 2
     static let maxTerminalReplayBarrierFollowUps = 1
@@ -941,10 +944,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// connection or listener. This snapshot closes the race where an old
     /// acknowledgement arrives after a newer listener has taken ownership.
     var lastSuccessfulTerminalSubscription: MobileTerminalSubscriptionValidation?
-    /// The focused client whose terminal subscribe/reassert operations are
-    /// fenced while its final unsubscribe is prepared. Existing wire requests
-    /// drain before unsubscribe; new ones cannot start.
-    private var terminalSubscriptionHandoffFenceClientID: ObjectIdentifier?
+    /// Focused clients whose terminal subscribe/reassert operations are fenced
+    /// while their final unsubscribe is prepared. Per-client tokens prevent an
+    /// older A→B cleanup from clearing a newer A→B handoff after rapid reversal.
+    /// The stored handoff retains its client, so an entry can never name a
+    /// deallocated address that a later client could reuse.
+    private var terminalSubscriptionHandoffFences:
+        [ObjectIdentifier: PendingTerminalSubscriptionHandoff] = [:]
+    /// Focus-transition maintenance (session-purpose sync, demoted-control
+    /// activation) keyed by the client it maintains. A newer transition for the
+    /// same client cancels the older instance, so a rapid A→B→A reversal cannot
+    /// run overlapping purpose loops; sign-out tears all of them down. The task
+    /// closure retains its client, so an entry never outlives that identity.
+    private var focusTransitionMaintenanceTasks:
+        [ObjectIdentifier: (token: UUID, task: Task<Void, Never>)] = [:]
     // Liveness watchdog for the render-grid push subscription. The `for await`
     // listener loop blocks indefinitely if the underlying connection half-dies
     // (network blip, Mac stops pushing, background/foreground cycle): the
@@ -1134,6 +1147,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var secondaryAggregationTask: Task<Void, Never>?
     private var secondaryAggregationTaskGeneration = UUID()
     private var secondaryAggregationPending = false
+    /// A foreground connection or explicit refresh requested one fresh broker
+    /// discovery pass. Kept separate from ordinary store aggregation so
+    /// presence churn never turns same-account discovery into polling.
+    private var secondaryIrohDiscoveryPending = false
     /// Incremental presence edges are reconciled only for their affected Macs.
     /// One coalesced task drains the pending id set without widening each edge
     /// into a pool-wide workspace refresh.
@@ -1196,7 +1213,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var secondaryAggregationScopeGeneration = 0
     var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     var effectiveViewportSizesBySurfaceID: [String: MobileTerminalViewportSize]; var reportedTerminalViewportSizesBySurfaceID: [String: MobileTerminalViewportSize]
-    var viewportReportGenerationsBySurfaceID: [String: UInt64]
+    /// Monotonic viewport fences scoped to the Mac app instance that consumes
+    /// them. Warm Iroh focus swaps keep both peer connections alive, so their
+    /// counters must survive independently for the signed-in account lifetime.
+    var viewportReportGenerationsBySequenceKey: [MobileTerminalViewportSequenceKey: UInt64]
     var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     /// Pre-barrier delivered high-water mark: rejects buffered pre-barrier
     /// frames, and is restored as the baseline on an empty barrier release.
@@ -1540,7 +1560,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.chatEventSourceGeneration = UUID()
         self.reportedViewportSizesByTerminalKey = [:]
         self.effectiveViewportSizesBySurfaceID = [:]; self.reportedTerminalViewportSizesBySurfaceID = [:]
-        self.viewportReportGenerationsBySurfaceID = [:]
+        self.viewportReportGenerationsBySequenceKey = [:]
         self.deliveredTerminalByteEndSeqBySurfaceID = [:]
         self.terminalPreBarrierDeliveredEndSeqBySurfaceID = [:]
         self.terminalRenderGridBaselineReplayRequestCountsBySurfaceID = [:]
@@ -1787,6 +1807,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalInputRPCPipeline.clear()
         resumeRawTerminalInputDrainWaiters()
         reportedViewportSizesByTerminalKey = [:]
+        viewportReportGenerationsBySequenceKey = [:]
         terminalPreBarrierDeliveredEndSeqBySurfaceID = [:]
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID = [:]
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID = [:]
@@ -2432,7 +2453,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // operation has handed ownership back to this shared entry.
                 // This preserves foreground-first ordering even though the
                 // deadline race executes the awaited phase in a child task.
-                scheduleSecondaryAggregation()
+                scheduleSecondaryAggregation(discoverLivePeers: true)
             }
             return outcome
         }
@@ -3363,6 +3384,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
         ) {
+            if await warmIrohFocusCandidateIsAuthorized(promotableOwnerKey),
+               focusWarmIrohPeer(
+                promotableOwnerKey,
+                switchAttemptID: switchAttemptID
+               ) {
+                macSwitchRestoreBaseline = nil
+                return true
+            }
             switch await promoteSecondaryToForegroundOutcome(
                 promotableOwnerKey,
                 switchAttemptID: switchAttemptID
@@ -4609,7 +4638,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// write). Presence can publish several rows for one heartbeat; coalesce those
     /// triggers into one in-flight pass plus one trailing pass so a valid connect
     /// is never starved by cancel/restart churn.
-    func scheduleSecondaryAggregation() {
+    func scheduleSecondaryAggregation(discoverLivePeers: Bool = false) {
+        if discoverLivePeers {
+            secondaryIrohDiscoveryPending = true
+        }
         guard secondaryAggregationTask == nil else {
             secondaryAggregationPending = true
             return
@@ -4620,8 +4652,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let self else { return }
             repeat {
                 self.secondaryAggregationPending = false
+                let discoverLivePeers = self.secondaryIrohDiscoveryPending
+                self.secondaryIrohDiscoveryPending = false
                 await self.refreshSecondaryMacWorkspaces(
-                    allowsNewConnections: self.secondaryAggregationRetryTask == nil
+                    allowsNewConnections: self.secondaryAggregationRetryTask == nil,
+                    discoverLivePeers: discoverLivePeers
                 )
             } while self.secondaryAggregationTaskGeneration == taskGeneration
                 && self.secondaryAggregationPending
@@ -4660,7 +4695,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     func refreshSecondaryMacWorkspaces(
         onlyMacDeviceIDs: Set<String>? = nil,
-        allowsNewConnections: Bool = true
+        allowsNewConnections: Bool = true,
+        discoverLivePeers: Bool = false
     ) async {
         guard let pairedMacStore, multiMacAggregationEnabled else { return }
         let retryEvidenceGenerationAtStart =
@@ -4670,7 +4706,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Mac across Stack accounts and publish another account's workspaces into
         // this UI (the scope guard alone passes for nil == nil). Mirrors
         // loadPairedMacs()'s account requirement.
-        guard let scope = await currentScopeSnapshot() else { return }
+        guard let scope = await currentScopeSnapshot() else {
+            // A transient exit must not consume the one-shot discovery intent:
+            // the retry re-enters through scheduleSecondaryAggregation, which
+            // only rediscovers when the pending flag survived.
+            if discoverLivePeers { secondaryIrohDiscoveryPending = true }
+            return
+        }
         // Full snapshots and explicit refreshes reconcile the account backup.
         // Targeted presence updates already persisted their pushed route and must
         // not turn one Mac's churn into an account-wide network fetch.
@@ -4746,6 +4788,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     \(String(describing: error), privacy: .public)
                     """
                 )
+                // A failed store load must not consume the one-shot discovery
+                // intent: the scheduled full-refresh retry re-enters through
+                // scheduleSecondaryAggregation, which only rediscovers when
+                // the pending flag survived.
+                if discoverLivePeers { secondaryIrohDiscoveryPending = true }
                 return
             }
             authorityValidation = .store
@@ -4965,6 +5012,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // compatibility check. A future presence/backup/account edge can
             // attempt it again; no background timer should poll it.
             secondaryAggregationRetryState.reset()
+        }
+        if discoverLivePeers, onlyMacDeviceIDs == nil {
+            if allowsNewConnections {
+                await establishDiscoveredSecondaryIrohMacs(
+                    scope: scope,
+                    excluding: loadedMacs
+                )
+            } else {
+                // Preserve the explicit foreground/refresh discovery request
+                // until the shared connection cooldown permits new dials.
+                secondaryIrohDiscoveryPending = true
+            }
         }
     }
     func readSecondaryStoredAuthority(
@@ -5306,10 +5365,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// each change. Fully best-effort: on any failure the entry is torn down and
     /// the pull-to-refresh / foreground re-aggregate path remains the fallback, so
     /// a secondary subscription can never crash or block the foreground.
-    private func establishSecondaryMacSubscription(
+    func establishSecondaryMacSubscription(
         for mac: MobilePairedMac,
         scope: MobileShellScopeSnapshot,
-        authorityValidation: SecondaryStoredAuthorityValidation
+        authorityValidation: SecondaryStoredAuthorityValidation,
+        persistAuthenticatedDiscovery: Bool = false
     ) async -> SecondaryMacEstablishmentOutcome {
         let flightKey = MacPairingKey(mac)
         if let existing = secondaryMacEstablishmentFlights[flightKey] {
@@ -5323,7 +5383,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return await self.performSecondaryMacSubscriptionEstablishment(
                 for: mac,
                 scope: scope,
-                authorityValidation: authorityValidation
+                authorityValidation: authorityValidation,
+                persistAuthenticatedDiscovery: persistAuthenticatedDiscovery
             )
         }
         secondaryMacEstablishmentFlights[flightKey] =
@@ -5342,7 +5403,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func performSecondaryMacSubscriptionEstablishment(
         for mac: MobilePairedMac,
         scope: MobileShellScopeSnapshot,
-        authorityValidation: SecondaryStoredAuthorityValidation
+        authorityValidation: SecondaryStoredAuthorityValidation,
+        persistAuthenticatedDiscovery: Bool
     ) async -> SecondaryMacEstablishmentOutcome {
         let macID = mac.macDeviceID
         let pairingKey = MacPairingKey(mac)
@@ -5385,8 +5447,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !Task.isCancelled,
               secondaryMacSubscriptions[pairingKey] == nil,
               secondaryMacDrainReservation(onDeviceOf: pairingKey) == nil,
-              secondaryMacSubscriptions.count
-                  < Self.maximumWarmControlConnectionCount,
+              macConnectionRegistry.sessionCount
+                  < Self.maximumLiveMacConnectionCount,
               await isSecondaryMacStillVisible(
                   macID,
                   instanceTag: mac.instanceTag,
@@ -5394,6 +5456,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               ) else {
             await client.disconnect()
             return .superseded
+        }
+        if persistAuthenticatedDiscovery {
+            let accepted = await persistPairedMacFromTicket(
+                handle.ticket,
+                instanceTagUpdate: .replace(
+                    handle.authenticatedInstanceTag
+                        ?? handle.storedInstanceTag
+                ),
+                displayNameOverride: mac.displayName,
+                markActive: false,
+                requiredScope: scope
+            )
+            guard accepted,
+                  !Task.isCancelled,
+                  await isAggregationScopeValid(scope) else {
+                await client.disconnect()
+                return .superseded
+            }
         }
         // Targeted presence passes use the scoped cache to select a bounded
         // candidate set, but a dial crosses several suspension points. Read the
@@ -5446,14 +5526,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Presence reconciliation may run while the client is dialing.
         // Revalidate synchronously at publication so an offline edge that
         // observed no owner cannot be overwritten by the old pass.
-        guard isSecondaryMacOrPhysicalAliasOnlineInCurrentPresence(
-            macID,
-            instanceTag: handle.storedInstanceTag,
-            scope: scope
-        ) else {
-            markSecondaryMacUnavailableIfUnowned(ownerKey)
-            await client.disconnect()
-            return .superseded
+        if !persistAuthenticatedDiscovery {
+            guard isSecondaryMacOrPhysicalAliasOnlineInCurrentPresence(
+                macID,
+                instanceTag: handle.storedInstanceTag,
+                scope: scope
+            ) else {
+                markSecondaryMacUnavailableIfUnowned(ownerKey)
+                await client.disconnect()
+                return .superseded
+            }
         }
         let subscription = SecondaryMacSubscription(
             macDeviceID: macID,
@@ -5599,6 +5681,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               subscription.client === client else {
             return false
         }
+        // The focused listener consumes these same topics on a multiplexed
+        // client. Keep its control stream warm without scheduling duplicate
+        // workspace and notification repairs until this peer leaves focus.
+        if client === remoteClient { return true }
         if event.topic == "workspace.updated" {
             // Coalesced, newest-wins refresh: a title/progress churn stream
             // collapses to at most one in-flight + one trailing full-list scan.
@@ -6466,10 +6552,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// and cancel any in-flight aggregation pass so it cannot resume and re-seed
     /// the torn-down entries for a now-signed-out / switched account.
     private func teardownSecondaryMacSubscriptions() {
+        cancelAllFocusTransitionMaintenance()
         secondaryAggregationTask?.cancel()
         secondaryAggregationTask = nil
         secondaryAggregationTaskGeneration = UUID()
         secondaryAggregationPending = false
+        secondaryIrohDiscoveryPending = false
         secondaryPresenceAggregationTask?.cancel()
         secondaryPresenceAggregationTask = nil
         secondaryPresenceAggregationTaskGeneration = UUID()
@@ -6494,7 +6582,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryControlReassertionTasksByOwnerKey = [:]
         secondaryControlReassertionTokensByOwnerKey = [:]
         secondaryControlReassertionOwnerIDsByOwnerKey = [:]
-        for (_, subscription) in secondaryMacSubscriptions { subscription.cancel() }
+        for (_, subscription) in secondaryMacSubscriptions {
+            if subscription.client === remoteClient {
+                subscription.detachKeepingClient()
+            } else {
+                subscription.cancel()
+            }
+        }
         secondaryMacSubscriptions.removeAll()
         let drainReservations = Array(
             secondaryMacDrainReservations.values
@@ -6762,6 +6856,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         markSecondaryMacUnavailable(MacPairingKey(pairingID: macID))
     }
     func foregroundMacDeviceIDForTesting() -> String? { foregroundMacDeviceID }
+
+    func terminalSubscriptionHandoffFenceIDForTesting(
+        on client: MobileCoreRPCClient
+    ) -> UUID? {
+        terminalSubscriptionHandoffFences[ObjectIdentifier(client)]?.fenceID
+    }
     func pooledRouteForTesting(macDeviceID: String) -> CmxAttachRoute? {
         connections[macDeviceID]?.route
     }
@@ -8063,6 +8163,33 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
         }
+        // An in-flight secondary establishment owns its route's connect lease
+        // from dial until it publishes or fails, and during that window it is
+        // in neither the live registry nor the drain reservations. Settle it
+        // first so the foreground dial drains whatever it publishes instead of
+        // dialing into an instantaneous `.connectAttemptGated` refusal.
+        let conflictingEstablishmentFlights =
+            secondaryMacEstablishmentFlights.values.filter { flight in
+                let sameRequestedDevice = requestedMacDeviceID.map {
+                    cmxCanonicalDeviceID(flight.mac.macDeviceID)
+                        == cmxCanonicalDeviceID($0)
+                } ?? false
+                return sameRequestedDevice
+                    || flight.mac.routes.contains { flightRoute in
+                        supportedRoutes.contains {
+                            MobileCoreRPCClient.routesSharePhysicalTransport(
+                                flightRoute,
+                                $0
+                            )
+                        }
+                    }
+            }
+        if !conflictingEstablishmentFlights.isEmpty {
+            for flight in conflictingEstablishmentFlights {
+                _ = await flight.task.value
+            }
+            guard isConnectCurrent() else { return nil }
+        }
         // A fresh same-peer dial cannot acquire the Iroh session while any
         // warm control client owns one of its physical routes. Logical device
         // ids are only a fast path because anonymous tickets and renamed Macs
@@ -8554,7 +8681,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // Aggregate the user's other Macs' workspaces in the background.
                     // Best-effort; never blocks the foreground connect.
                     if multiMacAggregationEnabled, !isReconnectingStoredMac {
-                        self.scheduleSecondaryAggregation()
+                        self.scheduleSecondaryAggregation(
+                            discoverLivePeers: true
+                        )
                     }
                     diagnosticLog?.record(DiagnosticEvent(.pairOk))
                     if workspaceListRequest.isScoped {
@@ -8833,13 +8962,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             replaceConnectionAttemptClientOwnership(with: nil) {
             scheduleClientDisconnect(attemptClient)
         }
-        replaceRemoteClient(with: nil)
         // Drop the foreground entry from the connection pool (P2). Secondary
-        // read-only connections (P3) are torn down separately.
+        // capabilities for other peers are torn down separately. A focused
+        // peer may also own control, so remove both capabilities before its
+        // shared physical client is disconnected.
         if let foreground = foregroundMacDeviceID,
            let focused = connections[foreground] {
+            removeControlCapability(ifMatching: focused)
             macConnectionRegistry.setFocusedConnection(nil, for: focused.ownerKey)
         }
+        replaceRemoteClient(with: nil)
         foregroundMacDeviceID = nil
         if !preservingOtherMacWorkspaceState {
             // Cancel the live secondary subscriptions (slice 3) and keep only the
@@ -8889,6 +9021,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let foregroundMacDeviceID,
            let focused = connections[foregroundMacDeviceID],
            focused.client === previous {
+            removeControlCapability(ifMatching: focused)
             removeFocusedConnection(ifMatching: focused)
         }
         await replaceRemoteClientAwaitingTeardownRegistration(with: nil)
@@ -8942,16 +9075,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             chatEventSourceGeneration = UUID()
         }
         if previous !== newValue {
-            terminalSubscriptionHandoffFenceClientID = nil
+            terminalSubscriptionHandoffFences.removeAll()
         }
         return previous !== newValue ? previous : nil
     }
 
     /// Move focus to an already pooled client without retiring the previous
-    /// client. The caller must first remove the previous terminal subscription,
-    /// then re-register that client with control-only topics.
+    /// client. Legacy callers clear terminal registrations before adoption;
+    /// multiplexed Iroh handoffs preserve their per-client fences for cleanup.
     @discardableResult
-    func adoptPooledRemoteClient(_ newValue: MobileCoreRPCClient) -> UUID {
+    func adoptPooledRemoteClient(
+        _ newValue: MobileCoreRPCClient,
+        generation: UUID = UUID(),
+        preservingTerminalHandoffFences: Bool = false
+    ) -> UUID {
         guard remoteClient !== newValue else { return connectionGeneration }
         stopTerminalRefreshPolling()
         cancelRemoteOperationTasks()
@@ -8960,9 +9097,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Authentication can stage the target while the old client remains
         // routable. Publish a fresh live generation at the actual swap so work
         // begun during staging cannot cross onto the target connection.
-        connectionGeneration = UUID()
+        connectionGeneration = generation
         remoteClient = newValue
-        terminalSubscriptionHandoffFenceClientID = nil
+        if !preservingTerminalHandoffFences {
+            terminalSubscriptionHandoffFences.removeAll()
+        }
         chatEventSourceGeneration = UUID()
         return connectionGeneration
     }
@@ -8979,6 +9118,33 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard displaced.client !== connection.client else { return }
         displaced.client.retire()
         scheduleClientDisconnect(displaced.client)
+    }
+
+    /// Move focus to a client that keeps its aggregate control subscription.
+    /// The registry publishes one focused snapshot while both capabilities
+    /// continue multiplexing over the same peer session.
+    func installFocusedConnectionPreservingControl(
+        _ connection: MacConnection
+    ) -> Bool {
+        guard macConnectionRegistry.transitionToFocusedPreservingControl(
+            connection
+        ) else {
+            return false
+        }
+        focusedHandoffPreparedGenerations.removeAll()
+        return true
+    }
+
+    /// Add control maintenance to the current focused client's existing peer
+    /// session before its focus lease moves elsewhere.
+    func installControlAlongsideFocus(
+        _ subscription: SecondaryMacSubscription,
+        replacing connection: MacConnection
+    ) -> Bool {
+        macConnectionRegistry.installControlAlongsideFocus(
+            subscription,
+            replacing: connection
+        )
     }
 
     /// Atomically demote exactly the focused client that completed the terminal
@@ -9043,7 +9209,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               ) else {
             return false
         }
-        guard hasWarmControlCapacity(
+        let alreadyHasControl = secondaryMacSubscriptions[
+            connection.ownerKey
+        ]?.client === connection.client
+        guard alreadyHasControl || hasWarmControlCapacity(
             vacatingControlOwnerKey: vacatingControlOwnerKey
         ) else {
             return false
@@ -9082,6 +9251,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return removed
     }
 
+    /// Remove only the control capability sharing this focused client's peer
+    /// session. The caller retains responsibility for the physical disconnect.
+    func removeControlCapability(ifMatching connection: MacConnection) {
+        guard let subscription = secondaryMacSubscriptions[
+            connection.ownerKey
+        ], subscription.client === connection.client else {
+            return
+        }
+        subscription.detachKeepingClient()
+        secondaryMacSubscriptions[connection.ownerKey] = nil
+    }
+
+    /// Cancel only the keyed keepalive RPC owned by this exact control
+    /// capability. A replacement subscription under the same pairing wins.
+    func cancelSecondaryControlReassertion(
+        ifOwnedBy subscription: SecondaryMacSubscription
+    ) {
+        let ownerKey = subscription.ownerKey
+        guard secondaryControlReassertionOwnerIDsByOwnerKey[ownerKey]
+                == ObjectIdentifier(subscription) else {
+            return
+        }
+        secondaryControlReassertionTasksByOwnerKey[ownerKey]?.cancel()
+        secondaryControlReassertionTasksByOwnerKey[ownerKey] = nil
+        secondaryControlReassertionTokensByOwnerKey[ownerKey] = nil
+        secondaryControlReassertionOwnerIDsByOwnerKey[ownerKey] = nil
+    }
+
     /// A superseded handoff may return after the old Mac has already
     /// acknowledged terminal unsubscription. If it is still the published
     /// foreground, retire that now-renderless connection so cancellation
@@ -9106,6 +9303,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         focusedHandoffPreparedGenerations.remove(connection.generation)
+        removeControlCapability(ifMatching: connection)
         removeFocusedConnection(ifMatching: connection)
         if var offline = workspacesByMac[foregroundMacKey] {
             offline.status = .unavailable
@@ -9160,7 +9358,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func resetTerminalOutputTracking() {
         cancelAllTerminalReplayTasks()
         effectiveViewportSizesBySurfaceID = [:]; reportedTerminalViewportSizesBySurfaceID = [:]
-        viewportReportGenerationsBySurfaceID = [:]
+        // Keep viewport sequences for the account lifetime. A warm peer keeps
+        // its Mac-side tombstone, while a reconnected peer safely accepts a
+        // higher generation. The account boundary clears the owner-keyed map.
         // reportedViewportSizesByTerminalKey deliberately survives this reset:
         // geometry seeded before or between connections must still ride the
         // next connection's piggybacks (pre-connect reports are part of the
@@ -10088,9 +10288,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let viewportSize = reportedViewportSizesByTerminalKey[key] {
             params["viewport_columns"] = viewportSize.columns
             params["viewport_rows"] = viewportSize.rows
-            if let generation = viewportReportGenerationsBySurfaceID[
-                terminalID.rawValue
-            ] {
+            if let generation = terminalViewportGeneration(
+                for: terminalID.rawValue
+            ) {
                 params["viewport_generation"] = Int(clamping: generation)
             }
         }
@@ -10170,7 +10370,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // Carry the dedicated-report generation so the Mac's fence can
                 // reject this piggyback if it arrives after a newer report or
                 // a clear (request tasks can reorder in transit).
-                if let generation = viewportReportGenerationsBySurfaceID[terminalID.rawValue] {
+                if let generation = terminalViewportGeneration(for: terminalID.rawValue) {
                     params["viewport_generation"] = Int(clamping: generation)
                 }
             }
@@ -10541,8 +10741,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func refreshTerminalEventSubscription(reason: String) {
         guard let client = remoteClient, connectionState == .connected else { return }
-        guard terminalSubscriptionHandoffFenceClientID
-                != ObjectIdentifier(client) else {
+        guard terminalSubscriptionHandoffFences[ObjectIdentifier(client)]
+                == nil else {
             return
         }
         guard runtime?.supportsServerPushEvents ?? true else { return }
@@ -10572,8 +10772,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return
         }
-        if terminalSubscriptionHandoffFenceClientID
-            == ObjectIdentifier(client) {
+        let clientID = ObjectIdentifier(client)
+        if terminalSubscriptionHandoffFences[clientID] != nil {
             let focusedConnection = foregroundMacDeviceID.flatMap {
                 connections[$0]
             }
@@ -10586,7 +10786,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 return
             }
-            terminalSubscriptionHandoffFenceClientID = nil
+            terminalSubscriptionHandoffFences[clientID] = nil
         }
         let listenerID = UUID()
         let listenerConnectionGeneration = connectionGeneration
@@ -10894,8 +11094,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return
         }
-        guard terminalSubscriptionHandoffFenceClientID
-                != ObjectIdentifier(client) else {
+        guard terminalSubscriptionHandoffFences[ObjectIdentifier(client)]
+                == nil else {
             if let subscriptionReadiness {
                 Task { await subscriptionReadiness.resolve(false) }
             }
@@ -11116,8 +11316,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func checkRenderGridLiveness(listenerID: UUID) {
         guard renderGridLivenessListenerID == listenerID else { return }
         guard let client = remoteClient, connectionState == .connected else { return }
-        guard terminalSubscriptionHandoffFenceClientID
-                != ObjectIdentifier(client) else {
+        guard terminalSubscriptionHandoffFences[ObjectIdentifier(client)]
+                == nil else {
             return
         }
         guard terminalEventListenerID == listenerID else { return }
@@ -11735,7 +11935,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         let reportedViewport = reportedViewportSizesByTerminalKey[viewportKey]
             .map { (clientID: clientID, columns: $0.columns, rows: $0.rows,
-                    generation: viewportReportGenerationsBySurfaceID[surfaceID]) }
+                    generation: terminalViewportGeneration(for: surfaceID)) }
         let replayTask = Task { @MainActor [weak self] in
             let replayResult: Result<Data, any Error>
             do {
@@ -12305,7 +12505,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // workspaces created on a secondary Mac since the last fetch (the
             // read-only secondary list is a snapshot, not a live subscription).
             if self?.multiMacAggregationEnabled == true {
-                await self?.refreshSecondaryMacWorkspaces()
+                await self?.refreshSecondaryMacWorkspaces(
+                    discoverLivePeers: true
+                )
             }
         }
         pullToRefreshTask = task
@@ -12330,9 +12532,38 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func prepareTerminalSubscriptionHandoff(
         on client: MobileCoreRPCClient
     ) async -> Bool {
-        guard remoteClient === client else { return false }
+        guard let pending = beginTerminalSubscriptionHandoff(on: client) else {
+            return false
+        }
+        let drain = await Self.raceAgainstDeadline(
+            nanoseconds: connectionHandoffDrainTimeoutNanoseconds
+        ) {
+            await pending.startTask?.value
+            await pending.refreshTask?.value
+            await pending.probeTask?.value
+            return true
+        }
+        let prepared = drain.value == true
+            && !drain.wasCancelled
+            && remoteClient === client
+            && terminalSubscriptionHandoffFences[ObjectIdentifier(client)]?
+                .fenceID == pending.fenceID
+        if !prepared {
+            // The caller abandons this handoff (and usually disconnects the
+            // client), so the fence must not outlive it: a leaked entry can
+            // block a later client that reuses the same object identity.
+            finishTerminalSubscriptionHandoff(pending)
+        }
+        return prepared
+    }
+
+    /// Fence a focused client's terminal registration and move every in-flight
+    /// request into an explicit handoff value without awaiting the wire.
+    func beginTerminalSubscriptionHandoff(
+        on client: MobileCoreRPCClient
+    ) -> PendingTerminalSubscriptionHandoff? {
+        guard remoteClient === client else { return nil }
         let clientID = ObjectIdentifier(client)
-        terminalSubscriptionHandoffFenceClientID = clientID
 
         terminalEventListenerTask?.cancel()
         terminalEventListenerTask = nil
@@ -12345,27 +12576,68 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let start = terminalSubscriptionStartTask
         let refresh = terminalSubscriptionRefreshTask
         let probe = renderGridLivenessProbeTask
-        let drain = await Self.raceAgainstDeadline(
-            nanoseconds: connectionHandoffDrainTimeoutNanoseconds
-        ) {
-            await start?.value
-            await refresh?.value
-            await probe?.value
-            return true
-        }
-        guard drain.value == true,
-              !drain.wasCancelled,
-              remoteClient === client,
-              terminalSubscriptionHandoffFenceClientID == clientID else {
-            return false
-        }
-        // The fence prevented replacement tasks from occupying these slots
-        // while their captured owners drained.
         terminalSubscriptionStartTask = nil
         terminalSubscriptionRefreshTask = nil
         renderGridLivenessProbeTask = nil
         renderGridLivenessProbeID = nil
-        return true
+        let pending = PendingTerminalSubscriptionHandoff(
+            client: client,
+            fenceID: UUID(),
+            startTask: start,
+            refreshTask: refresh,
+            probeTask: probe
+        )
+        terminalSubscriptionHandoffFences[clientID] = pending
+        return pending
+    }
+
+    /// Await a retired peer's captured requests without blocking the focus
+    /// transition. Each RPC owns its existing timeout.
+    func drainTerminalSubscriptionHandoff(
+        _ pending: PendingTerminalSubscriptionHandoff
+    ) async {
+        await pending.startTask?.value
+        await pending.refreshTask?.value
+        await pending.probeTask?.value
+    }
+
+    func finishTerminalSubscriptionHandoff(
+        _ pending: PendingTerminalSubscriptionHandoff
+    ) {
+        let clientID = ObjectIdentifier(pending.client)
+        guard terminalSubscriptionHandoffFences[clientID]?.fenceID
+                == pending.fenceID else {
+            return
+        }
+        terminalSubscriptionHandoffFences[clientID] = nil
+    }
+
+    /// Run one owned focus-transition maintenance operation for `client`,
+    /// cancelling any older instance still maintaining the same client.
+    func startFocusTransitionMaintenance(
+        for client: MobileCoreRPCClient,
+        _ operation: @escaping @MainActor () async -> Void
+    ) {
+        let clientID = ObjectIdentifier(client)
+        focusTransitionMaintenanceTasks[clientID]?.task.cancel()
+        let token = UUID()
+        let task = Task { @MainActor [weak self] in
+            await operation()
+            guard let self,
+                  self.focusTransitionMaintenanceTasks[clientID]?.token
+                    == token else {
+                return
+            }
+            self.focusTransitionMaintenanceTasks[clientID] = nil
+        }
+        focusTransitionMaintenanceTasks[clientID] = (token, task)
+    }
+
+    func cancelAllFocusTransitionMaintenance() {
+        for entry in focusTransitionMaintenanceTasks.values {
+            entry.task.cancel()
+        }
+        focusTransitionMaintenanceTasks.removeAll()
     }
 
     func setSelectedWorkspaceID(_ id: MobileWorkspacePreview.ID?) {

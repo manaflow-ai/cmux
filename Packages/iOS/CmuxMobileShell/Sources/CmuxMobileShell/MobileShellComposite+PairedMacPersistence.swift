@@ -26,6 +26,8 @@ extension MobileShellComposite {
         _ ticket: CmxAttachTicket,
         instanceTagUpdate: PairedMacInstanceTagUpdate = .preserve,
         displayNameOverride: String? = nil,
+        markActive: Bool = true,
+        requiredScope: MobileShellScopeSnapshot? = nil,
         userAuthorizedTailscaleRoutes: [CmxAttachRoute] = [],
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> Bool {
@@ -39,7 +41,16 @@ extension MobileShellComposite {
         var accepted = true
         await performSerializedPairedMacWrite(ifStillCurrent: ifStillCurrent) { [weak self] in
             guard let self else { return }
-            if let scope, await !self.isScopeCurrent(scope) { return }
+            if let requiredScope {
+                guard scope == requiredScope else {
+                    accepted = false
+                    return
+                }
+            }
+            if let scope, await !self.isScopeCurrent(scope) {
+                if requiredScope != nil { accepted = false }
+                return
+            }
             let scopedMacs = (try? await pairedMacStore.loadAll(
                 stackUserID: stackUserID, teamID: scope?.teamID
             )) ?? []
@@ -109,7 +120,7 @@ extension MobileShellComposite {
                         displayName: displayName,
                         routes: routes,
                         condition: .unclaimed,
-                        markActive: true,
+                        markActive: markActive,
                         stackUserID: stackUserID,
                         teamID: scope?.teamID,
                         now: Date()
@@ -121,7 +132,7 @@ extension MobileShellComposite {
                         displayName: displayName,
                         routes: routes,
                         instanceTag: instanceTag,
-                        markActive: true,
+                        markActive: markActive,
                         stackUserID: stackUserID,
                         teamID: scope?.teamID,
                         now: Date()

@@ -126,10 +126,9 @@ import Testing
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         let scope = try #require(MobileIOSBuildScope("feature"))
-        let feature = IOSBuildScopedPairedMacStore(
-            inner: inner,
-            scope: scope
-        )
+        let feature = MobileMacBuildCompatibilityPolicy.development(
+            expectedInstanceTag: "feature"
+        ).scoping(IOSBuildScopedPairedMacStore(inner: inner, scope: scope))
 
         try await feature.upsert(
             macDeviceID: "mac-a",
@@ -167,14 +166,47 @@ import Testing
         #expect(rows.map(\.instanceTag) == ["feature"])
     }
 
+    @Test func compatibleSiblingTagsSurviveFullBuildScopeDecoratorRail() async throws {
+        let (inner, directory) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let scoped = IOSBuildScopedPairedMacStore(
+            inner: inner,
+            scope: try #require(MobileIOSBuildScope("phand1"))
+        )
+        let production = MobileMacBuildCompatibilityPolicy.development(
+            expectedInstanceTag: "phand1",
+            additionalInstanceTags: ["phand2", "phand3"]
+        ).scoping(scoped)
+
+        for (index, tag) in ["phand1", "phand2", "phand3"].enumerated() {
+            try await production.upsert(
+                macDeviceID: "shared-mac",
+                displayName: "Shared Mac (\(tag))",
+                routes: [try irohRoute(Character(String(index + 1)))],
+                instanceTag: tag,
+                markActive: index == 0,
+                stackUserID: "user-1",
+                teamID: "team-a",
+                now: Date(timeIntervalSince1970: Double(index + 1))
+            )
+        }
+
+        let rows = try await production.loadAll(
+            stackUserID: "user-1",
+            teamID: "team-a"
+        )
+        #expect(rows.compactMap(\.instanceTag).sorted() == [
+            "phand1", "phand2", "phand3",
+        ])
+    }
+
     @Test func newerTeamlessSiblingTagIsNotVisibleOrActive() async throws {
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         let scope = try #require(MobileIOSBuildScope("feature"))
-        let feature = IOSBuildScopedPairedMacStore(
-            inner: inner,
-            scope: scope
-        )
+        let feature = MobileMacBuildCompatibilityPolicy.development(
+            expectedInstanceTag: "feature"
+        ).scoping(IOSBuildScopedPairedMacStore(inner: inner, scope: scope))
         try await feature.upsert(
             macDeviceID: "mac-a",
             displayName: "Selected",

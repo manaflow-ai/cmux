@@ -1,6 +1,10 @@
 extension MobileMacConnectionRegistry {
-    enum Entry {
-        case control(SecondaryMacSubscription)
-        case focused(MacConnection)
+    struct Entry {
+        var controlSubscription: SecondaryMacSubscription?
+        var focusedConnection: MacConnection?
+
+        var isEmpty: Bool {
+            controlSubscription == nil && focusedConnection == nil
+        }
     }
 }
