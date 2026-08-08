@@ -3311,11 +3311,7 @@ fn desktop_theme_command_output(
     }
     let command_deadline = Instant::now() + timeout;
     let mut command = Command::new(program);
-    command
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+    command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
     #[cfg(unix)]
     command.process_group(0);
     let mut child = command.spawn().ok()?;
