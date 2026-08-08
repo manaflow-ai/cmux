@@ -53,11 +53,13 @@ errors use stable lifecycle codes and do not include raw transport, server, or
 filesystem error text.
 
 Authenticated network operations use `remote connect|ssh|forward|rpc`,
-`remote enroll`, `remote known-daemons`, and `remote stop`; they cannot accept
-local server targeting. `server start` accepts the explicit remote-listener
-flags when the owning process also serves authenticated clients. Top-level
-remote commands and `remote-stop` remain compatibility aliases for one release
-cycle.
+`remote enroll`, and `remote known-daemons`; they cannot accept local server
+targeting. `remote stop` manages only a replaceable SSH sidecar. A listener
+embedded by `server start` stops only through `server stop`, which also stops
+the local owner and its workspaces. `server start` accepts the explicit
+remote-listener flags when the owning process also serves authenticated
+clients. Top-level remote commands and `remote-stop` remain compatibility
+aliases for one release cycle.
 
 ## Public grammar
 

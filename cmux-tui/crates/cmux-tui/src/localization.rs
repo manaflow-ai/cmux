@@ -1000,7 +1000,7 @@ static ENGLISH: Catalog = Catalog {
         start_separate_session: "or start this build in a separate session:",
     },
     local_server: LocalServerMessages {
-        startup_lifecycle_usage: "  cmux server <ACTION>     Start, inspect, stop, or reload one local session\n  cmux remote connect <ROUTE>  Attach through an authenticated remote route\n  cmux remote ssh <HOST>       Bootstrap and attach over direct SSH\n  cmux remote forward <ROUTE> Forward a workspace TCP service locally\n  cmux remote rpc <ROUTE>     Run workspace coding-agent RPC requests\n  cmux remote enroll <ACTION> Enroll, approve, list, or revoke devices\n  cmux remote known-daemons   List client-pinned daemon identities and routes\n  cmux remote stop            Stop authenticated remote access explicitly",
+        startup_lifecycle_usage: "  cmux server <ACTION>     Start, inspect, stop, or reload one local session\n  cmux remote connect <ROUTE>  Attach through an authenticated remote route\n  cmux remote ssh <HOST>       Bootstrap and attach over direct SSH\n  cmux remote forward <ROUTE> Forward a workspace TCP service locally\n  cmux remote rpc <ROUTE>     Run workspace coding-agent RPC requests\n  cmux remote enroll <ACTION> Enroll, approve, list, or revoke devices\n  cmux remote known-daemons   List client-pinned daemon identities and routes\n  cmux remote stop            Stop a replaceable SSH sidecar explicitly",
         root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [OPTIONS]",
         root_server_usage: "  cmux server <start|status|stop|reload-config> [OPTIONS]",
         root_server_scope: "  server        Manage one named local durable session owner",
@@ -1308,7 +1308,7 @@ OPTIONS:
         remote_link_help: "USAGE: cmux-tui remote-link --stdio [--session NAME] [--state-dir PATH]\n",
         install_self_help: "USAGE: cmux-tui install-self --destination PATH\n",
         command_help: "USAGE: cmux remote connect|ssh|forward|rpc|enroll|known-daemons <OPTIONS>\n\nRun `cmux remote COMMAND --help` for command-specific routes and options. Legacy top-level aliases remain available for one compatibility cycle.\n",
-        remote_lifecycle_help: "USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]\n       cmux remote enroll <ACTION> [OPTIONS]\n       cmux remote known-daemons [OPTIONS]\n       cmux remote stop [OPTIONS]\n\nAuthenticated remote operations are explicit under `remote`. Start the owning process with `cmux server start` and explicit remote flags.\n",
+        remote_lifecycle_help: "USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]\n       cmux remote enroll <ACTION> [OPTIONS]\n       cmux remote known-daemons [OPTIONS]\n       cmux remote stop [OPTIONS]\n\nAuthenticated remote operations are explicit under `remote`. Start the owning process with `cmux server start` and explicit remote flags. `cmux remote stop` manages only replaceable SSH sidecars. Stop a listener embedded by `cmux server start` with `cmux server stop`; this also stops its local owner and workspaces.\n",
         option_needs_value: "{option} needs a value",
         invalid_option_value: "{option} has an invalid value; expected {expected}",
         option_must_be_positive: "{option} must be positive",
@@ -1370,21 +1370,21 @@ OPTIONS:
         known_daemon_auth_carrier: "carrier",
     },
     remote: RemoteMessages {
-        remote_stop_help: "USAGE: cmux remote stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\n--acknowledge-legacy-finalization is only for an already-stopped pre-fence daemon. Verify that no legacy cmux-tui process remains before using it.\n",
-        remote_stop_unknown_option: "unknown option {option} for remote-stop",
-        remote_stop_no_positional: "remote-stop accepts no positional arguments",
+        remote_stop_help: "USAGE: cmux remote stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\nThis command manages only replaceable SSH sidecars. Stop a listener embedded by `cmux server start` with `cmux server stop`; this also stops its local owner and workspaces.\n\n--acknowledge-legacy-finalization is only for an already-stopped pre-fence daemon. Verify that no legacy cmux-tui process remains before using it.\n",
+        remote_stop_unknown_option: "unknown option {option} for cmux remote stop",
+        remote_stop_no_positional: "cmux remote stop accepts no positional arguments",
         remote_stop_acknowledgements_mutually_exclusive: "--acknowledge-failed-finalization and --acknowledge-legacy-finalization are mutually exclusive",
-        invalid_runtime_metadata: "remote daemon runtime metadata is invalid; verify that no cmux-tui process remains, then rerun remote-stop with --acknowledge-legacy-finalization ({path})",
+        invalid_runtime_metadata: "remote daemon runtime metadata is invalid; verify that no cmux-tui process remains, then rerun cmux remote stop with --acknowledge-legacy-finalization ({path})",
         inspect_runtime_metadata: "could not inspect remote daemon runtime metadata ({path})",
-        inactive_legacy_needs_migration: "inactive legacy daemon state needs explicit migration; verify that no legacy cmux-tui process remains, then rerun remote-stop with --acknowledge-legacy-finalization",
+        inactive_legacy_needs_migration: "inactive legacy daemon state needs explicit migration; verify that no legacy cmux-tui process remains, then rerun cmux remote stop with --acknowledge-legacy-finalization",
         refuse_live_invalid_lifecycle: "refusing to stop a live daemon without valid lifecycle metadata",
-        embedded_daemon_stop_refused: "refusing to upgrade an embedded daemon because stopping it would terminate its workspaces; stop and restart it explicitly",
+        embedded_daemon_stop_refused: "cmux remote stop manages only replaceable SSH sidecars; this remote listener belongs to the local server, so use `cmux server stop --session <name>` to stop its owner and workspaces",
         daemon_shutdown_failed: "daemon shutdown failed",
         observe_daemon_exit: "could not observe remote daemon process exit",
         daemon_stop_timeout: "remote daemon did not stop within 20 seconds",
         verify_previous_finalization_path: "could not verify previous remote daemon authorization finalization ({path})",
         verify_previous_finalization: "could not verify previous remote daemon authorization finalization",
-        previous_finalization_failed_ack: "previous remote daemon authorization finalization failed; inspect the authorization state, then rerun remote-stop with --acknowledge-failed-finalization",
+        previous_finalization_failed_ack: "previous remote daemon authorization finalization failed; inspect the authorization state, then rerun cmux remote stop with --acknowledge-failed-finalization",
         verify_finalization: "could not verify remote daemon authorization finalization",
         finalization_wrong_lifecycle: "could not verify remote daemon authorization finalization: shutdown outcome belongs to a different daemon lifecycle",
         finalization_failed: "remote daemon authorization finalization failed",
@@ -1392,13 +1392,13 @@ OPTIONS:
         confirm_lifecycle_fence_durability: "could not confirm remote daemon lifecycle fence durability",
         inspect_authorization_state: "could not inspect remote daemon authorization state",
         inspect_authorization_schema: "could not inspect remote daemon authorization schema",
-        legacy_authorization_requires_migration: "previous remote daemon authorization state requires explicit migration; verify that no legacy cmux-tui process remains, then run remote-stop --acknowledge-legacy-finalization",
+        legacy_authorization_requires_migration: "previous remote daemon authorization state requires explicit migration; verify that no legacy cmux-tui process remains, then run cmux remote stop --acknowledge-legacy-finalization",
         prepare_lifecycle_state: "could not prepare remote daemon lifecycle state",
         verify_previous_lifecycle_metadata: "could not verify previous remote daemon lifecycle metadata",
         modern_predecessor_missing_outcome: "could not verify previous remote daemon authorization finalization: the modern predecessor did not publish an outcome",
         runtime_empty_lifecycle: "could not verify previous remote daemon authorization finalization: runtime metadata has an empty lifecycle id",
-        state_predates_lifecycle_fence: "previous remote daemon state predates lifecycle fencing; stop the legacy daemon with remote-stop before reconnecting",
-        state_missing_lifecycle_fence: "previous remote daemon state has no lifecycle fence; stop the legacy daemon with remote-stop before reconnecting",
+        state_predates_lifecycle_fence: "previous remote daemon state predates lifecycle fencing; stop the legacy daemon with cmux remote stop before reconnecting",
+        state_missing_lifecycle_fence: "previous remote daemon state has no lifecycle fence; stop the legacy daemon with cmux remote stop before reconnecting",
         authorization_finalization_failed: "authorization finalization failed",
         lifecycle_fence_version_unsupported: "remote daemon lifecycle fence version {version} is unsupported",
         inspect_stopped_authorization_state: "could not inspect stopped daemon authorization state",
@@ -1553,7 +1553,7 @@ static JAPANESE: Catalog = Catalog {
         start_separate_session: "または、このビルドを別のセッションで開始:",
     },
     local_server: LocalServerMessages {
-        startup_lifecycle_usage: "  cmux server <操作>       一つのローカルセッションを起動、確認、停止、再読み込み\n  cmux remote connect <ルート>  認証済みリモートルート経由で接続\n  cmux remote ssh <ホスト>       直接 SSH で導入して接続\n  cmux remote forward <ルート>  ワークスペースの TCP サービスをローカル転送\n  cmux remote rpc <ルート>       ワークスペースのコーディングエージェント RPC を実行\n  cmux remote enroll <操作>      デバイスを登録、承認、一覧、失効\n  cmux remote known-daemons      クライアントに固定したデーモン ID とルートを一覧表示\n  cmux remote stop               認証済みリモートアクセスを明示的に停止",
+        startup_lifecycle_usage: "  cmux server <操作>       一つのローカルセッションを起動、確認、停止、再読み込み\n  cmux remote connect <ルート>  認証済みリモートルート経由で接続\n  cmux remote ssh <ホスト>       直接 SSH で導入して接続\n  cmux remote forward <ルート>  ワークスペースの TCP サービスをローカル転送\n  cmux remote rpc <ルート>       ワークスペースのコーディングエージェント RPC を実行\n  cmux remote enroll <操作>      デバイスを登録、承認、一覧、失効\n  cmux remote known-daemons      クライアントに固定したデーモン ID とルートを一覧表示\n  cmux remote stop               置換可能な SSH サイドカーを明示的に停止",
         root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [オプション]",
         root_server_usage: "  cmux server <start|status|stop|reload-config> [オプション]",
         root_server_scope: "  server        一つの名前付きローカル永続セッション所有者を管理",
@@ -1858,7 +1858,7 @@ ID とセッション:
         remote_link_help: "使用方法: cmux-tui remote-link --stdio [--session 名前] [--state-dir パス]\n",
         install_self_help: "使用方法: cmux-tui install-self --destination パス\n",
         command_help: "使用方法: cmux remote connect|ssh|forward|rpc|enroll|known-daemons <オプション>\n\nコマンド別のルートとオプションは `cmux remote コマンド --help` で表示します。従来のトップレベル別名は互換期間中も使用できます。\n",
-        remote_lifecycle_help: "使用方法: cmux remote connect|ssh|forward|rpc [オプション]\n          cmux remote enroll <操作> [オプション]\n          cmux remote known-daemons [オプション]\n          cmux remote stop [オプション]\n\n認証済みリモート操作は `remote` で明示的に指定します。所有プロセスは明示的なリモートフラグを付けた `cmux server start` で起動します。\n",
+        remote_lifecycle_help: "使用方法: cmux remote connect|ssh|forward|rpc [オプション]\n          cmux remote enroll <操作> [オプション]\n          cmux remote known-daemons [オプション]\n          cmux remote stop [オプション]\n\n認証済みリモート操作は `remote` で明示的に指定します。所有プロセスは明示的なリモートフラグを付けた `cmux server start` で起動します。`cmux remote stop` は置換可能な SSH サイドカーだけを管理します。`cmux server start` に組み込まれたリスナーは `cmux server stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n",
         option_needs_value: "{option} には値が必要です",
         invalid_option_value: "{option} の値が無効です。{expected} を指定してください",
         option_must_be_positive: "{option} には正の値を指定してください",
@@ -1920,21 +1920,21 @@ ID とセッション:
         known_daemon_auth_carrier: "信頼済み搬送路",
     },
     remote: RemoteMessages {
-        remote_stop_help: "使用方法: cmux remote stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\n--acknowledge-legacy-finalization は、停止済みでライフサイクルフェンス導入前のデーモン専用です。使用前に旧 cmux-tui プロセスが残っていないことを確認してください。\n",
-        remote_stop_unknown_option: "remote-stop の不明なオプションです: {option}",
-        remote_stop_no_positional: "remote-stop に位置引数は指定できません",
+        remote_stop_help: "使用方法: cmux remote stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\nこのコマンドは置換可能な SSH サイドカーだけを管理します。`cmux server start` に組み込まれたリスナーは `cmux server stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n\n--acknowledge-legacy-finalization は、停止済みでライフサイクルフェンス導入前のデーモン専用です。使用前に旧 cmux-tui プロセスが残っていないことを確認してください。\n",
+        remote_stop_unknown_option: "cmux remote stop の不明なオプションです: {option}",
+        remote_stop_no_positional: "cmux remote stop に位置引数は指定できません",
         remote_stop_acknowledgements_mutually_exclusive: "--acknowledge-failed-finalization と --acknowledge-legacy-finalization は同時に指定できません",
-        invalid_runtime_metadata: "リモートデーモンのランタイムメタデータが無効です。cmux-tui プロセスが残っていないことを確認してから、remote-stop を --acknowledge-legacy-finalization 付きで再実行してください（{path}）",
+        invalid_runtime_metadata: "リモートデーモンのランタイムメタデータが無効です。cmux-tui プロセスが残っていないことを確認してから、cmux remote stop を --acknowledge-legacy-finalization 付きで再実行してください（{path}）",
         inspect_runtime_metadata: "リモートデーモンのランタイムメタデータを確認できませんでした（{path}）",
-        inactive_legacy_needs_migration: "停止中の旧形式デーモン状態には明示的な移行が必要です。旧 cmux-tui プロセスが残っていないことを確認してから、remote-stop を --acknowledge-legacy-finalization 付きで再実行してください",
+        inactive_legacy_needs_migration: "停止中の旧形式デーモン状態には明示的な移行が必要です。旧 cmux-tui プロセスが残っていないことを確認してから、cmux remote stop を --acknowledge-legacy-finalization 付きで再実行してください",
         refuse_live_invalid_lifecycle: "有効なライフサイクルメタデータがない実行中デーモンの停止を拒否しました",
-        embedded_daemon_stop_refused: "停止するとワークスペースが終了するため、組み込みデーモンのアップグレードを拒否しました。明示的に停止して再起動してください",
+        embedded_daemon_stop_refused: "cmux remote stop は置換可能な SSH サイドカーだけを管理します。このリモートリスナーはローカルサーバーに属するため、その所有者とワークスペースを停止するには `cmux server stop --session <名前>` を使用してください",
         daemon_shutdown_failed: "デーモンの停止に失敗しました",
         observe_daemon_exit: "リモートデーモンプロセスの終了を確認できませんでした",
         daemon_stop_timeout: "リモートデーモンが 20 秒以内に停止しませんでした",
         verify_previous_finalization_path: "前回のリモートデーモン認可終了処理を確認できませんでした（{path}）",
         verify_previous_finalization: "前回のリモートデーモン認可終了処理を確認できませんでした",
-        previous_finalization_failed_ack: "前回のリモートデーモン認可終了処理に失敗しました。認可状態を確認してから、remote-stop を --acknowledge-failed-finalization 付きで再実行してください",
+        previous_finalization_failed_ack: "前回のリモートデーモン認可終了処理に失敗しました。認可状態を確認してから、cmux remote stop を --acknowledge-failed-finalization 付きで再実行してください",
         verify_finalization: "リモートデーモンの認可終了処理を確認できませんでした",
         finalization_wrong_lifecycle: "リモートデーモンの認可終了処理を確認できませんでした。停止結果が別のデーモンライフサイクルに属しています",
         finalization_failed: "リモートデーモンの認可終了処理に失敗しました",
@@ -1942,13 +1942,13 @@ ID とセッション:
         confirm_lifecycle_fence_durability: "リモートデーモンのライフサイクルフェンスが永続化されたことを確認できませんでした",
         inspect_authorization_state: "リモートデーモンの認可状態を確認できませんでした",
         inspect_authorization_schema: "リモートデーモンの認可スキーマを確認できませんでした",
-        legacy_authorization_requires_migration: "前回のリモートデーモン認可状態には明示的な移行が必要です。旧 cmux-tui プロセスが残っていないことを確認してから、remote-stop --acknowledge-legacy-finalization を実行してください",
+        legacy_authorization_requires_migration: "前回のリモートデーモン認可状態には明示的な移行が必要です。旧 cmux-tui プロセスが残っていないことを確認してから、cmux remote stop --acknowledge-legacy-finalization を実行してください",
         prepare_lifecycle_state: "リモートデーモンのライフサイクル状態を準備できませんでした",
         verify_previous_lifecycle_metadata: "前回のリモートデーモンライフサイクルメタデータを確認できませんでした",
         modern_predecessor_missing_outcome: "前回のリモートデーモン認可終了処理を確認できませんでした。新形式の先行デーモンが結果を保存していません",
         runtime_empty_lifecycle: "前回のリモートデーモン認可終了処理を確認できませんでした。ランタイムメタデータのライフサイクル ID が空です",
-        state_predates_lifecycle_fence: "前回のリモートデーモン状態はライフサイクルフェンス導入前のものです。再接続する前に remote-stop で旧デーモンを停止してください",
-        state_missing_lifecycle_fence: "前回のリモートデーモン状態にライフサイクルフェンスがありません。再接続する前に remote-stop で旧デーモンを停止してください",
+        state_predates_lifecycle_fence: "前回のリモートデーモン状態はライフサイクルフェンス導入前のものです。再接続する前に cmux remote stop で旧デーモンを停止してください",
+        state_missing_lifecycle_fence: "前回のリモートデーモン状態にライフサイクルフェンスがありません。再接続する前に cmux remote stop で旧デーモンを停止してください",
         authorization_finalization_failed: "認可終了処理に失敗しました",
         lifecycle_fence_version_unsupported: "リモートデーモンのライフサイクルフェンスバージョン {version} はサポートされていません",
         inspect_stopped_authorization_state: "停止済みデーモンの認可状態を確認できませんでした",
@@ -2425,21 +2425,25 @@ mod tests {
 
         assert!(english.remote_stop_help.contains("USAGE"));
         assert!(japanese.remote_stop_help.contains("使用方法"));
+        assert!(english.remote_stop_help.contains("cmux server stop"));
+        assert!(japanese.remote_stop_help.contains("cmux server stop"));
+        assert!(english.embedded_daemon_stop_refused.contains("SSH"));
+        assert!(japanese.embedded_daemon_stop_refused.contains("SSH"));
         assert_eq!(
             english.remote_stop_unknown_option("--unknown"),
-            "unknown option \"--unknown\" for remote-stop"
+            "unknown option \"--unknown\" for cmux remote stop"
         );
         assert_eq!(
             japanese.remote_stop_unknown_option("--unknown"),
-            "remote-stop の不明なオプションです: \"--unknown\""
+            "cmux remote stop の不明なオプションです: \"--unknown\""
         );
         assert_eq!(
             english.invalid_runtime_metadata("/tmp/runtime.json"),
-            "remote daemon runtime metadata is invalid; verify that no cmux-tui process remains, then rerun remote-stop with --acknowledge-legacy-finalization (/tmp/runtime.json)"
+            "remote daemon runtime metadata is invalid; verify that no cmux-tui process remains, then rerun cmux remote stop with --acknowledge-legacy-finalization (/tmp/runtime.json)"
         );
         assert_eq!(
             japanese.invalid_runtime_metadata("/tmp/runtime.json"),
-            "リモートデーモンのランタイムメタデータが無効です。cmux-tui プロセスが残っていないことを確認してから、remote-stop を --acknowledge-legacy-finalization 付きで再実行してください（/tmp/runtime.json）"
+            "リモートデーモンのランタイムメタデータが無効です。cmux-tui プロセスが残っていないことを確認してから、cmux remote stop を --acknowledge-legacy-finalization 付きで再実行してください（/tmp/runtime.json）"
         );
         assert_eq!(
             english.lifecycle_fence_version_unsupported(7),

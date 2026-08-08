@@ -39,9 +39,11 @@ Configure the reverse proxy to send `wss://cmux.example/v1/link` to `ws://127.0.
 npx cmux server start --session dev --iroh
 ```
 
-Use `cmux remote stop --session dev` to stop authenticated remote access. Local
-durable-session ownership uses `cmux server ...` and is never targeted by
-remote lifecycle commands. Use `cmux server status|reload-config|stop` for the
+Use `cmux server stop --session dev` to stop the local owner, its workspaces,
+and the authenticated remote listeners embedded by `server start`. `cmux
+remote stop --session dev` stops only a replaceable SSH sidecar; it refuses to
+stop an embedded listener because that action would also terminate the local
+owner and its workspaces. Use `cmux server status|reload-config|stop` for the
 local owner. An absent local stop succeeds, but an absent local status fails.
 
 Bare `cmux-tui` keeps normal tmux-style local behavior. Network behavior begins only with `connect`, `ssh`, `forward`, or `rpc`.

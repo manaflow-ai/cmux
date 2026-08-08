@@ -65,9 +65,11 @@ session. `server stop` is idempotent when absent and preserves saved topology.
 Shared routing options can precede the scope, as in
 `cmux --session agents server status`. Lifecycle JSON errors use stable codes
 and do not expose raw transport or server error text.
-Use `cmux remote connect|ssh|forward|rpc`, `remote enroll`,
-`remote known-daemons`, and `remote stop` for authenticated network access.
-Start the owning process with `server start` and explicit remote-listener flags.
+Use `cmux remote connect|ssh|forward|rpc`, `remote enroll`, and
+`remote known-daemons` for authenticated network access. `remote stop` stops
+only a replaceable SSH sidecar. Stop a listener embedded by `server start` with
+`server stop`; this also stops its local owner and workspaces. Start the owning
+process with `server start` and explicit remote-listener flags.
 The old top-level remote commands and `remote-stop` remain compatibility
 aliases for one release cycle. Detached local startup is deferred until cmux
 has an explicit supervisor and readiness contract.
