@@ -27,6 +27,20 @@ final class MobileIrohSettingsModel {
         return url
     }
 
+    /// The always-on consolidated app-wide log, offered once it exists.
+    var appLogShareURL: URL? {
+        guard let url = AppLog.defaultAppLogFileURL,
+              FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+
+    /// The always-on network diagnostics log, offered once it exists.
+    var networkLogShareURL: URL? {
+        guard let url = AppLog.defaultNetworkLogFileURL,
+              FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+
     func setVerboseLog(_ enabled: Bool) async {
         verboseLogEnabled = enabled
         let accepted = await MobileDebugLog.shared.setFileLogging(enabled: enabled)

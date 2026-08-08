@@ -155,6 +155,8 @@ struct MobileIrohSettingsView: View {
                 needsAttention: !model.snapshot.staleRelayIDs.isEmpty || model.snapshot.failureDescription != nil,
                 verboseLogEnabled: model.verboseLogEnabled,
                 verboseLogShareURL: model.verboseLogShareURL,
+                appLogShareURL: model.appLogShareURL,
+                networkLogShareURL: model.networkLogShareURL,
                 setVerboseLog: { enabled in
                     Task { await model.setVerboseLog(enabled) }
                 },
@@ -494,6 +496,8 @@ private struct MobileIrohDiagnosticsSection: View {
     let needsAttention: Bool
     let verboseLogEnabled: Bool
     let verboseLogShareURL: URL?
+    let appLogShareURL: URL?
+    let networkLogShareURL: URL?
     let setVerboseLog: (Bool) -> Void
     let refresh: () -> Void
     let clear: () -> Void
@@ -590,6 +594,30 @@ private struct MobileIrohDiagnosticsSection: View {
                     )
                 }
                 .accessibilityIdentifier("MobileIrohShareVerboseLog")
+            }
+            if let appLogShareURL {
+                ShareLink(item: appLogShareURL) {
+                    Label(
+                        L10n.string(
+                            "mobile.iroh.diagnostics.shareAppLog",
+                            defaultValue: "Share App Log"
+                        ),
+                        systemImage: "doc.text"
+                    )
+                }
+                .accessibilityIdentifier("MobileIrohShareAppLog")
+            }
+            if let networkLogShareURL {
+                ShareLink(item: networkLogShareURL) {
+                    Label(
+                        L10n.string(
+                            "mobile.iroh.diagnostics.shareNetworkLog",
+                            defaultValue: "Share Network Log"
+                        ),
+                        systemImage: "network"
+                    )
+                }
+                .accessibilityIdentifier("MobileIrohShareNetworkLog")
             }
 
             Button(role: .destructive) {

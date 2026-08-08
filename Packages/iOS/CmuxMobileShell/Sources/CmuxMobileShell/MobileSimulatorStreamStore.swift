@@ -25,6 +25,9 @@ public enum MobileSimulatorStateReceiveResult: Equatable, Sendable {
         ownership: DiagnosticSimulatorOwnershipState,
         previousOwnership: DiagnosticSimulatorOwnershipState?
     )
+    /// The payload matched the stored descriptor exactly: a keepalive
+    /// re-emission carrying liveness but no state change.
+    case unchanged(panelID: String)
     case decodeFailed(payloadBytes: Int)
 }
 
@@ -300,6 +303,16 @@ public final class MobileSimulatorStreamStore {
             MobileSimulatorPanelDescriptor.self,
             from: payload
         ) else { return .decodeFailed(payloadBytes: payload.count) }
+        // Keepalive fast path: the Mac re-emits the active descriptor on a
+        // fixed cadence (`simulator.keepalive.v1`). An event identical to the
+        // stored descriptor is liveness, not news — skip the apply and the
+        // descriptorApplied diagnostic so keepalives cannot flood the ring,
+        // Sentry breadcrumbs, or the on-disk app log every few seconds.
+        if let existing = descriptorsByWorkspace[descriptor.workspaceID]?
+            .first(where: { $0.panelID == descriptor.panelID }),
+           existing == descriptor {
+            return .unchanged(panelID: descriptor.panelID)
+        }
         let previousOwnership = statesByPanel[descriptor.panelID].map { state in
             Self.diagnosticOwnershipState(
                 ownerConnectionID: state.ownerConnectionID,

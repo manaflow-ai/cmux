@@ -180,7 +180,7 @@ extension MobileShellComposite {
         state.markStreamStale()
         recordSimulatorStream(
             panelID: panelID,
-            state: .restartRequested,
+            state: .stalled,
             ownership: currentSimulatorOwnership(panelID: panelID),
             activeSessions: startedMobileSimulatorPanelIDs.count
         )
@@ -274,6 +274,10 @@ extension MobileShellComposite {
     func handleMobileSimulatorStateEvent(_ event: MobileEventEnvelope) {
         guard let payload = event.payloadJSON else { return }
         switch simulatorStreamStore?.receiveSimulatorStatePayload(payload) {
+        case .unchanged(let panelID):
+            // Keepalive re-emission: feeds the staleness watchdog, records
+            // no diagnostic (a healthy session would flood one every 5s).
+            simulatorStreamStalenessMonitor.recordActivity(panelID: panelID)
         case .applied(let panelID, let ownership, let previousOwnership):
             simulatorStreamStalenessMonitor.recordActivity(panelID: panelID)
             recordSimulatorStream(panelID: panelID, state: .descriptorApplied, ownership: ownership)

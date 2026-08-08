@@ -189,6 +189,34 @@ import Testing
         #expect(state?.isControlHandshakePending == false)
     }
 
+    /// A keepalive `simulator.state` re-emission identical to the stored
+    /// descriptor reports `.unchanged` (liveness, no news) so the composite
+    /// can feed the staleness watchdog without recording a diagnostic every
+    /// five seconds; a differing descriptor still applies normally.
+    @Test func identicalStateKeepaliveReportsUnchanged() throws {
+        let store = MobileSimulatorStreamStore()
+        let descriptor = simulatorDescriptor(
+            ownerConnectionID: "phone",
+            isOwnedByCurrentConnection: true
+        )
+        store.replaceSimulatorPanels(in: "workspace-1", with: [descriptor])
+
+        let keepalive = try JSONEncoder().encode(descriptor)
+        #expect(store.receiveSimulatorStatePayload(keepalive) == .unchanged(panelID: "sim-1"))
+
+        let changed = try JSONEncoder().encode(
+            simulatorDescriptor(ownerConnectionID: "other", isOwnedByCurrentConnection: false)
+        )
+        #expect(
+            store.receiveSimulatorStatePayload(changed)
+                == .applied(
+                    panelID: "sim-1",
+                    ownership: .otherConnection,
+                    previousOwnership: .currentConnection
+                )
+        )
+    }
+
     /// Event silence marks an active-looking stream stalled; states that
     /// already tell the truth about not being live are left alone.
     @Test func markStreamStaleOnlyAffectsActiveStreams() {

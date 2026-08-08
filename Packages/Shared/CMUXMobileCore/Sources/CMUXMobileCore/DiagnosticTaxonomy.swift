@@ -238,6 +238,9 @@ public enum DiagnosticSimulatorStreamLifecycle: Int, Sendable, Codable, CaseIter
     case restartRequested = 8
     case pausedForBackground = 9
     case descriptorApplied = 10
+    /// The client's staleness watchdog saw a full silent interval (no frame
+    /// or keepalive) for an active stream and is re-requesting it.
+    case stalled = 11
 }
 
 /// Frame-pipeline state for the Simulator video stream.

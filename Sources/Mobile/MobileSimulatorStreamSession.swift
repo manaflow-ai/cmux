@@ -132,7 +132,12 @@ final class MobileSimulatorStreamSession {
                 }
                 guard !self.isStopped, !Task.isCancelled else { return }
                 self.emitState()
-                self.requestFrameSend()
+                // Only retry frames when a reader exists; a panel without a
+                // frame transport would otherwise log a readerMissing
+                // diagnostic on every keepalive tick.
+                if self.reader != nil {
+                    self.requestFrameSend()
+                }
             }
         }
     }

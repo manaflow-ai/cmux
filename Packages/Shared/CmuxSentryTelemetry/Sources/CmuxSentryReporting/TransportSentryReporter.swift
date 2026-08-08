@@ -234,7 +234,7 @@ public final class TransportSentryReporter: Sendable {
                   let state = DiagnosticSimulatorStreamLifecycle(rawValue: a)
             else { return .warning }
             switch state {
-            case .locked, .startFailed:
+            case .locked, .startFailed, .stalled:
                 return .warning
             case .startRequested, .started, .stopRequested, .stopped,
                  .closed, .restartRequested, .pausedForBackground,

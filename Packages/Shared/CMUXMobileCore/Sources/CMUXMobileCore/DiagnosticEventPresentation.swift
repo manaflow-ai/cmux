@@ -786,6 +786,8 @@ public struct DiagnosticEventPresentation: Sendable {
             return localized("diagnostics.simulator.stream.pausedForBackground", defaultValue: "Paused for background")
         case .descriptorApplied:
             return localized("diagnostics.simulator.stream.descriptorApplied", defaultValue: "Descriptor applied")
+        case .stalled:
+            return localized("diagnostics.simulator.stream.stalled", defaultValue: "Stalled (no frames or keepalives)")
         }
     }
 
