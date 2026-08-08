@@ -1245,6 +1245,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalScrollQueueTokensBySurfaceID: [String: UUID]
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
+    var visibleWorkspaceScrollbackPrefetchTasksBySurfaceID: [String: Task<Void, Never>]
+    var visibleWorkspaceScrollbackPrefetchRequestIDsBySurfaceID: [String: UUID]
+    var visibleWorkspaceScrollbackPrefetchesBySurfaceID: [String: VisibleWorkspaceScrollbackPrefetch]
+    var visibleWorkspaceScrollbackPrefetchSurfaceIDs: Set<String>
     /// Per-surface continuations for the Mac-pushed live font-size signal. A
     /// mounted surface obtains ``terminalLiveFontStream(surfaceID:)`` and applies
     /// each yielded point size; the Mac emits `terminal.set_font` to drive a live
@@ -1584,6 +1588,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalScrollQueueTokensBySurfaceID = [:]
         self.terminalScrollQueuesBySurfaceID = [:]
         self.terminalScrollbackPrefetchStatesBySurfaceID = [:]
+        self.visibleWorkspaceScrollbackPrefetchTasksBySurfaceID = [:]
+        self.visibleWorkspaceScrollbackPrefetchRequestIDsBySurfaceID = [:]
+        self.visibleWorkspaceScrollbackPrefetchesBySurfaceID = [:]
+        self.visibleWorkspaceScrollbackPrefetchSurfaceIDs = []
         self.terminalLiveFontContinuationsBySurfaceID = [:]
         self.terminalLiveFontTokensBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
@@ -9199,6 +9207,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollQueueTokensBySurfaceID = [:]
         terminalScrollQueuesBySurfaceID = [:]
         terminalScrollbackPrefetchStatesBySurfaceID = [:]
+        visibleWorkspaceScrollbackPrefetchTasksBySurfaceID.values.forEach { $0.cancel() }
+        visibleWorkspaceScrollbackPrefetchTasksBySurfaceID = [:]
+        visibleWorkspaceScrollbackPrefetchRequestIDsBySurfaceID = [:]
+        visibleWorkspaceScrollbackPrefetchesBySurfaceID = [:]
+        visibleWorkspaceScrollbackPrefetchSurfaceIDs = []
         terminalOutputTransport = .rawBytes
         deactivateAllTerminalLanes()
         supportedHostCapabilities = []
@@ -11482,7 +11495,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalInputAckResubscribeRetrySurfaceID = nil
     }
 
-    private static func terminalSnapshotReplacementBytes(_ snapshotBytes: Data) -> Data {
+    static func terminalSnapshotReplacementBytes(_ snapshotBytes: Data) -> Data {
         var bytes = Data("\u{1B}c\u{1B}[H\u{1B}[2J\u{1B}[3J".utf8)
         bytes.append(snapshotBytes)
         return bytes
@@ -11508,6 +11521,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelTerminalInputAckResubscribeRetry(surfaceID: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
+        deliverVisibleWorkspaceScrollbackPrefetchIfAvailable(surfaceID: surfaceID)
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY register sink surface=\(surfaceID, privacy: .public) connected=\(self.connectionState == .connected, privacy: .public) hasClient=\(self.remoteClient != nil, privacy: .public) workspaceCount=\(self.workspaces.count, privacy: .public)")
         startLatencyProbeIfReady()

@@ -135,7 +135,10 @@ extension WorkspaceListView {
             retryInitialConnection: initialConnectionTimedOut ? retryInitialConnection : nil,
             showAddDevice: initialConnectionTimedOut ? showAddDevice : nil,
             reconnect: reconnect,
-            refresh: refresh
+            refresh: refresh,
+            visibleWorkspaceIDsChanged: { ids in
+                store?.prefetchScrollback(forVisibleWorkspaceIDs: ids)
+            }
         )
     }
 }

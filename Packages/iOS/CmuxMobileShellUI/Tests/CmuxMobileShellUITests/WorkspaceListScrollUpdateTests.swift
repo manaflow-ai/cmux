@@ -47,6 +47,40 @@ import UIKit
         )
     }
 
+    @Test func coordinatorReportsOnlyWorkspaceRowsVisibleOnScreen() {
+        var snapshots: [Set<MobileWorkspacePreview.ID>] = []
+        let initial = configuration(
+            workspaceIDs: ["workspace-1", "workspace-2"],
+            visibleWorkspaceIDsChanged: { snapshots.append($0) }
+        )
+        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
+        let tableView = makeTableView()
+        coordinator.attach(to: tableView)
+        let cell = UITableViewCell()
+
+        coordinator.tableView(
+            tableView,
+            willDisplay: cell,
+            forRowAt: IndexPath(row: 0, section: 0)
+        )
+        coordinator.tableView(
+            tableView,
+            willDisplay: cell,
+            forRowAt: IndexPath(row: 1, section: 0)
+        )
+        coordinator.tableView(
+            tableView,
+            didEndDisplaying: cell,
+            forRowAt: IndexPath(row: 0, section: 0)
+        )
+
+        #expect(snapshots == [
+            [.init(rawValue: "workspace-1")],
+            [.init(rawValue: "workspace-1"), .init(rawValue: "workspace-2")],
+            [.init(rawValue: "workspace-2")],
+        ])
+    }
+
     @Test func structuralUpdateAppliesThroughNativeDataSource() {
         let initial = configuration(workspaceIDs: ["workspace-1"])
         let coordinator = WorkspaceListTableCoordinator(configuration: initial)
@@ -621,7 +655,8 @@ import UIKit
         ungroupWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
         ungroupWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
         deleteWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
-        deleteWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
+        deleteWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
+        visibleWorkspaceIDsChanged: ((Set<MobileWorkspacePreview.ID>) -> Void)? = nil
     ) -> WorkspaceListTable {
         let workspaces = workspaceIDs.map { rawID in
             var workspace = MobileWorkspacePreview(
@@ -650,7 +685,8 @@ import UIKit
             ungroupWorkspaceGroup: ungroupWorkspaceGroup,
             ungroupWorkspaceGroupRequest: ungroupWorkspaceGroupRequest,
             deleteWorkspaceGroup: deleteWorkspaceGroup,
-            deleteWorkspaceGroupRequest: deleteWorkspaceGroupRequest
+            deleteWorkspaceGroupRequest: deleteWorkspaceGroupRequest,
+            visibleWorkspaceIDsChanged: visibleWorkspaceIDsChanged
         )
     }
 
@@ -671,7 +707,8 @@ import UIKit
         ungroupWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
         ungroupWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
         deleteWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
-        deleteWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
+        deleteWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
+        visibleWorkspaceIDsChanged: ((Set<MobileWorkspacePreview.ID>) -> Void)? = nil
     ) -> WorkspaceListTable {
         return WorkspaceListTable(
             items: items ?? workspaces.map { .workspace($0.id, indented: false) },
@@ -718,7 +755,8 @@ import UIKit
             retryInitialConnection: nil,
             showAddDevice: nil,
             reconnect: nil,
-            refresh: nil
+            refresh: nil,
+            visibleWorkspaceIDsChanged: visibleWorkspaceIDsChanged
         )
     }
 }

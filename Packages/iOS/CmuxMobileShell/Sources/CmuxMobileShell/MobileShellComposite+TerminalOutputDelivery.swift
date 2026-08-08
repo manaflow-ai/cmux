@@ -457,6 +457,24 @@ extension MobileShellComposite {
         return true
     }
 
+    func deliverVisibleWorkspaceScrollbackPrefetch(_ delivery: TerminalOutputDelivery, surfaceID: String) {
+        guard deliverTerminalOutput(delivery, surfaceID: surfaceID) else { return }
+        if let frame = delivery.sourceRenderGridFrame {
+            recordTerminalRenderGridDelivery(frame)
+            recordTerminalRenderGridHistoryContinuity(frame)
+            if frame.full, frame.scrollbackRows > 0 {
+                terminalMirrorHydrationNeededSurfaceIDs.remove(surfaceID)
+            }
+        }
+        if let endSequence = delivery.endSequence {
+            markTerminalBytesDelivered(
+                surfaceID: surfaceID,
+                endSeq: endSequence,
+                fullReplacement: true
+            )
+        }
+    }
+
     /// Whether a chunk must apply through the verified freeze/replay/verify/
     /// reveal pipeline. Screen-anchored primary-screen deltas apply directly:
     /// they are ordered by the same stateSeq floors, their scroll prologue
