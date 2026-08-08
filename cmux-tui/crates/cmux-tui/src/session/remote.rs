@@ -2232,8 +2232,10 @@ impl RemoteSession {
                             surface: id,
                             title: Arc::<str>::from(title),
                         });
-                    } else if self.invalidate_tree_once() {
-                        self.emit(MuxEvent::TreeChanged);
+                    } else {
+                        if self.invalidate_tree_once() {
+                            self.emit(MuxEvent::TreeChanged);
+                        }
                     }
                 }
             }
