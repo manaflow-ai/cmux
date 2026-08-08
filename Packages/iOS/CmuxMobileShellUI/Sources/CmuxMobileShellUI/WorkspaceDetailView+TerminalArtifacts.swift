@@ -104,6 +104,17 @@ extension WorkspaceDetailView {
     // avoidance; otherwise the view ALSO shrinks for the keyboard
     // and the reservation double-counts (extra gap when open).
     .ignoresSafeArea(.keyboard, edges: .bottom)
+    // The surface's frame must be KEYBOARD-INVARIANT: with only the keyboard
+    // inset ignored, the bottom edge respects the home indicator while the
+    // keyboard is down but extends to the window bottom while it is up
+    // (the keyboard region subsumes the indicator inset), so the frame
+    // breathed by the indicator height on every transition and every
+    // frame-relative keyboard conversion inside the surface was that much
+    // off mid-animation (the bars visibly popped by it after each rise —
+    // device forensics 2026-08-06). Extending under the indicator in ALL
+    // states pins the frame; the dock's required safe-area cap keeps the
+    // bars clear of the indicator while the keyboard is down.
+    .ignoresSafeArea(.container, edges: .bottom)
     // Keep the grid clear of the Dynamic Island and nav bar.
     .padding(.top, terminalTopPadding)
     }
