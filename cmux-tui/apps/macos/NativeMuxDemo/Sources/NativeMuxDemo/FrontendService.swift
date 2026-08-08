@@ -225,7 +225,9 @@ actor FrontendService {
 
   func drainResourceUpdates() async -> FrontendResourceUpdateBatch {
     guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else {
-      return FrontendResourceUpdateBatch(envelopes: [], overflowed: false, ended: true)
+      return FrontendResourceUpdateBatch(
+        envelopes: [], overflowed: false, ended: true, endReason: .error
+      )
     }
     return await enqueue {
       let raw = OpaquePointer(bitPattern: rawAddress)!

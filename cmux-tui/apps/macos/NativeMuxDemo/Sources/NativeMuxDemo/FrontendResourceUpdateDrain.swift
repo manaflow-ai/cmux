@@ -10,12 +10,18 @@ func drainFrontendResourceUpdates(
 ) -> FrontendResourceUpdateBatch {
   var result: [Data] = []
   var ended = false
+  var endReason = FrontendResourceStreamEndReason.none
   while true {
     var descriptor = CmuxFrontendResourceUpdate()
     guard copy(&descriptor, nil, 0) else { break }
     ended = ended || descriptor.ended
+    if descriptor.ended {
+      endReason = FrontendResourceStreamEndReason(rawValue: descriptor.end_reason) ?? .error
+    }
     if descriptor.overflowed {
-      return FrontendResourceUpdateBatch(envelopes: [], overflowed: true, ended: ended)
+      return FrontendResourceUpdateBatch(
+        envelopes: [], overflowed: true, ended: ended, endReason: endReason
+      )
     }
     guard descriptor.payload_length > 0 else { break }
     var payload = Data(count: descriptor.payload_length)
@@ -28,10 +34,17 @@ func drainFrontendResourceUpdates(
     }
     guard copied else { break }
     ended = ended || descriptor.ended
+    if descriptor.ended {
+      endReason = FrontendResourceStreamEndReason(rawValue: descriptor.end_reason) ?? .error
+    }
     if descriptor.overflowed {
-      return FrontendResourceUpdateBatch(envelopes: [], overflowed: true, ended: ended)
+      return FrontendResourceUpdateBatch(
+        envelopes: [], overflowed: true, ended: ended, endReason: endReason
+      )
     }
     result.append(payload)
   }
-  return FrontendResourceUpdateBatch(envelopes: result, overflowed: false, ended: ended)
+  return FrontendResourceUpdateBatch(
+    envelopes: result, overflowed: false, ended: ended, endReason: endReason
+  )
 }

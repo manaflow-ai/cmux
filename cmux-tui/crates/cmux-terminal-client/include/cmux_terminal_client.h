@@ -42,7 +42,18 @@ typedef struct {
     bool overflowed;
     // A true value means the ordered session event stream ended.
     bool ended;
+    // The CmuxFrontendResourceStreamEndReason value for an ended stream.
+    uint32_t end_reason;
 } CmuxFrontendResourceUpdate;
+
+typedef enum {
+    CMUX_FRONTEND_RESOURCE_STREAM_END_NONE = 0,
+    CMUX_FRONTEND_RESOURCE_STREAM_END_COMPLETED = 1,
+    CMUX_FRONTEND_RESOURCE_STREAM_END_CANCELED = 2,
+    CMUX_FRONTEND_RESOURCE_STREAM_END_CLOSED = 3,
+    CMUX_FRONTEND_RESOURCE_STREAM_END_GAP = 4,
+    CMUX_FRONTEND_RESOURCE_STREAM_END_ERROR = 5,
+} CmuxFrontendResourceStreamEndReason;
 
 // Native frontend API. One enrolled client owns resource control plus any
 // number of terminal renderer attachments. Disconnect every terminal before

@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::ffi::{CStr, CString, c_char, c_void};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -21,6 +21,12 @@ use super::{
 
 const FRONTEND_CONNECTION_TIMEOUT_ERROR: &str = "frontend connection timed out";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+const RESOURCE_STREAM_END_NONE: u8 = 0;
+const RESOURCE_STREAM_END_COMPLETED: u8 = 1;
+const RESOURCE_STREAM_END_CANCELED: u8 = 2;
+const RESOURCE_STREAM_END_CLOSED: u8 = 3;
+const RESOURCE_STREAM_END_GAP: u8 = 4;
+const RESOURCE_STREAM_END_ERROR: u8 = 5;
 
 type PendingResponse = oneshot::Sender<Result<Value, String>>;
 
@@ -32,6 +38,7 @@ struct FrontendControlState {
     resource_updates: Mutex<VecDeque<Vec<u8>>>,
     resource_updates_overflowed: AtomicBool,
     resource_stream_ended: AtomicBool,
+    resource_stream_end_reason: AtomicU8,
 }
 
 impl FrontendControlState {
@@ -44,6 +51,7 @@ impl FrontendControlState {
             resource_updates: Mutex::new(VecDeque::new()),
             resource_updates_overflowed: AtomicBool::new(false),
             resource_stream_ended: AtomicBool::new(false),
+            resource_stream_end_reason: AtomicU8::new(RESOURCE_STREAM_END_NONE),
         }
     }
 
@@ -79,6 +87,12 @@ impl FrontendControlState {
         }
         queue.clear();
         true
+    }
+
+    fn begin_resource_stream(&self) {
+        self.resource_stream_end_reason
+            .store(RESOURCE_STREAM_END_NONE, Ordering::Release);
+        self.resource_stream_ended.store(false, Ordering::Release);
     }
 }
 
@@ -123,13 +137,15 @@ pub struct CmuxFrontendTerminal {
 
 /// Ordered session-event envelope. The payload is the original stream_item
 /// JSON, including kind, sequence, cursor, and delta changes. `overflowed`
-/// requires a full snapshot resync. `ended` reports a terminal stream_end.
+/// requires a full snapshot resync. `ended` reports a stream_end and
+/// `end_reason` distinguishes recoverable gaps from terminal ends.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct CmuxFrontendResourceUpdate {
     pub payload_length: usize,
     pub overflowed: bool,
     pub ended: bool,
+    pub end_reason: u32,
 }
 
 /// Metadata for one ordered event consumed by a native terminal renderer.
@@ -151,6 +167,7 @@ unsafe fn copy_resource_update_from_state(
     update.payload_length = 0;
     update.overflowed = false;
     update.ended = state.resource_stream_ended.load(Ordering::Acquire);
+    update.end_reason = u32::from(state.resource_stream_end_reason.load(Ordering::Acquire));
     if state.discard_resource_updates_if_overflowed() {
         update.overflowed = true;
         return true;
@@ -235,6 +252,14 @@ fn handle_control_line(state: &FrontendControlState, line: &[u8]) {
         state.push_resource_update(&value);
     }
     if value.get("type").and_then(Value::as_str) == Some("stream_end") {
+        let reason = match value.get("reason").and_then(Value::as_str) {
+            Some("completed") => RESOURCE_STREAM_END_COMPLETED,
+            Some("canceled") => RESOURCE_STREAM_END_CANCELED,
+            Some("closed") => RESOURCE_STREAM_END_CLOSED,
+            Some("gap") => RESOURCE_STREAM_END_GAP,
+            _ => RESOURCE_STREAM_END_ERROR,
+        };
+        state.resource_stream_end_reason.store(reason, Ordering::Release);
         state.resource_stream_ended.store(true, Ordering::Release);
     }
     if matches!(value.get("type").and_then(Value::as_str), Some("stream_item" | "stream_end")) {
@@ -317,6 +342,9 @@ impl CmuxFrontendClient {
         }
         if self.control_state.closed.load(Ordering::Acquire) {
             return Err(self.control_state.status.lock().unwrap().clone());
+        }
+        if operation == "session.events" {
+            self.control_state.begin_resource_stream();
         }
         let message = self.next_message.fetch_add(1, Ordering::Relaxed);
         let id = format!("native-{}-{message}", self.nonce);
@@ -993,6 +1021,7 @@ mod tests {
             payload_length: usize::MAX,
             overflowed: false,
             ended: false,
+            end_reason: u32::MAX,
         };
         assert!(unsafe {
             copy_resource_update_from_state(&state, &mut overflow, std::ptr::null_mut(), 0)
@@ -1002,16 +1031,23 @@ mod tests {
         assert!(state.resource_updates.lock().unwrap().is_empty());
         assert!(!state.resource_updates_overflowed.load(Ordering::Acquire));
         state.push_resource_update(&json!({"type":"stream_item","sequence":257}));
+        state.resource_stream_end_reason
+            .store(RESOURCE_STREAM_END_COMPLETED, Ordering::Release);
         state.resource_stream_ended.store(true, Ordering::Release);
         let mut descriptor = CmuxFrontendResourceUpdate {
             payload_length: 0,
             overflowed: false,
             ended: false,
+            end_reason: 0,
         };
         assert!(unsafe {
             copy_resource_update_from_state(&state, &mut descriptor, std::ptr::null_mut(), 0)
         });
         assert!(descriptor.ended);
+        assert_eq!(
+            descriptor.end_reason,
+            u32::from(RESOURCE_STREAM_END_COMPLETED)
+        );
         assert!(!descriptor.overflowed);
         let mut payload = vec![0_u8; descriptor.payload_length];
         assert!(unsafe {
@@ -1026,7 +1062,7 @@ mod tests {
     }
 
     #[test]
-    fn resource_control_accepts_v2_and_marks_stream_end() {
+    fn resource_control_accepts_v2_and_preserves_stream_end_reason() {
         let state = FrontendControlState::new(Arc::new(ClientUpdates::default()));
         handle_control_line(
             &state,
@@ -1036,9 +1072,36 @@ mod tests {
 
         handle_control_line(
             &state,
-            br#"{"protocol":"cmux.protocol/2","type":"stream_end"}"#,
+            br#"{"protocol":"cmux.protocol/2","type":"stream_end","reason":"gap"}"#,
         );
         assert!(state.resource_stream_ended.load(Ordering::Acquire));
+        assert_eq!(
+            state.resource_stream_end_reason.load(Ordering::Acquire),
+            RESOURCE_STREAM_END_GAP
+        );
+
+        state.begin_resource_stream();
+        assert!(!state.resource_stream_ended.load(Ordering::Acquire));
+        assert_eq!(
+            state.resource_stream_end_reason.load(Ordering::Acquire),
+            RESOURCE_STREAM_END_NONE
+        );
+
+        handle_control_line(
+            &state,
+            br#"{"protocol":"cmux.protocol/2","type":"stream_end","reason":"error"}"#,
+        );
+        let mut descriptor = CmuxFrontendResourceUpdate {
+            payload_length: 0,
+            overflowed: false,
+            ended: false,
+            end_reason: 0,
+        };
+        assert!(unsafe {
+            copy_resource_update_from_state(&state, &mut descriptor, std::ptr::null_mut(), 0)
+        });
+        assert!(descriptor.ended);
+        assert_eq!(descriptor.end_reason, u32::from(RESOURCE_STREAM_END_ERROR));
     }
 
     #[test]

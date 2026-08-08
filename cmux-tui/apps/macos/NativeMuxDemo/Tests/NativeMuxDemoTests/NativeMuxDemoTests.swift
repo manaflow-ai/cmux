@@ -222,6 +222,7 @@ func resourceDrainUsesTheCDescriptorTwoCallContract() throws {
     let batch = drainFrontendResourceUpdates { descriptor, buffer, capacity in
         descriptor = CmuxFrontendResourceUpdate()
         descriptor.ended = true
+        descriptor.end_reason = FrontendResourceStreamEndReason.gap.rawValue
         guard let payload = pending.first else { return true }
         descriptor.payload_length = payload.count
         guard let buffer, capacity >= payload.count else { return true }
@@ -231,6 +232,7 @@ func resourceDrainUsesTheCDescriptorTwoCallContract() throws {
     }
 
     #expect(batch.ended)
+    #expect(batch.endReason == .gap)
     #expect(!batch.overflowed)
     #expect(batch.envelopes.count == 2)
     let sequences = try batch.envelopes.map { payload in
@@ -256,6 +258,20 @@ func resourceDrainFailsClosedOnCDescriptorOverflow() {
     #expect(batch.envelopes.isEmpty)
     #expect(batch.overflowed)
     #expect(!batch.ended)
+    #expect(batch.endReason == .none)
+}
+
+@Test
+func resourceDrainTreatsUnknownStreamEndAsTerminalError() {
+    let batch = drainFrontendResourceUpdates { descriptor, _, _ in
+        descriptor = CmuxFrontendResourceUpdate()
+        descriptor.ended = true
+        descriptor.end_reason = UInt32.max
+        return true
+    }
+
+    #expect(batch.ended)
+    #expect(batch.endReason == .error)
 }
 
 @Test

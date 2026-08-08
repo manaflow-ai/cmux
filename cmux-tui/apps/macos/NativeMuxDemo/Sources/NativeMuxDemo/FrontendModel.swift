@@ -115,18 +115,18 @@ final class FrontendModel {
                 machineID = machine.id
                 sessionID = session.id
                 try await refreshNow()
-                beginResourceUpdates(service: service)
-                let streamID = "stream_" + UUID().uuidString
-                    .replacingOccurrences(of: "-", with: "")
-                    .lowercased()
-                try await service.requestDiscardingResult(
-                    "session.events",
-                    params: [
-                        "machine": .string(machine.id),
-                        "session": .string(session.id),
-                        "stream_id": .string(streamID),
-                    ]
-                )
+                let updates = await service.updates()
+                do {
+                    try await openResourceStream(
+                        service: service,
+                        machineID: machine.id,
+                        sessionID: session.id
+                    )
+                } catch {
+                    await service.stopUpdates(generation: updates.generation)
+                    throw error
+                }
+                beginResourceUpdates(service: service, initialUpdates: updates)
                 transportDiagnostics = await service.diagnostics()
                 isConnecting = false
             } catch {
@@ -163,32 +163,86 @@ final class FrontendModel {
         errorMessage = error.localizedDescription
     }
 
-    private func beginResourceUpdates(service: FrontendService) {
+    private func openResourceStream(
+        service: FrontendService,
+        machineID: String,
+        sessionID: String
+    ) async throws {
+        let streamID = "stream_" + UUID().uuidString
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+        try await service.requestDiscardingResult(
+            "session.events",
+            params: [
+                "machine": .string(machineID),
+                "session": .string(sessionID),
+                "stream_id": .string(streamID),
+            ]
+        )
+    }
+
+    private func beginResourceUpdates(
+        service: FrontendService,
+        initialUpdates: FrontendUpdateSubscription
+    ) {
         updatesTask?.cancel()
         updatesTask = Task { [weak self] in
-            let updates = await service.updates()
-            for await _ in updates.stream {
-                guard !Task.isCancelled else { break }
-                guard let self else { continue }
-                let batch = await service.drainResourceUpdates()
-                if batch.overflowed || batch.envelopes.isEmpty {
-                    self.scheduleRefresh()
-                } else if batch.envelopes.contains(where: { self.applyResourceDelta($0) == false }) {
-                    // The projection accepts snapshots during bootstrap/resync.
-                    // Delta application is deliberately fail-closed until every
-                    // resource kind has a typed projection adapter.
-                    self.scheduleRefresh()
+            var updates = initialUpdates
+            while !Task.isCancelled {
+                var endReason = FrontendResourceStreamEndReason.none
+                for await _ in updates.stream {
+                    guard !Task.isCancelled else { break }
+                    guard let self else { continue }
+                    let batch = await service.drainResourceUpdates()
+                    if batch.overflowed || (batch.envelopes.isEmpty && !batch.ended) {
+                        self.scheduleRefresh()
+                    } else if batch.envelopes.contains(where: { self.applyResourceDelta($0) == false }) {
+                        // The projection accepts snapshots during bootstrap/resync.
+                        // Delta application is deliberately fail-closed until every
+                        // resource kind has a typed projection adapter.
+                        self.scheduleRefresh()
+                    }
+                    if batch.ended {
+                        endReason = batch.endReason
+                        break
+                    }
                 }
-                if batch.ended { break }
+                await service.stopUpdates(generation: updates.generation)
+                guard !Task.isCancelled, let self else { return }
+                guard endReason == .gap else {
+                    await self.disconnectAfterFailure(
+                        FrontendServiceError.message(L10n.text(
+                            "error.session_event_stream_ended",
+                            "The session event stream ended."
+                        ))
+                    )
+                    return
+                }
+                do {
+                    refreshRequested = false
+                    let pendingRefresh = refreshTask
+                    pendingRefresh?.cancel()
+                    await pendingRefresh?.value
+                    try await self.refreshNow()
+                    guard let machineID = self.machineID, let sessionID = self.sessionID else {
+                        return
+                    }
+                    updates = await service.updates()
+                    do {
+                        try await self.openResourceStream(
+                            service: service,
+                            machineID: machineID,
+                            sessionID: sessionID
+                        )
+                    } catch {
+                        await service.stopUpdates(generation: updates.generation)
+                        throw error
+                    }
+                } catch {
+                    await self.disconnectAfterFailure(error)
+                    return
+                }
             }
-            await service.stopUpdates(generation: updates.generation)
-            guard !Task.isCancelled else { return }
-            await self?.disconnectAfterFailure(
-                FrontendServiceError.message(L10n.text(
-                    "error.session_event_stream_ended",
-                    "The session event stream ended."
-                ))
-            )
         }
     }
 
