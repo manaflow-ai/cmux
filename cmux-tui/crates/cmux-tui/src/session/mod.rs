@@ -44,6 +44,13 @@ pub use tree::{TabNotificationView, TreeView, WorkspaceView};
 pub(crate) const CLEAR_HISTORY_UNSUPPORTED_ERROR: &str =
     "remote server does not support clear-history; restart the cmux-tui server";
 
+pub(crate) fn apply_config_to_local_owner(mux: &Mux, config: &crate::config::Config) {
+    mux.update_surface_options(|options| {
+        crate::config::apply_browser_to_surface_options(config, options);
+    });
+    mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
+}
+
 #[derive(Clone)]
 pub enum Session {
     Local(Arc<Mux>),
@@ -548,10 +555,7 @@ impl Session {
 
     pub fn apply_config(&self, config: &crate::config::Config) {
         if let Session::Local(mux) = self {
-            mux.update_surface_options(|options| {
-                crate::config::apply_browser_to_surface_options(config, options);
-            });
-            mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
+            apply_config_to_local_owner(mux, config);
         }
     }
 

@@ -1635,6 +1635,7 @@ fn run_server(
         eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
     }
     cmux_tui_core::server::serve(mux.clone(), Some(socket_path.clone()))?;
+    let (owner_event_stop, owner_event_thread) = start_local_owner_event_loop(&mux);
 
     #[cfg(unix)]
     let remote_runtime = if args.remote {
@@ -1694,6 +1695,10 @@ fn run_server(
             Err(error) => Err(error),
         }
     };
+    owner_event_stop.store(true, Ordering::Release);
+    let owner_event_result = owner_event_thread
+        .join()
+        .map_err(|_| anyhow::anyhow!("local owner event loop panicked"));
     #[cfg(unix)]
     if let Some(runtime) = remote_runtime {
         runtime.shutdown()?;
@@ -1701,7 +1706,40 @@ fn run_server(
     drop(websocket_server);
     mux.shutdown();
     cmux_tui_core::server::cleanup(&socket_path);
-    result
+    result.and(owner_event_result)
+}
+
+fn dispatch_local_owner_event(event: &cmux_tui_core::MuxEvent, reload: impl FnOnce()) {
+    if matches!(event, cmux_tui_core::MuxEvent::ConfigReloadRequested) {
+        reload();
+    }
+}
+
+fn start_local_owner_event_loop(
+    mux: &Arc<Mux>,
+) -> (Arc<AtomicBool>, std::thread::JoinHandle<()>) {
+    let stop = Arc::new(AtomicBool::new(false));
+    let thread_stop = stop.clone();
+    let weak_mux = Arc::downgrade(mux);
+    let events = mux.subscribe();
+    let thread = std::thread::spawn(move || {
+        while !thread_stop.load(Ordering::Acquire) {
+            match events.recv_timeout(std::time::Duration::from_millis(100)) {
+                Ok(event) => {
+                    let mux = weak_mux.upgrade();
+                    dispatch_local_owner_event(&event, move || {
+                        if let Some(mux) = mux {
+                            let config = config::load();
+                            session::apply_config_to_local_owner(&mux, &config);
+                        }
+                    });
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+    });
+    (stop, thread)
 }
 
 fn propagate_local_owner_shutdown(mux: &Mux, session: &Session) -> bool {
