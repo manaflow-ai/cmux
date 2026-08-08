@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import OSLog
 
 struct SideBySideWindowLayout: Equatable, Sendable {
   let nativeFrame: CGRect
@@ -58,7 +59,13 @@ enum DemoWindowPlacement {
       columns: layout.ghosttyColumns,
       rows: layout.ghosttyRows
     )
-    guard let data = try? JSONEncoder().encode(placement) else { return }
-    try? data.write(to: URL(fileURLWithPath: layoutPath), options: .atomic)
+    do {
+      let data = try JSONEncoder().encode(placement)
+      try data.write(to: URL(fileURLWithPath: layoutPath), options: .atomic)
+    } catch {
+      Logger(subsystem: "com.cmux.NativeMuxDemo", category: "window-placement").error(
+        "Failed to write the Ghostty window layout: \(error.localizedDescription, privacy: .public)"
+      )
+    }
   }
 }

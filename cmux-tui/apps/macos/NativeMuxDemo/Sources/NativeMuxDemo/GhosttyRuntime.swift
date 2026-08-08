@@ -18,6 +18,8 @@ final class NativeGhosttyRuntime {
   private let lifetime: NativeGhosttyRuntimeLifetime
 
   init?() {
+    // Remote PTY bytes already contain their color intent. Remove the local
+    // preference before Ghostty starts; this changes the demo process only.
     if getenv("NO_COLOR") != nil {
       unsetenv("NO_COLOR")
     }

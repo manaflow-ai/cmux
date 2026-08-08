@@ -113,7 +113,7 @@ bool cmux_frontend_terminal_resize(
     uint16_t cols,
     uint16_t rows);
 bool cmux_frontend_terminal_copy_next_render_event(
-    const CmuxFrontendTerminal *terminal,
+    CmuxFrontendTerminal *terminal,
     CmuxFrontendRenderEvent *event,
     uint8_t *buffer,
     size_t capacity);

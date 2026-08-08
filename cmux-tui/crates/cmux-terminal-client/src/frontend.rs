@@ -714,7 +714,7 @@ pub unsafe extern "C" fn cmux_frontend_client_attach_terminal(
 /// `capacity` bytes. Calls for one terminal must be serialized by the caller.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_frontend_terminal_copy_next_render_event(
-    terminal: *const CmuxFrontendTerminal,
+    terminal: *mut CmuxFrontendTerminal,
     event: *mut CmuxFrontendRenderEvent,
     buffer: *mut u8,
     capacity: usize,

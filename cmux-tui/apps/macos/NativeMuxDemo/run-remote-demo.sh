@@ -474,5 +474,5 @@ while kill -0 "$APP_PID" 2>/dev/null; do
     echo "The remote daemon exited while NativeMuxDemo was connected." >&2
     exit 1
   fi
-  sleep 0.25
+  sleep 5
 done

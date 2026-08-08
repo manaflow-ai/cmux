@@ -22,17 +22,17 @@ columns as a horizontally scrolling niri layout, recursive splits, stacked
 panes, and terminal/browser content as vertical pane tabs. Pane controls create
 and focus each layout form through `cmux.protocol/2`.
 
-From the cmuxterm-hq root:
+From the cmux repository root:
 
 ```bash
-worktrees/feat-cmux-tui-swift-frontend/cmux-tui/apps/macos/NativeMuxDemo/run-demo.sh
+cmux-tui/apps/macos/NativeMuxDemo/run-demo.sh
 ```
 
 If the worktree has already been built, reuse its app and daemon binaries
 without invoking an artifact producer:
 
 ```bash
-worktrees/feat-cmux-tui-swift-frontend/cmux-tui/apps/macos/NativeMuxDemo/run-demo.sh --reuse-build
+cmux-tui/apps/macos/NativeMuxDemo/run-demo.sh --reuse-build
 ```
 
 The standalone app bundle is at
@@ -54,7 +54,7 @@ terminal hosts and PTYs do not survive the demo.
 Run the lifecycle regression against the reusable artifacts with:
 
 ```bash
-worktrees/feat-cmux-tui-swift-frontend/cmux-tui/apps/macos/NativeMuxDemo/verify-demo-lifecycle.sh
+cmux-tui/apps/macos/NativeMuxDemo/verify-demo-lifecycle.sh
 ```
 
 The verifier launches the real Swift-only demo, closes the app, and fails if a
@@ -65,7 +65,7 @@ To prove the daemon and PTY can live on another Apple-silicon Mac while only
 the native frontend runs locally:
 
 ```bash
-worktrees/feat-cmux-tui-swift-frontend/cmux-tui/apps/macos/NativeMuxDemo/run-remote-demo.sh cmux-lawrence
+cmux-tui/apps/macos/NativeMuxDemo/run-remote-demo.sh cmux-lawrence
 ```
 
 The remote launcher verifies the host architecture, copies this worktree's
@@ -84,5 +84,5 @@ wrappers report success regardless of the command's real status.
 Run three complete remote launch and cleanup cycles with:
 
 ```bash
-worktrees/feat-cmux-tui-swift-frontend/cmux-tui/apps/macos/NativeMuxDemo/verify-remote-demo-lifecycle.sh cmux-lawrence 3
+cmux-tui/apps/macos/NativeMuxDemo/verify-remote-demo-lifecycle.sh cmux-lawrence 3
 ```

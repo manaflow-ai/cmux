@@ -23,17 +23,17 @@ Swift は `GhosttyKit.xcframework` の `ghostty.h` C ABI を `GhosttyKit`
 ターミナルまたはブラウザーのコンテンツを縦のペインタブとして表示します。ペイン操作は
 `cmux.protocol/2` を使用して、各レイアウト形式を作成し、フォーカスします。
 
-cmuxterm-hq のルートから実行します。
+cmux リポジトリのルートから実行します。
 
 ```bash
-worktrees/feat-cmux-tui-swift-frontend/cmux-tui/apps/macos/NativeMuxDemo/run-demo.sh
+cmux-tui/apps/macos/NativeMuxDemo/run-demo.sh
 ```
 
 このワークツリーをすでにビルドした場合は、成果物を生成せずに、既存のアプリとデーモンの
 バイナリを再利用できます。
 
 ```bash
-worktrees/feat-cmux-tui-swift-frontend/cmux-tui/apps/macos/NativeMuxDemo/run-demo.sh --reuse-build
+cmux-tui/apps/macos/NativeMuxDemo/run-demo.sh --reuse-build
 ```
 
 独立アプリバンドルは、ワークツリー内の
@@ -55,7 +55,7 @@ Ghostty クライアントを省略するには、`--swift-only` を指定しま
 再利用可能な成果物に対するライフサイクル回帰テストを実行します。
 
 ```bash
-worktrees/feat-cmux-tui-swift-frontend/cmux-tui/apps/macos/NativeMuxDemo/verify-demo-lifecycle.sh
+cmux-tui/apps/macos/NativeMuxDemo/verify-demo-lifecycle.sh
 ```
 
 検証スクリプトは実際の Swift 専用デモを起動してアプリを閉じます。新しいターミナルホスト
@@ -66,7 +66,7 @@ worktrees/feat-cmux-tui-swift-frontend/cmux-tui/apps/macos/NativeMuxDemo/verify-
 ローカルで実行することもできます。
 
 ```bash
-worktrees/feat-cmux-tui-swift-frontend/cmux-tui/apps/macos/NativeMuxDemo/run-remote-demo.sh cmux-lawrence
+cmux-tui/apps/macos/NativeMuxDemo/run-remote-demo.sh cmux-lawrence
 ```
 
 リモートランチャーはホストのアーキテクチャを確認し、このワークツリーの正確な
@@ -84,5 +84,5 @@ macOS が通常ウインドウのないアプリプロセスを残す場合で�
 リモート起動とクリーンアップを 3 回実行します。
 
 ```bash
-worktrees/feat-cmux-tui-swift-frontend/cmux-tui/apps/macos/NativeMuxDemo/verify-remote-demo-lifecycle.sh cmux-lawrence 3
+cmux-tui/apps/macos/NativeMuxDemo/verify-remote-demo-lifecycle.sh cmux-lawrence 3
 ```

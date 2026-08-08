@@ -7,8 +7,6 @@ RUN_REMOTE_DEMO="$SCRIPT_DIR/run-remote-demo.sh"
 READY_HELPER="$SCRIPT_DIR/remote-lifecycle-ready.sh"
 REMOTE_HOST="${1:-cmux-lawrence}"
 RUNS="${2:-3}"
-TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/cmux-native-remote-lifecycle.XXXXXX")"
-LOCAL_TEMP_PARENT="$(cd "${TMPDIR:-/tmp}" && pwd -P)"
 APP_PROCESS_SUFFIX="/NativeMuxDemo.app/Contents/MacOS/NativeMuxDemo"
 LAUNCHER_PID=""
 APP_PID=""
@@ -22,6 +20,9 @@ if [[ $# -gt 2 || ! "$RUNS" =~ ^[1-9][0-9]*$ ]]; then
   echo "Usage: verify-remote-demo-lifecycle.sh [ssh-host] [runs]" >&2
   exit 2
 fi
+
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/cmux-native-remote-lifecycle.XXXXXX")"
+LOCAL_TEMP_PARENT="$(cd "${TMPDIR:-/tmp}" && pwd -P)"
 
 cleanup() {
   set +e
