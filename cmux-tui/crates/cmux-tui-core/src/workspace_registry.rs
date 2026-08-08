@@ -440,12 +440,26 @@ impl PersistentSessionStateResetter {
             confirm_reset,
         )?;
         ensure_checked_reset_deletion_supported(root)?;
+        #[cfg(all(unix, test))]
+        inject_reset_path_replacement_before_write(
+            root,
+            &RESET_REPLACE_STATE_ROOT_BEFORE_GUARD,
+        )?;
         let _session_guard = acquire_existing_session_reset_guard(root, session_name)?;
         let lock_pending_reset_dirs = pending_session_reset_dirs(root, session_name)?;
         let lock_session_dir_exists = validate_session_reset_dir(&session_dir)?;
         let lock_terminal_host_root_exists = validate_terminal_host_reset_dir(&terminal_host_root)?;
         #[cfg(all(unix, test))]
-        inject_terminal_host_root_replacement_before_lock(&terminal_host_root)?;
+        {
+            inject_reset_path_replacement_before_write(
+                &session_dir,
+                &RESET_REPLACE_SESSION_DIR_BEFORE_WRITER_LOCK,
+            )?;
+            inject_reset_path_replacement_before_write(
+                &terminal_host_root,
+                &RESET_REPLACE_TERMINAL_HOST_ROOT_BEFORE_LOCK,
+            )?;
+        }
         if !lock_session_dir_exists
             && !lock_terminal_host_root_exists
             && lock_pending_reset_dirs.is_empty()
@@ -453,7 +467,7 @@ impl PersistentSessionStateResetter {
             return Ok(reset);
         }
         let lease = if lock_session_dir_exists {
-            Some(SessionLease::acquire(&session_dir.join(SESSION_WRITER_LOCK_FILE))?)
+            Some(acquire_session_writer_reset_lease(&session_dir)?)
         } else {
             None
         };
@@ -4597,6 +4611,14 @@ static RESET_RECREATE_SESSION_DIR_AFTER_STAGING: std::sync::Mutex<Option<PathBuf
 static RESET_REPLACE_TERMINAL_HOST_ROOT_BEFORE_LOCK: std::sync::Mutex<
     Option<(PathBuf, PathBuf, PathBuf)>,
 > = std::sync::Mutex::new(None);
+#[cfg(all(unix, test))]
+static RESET_REPLACE_STATE_ROOT_BEFORE_GUARD: std::sync::Mutex<
+    Option<(PathBuf, PathBuf, PathBuf)>,
+> = std::sync::Mutex::new(None);
+#[cfg(all(unix, test))]
+static RESET_REPLACE_SESSION_DIR_BEFORE_WRITER_LOCK: std::sync::Mutex<
+    Option<(PathBuf, PathBuf, PathBuf)>,
+> = std::sync::Mutex::new(None);
 
 fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
     fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
@@ -4604,8 +4626,11 @@ fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<Sess
 }
 
 #[cfg(all(unix, test))]
-fn inject_terminal_host_root_replacement_before_lock(path: &Path) -> anyhow::Result<()> {
-    let mut replacement = RESET_REPLACE_TERMINAL_HOST_ROOT_BEFORE_LOCK.lock().unwrap();
+fn inject_reset_path_replacement_before_write(
+    path: &Path,
+    hook: &std::sync::Mutex<Option<(PathBuf, PathBuf, PathBuf)>>,
+) -> anyhow::Result<()> {
+    let mut replacement = hook.lock().unwrap();
     let Some((target, moved, outside)) = replacement.take() else {
         return Ok(());
     };
@@ -4614,9 +4639,9 @@ fn inject_terminal_host_root_replacement_before_lock(path: &Path) -> anyhow::Res
         return Ok(());
     }
     fs::rename(&target, &moved)
-        .with_context(|| format!("move injected terminal-host root {}", target.display()))?;
+        .with_context(|| format!("move injected reset path {}", target.display()))?;
     std::os::unix::fs::symlink(&outside, &target).with_context(|| {
-        format!("replace injected terminal-host root {} with symbolic link", target.display())
+        format!("replace injected reset path {} with symbolic link", target.display())
     })?;
     Ok(())
 }
@@ -4626,11 +4651,167 @@ fn acquire_existing_session_guard(root: &Path, session_name: &str) -> anyhow::Re
     acquire_session_guard_from_private_dir(root, session_name, false)
 }
 
+#[cfg(unix)]
+fn acquire_existing_session_reset_guard(
+    root: &Path,
+    session_name: &str,
+) -> anyhow::Result<SessionLease> {
+    use std::ffi::{OsStr, OsString};
+
+    let (root_directory, lock_directory, lock_dir) = prepare_existing_session_guard_dir_at(root)?;
+    let coordinator_path = session_guard_coordinator_path(&lock_dir);
+    let _coordinator = SessionLease::acquire_coordinator_at(
+        &lock_directory,
+        OsStr::new(SESSION_GUARD_COORDINATOR_FILE),
+        &coordinator_path,
+    )
+    .with_context(|| format!("coordinate session lock directory {}", lock_dir.display()))?;
+    let lock_name = OsString::from(format!("{}.lock", session_storage_component(session_name)));
+    let lock_path = lock_dir.join(&lock_name);
+    let lease = SessionLease::acquire_at(&lock_directory, &lock_name, &lock_path)?;
+    validate_reset_child_directory_at(
+        &root_directory,
+        OsStr::new(SESSION_GUARD_DIR),
+        &lock_dir,
+        &lock_directory,
+    )?;
+    validate_reset_directory_path(root, "workspace state root", &root_directory)?;
+    Ok(lease)
+}
+
+#[cfg(not(unix))]
 fn acquire_existing_session_reset_guard(
     root: &Path,
     session_name: &str,
 ) -> anyhow::Result<SessionLease> {
     acquire_session_guard_from_private_dir(root, session_name, true)
+}
+
+#[cfg(unix)]
+fn prepare_existing_session_guard_dir_at(root: &Path) -> anyhow::Result<(File, File, PathBuf)> {
+    use std::ffi::OsStr;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::PermissionsExt;
+
+    let root_directory = open_verified_reset_directory(root, "workspace state root")?;
+    let lock_dir = root.join(SESSION_GUARD_DIR);
+    create_reset_child_directory_at(
+        root_directory.as_raw_fd(),
+        OsStr::new(SESSION_GUARD_DIR),
+        &lock_dir,
+    )?;
+    let lock_directory = open_reset_child_dir(
+        root_directory.as_raw_fd(),
+        OsStr::new(SESSION_GUARD_DIR),
+        &lock_dir,
+    )?;
+    lock_directory.set_permissions(fs::Permissions::from_mode(0o700))?;
+    lock_directory.sync_all()?;
+    root_directory.sync_all()?;
+    validate_reset_child_directory_at(
+        &root_directory,
+        OsStr::new(SESSION_GUARD_DIR),
+        &lock_dir,
+        &lock_directory,
+    )?;
+    validate_reset_directory_path(root, "workspace state root", &root_directory)?;
+    Ok((root_directory, lock_directory, lock_dir))
+}
+
+#[cfg(unix)]
+fn acquire_session_writer_reset_lease(session_dir: &Path) -> anyhow::Result<SessionLease> {
+    use std::ffi::OsStr;
+
+    let directory = open_verified_reset_directory(session_dir, "workspace session state path")?;
+    let path = session_dir.join(SESSION_WRITER_LOCK_FILE);
+    let lease = SessionLease::acquire_at(
+        &directory,
+        OsStr::new(SESSION_WRITER_LOCK_FILE),
+        &path,
+    )?;
+    validate_reset_directory_path(session_dir, "workspace session state path", &directory)?;
+    Ok(lease)
+}
+
+#[cfg(not(unix))]
+fn acquire_session_writer_reset_lease(session_dir: &Path) -> anyhow::Result<SessionLease> {
+    SessionLease::acquire(&session_dir.join(SESSION_WRITER_LOCK_FILE))
+}
+
+#[cfg(unix)]
+fn open_verified_reset_directory(path: &Path, label: &str) -> anyhow::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(path)
+        .with_context(|| format!("open {label} {}", path.display()))?;
+    validate_reset_directory_path(path, label, &directory)?;
+    Ok(directory)
+}
+
+#[cfg(unix)]
+fn validate_reset_directory_path(path: &Path, label: &str, directory: &File) -> anyhow::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
+    let path_metadata = fs::symlink_metadata(path)
+        .with_context(|| format!("inspect {label} {}", path.display()))?;
+    let directory_metadata = directory.metadata()?;
+    if !path_metadata.file_type().is_dir()
+        || !directory_metadata.file_type().is_dir()
+        || path_metadata.dev() != directory_metadata.dev()
+        || path_metadata.ino() != directory_metadata.ino()
+    {
+        anyhow::bail!("{label} changed while opening: {}", path.display());
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn create_reset_child_directory_at(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+) -> anyhow::Result<()> {
+    let name = reset_child_c_string(name, display_path)?;
+    loop {
+        // SAFETY: mkdirat reads a nul-terminated child name relative to a
+        // valid directory descriptor.
+        let result = unsafe { libc::mkdirat(parent_fd, name.as_ptr(), 0o700) };
+        if result == 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            return Ok(());
+        }
+        return Err(error).with_context(|| format!("create reset dir {}", display_path.display()));
+    }
+}
+
+#[cfg(unix)]
+fn validate_reset_child_directory_at(
+    parent: &File,
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+    directory: &File,
+) -> anyhow::Result<()> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::MetadataExt;
+
+    let current = open_reset_child_dir(parent.as_raw_fd(), name, display_path)?;
+    let expected_metadata = directory.metadata()?;
+    let current_metadata = current.metadata()?;
+    if expected_metadata.dev() != current_metadata.dev()
+        || expected_metadata.ino() != current_metadata.ino()
+    {
+        anyhow::bail!("reset directory changed while opening: {}", display_path.display());
+    }
+    Ok(())
 }
 
 fn acquire_session_guard_from_private_dir(
@@ -5057,6 +5238,7 @@ pub(crate) fn is_canonical_workspace_key(value: &str) -> bool {
 struct SessionLease {
     file: File,
     path: PathBuf,
+    _directory: Option<File>,
 }
 
 impl SessionLease {
@@ -5067,7 +5249,7 @@ impl SessionLease {
         FileExt::try_lock(&file).with_context(|| {
             format!("workspace session is already owned by another daemon: {}", path.display())
         })?;
-        Ok(Self { file, path: path.to_path_buf() })
+        Ok(Self { file, path: path.to_path_buf(), _directory: None })
     }
 
     fn acquire_coordinator(path: &Path) -> anyhow::Result<Self> {
@@ -5093,7 +5275,7 @@ impl SessionLease {
                 }
             }
         }
-        Ok(Self { file, path: path.to_path_buf() })
+        Ok(Self { file, path: path.to_path_buf(), _directory: None })
     }
 
     fn acquire_coordinator_blocking(path: &Path) -> anyhow::Result<Self> {
@@ -5103,8 +5285,118 @@ impl SessionLease {
         FileExt::lock(&file)
             .with_context(|| format!("lock workspace session coordinator: {}", path.display()))?;
         validate_session_lock_file(path, &file)?;
-        Ok(Self { file, path: path.to_path_buf() })
+        Ok(Self { file, path: path.to_path_buf(), _directory: None })
     }
+
+    #[cfg(unix)]
+    fn acquire_at(
+        directory: &File,
+        name: &std::ffi::OsStr,
+        path: &Path,
+    ) -> anyhow::Result<Self> {
+        let file = open_session_lock_file_at(directory, name, path, true)?;
+        restrict_session_lock_file(path, &file)?;
+        validate_session_lock_file_at(directory, name, path, &file)?;
+        FileExt::try_lock(&file).with_context(|| {
+            format!("workspace session is already owned by another daemon: {}", path.display())
+        })?;
+        validate_session_lock_file_at(directory, name, path, &file)?;
+        Ok(Self {
+            file,
+            path: path.to_path_buf(),
+            _directory: Some(directory.try_clone()?),
+        })
+    }
+
+    #[cfg(unix)]
+    fn acquire_coordinator_at(
+        directory: &File,
+        name: &std::ffi::OsStr,
+        path: &Path,
+    ) -> anyhow::Result<Self> {
+        let file = open_session_lock_file_at(directory, name, path, true)?;
+        restrict_session_lock_file(path, &file)?;
+        validate_session_lock_file_at(directory, name, path, &file)?;
+        let deadline = std::time::Instant::now() + SESSION_GUARD_COORDINATOR_TIMEOUT;
+        loop {
+            match FileExt::try_lock(&file) {
+                Ok(()) => break,
+                Err(fs4::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(SESSION_GUARD_COORDINATOR_RETRY);
+                }
+                Err(fs4::TryLockError::WouldBlock) => {
+                    return Err(std::io::Error::from(std::io::ErrorKind::WouldBlock)).with_context(
+                        || format!("workspace session coordinator is busy: {}", path.display()),
+                    );
+                }
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("lock workspace session coordinator: {}", path.display())
+                    });
+                }
+            }
+        }
+        validate_session_lock_file_at(directory, name, path, &file)?;
+        Ok(Self {
+            file,
+            path: path.to_path_buf(),
+            _directory: Some(directory.try_clone()?),
+        })
+    }
+}
+
+#[cfg(unix)]
+fn open_session_lock_file_at(
+    directory: &File,
+    name: &std::ffi::OsStr,
+    path: &Path,
+    create: bool,
+) -> anyhow::Result<File> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let name = reset_child_c_string(name, path)?;
+    let mut flags = libc::O_RDWR | libc::O_CLOEXEC | libc::O_NOFOLLOW;
+    if create {
+        flags |= libc::O_CREAT;
+    }
+    loop {
+        // SAFETY: openat reads a nul-terminated child name relative to a
+        // valid directory descriptor and returns a new owned descriptor.
+        let descriptor = unsafe {
+            libc::openat(directory.as_raw_fd(), name.as_ptr(), flags, 0o600)
+        };
+        if descriptor >= 0 {
+            // SAFETY: openat returned a new descriptor that this File owns.
+            return Ok(unsafe { File::from_raw_fd(descriptor) });
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error).with_context(|| format!("open session lock {}", path.display()));
+        }
+    }
+}
+
+#[cfg(unix)]
+fn validate_session_lock_file_at(
+    directory: &File,
+    name: &std::ffi::OsStr,
+    path: &Path,
+    file: &File,
+) -> anyhow::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
+    let file_metadata = file.metadata()?;
+    if !file_metadata.file_type().is_file() {
+        anyhow::bail!("session lock path is not a file: {}", path.display());
+    }
+    let current = open_session_lock_file_at(directory, name, path, false)?;
+    let current_metadata = current.metadata()?;
+    if current_metadata.dev() != file_metadata.dev()
+        || current_metadata.ino() != file_metadata.ino()
+    {
+        anyhow::bail!("session lock path changed while opening: {}", path.display());
+    }
+    Ok(())
 }
 
 fn open_session_lock_file(path: &Path) -> anyhow::Result<File> {

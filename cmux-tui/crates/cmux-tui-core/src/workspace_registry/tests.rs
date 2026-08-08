@@ -810,6 +810,79 @@ fn reset_terminal_host_only_state_reports_only_terminal_hosts() {
 
 #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
 #[test]
+fn reset_state_root_symlink_swap_does_not_write_outside_state() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let root = temp_root("reset-state-root-symlink-swap");
+    let outside = temp_root("reset-state-root-symlink-swap-outside");
+    let moved_root = temp_root("reset-state-root-before-guard");
+    let session = "reset-state-root-symlink-swap";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    fs::set_permissions(&outside, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(outside.join("sentinel"), b"outside").unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_REPLACE_STATE_ROOT_BEFORE_GUARD.lock().unwrap() =
+        Some((root.clone(), moved_root.clone(), outside.clone()));
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+    *RESET_REPLACE_STATE_ROOT_BEFORE_GUARD.lock().unwrap() = None;
+
+    assert!(format!("{error:#}").contains("workspace state root"), "{error:#}");
+    assert_eq!(fs::read(outside.join("sentinel")).unwrap(), b"outside");
+    assert_eq!(fs::metadata(&outside).unwrap().mode() & 0o777, 0o755);
+    assert!(!outside.join(SESSION_GUARD_DIR).exists());
+    assert!(moved_root.join(session_storage_component(session)).exists());
+    assert!(fs::symlink_metadata(&root).unwrap().file_type().is_symlink());
+
+    fs::remove_file(root).unwrap();
+    fs::remove_dir_all(moved_root).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_session_dir_symlink_swap_does_not_write_outside_state() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let root = temp_root("reset-session-dir-symlink-swap");
+    let outside = temp_root("reset-session-dir-symlink-swap-outside");
+    let session = "reset-session-dir-symlink-swap";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let moved_session_dir = session_dir.with_file_name("session-before-writer-lock");
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    fs::set_permissions(&outside, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(outside.join("sentinel"), b"outside").unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_REPLACE_SESSION_DIR_BEFORE_WRITER_LOCK.lock().unwrap() = Some((
+        session_dir.clone(),
+        moved_session_dir.clone(),
+        outside.clone(),
+    ));
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+    *RESET_REPLACE_SESSION_DIR_BEFORE_WRITER_LOCK.lock().unwrap() = None;
+
+    assert!(format!("{error:#}").contains("workspace session state path"), "{error:#}");
+    assert_eq!(fs::read(outside.join("sentinel")).unwrap(), b"outside");
+    assert_eq!(fs::metadata(&outside).unwrap().mode() & 0o777, 0o755);
+    assert!(!outside.join(SESSION_WRITER_LOCK_FILE).exists());
+    assert!(moved_session_dir.join(WORKSPACE_REGISTRY_FILE).exists());
+    assert!(fs::symlink_metadata(&session_dir).unwrap().file_type().is_symlink());
+
+    fs::remove_file(session_dir).unwrap();
+    fs::remove_dir_all(root).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
 fn reset_terminal_host_root_symlink_swap_does_not_write_outside_state() {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
