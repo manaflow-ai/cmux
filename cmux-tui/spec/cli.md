@@ -35,14 +35,22 @@ cmux server reload-config [--session <name>] [--socket <path>]
 ```
 
 `server start` is the canonical foreground spelling of `--headless`.
+The shared `--session` and `--socket` routing options can also precede the
+scope, for example `cmux --session agents server start --socket /path/to.sock`.
 Detached startup is deferred until cmux has explicit supervisor ownership,
 readiness, log, PID/state, crash, and stop contracts.
 `server stop` first reads the process identity, then sends the existing PID and
 generation-fenced graceful shutdown operation. An absent server is success,
-and stopping never deletes the durable topology. `session <name> stop` is an
-alias for the same local operation. `--all` is intentionally deferred until a
-multi-session registry can identify every target without introducing a second
-command registry.
+and stopping never deletes the durable topology. `session <name>|current stop`
+is an alias for the same local operation. Opaque session IDs are not accepted
+because local socket resolution uses a session name. `--all` is intentionally
+deferred until a multi-session registry can identify every target without
+introducing a second command registry.
+
+`server status` fails when no server is listening. In contrast, `server stop`
+is idempotent and reports `not_running` as success for an absent socket. JSON
+errors use stable lifecycle codes and do not include raw transport, server, or
+filesystem error text.
 
 Authenticated network operations use `remote connect|ssh|forward|rpc`,
 `remote enroll`, `remote known-daemons`, and `remote stop`; they cannot accept

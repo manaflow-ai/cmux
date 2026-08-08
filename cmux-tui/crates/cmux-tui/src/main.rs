@@ -1067,6 +1067,30 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn rewrite_server_start(args: &mut Vec<String>) {
+    if args.iter().any(|arg| matches!(arg.as_str(), "-h" | "--help")) {
+        return;
+    }
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--socket" | "--session" | "--machine" => {
+                if args.get(index + 1).is_none() {
+                    return;
+                }
+                index += 2;
+            }
+            "--json" | "--jsonl" | "--quiet" => index += 1,
+            "server" if args.get(index + 1).map(String::as_str) == Some("start") => {
+                args.drain(index..index + 2);
+                args.insert(0, "--headless".to_string());
+                return;
+            }
+            _ => return,
+        }
+    }
+}
+
 fn main() {
     let mut raw_args = std::env::args().skip(1).collect::<Vec<_>>();
     // Private process mode used by the daemon when it launches one durable
@@ -1144,13 +1168,7 @@ fn main() {
     // `server start` is the canonical spelling for the existing foreground
     // headless owner. Keep startup in the established Args/run_server path so
     // lifecycle aliases cannot drift into a second server launcher.
-    if raw_args.first().map(String::as_str) == Some("server")
-        && raw_args.get(1).map(String::as_str) == Some("start")
-        && !raw_args.iter().any(|arg| matches!(arg.as_str(), "-h" | "--help"))
-    {
-        raw_args.drain(..2);
-        raw_args.insert(0, "--headless".to_string());
-    }
+    rewrite_server_start(&mut raw_args);
     if cli::is_cli_invocation(&raw_args) {
         discard_provider_secret_environment();
         std::process::exit(cli::run(&raw_args, &usage()));

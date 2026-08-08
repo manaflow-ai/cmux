@@ -888,6 +888,10 @@ pub(crate) struct StartupMessages {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct LocalServerMessages {
+    pub root_remote_usage: &'static str,
+    pub root_server_usage: &'static str,
+    pub root_server_scope: &'static str,
+    pub session_stop_help: &'static str,
     pub help: &'static str,
     pub start_help: &'static str,
     pub status_help: &'static str,
@@ -898,13 +902,48 @@ pub(crate) struct LocalServerMessages {
     pub not_running: &'static str,
     pub reloaded: &'static str,
     pub connect_failed: &'static str,
+    pub identity_failed: &'static str,
+    pub communication_failed: &'static str,
+    pub invalid_response: &'static str,
+    pub reload_rejected: &'static str,
+    pub stop_rejected: &'static str,
     pub wrong_owner: &'static str,
     pub different_session: &'static str,
     pub invalid_identity: &'static str,
     pub force_unsupported: &'static str,
+    pub session_conflict: &'static str,
+    pub session_name_required: &'static str,
+    pub invalid_action_syntax: &'static str,
+    pub unknown_scope: &'static str,
+    pub unknown_server_action: &'static str,
+    pub suggestion: &'static str,
     pub daemon_removed: &'static str,
     pub unexpected_after_stop: &'static str,
     pub stop_timeout: &'static str,
+}
+
+impl LocalServerMessages {
+    pub(crate) fn unknown_scope(&self, scope: &str, suggestion: Option<&str>) -> String {
+        self.with_suggestion(self.unknown_scope.replace("{scope}", scope), suggestion)
+    }
+
+    pub(crate) fn unknown_server_action(
+        &self,
+        action: &str,
+        suggestion: Option<&str>,
+    ) -> String {
+        self.with_suggestion(
+            self.unknown_server_action.replace("{action}", action),
+            suggestion,
+        )
+    }
+
+    fn with_suggestion(&self, message: String, suggestion: Option<&str>) -> String {
+        match suggestion {
+            Some(candidate) => format!("{message} {}", self.suggestion.replace("{candidate}", candidate)),
+            None => message,
+        }
+    }
 }
 
 impl StartupMessages {
@@ -960,6 +999,10 @@ static ENGLISH: Catalog = Catalog {
         start_separate_session: "or start this build in a separate session:",
     },
     local_server: LocalServerMessages {
+        root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [OPTIONS]",
+        root_server_usage: "  cmux server <start|status|stop|reload-config> [OPTIONS]",
+        root_server_scope: "  server        Manage one named local durable session owner",
+        session_stop_help: "  cmux session <name>|current stop",
         help: "USAGE\n  cmux server start [START OPTIONS]\n  cmux server status [--session <name>] [--socket <path>]\n  cmux server stop [--session <name>] [--socket <path>] [--force]\n  cmux server reload-config [--session <name>] [--socket <path>]\n\n`server` always targets the local durable mux owner for one named session.\nUse `cmux remote --help` for authenticated remote-daemon lifecycle.\n",
         start_help: "USAGE\n  cmux server start [START OPTIONS]\n\nStart the local durable mux owner for one named session in the foreground.\n",
         status_help: "USAGE\n  cmux server status [--session <name>] [--socket <path>]\n",
@@ -969,14 +1012,25 @@ static ENGLISH: Catalog = Catalog {
         stopped: "local server stopped; durable session topology was preserved",
         not_running: "local server is not running; nothing needed to be stopped",
         reloaded: "local server configuration reloaded",
-        connect_failed: "cannot connect to local session socket {socket}: {error}",
+        connect_failed: "cannot connect to the local server; check that the named session is running and retry",
+        identity_failed: "cannot verify the local server identity; retry with the cmux build that started the session",
+        communication_failed: "communication with the local server failed; verify that it is running and retry",
+        invalid_response: "the local server returned an invalid lifecycle response; retry with the cmux build that started the session",
+        reload_rejected: "the local server rejected the configuration reload; inspect its diagnostics and retry",
+        stop_rejected: "the local server rejected the stop request; retry with --force only when active clients can disconnect",
         wrong_owner: "the selected socket is not owned by a cmux local server",
         different_session: "the selected socket belongs to a different session ({actual}), not {expected}",
         invalid_identity: "the local server returned an incomplete lifecycle identity",
         force_unsupported: "this local server cannot accept a safely fenced forced stop; use the cmux build that started it",
+        session_conflict: "the session name conflicts with --session",
+        session_name_required: "session stop requires an exact session name or current",
+        invalid_action_syntax: "unknown or incomplete server action; use --help",
+        unknown_scope: "unknown resource scope \"{scope}\"",
+        unknown_server_action: "unknown server action \"{action}\".",
+        suggestion: "Did you mean `{candidate}`?",
         daemon_removed: "`cmux daemon` was renamed to `cmux server start`; run `cmux server start --help`",
         unexpected_after_stop: "local server sent unexpected data after accepting shutdown",
-        stop_timeout: "timed out waiting for the local server to stop: {error}",
+        stop_timeout: "timed out waiting for the local server to stop",
     },
     pairing: PairingMessages {
         title: "Approve browser?",
@@ -1497,6 +1551,10 @@ static JAPANESE: Catalog = Catalog {
         start_separate_session: "または、このビルドを別のセッションで開始:",
     },
     local_server: LocalServerMessages {
+        root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [オプション]",
+        root_server_usage: "  cmux server <start|status|stop|reload-config> [オプション]",
+        root_server_scope: "  server        一つの名前付きローカル永続セッション所有者を管理",
+        session_stop_help: "  cmux session <名前>|current stop",
         help: "使用方法\n  cmux server start [起動オプション]\n  cmux server status [--session <名前>] [--socket <パス>]\n  cmux server stop [--session <名前>] [--socket <パス>] [--force]\n  cmux server reload-config [--session <名前>] [--socket <パス>]\n\n`server` は常に一つの名前付きセッションのローカル永続 mux 所有者を対象にします。\n認証済みリモートデーモンの操作は `cmux remote --help` を参照してください。\n",
         start_help: "使用方法\n  cmux server start [起動オプション]\n\n一つの名前付きセッションのローカル永続 mux 所有者をフォアグラウンドで起動します。\n",
         status_help: "使用方法\n  cmux server status [--session <名前>] [--socket <パス>]\n",
@@ -1506,14 +1564,25 @@ static JAPANESE: Catalog = Catalog {
         stopped: "ローカルサーバーを停止しました。永続セッションの構成は保持されています",
         not_running: "ローカルサーバーは実行されていません。停止は不要でした",
         reloaded: "ローカルサーバーの設定を再読み込みしました",
-        connect_failed: "ローカルセッションソケット {socket} に接続できません: {error}",
+        connect_failed: "ローカルサーバーに接続できません。名前付きセッションが実行中であることを確認して再試行してください",
+        identity_failed: "ローカルサーバーの識別情報を確認できません。セッションを起動した cmux ビルドで再試行してください",
+        communication_failed: "ローカルサーバーとの通信に失敗しました。実行中であることを確認して再試行してください",
+        invalid_response: "ローカルサーバーが無効なライフサイクル応答を返しました。セッションを起動した cmux ビルドで再試行してください",
+        reload_rejected: "ローカルサーバーが設定の再読み込みを拒否しました。診断情報を確認して再試行してください",
+        stop_rejected: "ローカルサーバーが停止要求を拒否しました。アクティブなクライアントを切断できる場合のみ --force で再試行してください",
         wrong_owner: "選択したソケットは cmux ローカルサーバーに所有されていません",
         different_session: "選択したソケットは別のセッション ({actual}) に属し、{expected} ではありません",
         invalid_identity: "ローカルサーバーが完全なライフサイクル識別情報を返しませんでした",
         force_unsupported: "このローカルサーバーは安全にフェンスされた強制停止に対応していません。起動に使用した cmux ビルドで停止してください",
+        session_conflict: "セッション名が --session と競合しています",
+        session_name_required: "session stop には正確なセッション名または current が必要です",
+        invalid_action_syntax: "サーバー操作が不明または不完全です。--help を使用してください",
+        unknown_scope: "不明なリソーススコープ \"{scope}\"",
+        unknown_server_action: "不明なサーバー操作 \"{action}\"。",
+        suggestion: "`{candidate}` のことですか？",
         daemon_removed: "`cmux daemon` は `cmux server start` に名前が変更されました。`cmux server start --help` を実行してください",
         unexpected_after_stop: "停止を受理した後にローカルサーバーが予期しないデータを送信しました",
-        stop_timeout: "ローカルサーバーの停止待機がタイムアウトしました: {error}",
+        stop_timeout: "ローカルサーバーの停止待機がタイムアウトしました",
     },
     pairing: PairingMessages {
         title: "ブラウザを承認しますか？",

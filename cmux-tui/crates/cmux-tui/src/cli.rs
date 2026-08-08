@@ -194,10 +194,11 @@ fn parse(args: &[String]) -> Result<ParsedCommand, UsageError> {
 }
 
 fn unknown_scope(scope: &str) -> UsageError {
-    let suffix = suggestion(scope, PUBLIC_SCOPES)
-        .map(|candidate| format!(". Did you mean `{candidate}`?"))
-        .unwrap_or_default();
-    UsageError::new(format!("unknown resource scope {scope:?}{suffix}"))
+    UsageError::new(
+        crate::localization::catalog()
+            .local_server
+            .unknown_scope(scope, suggestion(scope, PUBLIC_SCOPES)),
+    )
 }
 
 pub(super) fn suggestion<'a>(value: &str, candidates: &'a [&str]) -> Option<&'a str> {
@@ -298,7 +299,9 @@ fn set_output_mode(
 }
 
 fn print_scope_help(scope: Option<&str>) {
-    let text = scope.map(scope_help).unwrap_or(Cow::Borrowed(ROOT_HELP));
+    let text = scope.map(scope_help).unwrap_or_else(|| {
+        Cow::Owned(root_help(&crate::localization::catalog().local_server))
+    });
     let mut stdout = io::stdout().lock();
     let _ = stdout.write_all(text.as_bytes());
     let _ = stdout.flush();
@@ -314,7 +317,10 @@ fn scope_help(scope: &str) -> Cow<'static, str> {
             Cow::Borrowed(crate::localization::catalog().local_server.reload_config_help)
         }
         "machine" => Cow::Borrowed(MACHINE_HELP),
-        "session" => Cow::Owned(session_help(&crate::localization::catalog().session_reset)),
+        "session" => {
+            let catalog = crate::localization::catalog();
+            Cow::Owned(session_help(&catalog.session_reset, &catalog.local_server))
+        }
         "client" => Cow::Borrowed(CLIENT_HELP),
         "workspace" => Cow::Borrowed(WORKSPACE_HELP),
         "screen" => Cow::Borrowed(SCREEN_HELP),
@@ -329,20 +335,24 @@ fn scope_help(scope: &str) -> Cow<'static, str> {
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
-        _ => Cow::Borrowed(ROOT_HELP),
+        _ => Cow::Owned(root_help(&crate::localization::catalog().local_server)),
     }
 }
 
-const ROOT_HELP: &str = "\
+const ROOT_HELP_PROCESS_PREFIX: &str = "\
 cmux - terminal multiplexer and resource client
 
 USAGE
   cmux [START OPTIONS]
   cmux attach [START OPTIONS]
   cmux relay [ROUTING OPTIONS]
-  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [OPTIONS]
+";
+
+const ROOT_HELP_PROCESS_SUFFIX: &str = "\
   cmux machine-agent [OPTIONS]
-  cmux server <start|status|stop|reload-config> [OPTIONS]
+";
+
+const ROOT_HELP_GLOBALS: &str = "\
   cmux [GLOBAL OPTIONS] <scope> <action>
 
 GLOBAL OPTIONS
@@ -361,7 +371,9 @@ PROCESS HELP
   cmux machine-agent --help
 
 RESOURCE SCOPES
-  server        Manage one named local durable session owner
+";
+
+const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   machine       Inspect the local machine and session route
   session       Inspect and control a session
   client        Inspect connected clients
@@ -382,6 +394,13 @@ RESOURCE SCOPES
 Run `cmux <scope> --help` for scope-specific paths.
 ";
 
+fn root_help(messages: &crate::localization::LocalServerMessages) -> String {
+    format!(
+        "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n{ROOT_HELP_SCOPES_SUFFIX}",
+        messages.root_remote_usage, messages.root_server_usage, messages.root_server_scope,
+    )
+}
+
 const MACHINE_HELP: &str = "\
 USAGE
   cmux machine list
@@ -393,7 +412,7 @@ USAGE
 const SESSION_HELP_PREFIX: &str = "\
 USAGE
   cmux session list
-  cmux session <selector> open|show|snapshot|ping|shutdown|stop
+  cmux session <selector> open|show|snapshot|ping|shutdown
 ";
 
 const SESSION_HELP_SUFFIX: &str = "\
@@ -405,8 +424,15 @@ const SESSION_HELP_SUFFIX: &str = "\
   cmux session <selector> terminal defaults set [OPTIONS]
 ";
 
-fn session_help(messages: &crate::localization::SessionResetMessages) -> String {
-    format!("{SESSION_HELP_PREFIX}{}\n{SESSION_HELP_SUFFIX}", messages.help)
+fn session_help(
+    messages: &crate::localization::SessionResetMessages,
+    local_server: &crate::localization::LocalServerMessages,
+) -> String {
+    format!(
+        "{SESSION_HELP_PREFIX}{}\n{}\n{SESSION_HELP_SUFFIX}",
+        local_server.session_stop_help,
+        messages.help,
+    )
 }
 
 const CLIENT_HELP: &str = "\
@@ -588,10 +614,10 @@ mod tests {
             assert!(help.contains("USAGE"));
             assert!(help.contains(scope));
         }
-        let english =
-            session_help(&crate::localization::catalog_for_locale("en_US.UTF-8").session_reset);
-        let japanese =
-            session_help(&crate::localization::catalog_for_locale("ja_JP.UTF-8").session_reset);
+        let english_catalog = crate::localization::catalog_for_locale("en_US.UTF-8");
+        let japanese_catalog = crate::localization::catalog_for_locale("ja_JP.UTF-8");
+        let english = session_help(&english_catalog.session_reset, &english_catalog.local_server);
+        let japanese = session_help(&japanese_catalog.session_reset, &japanese_catalog.local_server);
         assert!(english.contains("creation <correlation-key> resolve"));
         assert!(english.contains("session <name> reset-state"));
         assert!(japanese.contains("session <name> reset-state"));
@@ -603,9 +629,10 @@ mod tests {
 
     #[test]
     fn startup_help_is_explicitly_discoverable() {
-        assert!(ROOT_HELP.contains("cmux help start"));
-        assert!(ROOT_HELP.starts_with("cmux - "));
-        assert!(!ROOT_HELP.contains("cmux-tui"));
+        let help = root_help(&crate::localization::catalog_for_locale("en_US.UTF-8").local_server);
+        assert!(help.contains("cmux help start"));
+        assert!(help.starts_with("cmux - "));
+        assert!(!help.contains("cmux-tui"));
         assert!(matches!(
             parse(&strings(&["help", "start"])).unwrap(),
             ParsedCommand::Help(Some(scope)) if scope == "start"

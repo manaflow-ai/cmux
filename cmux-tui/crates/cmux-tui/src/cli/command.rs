@@ -186,12 +186,17 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         ["stop"] => super::lifecycle::ServerAction::Stop { force: flags.boolean("force") },
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
         [action] => {
-            let suffix = super::suggestion(action, &["start", "status", "stop", "reload-config"])
-                .map(|candidate| format!(" Did you mean `{candidate}`?"))
-                .unwrap_or_default();
-            return Err(UsageError::new(format!("unknown server action {action:?}.{suffix}")));
+            let messages = &crate::localization::catalog().local_server;
+            return Err(UsageError::new(messages.unknown_server_action(
+                action,
+                super::suggestion(action, &["start", "status", "stop", "reload-config"]),
+            )));
         }
-        _ => return usage("server action"),
+        _ => {
+            return Err(UsageError::new(
+                crate::localization::catalog().local_server.invalid_action_syntax,
+            ));
+        }
     };
     Ok(CommandPlan::Server(super::lifecycle::ServerPlan { action, session: None }))
 }
@@ -351,10 +356,20 @@ fn parse_session(
             confirm_reset: flags.take("confirm-reset"),
         })),
         [selector, "stop"] => {
-            selectors.insert("session", "session", selector)?;
+            let session = match Selector::parse(selector).map_err(|_| {
+                UsageError::new(crate::localization::catalog().local_server.session_name_required)
+            })? {
+                Selector::Name(name) if !name.is_empty() => Some(name),
+                Selector::Current => None,
+                Selector::Name(_) | Selector::Id(_) => {
+                    return Err(UsageError::new(
+                        crate::localization::catalog().local_server.session_name_required,
+                    ));
+                }
+            };
             Ok(CommandPlan::Server(super::lifecycle::ServerPlan {
                 action: super::lifecycle::ServerAction::Stop { force: flags.boolean("force") },
-                session: Some((*selector).to_string()),
+                session,
             }))
         }
         [selector, "config", "reload"] => {

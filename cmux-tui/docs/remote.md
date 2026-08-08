@@ -41,7 +41,8 @@ npx cmux server start --session dev --iroh
 
 Use `cmux remote stop --session dev` to stop authenticated remote access. Local
 durable-session ownership uses `cmux server ...` and is never targeted by
-remote lifecycle commands.
+remote lifecycle commands. Use `cmux server status|reload-config|stop` for the
+local owner. An absent local stop succeeds, but an absent local status fails.
 
 Bare `cmux-tui` keeps normal tmux-style local behavior. Network behavior begins only with `connect`, `ssh`, `forward`, or `rpc`.
 
