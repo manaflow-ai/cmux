@@ -634,6 +634,11 @@ pub struct WorkspaceRegistry {
         std::sync::mpsc::SyncSender<()>,
         std::sync::mpsc::Receiver<()>,
     )>,
+    #[cfg(test)]
+    journal_after_commit_admission: Option<(
+        std::sync::mpsc::SyncSender<()>,
+        std::sync::mpsc::Receiver<()>,
+    )>,
     _lease: Option<SessionLease>,
     _session_guard: Option<SessionLease>,
 }
@@ -2554,6 +2559,8 @@ impl WorkspaceRegistry {
             resource_patch_failures_remaining: Cell::new(0),
             #[cfg(test)]
             journal_before_commit: None,
+            #[cfg(test)]
+            journal_after_commit_admission: None,
             _session_guard: session_guard,
             _lease: lease,
         })

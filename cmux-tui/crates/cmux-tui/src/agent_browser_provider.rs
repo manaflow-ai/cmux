@@ -203,6 +203,81 @@ fn resolve_page_target(socket: &Path, scope: &ProviderScope) -> anyhow::Result<R
     let mut control = MuxControl::connect(socket)?;
     let topology = control.request(1, json!({"id":1,"cmd":"list-workspaces"}))?;
     let provider = control.request(2, json!({"id":2,"cmd":"get-browser-provider"}))?;
+    let confirmed_topology = control.request(3, json!({"id":3,"cmd":"list-workspaces"}))?;
+    let confirmed_provider = control.request(4, json!({"id":4,"cmd":"get-browser-provider"}))?;
+    ensure_stable_resolution(
+        &topology,
+        &provider,
+        &confirmed_topology,
+        &confirmed_provider,
+    )?;
+    resolve_page_target_snapshot(&topology, &provider, scope)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ResolutionFence {
+    registry_id: String,
+    generation: String,
+    workspace_revision: u64,
+    pane_revision: u64,
+    terminal_revision: u64,
+    provider_revision: u64,
+}
+
+impl ResolutionFence {
+    fn from_snapshots(topology: &Value, provider: &Value) -> anyhow::Result<Self> {
+        Ok(Self {
+            registry_id: required_string(topology, "registry_id", "workspace snapshot")?,
+            generation: required_string(topology, "generation", "workspace snapshot")?,
+            workspace_revision: required_u64(
+                topology,
+                "workspace_revision",
+                "workspace snapshot",
+            )?,
+            pane_revision: required_u64(topology, "pane_revision", "workspace snapshot")?,
+            terminal_revision: required_u64(
+                topology,
+                "terminal_revision",
+                "workspace snapshot",
+            )?,
+            provider_revision: required_u64(provider, "revision", "browser provider snapshot")?,
+        })
+    }
+}
+
+fn ensure_stable_resolution(
+    topology: &Value,
+    provider: &Value,
+    confirmed_topology: &Value,
+    confirmed_provider: &Value,
+) -> anyhow::Result<()> {
+    let first = ResolutionFence::from_snapshots(topology, provider)?;
+    let confirmed = ResolutionFence::from_snapshots(confirmed_topology, confirmed_provider)?;
+    anyhow::ensure!(
+        first == confirmed,
+        "cmux topology or browser provider changed during target resolution"
+    );
+    Ok(())
+}
+
+fn required_string(value: &Value, key: &str, source: &str) -> anyhow::Result<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| anyhow!("{source} omitted {key}"))
+}
+
+fn required_u64(value: &Value, key: &str, source: &str) -> anyhow::Result<u64> {
+    value.get(key).and_then(Value::as_u64).ok_or_else(|| anyhow!("{source} omitted {key}"))
+}
+
+fn resolve_page_target_snapshot(
+    topology: &Value,
+    provider: &Value,
+    scope: &ProviderScope,
+) -> anyhow::Result<ResolvedPageTarget> {
     anyhow::ensure!(
         provider.get("available").and_then(Value::as_bool) == Some(true),
         "cmux-browser is not attached to this cmux-tui session"
@@ -237,7 +312,7 @@ fn resolve_page_target(socket: &Path, scope: &ProviderScope) -> anyhow::Result<R
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
-        provider_revision: provider.get("revision").and_then(Value::as_u64).unwrap_or(0),
+        provider_revision: required_u64(provider, "revision", "browser provider snapshot")?,
         workspace_id: selected.workspace_id,
         tab_id: selected.tab_id,
         target_id: selected.target_id,
@@ -454,6 +529,11 @@ mod tests {
 
     fn topology() -> Value {
         json!({
+            "registry_id": "registry-one",
+            "generation": "generation-one",
+            "workspace_revision": 11,
+            "pane_revision": 12,
+            "terminal_revision": 13,
             "workspaces": [
                 {
                     "resource_id": "ws_one",
@@ -474,6 +554,21 @@ mod tests {
                         {"kind":"browser","tab_resource_id":"tab_two"}
                     ]}]}]
                 }
+            ]
+        })
+    }
+
+    fn provider() -> Value {
+        json!({
+            "available": true,
+            "provider_id": "provider-one",
+            "endpoint": "ws://127.0.0.1:9222/devtools/browser/browser-one",
+            "authentication": "none",
+            "revision": 17,
+            "targets": [
+                {"tab_id":"tab_same_pane","target_id":"target-one"},
+                {"tab_id":"tab_other_pane","target_id":"target-other"},
+                {"tab_id":"tab_two","target_id":"target-two"}
             ]
         })
     }
@@ -558,6 +653,42 @@ mod tests {
 
         assert!(error.to_string().contains("multiple cmux placements"));
         assert!(error.to_string().contains("CMUX_TUI_BROWSER_TAB_ID"));
+    }
+
+    #[test]
+    fn stable_topology_and_provider_revisions_allow_target_resolution() {
+        ensure_stable_resolution(&topology(), &provider(), &topology(), &provider()).unwrap();
+        let scope = ProviderScope { terminal: Some("term_one".into()), ..Default::default() };
+
+        let resolved = resolve_page_target_snapshot(&topology(), &provider(), &scope).unwrap();
+
+        assert_eq!(resolved.tab_id, "tab_same_pane");
+        assert_eq!(resolved.provider_revision, 17);
+    }
+
+    #[test]
+    fn changing_topology_or_provider_revision_retries_resolution() {
+        let mut changed_topology = topology();
+        changed_topology["pane_revision"] = json!(13);
+        let error = ensure_stable_resolution(
+            &topology(),
+            &provider(),
+            &changed_topology,
+            &provider(),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("changed during target resolution"));
+
+        let mut changed_provider = provider();
+        changed_provider["revision"] = json!(18);
+        let error = ensure_stable_resolution(
+            &topology(),
+            &provider(),
+            &topology(),
+            &changed_provider,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("changed during target resolution"));
     }
 
     #[test]

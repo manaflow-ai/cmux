@@ -4621,12 +4621,16 @@ impl Mux {
         });
     }
 
-    pub(crate) fn commit_session_journal_events(
+    pub(crate) fn commit_session_journal_events<F>(
         &self,
         events: &[&crate::journal_ingress::JournalIngressEvent],
         deadline: Instant,
         sqlite_wait_cap: Duration,
-    ) -> anyhow::Result<Vec<Option<crate::JournalAppendCommit>>> {
+        admit_commit: F,
+    ) -> anyhow::Result<Vec<Option<crate::JournalAppendCommit>>>
+    where
+        F: FnOnce() -> anyhow::Result<()>,
+    {
         let mut registry = loop {
             match self.workspace_registry.try_lock() {
                 Ok(registry) => break registry,
@@ -4650,6 +4654,7 @@ impl Mux {
             events,
             deadline,
             remaining.min(sqlite_wait_cap),
+            admit_commit,
         )?;
         self.publish_journal_event();
         Ok(commits)
@@ -4676,6 +4681,18 @@ impl Mux {
             .lock()
             .unwrap()
             .set_journal_before_commit_for_test(entered, release);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_journal_after_commit_admission_for_test(
+        &self,
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: std::sync::mpsc::Receiver<()>,
+    ) {
+        self.workspace_registry
+            .lock()
+            .unwrap()
+            .set_journal_after_commit_admission_for_test(entered, release);
     }
 
     pub(crate) fn journal_event_epoch(&self) -> u64 {

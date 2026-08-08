@@ -686,24 +686,42 @@ impl WorkspaceRegistry {
         &mut self,
         events: &[&crate::journal_ingress::JournalIngressEvent],
     ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>> {
-        self.append_journal_ingress_events_with_limits(events, Duration::from_secs(5), None)
+        self.append_journal_ingress_events_with_limits(
+            events,
+            Duration::from_secs(5),
+            None,
+            || Ok(()),
+        )
     }
 
-    pub(crate) fn append_journal_ingress_events_with_deadline(
+    pub(crate) fn append_journal_ingress_events_with_deadline<F>(
         &mut self,
         events: &[&crate::journal_ingress::JournalIngressEvent],
         deadline: Instant,
         busy_timeout: Duration,
-    ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>> {
-        self.append_journal_ingress_events_with_limits(events, busy_timeout, Some(deadline))
+        admit_commit: F,
+    ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>>
+    where
+        F: FnOnce() -> anyhow::Result<()>,
+    {
+        self.append_journal_ingress_events_with_limits(
+            events,
+            busy_timeout,
+            Some(deadline),
+            admit_commit,
+        )
     }
 
-    fn append_journal_ingress_events_with_limits(
+    fn append_journal_ingress_events_with_limits<F>(
         &mut self,
         events: &[&crate::journal_ingress::JournalIngressEvent],
         busy_timeout: Duration,
         deadline: Option<Instant>,
-    ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>> {
+        admit_commit: F,
+    ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>>
+    where
+        F: FnOnce() -> anyhow::Result<()>,
+    {
         ensure_journal_deadline(deadline)?;
         self.connection.busy_timeout(busy_timeout)?;
         let deadline_active = deadline.map(|_| Arc::new(AtomicBool::new(true)));
@@ -728,6 +746,7 @@ impl WorkspaceRegistry {
             deadline,
             deadline_active.as_deref(),
             busy_timeout,
+            admit_commit,
         );
         let clear_progress = if deadline.is_some() {
             self.connection.progress_handler(0, None::<fn() -> bool>)
@@ -753,19 +772,25 @@ impl WorkspaceRegistry {
         }
     }
 
-    fn append_journal_ingress_events_with_current_timeout(
+    fn append_journal_ingress_events_with_current_timeout<F>(
         &mut self,
         events: &[&crate::journal_ingress::JournalIngressEvent],
         deadline: Option<Instant>,
         deadline_active: Option<&AtomicBool>,
         busy_timeout: Duration,
-    ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>> {
+        admit_commit: F,
+    ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>>
+    where
+        F: FnOnce() -> anyhow::Result<()>,
+    {
         ensure_journal_deadline(deadline)?;
         if events.is_empty() {
             return Ok(Vec::new());
         }
         #[cfg(test)]
         let before_commit = self.journal_before_commit.take();
+        #[cfg(test)]
+        let after_commit_admission = self.journal_after_commit_admission.take();
         let tx = self.connection.transaction()?;
         // This guard disables the progress callback before `tx` rolls back on
         // every early return. An expired callback must interrupt forward work,
@@ -1154,6 +1179,16 @@ impl WorkspaceRegistry {
             )?;
         }
         ensure_journal_deadline(deadline)?;
+        admit_commit()?;
+        // The caller now owns the authoritative commit result. Disable the
+        // transaction deadline so a slow fsync cannot produce a false timeout
+        // followed by a durable commit.
+        deadline_guard.disarm();
+        #[cfg(test)]
+        if let Some((entered, release)) = after_commit_admission {
+            entered.send(()).context("report journal commit-admission test hook")?;
+            release.recv().context("release journal commit-admission test hook")?;
+        }
         match tx.execute_batch("COMMIT") {
             Ok(()) => Ok(commits),
             Err(error) => {
@@ -1175,6 +1210,15 @@ impl WorkspaceRegistry {
         release: std::sync::mpsc::Receiver<()>,
     ) {
         self.journal_before_commit = Some((entered, release));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_journal_after_commit_admission_for_test(
+        &mut self,
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: std::sync::mpsc::Receiver<()>,
+    ) {
+        self.journal_after_commit_admission = Some((entered, release));
     }
 
     pub(crate) fn journal_producer_manifests(

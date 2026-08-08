@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::mem::size_of;
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex, Weak};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -21,6 +22,9 @@ const TERMINAL_OUTPUT_BATCH_BYTES: usize = 256 * 1024;
 const JOURNAL_TERMINAL_FAILURE_RETRY_ATTEMPTS: usize = 6;
 const JOURNAL_DURABLE_WAIT: Duration = Duration::from_secs(2);
 const JOURNAL_SQLITE_RETRY_SLICE: Duration = Duration::from_millis(100);
+const COMMIT_PENDING: u8 = 0;
+const COMMIT_ADMITTED: u8 = 1;
+const COMMIT_CANCELED: u8 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -202,14 +206,30 @@ fn json_value_resident_bytes(value: &serde_json::Value) -> usize {
 
 #[derive(Debug)]
 enum JournalIngressCompletion {
-    Durable { sender: SyncSender<Result<(), String>>, deadline: Instant },
-    Producer { sender: SyncSender<Result<crate::JournalAppendCommit, String>>, deadline: Instant },
+    Durable {
+        sender: SyncSender<Result<(), String>>,
+        deadline: Instant,
+        commit_fence: Arc<AtomicU8>,
+    },
+    Producer {
+        sender: SyncSender<Result<crate::JournalAppendCommit, String>>,
+        deadline: Instant,
+        commit_fence: Arc<AtomicU8>,
+    },
 }
 
 impl JournalIngressCompletion {
     fn deadline(&self) -> Instant {
         match self {
             Self::Durable { deadline, .. } | Self::Producer { deadline, .. } => *deadline,
+        }
+    }
+
+    fn commit_fence(&self) -> &AtomicU8 {
+        match self {
+            Self::Durable { commit_fence, .. } | Self::Producer { commit_fence, .. } => {
+                commit_fence
+            }
         }
     }
 }
@@ -254,6 +274,7 @@ pub(crate) enum JournalIngressTrySendError {
 #[derive(Default)]
 struct JournalIngressState {
     failure: Mutex<Option<String>>,
+    commit_admission: Mutex<()>,
 }
 
 impl JournalIngressState {
@@ -366,6 +387,7 @@ impl JournalIngressSender {
         let Some(sender) = sender else { return Ok(()) };
         let (completion, result) = sync_channel(1);
         let deadline = Instant::now() + JOURNAL_DURABLE_WAIT;
+        let commit_fence = Arc::new(AtomicU8::new(COMMIT_PENDING));
         self.enqueue_until(
             sender,
             QueuedJournalEvent {
@@ -373,23 +395,18 @@ impl JournalIngressSender {
                 completion: Some(JournalIngressCompletion::Durable {
                     sender: completion,
                     deadline,
+                    commit_fence: commit_fence.clone(),
                 }),
             },
             deadline,
         )
         .map_err(anyhow::Error::msg)?;
-        result
-            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-            .map_err(|error| match error {
-                std::sync::mpsc::RecvTimeoutError::Timeout => anyhow::anyhow!(
-                    "timed out after {} ms waiting for session journal durability",
-                    JOURNAL_DURABLE_WAIT.as_millis()
-                ),
-                std::sync::mpsc::RecvTimeoutError::Disconnected => {
-                    anyhow::Error::msg(self.writer_error())
-                }
-            })?
-            .map_err(anyhow::Error::msg)
+        self.wait_for_commit_result(
+            result,
+            deadline,
+            &commit_fence,
+            "waiting for session journal durability",
+        )
     }
 
     pub(crate) fn flush_terminal(&self) -> anyhow::Result<()> {
@@ -411,6 +428,7 @@ impl JournalIngressSender {
         };
         let (completion, result) = sync_channel(1);
         let deadline = Instant::now() + JOURNAL_DURABLE_WAIT;
+        let commit_fence = Arc::new(AtomicU8::new(COMMIT_PENDING));
         self.enqueue_until(
             sender,
             QueuedJournalEvent {
@@ -423,23 +441,18 @@ impl JournalIngressSender {
                 completion: Some(JournalIngressCompletion::Producer {
                     sender: completion,
                     deadline,
+                    commit_fence: commit_fence.clone(),
                 }),
             },
             deadline,
         )
         .map_err(anyhow::Error::msg)?;
-        result
-            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-            .map_err(|error| match error {
-                std::sync::mpsc::RecvTimeoutError::Timeout => anyhow::anyhow!(
-                    "timed out after {} ms waiting for a session journal producer receipt",
-                    JOURNAL_DURABLE_WAIT.as_millis()
-                ),
-                std::sync::mpsc::RecvTimeoutError::Disconnected => {
-                    anyhow::Error::msg(self.writer_error())
-                }
-            })?
-            .map_err(anyhow::Error::msg)
+        self.wait_for_commit_result(
+            result,
+            deadline,
+            &commit_fence,
+            "waiting for a session journal producer receipt",
+        )
     }
 
     pub(crate) const fn enabled(&self) -> bool {
@@ -502,6 +515,47 @@ impl JournalIngressSender {
     fn writer_error(&self) -> String {
         self.state.failure().unwrap_or_else(|| "session journal writer stopped".into())
     }
+
+    fn wait_for_commit_result<T>(
+        &self,
+        result: Receiver<Result<T, String>>,
+        deadline: Instant,
+        commit_fence: &AtomicU8,
+        operation: &str,
+    ) -> anyhow::Result<T> {
+        match result.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(result) => result.map_err(anyhow::Error::msg),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                Err(anyhow::Error::msg(self.writer_error()))
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                let admission = self.state.commit_admission.lock().unwrap();
+                match commit_fence.load(Ordering::Acquire) {
+                    COMMIT_PENDING => {
+                        commit_fence.store(COMMIT_CANCELED, Ordering::Release);
+                        Err(anyhow::anyhow!(
+                            "timed out after {} ms {operation}",
+                            JOURNAL_DURABLE_WAIT.as_millis()
+                        ))
+                    }
+                    COMMIT_ADMITTED => {
+                        drop(admission);
+                        result
+                            .recv()
+                            .map_err(|_| anyhow::Error::msg(self.writer_error()))?
+                            .map_err(anyhow::Error::msg)
+                    }
+                    COMMIT_CANCELED => Err(anyhow::anyhow!(
+                        "timed out after {} ms {operation}",
+                        JOURNAL_DURABLE_WAIT.as_millis()
+                    )),
+                    state => Err(anyhow::anyhow!(
+                        "session journal has an invalid commit admission state {state}"
+                    )),
+                }
+            }
+        }
+    }
 }
 
 pub(crate) fn start(
@@ -553,6 +607,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     &events,
                     retry_deadline,
                     JOURNAL_SQLITE_RETRY_SLICE,
+                    || admit_batch_commit(&receivers.state, &batch, retry_deadline),
                 ) {
                     Ok(commits) => {
                         complete_batch_success(&batch, commits);
@@ -613,6 +668,25 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
             }
         }
     }
+}
+
+fn admit_batch_commit(
+    state: &JournalIngressState,
+    batch: &[QueuedJournalEvent],
+    deadline: Instant,
+) -> anyhow::Result<()> {
+    let _admission = state.commit_admission.lock().unwrap();
+    anyhow::ensure!(Instant::now() < deadline, "session journal commit deadline expired");
+    anyhow::ensure!(
+        batch.iter().filter_map(|queued| queued.completion.as_ref()).all(|completion| {
+            completion.commit_fence().load(Ordering::Acquire) != COMMIT_CANCELED
+        }),
+        "session journal commit was canceled before admission"
+    );
+    for completion in batch.iter().filter_map(|queued| queued.completion.as_ref()) {
+        completion.commit_fence().store(COMMIT_ADMITTED, Ordering::Release);
+    }
+    Ok(())
 }
 
 fn stop_writer_after_retry_deadline(
@@ -1177,6 +1251,66 @@ mod tests {
                 .iter()
                 .all(|record| !record.payload.to_string().contains("transaction-deadline-marker")),
             "a producer transaction must roll back after its deadline"
+        );
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn producer_waits_for_an_admitted_commit_past_its_deadline() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-producer-admitted-commit-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "journal-producer-admitted-commit",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        mux.install_journal_after_commit_admission_for_test(entered, release_receiver);
+        let ingress = crate::agent_hook_journal_ingress(
+            "codex",
+            "SubagentStop",
+            None,
+            serde_json::json!({
+                "session_id":"admitted-commit-root",
+                "root_session_id":"admitted-commit-root",
+                "parent_session_id":"admitted-commit-root",
+                "child_agent_id":"admitted-commit-child",
+                "message":"admitted-commit-marker",
+            }),
+        )
+        .unwrap();
+        let producer_mux = mux.clone();
+        let (result_sender, result_receiver) = sync_channel(1);
+        let producer = std::thread::spawn(move || {
+            result_sender
+                .send(producer_mux.append_journal_ingress(
+                    &ingress,
+                    "client_admitted_commit",
+                    "admitted_commit_1",
+                ))
+                .unwrap();
+        });
+        entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        assert!(
+            result_receiver
+                .recv_timeout(JOURNAL_DURABLE_WAIT + Duration::from_millis(100))
+                .is_err(),
+            "an admitted commit must not report a timeout while its result is unknown"
+        );
+        release.send(()).unwrap();
+        result_receiver.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        producer.join().unwrap();
+        let records = mux.session_journal_after(0, 1024).unwrap().records;
+        assert!(
+            records.iter().any(|record| record.payload.to_string().contains("admitted-commit-marker")),
+            "the caller must observe success for the admitted durable commit"
         );
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
