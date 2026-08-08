@@ -81,7 +81,9 @@ interface StreamCancellationConfirmation {
 
 interface StreamState<Value> {
   readonly id: StreamId;
+  attachmentLease?: string;
   readonly decode: (value: unknown) => Value;
+  readonly validate?: (value: unknown, cursor: Cursor | undefined) => void;
   readonly cancelRoute: Readonly<{
     machine: string;
     session: string;
@@ -237,6 +239,7 @@ export class ResourceProtocol {
     params: Readonly<Record<string, unknown>>,
     decode: (value: unknown) => Value,
     options: RequestOptions = {},
+    validate?: (value: Value, cursor: Cursor | undefined) => void,
   ): Promise<ResourceStream<Value>> {
     if (operation.class !== "stream_open") {
       throw new TypeError(`${operation.name} is not a stream operation`);
@@ -253,6 +256,9 @@ export class ResourceProtocol {
     const state: StreamState<Value> = {
       id,
       decode,
+      validate: validate === undefined
+        ? undefined
+        : (value, cursor) => validate(value as Value, cursor),
       cancelRoute: Object.freeze({
         machine: params.machine,
         session: params.session,
@@ -292,7 +298,13 @@ export class ResourceProtocol {
       if (!isRecord(opened)) {
         throw new CmuxProtocolError(`${operation.name} result must be an object`);
       }
-      const allowed = new Set(["stream_id", "cursor"]);
+      const isViewAttachment = operation.name === operations.terminalAttach.name
+        || operation.name === operations.browserAttach.name;
+      const allowed = new Set([
+        "stream_id",
+        "cursor",
+        ...(isViewAttachment ? ["attachment_lease"] : []),
+      ]);
       const unknown = Object.keys(opened).find((key) => !allowed.has(key));
       if (unknown !== undefined) {
         throw new CmuxProtocolError(
@@ -303,6 +315,17 @@ export class ResourceProtocol {
         throw new CmuxProtocolError(
           `${operation.name} returned stream ${String(opened.stream_id)} for ${id}`,
         );
+      }
+      if (isViewAttachment) {
+        if (
+          typeof opened.attachment_lease !== "string"
+          || !hasUtf8ByteLength(opened.attachment_lease, 1, 128)
+        ) {
+          throw new CmuxProtocolError(
+            `${operation.name} result requires a 1 to 128 byte attachment_lease`,
+          );
+        }
+        state.attachmentLease = opened.attachment_lease;
       }
       if (Object.hasOwn(opened, "cursor")) decodeCursor(opened.cursor);
       if (this.closed) {
@@ -744,7 +767,7 @@ export class ResourceProtocol {
       if (value.type === "stream_item") {
         if (state.end) return;
         try {
-          const item = decodeStreamItemEnvelope(value, id, state.decode);
+          const item = decodeStreamItemEnvelope(value, id, state.decode, state.validate);
           if (state.cancellation?.end) {
             throw new CmuxProtocolError(
               "stream item received after end envelope",
@@ -1244,6 +1267,11 @@ implements AsyncIterable<StreamItem<Value>>, AsyncIterator<StreamItem<Value>> {
     return this.state.id;
   }
 
+  /** Lease required to size or release a terminal/browser attachment. */
+  get attachmentLease(): string | undefined {
+    return this.state.attachmentLease;
+  }
+
   get end(): StreamEnd | undefined {
     return this.state.end;
   }
@@ -1398,6 +1426,7 @@ function decodeStreamItemEnvelope<Value>(
   value: Record<string, unknown>,
   expectedId: StreamId,
   decode: (value: unknown) => Value,
+  validate?: (value: Value, cursor: Cursor | undefined) => void,
 ): StreamItem<Value> {
   requireShape(
     value,
@@ -1412,13 +1441,16 @@ function decodeStreamItemEnvelope<Value>(
   ) {
     throw new CmuxProtocolError("invalid stream item envelope");
   }
+  const cursor = Object.hasOwn(value, "cursor")
+    ? decodeCursor(value.cursor)
+    : undefined;
+  const decoded = decode(value.item);
+  validate?.(decoded, cursor);
   return Object.freeze({
     streamId: expectedId,
     sequence: decimalString(requireString(value.sequence, "sequence")),
-    ...(Object.hasOwn(value, "cursor")
-      ? { cursor: decodeCursor(value.cursor) }
-      : {}),
-    value: decode(value.item),
+    ...(cursor === undefined ? {} : { cursor }),
+    value: decoded,
   });
 }
 

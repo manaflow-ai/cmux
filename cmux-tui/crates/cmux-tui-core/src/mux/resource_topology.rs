@@ -2468,7 +2468,6 @@ impl Mux {
         drop(workspace_lifecycle);
         Ok(CommittedResourceClose { commit: close.resource, effects })
     }
-
     fn finish_resource_close(&self, committed: CommittedResourceClose) -> ResourcePatchCommit {
         let effects = committed.effects;
         if let Some(terminal_id) = effects.closed_terminal_public_id {
@@ -2744,46 +2743,58 @@ impl Mux {
         let effect_fields = semantic_creation_fields(&fields);
         let preparation = {
             let mut registry = self.workspace_registry.lock().unwrap();
-            if let Some(preparation) = registry.lookup_resource_creation(
+            match registry.lookup_resource_creation(
                 correlation_key,
                 &mutation.id,
                 &operation_name,
                 fingerprint,
                 true,
             )? {
-                preparation
-            } else {
-                let mut state = self.state.lock().unwrap();
-                let selectors = self.select_live_creation_selectors(
-                    operation,
-                    &selector_candidates,
-                    &state,
-                    &registry,
-                )?;
-                let intent = self.resource_topology_effect_intent(
-                    operation,
-                    selectors,
-                    &effect_fields,
-                    ResourceEffectIntentContext {
+                Some(ResourceCreationPreparation::Execute { intent, .. }) => registry
+                    .prepare_resource_creation(
+                        correlation_key,
+                        &mutation.id,
+                        &operation_name,
+                        fingerprint,
+                        &intent,
+                        true,
+                        None,
                         expected_revision,
-                        mutation_origin: &mutation.origin,
-                    },
-                    &mut state,
-                    &registry,
-                )?;
-                registry.prepare_resource_creation(
-                    correlation_key,
-                    &mutation.id,
-                    &operation_name,
-                    fingerprint,
-                    &intent,
-                    true,
-                    None,
-                    expected_revision,
-                )?
+                    )?,
+                Some(preparation) => preparation,
+                None => {
+                    let mut state = self.state.lock().unwrap();
+                    let selectors = self.select_live_creation_selectors(
+                        operation,
+                        &selector_candidates,
+                        &state,
+                        &registry,
+                    )?;
+                    let intent = self.resource_topology_effect_intent(
+                        operation,
+                        selectors,
+                        &effect_fields,
+                        ResourceEffectIntentContext {
+                            expected_revision,
+                            mutation_origin: &mutation.origin,
+                        },
+                        &mut state,
+                        &registry,
+                    )?;
+                    registry.prepare_resource_creation(
+                        correlation_key,
+                        &mutation.id,
+                        &operation_name,
+                        fingerprint,
+                        &intent,
+                        true,
+                        None,
+                        expected_revision,
+                    )?
+                }
             }
         };
-        match preparation {
+        let commit = match preparation {
             ResourceCreationPreparation::Created { created_path, revision, .. } => {
                 Ok(ResourcePatchCommit { revision, result: created_path, replayed: true })
             }
@@ -2838,7 +2849,30 @@ impl Mux {
                     }
                 }
             }
+        }?;
+        self.activate_created_terminal_launch(&commit.result)?;
+        Ok(commit)
+    }
+
+    fn activate_created_terminal_launch(&self, result: &Value) -> anyhow::Result<()> {
+        if result.get("terminal_id").and_then(Value::as_str).is_none() {
+            return Ok(());
         }
+        let Some(tab_id) = result.get("tab_id").and_then(Value::as_str) else {
+            return Ok(());
+        };
+        let tab_id = TabPublicId::parse(tab_id.to_string()).map_err(anyhow::Error::new)?;
+        let Some(surface_id) =
+            self.state.lock().unwrap().resource_indexes.tabs.get(&tab_id).copied()
+        else {
+            // A replay can outlive its detached terminal view. There is no
+            // launch barrier to release in that case.
+            return Ok(());
+        };
+        if let Some(surface) = self.surface(surface_id) {
+            surface.activate_hosted_launch_stream()?;
+        }
+        Ok(())
     }
 
     fn select_live_creation_selectors<'a>(
@@ -5911,6 +5945,70 @@ fn set_node_split_ratios(node: &mut Node, ratios: &std::collections::BTreeMap<Sp
 #[cfg(test)]
 mod creation_recovery_tests {
     use super::*;
+
+    #[test]
+    fn resumed_correlated_creation_rechecks_its_resource_revision() {
+        let registry = WorkspaceRegistry::in_memory("creation-resume-precondition").unwrap();
+        let mux = Mux::from_workspace_registry(
+            "creation-resume-precondition".into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let operation = ResourceOperation::TabCreateBrowser;
+        let operation_name = operation_name(operation);
+        let correlation_key = "correlation";
+        let mutation = WorkspaceMutation::new("attempt-one", "test").unwrap();
+        let fingerprint = json!({"operation":operation_name});
+        let intent = json!({
+            "browser_reservation":{
+                "tab_id":TabPublicId::random().unwrap(),
+                "browser_id":BrowserPublicId::random().unwrap(),
+            },
+        });
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .prepare_resource_creation(
+                correlation_key,
+                &mutation.id,
+                &operation_name,
+                &fingerprint,
+                &intent,
+                true,
+                None,
+                Some(0),
+            )
+            .unwrap();
+        mux.resource_create_empty_workspace(
+            None,
+            None,
+            None,
+            &WorkspaceMutation::local("concurrent-test"),
+        )
+        .unwrap();
+
+        let error = mux
+            .resource_correlated_creation_operation(
+                operation,
+                vec![ResourceSelectors::default()],
+                json!({
+                    "correlation_key":correlation_key,
+                    "url":"https://example.test",
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+                Some(0),
+                &mutation,
+                &fingerprint,
+            )
+            .unwrap_err();
+        assert_eq!(error.to_string(), "resource revision conflict: expected 0, current 1");
+        mux.shutdown();
+    }
 
     #[test]
     fn restart_reconciles_absent_effects_for_every_created_path_operation() {

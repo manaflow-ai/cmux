@@ -1570,6 +1570,32 @@ fn noun_first_ratio_commands_reject_nonfinite_values_before_connecting() {
     }
 }
 
+#[test]
+fn noun_first_viewport_width_rejects_invalid_values_before_connecting() {
+    const PANE: &str = "pane_11111111111111111111111111111111";
+    for (args, expected) in [
+        (
+            ["pane", PANE, "split", "--right", "--viewport-width", "NaN"].as_slice(),
+            "--viewport-width must be from 0.1 through 1",
+        ),
+        (
+            ["pane", PANE, "split", "--right", "--viewport-width", "0.09"].as_slice(),
+            "--viewport-width must be from 0.1 through 1",
+        ),
+        (
+            ["pane", PANE, "split", "--down", "--viewport-width", "0.5"].as_slice(),
+            "--viewport-width requires --right",
+        ),
+    ] {
+        let output = Command::new(bin()).args(args).output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.starts_with("cmux: "), "{stderr}");
+        assert!(stderr.contains(expected), "{stderr}");
+        assert!(!stderr.contains("cmux-tui"), "{stderr}");
+    }
+}
+
 #[cfg(unix)]
 struct PtyChild {
     child: Box<dyn cmux_pty::Child + Send + Sync>,

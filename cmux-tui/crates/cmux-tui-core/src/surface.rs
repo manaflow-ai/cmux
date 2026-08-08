@@ -1222,6 +1222,47 @@ impl Deref for PtySurface {
     }
 }
 
+pub(crate) struct TerminalJournalUpdateGuard<'a> {
+    epoch: &'a AtomicU64,
+}
+
+impl Drop for TerminalJournalUpdateGuard<'_> {
+    fn drop(&mut self) {
+        self.epoch.fetch_add(1, Ordering::Release);
+    }
+}
+
+impl PtyTerminalRuntime {
+    fn begin_terminal_journal_update(&self) -> Option<TerminalJournalUpdateGuard<'_>> {
+        let _gate = self.journal_capture_gate.lock().unwrap();
+        if !self.journal_capture_open.load(Ordering::Acquire) {
+            return None;
+        }
+        let previous = self.journal_capture_epoch.fetch_add(1, Ordering::AcqRel);
+        debug_assert_eq!(previous & 1, 0, "terminal journal updates must not overlap");
+        Some(TerminalJournalUpdateGuard { epoch: &self.journal_capture_epoch })
+    }
+
+    fn close_terminal_journal_capture_when_idle(&self, deadline: Instant) {
+        loop {
+            let gate = self.journal_capture_gate.lock().unwrap();
+            if self.journal_capture_epoch.load(Ordering::Acquire) & 1 == 0 {
+                self.journal_capture_open.store(false, Ordering::Release);
+                return;
+            }
+            if Instant::now() >= deadline {
+                self.journal_capture_open.store(false, Ordering::Release);
+                eprintln!(
+                    "cmux-tui: terminal journal capture did not become idle before the shared shutdown deadline; closing capture"
+                );
+                return;
+            }
+            drop(gate);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+}
+
 /// Content runtime shared by every view placement of one terminal.
 ///
 /// A [`PtySurface`] is a lightweight placement carrying tab-local metadata.
@@ -1232,7 +1273,17 @@ pub struct PtyTerminalRuntime {
     event_surface_id: SurfaceId,
     /// Stable public content identity. This belongs to the terminal runtime,
     /// while `SurfaceMeta::resource_identity` belongs to one view placement.
-    terminal_public_id: Option<TerminalPublicId>,
+    terminal_public_id: Option<Arc<TerminalPublicId>>,
+    journal_generation: Arc<str>,
+    /// Even while the emulator and terminal journal agree, odd while one
+    /// output frame has updated one side but not yet reached the other.
+    journal_capture_epoch: AtomicU64,
+    journal_capture_gate: Mutex<()>,
+    journal_capture_open: AtomicBool,
+    /// Owned reader join fence. Shutdown gives this reader a bounded drain
+    /// interval, then closes journal capture before it inserts the final
+    /// journal barrier.
+    reader_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
     term: Mutex<Box<Terminal>>,
     stream_progress: Box<TerminalStreamProgress>,
     mouse_encoders: Mutex<Box<MouseEncoders>>,
@@ -1322,6 +1373,7 @@ struct HostedSurfaceLaunch {
     attachment: crate::terminal_host_runtime::HostAttachment,
     kitty_reservation: Option<crate::mux::KittyImageBudgetReservation>,
     terminate_on_error: bool,
+    defer_launch_activation: bool,
     lifetime: PtyLifetime,
     terminal_public_id: Option<TerminalPublicId>,
     resource_identity: Option<TabResourceIdentity>,
@@ -1840,7 +1892,7 @@ impl Surface {
 
     pub fn terminal_public_id(&self) -> Option<&TerminalPublicId> {
         match self {
-            Self::Pty(surface) => surface.terminal_public_id.as_ref(),
+            Self::Pty(surface) => surface.terminal_public_id.as_deref(),
             Self::Browser(_) => None,
         }
     }
@@ -1990,7 +2042,7 @@ impl Surface {
 
     fn spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
         id: SurfaceId,
-        opts: SurfaceOptions,
+        mut opts: SurfaceOptions,
         mux: Weak<Mux>,
         terminal_id: Option<crate::terminal_host::TerminalId>,
         resource_identity: Option<TabResourceIdentity>,
@@ -2006,6 +2058,17 @@ impl Surface {
                 )
             })
             .transpose()?;
+        if let Some(terminal_public_id) = terminal_public_id.as_ref() {
+            set_surface_environment(&mut opts, "CMUX_TUI_TERMINAL_ID", terminal_public_id.as_str());
+            configure_agent_browser_session(&mut opts, terminal_public_id.as_str());
+        }
+        if let Some(mux) = mux.upgrade() {
+            set_surface_environment(
+                &mut opts,
+                "CMUX_TUI_SESSION_ID",
+                mux.session_public_id().as_str(),
+            );
+        }
         let kitty_reservation =
             mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(id)).transpose()?;
         let initial_kitty_limits = kitty_reservation
@@ -2036,6 +2099,7 @@ impl Surface {
                     initial_kitty_limits,
                 )?,
             };
+            let defer_launch_activation = terminal_public_id.is_some();
             return Self::spawn_hosted(
                 id,
                 opts,
@@ -2044,6 +2108,7 @@ impl Surface {
                     attachment,
                     kitty_reservation,
                     terminate_on_error: true,
+                    defer_launch_activation,
                     lifetime,
                     terminal_public_id,
                     resource_identity,
@@ -2138,7 +2203,15 @@ impl Surface {
             },
             terminal: Arc::new(PtyTerminalRuntime {
                 event_surface_id: id,
-                terminal_public_id,
+                terminal_public_id: terminal_public_id.map(Arc::new),
+                journal_generation: Arc::from(format!(
+                    "local-{}",
+                    crate::workspace_registry::new_uuid_v4()
+                )),
+                journal_capture_epoch: AtomicU64::new(0),
+                journal_capture_gate: Mutex::new(()),
+                journal_capture_open: AtomicBool::new(true),
+                reader_thread: Mutex::new(None),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -2201,88 +2274,116 @@ impl Surface {
         spawn_frame_producer(&surface, frame_rx)?;
 
         // PTY reader: pty bytes -> terminal state -> SurfaceOutput events.
-        std::thread::Builder::new().name(format!("surface-{id}-reader")).spawn({
-            let surface = surface.clone();
-            move || {
-                let mut buf = [0u8; 64 * 1024];
-                loop {
-                    let n = match reader.read(&mut buf) {
-                        Ok(0) => break,
-                        Ok(n) => n,
-                        Err(error)
-                            if matches!(
-                                error.kind(),
-                                std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
-                            ) =>
-                        {
-                            std::thread::sleep(Duration::from_millis(1));
-                            continue;
-                        }
-                        Err(_) => break,
-                    };
-                    let pty = surface.as_pty().expect("surface reader got non-pty surface");
-                    let mut scroll_changed = None;
-                    let generation = {
-                        let mut term = pty.term.lock().unwrap();
-                        let before = terminal_scroll_position(&term);
-                        let color_revision = term.color_revision();
-                        let color_reapply_revision = term.color_reapply_revision();
-                        let cursor_activity = term
-                            .cursor_activity()
-                            .expect("valid local terminals expose cursor activity");
-                        let normalized = term.vt_write_with_normalized(&buf[..n]);
-                        let cursor_changed = term
-                            .cursor_activity()
-                            .expect("valid local terminals expose cursor activity")
-                            != cursor_activity;
-                        pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
-                        let after = terminal_scroll_position(&term);
-                        let has_attach_taps = pty.broadcast_attach_output(normalized.as_ref());
-                        if has_attach_taps
-                            && (term.color_revision() != color_revision || cursor_changed)
-                        {
-                            pty.attach_colors_pending.store(true, Ordering::Release);
-                            if term.color_reapply_revision() != color_reapply_revision
-                                || cursor_changed
+        let reader_thread =
+            std::thread::Builder::new().name(format!("surface-{id}-reader")).spawn({
+                let surface = surface.clone();
+                move || {
+                    let mut buf = [0u8; 64 * 1024];
+                    loop {
+                        let n = match reader.read(&mut buf) {
+                            Ok(0) => break,
+                            Ok(n) => n,
+                            Err(error)
+                                if matches!(
+                                    error.kind(),
+                                    std::io::ErrorKind::Interrupted
+                                        | std::io::ErrorKind::WouldBlock
+                                ) =>
                             {
-                                pty.attach_colors_force_pending.store(true, Ordering::Release);
+                                std::thread::sleep(Duration::from_millis(1));
+                                continue;
                             }
-                        }
-                        if title_changed.swap(false, Ordering::Relaxed) {
-                            let title = term.title().unwrap_or_default();
-                            *pty.title.lock().unwrap() = title.clone();
-                            if let Some(mux) = mux.upgrade() {
-                                mux.emit_terminal_title(surface.id, title.into());
+                            Err(_) => break,
+                        };
+                        let pty = surface.as_pty().expect("surface reader got non-pty surface");
+                        let journal_target = pty.journal_target();
+                        let journal_update = journal_target
+                            .as_ref()
+                            .and_then(|_| pty.begin_terminal_journal_update());
+                        let journal_enabled = journal_update.is_some();
+                        let mut scroll_changed = None;
+                        let generation = {
+                            let mut term = pty.term.lock().unwrap();
+                            let before = terminal_scroll_position(&term);
+                            let color_revision = term.color_revision();
+                            let color_reapply_revision = term.color_reapply_revision();
+                            let cursor_activity = term
+                                .cursor_activity()
+                                .expect("valid local terminals expose cursor activity");
+                            let normalized = term.vt_write_with_normalized(&buf[..n]);
+                            let cursor_changed = term
+                                .cursor_activity()
+                                .expect("valid local terminals expose cursor activity")
+                                != cursor_activity;
+                            pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+                            let after = terminal_scroll_position(&term);
+                            let has_attach_taps = pty.broadcast_attach_output(normalized.as_ref());
+                            if has_attach_taps
+                                && (term.color_revision() != color_revision || cursor_changed)
+                            {
+                                pty.attach_colors_pending.store(true, Ordering::Release);
+                                if term.color_reapply_revision() != color_reapply_revision
+                                    || cursor_changed
+                                {
+                                    pty.attach_colors_force_pending.store(true, Ordering::Release);
+                                }
                             }
+                            if title_changed.swap(false, Ordering::Relaxed) {
+                                let title = term.title().unwrap_or_default();
+                                *pty.title.lock().unwrap() = title.clone();
+                                if let Some(mux) = mux.upgrade() {
+                                    mux.emit_terminal_title(surface.id, title.into());
+                                }
+                            }
+                            if let Some(pwd) = term.pwd() {
+                                *pty.pwd.lock().unwrap() = Some(pwd);
+                            }
+                            if before != after {
+                                scroll_changed = Some(after);
+                                broadcast_render_scroll_locked(pty, after);
+                            }
+                            // Keep the terminal lock scoped to parser and observer work. A
+                            // borrowed normalized frame still points into `buf`, which lives
+                            // for the reader loop, so any journal allocation can happen after
+                            // releasing the lock.
+                            let journal_output = journal_enabled.then_some(normalized);
+                            (
+                                pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1,
+                                journal_output,
+                            )
+                        };
+                        let (generation, journal_output) = generation;
+                        if let (Some(journal_target), Some(journal_output)) =
+                            (journal_target, journal_output)
+                        {
+                            pty.journal_output_if_open(journal_target, journal_output.into_owned());
                         }
-                        if let Some(pwd) = term.pwd() {
-                            *pty.pwd.lock().unwrap() = Some(pwd);
+                        drop(journal_update);
+                        pty.stream_progress.notify();
+                        pty.request_frame(generation);
+                        if let Some((offset, at_bottom)) = scroll_changed
+                            && let Some(mux) = mux.upgrade()
+                        {
+                            mux.emit_terminal_scroll(surface.id, offset, at_bottom);
                         }
-                        if before != after {
-                            scroll_changed = Some(after);
-                            broadcast_render_scroll_locked(pty, after);
+                        let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
+                        if !responses.is_empty() {
+                            let _ = surface.write_bytes(&responses);
                         }
-                        pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
-                    };
-                    pty.stream_progress.notify();
-                    pty.request_frame(generation);
-                    if let Some((offset, at_bottom)) = scroll_changed
-                        && let Some(mux) = mux.upgrade()
-                    {
-                        mux.emit_terminal_scroll(surface.id, offset, at_bottom);
                     }
-                    let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
-                    if !responses.is_empty() {
-                        let _ = surface.write_bytes(&responses);
+                    if let Some(pty) = surface.as_pty() {
+                        pty.publish_final_frame();
+                        pty.local_pty_drained.store(true, Ordering::Release);
                     }
+                    publish_local_exit_if_ready(&surface);
                 }
-                if let Some(pty) = surface.as_pty() {
-                    pty.publish_final_frame();
-                    pty.local_pty_drained.store(true, Ordering::Release);
-                }
-                publish_local_exit_if_ready(&surface);
-            }
-        })?;
+            })?;
+        *surface
+            .as_pty()
+            .expect("local PTY surface owns its reader")
+            .reader_thread
+            .lock()
+            .unwrap() = Some(reader_thread);
 
         // Child reaper: retain the native status and rendezvous with PTY EOF
         // so final output is visible before the mux observes completion.
@@ -2464,6 +2565,7 @@ impl Surface {
             mut attachment,
             kitty_reservation,
             terminate_on_error,
+            defer_launch_activation,
             lifetime,
             terminal_public_id,
             resource_identity,
@@ -2528,6 +2630,7 @@ impl Surface {
         let sequence_boundary = snapshot.sequence_boundary;
         let protocol_version = attachment.protocol_version();
         let host_identity = attachment.identity();
+        let journal_generation = Arc::from(host_identity.incarnation.clone());
         let host_exit_record_path = attachment.exit_record_path();
         let supports_clear_history_key_fallback = attachment.supports_clear_history();
         let render_state = RenderState::new()?;
@@ -2543,7 +2646,12 @@ impl Surface {
             },
             terminal: Arc::new(PtyTerminalRuntime {
                 event_surface_id: id,
-                terminal_public_id,
+                terminal_public_id: terminal_public_id.map(Arc::new),
+                journal_generation,
+                journal_capture_epoch: AtomicU64::new(0),
+                journal_capture_gate: Mutex::new(()),
+                journal_capture_open: AtomicBool::new(true),
+                reader_thread: Mutex::new(None),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -2607,7 +2715,7 @@ impl Surface {
         // spawn. If Builder::spawn fails, dropping the closure clone and
         // function-local Surface drops the still-armed attachment, so no
         // control-write failure can convert this Err into a live orphan.
-        std::thread::Builder::new().name(format!("surface-{id}-host")).spawn({
+        let reader_thread = std::thread::Builder::new().name(format!("surface-{id}-host")).spawn({
             let surface = surface.clone();
             let mux = mux.clone();
             let scrollback = opts.scrollback;
@@ -2686,6 +2794,11 @@ impl Surface {
                                 };
                                 let mut scroll_changed = None;
                                 let mut title_update = None;
+                                let journal_target = pty.journal_target();
+                                let journal_update = journal_target
+                                    .as_ref()
+                                    .and_then(|_| pty.begin_terminal_journal_update());
+                                let journal_enabled = journal_update.is_some();
                                 let defaults = mux
                                     .upgrade()
                                     .map(|mux| mux.default_colors())
@@ -2732,16 +2845,20 @@ impl Surface {
                                     // The parser already contains the complete
                                     // coupled state before any attach observer can
                                     // see the Output or ColorsChanged callback.
-                                    if colors.is_some() {
+                                    let journal_output = if colors.is_some() {
+                                        let journal_output =
+                                            journal_enabled.then(|| output.clone());
                                         pty.broadcast_attach_frame(AttachFrame::OutputWithColors {
                                             output,
                                             colors: Box::new(
                                                 pty.terminal_colors_locked(&term, defaults),
                                             ),
                                         });
+                                        journal_output
                                     } else {
                                         pty.broadcast_attach_output(&output);
-                                    }
+                                        journal_enabled.then_some(output)
+                                    };
                                     if title_changed.swap(false, Ordering::Relaxed) {
                                         let title = term.title().unwrap_or_default();
                                         *pty.title.lock().unwrap() = title.clone();
@@ -2754,8 +2871,18 @@ impl Surface {
                                         scroll_changed = Some(after);
                                         broadcast_render_scroll_locked(pty, after);
                                     }
-                                    pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
+                                    (
+                                        pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1,
+                                        journal_output,
+                                    )
                                 };
+                                let (generation, journal_output) = generation;
+                                if let (Some(journal_target), Some(journal_output)) =
+                                    (journal_target, journal_output)
+                                {
+                                    pty.journal_output_if_open(journal_target, journal_output);
+                                }
+                                drop(journal_update);
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(title) = title_update
@@ -2873,6 +3000,7 @@ impl Surface {
                                     **term = replacement;
                                     pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                                     *geometry = next_geometry;
+                                    pty.journal_geometry(next_geometry);
                                     *pty.title.lock().unwrap() = title.clone();
                                     *pty.pwd.lock().unwrap() = pwd;
                                     *pty.kitty_graphics_limits.lock().unwrap() = kitty_state.limits;
@@ -3240,6 +3368,12 @@ impl Surface {
                 }
             }
         })?;
+        *surface
+            .as_pty()
+            .expect("hosted PTY surface owns its reader")
+            .reader_thread
+            .lock()
+            .unwrap() = Some(reader_thread);
         let kitty_registration = kitty_reservation.map_or(Ok(()), |reservation| {
             reservation.commit(&surface, snapshot.kitty_state.limits)
         });
@@ -3258,6 +3392,11 @@ impl Surface {
             && let Some(pty) = surface.as_pty()
             && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().unwrap()
         {
+            if !defer_launch_activation && let Err(error) = host.activate_launched_host() {
+                let _ = host.terminate();
+                host.disconnect();
+                return Err(error.into());
+            }
             host.commit_launched_host();
         }
         #[cfg(debug_assertions)]
@@ -3329,6 +3468,7 @@ impl Surface {
                 attachment,
                 kitty_reservation,
                 terminate_on_error: false,
+                defer_launch_activation: false,
                 lifetime: PtyLifetime::SessionOwned,
                 terminal_public_id: Some(terminal_public_id),
                 resource_identity: Some(resource_identity),
@@ -3364,6 +3504,7 @@ impl Surface {
                 attachment,
                 kitty_reservation,
                 terminate_on_error: false,
+                defer_launch_activation: false,
                 lifetime: PtyLifetime::SessionOwned,
                 terminal_public_id: Some(terminal_public_id),
                 resource_identity: None,
@@ -3438,6 +3579,7 @@ impl Surface {
         terminal_public_id: TerminalPublicId,
         resource_identity: Option<TabResourceIdentity>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let journal_generation = Arc::from(identity.incarnation.clone());
         let initial_kitty_limits = KittyGraphicsLimits::disabled();
         let title_changed = Arc::new(AtomicBool::new(false));
         let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed);
@@ -3473,7 +3615,12 @@ impl Surface {
             },
             terminal: Arc::new(PtyTerminalRuntime {
                 event_surface_id: id,
-                terminal_public_id: Some(terminal_public_id),
+                terminal_public_id: Some(Arc::new(terminal_public_id)),
+                journal_generation,
+                journal_capture_epoch: AtomicU64::new(0),
+                journal_capture_gate: Mutex::new(()),
+                journal_capture_open: AtomicBool::new(true),
+                reader_thread: Mutex::new(None),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -3687,7 +3834,12 @@ impl Surface {
             },
             terminal: Arc::new(PtyTerminalRuntime {
                 event_surface_id: id,
-                terminal_public_id,
+                terminal_public_id: terminal_public_id.map(Arc::new),
+                journal_generation: Arc::from(format!("test-{id}")),
+                journal_capture_epoch: AtomicU64::new(0),
+                journal_capture_gate: Mutex::new(()),
+                journal_capture_open: AtomicBool::new(true),
+                reader_thread: Mutex::new(None),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -3751,6 +3903,49 @@ impl Surface {
             Surface::Pty(surface) => Some(surface),
             Surface::Browser(_) => None,
         }
+    }
+
+    pub(crate) fn terminal_journal_capture_epoch(&self) -> Option<u64> {
+        self.as_pty().map(|pty| pty.journal_capture_epoch.load(Ordering::Acquire))
+    }
+
+    pub(crate) fn finish_terminal_reader(&self, deadline: Instant) {
+        let Some(pty) = self.as_pty() else {
+            return;
+        };
+        if let Some(reader) = pty.reader_thread.lock().unwrap().take() {
+            while !reader.is_finished() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            if reader.is_finished() {
+                if reader.join().is_err() {
+                    eprintln!("cmux-tui: terminal reader thread panicked during shutdown");
+                }
+            } else {
+                eprintln!(
+                    "cmux-tui: terminal reader did not stop before the shared shutdown deadline; closing journal capture"
+                );
+            }
+        }
+        // A reader that is blocked in the PTY has an even capture epoch and
+        // does not delay shutdown. Give an in-flight journal update the same
+        // bounded drain interval, then close its gate so a failed journal
+        // cannot prevent daemon shutdown forever.
+        pty.close_terminal_journal_capture_when_idle(deadline);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_terminal_reader_for_test(&self, reader: std::thread::JoinHandle<()>) {
+        let pty = self.as_pty().expect("test reader requires a PTY surface");
+        let previous = pty.reader_thread.lock().unwrap().replace(reader);
+        assert!(previous.is_none(), "test PTY already owns a reader thread");
+    }
+
+    #[cfg(test)]
+    pub(crate) fn begin_terminal_journal_update_for_test(
+        &self,
+    ) -> Option<TerminalJournalUpdateGuard<'_>> {
+        self.as_pty().and_then(|pty| pty.begin_terminal_journal_update())
     }
 
     pub(crate) fn as_browser(&self) -> Option<&BrowserSurface> {
@@ -4938,6 +5133,9 @@ impl Surface {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         let mut term = pty.term.lock().unwrap();
+        if pty.dead.load(Ordering::Acquire) {
+            return Err(ghostty_vt::Error::NoValue);
+        }
         let (tap, stream) =
             AttachTap::pair(lifecycle.clone(), ATTACH_STREAM_CAPACITY, ATTACH_STREAM_MAX_BYTES);
         // Snapshot and tap registration under the same terminal lock:
@@ -4980,6 +5178,9 @@ impl Surface {
             .and_then(|mux| mux.claim_render_attachment())
             .ok_or(ghostty_vt::Error::OutOfSpace)?;
         let mut term = pty.term.lock().unwrap();
+        if pty.dead.load(Ordering::Acquire) {
+            return Err(ghostty_vt::Error::NoValue);
+        }
         let generation = pty.render_generation.load(Ordering::Acquire);
         let _ = pty.build_frame_locked(&mut term, generation, false)?;
         let (tap, stream) = RenderTap::pair(&pty.render);
@@ -5089,6 +5290,21 @@ impl Surface {
             return host.persist_workspace(workspace_key);
         }
         Ok(())
+    }
+
+    /// Release a newly launched host after the caller commits the terminal's
+    /// public topology. Adoption and local PTYs are already active, making
+    /// this idempotent for shared creation paths.
+    pub(crate) fn activate_hosted_launch_stream(&self) -> anyhow::Result<bool> {
+        #[cfg(unix)]
+        {
+            let Some(pty) = self.as_pty() else { return Ok(false) };
+            let mut runtime = pty.runtime.lock().unwrap();
+            let PtyRuntime::Hosted(host) = &mut *runtime else { return Ok(false) };
+            host.activate_launched_host().map_err(anyhow::Error::new)
+        }
+        #[cfg(not(unix))]
+        Ok(false)
     }
 
     pub fn browser_frame(&self) -> Option<BrowserFrame> {
@@ -5436,6 +5652,28 @@ impl Surface {
     }
 }
 
+fn set_surface_environment(options: &mut SurfaceOptions, key: &str, value: &str) {
+    if let Some((_, current)) = options.extra_env.iter_mut().find(|(candidate, _)| candidate == key)
+    {
+        *current = value.into();
+    } else {
+        options.extra_env.push((key.into(), value.into()));
+    }
+}
+
+fn configure_agent_browser_session(options: &mut SurfaceOptions, terminal_id: &str) {
+    let enabled = options
+        .extra_env
+        .iter()
+        .any(|(key, value)| key == "CMUX_TUI_AGENT_BROWSER_PROVIDER" && value == "1");
+    if enabled {
+        // agent-browser daemons are keyed by session. A distinct caller
+        // session prevents a command from another workspace from silently
+        // reusing the first workspace's page-scoped CDP connection.
+        set_surface_environment(options, "AGENT_BROWSER_SESSION", &format!("cmux-{terminal_id}"));
+    }
+}
+
 #[cfg(test)]
 struct TestMasterPty {
     size: Mutex<PtySize>,
@@ -5541,6 +5779,65 @@ impl ChildKiller for TestChildKiller {
 }
 
 impl PtySurface {
+    fn journal_target(&self) -> Option<(Arc<Mux>, Arc<TerminalPublicId>)> {
+        let terminal_id = self.terminal_public_id.clone()?;
+        let mux = self.mux.upgrade()?;
+        mux.terminal_journal_enabled().then_some((mux, terminal_id))
+    }
+
+    fn journal_output_if_open(
+        &self,
+        (mux, terminal_id): (Arc<Mux>, Arc<TerminalPublicId>),
+        bytes: Vec<u8>,
+    ) {
+        let occurred_at_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+        for chunk in bytes.chunks(crate::journal_ingress::TERMINAL_OUTPUT_INGRESS_BYTES) {
+            let mut pending = chunk.to_vec();
+            loop {
+                {
+                    let _gate = self.journal_capture_gate.lock().unwrap();
+                    if !self.journal_capture_open.load(Ordering::Acquire) {
+                        return;
+                    }
+                    let retry = match mux.try_journal_terminal_output(
+                        terminal_id.clone(),
+                        self.journal_generation.clone(),
+                        occurred_at_ms,
+                        pending,
+                    ) {
+                        Ok(retry) => retry,
+                        Err(error) => {
+                            self.journal_capture_open.store(false, Ordering::Release);
+                            mux.request_daemon_shutdown();
+                            eprintln!(
+                                "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
+                            );
+                            return;
+                        }
+                    };
+                    let Some(retry) = retry else { break };
+                    pending = retry;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+    }
+
+    fn journal_geometry(&self, geometry: PtyGeometry) {
+        let (Some(terminal_id), Some(mux)) = (self.terminal_public_id.clone(), self.mux.upgrade())
+        else {
+            return;
+        };
+        mux.journal_terminal_resize(
+            terminal_id,
+            self.journal_generation.clone(),
+            geometry.cols,
+            geometry.rows,
+            geometry.cell_width,
+            geometry.cell_height,
+        );
+    }
+
     fn view_scrollbar_locked(&self, term: &mut Terminal) -> Option<Scrollbar> {
         let scrollbar = term.scrollbar()?;
         let bottom = scrollbar.total.saturating_sub(scrollbar.len);
@@ -6003,6 +6300,7 @@ impl PtySurface {
         };
         drop(runtime);
         *geometry = next;
+        self.journal_geometry(next);
         #[cfg(test)]
         self.run_geometry_test_hook(if refresh_attach_colors {
             PtyGeometryTestStep::ResizeCommitBoundary
@@ -6223,6 +6521,26 @@ mod tests {
 
     use super::*;
     use crate::MuxEvent;
+
+    #[test]
+    fn agent_browser_provider_uses_a_terminal_local_daemon_session() {
+        let mut options = SurfaceOptions {
+            extra_env: vec![
+                ("CMUX_TUI_AGENT_BROWSER_PROVIDER".into(), "1".into()),
+                ("AGENT_BROWSER_SESSION".into(), "unsafe-shared-session".into()),
+            ],
+            ..SurfaceOptions::default()
+        };
+        configure_agent_browser_session(&mut options, "term_0123456789abcdef");
+        assert_eq!(
+            options
+                .extra_env
+                .iter()
+                .find(|(key, _)| key == "AGENT_BROWSER_SESSION")
+                .map(|(_, value)| value.as_str()),
+            Some("cmux-term_0123456789abcdef")
+        );
+    }
 
     #[test]
     fn terminal_projection_has_distinct_view_identity_and_shared_runtime() {

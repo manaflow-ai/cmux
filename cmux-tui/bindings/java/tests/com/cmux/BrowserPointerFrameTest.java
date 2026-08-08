@@ -224,7 +224,10 @@ public final class BrowserPointerFrameTest {
                 String streamId = String.valueOf(params.get("stream_id"));
                 inbound.add(response(
                     id,
-                    Map.of("stream_id", streamId)
+                    Map.of(
+                        "stream_id", streamId,
+                        "attachment_lease", "browser-lease"
+                    )
                 ));
                 inbound.add(frameItem(streamId));
                 return;

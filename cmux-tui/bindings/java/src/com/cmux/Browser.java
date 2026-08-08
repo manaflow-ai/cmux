@@ -114,6 +114,7 @@ public final class Browser {
     ) {
         Map<String, Object> params = params();
         params.putAll(options.control().extra());
+        params.put(Wire.ATTACHMENT_LEASE, options.attachmentLease());
         params.put("width_px", options.width());
         params.put("height_px", options.height());
         return Client.decodeBrowserViewerResize(client.requestValue(
@@ -121,14 +122,13 @@ public final class Browser {
         ));
     }
 
-    public EmptyResult releaseViewer(Options.Control options) {
+    public Results.ViewerReleaseResult releaseViewer(Options.ViewAttachment options) {
         Map<String, Object> params = params();
-        if (options != null) {
-            params.putAll(options.extra());
-        }
-        return Client.decodeEmptyResult(client.requestValue(
+        params.putAll(options.control().extra());
+        params.put(Wire.ATTACHMENT_LEASE, options.attachmentLease());
+        return Client.decodeViewerRelease(client.requestValue(
             Operations.BROWSER_VIEWER_RELEASE, params, null
-        ), "browser viewer release result");
+        ));
     }
 
     public ResourceStream<BrowserAttachmentItem> attach(

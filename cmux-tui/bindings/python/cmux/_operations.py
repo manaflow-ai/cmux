@@ -26,7 +26,7 @@ class Operation:
 
     @property
     def accepts_expected_revision(self) -> bool:
-        return self.is_mutation and self.wire_name != "workspace.create"
+        return self.is_mutation
 
 
 def _op(
@@ -52,6 +52,9 @@ class Operations:
     )
     SESSION_SNAPSHOT = _op("session.snapshot", "read", ("session",), "session")
     SESSION_EVENTS = _op("session.events", "stream_open", ("session",), "stream")
+    SESSION_JOURNAL_SUBSCRIBE = _op(
+        "session.journal.subscribe", "stream_open", ("session",), "stream"
+    )
     SESSION_PING = _op("session.ping", "read", ("session",))
     SESSION_SHUTDOWN = _op("session.shutdown", "mutation", ("session",))
     SESSION_RELOAD_CONFIG = _op("session.reload_config", "mutation", ("session",))

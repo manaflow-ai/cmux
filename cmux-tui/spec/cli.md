@@ -150,11 +150,33 @@ machine <selector> session <selector> open
 
 session list
 session <selector> open|show|snapshot|events|ping|shutdown
+session <selector> journal subscribe [--from tail|beginning]
+  [--cursor-session <session-id> --sequence <sequence>]
+  [--kinds <kind,...>] [--classes <class,...>] [--subjects <kind>:<id>,...]
+  [--max-sensitivity public|metadata|sensitive]
+  [--regex <pattern>] [--regex-field kind|subjects|payload|record|terminal_output] [--ignore-case]
+session <selector> journal read [--from beginning]
+  [--cursor-session <session-id> --sequence <sequence>] [FILTERS]
+session <selector> journal producer list
+session <selector> journal producer put --manifest-json <json> --idempotency-key <key>
+session <selector> journal append --event-json <json> --idempotency-key <key>
+session <selector> journal hook list
+session <selector> journal hook put --manifest-json <json> --idempotency-key <key>
+session <selector> journal checkpoint create --idempotency-key <key>
+session <selector> journal checkpoint list
+session <selector> journal restore preview [--checkpoint latest|<checkpoint-id>]
+session <selector> journal segment list
+session <selector> journal segment seal --through <sequence> --idempotency-key <key>
 session <name> reset-state [--force --confirm-reset <token>] [--state <path>]
 session <selector> creation <correlation-key> resolve
 session <selector> config reload
 session <selector> window title set|clear
 session <selector> terminal defaults set
+
+agent list
+agent report --terminal <selector> --state <state> --source <source>
+agent hook emit --source <provider> --event <native-event> [--terminal <id>]
+agent hook install|uninstall|status [provider...]
 
 client list
 client <selector> show|detach

@@ -95,6 +95,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             0
         }
         Ok(ParsedCommand::Command { global, plan }) => match plan {
+            CommandPlan::AgentHooks(plan) => command::run_agent_hooks(global, plan),
             CommandPlan::Protocol(request) => wire::run(global, request),
             CommandPlan::SessionResetState(plan) => command::run_session_reset_state(global, plan),
             CommandPlan::Plugin(plugin) => command::run_plugin(global, plugin),
@@ -298,6 +299,22 @@ USAGE
 const SESSION_HELP_SUFFIX: &str = "\
   cmux session <selector> creation <correlation-key> resolve
   cmux session <selector> events [--generation <value> --revision <decimal>]
+  cmux session <selector> journal subscribe [--from tail|beginning] [FILTERS]
+    [--cursor-session <session-id> --sequence <decimal>]
+    [--kinds <kind[,kind...]>] [--classes <class[,class...]>]
+    [--subjects <kind:id[,kind:id...]>] [--max-sensitivity public|metadata|sensitive]
+    [--regex <pattern>] [--regex-field kind|subjects|payload|record|terminal_output] [--ignore-case]
+  cmux session <selector> journal read [--from beginning] [FILTERS]
+  cmux session <selector> journal producer list
+  cmux session <selector> journal producer put --manifest-json <json> --idempotency-key <key>
+  cmux session <selector> journal append --event-json <json> --idempotency-key <key>
+  cmux session <selector> journal hook list
+  cmux session <selector> journal hook put --manifest-json <json> --idempotency-key <key>
+  cmux session <selector> journal checkpoint create --idempotency-key <key>
+  cmux session <selector> journal checkpoint list
+  cmux session <selector> journal restore preview [--checkpoint latest|<checkpoint-id>]
+  cmux session <selector> journal segment list
+  cmux session <selector> journal segment seal --through <sequence> --idempotency-key <key>
   cmux session <selector> config reload
   cmux session <selector> window title set --title <value>
   cmux session <selector> window title clear
@@ -321,7 +338,7 @@ USAGE
 const WORKSPACE_HELP: &str = "\
 USAGE
   cmux workspace list
-  cmux workspace create [--name <value>] [--empty] [--correlation-key <value>]
+  cmux workspace create [--name <value>] [--empty] [--correlation-key <value>] [--expected-revision <revision>]
   cmux workspace <selector> show|rename|move|focus|close
   cmux workspace <selector> run [--correlation-key <value>] -- <argv...>
   cmux workspace <selector> run [--correlation-key <value>] shell <script>
@@ -346,7 +363,8 @@ USAGE
   cmux pane list
   cmux pane create [--correlation-key <value>]
   cmux pane <selector> show|rename|focus|close
-  cmux pane <selector> split [--right|--down] [--correlation-key <value>]
+  cmux pane <selector> split [--right|--down] [--ratio <value>]
+    [--viewport-width <fraction>] [--correlation-key <value>]
   cmux pane <selector> focus direction <left|right|up|down>
   cmux pane <selector> neighbor <left|right|up|down>
   cmux pane <selector> swap --other-workspace <selector>
@@ -404,6 +422,8 @@ const AGENT_HELP: &str = "\
 USAGE
   cmux agent list [OPTIONS]
   cmux agent report --terminal <selector> --state <value> --source <value>
+  cmux agent hook install|uninstall|status [provider...]
+  cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
 ";
 
 const SIDEBAR_HELP: &str = "\

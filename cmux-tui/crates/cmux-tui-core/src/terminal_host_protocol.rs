@@ -14,7 +14,8 @@ use serde::{Deserialize, Serialize};
 
 pub const MAGIC: [u8; 4] = *b"CMTH";
 pub const HEADER_LEN: usize = 32;
-pub const PROTOCOL_VERSION: u16 = 3;
+pub const PROTOCOL_VERSION: u16 = 4;
+pub const LAUNCH_ACTIVATION_PROTOCOL_VERSION: u16 = 4;
 pub const MAX_FRAME_PAYLOAD: usize = 16 * 1024 * 1024;
 pub const MAX_KITTY_IMAGE_ALIASES: usize = 4_096;
 pub const KITTY_IMAGE_ALIAS_COUNT_LEN: usize = size_of::<u16>();
@@ -44,6 +45,9 @@ pub const FLAG_VIEWER_SIZE_ACKS: u32 = 1 << 1;
 /// Legacy renderers do not set this bit and retain the existing normalized,
 /// parser-ordered stream and coupled color semantics.
 pub const FLAG_SMART_RENDERER: u32 = 1 << 2;
+/// Protocol-v4 HostHello flag. The authenticated launch-owner connection must
+/// send `Activate` after its daemon has durably committed public topology.
+pub const FLAG_LAUNCH_ACTIVATION_REQUIRED: u32 = 1 << 3;
 /// ResizeAck payload flag: this request changed the canonical grid and its
 /// sequenced Resized+Colors transition was enqueued immediately before the
 /// targeted acknowledgement.
@@ -265,6 +269,15 @@ pub enum HostLaunchFailureKind {
     LaunchFailed = 2,
 }
 
+impl HostLaunchFailureKind {
+    pub const fn reason_code(self) -> &'static str {
+        match self {
+            Self::PtyCapacityExhausted => "pty_capacity_exhausted",
+            Self::LaunchFailed => "terminal_launch_failed",
+        }
+    }
+}
+
 impl TryFrom<u16> for HostLaunchFailureKind {
     type Error = ProtocolError;
 
@@ -297,6 +310,14 @@ impl HostLaunchFailure {
         Self { kind, message }
     }
 }
+
+impl fmt::Display for HostLaunchFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for HostLaunchFailure {}
 
 pub fn encode_host_launch_failure(failure: &HostLaunchFailure) -> Result<Vec<u8>, ProtocolError> {
     if failure.message.is_empty() || failure.message.len() > MAX_LAUNCH_FAILURE_MESSAGE_BYTES {
@@ -384,6 +405,10 @@ pub enum MessageKind {
     /// Protocol-v3 admin request: image bytes, in-flight bytes, image count,
     /// and placement count as four little-endian u64 values.
     SetKittyGraphicsLimits = 109,
+    /// Protocol-v4 launch-owner request. A newly launched host keeps its PTY
+    /// reader behind a bounded kernel-buffer barrier until the daemon has
+    /// durably committed the terminal's public topology.
+    Activate = 110,
 }
 
 impl TryFrom<u16> for MessageKind {
@@ -422,6 +447,7 @@ impl TryFrom<u16> for MessageKind {
             107 => Ok(Self::ClearHistory),
             108 => Ok(Self::SetCellPixelSize),
             109 => Ok(Self::SetKittyGraphicsLimits),
+            110 => Ok(Self::Activate),
             other => Err(ProtocolError::UnknownMessageKind(other)),
         }
     }
@@ -774,7 +800,7 @@ mod tests {
             encoded,
             vec![
                 b'C', b'M', b'T', b'H', // magic
-                0x03, 0x00, // version
+                0x04, 0x00, // version
                 0x06, 0x00, // output
                 0x44, 0x33, 0x22, 0x11, // flags
                 0x03, 0x00, 0x00, 0x00, // payload length
@@ -843,6 +869,12 @@ mod tests {
         );
         let payload = encode_host_launch_failure(&failure).unwrap();
         assert_eq!(decode_host_launch_failure(&payload).unwrap(), failure);
+        assert_eq!(failure.kind.reason_code(), "pty_capacity_exhausted");
+        let error = anyhow::Error::new(failure);
+        assert_eq!(
+            error.downcast_ref::<HostLaunchFailure>().map(|failure| failure.kind),
+            Some(HostLaunchFailureKind::PtyCapacityExhausted)
+        );
 
         let oversized = format!("{}é", "x".repeat(MAX_LAUNCH_FAILURE_MESSAGE_BYTES));
         let bounded = HostLaunchFailure::bounded(HostLaunchFailureKind::LaunchFailed, oversized);
@@ -886,6 +918,12 @@ mod tests {
             ]),
             Err(ProtocolError::MalformedLaunchFailurePayload)
         ));
+    }
+
+    #[test]
+    fn launch_activation_has_a_stable_additive_message_kind() {
+        assert_eq!(MessageKind::Activate as u16, 110);
+        assert_eq!(MessageKind::try_from(110).unwrap(), MessageKind::Activate);
     }
 
     #[test]

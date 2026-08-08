@@ -68,6 +68,7 @@ class LiveSchemaTests(unittest.TestCase):
             "operation",
             "origin",
             "receipt",
+            "idempotency_key",
             "selectors",
             "selector_fallbacks",
             "pane",

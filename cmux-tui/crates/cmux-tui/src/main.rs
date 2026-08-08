@@ -6,6 +6,9 @@
 //! `cmux-tui attach` connects the same TUI to an existing (usually
 //! headless) session over that socket, which is how detach/reattach works.
 
+#[cfg(unix)]
+mod agent_browser_provider;
+mod agent_hook_install;
 mod app;
 mod browser_input;
 mod cli;
@@ -69,8 +72,14 @@ use std::ffi::CStr;
 use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader, IsTerminal, Read, Write};
 use std::net::Shutdown;
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+#[cfg(unix)]
+use std::sync::atomic::AtomicI32;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Context;
@@ -93,6 +102,10 @@ use zeroize::Zeroize;
 
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 #[cfg(unix)]
+static SIGNAL_WAKE_READER: AtomicI32 = AtomicI32::new(-1);
+#[cfg(unix)]
+static SIGNAL_WAKE_WRITER: AtomicI32 = AtomicI32::new(-1);
+#[cfg(unix)]
 const MACHINE_PROVIDER_TOKEN_ENV: &str = "CMUX_MACHINE_PROVIDER_TOKEN";
 const PROVIDER_WORKSPACE_AUTHORITY_ENV: &str = "CMUX_PROVIDER_WORKSPACE_AUTHORITY";
 
@@ -104,6 +117,15 @@ unsafe extern "C" {
 #[cfg(unix)]
 extern "C" fn handle_signal(_: libc::c_int) {
     SHUTDOWN_REQUESTED.store(true, Ordering::Release);
+    let writer = SIGNAL_WAKE_WRITER.load(Ordering::Relaxed);
+    if writer >= 0 {
+        let byte = 1_u8;
+        // SAFETY: write(2) is async-signal-safe, `writer` is a process-lifetime
+        // socket descriptor, and the one-byte source remains valid for the call.
+        unsafe {
+            let _ = libc::write(writer, std::ptr::from_ref(&byte).cast(), 1);
+        }
+    }
 }
 
 pub(crate) fn shutdown_requested() -> bool {
@@ -112,10 +134,27 @@ pub(crate) fn shutdown_requested() -> bool {
 
 #[cfg(unix)]
 fn install_signal_handlers() -> io::Result<()> {
+    let (wake_reader, wake_writer) = UnixStream::pair()?;
+    for descriptor in [wake_reader.as_raw_fd(), wake_writer.as_raw_fd()] {
+        // UnixStream currently creates close-on-exec descriptors, but enforce
+        // the ownership contract before these descriptors become process-wide.
+        let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
+        if flags < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if unsafe { libc::fcntl(descriptor, libc::F_SETFD, flags | libc::FD_CLOEXEC) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    wake_writer.set_nonblocking(true)?;
+    SIGNAL_WAKE_READER.store(wake_reader.as_raw_fd(), Ordering::Release);
+    SIGNAL_WAKE_WRITER.store(wake_writer.as_raw_fd(), Ordering::Release);
     unsafe {
         let mut action = std::mem::zeroed::<libc::sigaction>();
         action.sa_sigaction = handle_signal as *const () as libc::sighandler_t;
         if libc::sigemptyset(&mut action.sa_mask) != 0 {
+            SIGNAL_WAKE_READER.store(-1, Ordering::Release);
+            SIGNAL_WAKE_WRITER.store(-1, Ordering::Release);
             return Err(io::Error::last_os_error());
         }
         // Termination must interrupt startup and teardown syscalls. In
@@ -124,11 +163,41 @@ fn install_signal_handlers() -> io::Result<()> {
         action.sa_flags = 0;
         for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
             if libc::sigaction(signal, &action, std::ptr::null_mut()) != 0 {
+                SIGNAL_WAKE_READER.store(-1, Ordering::Release);
+                SIGNAL_WAKE_WRITER.store(-1, Ordering::Release);
                 return Err(io::Error::last_os_error());
             }
         }
     }
+    // The signal handler and one cancellation watcher own these descriptors
+    // for the process lifetime. CLI exit and daemon shutdown reclaim them.
+    std::mem::forget(wake_reader);
+    std::mem::forget(wake_writer);
     Ok(())
+}
+
+#[cfg(unix)]
+pub(crate) fn wait_for_shutdown_signal() {
+    if shutdown_requested() {
+        return;
+    }
+    let reader = SIGNAL_WAKE_READER.load(Ordering::Acquire);
+    if reader < 0 {
+        return;
+    }
+    let mut byte = 0_u8;
+    loop {
+        // SAFETY: `reader` is the process-lifetime socket descriptor installed
+        // before signal handlers, and the one-byte destination is writable.
+        let result = unsafe { libc::read(reader, std::ptr::from_mut(&mut byte).cast(), 1) };
+        if result > 0 || shutdown_requested() {
+            return;
+        }
+        if result < 0 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
+            continue;
+        }
+        return;
+    }
 }
 
 // No POSIX signals on Windows; Ctrl-C arrives as console input and the
@@ -399,6 +468,7 @@ struct Args {
     iroh: bool,
     advertised_routes: Vec<String>,
     term: Option<String>,
+    agent_browser_provider: bool,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -468,6 +538,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         iroh: false,
         advertised_routes: Vec::new(),
         term: None,
+        agent_browser_provider: false,
     };
     let mut args = args.into_iter().peekable();
     match args.peek().map(|s| s.as_str()) {
@@ -671,6 +742,10 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             "--term" => {
                 out.term = Some(args.next().ok_or_else(|| "--term needs a value".to_string())?);
             }
+            // Private launch contract used by cmux-browser. It configures
+            // Vercel agent-browser to attach through the local provider
+            // adapter instead of starting an unrelated Chrome process.
+            "--agent-browser-provider" => out.agent_browser_provider = true,
             "-h" | "--help" => {
                 print!("{}", usage());
                 std::process::exit(0);
@@ -684,6 +759,10 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     }
     if out.terminal.is_some() && !out.attach {
         return Err("--terminal requires `cmux attach`".to_string());
+    }
+    #[cfg(not(unix))]
+    if out.agent_browser_provider {
+        return Err(format!("--agent-browser-provider is unsupported on {}", std::env::consts::OS));
     }
     Ok(out)
 }
@@ -1064,6 +1143,9 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
     if args.term.is_some() {
         conflicts.push("--term");
     }
+    if args.agent_browser_provider {
+        conflicts.push("--agent-browser-provider");
+    }
     if !conflicts.is_empty() {
         anyhow::bail!("machine provider mode cannot be combined with {}", conflicts.join(", "));
     }
@@ -1072,6 +1154,10 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
 
 fn main() {
     let raw_args = std::env::args().skip(1).collect::<Vec<_>>();
+    #[cfg(unix)]
+    if raw_args.first().map(String::as_str) == Some("__agent-browser-provider") {
+        std::process::exit(agent_browser_provider::run());
+    }
     // Private process mode used by the daemon when it launches one durable
     // terminal host per PTY. Keep this out of public help and dispatch it
     // before installing the interactive daemon's signal handlers: the host
@@ -1467,6 +1553,15 @@ fn run_server(
     }
     surface_options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket_path.display().to_string()));
     surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
+    #[cfg(unix)]
+    if args.agent_browser_provider {
+        agent_browser_provider::configure_surface_options(&mut surface_options)?;
+    }
+    if let Some(helper) = agent_hook_install::runtime_helper_path() {
+        surface_options
+            .extra_env
+            .push(("CMUX_TUI_HOOK".into(), helper.to_string_lossy().into_owned()));
+    }
 
     let state_root = if args.ephemeral {
         None
@@ -1607,12 +1702,32 @@ fn run_server(
         }
     };
     #[cfg(unix)]
-    if let Some(runtime) = remote_runtime {
-        runtime.shutdown()?;
+    let remote_shutdown = remote_runtime.map(|runtime| runtime.shutdown()).transpose();
+    #[cfg(unix)]
+    {
+        finish_server_shutdown(websocket_server, &mux, &socket_path, remote_shutdown, result)
     }
+    #[cfg(not(unix))]
+    {
+        drop(websocket_server);
+        mux.shutdown();
+        cmux_tui_core::server::cleanup(&socket_path);
+        result
+    }
+}
+
+#[cfg(unix)]
+fn finish_server_shutdown<W, R>(
+    websocket_server: Option<W>,
+    mux: &Arc<Mux>,
+    socket_path: &Path,
+    remote_shutdown: anyhow::Result<Option<R>>,
+    result: anyhow::Result<()>,
+) -> anyhow::Result<()> {
     drop(websocket_server);
     mux.shutdown();
-    cmux_tui_core::server::cleanup(&socket_path);
+    cmux_tui_core::server::cleanup(socket_path);
+    remote_shutdown.map(|_| ())?;
     result
 }
 
@@ -2013,6 +2128,50 @@ mod tests {
 
     fn args(values: &[&str]) -> Args {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_shutdown_failure_still_stops_the_mux_and_removes_the_socket() {
+        let socket_path = std::env::temp_dir().join(format!(
+            "cmux-remote-shutdown-{}-{}.sock",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::write(&socket_path, b"test socket marker").unwrap();
+        let mux = Mux::new("remote-shutdown-failure", SurfaceOptions::default());
+
+        let error = finish_server_shutdown(
+            Some(()),
+            &mux,
+            &socket_path,
+            Err::<Option<()>, _>(anyhow::anyhow!("injected remote shutdown failure")),
+            Ok(()),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("injected remote shutdown failure"), "{error}");
+        assert!(mux.daemon_shutdown_requested());
+        assert!(!socket_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn browser_owned_server_accepts_the_private_agent_browser_provider_flag() {
+        let parsed = args(&["--headless", "--agent-browser-provider"]);
+        assert!(parsed.headless);
+        assert!(parsed.agent_browser_provider);
+        assert!(!usage().contains("--agent-browser-provider"));
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn browser_owned_server_rejects_the_private_provider_flag() {
+        let error =
+            parse_args_result(["--headless", "--agent-browser-provider"].map(str::to_string))
+                .unwrap_err();
+        assert!(error.contains("unsupported"));
     }
 
     #[cfg(windows)]

@@ -22,15 +22,18 @@ use zeroize::{Zeroize, Zeroizing};
 
 use crate::platform;
 use crate::resource::{
-    BrowserPublicId, ContentPublicId, MachinePublicId, PanePublicId, ScreenPublicId,
-    SessionPublicId, SplitPublicId, TabPublicId, TerminalPublicId, WorkspacePublicId,
+    BrowserPublicId, ContentPublicId, FrontendProjectionPublicId, MachinePublicId, PanePublicId,
+    ScreenPublicId, SessionPublicId, SplitPublicId, TabPublicId, TerminalPublicId,
+    WorkspacePublicId,
 };
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
 
 mod effect_store;
+mod journal_extensions;
 mod public_projection_store;
 mod resource_store;
+mod session_journal;
 mod terminal_exit_store;
 
 pub(crate) use effect_store::ResourceWorkspaceClose;
@@ -40,7 +43,18 @@ pub use effect_store::{
 };
 use effect_store::{
     create_resource_effect_schema, delete_legacy_sensitive_effect_receipts,
-    initialize_resource_input_receipt_retention, prune_resource_events, recover_resource_effects,
+    initialize_resource_input_receipt_retention, recover_resource_effects,
+};
+use journal_extensions::create_journal_extensions_schema;
+pub use journal_extensions::{
+    JournalAppendCommit, JournalCheckpoint, JournalContentRef, JournalEventSchema,
+    JournalHookDeliveryPolicy, JournalHookExec, JournalHookFilter, JournalHookManifest,
+    JournalHookRegex, JournalHookRetry, JournalIngress, JournalProducerManifest, JournalSegment,
+};
+pub(crate) use journal_extensions::{
+    JournalCheckpointCommit, JournalCheckpointSummary, JournalContentBlob, JournalHookAttempt,
+    JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
+    JournalSegmentSealCommit, JournalSegmentSealStart,
 };
 pub use public_projection_store::RegistryPublicProjections;
 #[cfg(test)]
@@ -57,10 +71,28 @@ use resource_store::{
     apply_resource_patch, create_resource_schema, initialize_resource_mutation_retention,
     migrate_resource_agent_projections, migrate_resource_browser_metadata,
     migrate_resource_mutations_to_session_scope, migrate_resource_tabs_to_multiview,
-    resource_tabs_has_legacy_content_uniqueness, validate_resource_invariants,
+    resource_tabs_needs_multiview_normalization, validate_resource_invariants,
 };
+pub use session_journal::{
+    JournalAuthority, JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity,
+    JournalSubject, SessionJournalPage, SessionJournalRecord,
+};
+use session_journal::{
+    ResourceEffectJournalState, append_resource_effect_journal_record,
+    append_resource_journal_record, create_session_journal_schema,
+    migrate_resource_events_to_session_journal,
+};
+pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
 
-const SCHEMA_VERSION: i64 = 9;
+// Schema 9 shipped independently on the journal and multiview development
+// branches. Schema 10 shipped the journal extensions. Version 11 is the first
+// schema that requires both, and its migration probes the actual table/index
+// shape instead of assuming that a colliding development version identifies
+// one branch. Version 12 scopes receipts by origin. Version 13 adds immutable
+// binary content to journal rows. Version 14 gives resource API frontend
+// projections one owned envelope instead of storing anonymous projection JSON.
+const SCHEMA_VERSION: i64 = 14;
+pub(crate) const RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION: u32 = 2;
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
@@ -588,6 +620,7 @@ pub struct ProjectionCommit {
 /// session concurrently.
 pub struct WorkspaceRegistry {
     connection: Connection,
+    database_path: Option<PathBuf>,
     registry_id: String,
     generation: String,
     session_name: String,
@@ -596,6 +629,16 @@ pub struct WorkspaceRegistry {
     resource_effect_pepper: ResourceEffectPepper,
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
+    #[cfg(test)]
+    journal_before_commit: Option<(
+        std::sync::mpsc::SyncSender<()>,
+        std::sync::mpsc::Receiver<()>,
+    )>,
+    #[cfg(test)]
+    journal_after_commit_admission: Option<(
+        std::sync::mpsc::SyncSender<()>,
+        std::sync::mpsc::Receiver<()>,
+    )>,
     _lease: Option<SessionLease>,
     _session_guard: Option<SessionLease>,
 }
@@ -2236,6 +2279,7 @@ impl WorkspaceRegistry {
                 create_terminal_schema(&tx)?;
                 create_resource_schema(&tx)?;
                 create_resource_effect_schema(&tx)?;
+                create_session_journal_schema(&tx)?;
                 tx.execute(
                     "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
                     [],
@@ -2249,15 +2293,37 @@ impl WorkspaceRegistry {
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
+            Some(9..=13) => {
+                let tx = connection.unchecked_transaction()?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
+                create_resource_schema(&tx)?;
+                create_resource_effect_schema(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
+                tx.execute(
+                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
+                    [SCHEMA_VERSION.to_string()],
+                )?;
+                tx.commit()?;
+            }
             Some(8) => {
                 let tx = connection.unchecked_transaction()?;
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;
                 create_resource_schema(&tx)?;
                 create_resource_effect_schema(&tx)?;
-                migrate_resource_tabs_to_multiview(&tx)?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO meta(key, value) VALUES('resource_revision', '0')",
+                    [],
+                )?;
                 ensure_session_public_id(&tx)?;
                 backfill_workspace_public_ids(&tx)?;
+                migrate_resource_agent_projections(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.execute(
                     "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
@@ -2282,7 +2348,7 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
-                migrate_resource_tabs_to_multiview(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -2303,7 +2369,7 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
-                migrate_resource_tabs_to_multiview(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.execute(
                     "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
@@ -2317,8 +2383,9 @@ impl WorkspaceRegistry {
                 create_terminal_schema(&tx)?;
                 create_resource_schema(&tx)?;
                 create_resource_effect_schema(&tx)?;
+                ensure_session_public_id(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
-                migrate_resource_tabs_to_multiview(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -2329,8 +2396,9 @@ impl WorkspaceRegistry {
                 create_resource_schema(&tx)?;
                 create_resource_effect_schema(&tx)?;
                 migrate_resource_browser_metadata(&tx)?;
+                ensure_session_public_id(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
-                migrate_resource_tabs_to_multiview(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -2342,8 +2410,9 @@ impl WorkspaceRegistry {
                 migrate_resource_mutations_to_session_scope(&tx)?;
                 migrate_resource_browser_metadata(&tx)?;
                 create_resource_effect_schema(&tx)?;
+                ensure_session_public_id(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
-                migrate_resource_tabs_to_multiview(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -2365,7 +2434,7 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
-                migrate_resource_tabs_to_multiview(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -2379,6 +2448,7 @@ impl WorkspaceRegistry {
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;
                 create_resource_schema(&tx)?;
+                create_session_journal_schema(&tx)?;
                 tx.execute(
                     "INSERT INTO meta(key, value) VALUES('schema_version', ?1)",
                     [SCHEMA_VERSION.to_string()],
@@ -2402,7 +2472,7 @@ impl WorkspaceRegistry {
                 tx.commit()?;
             }
         }
-        if migrate_existing_registry && resource_tabs_has_legacy_content_uniqueness(&connection)? {
+        if migrate_existing_registry && resource_tabs_needs_multiview_normalization(&connection)? {
             let tx = connection.unchecked_transaction()?;
             migrate_resource_tabs_to_multiview(&tx)?;
             tx.commit()?;
@@ -2450,6 +2520,7 @@ impl WorkspaceRegistry {
         {
             let tx = connection.unchecked_transaction()?;
             create_resource_effect_schema(&tx)?;
+            create_journal_extensions_schema(&tx)?;
             recover_resource_effects(&tx)?;
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
@@ -2477,6 +2548,7 @@ impl WorkspaceRegistry {
         }
         Ok(Self {
             connection,
+            database_path,
             registry_id,
             generation: try_new_uuid_v4()?,
             session_name,
@@ -2485,9 +2557,17 @@ impl WorkspaceRegistry {
             resource_effect_pepper,
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
+            #[cfg(test)]
+            journal_before_commit: None,
+            #[cfg(test)]
+            journal_after_commit_admission: None,
             _session_guard: session_guard,
             _lease: lease,
         })
+    }
+
+    pub(crate) fn session_journal_database_path(&self) -> Option<PathBuf> {
+        self.database_path.clone()
     }
 
     pub(crate) fn resource_input_receipt_hmac(
@@ -3295,8 +3375,13 @@ impl WorkspaceRegistry {
             Some(previous_topology),
             Some(previous_resource_revision),
             Some(sqlite_resource_revision),
-        ) = (previous_topology.as_ref(), previous_resource_revision, sqlite_resource_revision)
-        {
+            Some(resource_revision),
+        ) = (
+            previous_topology.as_ref(),
+            previous_resource_revision,
+            sqlite_resource_revision,
+            resource_revision,
+        ) {
             tx.execute(
                 "INSERT INTO resource_mutations(
                    origin, idempotency_key, operation, fingerprint, result_json, committed_revision
@@ -3316,20 +3401,18 @@ impl WorkspaceRegistry {
                 active_workspace.map(WorkspacePublicId::as_str),
                 previous_topology,
             )?;
-            tx.execute(
-                "INSERT INTO resource_events(
-                   revision, previous_revision, origin, idempotency_key, deltas_json
-                 ) VALUES(?1, ?2, ?3, ?4, ?5)",
-                params![
-                    sqlite_resource_revision,
-                    i64::try_from(previous_resource_revision)
-                        .context("resource revision exceeds SQLite integer range")?,
-                    mutation.origin,
-                    mutation.id,
-                    canonical_json(&resource_deltas)?,
-                ],
+            append_resource_journal_record(
+                &tx,
+                resource_revision,
+                previous_resource_revision,
+                &mutation.origin,
+                &mutation.id,
+                event_kind,
+                None,
+                result,
+                &resource_deltas,
             )?;
-            prune_resource_events(&tx)?;
+            resource_store::prune_resource_mutations(&tx)?;
         }
         tx.commit()?;
         Ok(RegistryCommit { revision, result: result.clone(), replayed: false })
@@ -3548,6 +3631,96 @@ fn migrate_resource_effect_pepper(
         "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
         [SCHEMA_VERSION.to_string()],
     )?;
+    Ok(())
+}
+
+/// Converge the two development schemas which independently used version 9.
+///
+/// The pre-multiview table has a table-level UNIQUE constraint on
+/// `resource_tabs.content_id`; SQLite exposes that constraint as an index with
+/// origin `u`. The multiview browser-only partial index has origin `c`, so the
+/// distinction survives formatting and index names.
+fn normalize_journal_multiview_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let legacy_content_identity = {
+        let mut indexes = transaction.prepare("PRAGMA index_list(resource_tabs)")?;
+        let indexes = indexes
+            .query_map([], |row| Ok((row.get::<_, String>(1)?, row.get::<_, String>(3)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut found = false;
+        for (name, origin) in indexes {
+            if origin != "u" {
+                continue;
+            }
+            let mut columns = transaction.prepare("SELECT name FROM pragma_index_info(?1)")?;
+            let columns = columns
+                .query_map([name], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            if columns == ["content_id"] {
+                found = true;
+                break;
+            }
+        }
+        found
+    };
+    if legacy_content_identity {
+        migrate_resource_tabs_to_multiview(transaction)?;
+    }
+    migrate_resource_events_to_session_journal(transaction)?;
+    create_journal_extensions_schema(transaction)?;
+    migrate_resource_api_frontend_projection_envelopes(transaction)?;
+    Ok(())
+}
+
+fn migrate_resource_api_frontend_projection_envelopes(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    let rows = {
+        let mut statement = transaction.prepare(
+            "SELECT subject_key, schema_version, payload
+             FROM frontend_projections
+             WHERE frontend = 'resource-api' AND scope = 'session'
+             ORDER BY subject_key",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    for (subject_key, schema_version, payload) in rows {
+        FrontendProjectionPublicId::parse(subject_key.clone())?;
+        if schema_version == i64::from(RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION) {
+            continue;
+        }
+        anyhow::ensure!(
+            schema_version == 1,
+            "resource API frontend projection {subject_key} has unsupported schema version {schema_version}"
+        );
+        let projection: Value = serde_json::from_str(&payload).with_context(|| {
+            format!("resource API frontend projection {subject_key} contains invalid JSON")
+        })?;
+        let envelope = serde_json::json!({
+            "frontend_id":"legacy-resource-api",
+            "window_id":subject_key,
+            "generation":"legacy-schema-13",
+            "projection":projection,
+        });
+        let payload = canonical_json(&envelope)?;
+        anyhow::ensure!(
+            payload.len() <= MAX_PROJECTION_BYTES,
+            "migrated resource API frontend projection exceeds {MAX_PROJECTION_BYTES} bytes"
+        );
+        transaction.execute(
+            "UPDATE frontend_projections
+             SET schema_version = ?1, payload = ?2
+             WHERE frontend = 'resource-api' AND scope = 'session' AND subject_key = ?3",
+            params![
+                i64::from(RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION),
+                payload,
+                subject_key,
+            ],
+        )?;
+    }
     Ok(())
 }
 
@@ -4401,7 +4574,7 @@ fn validate_workspace_key(value: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn canonical_json(value: &Value) -> anyhow::Result<String> {
+pub(crate) fn canonical_json(value: &Value) -> anyhow::Result<String> {
     fn write(value: &Value, output: &mut String) -> anyhow::Result<()> {
         match value {
             Value::Object(map) => {
