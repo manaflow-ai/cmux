@@ -212,6 +212,7 @@ struct BrowserWindowPortalRegistryNotificationTests {
         advanceAnimations()
 
         var isRefreshingFromAnchorLayout = false
+        var anchorLayoutCount = 0
         var webKitLayoutCount = 0
         var webKitLayoutsDuringAnchorLayout = 0
         webView.onLayout = {
@@ -221,15 +222,17 @@ struct BrowserWindowPortalRegistryNotificationTests {
             }
         }
         anchor.onLayout = {
+            anchorLayoutCount += 1
             isRefreshingFromAnchorLayout = true
             defer { isRefreshingFromAnchorLayout = false }
             BrowserWindowPortalRegistry.refresh(webView: webView, reason: "unitTestOuterLayout")
         }
         anchor.setFrameSize(NSSize(width: 320, height: 190))
         anchor.needsLayout = true
-        contentView.layoutSubtreeIfNeeded()
+        anchor.layoutSubtreeIfNeeded()
         anchor.onLayout = nil
 
+        #expect(anchorLayoutCount == 1, "The test must execute the refresh from the anchor's layout stack")
         #expect(
             webKitLayoutsDuringAnchorLayout == 0,
             "Restored browser geometry must not synchronously lay out WebKit while AppKit is already laying out the anchor"
