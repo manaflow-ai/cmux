@@ -20,6 +20,15 @@ struct BrowserWindowPortalRegistryNotificationTests {
         }
     }
 
+    private final class LayoutCallbackView: NSView {
+        var onLayout: (() -> Void)?
+
+        override func layout() {
+            super.layout()
+            onLayout?()
+        }
+    }
+
     private func realizeWindowLayout(_ window: NSWindow) {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -168,6 +177,65 @@ struct BrowserWindowPortalRegistryNotificationTests {
         #expect(
             contentView.layoutPassCount == layoutCountBeforeNoOpBurst + 1,
             "A real browser portal visibility change should still wake Workspace layout follow-up"
+        )
+    }
+
+    @Test func restoredAnchorResizeDefersHostedLayoutUntilOuterLayoutCompletes() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let contentView = try #require(window.contentView)
+
+        let anchor = LayoutCallbackView(
+            frame: NSRect(x: 24, y: 24, width: 360, height: 220)
+        )
+        contentView.addSubview(anchor)
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        defer { BrowserWindowPortalRegistry.detach(webView: webView) }
+
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        advanceAnimations()
+
+        let slot = try #require(
+            webView.cmuxBrowserViewportAttachmentSuperview as? WindowBrowserSlotView
+        )
+        let existingLayoutCallback = slot.onHostedInspectorLayout
+        defer { slot.onHostedInspectorLayout = existingLayoutCallback }
+        var isSynchronizingFromAnchorLayout = false
+        var hostedLayoutCount = 0
+        var hostedLayoutsDuringAnchorLayout = 0
+        slot.onHostedInspectorLayout = { slotView in
+            hostedLayoutCount += 1
+            if isSynchronizingFromAnchorLayout {
+                hostedLayoutsDuringAnchorLayout += 1
+            }
+            existingLayoutCallback?(slotView)
+        }
+        anchor.onLayout = {
+            isSynchronizingFromAnchorLayout = true
+            defer { isSynchronizingFromAnchorLayout = false }
+            BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        }
+        anchor.setFrameSize(NSSize(width: 320, height: 190))
+        anchor.needsLayout = true
+        contentView.layoutSubtreeIfNeeded()
+        anchor.onLayout = nil
+
+        #expect(
+            hostedLayoutsDuringAnchorLayout == 0,
+            "Restored browser geometry must not synchronously lay out WebKit while AppKit is already laying out the anchor"
+        )
+
+        advanceAnimations()
+        #expect(
+            hostedLayoutCount > 0,
+            "The portal slot must still receive its normal layout after the anchor callback returns"
         )
     }
 
