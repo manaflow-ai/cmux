@@ -119,6 +119,92 @@ struct AgentLifecycleCLIDurabilityTests {
         #expect(persisted == settlement)
     }
 
+    @Test func overlappingDrainCanClaimASettlementOnlyOnce() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-deferred-settlement-claim-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = ClaudeHookSessionStore(
+            processEnv: [
+                "CMUX_CLAUDE_HOOK_STATE_PATH": root
+                    .appendingPathComponent("sessions.json")
+                    .path,
+            ]
+        )
+        let processIdentity = try #require(
+            AgentPIDProcessIdentity(
+                agentTurnPID: Int(ProcessInfo.processInfo.processIdentifier)
+            )
+        )
+        let sessionID = "single-claim-session"
+        let turnID = "single-claim-turn"
+        let workID = "single-claim-work"
+        let workspaceID = "55555555-5555-5555-5555-555555555555"
+        let surfaceID = "66666666-6666-6666-6666-666666666666"
+
+        _ = try store.recordStructuredBackgroundWorkEvent(
+            sessionId: sessionID,
+            eventName: "SubagentStart",
+            workId: workID,
+            turnId: turnID,
+            processGeneration: processIdentity,
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            cwd: root.path
+        )
+        #expect(
+            try store.deferTurnSettlementIfStructuredWorkActive(
+                sessionId: sessionID,
+                workspaceId: workspaceID,
+                surfaceId: surfaceID,
+                cwd: root.path,
+                turnId: turnID,
+                processGeneration: processIdentity,
+                transcriptPath: nil,
+                lastAssistantMessage: "done"
+            ) == 1
+        )
+
+        let firstDrain = try store.recordStructuredBackgroundWorkEvent(
+            sessionId: sessionID,
+            eventName: "SubagentStop",
+            workId: workID,
+            turnId: turnID,
+            processGeneration: processIdentity,
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            cwd: root.path
+        )
+        let overlappingDrain = try store.recordStructuredBackgroundWorkEvent(
+            sessionId: sessionID,
+            eventName: "SubagentStop",
+            workId: workID,
+            turnId: turnID,
+            processGeneration: processIdentity,
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            cwd: root.path
+        )
+
+        #expect(firstDrain.deferredSettlement != nil)
+        #expect(
+            overlappingDrain.deferredSettlement == nil,
+            "Only the hook that atomically claims a drained settlement may replay it."
+        )
+        #expect(
+            try store.lookup(sessionId: sessionID)?
+                .deferredTurnSettlementsByTurn?[turnID] != nil,
+            "The claimed boundary must remain durable until exact replay acknowledgement."
+        )
+    }
+
     @Test func cursorApprovalObserverLeasesBoundEachProcessGeneration() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(

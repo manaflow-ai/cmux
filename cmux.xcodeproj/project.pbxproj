@@ -149,6 +149,7 @@
 		89930002AABBCCDDEEFF0002 /* AgentProcessBindingResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930002AABBCCDDEEFF0003 /* AgentProcessBindingResolution.swift */; };
 		A95230000000000000000008 /* AgentProcessExitMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A95230000000000000000007 /* AgentProcessExitMonitor.swift */; };
 		A9523F000000000000000029 /* AgentProcessExitObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F000000000000000008 /* AgentProcessExitObservation.swift */; };
+		A9523F110000000000000001 /* AgentReconciliationFinalReviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F110000000000000002 /* AgentReconciliationFinalReviewTests.swift */; };
 		0A1107110000000000000012 /* AgentRelaunchCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000013 /* AgentRelaunchCommandBuilder.swift */; };
 		93840005AA11BB22CC33EE05 /* AgentRelayTTYOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93840006AA11BB22CC33EE06 /* AgentRelayTTYOwnershipTests.swift */; };
 		93840003AA11BB22CC33EE03 /* AgentRelayTTYTargetResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93840004AA11BB22CC33EE04 /* AgentRelayTTYTargetResolution.swift */; };
@@ -2879,6 +2880,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		89930002AABBCCDDEEFF0003 /* AgentProcessBindingResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentProcessBindingResolution.swift; sourceTree = "<group>"; };
 		A95230000000000000000007 /* AgentProcessExitMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentProcessExitMonitor.swift; sourceTree = "<group>"; };
 		A9523F000000000000000008 /* AgentProcessExitObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentProcessExitObservation.swift; sourceTree = "<group>"; };
+		A9523F110000000000000002 /* AgentReconciliationFinalReviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentReconciliationFinalReviewTests.swift; sourceTree = "<group>"; };
 		0A1107110000000000000013 /* AgentRelaunchCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRelaunchCommandBuilder.swift; sourceTree = "<group>"; };
 		93840006AA11BB22CC33EE06 /* AgentRelayTTYOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRelayTTYOwnershipTests.swift; sourceTree = "<group>"; };
 		93840004AA11BB22CC33EE04 /* AgentRelayTTYTargetResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRelayTTYTargetResolution.swift; sourceTree = "<group>"; };
@@ -7473,6 +7475,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7A51D100000000000000001 /* AgentChatSessionRegistryObservationReviewRegressionTests.swift */,
 				C7A51D000000000000000001 /* AgentChatSessionRegistryObservationTests.swift */,
 				A9523D010000000000000002 /* AgentLifecycleCLIDurabilityTests.swift */,
+				A9523F110000000000000002 /* AgentReconciliationFinalReviewTests.swift */,
 				C8711B000000000000000001 /* CodexCodeModeRolloutIdentityTests.swift */,
 				21EBB654187F880170B92ED9 /* AgentResumeLaunchGuardTests.swift */,
 				85FA9F7370322CC65A15774E /* AgentResumeLivenessTests.swift */,
@@ -10527,6 +10530,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7939000FAA11BB22CC33DD0F /* AgentNotificationMoveRaceTests.swift in Sources */,
 				79460001AA11BB22CC33EE01 /* AgentNotificationMutationBoundaryTests.swift in Sources */,
 				C3744E030000000000000003 /* AgentPIDProcessIdentity.swift in Sources */,
+				A9523F110000000000000001 /* AgentReconciliationFinalReviewTests.swift in Sources */,
 				93840005AA11BB22CC33EE05 /* AgentRelayTTYOwnershipTests.swift in Sources */,
 				E8DF7FD45DA2E55E4DA65B38 /* AgentResumeLaunchGuardTests.swift in Sources */,
 				B679CCBA4CF56982C8564009 /* AgentResumeLivenessTests.swift in Sources */,
