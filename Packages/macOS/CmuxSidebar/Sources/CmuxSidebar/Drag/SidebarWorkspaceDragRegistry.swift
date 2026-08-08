@@ -9,6 +9,7 @@ public import Foundation
 @MainActor
 public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragRegistering {
     private var activeWorkspaceId: UUID?
+    private weak var autoscrollOwner: (any SidebarWorkspaceDragAutoscrollOwning)?
 
     /// Creates an empty registry with no drag in flight.
     public init() {}
@@ -16,12 +17,37 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragRegistering
     public var currentWorkspaceId: UUID? { activeWorkspaceId }
 
     public func begin(workspaceId: UUID) {
+        relinquishAutoscrollOwner()
         activeWorkspaceId = workspaceId
     }
 
     public func end(workspaceId: UUID) {
         if activeWorkspaceId == workspaceId {
             activeWorkspaceId = nil
+            relinquishAutoscrollOwner()
         }
+    }
+
+    /// Makes `owner` the exclusive autoscroll destination for the active drag.
+    public func claimAutoscroll(owner: any SidebarWorkspaceDragAutoscrollOwning) {
+        guard activeWorkspaceId != nil else {
+            owner.relinquishWorkspaceDragAutoscroll()
+            return
+        }
+        guard autoscrollOwner !== owner else { return }
+        relinquishAutoscrollOwner()
+        autoscrollOwner = owner
+    }
+
+    /// Releases the current autoscroll destination when it matches `owner`.
+    public func releaseAutoscroll(owner: any SidebarWorkspaceDragAutoscrollOwning) {
+        guard autoscrollOwner === owner else { return }
+        autoscrollOwner = nil
+    }
+
+    private func relinquishAutoscrollOwner() {
+        let previousOwner = autoscrollOwner
+        autoscrollOwner = nil
+        previousOwner?.relinquishWorkspaceDragAutoscroll()
     }
 }
