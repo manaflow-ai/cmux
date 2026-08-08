@@ -74,6 +74,47 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         #expect(try String(contentsOf: logURL, encoding: .utf8) == "attach\nsleep:2\nattach\n")
     }
 
+    // Regression for #9443: the loop used to prefix the attach command with env
+    // assignments, which POSIX only allows before a simple command, so a compound
+    // attach command made the generated cmux-ssh-startup script fail with
+    // "syntax error near unexpected token `then'".
+    @Test func retryLoopIsValidPOSIXShellForCompoundAttachCommands() throws {
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-compound-\(UUID().uuidString)")
+        let scriptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-compound-\(UUID().uuidString).sh")
+        defer {
+            try? FileManager.default.removeItem(at: logURL)
+            try? FileManager.default.removeItem(at: scriptURL)
+        }
+
+        let compoundCommand = [
+            "if [ \"$cmux_ssh_attach_no_progress_retry\" -gt 0 ]; then : || exit 1; fi",
+            "printf '%s/%s/%s\\n' \"$CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY\" \"$CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY\" \"$CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT\" >> \"$CMUX_TEST_LOG\"",
+            "exit 0",
+        ].joined(separator: "\n")
+        let script = SSHPTYAttachRetryScriptBuilder().lines(
+            command: compoundCommand,
+            reauthenticates: false
+        ).joined(separator: "\n")
+        try (script + "\n").write(to: scriptURL, atomically: true, encoding: .utf8)
+
+        let syntaxCheck = try run("/bin/sh -n '\(scriptURL.path)'", environment: [:])
+        #expect(syntaxCheck.status == 0, "\(syntaxCheck.stderr)\n\(script)")
+
+        // The loop must still hand the retry budget to the command it runs.
+        let execution = try run(
+            script,
+            environment: [
+                "CMUX_TEST_LOG": logURL.path,
+                "CMUX_SSH_RECONNECT_LIMIT": "",
+                "CMUX_SSH_PTY_NO_PROGRESS_RETRY_LIMIT": "3",
+            ]
+        )
+        #expect(execution.status == 0, "\(execution.stderr)")
+        #expect(try String(contentsOf: logURL, encoding: .utf8) == "1/0/3\n")
+    }
+
     @Test func unclassifiedReauthenticationFailsClosedAfterEstablishedSession() throws {
         let logURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-unclassified-reauth-\(UUID().uuidString)")
