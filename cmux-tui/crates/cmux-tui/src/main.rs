@@ -2027,7 +2027,7 @@ mod tests {
             ResetStateRecoverySupport::Supported,
         );
         assert!(
-            main_supported.contains("cmux session main reset-state --state '/tmp/cmux state'"),
+            main_supported.contains("cmux session 'main' reset-state --state '/tmp/cmux state'"),
             "{main_supported}"
         );
 
