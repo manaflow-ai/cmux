@@ -1491,7 +1491,7 @@ fn collect_patch_subjects(patch: &ResourcePatch, subjects: &mut BTreeSet<Journal
                     }
                 }
             }
-            ResourceChange::TombstoneTab { tab_id } => {
+            ResourceChange::TombstoneTab { tab_id, .. } => {
                 insert_subject(subjects, "tab", tab_id.as_str());
             }
             ResourceChange::SetTabOrder { pane_id, tab_ids } => {

@@ -607,6 +607,7 @@ fn targeted_browser_effect_projection(
         browser.source = match source {
             BrowserSource::External => RegistryBrowserSource::External,
             BrowserSource::Launched => RegistryBrowserSource::Launched,
+            BrowserSource::Provider => RegistryBrowserSource::External,
         };
     }
     browser.status = match &status {

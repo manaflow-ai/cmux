@@ -4332,73 +4332,6 @@ impl Mux {
             .context("created tab no longer has a live view")
     }
 
-    pub(crate) fn resource_selectors_for_pane(
-        &self,
-        pane: Option<PaneId>,
-    ) -> anyhow::Result<crate::ResourceSelectors> {
-        let state = self.state.lock().unwrap();
-        let pane = pane.or_else(|| state.active_pane()).context("session has no active pane")?;
-        let (workspace_index, screen_index) =
-            state.screen_of(pane).context("pane has no containing screen")?;
-        let workspace = &state.workspaces[workspace_index];
-        let screen = &workspace.screens[screen_index];
-        let pane =
-            state.resource_indexes.pane_ids.get(&pane).context("pane has no public identity")?;
-        Ok(crate::ResourceSelectors {
-            machine: Some("current".to_string()),
-            session: Some("current".to_string()),
-            workspace: Some(workspace.public_id.to_string()),
-            screen: Some(screen.public_id.to_string()),
-            pane: Some(pane.to_string()),
-            ..crate::ResourceSelectors::default()
-        })
-    }
-
-    pub(crate) fn resource_selectors_for_workspace(
-        &self,
-        workspace: Option<WorkspaceId>,
-    ) -> anyhow::Result<crate::ResourceSelectors> {
-        let state = self.state.lock().unwrap();
-        let workspace = match workspace {
-            Some(workspace) => state
-                .workspaces
-                .iter()
-                .find(|candidate| candidate.id == workspace)
-                .context("workspace does not exist")?,
-            None => state
-                .workspaces
-                .get(state.active_workspace)
-                .context("session has no active workspace")?,
-        };
-        Ok(crate::ResourceSelectors {
-            machine: Some("current".to_string()),
-            session: Some("current".to_string()),
-            workspace: Some(workspace.public_id.to_string()),
-            ..crate::ResourceSelectors::default()
-        })
-    }
-
-    pub(crate) fn resource_surface_for_created_path(
-        &self,
-        result: &Value,
-    ) -> anyhow::Result<SurfaceId> {
-        let tab = TabPublicId::parse(
-            result["tab_id"]
-                .as_str()
-                .context("creation receipt omitted its tab identity")?
-                .to_string(),
-        )
-        .map_err(anyhow::Error::new)?;
-        self.state
-            .lock()
-            .unwrap()
-            .resource_indexes
-            .tabs
-            .get(&tab)
-            .copied()
-            .context("created tab no longer has a live view")
-    }
-
     pub(crate) fn has_durable_terminal_receipt(
         &self,
         terminal_id: &TerminalPublicId,
@@ -10356,34 +10289,6 @@ impl Mux {
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn create_raw_terminal_in_workspace_with_mutation(
-        self: &Arc<Self>,
-        workspace: WorkspaceId,
-        argv: Option<Vec<String>>,
-        cwd: Option<String>,
-        name: Option<String>,
-        size: Option<(u16, u16)>,
-        requested_terminal_id: Option<&str>,
-        expected_generation: Option<&str>,
-        expected_revision: Option<u64>,
-        mutation: &WorkspaceMutation,
-    ) -> anyhow::Result<TerminalPlacementResult> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let _creation_execution = self.resource_creation_execution.lock().unwrap();
-        self.create_terminal_in_workspace_with_mutation(
-            workspace,
-            argv,
-            cwd,
-            name,
-            size,
-            requested_terminal_id,
-            expected_generation,
-            expected_revision,
-            mutation,
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn create_terminal_in_workspace_with_mutation(
         self: &Arc<Self>,
         workspace: WorkspaceId,
         argv: Option<Vec<String>>,

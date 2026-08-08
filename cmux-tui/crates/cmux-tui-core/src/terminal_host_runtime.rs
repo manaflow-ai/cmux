@@ -30,11 +30,11 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
     FLAG_COLORS_FOLLOW, FLAG_LAUNCH_ACTIVATION_REQUIRED, FLAG_SMART_RENDERER,
     FLAG_VIEWER_SIZE_ACKS, Frame, HostLaunchFailure, HostLaunchFailureKind,
-    KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN,
-    LAUNCH_ACTIVATION_PROTOCOL_VERSION, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind,
-    PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure,
-    decode_terminal_exit, encode_host_launch_failure, encode_terminal_exit, read_frame,
-    wait_for_native_child_status, write_frame,
+    KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION,
+    MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
+    RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure, decode_terminal_exit,
+    encode_host_launch_failure, encode_terminal_exit, read_frame, wait_for_native_child_status,
+    write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 3;
@@ -2361,9 +2361,7 @@ mod unix {
         if hello_frame.kind != MessageKind::HostHello
             || hello_frame.version != protocol_version
             || hello_frame.flags
-                & !(FLAG_VIEWER_SIZE_ACKS
-                    | FLAG_SMART_RENDERER
-                    | FLAG_LAUNCH_ACTIVATION_REQUIRED)
+                & !(FLAG_VIEWER_SIZE_ACKS | FLAG_SMART_RENDERER | FLAG_LAUNCH_ACTIVATION_REQUIRED)
                 != 0
             || hello_frame.request_id != 1
             || hello_frame.sequence != 0
