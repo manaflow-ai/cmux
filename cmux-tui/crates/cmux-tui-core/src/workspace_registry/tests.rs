@@ -2437,8 +2437,19 @@ fn terminal_lifecycle_is_exactly_once_and_has_an_independent_revision() {
 fn terminal_running_attachment_commits_atomically_and_allows_new_identity_after_detach() {
     let mut registry =
         WorkspaceRegistry::in_memory("runtime-attachment-terminal-lifecycle").unwrap();
-    commit_terminal_topology(&mut registry, "runtime-attachment-terminal-topology");
     let terminal_public_id = terminal_resource(TERMINAL_ONE);
+    registry
+        .record_runtime_attachment_update(
+            "test",
+            "existing-runtime-detached",
+            &terminal_public_id,
+            "runtime-stale",
+            "detached",
+            "host-stale",
+            "lease-stale",
+        )
+        .unwrap();
+    commit_terminal_topology(&mut registry, "runtime-attachment-terminal-topology");
     let mut adopting = registry.terminal_record(TERMINAL_ONE).unwrap().unwrap();
     adopting.lifecycle = TerminalLifecycle::Adopting;
     adopting.incarnation = Some(INCARNATION_ONE.into());
@@ -2452,17 +2463,6 @@ fn terminal_running_attachment_commits_atomically_and_allows_new_identity_after_
             "terminal-adopting",
             &adopting,
             &json!({"terminal_id":TERMINAL_ONE,"state":"adopting"}),
-        )
-        .unwrap();
-    registry
-        .record_runtime_attachment_update(
-            "test",
-            "existing-runtime-attachment",
-            &terminal_public_id,
-            "runtime-stale",
-            "attached",
-            "host-stale",
-            "lease-stale",
         )
         .unwrap();
 
@@ -2482,10 +2482,10 @@ fn terminal_running_attachment_commits_atomically_and_allows_new_identity_after_
                 origin: "cmux-tui-runtime",
                 idempotency_key: "runtime-attachment-current-fails".into(),
                 terminal_id: terminal_public_id.clone(),
-                runtime_id: INCARNATION_ONE,
+                runtime_id: "20000000000040008000000000000001",
                 state: "attached",
-                host_epoch: INCARNATION_ONE,
-                lease_generation: INCARNATION_ONE,
+                host_epoch: "20000000000040008000000000000001",
+                lease_generation: "20000000000040008000000000000001",
             },
         )
         .unwrap_err();
@@ -2495,17 +2495,6 @@ fn terminal_running_attachment_commits_atomically_and_allows_new_identity_after_
         TerminalLifecycle::Adopting
     );
 
-    registry
-        .record_runtime_attachment_update(
-            "test",
-            "existing-runtime-detached",
-            &terminal_public_id,
-            "runtime-stale",
-            "detached",
-            "host-stale",
-            "lease-stale",
-        )
-        .unwrap();
     let still_adopting_revision = registry.terminal_snapshot().unwrap().revision;
     let committed = registry
         .commit_terminal_with_runtime_attachment(
@@ -2535,6 +2524,21 @@ fn terminal_running_attachment_commits_atomically_and_allows_new_identity_after_
     assert_eq!(
         runtime_attachment_committed_sequence(&registry, &terminal_public_id),
         registry.session_journal_after(0, 1024).unwrap().head_sequence
+    );
+    assert!(
+        registry
+            .record_runtime_attachment_update(
+                "test",
+                "old-runtime-after-current-attach",
+                &terminal_public_id,
+                "runtime-stale",
+                "attached",
+                "host-stale",
+                "lease-stale",
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("stale")
     );
 }
 
@@ -4001,29 +4005,16 @@ fn runtime_attachment_recorder_is_receipt_gated_and_stale_safe() {
         .unwrap();
     assert!(!detached.replayed);
     assert_eq!(runtime_attachment_committed_sequence(&registry, &terminal_id), detached.sequence);
-    let reattached = registry
-        .record_runtime_attachment_update(
-            "test",
-            "runtime-attachment-new-runtime",
-            &terminal_id,
-            "runtime-recorder-b",
-            "attached",
-            "host-epoch-recorder-b",
-            "lease-recorder-b",
-        )
-        .unwrap();
-    assert!(!reattached.replayed);
-    assert_eq!(runtime_attachment_committed_sequence(&registry, &terminal_id), reattached.sequence);
     assert!(
         registry
             .record_runtime_attachment_update(
                 "test",
-                "runtime-attachment-old-runtime-after-reattach",
+                "runtime-attachment-new-runtime-without-owner",
                 &terminal_id,
-                "runtime-recorder-a",
+                "runtime-recorder-b",
                 "attached",
-                "host-epoch-recorder",
-                "lease-recorder",
+                "host-epoch-recorder-b",
+                "lease-recorder-b",
             )
             .unwrap_err()
             .to_string()
@@ -4039,7 +4030,7 @@ fn runtime_attachment_recorder_is_receipt_gated_and_stale_safe() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(attachment_events, 3);
+    assert_eq!(attachment_events, 2);
     drop(registry);
     fs::remove_dir_all(root).unwrap();
 }

@@ -10503,6 +10503,11 @@ impl Mux {
             // process startup. Re-read canonical placement after Ready and
             // hold registry -> state through the binding so a move committed
             // during launch is projected instead of the stale request target.
+            self.record_terminal_runtime_attachment_source(
+                &identity.terminal_id,
+                &identity.incarnation,
+                "attached",
+            )?;
             let projected = self.bind_running_terminal_to_canonical_workspace(&surface);
             let (placement, canonical_workspace, changed, created_path) = match projected {
                 Ok(projected) => projected,
@@ -10519,11 +10524,6 @@ impl Mux {
             if changed {
                 self.emit(MuxEvent::TreeChanged);
             }
-            self.record_terminal_runtime_attachment_source(
-                &identity.terminal_id,
-                &identity.incarnation,
-                "attached",
-            )?;
             drop(pending_surface);
             drop(workspace_lifecycle);
             return Ok((placement, surface, created_path));
@@ -16075,6 +16075,19 @@ mod tests {
         let terminal_public_id = restore_terminal_id(fixture);
         {
             let mut registry = mux.workspace_registry.lock().unwrap();
+            if let Some(attachment_runtime) = attachment_runtime {
+                registry
+                    .record_runtime_attachment_update(
+                        "test",
+                        "seed-runtime-attachment",
+                        &terminal_public_id,
+                        attachment_runtime,
+                        "attached",
+                        attachment_runtime,
+                        attachment_runtime,
+                    )
+                    .unwrap();
+            }
             registry
                 .commit_resource_patch(
                     &WorkspaceMutation::new("seed-runtime-attachment-exit", "test").unwrap(),
@@ -16154,19 +16167,6 @@ mod tests {
                 None,
             )
             .unwrap();
-            if let Some(attachment_runtime) = attachment_runtime {
-                registry
-                    .record_runtime_attachment_update(
-                        "test",
-                        "seed-runtime-attachment",
-                        &terminal_public_id,
-                        attachment_runtime,
-                        "attached",
-                        attachment_runtime,
-                        attachment_runtime,
-                    )
-                    .unwrap();
-            }
             let restored = restore_resource_state(
                 registry.snapshot().unwrap(),
                 registry.resource_topology_snapshot().unwrap(),
@@ -20282,12 +20282,12 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn runtime_attachment_failure_blocks_host_exit_lifecycle() {
+    fn stale_runtime_attachment_does_not_block_host_exit_lifecycle() {
         const TERMINAL: &str = "00000000000040008000000000000064";
         const CURRENT_INCARNATION: &str = "10000000000040008000000000000064";
         const STALE_INCARNATION: &str = "20000000000040008000000000000064";
         let mux = test_mux();
-        seed_running_terminal_without_live_attachment(
+        let public_id = seed_running_terminal_without_live_attachment(
             &mux,
             TERMINAL,
             CURRENT_INCARNATION,
@@ -20295,15 +20295,15 @@ mod tests {
             Some(STALE_INCARNATION),
         );
 
-        let error = mux
-            .persist_terminal_exit(
+        assert!(
+            mux.persist_terminal_exit(
                 TERMINAL,
                 Some(CURRENT_INCARNATION),
                 &TerminalExit::unknown("host-exited"),
             )
-            .unwrap_err();
+            .unwrap()
+        );
 
-        assert!(error.to_string().contains("runtime attachment update is stale"));
         assert_eq!(
             mux.workspace_registry
                 .lock()
@@ -20312,8 +20312,14 @@ mod tests {
                 .unwrap()
                 .unwrap()
                 .lifecycle,
-            TerminalLifecycle::Running
+            TerminalLifecycle::Exited
         );
+        let payloads = runtime_attachment_event_payloads(&mux);
+        assert!(payloads.iter().any(|payload| {
+            payload["terminal_id"] == public_id.as_str()
+                && payload["runtime_id"] == CURRENT_INCARNATION
+                && payload["state"] == "detached"
+        }));
         mux.shutdown();
     }
 

@@ -36,6 +36,34 @@ pub(super) struct RuntimeAttachmentUpdate<'a> {
     pub(super) lease_generation: &'a str,
 }
 
+fn runtime_attachment_current_terminal_matches(
+    tx: &Transaction<'_>,
+    update: &RuntimeAttachmentUpdate<'_>,
+) -> anyhow::Result<Option<bool>> {
+    let current = tx
+        .query_row(
+            "SELECT host.incarnation, host.lifecycle
+             FROM resource_terminals AS terminal
+             JOIN terminal_hosts AS host ON host.terminal_id = terminal.terminal_id
+             WHERE terminal.public_id = ?1
+               AND terminal.deleted_revision IS NULL",
+            [update.terminal_id.as_str()],
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?;
+    let Some((incarnation, lifecycle)) = current else {
+        return Ok(None);
+    };
+    if incarnation.as_deref() != Some(update.runtime_id) {
+        return Ok(Some(false));
+    }
+    Ok(Some(match update.state {
+        "attached" => lifecycle == "running",
+        "detached" => lifecycle == "exited",
+        _ => false,
+    }))
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JournalEventSchema {
@@ -1528,6 +1556,10 @@ impl WorkspaceRegistry {
             return Ok(commit);
         }
         let session_id = transaction_session_id(tx)?;
+        let terminal_owner_matches = runtime_attachment_current_terminal_matches(tx, &update)?;
+        if let Some(matches_terminal) = terminal_owner_matches {
+            anyhow::ensure!(matches_terminal, "runtime attachment update is stale");
+        }
         let current = tx
             .query_row(
                 "SELECT session_id, runtime_id, state, host_epoch, lease_generation
@@ -1552,11 +1584,13 @@ impl WorkspaceRegistry {
                 && stored_runtime == update.runtime_id
                 && stored_epoch == update.host_epoch
                 && stored_lease == update.lease_generation;
-            let new_identity_after_detach = stored_session == session_id
-                && stored_state == "detached"
-                && update.state == "attached";
+            let identity_change_matches_terminal = stored_session == session_id
+                && stored_state != "interrupted"
+                && !same_identity
+                && terminal_owner_matches == Some(true);
             anyhow::ensure!(
-                (same_identity || new_identity_after_detach) && stored_state != "interrupted",
+                (same_identity || identity_change_matches_terminal)
+                    && stored_state != "interrupted",
                 "runtime attachment update is stale"
             );
         }
