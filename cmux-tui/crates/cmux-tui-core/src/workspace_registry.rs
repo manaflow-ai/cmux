@@ -2372,7 +2372,56 @@ fn open_reset_child_file(
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", target_os = "android"))]
+#[repr(C)]
+struct ResetOpenHow {
+    flags: u64,
+    mode: u64,
+    resolve: u64,
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn open_reset_child_dir(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+) -> anyhow::Result<File> {
+    use std::os::fd::FromRawFd;
+
+    const RESOLVE_NO_XDEV: u64 = 0x01;
+    const RESOLVE_NO_SYMLINKS: u64 = 0x04;
+    const RESOLVE_BENEATH: u64 = 0x08;
+
+    let name = reset_child_c_string(name, display_path)?;
+    let how = ResetOpenHow {
+        flags: (libc::O_RDONLY | libc::O_CLOEXEC | libc::O_DIRECTORY) as u64,
+        mode: 0,
+        resolve: RESOLVE_NO_XDEV | RESOLVE_NO_SYMLINKS | RESOLVE_BENEATH,
+    };
+    loop {
+        // SAFETY: openat2 reads a nul-terminated child name and immutable open_how value.
+        let descriptor = unsafe {
+            libc::syscall(
+                libc::SYS_openat2,
+                parent_fd,
+                name.as_ptr(),
+                &how as *const ResetOpenHow,
+                std::mem::size_of::<ResetOpenHow>(),
+            )
+        };
+        if descriptor >= 0 {
+            // SAFETY: openat2 returned a new descriptor that this File owns.
+            return Ok(unsafe { File::from_raw_fd(descriptor as std::os::fd::RawFd) });
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(error).with_context(|| format!("open reset dir {}", display_path.display()));
+    }
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
 fn open_reset_child_dir(
     parent_fd: std::os::fd::RawFd,
     name: &std::ffi::OsStr,
@@ -2583,36 +2632,42 @@ fn reset_stat_metadata_fingerprint(stat: &libc::stat) -> String {
     )
 }
 
-#[cfg(all(unix, not(any(target_vendor = "apple", target_os = "aix", target_os = "hurd"))))]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
     widen_reset_stat_i64(stat.st_mtime)
 }
 
-#[cfg(any(target_os = "aix", target_os = "hurd"))]
-fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
-    widen_reset_stat_i64(stat.st_mtim.tv_sec)
-}
-
-#[cfg(all(unix, target_vendor = "apple"))]
+#[cfg(any(target_os = "ios", target_os = "macos"))]
 fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
     // Rust libc exposes Darwin's st_mtimespec through these stable aliases.
     widen_reset_stat_i64(stat.st_mtime)
 }
 
-#[cfg(all(unix, not(any(target_vendor = "apple", target_os = "aix", target_os = "hurd"))))]
+#[cfg(all(
+    unix,
+    not(any(target_os = "linux", target_os = "android", target_os = "ios", target_os = "macos"))
+))]
+fn reset_stat_mtime_seconds(_stat: &libc::stat) -> i64 {
+    0
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
     widen_reset_stat_i64(stat.st_mtime_nsec)
 }
 
-#[cfg(any(target_os = "aix", target_os = "hurd"))]
-fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
-    widen_reset_stat_i64(stat.st_mtim.tv_nsec)
-}
-
-#[cfg(all(unix, target_vendor = "apple"))]
+#[cfg(any(target_os = "ios", target_os = "macos"))]
 fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
     // Rust libc exposes Darwin's st_mtimespec through these stable aliases.
     widen_reset_stat_i64(stat.st_mtime_nsec)
+}
+
+#[cfg(all(
+    unix,
+    not(any(target_os = "linux", target_os = "android", target_os = "ios", target_os = "macos"))
+))]
+fn reset_stat_mtime_nanoseconds(_stat: &libc::stat) -> i64 {
+    0
 }
 
 #[cfg(unix)]
@@ -2632,7 +2687,7 @@ fn reset_stat_inode(stat: &libc::stat) -> u64 {
     widen_reset_stat_u64(stat.st_ino)
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "ios", target_os = "macos"))]
 fn widen_reset_stat_i64<T: Into<i64>>(value: T) -> i64 {
     value.into()
 }

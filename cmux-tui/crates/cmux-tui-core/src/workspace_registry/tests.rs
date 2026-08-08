@@ -385,6 +385,23 @@ fn reset_dir_child_names_rewinds_between_scans() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn reset_child_directory_open_rejects_mount_boundary() {
+    use std::ffi::OsStr;
+    use std::os::fd::AsRawFd;
+
+    let root = File::open("/").unwrap();
+    let error = open_reset_child_dir(root.as_raw_fd(), OsStr::new("proc"), Path::new("/proc"))
+        .unwrap_err();
+
+    assert_eq!(
+        error.downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error),
+        Some(libc::EXDEV),
+        "{error:#}"
+    );
+}
+
 #[test]
 fn unsupported_checked_reset_deletion_does_not_mutate_tree() {
     let root = temp_root("reset-unsupported-platform-delete");
