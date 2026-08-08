@@ -1199,6 +1199,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		3865A0023865A0023865A002 /* GlobalSearchCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0023865B0023865B002 /* GlobalSearchCoordinator.swift */; };
 		3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */; };
 		8561A0018561A0018561A001 /* GlobalSearchInputOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8561B0018561B0018561B001 /* GlobalSearchInputOwnershipTests.swift */; };
+		7440A0017440A0017440A001 /* GlobalSearchInstanceIsolationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7440B0017440B0017440B001 /* GlobalSearchInstanceIsolationTests.swift */; };
 		8561A0058561A0058561A005 /* GlobalSearchKeyEvent+QueryEditing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8561B0058561B0058561B005 /* GlobalSearchKeyEvent+QueryEditing.swift */; };
 		3865A0083865A0083865A008 /* GlobalSearchPanelCaptureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0083865B0083865B008 /* GlobalSearchPanelCaptureManager.swift */; };
 		D5AAB5856FF095F610EB565A /* GlobalSearchShortcutBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5AAB5856FF095F610EB565B /* GlobalSearchShortcutBehaviorTests.swift */; };
@@ -3851,6 +3852,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		3865B0023865B0023865B002 /* GlobalSearchCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchCoordinator.swift; sourceTree = "<group>"; };
 		3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchDocuments.swift; sourceTree = "<group>"; };
 		8561B0018561B0018561B001 /* GlobalSearchInputOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchInputOwnershipTests.swift; sourceTree = "<group>"; };
+		7440B0017440B0017440B001 /* GlobalSearchInstanceIsolationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchInstanceIsolationTests.swift; sourceTree = "<group>"; };
 		8561B0058561B0058561B005 /* GlobalSearchKeyEvent+QueryEditing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Search/GlobalSearchKeyEvent+QueryEditing.swift"; sourceTree = "<group>"; };
 		3865B0083865B0083865B008 /* GlobalSearchPanelCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchPanelCaptureManager.swift; sourceTree = "<group>"; };
 		D5AAB5856FF095F610EB565B /* GlobalSearchShortcutBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchShortcutBehaviorTests.swift; sourceTree = "<group>"; };
@@ -7537,6 +7539,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F54100A1A1B2C3D4E5F60718 /* RestorableAgentSessionStalePIDTests.swift */,
 				F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */,
 				3865B0043865B0043865B004 /* SearchIndexTests.swift */,
+				7440B0017440B0017440B001 /* GlobalSearchInstanceIsolationTests.swift */,
 				F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */,
 				F5310001A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift */,
 				FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */,
@@ -10786,6 +10789,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C13519000000000000000003 /* GhosttyTerminalStartupEnvironmentTests.swift in Sources */,
 				D7AB34400000000000000003 /* GhosttyTerminalViewVisibilityPolicyTests.swift in Sources */,
 				8561A0018561A0018561A001 /* GlobalSearchInputOwnershipTests.swift in Sources */,
+				7440A0017440A0017440A001 /* GlobalSearchInstanceIsolationTests.swift in Sources */,
 				D5AAB5856FF095F610EB565A /* GlobalSearchShortcutBehaviorTests.swift in Sources */,
 				8561A0068561A0068561A006 /* GlobalSearchShortcutPersistencePolicyTests.swift in Sources */,
 				8561A0028561A0028561A002 /* GlobalSearchShortcutPriorityTests.swift in Sources */,
