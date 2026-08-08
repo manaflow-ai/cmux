@@ -139,6 +139,9 @@ validate_app_host_config_paths() {
     return 1
   fi
 
+  # Ghostty may report either the published /tmp spelling or macOS's resolved
+  # /private/tmp spelling. Canonicalize the evidence so both aliases compare
+  # identically without weakening the symlink and scope checks.
   local expected_config_path canonical_expected_config_path
   expected_config_path="${app_host_home%/}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
   canonical_expected_config_path="$(

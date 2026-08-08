@@ -62,20 +62,29 @@ final class FilePreviewPDFSharingPresenter: NSObject {
         activePicker.close()
     }
 
-    func sharingServicePicker(
-        _ sharingServicePicker: NSSharingServicePicker,
-        didChoose service: NSSharingService?
-    ) {
+    private func pickerDidChooseService(_ sharingServicePicker: NSSharingServicePicker) {
         guard sharingServicePicker === activePicker else { return }
         sharingServicePicker.delegate = nil
         activePicker = nil
     }
 }
 
-// Isolated conformances are Swift 6.2 syntax; retain the legacy spelling for the
-// Xcode 16.2 compiler used by the macOS 14 compatibility lane.
 #if compiler(>=6.2)
-extension FilePreviewPDFSharingPresenter: @MainActor NSSharingServicePickerDelegate {}
+extension FilePreviewPDFSharingPresenter: @MainActor NSSharingServicePickerDelegate {
+    func sharingServicePicker(
+        _ sharingServicePicker: NSSharingServicePicker,
+        didChoose service: NSSharingService?
+    ) {
+        pickerDidChooseService(sharingServicePicker)
+    }
+}
 #else
-extension FilePreviewPDFSharingPresenter: NSSharingServicePickerDelegate {}
+extension FilePreviewPDFSharingPresenter: NSSharingServicePickerDelegate {
+    func sharingServicePicker(
+        _ sharingServicePicker: NSSharingServicePicker,
+        didChoose service: NSSharingService?
+    ) {
+        pickerDidChooseService(sharingServicePicker)
+    }
+}
 #endif
