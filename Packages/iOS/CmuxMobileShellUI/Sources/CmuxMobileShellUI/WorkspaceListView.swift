@@ -126,8 +126,8 @@ struct WorkspaceListView: View {
     var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
-    /// Presents the drag-to-reorder computer-order editor from the sort menu.
-    @State var showingComputerOrderSheet = false
+    /// Presents the view-options card (sort tiles + filter rows).
+    @State var showingViewOptionsPopover = false
     @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
     @State private var showingDeviceTree = false
     @State private var changesSheetTarget: WorkspaceChangesSheetTarget? = nil
@@ -518,14 +518,6 @@ struct WorkspaceListView: View {
                     store: store,
                     selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
                     showAddDevice: showAddDevice
-                )
-            }
-        }
-        .sheet(isPresented: $showingComputerOrderSheet) {
-            if let setWorkspaceComputerPriority {
-                WorkspaceComputerOrderSheet(
-                    machines: computerOrderSheetMachines,
-                    save: setWorkspaceComputerPriority
                 )
             }
         }

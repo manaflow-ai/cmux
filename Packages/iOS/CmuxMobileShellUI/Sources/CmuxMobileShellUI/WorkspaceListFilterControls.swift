@@ -13,15 +13,10 @@ struct WorkspaceListFilterMenu: View, Equatable {
     /// Machines available to filter by. When fewer than two, the machine section
     /// is hidden (nothing to disambiguate).
     let machines: [WorkspaceFilterMachine]
-    /// The All Computers sort mode, or `nil` to hide the sort section. The
-    /// caller owns the gate (All Computers scope with 2+ known computers,
-    /// counting paired-but-offline ones): a non-nil mode always renders, so a
-    /// wedged or offline secondary Mac cannot hide the control.
-    var sortMode: MobileWorkspaceSortMode? = nil
     let actions: WorkspaceListFilterMenuActions
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.filter == rhs.filter && lhs.machines == rhs.machines && lhs.sortMode == rhs.sortMode
+        lhs.filter == rhs.filter && lhs.machines == rhs.machines
     }
 
     private var showsMachineSection: Bool { machines.count > 1 }
@@ -34,32 +29,6 @@ struct WorkspaceListFilterMenu: View, Equatable {
             ) {
                 ForEach(MobileWorkspaceReadStateFilter.allCases, id: \.self) { state in
                     Text(state.displayName).tag(state)
-                }
-            }
-
-            if let sortMode, let setSortMode = actions.setSortMode {
-                Picker(
-                    L10n.string("mobile.workspaces.sort", defaultValue: "Sort By"),
-                    selection: Binding(get: { sortMode }, set: { setSortMode($0) })
-                ) {
-                    ForEach(MobileWorkspaceSortMode.allCases, id: \.self) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
-                }
-                .accessibilityIdentifier("MobileWorkspaceSortPicker")
-                if sortMode == .computerPriority, let editComputerOrder = actions.editComputerOrder {
-                    Button {
-                        editComputerOrder()
-                    } label: {
-                        Label(
-                            L10n.string(
-                                "mobile.workspaces.sort.editOrder",
-                                defaultValue: "Edit Computer Order…"
-                            ),
-                            systemImage: "arrow.up.arrow.down"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileWorkspaceSortEditOrder")
                 }
             }
 

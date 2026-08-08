@@ -6,22 +6,49 @@ extension WorkspaceListView {
             setReadState: { filter.readState = $0 },
             clearMachines: { filter.machines.removeAll() },
             toggleMachine: { filter.toggleMachine($0) },
-            setSortMode: setWorkspaceSortMode == nil ? nil : { mode in
-                setWorkspaceSortMode?(mode)
-                // First-time pick of Computer Order has no stored order yet, so
-                // the mode alone changes nothing; open the editor rather than
-                // leaving a silently inert choice.
-                if mode == .computerPriority,
-                   workspaceComputerPriority.isEmpty,
-                   setWorkspaceComputerPriority != nil {
-                    showingComputerOrderSheet = true
-                }
-            },
-            editComputerOrder: setWorkspaceComputerPriority == nil
-                ? nil
-                : { showingComputerOrderSheet = true }
+            setSortMode: setWorkspaceSortMode
         )
     }
+
+    #if os(iOS)
+    /// The sort + filter entry point: one toolbar button opening the Mail-style
+    /// view-options card (illustrated sort tiles + filter rows). The icon fills
+    /// while a narrowing filter is active, mirroring Mail.
+    @ViewBuilder
+    func viewOptionsButton(filterMachines: [WorkspaceFilterMachine]) -> some View {
+        Button {
+            showingViewOptionsPopover = true
+        } label: {
+            Image(systemName: filter.isActive
+                ? "line.3.horizontal.decrease.circle.fill"
+                : "line.3.horizontal.decrease.circle")
+        }
+        .accessibilityLabel(L10n.string("mobile.workspaces.filter", defaultValue: "Filter"))
+        .accessibilityIdentifier("MobileWorkspaceFilterMenu")
+        .onAppear {
+            // Headless harnesses cannot tap the toolbar; let the layout-preview
+            // fixture open the card at launch for screenshot verification.
+            #if DEBUG
+            if ProcessInfo.processInfo.environment[
+                "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_VIEW_OPTIONS"
+            ] == "1" {
+                showingViewOptionsPopover = true
+            }
+            #endif
+        }
+        .popover(isPresented: $showingViewOptionsPopover) {
+            WorkspaceListViewOptionsPopover(
+                filter: filter,
+                machines: filterMachines,
+                sortMode: workspaceSortMenuMode,
+                computerPriority: workspaceComputerPriority,
+                orderMachines: computerOrderSheetMachines,
+                saveComputerOrder: setWorkspaceComputerPriority,
+                actions: workspaceListFilterMenuActions
+            )
+        }
+    }
+    #endif
 
     @ViewBuilder
     func workspaceListWithToolbar<Content: View>(
@@ -55,13 +82,7 @@ extension WorkspaceListView {
                                     dismiss: dismissMacUpdateHint
                                 )
                             }
-                            WorkspaceListFilterMenu(
-                                filter: filter,
-                                machines: filterMachines,
-                                sortMode: workspaceSortMenuMode,
-                                actions: workspaceListFilterMenuActions
-                            )
-                            .equatable()
+                            viewOptionsButton(filterMachines: filterMachines)
                             if canCreateWorkspace {
                                 newWorkspaceButton.equatable()
                             }
