@@ -1216,57 +1216,47 @@ final class cmuxUITests: XCTestCase {
         // detail is platform chrome, deliberately not asserted.
         tap(docsRow, in: app)
         let workspaceDetail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
-        XCTAssertTrue(
-            workspaceDetail.waitForExistence(timeout: 3),
-            "Search-stack detail never appeared after tapping the result"
-        )
+        guard workspaceDetail.waitForExistence(timeout: 3) else {
+            return XCTFail("Search-stack detail never appeared after tapping the result")
+        }
 
         let systemBack = app.navigationBars.buttons.element(boundBy: 0)
-        XCTAssertTrue(
-            waitForHittable(systemBack, timeout: 3),
-            "No hittable system back control on the search-stack detail"
-        )
+        guard waitForHittable(systemBack, timeout: 3) else {
+            return XCTFail("No hittable system back control on the search-stack detail")
+        }
         tap(systemBack, in: app)
-        XCTAssertNotNil(
-            waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3),
-            "Search results list did not return after popping the detail"
-        )
-        XCTAssertTrue(
-            waitForKeyboardDismissal(in: app),
-            "Keyboard stayed up after popping back to the search results"
-        )
-        XCTAssertTrue(
-            waitForHittable(docsRow, timeout: 3),
-            "Matching row missing from the restored search results"
-        )
-        XCTAssertTrue(
-            waitForNotHittable(mainRow, timeout: 3),
-            "Query filter lost on the restored search results"
-        )
+        guard waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3) != nil else {
+            return XCTFail("Search results list did not return after popping the detail")
+        }
+        guard waitForKeyboardDismissal(in: app) else {
+            return XCTFail("Keyboard stayed up after popping back to the search results")
+        }
+        guard waitForHittable(docsRow, timeout: 3) else {
+            return XCTFail("Matching row missing from the restored search results")
+        }
+        guard waitForNotHittable(mainRow, timeout: 3) else {
+            return XCTFail("Query filter lost on the restored search results")
+        }
 
-        // Leaving search for the Workspaces tab commits the draft query; the
-        // committed filter must survive a list refresh there.
-        XCTAssertTrue(
-            workspacesTab.waitForExistence(timeout: 3),
-            "Workspaces tab pill missing after popping the search detail"
-        )
+        // Selecting a result must NOT commit the query; leaving Search by
+        // choosing a primary tab still does (pre-existing contract). The
+        // committed filter must then survive a list refresh there.
+        guard workspacesTab.waitForExistence(timeout: 3) else {
+            return XCTFail("Workspaces tab pill missing after popping the search detail")
+        }
         tap(workspacesTab, in: app)
-        XCTAssertNotNil(
-            waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3),
-            "Workspaces root list missing after leaving search"
-        )
-        XCTAssertTrue(
-            minimizedSearch.waitForExistence(timeout: 3),
-            "Minimized search control missing on the Workspaces tab"
-        )
-        XCTAssertTrue(
-            waitForHittable(docsRow, timeout: 3),
-            "Committed-filter match missing on the Workspaces tab"
-        )
-        XCTAssertTrue(
-            waitForNotHittable(mainRow, timeout: 3),
-            "Committed query filter not applied on the Workspaces tab"
-        )
+        guard waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3) != nil else {
+            return XCTFail("Workspaces root list missing after leaving search")
+        }
+        guard minimizedSearch.waitForExistence(timeout: 3) else {
+            return XCTFail("Minimized search control missing on the Workspaces tab")
+        }
+        guard waitForHittable(docsRow, timeout: 3) else {
+            return XCTFail("Committed-filter match missing on the Workspaces tab")
+        }
+        guard waitForNotHittable(mainRow, timeout: 3) else {
+            return XCTFail("Committed query filter not applied on the Workspaces tab")
+        }
 
         let previewRefreshButtons = app.buttons.matching(
             NSPredicate(format: "identifier == %@", "MobileWorkspaceListPreviewRefresh")
