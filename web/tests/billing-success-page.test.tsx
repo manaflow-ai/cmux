@@ -93,7 +93,7 @@ describe("billing success page", () => {
     expect(html).toContain("cmux iOS app");
     expect(html).toContain("Use cmux on your phone.");
     expect(html).toContain('href="https://cmux.test/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback"');
-    expect(html).toContain('href="/dashboard/subrouter"');
+    expect(html).toContain('href="/dashboard/coderouter"');
     expect(html).toContain('href="/dashboard/ai-accounts"');
     expect(html).toContain('href="/dashboard/testflight"');
     expect(html).toContain('href="/api/billing/portal"');

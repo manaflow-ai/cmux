@@ -55,6 +55,45 @@ pub(crate) fn resolve_terminal_wait_exit_id(
                 ..ResourceSelectors::default()
             };
             mux.resolve_resource_path(ResourceTarget::Session, &session_selectors)?;
+            match mux.has_durable_terminal_receipt(&terminal_id) {
+                Ok(true) => {}
+                Ok(false) => return Err(error),
+                Err(registry_error) => return Err(resource_operation_error(registry_error)),
+            }
+            Ok(terminal_id)
+        }
+    }
+}
+
+/// Resolve a live terminal path or an unscoped durable terminal receipt.
+/// Nested selectors keep normal topology containment, so a detached receipt
+/// cannot satisfy a stale workspace, screen, pane, or tab path.
+pub(crate) fn resolve_terminal_wait_exit_id(
+    mux: &Mux,
+    selectors: &ResourceSelectors,
+) -> Result<TerminalPublicId, ResourceError> {
+    match mux.resolve_resource_path(ResourceTarget::Terminal, selectors) {
+        Ok(path) => path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>")),
+        Err(error) => {
+            if selectors.workspace.is_some()
+                || selectors.screen.is_some()
+                || selectors.pane.is_some()
+                || selectors.tab.is_some()
+            {
+                return Err(error);
+            }
+            let Some(raw) = selectors.terminal.as_deref() else {
+                return Err(error);
+            };
+            let Ok(terminal_id) = TerminalPublicId::parse(raw) else {
+                return Err(error);
+            };
+            let session_selectors = ResourceSelectors {
+                machine: selectors.machine.clone(),
+                session: selectors.session.clone(),
+                ..ResourceSelectors::default()
+            };
+            mux.resolve_resource_path(ResourceTarget::Session, &session_selectors)?;
             Ok(terminal_id)
         }
     }
@@ -654,17 +693,6 @@ fn validate_operation_constraints(
                 return Err(invalid_value(
                     &format!("{}.ratio", operation_name(operation)),
                     "ratio must be greater than zero and less than one",
-                ));
-            }
-            if matches!(operation, ResourceOperation::PaneSplit)
-                && let Some(width) = fields.get("viewport_width").and_then(Value::as_f64)
-                && (fields.get("direction").and_then(Value::as_str) != Some("right")
-                    || !width.is_finite()
-                    || !(0.1..=1.0).contains(&width))
-            {
-                return Err(invalid_value(
-                    "pane.split.viewport_width",
-                    "viewport_width requires direction right and a value from 0.1 through 1",
                 ));
             }
         }
@@ -1797,7 +1825,6 @@ mod tests {
                 "session":"current",
                 "name":"first",
                 "initial_content":"empty",
-                "expected_revision":"0",
             }),
             Some("create-empty-workspace"),
         );
@@ -1817,7 +1844,6 @@ mod tests {
                     "session":"current",
                     "name":"first",
                     "initial_content":"empty",
-                    "expected_revision":"999",
                 }),
                 Some("create-empty-workspace"),
             ),
@@ -1825,27 +1851,6 @@ mod tests {
         .unwrap();
         assert_eq!(replay["result"]["value"]["workspace_id"], workspace_id);
         assert_eq!(replay["result"]["replayed"], true);
-
-        let conflict = handle_resource_message(
-            &mux,
-            &request(
-                "create-conflict",
-                "workspace.create",
-                json!({
-                    "machine":"current",
-                    "session":"current",
-                    "name":"second",
-                    "initial_content":"empty",
-                    "expected_revision":"0",
-                }),
-                Some("create-conflicting-workspace"),
-            ),
-        )
-        .unwrap();
-        assert_eq!(conflict["ok"], false);
-        assert_eq!(conflict["error"]["code"], "revision.conflict");
-        assert_eq!(conflict["error"]["details"]["expected"], "0");
-        assert_eq!(conflict["error"]["details"]["actual"], "1");
 
         let renamed = handle_resource_message(
             &mux,
@@ -1950,34 +1955,5 @@ mod tests {
         ))
         .unwrap_err();
         assert_eq!(invalid.code, "validation.invalid");
-    }
-
-    #[test]
-    fn pane_split_viewport_width_validation_matches_the_public_contract() {
-        let split = |direction: &str, width: f64, id: &str| {
-            parse_resource_request(&request(
-                id,
-                "pane.split",
-                json!({
-                    "machine":"current",
-                    "session":"current",
-                    "pane":"current",
-                    "direction":direction,
-                    "viewport_width":width,
-                }),
-                Some(id),
-            ))
-        };
-        assert!(split("right", 0.1, "viewport-min").is_ok());
-        assert!(split("right", 1.0, "viewport-max").is_ok());
-        for (direction, width, id) in [
-            ("left", 0.5, "viewport-left"),
-            ("right", 0.09, "viewport-low"),
-            ("right", 1.01, "viewport-high"),
-        ] {
-            let error = split(direction, width, id).unwrap_err();
-            assert_eq!(error.code, "validation.invalid");
-            assert_eq!(error.details["field"], "pane.split.viewport_width");
-        }
     }
 }

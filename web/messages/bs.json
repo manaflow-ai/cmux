@@ -135,6 +135,31 @@
     "faqFeatureA": "Želimo to čuti. Otvorite <issuesLink>issue</issuesLink> ili <prLink>pull request</prLink> na GitHub-u, ili nam <mailLink>pošaljite e-mail</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "pregled",
+      "team": "tim"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "Usmjeravajte LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji.",
+      "coderouterLink": "otvori coderouter"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Upravljajte zajedničkim AI računima i usmjeravajte zahtjeve pomoću coderoutera.",
+      "title": "coderouter",
+      "description": "coderouter usmjerava LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji."
+    },
+    "accountMenu": {
+      "label": "Meni računa",
+      "settings": "Postavke",
+      "billing": "Naplata",
+      "signOut": "Odjavi se",
+      "signingOut": "Odjava…",
+      "signOutError": "Odjava nije uspjela. Pokušajte ponovo.",
+      "signIn": "Prijavi se"
+    },
     "aiAccounts": {
       "metaTitle": "AI nalozi — cmux",
       "metaDescription": "Upravljaj timskim nalozima AI provajdera za cmux.",

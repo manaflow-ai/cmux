@@ -2288,7 +2288,7 @@ impl Mux {
             .changes
             .iter()
             .filter_map(|change| match change {
-                ResourceChange::TombstoneTab { tab_id } => Some(tab_id),
+                ResourceChange::TombstoneTab { tab_id, .. } => Some(tab_id),
                 _ => None,
             })
             .collect::<HashSet<_>>();
@@ -2468,7 +2468,6 @@ impl Mux {
         drop(workspace_lifecycle);
         Ok(CommittedResourceClose { commit: close.resource, effects })
     }
-
     fn finish_resource_close(&self, committed: CommittedResourceClose) -> ResourcePatchCommit {
         let effects = committed.effects;
         if let Some(terminal_id) = effects.closed_terminal_public_id {
@@ -2874,6 +2873,27 @@ impl Mux {
             surface.activate_hosted_launch_stream()?;
         }
         Ok(())
+    }
+
+    fn select_live_creation_selectors<'a>(
+        &self,
+        operation: ResourceOperation,
+        candidates: &'a [ResourceSelectors],
+        state: &State,
+        registry: &WorkspaceRegistry,
+    ) -> anyhow::Result<&'a ResourceSelectors> {
+        let mut last_missing = None;
+        for selectors in candidates {
+            let target = effect_target(operation, selectors);
+            match self.resolve_resource_path_in_state(state, registry, target, selectors) {
+                Ok(_) => return Ok(selectors),
+                Err(error) if error.code == "selector.not_found" => last_missing = Some(error),
+                Err(error) => return Err(anyhow::Error::new(error)),
+            }
+        }
+        Err(anyhow::Error::new(
+            last_missing.expect("non-empty candidates either resolve or report missing"),
+        ))
     }
 
     fn select_live_creation_selectors<'a>(
