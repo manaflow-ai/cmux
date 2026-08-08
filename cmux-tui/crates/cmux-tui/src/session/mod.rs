@@ -452,7 +452,7 @@ impl Session {
     pub fn daemon_shutdown_requested(&self) -> bool {
         match self {
             Session::Local(mux) => mux.daemon_shutdown_requested(),
-            Session::Remote(_) => false,
+            Session::Remote(remote) => remote.shutdown_requested(),
         }
     }
     pub fn invalidate_remote_tree(&self) {

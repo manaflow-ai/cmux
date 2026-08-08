@@ -2719,6 +2719,10 @@ impl RemoteSession {
         }
     }
 
+    pub(crate) fn shutdown_requested(&self) -> bool {
+        self.shutdown.load(Ordering::Acquire)
+    }
+
     fn wait_for_ordered_write(&self, sequence: u64) -> io::Result<()> {
         match self.interactive_writer.wait_until_written(sequence, REMOTE_WRITE_TIMEOUT) {
             Ok(()) => Ok(()),

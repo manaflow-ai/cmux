@@ -1690,7 +1690,7 @@ fn run_server(
         match RemoteSession::connect(&socket_path)
             .context("connect the interactive client to its session server")
         {
-            Ok(remote) => run_tui(Session::Remote(remote), args.session, None),
+            Ok(remote) => run_local_owner_client(&mux, remote, args.session),
             Err(error) => Err(error),
         }
     };
@@ -1701,6 +1701,43 @@ fn run_server(
     drop(websocket_server);
     mux.shutdown();
     cmux_tui_core::server::cleanup(&socket_path);
+    result
+}
+
+fn propagate_local_owner_shutdown(mux: &Mux, session: &Session) -> bool {
+    if !mux.daemon_shutdown_requested() {
+        return false;
+    }
+    session.begin_shutdown();
+    true
+}
+
+fn run_local_owner_client(
+    mux: &Arc<Mux>,
+    remote: Arc<RemoteSession>,
+    session_label: String,
+) -> anyhow::Result<()> {
+    let session = Session::Remote(remote);
+    let watcher_session = session.clone();
+    let cleanup_session = session.clone();
+    let weak_mux = Arc::downgrade(mux);
+    let watcher = std::thread::spawn(move || {
+        while !watcher_session.daemon_shutdown_requested() {
+            let Some(mux) = weak_mux.upgrade() else {
+                break;
+            };
+            if propagate_local_owner_shutdown(&mux, &watcher_session) {
+                break;
+            }
+            drop(mux);
+            std::thread::park_timeout(std::time::Duration::from_millis(25));
+        }
+    });
+
+    let result = run_tui(session, session_label, None);
+    cleanup_session.begin_shutdown();
+    watcher.thread().unpark();
+    watcher.join().map_err(|_| anyhow::anyhow!("local owner shutdown watcher panicked"))?;
     result
 }
 
