@@ -60,8 +60,9 @@ use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserReconnect, RegistryCommit, RegistryLayoutNode,
     RegistrySnapshot, RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace,
     ResourceChange, ResourceEffectOutcome, ResourceEffectPreparation, ResourcePatch,
-    ResourcePatchCommit, ResourceTopologySnapshot, TerminalLifecycle, TerminalRegistrySnapshot,
-    WorkspaceMutation, WorkspaceRegistry,
+    ResourcePatchCommit, ResourceTopologySnapshot, TerminalExitRuntimeAttachment,
+    TerminalLifecycle, TerminalRegistrySnapshot, TerminalRuntimeAttachment, WorkspaceMutation,
+    WorkspaceRegistry,
 };
 use crate::{
     PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,
@@ -2735,10 +2736,11 @@ impl Mux {
             terminal.incarnation.as_deref() == Some(incarnation),
             "terminal incarnation changed during adoption"
         );
+        let host_identity = surface
+            .terminal_host_identity()
+            .ok_or_else(|| anyhow::anyhow!("adopted surface omitted its host identity"))?;
         anyhow::ensure!(
-            surface.terminal_host_identity().is_some_and(|identity| {
-                identity.terminal_id == terminal_id && identity.incarnation == incarnation
-            }),
+            host_identity.terminal_id == terminal_id && host_identity.incarnation == incarnation,
             "adopted host identity does not match durable terminal"
         );
 
@@ -2795,26 +2797,109 @@ impl Mux {
             state.rebuild_resource_indexes();
         }
 
-        let revision = match commit_terminal_lifecycle(
-            &mut registry,
-            "terminal-ready",
-            "terminal-adopted",
-            terminal_id,
-            TerminalLifecycle::Running,
-            Some(incarnation),
-            None,
-        ) {
+        let mut resource_projection_committed = false;
+        let mut publish_resource = false;
+        let runtime_attachment_public_id = match registry.terminal_resource_id(terminal_id)? {
+            Some(public_id) => public_id,
+            None => {
+                let commit = self.commit_terminal_adoption_resource_projection_locked(
+                    &mut registry,
+                    &mut state,
+                    terminal_id,
+                    incarnation,
+                )?;
+                state.resource_revision = commit.revision;
+                resource_projection_committed = true;
+                publish_resource = !commit.replayed;
+                registry.terminal_resource_id(terminal_id)?.ok_or_else(|| {
+                    anyhow::anyhow!("terminal adoption did not persist a public terminal identity")
+                })?
+            }
+        };
+        let lifecycle = if let Some((runtime_id, host_epoch, lease_generation)) =
+            host_identity.runtime_attachment_tokens()
+        {
+            commit_terminal_lifecycle_with_runtime_attachment(
+                &mut registry,
+                "terminal-ready",
+                "terminal-adopted",
+                terminal_id,
+                TerminalLifecycle::Running,
+                Some(incarnation),
+                None,
+                TerminalRuntimeAttachment {
+                    origin: "cmux-tui-runtime",
+                    idempotency_key: format!(
+                        "runtime-attachment-attached-{terminal_id}-{runtime_id}"
+                    ),
+                    terminal_id: runtime_attachment_public_id,
+                    runtime_id,
+                    state: "attached",
+                    host_epoch,
+                    lease_generation,
+                },
+            )
+        } else {
+            commit_terminal_lifecycle(
+                &mut registry,
+                "terminal-ready",
+                "terminal-adopted",
+                terminal_id,
+                TerminalLifecycle::Running,
+                Some(incarnation),
+                None,
+            )
+        };
+        let revision = match lifecycle {
             Ok((_, revision)) => revision,
             Err(error) => {
-                *state = before;
+                if !resource_projection_committed {
+                    *state = before;
+                }
                 return Err(error);
             }
         };
         drop(state);
+        if publish_resource {
+            self.publish_resource_event();
+        }
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);
-        self.record_terminal_runtime_attachment_source(terminal_id, incarnation, "attached");
         Ok(())
+    }
+
+    fn commit_terminal_adoption_resource_projection_locked(
+        &self,
+        registry: &mut WorkspaceRegistry,
+        state: &mut State,
+        terminal_id: &str,
+        incarnation: &str,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let topology = registry.resource_topology_snapshot()?;
+        let projection = self.resource_effect_projection_locked(
+            registry,
+            state,
+            serde_json::json!({
+                "terminal_id": terminal_id,
+                "incarnation": incarnation,
+            }),
+        )?;
+        let mutation = WorkspaceMutation::local("cmux-tui-runtime");
+        let fingerprint = serde_json::json!({
+            "op": "terminal-adoption-resource",
+            "terminal_id": terminal_id,
+            "incarnation": incarnation,
+        });
+        registry.commit_resource_patch(
+            &mutation,
+            "terminal.adoption.project",
+            &fingerprint,
+            Some(&topology.generation),
+            Some(topology.revision),
+            &projection.patch,
+            &projection.result,
+            &projection.changes,
+        )
     }
 
     #[cfg(unix)]
@@ -4336,6 +4421,86 @@ impl Mux {
             .context("created tab no longer has a live view")
     }
 
+    pub(crate) fn resource_selectors_for_pane(
+        &self,
+        pane: Option<PaneId>,
+    ) -> anyhow::Result<crate::ResourceSelectors> {
+        let state = self.state.lock().unwrap();
+        let pane = pane.or_else(|| state.active_pane()).context("session has no active pane")?;
+        let (workspace_index, screen_index) =
+            state.screen_of(pane).context("pane has no containing screen")?;
+        let workspace = &state.workspaces[workspace_index];
+        let screen = &workspace.screens[screen_index];
+        let pane =
+            state.resource_indexes.pane_ids.get(&pane).context("pane has no public identity")?;
+        Ok(crate::ResourceSelectors {
+            machine: Some("current".to_string()),
+            session: Some("current".to_string()),
+            workspace: Some(workspace.public_id.to_string()),
+            screen: Some(screen.public_id.to_string()),
+            pane: Some(pane.to_string()),
+            ..crate::ResourceSelectors::default()
+        })
+    }
+
+    pub(crate) fn resource_selectors_for_workspace(
+        &self,
+        workspace: Option<WorkspaceId>,
+    ) -> anyhow::Result<crate::ResourceSelectors> {
+        let state = self.state.lock().unwrap();
+        let workspace = match workspace {
+            Some(workspace) => state
+                .workspaces
+                .iter()
+                .find(|candidate| candidate.id == workspace)
+                .context("workspace does not exist")?,
+            None => state
+                .workspaces
+                .get(state.active_workspace)
+                .context("session has no active workspace")?,
+        };
+        Ok(crate::ResourceSelectors {
+            machine: Some("current".to_string()),
+            session: Some("current".to_string()),
+            workspace: Some(workspace.public_id.to_string()),
+            ..crate::ResourceSelectors::default()
+        })
+    }
+
+    pub(crate) fn resource_surface_for_created_path(
+        &self,
+        result: &Value,
+    ) -> anyhow::Result<SurfaceId> {
+        let tab = TabPublicId::parse(
+            result["tab_id"]
+                .as_str()
+                .context("creation receipt omitted its tab identity")?
+                .to_string(),
+        )
+        .map_err(anyhow::Error::new)?;
+        self.state
+            .lock()
+            .unwrap()
+            .resource_indexes
+            .tabs
+            .get(&tab)
+            .copied()
+            .context("created tab no longer has a live view")
+    }
+
+    pub(crate) fn has_durable_terminal_receipt(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> anyhow::Result<bool> {
+        let registry = self.workspace_registry.lock().unwrap();
+        let Some(host_id) = registry.terminal_host_id(terminal_id)? else {
+            return Ok(false);
+        };
+        Ok(registry
+            .terminal_record(&host_id)?
+            .is_some_and(|terminal| terminal.lifecycle != TerminalLifecycle::Tombstoned))
+    }
+
     /// Read only public terminal completion state. The host UUID and
     /// incarnation remain an internal fencing mechanism and never enter the
     /// resource API result.
@@ -5376,6 +5541,10 @@ impl Mux {
         if self.shutting_down.load(Ordering::Acquire) {
             return false;
         }
+        let Some((runtime_id, host_epoch, lease_generation)) = identity.runtime_attachment_tokens()
+        else {
+            return false;
+        };
         let mut registry = self.workspace_registry.lock().unwrap();
         let state = self.state.lock().unwrap();
         let identity_matches = state
@@ -5403,16 +5572,16 @@ impl Mux {
             return false;
         };
         let idempotency_key = format!(
-            "runtime-host-loss-{}-{}-host-liveness-dead",
-            identity.terminal_id, identity.incarnation
+            "runtime-host-loss-{}-{runtime_id}-{host_epoch}-{lease_generation}-host-liveness-dead",
+            identity.terminal_id
         );
         match registry.record_runtime_host_loss_proof(
             "cmux-tui-runtime",
             &idempotency_key,
             &public_id,
-            &identity.incarnation,
-            &identity.incarnation,
-            &identity.incarnation,
+            runtime_id,
+            host_epoch,
+            lease_generation,
             "host_liveness_dead",
         ) {
             Ok(commit) => {
@@ -5911,10 +6080,7 @@ impl Mux {
                 }
             };
             let incarnation = TerminalId::random()?.to_hex();
-            let identity = TerminalHostIdentity {
-                terminal_id: terminal_hex.clone(),
-                incarnation: incarnation.clone(),
-            };
+            let identity = TerminalHostIdentity::legacy(terminal_hex.clone(), incarnation.clone());
             {
                 let mut registry = self.workspace_registry.lock().unwrap();
                 let (_, revision) = match commit_terminal_lifecycle(
@@ -7076,10 +7242,12 @@ impl Mux {
             self.next_id(),
             self.surface_options.lock().unwrap().clone(),
             Arc::downgrade(self),
-            TerminalHostIdentity {
-                terminal_id: terminal_id.to_string(),
-                incarnation: incarnation.to_string(),
-            },
+            TerminalHostIdentity::with_liveness(
+                terminal_id,
+                incarnation,
+                incarnation,
+                runtime_attachment_lease_generation_for_test(incarnation),
+            ),
         )?;
         let mut state = self.state.lock().unwrap();
         insert_surface_checked(&mut state, surface.clone())?;
@@ -7093,7 +7261,13 @@ impl Mux {
         drop(state);
         drop(registry);
         self.commit_ordinary_full_resource_projection("test.terminal.seed", serde_json::json!({}))?;
-        self.record_terminal_runtime_attachment_source(terminal_id, incarnation, "attached");
+        let identity = TerminalHostIdentity::with_liveness(
+            terminal_id,
+            incarnation,
+            incarnation,
+            runtime_attachment_lease_generation_for_test(incarnation),
+        );
+        self.record_terminal_runtime_attachment_source(&identity, "attached")?;
         Ok(surface.id)
     }
 
@@ -7584,7 +7758,11 @@ impl Mux {
         Ok(())
     }
 
-    fn terminate_discovered_terminal_host(&self, terminal_id: &str, incarnation: Option<&str>) {
+    pub(crate) fn terminate_discovered_terminal_host(
+        &self,
+        terminal_id: &str,
+        incarnation: Option<&str>,
+    ) {
         #[cfg(unix)]
         {
             let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
@@ -7596,8 +7774,9 @@ impl Mux {
             for (path, record) in records {
                 if record.terminal_id == terminal_id
                     && incarnation.is_none_or(|expected| record.incarnation == expected)
+                    && !terminate_host_record(record.clone(), path.clone())
                 {
-                    terminate_host_record(record, path);
+                    schedule_terminal_host_record_cleanup(record, path);
                 }
             }
             let record_path = root.join(format!("{terminal_id}.json"));
@@ -8599,6 +8778,7 @@ impl Mux {
             }
             budget.blocked_surfaces.remove(&runtime_id);
         }
+        self.kitty_image_budget_changed.notify_all();
         self.start_kitty_image_budget_worker();
         Ok(())
     }
@@ -8615,37 +8795,34 @@ impl Mux {
 
     fn record_terminal_runtime_attachment_source(
         &self,
-        terminal_id: &str,
-        incarnation: &str,
+        identity: &TerminalHostIdentity,
         state: &'static str,
-    ) {
-        let result = (|| -> anyhow::Result<()> {
-            let mut registry = self.workspace_registry.lock().unwrap();
-            let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
-                return Ok(());
-            };
-            if state == "detached"
-                && registry.runtime_attachment_state(&public_id)?.as_deref() == Some("interrupted")
-            {
-                return Ok(());
-            }
-            let idempotency_key = format!("runtime-attachment-{state}-{terminal_id}-{incarnation}");
-            registry.record_runtime_attachment_update(
-                "cmux-tui-runtime",
-                &idempotency_key,
-                &public_id,
-                incarnation,
-                state,
-                incarnation,
-                incarnation,
-            )?;
-            Ok(())
-        })();
-        if let Err(error) = result {
-            self.emit(MuxEvent::Status(format!(
-                "could not persist terminal {terminal_id} runtime {state} state: {error}"
-            )));
+    ) -> anyhow::Result<()> {
+        let Some((runtime_id, host_epoch, lease_generation)) = identity.runtime_attachment_tokens()
+        else {
+            return Ok(());
+        };
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let Some(public_id) = registry.terminal_resource_id(&identity.terminal_id)? else {
+            return Ok(());
+        };
+        if state == "detached"
+            && registry.runtime_attachment_state(&public_id)?.as_deref() == Some("interrupted")
+        {
+            return Ok(());
         }
+        let idempotency_key =
+            format!("runtime-attachment-{state}-{}-{runtime_id}", identity.terminal_id);
+        registry.record_runtime_attachment_update(
+            "cmux-tui-runtime",
+            &idempotency_key,
+            &public_id,
+            runtime_id,
+            state,
+            host_epoch,
+            lease_generation,
+        )?;
+        Ok(())
     }
 
     fn catalog_terminal_by_host(
@@ -10415,6 +10592,34 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<TerminalPlacementResult> {
+        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_execution = self.resource_creation_execution.lock().unwrap();
+        self.create_terminal_in_workspace_with_mutation(
+            workspace,
+            argv,
+            cwd,
+            name,
+            size,
+            requested_terminal_id,
+            expected_generation,
+            expected_revision,
+            mutation,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_terminal_in_workspace_with_mutation(
+        self: &Arc<Self>,
+        workspace: WorkspaceId,
+        argv: Option<Vec<String>>,
+        cwd: Option<String>,
+        name: Option<String>,
+        size: Option<(u16, u16)>,
+        requested_terminal_id: Option<&str>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<TerminalPlacementResult> {
         let workspace_key = self
             .state
             .lock()
@@ -10556,6 +10761,7 @@ impl Mux {
             // process startup. Re-read canonical placement after Ready and
             // hold registry -> state through the binding so a move committed
             // during launch is projected instead of the stale request target.
+            self.record_terminal_runtime_attachment_source(&identity, "attached")?;
             let projected = self.bind_running_terminal_to_canonical_workspace(&surface);
             let (placement, canonical_workspace, changed, created_path) = match projected {
                 Ok(projected) => projected,
@@ -10572,11 +10778,6 @@ impl Mux {
             if changed {
                 self.emit(MuxEvent::TreeChanged);
             }
-            self.record_terminal_runtime_attachment_source(
-                &identity.terminal_id,
-                &identity.incarnation,
-                "attached",
-            );
             drop(pending_surface);
             drop(workspace_lifecycle);
             return Ok((placement, surface, created_path));
@@ -12401,9 +12602,6 @@ impl Mux {
         incarnation: Option<&str>,
         exit: &TerminalExit,
     ) -> anyhow::Result<bool> {
-        if let Some(incarnation) = incarnation {
-            self.record_terminal_runtime_attachment_source(terminal_id, incarnation, "detached");
-        }
         let mut registry = self.workspace_registry.lock().unwrap();
         let terminal = registry
             .terminal_record(terminal_id)?
@@ -12458,12 +12656,28 @@ impl Mux {
         };
         let topology =
             detach_projection.as_ref().map(|projection| (&projection.patch, &projection.changes));
+        let runtime_attachment = match (public_terminal_id.as_ref(), incarnation) {
+            (Some(public_terminal_id), Some(incarnation)) => registry
+                .runtime_attachment_lease_tokens(public_terminal_id, incarnation)?
+                .map(|(host_epoch, lease_generation)| TerminalExitRuntimeAttachment {
+                    origin: "cmux-tui-runtime",
+                    idempotency_key: format!(
+                        "runtime-attachment-detached-{terminal_id}-{incarnation}"
+                    ),
+                    runtime_id: incarnation.to_string(),
+                    state: "detached",
+                    host_epoch,
+                    lease_generation,
+                }),
+            _ => None,
+        };
         let (_, terminal_revision, resource_revision, replayed) = registry.commit_terminal_exit(
             terminal_id,
             incarnation,
             exit,
             terminal_snapshot,
             topology,
+            runtime_attachment,
         )?;
         let mut detach_effects = None;
         if !replayed {
@@ -14418,6 +14632,7 @@ fn terminal_exit_snapshot_in_state(
     let (cols, rows) = surface.map(|surface| surface.size()).unwrap_or((80, 24));
     let mut snapshot = serde_json::json!({
         "id": public_id,
+        "tab_id": tab_ids.first(),
         "tab_ids": tab_ids,
         "title": surface.map(|surface| surface.title()).unwrap_or_default(),
         "cols": cols.max(1),
@@ -14483,6 +14698,11 @@ fn commit_terminal_transition(
     Ok(commit.revision)
 }
 
+#[cfg(all(test, unix))]
+fn runtime_attachment_lease_generation_for_test(incarnation: &str) -> String {
+    format!("lease-{incarnation}")
+}
+
 /// Advance only renderer lifecycle fields from the latest durable row. This
 /// deliberately re-reads under the registry writer mutex and uses the
 /// terminal revision as a CAS: a GUI move committed while a host launch or
@@ -14496,6 +14716,51 @@ fn commit_terminal_lifecycle(
     incarnation: Option<&str>,
     exit: Option<Value>,
 ) -> anyhow::Result<(RegistryTerminal, u64)> {
+    commit_terminal_lifecycle_inner(
+        registry,
+        event_kind,
+        operation,
+        terminal_id,
+        lifecycle,
+        incarnation,
+        exit,
+        None,
+    )
+}
+
+fn commit_terminal_lifecycle_with_runtime_attachment(
+    registry: &mut WorkspaceRegistry,
+    event_kind: &str,
+    operation: &str,
+    terminal_id: &str,
+    lifecycle: TerminalLifecycle,
+    incarnation: Option<&str>,
+    exit: Option<Value>,
+    runtime_attachment: TerminalRuntimeAttachment<'_>,
+) -> anyhow::Result<(RegistryTerminal, u64)> {
+    commit_terminal_lifecycle_inner(
+        registry,
+        event_kind,
+        operation,
+        terminal_id,
+        lifecycle,
+        incarnation,
+        exit,
+        Some(runtime_attachment),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn commit_terminal_lifecycle_inner(
+    registry: &mut WorkspaceRegistry,
+    event_kind: &str,
+    operation: &str,
+    terminal_id: &str,
+    lifecycle: TerminalLifecycle,
+    incarnation: Option<&str>,
+    exit: Option<Value>,
+    runtime_attachment: Option<TerminalRuntimeAttachment<'_>>,
+) -> anyhow::Result<(RegistryTerminal, u64)> {
     let snapshot = registry.terminal_snapshot()?;
     let mut terminal = registry
         .terminal_record(terminal_id)?
@@ -14506,25 +14771,40 @@ fn commit_terminal_lifecycle(
     }
     terminal.exit = exit;
     let mutation = WorkspaceMutation::local("cmux-tui-runtime");
-    let commit = registry.commit_terminal(
-        &mutation,
-        &serde_json::json!({
-            "op": operation,
-            "terminal_id": terminal.terminal_id,
-            "incarnation": terminal.incarnation,
-            "lifecycle": terminal.lifecycle,
-        }),
-        Some(&snapshot.generation),
-        Some(snapshot.revision),
-        event_kind,
-        &terminal,
-        &serde_json::json!({
-            "terminal_id": terminal.terminal_id,
-            "workspace_key": terminal.workspace_key,
-            "incarnation": terminal.incarnation,
-            "state": terminal.lifecycle,
-        }),
-    )?;
+    let fingerprint = serde_json::json!({
+        "op": operation,
+        "terminal_id": terminal.terminal_id,
+        "incarnation": terminal.incarnation,
+        "lifecycle": terminal.lifecycle,
+    });
+    let result = serde_json::json!({
+        "terminal_id": terminal.terminal_id,
+        "workspace_key": terminal.workspace_key,
+        "incarnation": terminal.incarnation,
+        "state": terminal.lifecycle,
+    });
+    let commit = if let Some(runtime_attachment) = runtime_attachment {
+        registry.commit_terminal_with_runtime_attachment(
+            &mutation,
+            &fingerprint,
+            Some(&snapshot.generation),
+            Some(snapshot.revision),
+            event_kind,
+            &terminal,
+            &result,
+            runtime_attachment,
+        )?
+    } else {
+        registry.commit_terminal(
+            &mutation,
+            &fingerprint,
+            Some(&snapshot.generation),
+            Some(snapshot.revision),
+            event_kind,
+            &terminal,
+            &result,
+        )?
+    };
     Ok((terminal, commit.revision))
 }
 
@@ -14613,6 +14893,41 @@ fn acknowledge_terminal_exit_sidecar(
         Ok(true) => true,
         Ok(false) => !exit_path.exists(),
         Err(_) => false,
+    }
+}
+
+#[cfg(unix)]
+fn schedule_terminal_host_record_cleanup(
+    record: crate::terminal_host_runtime::TerminalHostRecord,
+    record_path: std::path::PathBuf,
+) {
+    let fallback_record = record.clone();
+    let fallback_path = record_path.clone();
+    let name = format!("terminal-clean-{}", record.terminal_id);
+    if std::thread::Builder::new()
+        .name(name)
+        .spawn(move || retry_terminal_host_record_cleanup(record, record_path))
+        .is_err()
+    {
+        // Thread exhaustion cannot turn a durable close into a permanent
+        // orphan. The request may remain blocked, but the exact host keeps
+        // being reconciled until it accepts termination or proves itself dead.
+        retry_terminal_host_record_cleanup(fallback_record, fallback_path);
+    }
+}
+
+#[cfg(unix)]
+fn retry_terminal_host_record_cleanup(
+    record: crate::terminal_host_runtime::TerminalHostRecord,
+    record_path: std::path::PathBuf,
+) {
+    let mut delay = Duration::from_millis(25);
+    loop {
+        std::thread::sleep(delay);
+        if cleanup_terminal_host_record(&record, &record_path) {
+            return;
+        }
+        delay = (delay * 2).min(Duration::from_secs(5));
     }
 }
 
@@ -16039,6 +16354,130 @@ mod tests {
             .filter(|record| record.kind == "runtime.attachment.updated")
             .map(|record| record.payload)
             .collect()
+    }
+
+    #[cfg(unix)]
+    fn seed_running_terminal_without_live_attachment(
+        mux: &Arc<Mux>,
+        terminal_id: &str,
+        incarnation: &str,
+        fixture: u128,
+        attachment_runtime: Option<&str>,
+    ) -> TerminalPublicId {
+        let workspace = RegistryWorkspace {
+            id: 1,
+            public_id: restore_workspace_id(fixture),
+            key: format!("workspace-{fixture:x}"),
+            name: "Runtime Attachment Exit".into(),
+            group_key: mux.session.clone(),
+        };
+        let screen = restore_screen_id(fixture);
+        let pane = restore_pane_id(fixture);
+        let tab = restore_tab_id(fixture);
+        let terminal_public_id = restore_terminal_id(fixture);
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            if let Some(attachment_runtime) = attachment_runtime {
+                registry
+                    .record_runtime_attachment_update(
+                        "test",
+                        "seed-runtime-attachment",
+                        &terminal_public_id,
+                        attachment_runtime,
+                        "attached",
+                        attachment_runtime,
+                        attachment_runtime,
+                    )
+                    .unwrap();
+            }
+            registry
+                .commit_resource_patch(
+                    &WorkspaceMutation::new("seed-runtime-attachment-exit", "test").unwrap(),
+                    "workspace.create",
+                    &serde_json::json!({"fixture":"runtime-attachment-exit"}),
+                    None,
+                    Some(0),
+                    &ResourcePatch {
+                        changes: vec![
+                            ResourceChange::UpsertWorkspace {
+                                workspace: workspace.clone(),
+                                position: 0,
+                                active_screen: Some(screen.clone()),
+                            },
+                            ResourceChange::UpsertScreen(RegistryScreen {
+                                public_id: screen.clone(),
+                                workspace_id: workspace.public_id.clone(),
+                                position: 0,
+                                name: None,
+                                layout: RegistryLayoutNode::Leaf { pane: pane.clone() },
+                                active_pane: pane.clone(),
+                                zoomed_pane: None,
+                                auto_layout: None,
+                                viewport: RegistryViewport::default(),
+                            }),
+                            ResourceChange::UpsertPane(RegistryPane {
+                                public_id: pane.clone(),
+                                screen_id: screen.clone(),
+                                name: None,
+                                active_tab: Some(tab.clone()),
+                                creation_ordinal: 1,
+                            }),
+                            ResourceChange::UpsertTerminal {
+                                public_id: terminal_public_id.clone(),
+                                terminal: RegistryTerminal {
+                                    terminal_id: terminal_id.into(),
+                                    workspace_key: workspace.key.clone(),
+                                    incarnation: None,
+                                    lifecycle: TerminalLifecycle::Launching,
+                                    launch_spec: serde_json::json!({}),
+                                    exit: None,
+                                },
+                            },
+                            ResourceChange::UpsertTab(RegistryTab {
+                                public_id: tab.clone(),
+                                pane_id: pane.clone(),
+                                position: 0,
+                                content_id: ContentPublicId::Terminal(terminal_public_id.clone()),
+                                name: None,
+                                browser_url: None,
+                                terminal_id: Some(terminal_id.into()),
+                            }),
+                            ResourceChange::SetWorkspaceOrder {
+                                workspace_ids: vec![workspace.public_id.clone()],
+                            },
+                            ResourceChange::SetScreenOrder {
+                                workspace_id: workspace.public_id.clone(),
+                                screen_ids: vec![screen],
+                            },
+                            ResourceChange::SetTabOrder { pane_id: pane, tab_ids: vec![tab] },
+                            ResourceChange::SetActiveWorkspace {
+                                workspace_id: Some(workspace.public_id),
+                            },
+                        ],
+                    },
+                    &serde_json::json!({"created":true}),
+                    &serde_json::json!([{"kind":"fixture.created"}]),
+                )
+                .unwrap();
+            commit_terminal_lifecycle(
+                &mut registry,
+                "terminal-ready",
+                "seed-running-terminal",
+                terminal_id,
+                TerminalLifecycle::Running,
+                Some(incarnation),
+                None,
+            )
+            .unwrap();
+            let restored = restore_resource_state(
+                registry.snapshot().unwrap(),
+                registry.resource_topology_snapshot().unwrap(),
+            )
+            .unwrap();
+            *mux.state.lock().unwrap() = restored.state;
+            mux.next_id.store(restored.next_id, Ordering::Release);
+        }
+        terminal_public_id
     }
 
     fn journal_event_kinds(mux: &Mux) -> Vec<String> {
@@ -17870,6 +18309,7 @@ mod tests {
         );
         let created_value = created["result"]["value"].clone();
         let terminal_id = created_value["terminal_id"].as_str().unwrap().to_string();
+        let terminal_public_id = TerminalPublicId::parse(&terminal_id).unwrap();
         let notification_params = serde_json::json!({
             "machine":"current",
             "session":"current",
@@ -17981,6 +18421,13 @@ mod tests {
         assert!(after["notifications"].as_array().unwrap().contains(&notification_value));
         assert!(after["agents"].as_array().unwrap().contains(&agent_value));
         assert!(after["frontend_projections"].as_array().unwrap().contains(&projection_value));
+        assert_eq!(after["terminals"], serde_json::json!([]));
+        assert_eq!(reopened.resource_surface_for_terminal(&terminal_public_id), None);
+        let exited =
+            reopened.wait_for_terminal_exit(&terminal_public_id, Some(Duration::ZERO)).unwrap();
+        assert_eq!(exited["state"], "exited");
+        assert_eq!(exited["outcome"]["kind"], "unknown");
+        assert_eq!(exited["outcome"]["reason"], "missing-host-record");
         let notifications = public_request(
             &reopened,
             "notifications",
@@ -18351,20 +18798,8 @@ mod tests {
     fn stable_terminal_lookup_never_chooses_between_duplicate_ids() {
         let terminal_id = "00112233445566778899aabbccddeeff";
         let identities = vec![
-            (
-                10,
-                TerminalHostIdentity {
-                    terminal_id: terminal_id.into(),
-                    incarnation: "11111111111111111111111111111111".into(),
-                },
-            ),
-            (
-                20,
-                TerminalHostIdentity {
-                    terminal_id: terminal_id.into(),
-                    incarnation: "22222222222222222222222222222222".into(),
-                },
-            ),
+            (10, TerminalHostIdentity::legacy(terminal_id, "11111111111111111111111111111111")),
+            (20, TerminalHostIdentity::legacy(terminal_id, "22222222222222222222222222222222")),
         ];
 
         assert_eq!(
@@ -18500,10 +18935,10 @@ mod tests {
             mux.next_id(),
             opts,
             Arc::downgrade(&mux),
-            TerminalHostIdentity {
-                terminal_id: "00112233445566778899aabbccddeeff".into(),
-                incarnation: "11111111111111111111111111111111".into(),
-            },
+            TerminalHostIdentity::legacy(
+                "00112233445566778899aabbccddeeff",
+                "11111111111111111111111111111111",
+            ),
         )
         .unwrap();
         wait_for_kitty_image_budget(&mux);
@@ -18691,6 +19126,51 @@ mod tests {
         );
         assert_eq!(survivor_limit.1, 2_048);
         assert_eq!(survivor_limit.2, 8_192);
+    }
+
+    #[test]
+    fn killed_kitty_surface_cannot_block_the_next_terminal_reservation() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let mut survivors = Vec::new();
+        for _ in 1..4 {
+            survivors.push(mux.new_tab(Some(pane), None, Some((80, 24))).unwrap());
+        }
+        wait_for_kitty_image_budget(&mux);
+
+        let first_id = first.id;
+        *mux.kitty_image_budget_operation.lock().unwrap() =
+            Some(Arc::new(move |surface, limits, _deadline| {
+                if surface.id == first_id {
+                    anyhow::bail!("a killed terminal host cannot acknowledge quota updates");
+                }
+                surface.set_kitty_graphics_limits(
+                    limits.image_bytes,
+                    limits.inflight_bytes,
+                    limits.images,
+                    limits.placements,
+                )
+            }));
+
+        first.kill();
+        let started = Instant::now();
+        let replacement = mux
+            .new_tab(Some(pane), None, Some((80, 24)))
+            .expect("a killed surface retained quota and blocked terminal creation");
+        assert!(
+            started.elapsed() < Duration::from_millis(250),
+            "terminal creation waited on a killed surface for {:?}",
+            started.elapsed()
+        );
+
+        *mux.kitty_image_budget_operation.lock().unwrap() = None;
+        assert!(mux.close_surface(replacement.id).unwrap());
+        for surface in survivors {
+            assert!(mux.close_surface(surface.id).unwrap());
+        }
+        assert!(mux.close_surface(first.id).unwrap());
+        wait_for_kitty_image_budget(&mux);
     }
 
     #[test]
@@ -19162,9 +19642,13 @@ mod tests {
         while mux.kitty_image_budget.lock().unwrap().worker_running && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(5));
         }
-        let (stopped, blocked) = {
+        let (stopped, survivor_blocked, closed_retired) = {
             let budget = mux.kitty_image_budget.lock().unwrap();
-            (!budget.worker_running, budget.blocked_surfaces.contains(&second.id))
+            (
+                !budget.worker_running,
+                budget.blocked_surfaces.contains(&first.id),
+                !budget.entries.contains_key(&second.id),
+            )
         };
 
         {
@@ -19185,7 +19669,11 @@ mod tests {
         }
 
         assert!(stopped, "Kitty quota worker retried pool admission forever");
-        assert!(blocked, "pool admission exhaustion did not fail closed for the surface");
+        assert!(
+            survivor_blocked,
+            "pool admission exhaustion did not fail closed for the live surface"
+        );
+        assert!(closed_retired, "a closed surface remained in the Kitty quota registry");
     }
 
     #[test]
@@ -20053,7 +20541,10 @@ mod tests {
         assert_eq!(payload["runtime_id"], INCARNATION);
         assert_eq!(payload["state"], "attached");
         assert_eq!(payload["host_epoch"], INCARNATION);
-        assert_eq!(payload["lease_generation"], INCARNATION);
+        assert_eq!(
+            payload["lease_generation"],
+            runtime_attachment_lease_generation_for_test(INCARNATION)
+        );
 
         let serialized = serde_json::to_string(payload).unwrap();
         for forbidden in [
@@ -20143,7 +20634,10 @@ mod tests {
         assert_eq!(loss_payloads[0]["terminal_id"], public_id.as_str());
         assert_eq!(loss_payloads[0]["runtime_id"], INCARNATION);
         assert_eq!(loss_payloads[0]["host_epoch"], INCARNATION);
-        assert_eq!(loss_payloads[0]["lease_generation"], INCARNATION);
+        assert_eq!(
+            loss_payloads[0]["lease_generation"],
+            runtime_attachment_lease_generation_for_test(INCARNATION)
+        );
         assert_eq!(loss_payloads[0]["proof"], "host_liveness_dead");
         let states = runtime_attachment_event_payloads(&mux)
             .into_iter()
@@ -20153,6 +20647,230 @@ mod tests {
         let kinds = journal_event_kinds(&mux);
         assert!(!kinds.iter().any(|kind| kind.starts_with("session.hibernate")));
         assert!(!kinds.iter().any(|kind| kind.starts_with("session.recover")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stale_host_exit_does_not_create_first_runtime_attachment_state() {
+        const TERMINAL: &str = "00000000000040008000000000000063";
+        const CURRENT_INCARNATION: &str = "10000000000040008000000000000063";
+        const STALE_INCARNATION: &str = "20000000000040008000000000000063";
+        let mux = test_mux();
+        let public_id = seed_running_terminal_without_live_attachment(
+            &mux,
+            TERMINAL,
+            CURRENT_INCARNATION,
+            0x1063,
+            None,
+        );
+
+        let error = mux
+            .persist_terminal_exit(
+                TERMINAL,
+                Some(STALE_INCARNATION),
+                &TerminalExit::unknown("stale-host-exit"),
+            )
+            .unwrap_err();
+
+        assert!(error.to_string().contains("terminal_incarnation_mismatch"));
+        let payloads = runtime_attachment_event_payloads(&mux);
+        assert!(
+            !payloads.iter().any(|payload| payload["terminal_id"] == public_id.as_str()),
+            "stale exit must not create the first runtime attachment state: {payloads:?}"
+        );
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Running
+        );
+        mux.shutdown();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stale_runtime_attachment_does_not_block_host_exit_lifecycle() {
+        const TERMINAL: &str = "00000000000040008000000000000064";
+        const CURRENT_INCARNATION: &str = "10000000000040008000000000000064";
+        const STALE_INCARNATION: &str = "20000000000040008000000000000064";
+        let mux = test_mux();
+        let public_id = seed_running_terminal_without_live_attachment(
+            &mux,
+            TERMINAL,
+            CURRENT_INCARNATION,
+            0x1064,
+            Some(STALE_INCARNATION),
+        );
+
+        assert!(
+            mux.persist_terminal_exit(
+                TERMINAL,
+                Some(CURRENT_INCARNATION),
+                &TerminalExit::unknown("host-exited"),
+            )
+            .unwrap()
+        );
+
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Exited
+        );
+        let payloads = runtime_attachment_event_payloads(&mux);
+        assert!(!payloads.iter().any(|payload| {
+            payload["terminal_id"] == public_id.as_str()
+                && payload["runtime_id"] == CURRENT_INCARNATION
+                && payload["state"] == "detached"
+        }));
+        mux.shutdown();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn interrupted_runtime_attachment_does_not_block_host_exit_lifecycle() {
+        const TERMINAL: &str = "00000000000040008000000000000065";
+        const INCARNATION: &str = "10000000000040008000000000000065";
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(
+                Some("runtime-attachment-interrupted-exit".into()),
+                Some("018f6e21-7b70-7e70-8000-000000001065".into()),
+                None,
+            )
+            .unwrap();
+        mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let public_id =
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .record_runtime_host_loss_proof(
+                "test",
+                "interrupted-runtime-exit-proof",
+                &public_id,
+                INCARNATION,
+                INCARNATION,
+                &runtime_attachment_lease_generation_for_test(INCARNATION),
+                "host_liveness_dead",
+            )
+            .unwrap();
+
+        assert!(
+            mux.persist_terminal_exit(
+                TERMINAL,
+                Some(INCARNATION),
+                &TerminalExit::unknown("host-exited-after-interrupt"),
+            )
+            .unwrap()
+        );
+
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Exited
+        );
+        let payloads = runtime_attachment_event_payloads(&mux);
+        assert!(!payloads.iter().any(|payload| {
+            payload["terminal_id"] == public_id.as_str() && payload["state"] == "detached"
+        }));
+        let kinds = journal_event_kinds(&mux);
+        assert!(kinds.iter().any(|kind| kind == "runtime.host_loss.proven"));
+        assert!(!kinds.iter().any(|kind| kind.starts_with("session.hibernate")));
+        mux.shutdown();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn adoption_persists_terminal_identity_before_running_attachment() {
+        const TERMINAL: &str = "00000000000040008000000000000066";
+        const INCARNATION: &str = "10000000000040008000000000000066";
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(
+                Some("runtime-attachment-adoption".into()),
+                Some("018f6e21-7b70-7e70-8000-000000001066".into()),
+                None,
+            )
+            .unwrap();
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            commit_terminal_transition(
+                &mut registry,
+                "terminal-reserved",
+                "seed-terminal-reservation",
+                &RegistryTerminal {
+                    terminal_id: TERMINAL.into(),
+                    workspace_key: workspace.key.clone(),
+                    incarnation: None,
+                    lifecycle: TerminalLifecycle::Launching,
+                    launch_spec: serde_json::json!({}),
+                    exit: None,
+                },
+            )
+            .unwrap();
+            commit_terminal_lifecycle(
+                &mut registry,
+                "terminal-adopting",
+                "seed-terminal-adoption",
+                TERMINAL,
+                TerminalLifecycle::Adopting,
+                Some(INCARNATION),
+                None,
+            )
+            .unwrap();
+            assert!(registry.terminal_resource_id(TERMINAL).unwrap().is_none());
+        }
+        let surface = Surface::spawn_for_test_with_host_identity(
+            mux.next_id(),
+            mux.surface_options.lock().unwrap().clone(),
+            Arc::downgrade(&mux),
+            Some(TabResourceIdentity::terminal(None).unwrap()),
+            TerminalHostIdentity::with_liveness(
+                TERMINAL,
+                INCARNATION,
+                INCARNATION,
+                runtime_attachment_lease_generation_for_test(INCARNATION),
+            ),
+        )
+        .unwrap();
+        let expected_public_id = surface.terminal_public_id().cloned().unwrap();
+
+        mux.finish_terminal_adoption(TERMINAL, INCARNATION, surface).unwrap();
+
+        let public_id =
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+        assert_eq!(public_id, expected_public_id);
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Running
+        );
+        let payloads = runtime_attachment_event_payloads(&mux);
+        assert!(payloads.iter().any(|payload| {
+            payload["terminal_id"] == public_id.as_str()
+                && payload["runtime_id"] == INCARNATION
+                && payload["state"] == "attached"
+        }));
+        mux.shutdown();
     }
 
     #[test]
@@ -20200,6 +20918,7 @@ mod tests {
         mux.resize_surface_for_client(source.id, 7, 50, 15).unwrap();
         assert_eq!(mux.new_workspace(None, None).unwrap().size(), (111, 33));
     }
+
     #[test]
     fn agent_reports_apply_hook_authority() {
         let mux = test_mux();
@@ -20560,6 +21279,14 @@ mod tests {
 
         mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
         assert!(mux.list_agents(None, None).is_empty());
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
+        assert_eq!(
+            crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
         assert!(mux.surface_notification(first.id).is_none());
         assert!(mux.surface(first.id).is_none());
     }
@@ -23948,7 +24675,15 @@ mod tests {
                             },
                             ResourceChange::SetScreenOrder {
                                 workspace_id: workspace.public_id.clone(),
-                                screen_ids: vec![screen],
+                                screen_ids: vec![screen.clone()],
+                            },
+                            ResourceChange::SetTabOrder {
+                                pane_id: pane.clone(),
+                                tab_ids: vec![tab.clone()],
+                            },
+                            ResourceChange::SetTabOrder {
+                                pane_id: pane,
+                                tab_ids: vec![tab.clone()],
                             },
                             ResourceChange::SetTabOrder {
                                 pane_id: pane,
@@ -23986,7 +24721,7 @@ mod tests {
             exited_at_ms: 1_234_567,
         };
         let sidecar = crate::terminal_host_runtime::TerminalHostExitRecord::new(
-            &TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() },
+            &TerminalHostIdentity::legacy(TERMINAL, INCARNATION),
             exit,
         );
         let sidecar_path = sidecar.record_path(&host_root);
@@ -24151,12 +24886,141 @@ mod tests {
         drop(mux);
 
         let reopened = Mux::open_persistent("recover-exited", options, &root).unwrap();
-        let closed = reopened.resolve_terminal(TERMINAL).unwrap().unwrap();
-        assert_eq!(closed.surface, None);
-        assert_eq!(closed.terminal.lifecycle, TerminalLifecycle::Tombstoned);
+        let exited = reopened.resolve_terminal(TERMINAL).unwrap().unwrap();
+        assert_eq!(exited.surface, None);
+        assert_eq!(exited.terminal.lifecycle, TerminalLifecycle::Exited);
+        assert_eq!(exited.terminal.exit.unwrap()["outcome"]["reason"], "persisted-exit");
         reopened.shutdown();
         drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosted_terminal_exit_removes_sole_surface_but_preserves_exact_wait_result() {
+        const TERMINAL: &str = "0000000000004000800000000000003c";
+        const INCARNATION: &str = "1000000000004000800000000000003c";
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(
+                Some("sole-exit".into()),
+                Some("018f6e21-7b70-7e70-8000-00000000103c".into()),
+                None,
+            )
+            .unwrap();
+        let surface =
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let terminal =
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+        let exit = TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 23 },
+            exited_at_ms: 7_654_321,
+        };
+        assert!(mux.persist_terminal_exit_for_test(&terminal, &exit).unwrap());
+
+        mux.surface_exited(surface);
+
+        let resolved = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
+        assert_eq!(resolved.surface, None);
+        assert_eq!(resolved.terminal.lifecycle, TerminalLifecycle::Exited);
+        assert_eq!(
+            mux.wait_for_terminal_exit(&terminal, Some(Duration::ZERO)).unwrap(),
+            serde_json::json!({
+                "state":"exited",
+                "terminal_id":terminal,
+                "lifecycle":"exited",
+                "outcome":{"kind":"exit","code":23},
+                "exited_at":"7654321",
+                "revision":"3",
+            })
+        );
+        mux.with_state(|state| {
+            assert!(!state.surfaces.contains_key(&surface));
+            assert!(state.workspaces[0].screens.is_empty());
+            assert_eq!(state.active_pane(), None);
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosted_terminal_exit_selects_live_tab_and_duplicate_exit_is_idempotent() {
+        const TERMINAL: &str = "0000000000004000800000000000003d";
+        const INCARNATION: &str = "1000000000004000800000000000003d";
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(
+                Some("tab-neighbor-exit".into()),
+                Some("018f6e21-7b70-7e70-8000-00000000103d".into()),
+                None,
+            )
+            .unwrap();
+        let exited =
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(exited).unwrap());
+        let neighbor = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let terminal =
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+        let exit = TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Signal {
+                signal: libc::SIGTERM,
+                core_dumped: false,
+            },
+            exited_at_ms: 8_765_432,
+        };
+        assert!(mux.persist_terminal_exit_for_test(&terminal, &exit).unwrap());
+
+        mux.surface_exited(exited);
+
+        mux.with_state(|state| {
+            assert!(!state.surfaces.contains_key(&exited));
+            assert_eq!(state.panes[&pane].tabs, vec![neighbor.id]);
+            assert_eq!(state.panes[&pane].active_surface(), Some(neighbor.id));
+        });
+        assert_eq!(mux.active_surface(), Some(neighbor.id));
+        let revision = mux.workspace_registry.lock().unwrap().resource_revision().unwrap();
+        let waited = mux.wait_for_terminal_exit(&terminal, Some(Duration::ZERO)).unwrap();
+
+        mux.surface_exited(exited);
+
+        assert_eq!(mux.workspace_registry.lock().unwrap().resource_revision().unwrap(), revision);
+        assert_eq!(mux.wait_for_terminal_exit(&terminal, Some(Duration::ZERO)).unwrap(), waited);
+        mux.with_state(|state| {
+            assert_eq!(state.panes[&pane].tabs, vec![neighbor.id]);
+        });
+        assert_eq!(mux.active_surface(), Some(neighbor.id));
+        mux.close_surface(neighbor.id).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_exit_detach_retry_does_not_keep_mux_alive() {
+        const TERMINAL: &str = "0000000000004000800000000000003e";
+        const INCARNATION: &str = "1000000000004000800000000000003e";
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(
+                Some("failed-exit-detach".into()),
+                Some("018f6e21-7b70-7e70-8000-00000000103e".into()),
+                None,
+            )
+            .unwrap();
+        let surface =
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+
+        mux.surface_exited(surface);
+
+        assert!(mux.terminal_exit_detaches.active.lock().unwrap().contains(TERMINAL));
+        let weak = Arc::downgrade(&mux);
+        drop(mux);
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while weak.upgrade().is_some() {
+            assert!(
+                Instant::now() < deadline,
+                "detach retry retained the mux after its owner left"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 
     #[cfg(unix)]
@@ -24215,7 +25079,7 @@ mod tests {
             mux.next_id(),
             mux.surface_options.lock().unwrap().clone(),
             Arc::downgrade(&mux),
-            TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() },
+            TerminalHostIdentity::legacy(TERMINAL, INCARNATION),
         )
         .unwrap();
         insert_surface_checked(&mut mux.state.lock().unwrap(), surface.clone()).unwrap();
@@ -24284,6 +25148,80 @@ mod tests {
         assert_eq!(terminal.workspace_key, second.key);
         assert_eq!(terminal.lifecycle, TerminalLifecycle::Exited);
         assert_eq!(terminal.launch_spec, serde_json::json!({"command_present":true}));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pending_topology_accepts_current_host_reconnect_without_advancing_lifecycle() {
+        const TERMINAL: &str = "00000000000040008000000000000012";
+        const INCARNATION: &str = "10000000000040008000000000000012";
+        const PENDING_SURFACE: SurfaceId = 4242;
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001112".into()), None)
+            .unwrap();
+        let identity =
+            TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() };
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            commit_terminal_transition(
+                &mut registry,
+                "terminal-reserved",
+                "reserve-terminal",
+                &RegistryTerminal {
+                    terminal_id: TERMINAL.into(),
+                    workspace_key: workspace.key,
+                    incarnation: None,
+                    lifecycle: TerminalLifecycle::Launching,
+                    launch_spec: serde_json::json!({}),
+                    exit: None,
+                },
+            )
+            .unwrap();
+        }
+
+        assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
+        assert!(mux.terminal_host_reconnected(
+            PENDING_SURFACE,
+            &identity,
+            KittyGraphicsLimits::disabled(),
+        ));
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Launching
+        );
+
+        mux.transition_terminal_lifecycle(
+            "terminal-adopting",
+            "test-adoption",
+            TERMINAL,
+            TerminalLifecycle::Adopting,
+            Some(INCARNATION),
+            None,
+        )
+        .unwrap();
+        assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
+        assert!(mux.terminal_host_reconnected(
+            PENDING_SURFACE,
+            &identity,
+            KittyGraphicsLimits::disabled(),
+        ));
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Adopting
+        );
     }
 
     #[test]

@@ -22,19 +22,16 @@ fn workspace(id: u64, key: &str, name: &str) -> RegistryWorkspace {
 }
 
 fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
-    seed_workspace_with_id(registry, 1, key);
-}
-
-fn seed_workspace_with_id(registry: &mut WorkspaceRegistry, id: u64, key: &str) {
+    let revision = registry.snapshot().unwrap().revision;
     registry
         .commit(
             &WorkspaceMutation::new(format!("create-{key}"), "test").unwrap(),
             &json!({"op":"create","key":key}),
             None,
-            Some(registry.snapshot().unwrap().revision),
+            Some(revision),
             "workspace-added",
             key,
-            &[workspace(id, key, "Workspace")],
+            &[workspace(revision + 1, key, "Workspace")],
             &json!({"key":key}),
         )
         .unwrap();
@@ -150,11 +147,7 @@ fn resource_event_replay_pages_a_far_behind_cursor() {
 
     let mut registry = WorkspaceRegistry::in_memory("bounded-resource-replay").unwrap();
     for index in 0..EVENT_COUNT {
-        seed_workspace_with_id(
-            &mut registry,
-            u64::try_from(index + 1).unwrap(),
-            &format!("bounded-resource-replay-{index}"),
-        );
+        seed_workspace(&mut registry, &format!("bounded-resource-replay-{index}"));
     }
 
     let page = registry.resource_events_after(0).unwrap();
@@ -865,6 +858,194 @@ fn resource_patch_commits_terminal_and_topology_in_one_revision() {
             .unwrap(),
         1
     );
+}
+
+#[test]
+fn resource_tab_detach_preserves_exited_terminal_identity_and_outcome() {
+    let mut registry = WorkspaceRegistry::in_memory("terminal-detach").unwrap();
+    commit_terminal_topology(&mut registry, "create-terminal-detach");
+    let mut terminal = registry.terminal_record(TERMINAL_ONE).unwrap().unwrap();
+    terminal.lifecycle = TerminalLifecycle::Running;
+    terminal.incarnation = Some(INCARNATION_ONE.into());
+    registry
+        .commit_terminal(
+            &WorkspaceMutation::new("terminal-ready", "test").unwrap(),
+            &json!({"operation":"terminal-ready"}),
+            None,
+            Some(0),
+            "terminal-ready",
+            &terminal,
+            &json!({"terminal_id":TERMINAL_ONE}),
+        )
+        .unwrap();
+    let exit = json!({
+        "outcome":{"kind":"signal","signal":15,"core_dumped":false},
+        "exited_at":"7654321",
+        "revision":"1",
+    });
+    terminal.lifecycle = TerminalLifecycle::Exited;
+    terminal.exit = Some(exit.clone());
+    registry
+        .commit_terminal(
+            &WorkspaceMutation::new("terminal-exited", "test").unwrap(),
+            &json!({"operation":"terminal-exited"}),
+            None,
+            Some(1),
+            "terminal-exited",
+            &terminal,
+            &json!({"terminal_id":TERMINAL_ONE}),
+        )
+        .unwrap();
+    let terminal_public_id = terminal_resource(TERMINAL_ONE);
+
+    registry
+        .commit_resource_patch(
+            &WorkspaceMutation::new("detach-exited-tab", "cmux-tui-runtime").unwrap(),
+            "terminal.exit.detach",
+            &json!({"terminal":terminal_public_id}),
+            None,
+            Some(1),
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane_id(1),
+                        screen_id: screen_id(1),
+                        name: Some("Shell".into()),
+                        active_tab: None,
+                        creation_ordinal: 1,
+                    }),
+                    ResourceChange::TombstoneTab { tab_id: tab_id(1), close_content: false },
+                    ResourceChange::SetTabOrder { pane_id: pane_id(1), tab_ids: Vec::new() },
+                ],
+            },
+            &json!({"detached":true}),
+            &json!([
+                {"kind":"delete","sequence":0,"resource":"terminal","id":terminal_public_id},
+                {"kind":"delete","sequence":1,"resource":"tab","id":tab_id(1)},
+            ]),
+        )
+        .unwrap();
+
+    assert!(registry.resource_topology_snapshot().unwrap().tabs.is_empty());
+    assert_eq!(registry.terminal_resource_id(TERMINAL_ONE).unwrap(), Some(terminal_public_id));
+    let terminal = registry.terminal_record(TERMINAL_ONE).unwrap().unwrap();
+    assert_eq!(terminal.lifecycle, TerminalLifecycle::Exited);
+    assert_eq!(terminal.exit, Some(exit));
+    let transaction = registry.connection.unchecked_transaction().unwrap();
+    validate_resource_invariants(&transaction).unwrap();
+    transaction.commit().unwrap();
+}
+
+#[test]
+fn resource_tab_detach_rejects_live_terminal_content() {
+    let mut registry = WorkspaceRegistry::in_memory("terminal-detach-live").unwrap();
+    commit_terminal_topology(&mut registry, "create-terminal-detach-live");
+
+    let error = registry
+        .commit_resource_patch(
+            &WorkspaceMutation::new("detach-live-tab", "cmux-tui-runtime").unwrap(),
+            "terminal.exit.detach",
+            &json!({"terminal":terminal_resource(TERMINAL_ONE)}),
+            None,
+            Some(1),
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane_id(1),
+                        screen_id: screen_id(1),
+                        name: Some("Shell".into()),
+                        active_tab: None,
+                        creation_ordinal: 1,
+                    }),
+                    ResourceChange::TombstoneTab { tab_id: tab_id(1), close_content: false },
+                    ResourceChange::SetTabOrder { pane_id: pane_id(1), tab_ids: Vec::new() },
+                ],
+            },
+            &json!({"detached":true}),
+            &json!([]),
+        )
+        .unwrap_err();
+
+    assert!(error.to_string().contains("can detach only exited terminal content"));
+    let snapshot = registry.resource_topology_snapshot().unwrap();
+    assert_eq!(snapshot.revision, 1);
+    assert_eq!(snapshot.tabs.len(), 1);
+}
+
+#[test]
+fn resource_tab_detach_rejects_browser_content() {
+    let mut registry = WorkspaceRegistry::in_memory("browser-detach").unwrap();
+    commit_terminal_topology(&mut registry, "create-browser-detach");
+    let browser = RegistryBrowser::recreate(browser_id(1), "https://cmux.dev/docs".into(), 117, 43);
+    commit_browser_topology(&mut registry, "create-browser", browser.clone());
+
+    let error = registry
+        .commit_resource_patch(
+            &WorkspaceMutation::new("detach-browser-tab", "cmux-tui-runtime").unwrap(),
+            "tab.detach",
+            &json!({"browser":browser.public_id}),
+            None,
+            Some(2),
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane_id(2),
+                        screen_id: screen_id(1),
+                        name: Some("Docs".into()),
+                        active_tab: None,
+                        creation_ordinal: 2,
+                    }),
+                    ResourceChange::TombstoneTab { tab_id: tab_id(2), close_content: false },
+                    ResourceChange::SetTabOrder { pane_id: pane_id(2), tab_ids: Vec::new() },
+                ],
+            },
+            &json!({"detached":true}),
+            &json!([]),
+        )
+        .unwrap_err();
+
+    assert!(error.to_string().contains("cannot detach browser content"));
+    let snapshot = registry.resource_topology_snapshot().unwrap();
+    assert_eq!(snapshot.revision, 2);
+    assert!(snapshot.tabs.iter().any(|tab| tab.public_id == tab_id(2)));
+    assert_eq!(snapshot.browsers, vec![browser]);
+}
+
+#[test]
+fn resource_tab_close_tombstones_terminal_content_without_an_explicit_terminal_change() {
+    let mut registry = WorkspaceRegistry::in_memory("terminal-tab-close").unwrap();
+    commit_terminal_topology(&mut registry, "create-terminal-tab-close");
+
+    registry
+        .commit_resource_patch(
+            &WorkspaceMutation::new("close-terminal-tab", "cmux-tui-runtime").unwrap(),
+            "tab.close",
+            &json!({"tab":tab_id(1)}),
+            None,
+            Some(1),
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane_id(1),
+                        screen_id: screen_id(1),
+                        name: Some("Shell".into()),
+                        active_tab: None,
+                        creation_ordinal: 1,
+                    }),
+                    ResourceChange::TombstoneTab { tab_id: tab_id(1), close_content: true },
+                    ResourceChange::SetTabOrder { pane_id: pane_id(1), tab_ids: Vec::new() },
+                ],
+            },
+            &json!({"closed":true}),
+            &json!([]),
+        )
+        .unwrap();
+
+    assert!(registry.resource_topology_snapshot().unwrap().tabs.is_empty());
+    assert_eq!(registry.terminal_resource_id(TERMINAL_ONE).unwrap(), None);
+    let transaction = registry.connection.unchecked_transaction().unwrap();
+    validate_resource_invariants(&transaction).unwrap();
+    transaction.commit().unwrap();
 }
 
 #[test]
@@ -2434,6 +2615,115 @@ fn terminal_lifecycle_is_exactly_once_and_has_an_independent_revision() {
 }
 
 #[test]
+fn terminal_running_attachment_commits_atomically_and_allows_new_identity_after_detach() {
+    let mut registry =
+        WorkspaceRegistry::in_memory("runtime-attachment-terminal-lifecycle").unwrap();
+    let terminal_public_id = terminal_resource(TERMINAL_ONE);
+    registry
+        .record_runtime_attachment_update(
+            "test",
+            "existing-runtime-detached",
+            &terminal_public_id,
+            "runtime-stale",
+            "detached",
+            "host-stale",
+            "lease-stale",
+        )
+        .unwrap();
+    commit_terminal_topology(&mut registry, "runtime-attachment-terminal-topology");
+    let mut adopting = registry.terminal_record(TERMINAL_ONE).unwrap().unwrap();
+    adopting.lifecycle = TerminalLifecycle::Adopting;
+    adopting.incarnation = Some(INCARNATION_ONE.into());
+    let launching_revision = registry.terminal_snapshot().unwrap().revision;
+    registry
+        .commit_terminal(
+            &WorkspaceMutation::new("adopt-runtime-attachment", "daemon").unwrap(),
+            &json!({"op":"adopt-terminal","terminal_id":TERMINAL_ONE}),
+            None,
+            Some(launching_revision),
+            "terminal-adopting",
+            &adopting,
+            &json!({"terminal_id":TERMINAL_ONE,"state":"adopting"}),
+        )
+        .unwrap();
+
+    let mut running = adopting;
+    running.lifecycle = TerminalLifecycle::Running;
+    let adopting_revision = registry.terminal_snapshot().unwrap().revision;
+    let failed = registry
+        .commit_terminal_with_runtime_attachment(
+            &WorkspaceMutation::new("ready-runtime-attachment-fails", "daemon").unwrap(),
+            &json!({"op":"terminal-ready","terminal_id":TERMINAL_ONE}),
+            None,
+            Some(adopting_revision),
+            "terminal-ready",
+            &running,
+            &json!({"terminal_id":TERMINAL_ONE,"state":"running"}),
+            TerminalRuntimeAttachment {
+                origin: "cmux-tui-runtime",
+                idempotency_key: "runtime-attachment-current-fails".into(),
+                terminal_id: terminal_public_id.clone(),
+                runtime_id: "20000000000040008000000000000001",
+                state: "attached",
+                host_epoch: "20000000000040008000000000000001",
+                lease_generation: "20000000000040008000000000000001",
+            },
+        )
+        .unwrap_err();
+    assert!(failed.to_string().contains("runtime attachment update is stale"));
+    assert_eq!(
+        registry.terminal_record(TERMINAL_ONE).unwrap().unwrap().lifecycle,
+        TerminalLifecycle::Adopting
+    );
+
+    let still_adopting_revision = registry.terminal_snapshot().unwrap().revision;
+    let committed = registry
+        .commit_terminal_with_runtime_attachment(
+            &WorkspaceMutation::new("ready-runtime-attachment-succeeds", "daemon").unwrap(),
+            &json!({"op":"terminal-ready","terminal_id":TERMINAL_ONE}),
+            None,
+            Some(still_adopting_revision),
+            "terminal-ready",
+            &running,
+            &json!({"terminal_id":TERMINAL_ONE,"state":"running"}),
+            TerminalRuntimeAttachment {
+                origin: "cmux-tui-runtime",
+                idempotency_key: "runtime-attachment-current-succeeds".into(),
+                terminal_id: terminal_public_id.clone(),
+                runtime_id: INCARNATION_ONE,
+                state: "attached",
+                host_epoch: INCARNATION_ONE,
+                lease_generation: INCARNATION_ONE,
+            },
+        )
+        .unwrap();
+    assert!(!committed.replayed);
+    assert_eq!(
+        registry.terminal_record(TERMINAL_ONE).unwrap().unwrap().lifecycle,
+        TerminalLifecycle::Running
+    );
+    assert_eq!(
+        runtime_attachment_committed_sequence(&registry, &terminal_public_id),
+        registry.session_journal_after(0, 1024).unwrap().head_sequence
+    );
+    assert!(
+        registry
+            .record_runtime_attachment_update(
+                "test",
+                "old-runtime-after-current-attach",
+                &terminal_public_id,
+                "runtime-stale",
+                "attached",
+                "host-stale",
+                "lease-stale",
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("stale")
+    );
+}
+
+#[test]
 fn first_exit_metadata_wins_and_exited_ids_cannot_be_relaunched() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     seed_workspace(&mut registry, "one");
@@ -2819,12 +3109,23 @@ fn schema_seven_resumes_interrupted_sensitive_receipt_cleanup() {
 }
 
 #[test]
-fn schema_seven_migrates_latest_live_agent_and_tombstones_without_resurrection() {
-    let root = temp_root("schema-seven-agent-projection");
+fn schema_seven_migrates_latest_agent_and_preserves_it_after_tombstone() {
+    assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(7);
+}
+
+#[test]
+fn schema_eight_migrates_latest_agent_and_preserves_it_after_tombstone() {
+    assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(8);
+}
+
+fn assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(legacy_schema: u32) {
+    let root = temp_root(&format!("schema-{legacy_schema}-agent-projection"));
     let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
     let terminal = terminal_resource(TERMINAL_ONE);
+    let pepper_id;
     {
         let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        pepper_id = required_meta(&registry.connection, RESOURCE_EFFECT_PEPPER_META_KEY).unwrap();
         commit_terminal_topology(&mut registry, "agent-migration-topology");
         let session = registry.session_id().clone();
         let agent = agent_resource(&terminal);
@@ -2869,11 +3170,11 @@ fn schema_seven_migrates_latest_live_agent_and_tombstones_without_resurrection()
     }
     Connection::open(&database)
         .unwrap()
-        .execute_batch(
-            "DROP TRIGGER resource_agent_projection_terminal_tombstone;
+        .execute_batch(&format!(
+            "DROP TRIGGER IF EXISTS resource_agent_projection_terminal_tombstone;
              DROP TABLE resource_agent_projections;
-             UPDATE meta SET value = '7' WHERE key = 'schema_version';",
-        )
+             UPDATE meta SET value = '{legacy_schema}' WHERE key = 'schema_version';"
+        ))
         .unwrap();
 
     let mut migrated = WorkspaceRegistry::open(&root, "session").unwrap();
@@ -2882,6 +3183,21 @@ fn schema_seven_migrates_latest_live_agent_and_tombstones_without_resurrection()
         SCHEMA_VERSION.to_string()
     );
     assert_eq!(migrated.resource_agent_projection_count_for_test().unwrap(), 1);
+    assert_eq!(
+        required_meta(&migrated.connection, RESOURCE_EFFECT_PEPPER_META_KEY).unwrap(),
+        pepper_id
+    );
+    let legacy_trigger_count: i64 = migrated
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'trigger'
+               AND name = 'resource_agent_projection_terminal_tombstone'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(legacy_trigger_count, 0);
     let agents = migrated.public_projections().unwrap().agents;
     assert_eq!(agents.len(), 1);
     assert_eq!(agents[0].terminal_id, terminal);
@@ -2905,7 +3221,7 @@ fn schema_seven_migrates_latest_live_agent_and_tombstones_without_resurrection()
                         active_tab: None,
                         creation_ordinal: 1,
                     }),
-                    ResourceChange::TombstoneTab { tab_id: tab_id(1) },
+                    ResourceChange::TombstoneTab { tab_id: tab_id(1), close_content: true },
                     ResourceChange::TombstoneTerminal {
                         public_id: terminal,
                         expected_incarnation: None,
@@ -2914,26 +3230,26 @@ fn schema_seven_migrates_latest_live_agent_and_tombstones_without_resurrection()
                 ],
             },
             &json!({"closed":true}),
-            &json!([{"kind":"delete","resource":"agent"}]),
+            &json!([]),
         )
         .unwrap();
-    assert_eq!(migrated.resource_agent_projection_count_for_test().unwrap(), 0);
-    assert!(migrated.public_projections().unwrap().agents.is_empty());
+    assert_eq!(migrated.resource_agent_projection_count_for_test().unwrap(), 1);
+    assert_eq!(migrated.public_projections().unwrap().agents.len(), 1);
     drop(migrated);
 
-    // Re-running the v7 migration against stale historical reports must not
-    // recreate state for a terminal that is already tombstoned.
+    // Re-running the legacy migration recovers the durable projection from the
+    // latest report even though its terminal is already tombstoned.
     Connection::open(&database)
         .unwrap()
-        .execute_batch(
-            "DROP TRIGGER resource_agent_projection_terminal_tombstone;
+        .execute_batch(&format!(
+            "DROP TRIGGER IF EXISTS resource_agent_projection_terminal_tombstone;
              DROP TABLE resource_agent_projections;
-             UPDATE meta SET value = '7' WHERE key = 'schema_version';",
-        )
+             UPDATE meta SET value = '{legacy_schema}' WHERE key = 'schema_version';"
+        ))
         .unwrap();
     let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
-    assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 0);
-    assert!(reopened.public_projections().unwrap().agents.is_empty());
+    assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 1);
+    assert_eq!(reopened.public_projections().unwrap().agents.len(), 1);
     drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
@@ -3176,16 +3492,388 @@ fn current_schema_normalizes_legacy_single_view_resource_tabs() {
 }
 
 #[test]
-fn schema_eight_rejects_multiple_live_views_for_one_browser() {
-    let root = temp_root("schema-eight-duplicate-browser-views");
+fn schema_eight_migrates_terminal_hosts_and_allows_multiple_durable_views() {
+    let root = temp_root("schema-eight-terminal-multiview");
     let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
     {
         let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
-        commit_terminal_topology(&mut registry, "duplicate-browser-terminal-seed");
+        commit_terminal_topology(&mut registry, "schema-eight-seed");
+    }
+    let legacy = Connection::open(&database).unwrap();
+    legacy
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             BEGIN IMMEDIATE;
+             DROP INDEX IF EXISTS live_resource_tab_position;
+             DROP INDEX IF EXISTS live_resource_browser_view;
+             CREATE TABLE resource_tabs_v8 (
+               public_id TEXT PRIMARY KEY NOT NULL REFERENCES resource_identities(public_id),
+               pane_id TEXT NOT NULL REFERENCES resource_panes(public_id)
+                 DEFERRABLE INITIALLY DEFERRED,
+               position INTEGER,
+               content_kind TEXT NOT NULL CHECK(content_kind IN ('terminal','browser')),
+               content_id TEXT NOT NULL REFERENCES resource_identities(public_id)
+                 DEFERRABLE INITIALLY DEFERRED,
+               name TEXT,
+               created_revision INTEGER NOT NULL,
+               updated_revision INTEGER NOT NULL,
+               deleted_revision INTEGER,
+               CHECK (
+                 (deleted_revision IS NULL AND position IS NOT NULL) OR
+                 (deleted_revision IS NOT NULL AND position IS NULL)
+               )
+             );
+             INSERT INTO resource_tabs_v8(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             )
+             SELECT public_id, pane_id, position, content_kind, content_id, name,
+                    created_revision, updated_revision, deleted_revision
+             FROM resource_tabs;
+             DROP TABLE resource_tabs;
+             ALTER TABLE resource_tabs_v8 RENAME TO resource_tabs;
+             CREATE UNIQUE INDEX live_resource_tab_position
+               ON resource_tabs(pane_id, position) WHERE deleted_revision IS NULL;
+             ALTER TABLE terminal_hosts RENAME TO terminal_placements;
+             UPDATE meta SET value = '8' WHERE key = 'schema_version';
+             COMMIT;
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let second_tab = tab_id(2);
+    legacy
+        .execute(
+            "INSERT INTO resource_identities(
+               public_id, kind, created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, 'tab', 1, 1, NULL)",
+            [second_tab.as_str()],
+        )
+        .unwrap();
+    legacy
+        .execute(
+            "INSERT INTO resource_tabs(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, ?2, 1, 'terminal', ?3, 'second view', 1, 1, NULL)",
+            params![second_tab.as_str(), pane_id(1).as_str(), terminal_id.as_str()],
+        )
+        .unwrap();
+    drop(legacy);
+
+    let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(
+        required_meta(&migrated.connection, "schema_version").unwrap(),
+        SCHEMA_VERSION.to_string()
+    );
+    for (table, expected) in [("terminal_hosts", 1_i64), ("terminal_placements", 0_i64)] {
+        let count = migrated
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                [table],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!(count, expected, "unexpected table state for {table}");
+    }
+    let browser_view_indexes = migrated
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'index' AND name = 'live_resource_browser_view'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(browser_view_indexes, 1);
+    let workspace_foreign_keys = migrated
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_foreign_key_list('terminal_hosts')
+             WHERE \"table\" = 'workspaces' AND \"from\" = 'workspace_key'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(workspace_foreign_keys, 0);
+    drop(migrated);
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let views = reopened
+        .resource_topology_snapshot()
+        .unwrap()
+        .tabs
+        .into_iter()
+        .filter(|tab| tab.content_id == ContentPublicId::Terminal(terminal_id.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(views.len(), 2);
+    assert_eq!(views[0].public_id, tab_id(1));
+    assert_eq!(views[1].public_id, second_tab);
+    assert!(
+        reopened
+            .connection
+            .query_row("PRAGMA foreign_key_check", [], |_| Ok(()))
+            .optional()
+            .unwrap()
+            .is_none()
+    );
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+fn rewrite_resource_tabs_with_legacy_single_view_schema(connection: &Connection) {
+    connection
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             BEGIN IMMEDIATE;
+             DROP INDEX IF EXISTS live_resource_tab_position;
+             DROP INDEX IF EXISTS live_resource_browser_view;
+             CREATE TABLE resource_tabs_legacy (
+               public_id TEXT PRIMARY KEY NOT NULL REFERENCES resource_identities(public_id),
+               pane_id TEXT NOT NULL REFERENCES resource_panes(public_id)
+                 DEFERRABLE INITIALLY DEFERRED,
+               position INTEGER,
+               content_kind TEXT NOT NULL CHECK(content_kind IN ('terminal','browser')),
+               content_id TEXT UNIQUE NOT NULL REFERENCES resource_identities(public_id)
+                 DEFERRABLE INITIALLY DEFERRED,
+               name TEXT,
+               created_revision INTEGER NOT NULL,
+               updated_revision INTEGER NOT NULL,
+               deleted_revision INTEGER,
+               CHECK (
+                 (deleted_revision IS NULL AND position IS NOT NULL) OR
+                 (deleted_revision IS NOT NULL AND position IS NULL)
+               )
+             );
+             INSERT INTO resource_tabs_legacy(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             )
+             SELECT public_id, pane_id, position, content_kind, content_id, name,
+                    created_revision, updated_revision, deleted_revision
+             FROM resource_tabs;
+             DROP TABLE resource_tabs;
+             ALTER TABLE resource_tabs_legacy RENAME TO resource_tabs;
+             CREATE UNIQUE INDEX live_resource_tab_position
+               ON resource_tabs(pane_id, position) WHERE deleted_revision IS NULL;
+             COMMIT;
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+}
+
+#[test]
+fn current_schema_normalizes_legacy_single_view_resource_tabs() {
+    let root = temp_root("current-schema-terminal-multiview");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "current-schema-seed");
+    }
+    let legacy = Connection::open(&database).unwrap();
+    rewrite_resource_tabs_with_legacy_single_view_schema(&legacy);
+    drop(legacy);
+
+    let mut reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let second_tab = tab_id(2);
+    reopened
+        .commit_resource_patch(
+            &WorkspaceMutation::new("current-schema-project", "test").unwrap(),
+            "terminal.project",
+            &json!({"operation":"terminal.project"}),
+            None,
+            Some(1),
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane_id(1),
+                        screen_id: screen_id(1),
+                        name: Some("Shell".into()),
+                        active_tab: Some(tab_id(1)),
+                        creation_ordinal: 1,
+                    }),
+                    ResourceChange::UpsertTab(RegistryTab {
+                        public_id: second_tab.clone(),
+                        pane_id: pane_id(1),
+                        position: 1,
+                        content_id: ContentPublicId::Terminal(terminal_resource(TERMINAL_ONE)),
+                        name: Some("second view".into()),
+                        browser_url: None,
+                        terminal_id: Some(TERMINAL_ONE.into()),
+                    }),
+                    ResourceChange::SetTabOrder {
+                        pane_id: pane_id(1),
+                        tab_ids: vec![tab_id(1), second_tab.clone()],
+                    },
+                ],
+            },
+            &json!({"tab_id":second_tab}),
+            &json!([]),
+        )
+        .unwrap();
+    assert_eq!(
+        reopened
+            .resource_topology_snapshot()
+            .unwrap()
+            .tabs
+            .into_iter()
+            .filter(|tab| {
+                tab.content_id == ContentPublicId::Terminal(terminal_resource(TERMINAL_ONE))
+            })
+            .count(),
+        2
+    );
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn current_schema_rejects_semantically_different_browser_view_predicate() {
+    let root = temp_root("current-schema-wrong-browser-predicate");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    let browser = browser_id(1);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "wrong-browser-predicate-terminal");
         commit_browser_topology(
             &mut registry,
-            "duplicate-browser-seed",
-            RegistryBrowser::recreate(browser_id(1), "https://cmux.dev/docs".into(), 120, 40),
+            "wrong-browser-predicate-browser",
+            RegistryBrowser::recreate(browser.clone(), "https://cmux.dev".into(), 80, 24),
+        );
+    }
+    let malformed = Connection::open(&database).unwrap();
+    malformed
+        .execute_batch(
+            "DROP INDEX live_resource_browser_view;
+             CREATE UNIQUE INDEX live_resource_browser_view
+               ON resource_tabs(content_id)
+               WHERE content_kind = 'browser' AND deleted_revision IS NULL
+                 AND name IS NOT NULL;",
+        )
+        .unwrap();
+    let second_tab = tab_id(3);
+    malformed
+        .execute(
+            "INSERT INTO resource_identities(
+               public_id, kind, created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, 'tab', 3, 3, NULL)",
+            [second_tab.as_str()],
+        )
+        .unwrap();
+    malformed
+        .execute(
+            "INSERT INTO resource_tabs(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, ?2, 1, 'browser', ?3, NULL, 3, 3, NULL)",
+            params![second_tab.as_str(), pane_id(2).as_str(), browser.as_str()],
+        )
+        .unwrap();
+    drop(malformed);
+
+    let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("workspace registry contains multiple live views for one browser"),
+        "unexpected normalization error: {error:#}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once() {
+    let root = temp_root("current-schema-formatted-browser-predicate");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        drop(registry);
+    }
+    let formatted = Connection::open(&database).unwrap();
+    formatted
+        .execute_batch(
+            "DROP INDEX live_resource_browser_view;
+             CREATE UNIQUE INDEX live_resource_browser_view
+               ON resource_tabs(content_id)
+               WHERE (deleted_revision IS NULL)
+                 AND (content_kind = 'browser');",
+        )
+        .unwrap();
+    let definition_before = formatted
+        .query_row(
+            "SELECT sql FROM sqlite_master
+             WHERE type = 'index' AND name = 'live_resource_browser_view'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    let schema_version_before =
+        formatted.query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0)).unwrap();
+    drop(formatted);
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let canonical_definition = reopened
+        .connection
+        .query_row(
+            "SELECT sql FROM sqlite_master
+             WHERE type = 'index' AND name = 'live_resource_browser_view'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    let schema_version_after_normalization = reopened
+        .connection
+        .query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    assert_ne!(canonical_definition, definition_before);
+    assert_eq!(
+        canonical_definition.split_whitespace().collect::<Vec<_>>().join(" "),
+        "CREATE UNIQUE INDEX live_resource_browser_view ON resource_tabs(content_id) WHERE content_kind = 'browser' AND deleted_revision IS NULL"
+    );
+    assert!(schema_version_after_normalization > schema_version_before);
+    drop(reopened);
+
+    let reopened_again = WorkspaceRegistry::open(&root, "session").unwrap();
+    let definition_after_second_open = reopened_again
+        .connection
+        .query_row(
+            "SELECT sql FROM sqlite_master
+             WHERE type = 'index' AND name = 'live_resource_browser_view'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    let schema_version_after_second_open = reopened_again
+        .connection
+        .query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    assert_eq!(definition_after_second_open, canonical_definition);
+    assert_eq!(schema_version_after_second_open, schema_version_after_normalization);
+    drop(reopened_again);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn multiview_normalization_requires_browser_view_index() {
+    let registry = WorkspaceRegistry::in_memory("missing-browser-view-index").unwrap();
+    registry.connection.execute("DROP INDEX live_resource_browser_view", []).unwrap();
+
+    assert!(resource_tabs_needs_multiview_normalization(&registry.connection).unwrap());
+}
+
+#[test]
+fn schema_eight_rejects_multiple_live_views_for_one_browser() {
+    let root = temp_root("schema-eight-duplicate-browser-views");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    let browser = browser_id(1);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "duplicate-browser-seed");
+        commit_browser_topology(
+            &mut registry,
+            "duplicate-browser-view-seed",
+            RegistryBrowser::recreate(browser.clone(), "https://cmux.dev".into(), 80, 24),
         );
     }
     let legacy = Connection::open(&database).unwrap();
@@ -3202,7 +3890,7 @@ fn schema_eight_rejects_multiple_live_views_for_one_browser() {
         .execute(
             "INSERT INTO resource_identities(
                public_id, kind, created_revision, updated_revision, deleted_revision
-             ) VALUES(?1, 'tab', 1, 1, NULL)",
+             ) VALUES(?1, 'tab', 2, 2, NULL)",
             [second_tab.as_str()],
         )
         .unwrap();
@@ -3211,8 +3899,8 @@ fn schema_eight_rejects_multiple_live_views_for_one_browser() {
             "INSERT INTO resource_tabs(
                public_id, pane_id, position, content_kind, content_id, name,
                created_revision, updated_revision, deleted_revision
-             ) VALUES(?1, ?2, 1, 'browser', ?3, NULL, 1, 1, NULL)",
-            params![second_tab.as_str(), pane_id(2).as_str(), browser_id(1).as_str()],
+             ) VALUES(?1, ?2, 1, 'browser', ?3, NULL, 2, 2, NULL)",
+            params![second_tab.as_str(), pane_id(2).as_str(), browser.as_str()],
         )
         .unwrap();
     drop(legacy);
@@ -3900,12 +4588,12 @@ fn runtime_attachment_recorder_is_receipt_gated_and_stale_safe() {
         registry
             .record_runtime_attachment_update(
                 "test",
-                "runtime-attachment-stale-runtime",
+                "runtime-attachment-new-runtime-without-owner",
                 &terminal_id,
                 "runtime-recorder-b",
                 "attached",
-                "host-epoch-recorder",
-                "lease-recorder",
+                "host-epoch-recorder-b",
+                "lease-recorder-b",
             )
             .unwrap_err()
             .to_string()

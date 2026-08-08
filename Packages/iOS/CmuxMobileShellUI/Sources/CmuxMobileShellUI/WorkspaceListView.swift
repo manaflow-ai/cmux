@@ -195,15 +195,14 @@ struct WorkspaceListView: View {
         macTitlePickerPendingSelection != nil
     }
 
-    /// Groups render from the payload while unfiltered and scoped to the
-    /// foreground Mac. Search, filters, and multi-Mac scopes flatten the list;
-    /// the independently fetched collapse capability does not gate rendering.
+    /// Groups render from every available Mac payload while unfiltered. Search
+    /// and explicit filters flatten the results; selecting All Computers does
+    /// not discard the group structure.
     var rendersGroupedSections: Bool {
         !groups.isEmpty
             && trimmedQuery.isEmpty
             && filter.readState == .all
             && filter.machines.isEmpty
-            && canRenderGroupsForSelection
     }
 
     private func matchesQuery(
@@ -783,6 +782,12 @@ struct WorkspaceListView: View {
                 && capabilities.supportsWorkspaceMetadata ? customizeWorkspace : nil,
             setPinned: capabilities.supportsWorkspaceActions ? setPinned : nil,
             setUnread: capabilities.supportsReadStateActions ? setUnread : nil,
+            groupMoveMenu: capabilities.supportsMoveActions ? {
+                groupMoveMenu(for: workspace.id)
+            } : nil,
+            moveToGroup: capabilities.supportsMoveActions ? { id, groupID in
+                joinGroupAtEnd(workspaceID: id, groupID: groupID)
+            } : nil,
             closeWorkspace: capabilities.supportsCloseActions ? requestWorkspaceClose : nil,
             isConfirmingClose: closeConfirmationBinding(for: workspace.id),
             confirmCloseWorkspace: capabilities.supportsCloseActions && closeWorkspace != nil ? { _ in
