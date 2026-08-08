@@ -9407,7 +9407,6 @@ fn browser_provider_json(snapshot: Option<BrowserProviderSnapshot>) -> Value {
         "provider_id":snapshot.provider_id,
         "endpoint":snapshot.endpoint,
         "authentication":snapshot.authentication.name(),
-        "bearer_token":snapshot.authentication.bearer_token(),
         "revision":snapshot.revision,
         "clients":snapshot.clients,
         "targets":targets,
@@ -13410,7 +13409,10 @@ mod tests {
 
         let discovered =
             handle_command(&mux, local, Command::GetBrowserProvider, &local_writer).unwrap();
-        assert_eq!(discovered["bearer_token"], "secret-token");
+        assert!(
+            discovered.get("bearer_token").is_none(),
+            "provider discovery must not expose a registered bearer token"
+        );
 
         let remote_writer = test_writer();
         let remote =

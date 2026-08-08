@@ -4370,14 +4370,6 @@
           "presence": "optional",
           "nullable": false
         },
-        "bearer_token": {
-          "type": {
-            "kind": "scalar",
-            "name": "string"
-          },
-          "presence": "optional",
-          "nullable": true
-        },
         "revision": {
           "type": {
             "kind": "scalar",
@@ -4409,7 +4401,7 @@
       "additional_properties": false,
       "constraints": [
         "available is true exactly when provider_id, endpoint, authentication, and clients are present.",
-        "bearer_token is present only for an available bearer-authenticated provider."
+        "Provider bearer tokens are accepted only during registration and are never returned."
       ]
     },
     "BrowserProviderUnregisterResult": {

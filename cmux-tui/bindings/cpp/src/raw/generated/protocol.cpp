@@ -389,11 +389,6 @@ Result<Json> Codec<BrowserProviderSnapshot>::encode(const BrowserProviderSnapsho
     auto encoded_available = encode_value(value.available);
     if (!encoded_available) return std::move(encoded_available).error();
     object.emplace("available", std::move(encoded_available).value());
-    if (!value.bearer_token.is_absent()) {
-        auto encoded = encode_value(value.bearer_token);
-        if (!encoded) return std::move(encoded).error();
-        object.emplace("bearer_token", std::move(encoded).value());
-    }
     if (value.clients) {
         auto encoded = encode_value(*value.clients);
         if (!encoded) return std::move(encoded).error();
@@ -436,16 +431,6 @@ Result<BrowserProviderSnapshot> Codec<BrowserProviderSnapshot>::decode(const Jso
         auto decoded = decode_value<bool>(*field_available);
         if (!decoded) return std::move(decoded).error();
         result.available = std::move(decoded).value();
-    }
-    const Json* field_bearer_token = value.find("bearer_token");
-    if (field_bearer_token) {
-        if (field_bearer_token->is_null()) {
-            result.bearer_token = Field<std::string>::null();
-        } else {
-            auto decoded = decode_value<std::string>(*field_bearer_token);
-            if (!decoded) return std::move(decoded).error();
-            result.bearer_token = Field<std::string>(std::move(decoded).value());
-        }
     }
     const Json* field_clients = value.find("clients");
     if (field_clients) {

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 11, IR f43de75719bc1ec1e6a94c405a1f802a073eb93dfcb10ff6a3b68460bcb4499c.
+// cmux-tui mux protocol 11, IR 934440b84cbcf885b22a233214f5954a31eb1d42bd4abd34ee0ca141906b2226.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -112,8 +112,6 @@ pub struct BrowserProviderSnapshot {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub authentication: Option<BrowserProviderAuthentication>,
     pub available: bool,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub bearer_token: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub clients: Option<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]

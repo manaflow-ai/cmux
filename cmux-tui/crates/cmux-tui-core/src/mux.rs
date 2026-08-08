@@ -4511,6 +4511,7 @@ impl Mux {
         self.journal_event_changed.notify_all();
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn journal_terminal_output(
         &self,
         terminal_id: Arc<TerminalPublicId>,
@@ -4546,7 +4547,7 @@ impl Mux {
                 bytes,
             })
             .err()
-            .and_then(|event| match event {
+            .and_then(|event| match *event {
                 crate::journal_ingress::JournalIngressEvent::TerminalOutput { bytes, .. } => {
                     Some(bytes)
                 }
@@ -7281,24 +7282,24 @@ impl Mux {
                     {
                         browser.mark_failed(err.to_string());
                     }
-                    if !provider_bootstrap && let Some(mux) = weak_mux.upgrade() {
-                        if !thread_surface.is_dead() {
-                            mux.emit(MuxEvent::Status(format!("browser failed: {err}")));
-                            mux.emit(MuxEvent::TitleChanged {
-                                surface: id,
-                                title: thread_surface.title().into(),
-                            });
-                            mux.emit(MuxEvent::SurfaceOutput(id));
-                        }
+                    if !provider_bootstrap
+                        && let Some(mux) = weak_mux.upgrade()
+                        && !thread_surface.is_dead()
+                    {
+                        mux.emit(MuxEvent::Status(format!("browser failed: {err}")));
+                        mux.emit(MuxEvent::TitleChanged {
+                            surface: id,
+                            title: thread_surface.title().into(),
+                        });
+                        mux.emit(MuxEvent::SurfaceOutput(id));
                     }
                 }
             });
-        if let Err(error) = spawn {
-            if !surface.is_dead()
-                && let Surface::Browser(browser) = surface.as_ref()
-            {
-                browser.mark_failed(format!("could not start browser bootstrap: {error}"));
-            }
+        if let Err(error) = spawn
+            && !surface.is_dead()
+            && let Surface::Browser(browser) = surface.as_ref()
+        {
+            browser.mark_failed(format!("could not start browser bootstrap: {error}"));
         }
     }
 
@@ -8118,10 +8119,10 @@ impl Mux {
         for surface in surfaces {
             surface.finish_terminal_reader(TERMINAL_READER_SHUTDOWN_TIMEOUT);
         }
-        // Each terminal reader has drained or its journal capture gate is
-        // closed. Fence the terminal ingress lane while this Mux still owns
-        // the registry. The closed gate prevents a timed-out reader from
-        // inserting output after this barrier.
+        // Each terminal reader has drained or its journal capture gate closed
+        // at an idle capture epoch. Fence the terminal ingress lane while this
+        // Mux still owns the registry. The closed gate prevents a timed-out
+        // reader from inserting output after this barrier.
         if let Err(error) = self.flush_terminal_journal() {
             eprintln!("cmux-tui: flush terminal journal during shutdown: {error:#}");
         }

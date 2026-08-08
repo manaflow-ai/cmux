@@ -285,7 +285,6 @@ class BrowserProviderSnapshot:
     revision: int
     targets: List[BrowserProviderTarget]
     authentication: Union[BrowserProviderAuthentication, MissingType] = field(default=MISSING)
-    bearer_token: Union[str, None, MissingType] = field(default=MISSING)
     clients: Union[int, MissingType] = field(default=MISSING)
     endpoint: Union[str, MissingType] = field(default=MISSING)
     provider_id: Union[str, MissingType] = field(default=MISSING)

@@ -13,7 +13,6 @@ import java.util.Objects;
 public final class BrowserProviderSnapshot implements WireValue {
     private final Field<BrowserProviderAuthentication> authentication;
     private final boolean available;
-    private final Field<String> bearerToken;
     private final Field<UInt64> clients;
     private final Field<String> endpoint;
     private final Field<String> providerId;
@@ -24,7 +23,6 @@ public final class BrowserProviderSnapshot implements WireValue {
         this.authentication = builder.authentication;
         if (!builder.availableSet) throw new IllegalArgumentException("available is required");
         this.available = builder.available;
-        this.bearerToken = builder.bearerToken;
         this.clients = builder.clients;
         this.endpoint = builder.endpoint;
         this.providerId = builder.providerId;
@@ -38,7 +36,6 @@ public final class BrowserProviderSnapshot implements WireValue {
 
     public Field<BrowserProviderAuthentication> authentication() { return authentication; }
     public boolean available() { return available; }
-    public Field<String> bearerToken() { return bearerToken; }
     public Field<UInt64> clients() { return clients; }
     public Field<String> endpoint() { return endpoint; }
     public Field<String> providerId() { return providerId; }
@@ -54,10 +51,6 @@ public final class BrowserProviderSnapshot implements WireValue {
         }
         Object rawAvailable = Wire.required(object, "available");
         builder.available(Wire.bool(rawAvailable, "BrowserProviderSnapshot.available"));
-        Object rawBearerToken = Wire.optional(object, "bearer_token");
-        if (!Wire.isMissing(rawBearerToken)) {
-            builder.bearerToken(rawBearerToken == null ? null : Wire.string(rawBearerToken, "BrowserProviderSnapshot.bearer_token"));
-        }
         Object rawClients = Wire.optional(object, "clients");
         if (!Wire.isMissing(rawClients)) {
             builder.clients(Wire.uint64(rawClients, "BrowserProviderSnapshot.clients"));
@@ -82,7 +75,6 @@ public final class BrowserProviderSnapshot implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "authentication", authentication);
         Wire.put(object, "available", available);
-        Wire.put(object, "bearer_token", bearerToken);
         Wire.put(object, "clients", clients);
         Wire.put(object, "endpoint", endpoint);
         Wire.put(object, "provider_id", providerId);
@@ -94,11 +86,11 @@ public final class BrowserProviderSnapshot implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof BrowserProviderSnapshot that)) return false;
-        return Objects.equals(authentication, that.authentication) && Objects.equals(available, that.available) && Objects.equals(bearerToken, that.bearerToken) && Objects.equals(clients, that.clients) && Objects.equals(endpoint, that.endpoint) && Objects.equals(providerId, that.providerId) && Objects.equals(revision, that.revision) && Objects.equals(targets, that.targets);
+        return Objects.equals(authentication, that.authentication) && Objects.equals(available, that.available) && Objects.equals(clients, that.clients) && Objects.equals(endpoint, that.endpoint) && Objects.equals(providerId, that.providerId) && Objects.equals(revision, that.revision) && Objects.equals(targets, that.targets);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(authentication, available, bearerToken, clients, endpoint, providerId, revision, targets); }
+    public int hashCode() { return Objects.hash(authentication, available, clients, endpoint, providerId, revision, targets); }
 
     @Override
     public String toString() { return "BrowserProviderSnapshot" + toWire(); }
@@ -107,7 +99,6 @@ public final class BrowserProviderSnapshot implements WireValue {
         private Field<BrowserProviderAuthentication> authentication = Field.omitted();
         private Boolean available;
         private boolean availableSet;
-        private Field<String> bearerToken = Field.omitted();
         private Field<UInt64> clients = Field.omitted();
         private Field<String> endpoint = Field.omitted();
         private Field<String> providerId = Field.omitted();
@@ -123,10 +114,6 @@ public final class BrowserProviderSnapshot implements WireValue {
         public Builder available(boolean value) {
             this.available = value;
             this.availableSet = true;
-            return this;
-        }
-        public Builder bearerToken(String value) {
-            this.bearerToken = Field.ofNullable(value);
             return this;
         }
         public Builder clients(UInt64 value) {

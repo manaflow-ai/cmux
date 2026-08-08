@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 11, IR f43de75719bc1ec1e6a94c405a1f802a073eb93dfcb10ff6a3b68460bcb4499c. */
+/* cmux-tui mux protocol 11, IR 934440b84cbcf885b22a233214f5954a31eb1d42bd4abd34ee0ca141906b2226. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 11 as const;
-export const SDK_IR_SHA256 = "f43de75719bc1ec1e6a94c405a1f802a073eb93dfcb10ff6a3b68460bcb4499c" as const;
+export const SDK_IR_SHA256 = "934440b84cbcf885b22a233214f5954a31eb1d42bd4abd34ee0ca141906b2226" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1839,7 +1839,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "additional_properties": false,
     "constraints": [
       "available is true exactly when provider_id, endpoint, authentication, and clients are present.",
-      "bearer_token is present only for an available bearer-authenticated provider."
+      "Provider bearer tokens are accepted only during registration and are never returned."
     ],
     "fields": {
       "authentication": {
@@ -1856,14 +1856,6 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "boolean"
-        }
-      },
-      "bearer_token": {
-        "nullable": true,
-        "presence": "optional",
-        "type": {
-          "kind": "scalar",
-          "name": "string"
         }
       },
       "clients": {

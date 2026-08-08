@@ -1243,9 +1243,16 @@ impl PtyTerminalRuntime {
         Some(TerminalJournalUpdateGuard { epoch: &self.journal_capture_epoch })
     }
 
-    fn close_terminal_journal_capture(&self) {
-        let _gate = self.journal_capture_gate.lock().unwrap();
-        self.journal_capture_open.store(false, Ordering::Release);
+    fn close_terminal_journal_capture_when_idle(&self) {
+        loop {
+            let gate = self.journal_capture_gate.lock().unwrap();
+            if self.journal_capture_epoch.load(Ordering::Acquire) & 1 == 0 {
+                self.journal_capture_open.store(false, Ordering::Release);
+                return;
+            }
+            drop(gate);
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 }
 
@@ -3915,7 +3922,11 @@ impl Surface {
                 );
             }
         }
-        pty.close_terminal_journal_capture();
+        // A reader that is blocked in the PTY has an even capture epoch and
+        // does not delay shutdown. An odd epoch means that terminal state has
+        // changed and its matching journal output is still in flight. Do not
+        // close the gate until that exact update reaches the ingress lane.
+        pty.close_terminal_journal_capture_when_idle();
     }
 
     #[cfg(test)]

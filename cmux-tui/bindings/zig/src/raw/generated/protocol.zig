@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 11;
-pub const ir_sha256 = "f43de75719bc1ec1e6a94c405a1f802a073eb93dfcb10ff6a3b68460bcb4499c";
+pub const ir_sha256 = "934440b84cbcf885b22a233214f5954a31eb1d42bd4abd34ee0ca141906b2226";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -133,7 +133,6 @@ pub const BrowserProviderAuthentication = enum {
 pub const BrowserProviderSnapshot = struct {
     authentication: ?BrowserProviderAuthentication = null,
     available: bool,
-    bearer_token: wire.Field([]const u8) = .absent,
     clients: ?u64 = null,
     endpoint: ?[]const u8 = null,
     provider_id: ?[]const u8 = null,

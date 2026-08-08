@@ -273,6 +273,7 @@ fn select_workspace_target(
         .ok_or_else(|| anyhow!("cmux-tui returned an invalid workspace snapshot"))?;
     let mut candidates = Vec::new();
     let mut terminal_location = None;
+    let workspace_hint = scope.workspace.as_ref().or(scope.session_hint.as_ref());
     for (workspace_index, workspace) in workspaces.iter().enumerate() {
         let workspace_id = stable_string(workspace, "resource_id")
             .or_else(|| stable_string(workspace, "key"))
@@ -300,6 +301,9 @@ fn select_workspace_target(
                         .terminal
                         .as_ref()
                         .is_some_and(|terminal| terminal_ids.iter().any(|value| value == terminal))
+                        && workspace_hint.is_none_or(|workspace_hint| {
+                            workspace_keys.iter().any(|key| key == workspace_hint)
+                        })
                     {
                         terminal_location = Some((workspace_index, screen_index, pane_index));
                     }
@@ -350,7 +354,6 @@ fn select_workspace_target(
         return Ok(selected(candidate, "terminal-workspace"));
     }
 
-    let workspace_hint = scope.workspace.as_ref().or(scope.session_hint.as_ref());
     if let Some(workspace_hint) = workspace_hint {
         let (_, candidate) = candidates
             .iter()
@@ -497,6 +500,24 @@ mod tests {
             select_workspace_target(&topology(), &targets(), &exact).unwrap().target_id,
             "target-other"
         );
+    }
+
+    #[test]
+    fn mirrored_terminal_uses_the_callers_workspace_placement() {
+        let mut topology = topology();
+        topology["workspaces"][1]["screens"][0]["panes"][0]["tabs"][0]
+            ["terminal_resource_id"] = json!("term_one");
+        let scope = ProviderScope {
+            workspace: Some("workspace-one".into()),
+            terminal: Some("term_one".into()),
+            ..Default::default()
+        };
+
+        let selected = select_workspace_target(&topology, &targets(), &scope).unwrap();
+
+        assert_eq!(selected.workspace_id, "ws_one");
+        assert_eq!(selected.tab_id, "tab_same_pane");
+        assert_eq!(selected.selection, "terminal-workspace");
     }
 
     #[test]

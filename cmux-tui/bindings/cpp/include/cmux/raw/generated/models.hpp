@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 11U;
-inline constexpr std::string_view kProtocolIrSha256 = "f43de75719bc1ec1e6a94c405a1f802a073eb93dfcb10ff6a3b68460bcb4499c";
+inline constexpr std::string_view kProtocolIrSha256 = "934440b84cbcf885b22a233214f5954a31eb1d42bd4abd34ee0ca141906b2226";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -537,7 +537,6 @@ struct BrowserProviderTarget {
 struct BrowserProviderSnapshot {
     std::optional<BrowserProviderAuthentication> authentication{};
     bool available{};
-    Field<std::string> bearer_token{};
     std::optional<std::uint64_t> clients{};
     std::optional<std::string> endpoint{};
     std::optional<std::string> provider_id{};
