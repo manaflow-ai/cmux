@@ -139,7 +139,35 @@ Event fields:
 | `surface_id` | Surface UUID when known. |
 | `pane_id` | Pane UUID when known. |
 | `window_id` | Window UUID when known. |
+| `caller` | Who issued the command, on socket-sourced events only. Absent for other producers. |
 | `payload` | Event-specific JSON object. |
+
+### Caller attribution
+
+Every `socket.v1` and `socket.v2` event carries a `caller` object, so automated
+input such as `cmux send` is distinguishable from a human typing into the same
+surface:
+
+```json
+"caller": {
+  "pid": 48213,
+  "process_name": "cmux",
+  "surface_id": "83F4E6A4-5246-4DB8-A412-9CE7B059FA6C"
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `pid` | Peer process id of the socket connection, from `LOCAL_PEERPID` at accept time. |
+| `process_name` | Executable name for that pid, read from the kernel at publish time. |
+| `surface_id` | Surface the caller is itself running inside, matched from its controlling terminal against live panes. Null when the caller is not in a cmux pane. |
+
+All three keys are always present. A field is `null` when the lookup failed, so
+"we looked and could not tell" is distinguishable from "we did not look".
+
+Every value is resolved server-side from kernel state. Nothing in the request
+contributes to `caller`: a self-reported caller field would be spoofable by
+exactly the automation the identity exists to attribute.
 
 ### Heartbeat
 
@@ -280,8 +308,8 @@ Surface and pane:
 | `surface.moved` | Surface moved to another pane, workspace, or window. |
 | `surface.reordered` | Surface order changed inside a pane. |
 | `surface.action` | Surface or tab action command completed. |
-| `surface.input_sent` | Text was sent through the socket API. Text is redacted. |
-| `surface.key_sent` | Key was sent through the socket API. |
+| `surface.input_sent` | Text was sent through the socket API. The text is redacted to `text_length`, since it is free-form user content. |
+| `surface.key_sent` | Key was sent through the socket API. The `key` is recorded in full: it is drawn from a fixed named-key table the server validates before the command succeeds, so it cannot carry a secret. `redacted_fields` is present and empty to say so, on both `socket.v1` and `socket.v2`. |
 | `pane.created` | Pane created. |
 | `pane.closed` | Pane closed. |
 | `pane.focused` | Focused pane changed for a workspace. Fires for pane clicks, split focus, `focus-pane`, `last-pane`, and selection convergence after close/move. |

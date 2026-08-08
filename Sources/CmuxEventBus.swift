@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import Foundation
 
 struct CmuxEventSubscriptionSnapshot {
@@ -162,6 +163,7 @@ final class CmuxEventBus: @unchecked Sendable {
     }
 
     func publish(
+        caller: CmuxSocketCallerIdentity? = nil,
         name: String,
         category: String,
         source: String,
@@ -173,6 +175,10 @@ final class CmuxEventBus: @unchecked Sendable {
     ) {
         let occurredAt = Self.isoTimestamp(Date())
         let cleanPayload = Self.sanitizedJSONValue(payload)
+        // Socket-sourced events always carry a `caller` object with all keys
+        // present (null where unresolved). Events with no caller concept
+        // (app-internal publishers) omit the key entirely.
+        let cleanCaller = caller.map { Self.sanitizedJSONValue($0.eventPayload) }
 
         lock.lock()
         let sequence = nextSequence
@@ -195,6 +201,7 @@ final class CmuxEventBus: @unchecked Sendable {
             "window_id": windowId ?? NSNull(),
             "payload": cleanPayload
         ]
+        if let cleanCaller { event["caller"] = cleanCaller }
 
         event = Self.eventByApplyingEncodedByteLimit(event, maxBytes: maxEventLineBytes)
         retained.append(event)

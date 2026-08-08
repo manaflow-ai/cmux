@@ -140,8 +140,66 @@ extension TerminalController {
         return source
     }
 
-    nonisolated func publishSocketEvents(command: String, response: String) {
-        CmuxSocketEventMapper.publish(command: command, response: response)
+    nonisolated func publishSocketEvents(
+        command: String,
+        response: String,
+        caller: () -> CmuxSocketCallerIdentity
+    ) {
+        CmuxSocketEventMapper.publish(command: command, response: response, caller: caller)
+    }
+
+    /// Resolves who is on the other end of a control-socket connection, entirely
+    /// from kernel state (https://github.com/manaflow-ai/cmux/issues/9611).
+    ///
+    /// `pid` is the accept-time `LOCAL_PEERPID`, which is a snapshot: the peer
+    /// may have exited and the kernel may have recycled its pid by the time an
+    /// event is published. Every derived field is therefore bound to the process
+    /// generation (pid + start time) read here, and the generation is
+    /// revalidated after the surface lookup. If it changed, the derived fields
+    /// are dropped rather than published, so an event never attributes a
+    /// recycled pid's terminal to the process that opened the connection.
+    ///
+    /// The surface comes from the caller process's controlling terminal matched
+    /// against live Ghostty PTYs, reusing the same `.controllingTTY` resolution
+    /// agent hooks use, so a caller cannot claim a surface it is not running in.
+    /// Nothing here reads the request.
+    ///
+    /// Cost: one `proc_pidinfo` call, one bounded-cache name lookup, and, only
+    /// for a caller that actually owns a controlling terminal, one main hop.
+    /// Callers with no tty (daemons, GUI clients, `cmuxd`) never hop. The hop is
+    /// `v2MainSync`, the same bridge every socket command already uses to read
+    /// main-actor state, and it runs at most once per connection because the
+    /// peer pid is fixed for a connection's lifetime. It stays synchronous
+    /// because the control-socket read loop is synchronous: making publication
+    /// async would reorder event emission relative to the socket response the
+    /// event reports on.
+    nonisolated func socketCallerIdentity(
+        peerProcessID pid: pid_t?,
+        resolver: CmuxSocketCallerResolver
+    ) -> CmuxSocketCallerIdentity {
+        guard let pid, pid > 0, let snapshot = resolver.processSnapshot(pid: pid) else {
+            return CmuxSocketCallerIdentity(pid: pid, processName: nil, surfaceId: nil)
+        }
+        let processName = resolver.processName(for: snapshot.generation)
+
+        // No controlling terminal means the caller cannot be inside a pane, so
+        // skip the surface scan and the main hop entirely.
+        var surfaceId: String?
+        if snapshot.ttyDevice != nil {
+            surfaceId = v2MainSync(commandKey: "socket.caller.identity") {
+                AppDelegate.shared?
+                    .liveAgentDeliveryTarget(forAgentPID: pid, resolution: .controllingTTY)?
+                    .surfaceId
+                    .uuidString
+            }
+        }
+
+        // The lookups above are not atomic with the snapshot. If the pid was
+        // recycled in between, both derived fields describe the wrong process.
+        guard resolver.generationIsCurrent(snapshot.generation) else {
+            return CmuxSocketCallerIdentity(pid: pid, processName: nil, surfaceId: nil)
+        }
+        return CmuxSocketCallerIdentity(pid: pid, processName: processName, surfaceId: surfaceId)
     }
 
     private nonisolated func writeEventsStreamLine(_ object: [String: Any], socket: Int32) -> Bool {
