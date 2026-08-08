@@ -7487,13 +7487,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Switches which Stack team's computers and devices this app shows."
+            "value": "Switches which cmux team's computers and devices this app shows."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このアプリに表示する Stack チームのコンピュータとデバイスを切り替えます。"
+            "value": "このアプリに表示する cmux チームのコンピュータとデバイスを切り替えます。"
           }
         }
       }
