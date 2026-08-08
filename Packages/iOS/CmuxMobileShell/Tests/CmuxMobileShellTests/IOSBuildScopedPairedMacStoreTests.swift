@@ -126,10 +126,9 @@ import Testing
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         let scope = try #require(MobileIOSBuildScope("feature"))
-        let feature = IOSBuildScopedPairedMacStore(
-            inner: inner,
-            scope: scope
-        )
+        let feature = MobileMacBuildCompatibilityPolicy.development(
+            expectedInstanceTag: "feature"
+        ).scoping(IOSBuildScopedPairedMacStore(inner: inner, scope: scope))
 
         try await feature.upsert(
             macDeviceID: "mac-a",
@@ -205,10 +204,9 @@ import Testing
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         let scope = try #require(MobileIOSBuildScope("feature"))
-        let feature = IOSBuildScopedPairedMacStore(
-            inner: inner,
-            scope: scope
-        )
+        let feature = MobileMacBuildCompatibilityPolicy.development(
+            expectedInstanceTag: "feature"
+        ).scoping(IOSBuildScopedPairedMacStore(inner: inner, scope: scope))
         try await feature.upsert(
             macDeviceID: "mac-a",
             displayName: "Selected",
