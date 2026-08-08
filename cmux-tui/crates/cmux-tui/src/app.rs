@@ -8472,7 +8472,15 @@ impl App {
             .unwrap_or_default();
         let agents = spec
             .includes(SidebarResourceKind::Agents)
-            .then(|| self.session.agents())
+            // Finished reports are historical records, not active agents.
+            // Otherwise detached "surface..." rows remain forever after exit.
+            .then(|| {
+                self.session
+                    .agents()
+                    .into_iter()
+                    .filter(|agent| !matches!(agent.state.as_str(), "done" | "unknown"))
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
         crate::sidebar_projection::rows(
             spec,
@@ -9382,6 +9390,9 @@ impl App {
                             // Provider notices apply before local mirror errors so they cannot mask them.
                             if let Some(mutation) = session_mutation {
                                 self.apply_managed_workspace_session_mutation(mutation);
+                            }
+                            if self.tree.active_surface().is_some() {
+                                self.focus = FocusTarget::Pane;
                             }
                         } else {
                             if let Some(target) = target
@@ -14964,6 +14975,20 @@ impl App {
             self.focus = FocusTarget::Pane;
             return RenderAction::Draw;
         }
+        if key.code == KeyCode::Enter
+            && self.machine_ui.as_ref().is_some_and(|machine| {
+                matches!(
+                    machine.rail_target(),
+                    Some(MachineRailTarget::Machine(key))
+                        if Some(key) == machine.snapshot.active && machine.session_available
+                )
+            })
+        {
+            // Enter on the open machine means "enter the machine", not
+            // "remain trapped in its rail row".
+            self.focus = FocusTarget::Pane;
+            return RenderAction::Draw;
+        }
         if matches!(
             key.code,
             KeyCode::Up
@@ -15144,6 +15169,9 @@ impl App {
         if key.code == KeyCode::Enter {
             if let Some(row) = selected {
                 self.activate_projection_target(row.target)?;
+                if self.tree.active_surface().is_some() {
+                    self.focus = FocusTarget::Pane;
+                }
             } else if let Some(action) = current
                 .checked_sub(rows.len())
                 .and_then(|index| actions.get(index))
