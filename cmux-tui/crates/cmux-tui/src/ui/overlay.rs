@@ -295,11 +295,7 @@ fn draw_connection_prompt(
     };
     let button_style = |rect: Rect, accent: bool| {
         let hovered = hover.is_some_and(|(hx, hy)| rect.contains(hx, hy));
-        let mut style = if accent {
-            styles.base.fg(styles.button_accent)
-        } else {
-            styles.base
-        };
+        let mut style = if accent { styles.base.fg(styles.button_accent) } else { styles.base };
         if hovered {
             style = style.add_modifier(Modifier::BOLD).bg(styles.button_hover);
         }
