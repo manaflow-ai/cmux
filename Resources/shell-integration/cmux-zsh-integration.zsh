@@ -1358,6 +1358,35 @@ _cmux_report_pr_for_path() {
         _cmux_pr_debug_log "$branch" "cache-miss"
     fi
 
+    # A branch already known to have no PR is re-checked at most every 900s
+    # (the force signal still bypasses immediately). Without this, a panel
+    # sitting on a branch that will never have a PR (e.g. main) burns a
+    # GitHub GraphQL API call every poll interval forever — and the GraphQL
+    # quota (5,000/hr) is shared across the user's whole account.
+    # The guard only trusts a cache record written for this exact repo with
+    # an explicit "none" result and a plausible (not future) epoch age.
+    # EPOCHSECONDS requires zsh/datetime and the $SECONDS fallback is
+    # shell-relative, so `now` is normalized to a real epoch first; if that
+    # normalization fails the backoff is skipped for this invocation and
+    # `now` is left untouched.
+    local epoch_now="" cache_repo="" cache_timestamp=""
+    epoch_now="$(command date +%s 2>/dev/null || true)"
+    [[ "$epoch_now" == <-> ]] || epoch_now=""
+    if [[ -n "$epoch_now" ]]; then
+        now="$epoch_now"
+        [[ -r "$timestamp_file" ]] && cache_timestamp="$(<"$timestamp_file")"
+        [[ -r "$repo_file" ]] && cache_repo="$(<"$repo_file")"
+        if [[ "${2:-0}" != "1" && -n "$branch" \
+            && "$cache_no_pr_branch" == "$branch" \
+            && "$cache_repo" == "$repo_path" \
+            && "$cache_result" == "none" ]] \
+            && [[ "$cache_timestamp" == <-> ]] \
+            && (( now >= cache_timestamp && now - cache_timestamp < 900 )); then
+            _cmux_pr_debug_log "$branch" "no-pr-backoff"
+            return 0
+        fi
+    fi
+
     repo_slug="$(_cmux_github_repo_slug_for_path "$repo_path")"
     if [[ -n "$repo_slug" ]]; then
         gh_repo_args=(--repo "$repo_slug")
