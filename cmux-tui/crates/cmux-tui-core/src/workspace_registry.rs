@@ -394,8 +394,8 @@ impl PersistentSessionStateResetter {
             pending_reset_dirs.iter().map(|pending| pending.path.clone()).collect();
         Ok(PersistentSessionStateResetPreview {
             state_root: self.state_root.clone(),
-            session_dir: session_dir.clone(),
-            terminal_host_root: terminal_host_root.clone(),
+            session_dir,
+            terminal_host_root,
             pending_reset_dirs: pending_reset_dir_paths,
             requires_force: true,
             confirm_reset: confirmation.confirm_reset,
@@ -1909,7 +1909,7 @@ fn reset_stat_device(stat: &libc::stat) -> u64 {
 
 #[cfg(unix)]
 fn reset_stat_inode(stat: &libc::stat) -> u64 {
-    stat.st_ino as u64
+    stat.st_ino
 }
 
 #[cfg(not(unix))]
@@ -4616,7 +4616,7 @@ fn prepare_terminal_host_root_for_reset(
     #[cfg(test)]
     inject_legacy_terminal_host_record_removal_before_liveness(root)?;
     for (record_path, record) in &records {
-        match crate::terminal_host_runtime::terminal_host_record_liveness(&record_path, &record)? {
+        match crate::terminal_host_runtime::terminal_host_record_liveness(record_path, record)? {
             TerminalHostLiveness::Dead => {
                 if record.record_version >= 2 {
                     let marker = terminal_host_live_marker_path(record_path, record);

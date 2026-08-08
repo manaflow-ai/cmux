@@ -533,7 +533,7 @@ fn terminal_host_reset_holds_structured_live_marker_lock() {
         endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
         owner_token: "01".repeat(32),
         host_pid: std::process::id(),
-        host_start_nonce: host_start_nonce.clone(),
+        host_start_nonce,
         workspace_key: String::new(),
         supports_set_defaults: true,
         supports_clear_history: true,
@@ -821,7 +821,7 @@ fn reset_preview_rejects_confirmation_manifest_string_budget() {
     let session = "reset-manifest-string-budget";
     let resetter = PersistentSessionStateResetter::new(root.clone());
     let session_dir = resetter.session_dir(session);
-    let mut nested = session_dir.clone();
+    let mut nested = session_dir;
     fs::create_dir_all(&nested).unwrap();
     fs::write(nested.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
     for index in 0..16 {
