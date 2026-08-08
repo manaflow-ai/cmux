@@ -87,6 +87,13 @@ jobs:
         if: ${{ inputs.platform == 'macos' }}
         run: ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
+      # reload.sh builds the Rust diff sidecar as part of every macOS app. Keep
+      # this lane self-contained instead of assuming the runner image has
+      # rustup, just as the iOS Iroh provisioning path below already does.
+      - name: Provision Rust (macOS)
+        if: ${{ inputs.platform == 'macos' }}
+        run: ./scripts/install-rust-ci.sh
+
       - name: Mark deps-ready
         id: t1
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"

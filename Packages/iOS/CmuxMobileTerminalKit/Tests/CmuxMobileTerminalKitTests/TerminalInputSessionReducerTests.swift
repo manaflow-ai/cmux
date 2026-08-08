@@ -41,6 +41,46 @@ import Testing
         #expect(state.actualOwner == .terminal)
     }
 
+    @Test func rapidKeyboardTogglesAlternateIntentWithoutWaitingForFrameNotifications() {
+        var state = TerminalInputSessionState()
+        _ = state.handle(.requestFocus(.composer))
+        _ = state.handle(.focusCompleted(owner: .composer, succeeded: true))
+
+        let hide = state.handle(.toggleKeyboard(showOwner: .composer))
+        #expect(hide.commands == [.resign(.composer)])
+        _ = state.handle(.resignCompleted(owner: .composer, succeeded: true))
+        #expect(state.requestedOwner == nil)
+        #expect(state.actualOwner == nil)
+        #expect(state.keyboardResumeOwner == .composer)
+
+        let show = state.handle(.toggleKeyboard(showOwner: .composer))
+        #expect(show.commands == [.focus(.composer)])
+        _ = state.handle(.focusCompleted(owner: .composer, succeeded: true))
+
+        let hideAgain = state.handle(.toggleKeyboard(showOwner: .composer))
+        #expect(hideAgain.commands == [.resign(.composer)])
+        #expect(state.keyboardResumeOwner == .composer)
+    }
+
+    @Test func aPendingShowRequestCanBeCancelledByTheNextRapidToggle() {
+        var state = TerminalInputSessionState()
+
+        let show = state.handle(.toggleKeyboard(showOwner: .terminal))
+        #expect(show.commands == [.focus(.terminal)])
+        #expect(state.requestedOwner == .terminal)
+
+        let hideBeforeCompletion = state.handle(.toggleKeyboard(showOwner: .terminal))
+        #expect(hideBeforeCompletion.commands.isEmpty)
+        #expect(state.requestedOwner == nil)
+        #expect(state.actualOwner == nil)
+        #expect(state.keyboardResumeOwner == .terminal)
+
+        let staleCompletion = state.handle(
+            .focusCompleted(owner: .terminal, succeeded: true)
+        )
+        #expect(staleCompletion.commands == [.resign(.terminal)])
+    }
+
     @Test func immediateTapIsNeverQueuedBehindAnOlderDeferredArtifactDecision() throws {
         var state = TerminalInputSessionState()
 

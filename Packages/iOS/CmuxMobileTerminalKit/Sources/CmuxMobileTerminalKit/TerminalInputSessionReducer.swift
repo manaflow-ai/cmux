@@ -65,6 +65,10 @@ public enum TerminalInputSessionCommand: Equatable, Sendable {
 /// Facts and user intents consumed by the terminal input-session reducer.
 public enum TerminalInputSessionEvent: Equatable, Sendable {
     case requestFocus(TerminalInputOwner)
+    /// Inverts the latest toolbar keyboard intent without consulting lagging
+    /// keyboard-frame notifications. `showOwner` is used only when the current
+    /// intent is down; hiding remembers the current owner for the next toggle.
+    case toggleKeyboard(showOwner: TerminalInputOwner)
     case releaseFocus
     case focusCompleted(owner: TerminalInputOwner, succeeded: Bool)
     case resignCompleted(owner: TerminalInputOwner, succeeded: Bool)
@@ -109,6 +113,10 @@ public struct TerminalInputSessionState: Equatable, Sendable {
     public private(set) var requestedOwner: TerminalInputOwner?
     public private(set) var actualOwner: TerminalInputOwner?
 
+    /// The last input that owned, or was asked to own, the keyboard. The dock's
+    /// toolbar uses this to restore composer editing after a keyboard-only hide.
+    public private(set) var keyboardResumeOwner: TerminalInputOwner?
+
     private var latestTapID: UInt64
     private var deferredTapID: UInt64?
 
@@ -116,12 +124,14 @@ public struct TerminalInputSessionState: Equatable, Sendable {
         scenePhase: TerminalInputScenePhase = .active,
         modalPhase: TerminalInputModalPhase = .none,
         requestedOwner: TerminalInputOwner? = nil,
-        actualOwner: TerminalInputOwner? = nil
+        actualOwner: TerminalInputOwner? = nil,
+        keyboardResumeOwner: TerminalInputOwner? = nil
     ) {
         self.scenePhase = scenePhase
         self.modalPhase = modalPhase
         self.requestedOwner = requestedOwner
         self.actualOwner = actualOwner
+        self.keyboardResumeOwner = keyboardResumeOwner ?? actualOwner ?? requestedOwner
         self.latestTapID = 0
         self.deferredTapID = nil
     }
@@ -136,6 +146,18 @@ public struct TerminalInputSessionState: Equatable, Sendable {
             deferredTapID = nil
             requestFocus(owner, commands: &transition.commands)
 
+        case .toggleKeyboard(let showOwner):
+            deferredTapID = nil
+            if let currentOwner = actualOwner ?? requestedOwner {
+                keyboardResumeOwner = currentOwner
+                requestedOwner = nil
+                if let actualOwner {
+                    transition.commands.append(.resign(actualOwner))
+                }
+            } else {
+                requestFocus(showOwner, commands: &transition.commands)
+            }
+
         case .releaseFocus:
             requestedOwner = nil
             deferredTapID = nil
@@ -146,6 +168,7 @@ public struct TerminalInputSessionState: Equatable, Sendable {
         case .focusCompleted(let owner, let succeeded):
             guard succeeded else { break }
             actualOwner = owner
+            keyboardResumeOwner = owner
             if canFocus, let requestedOwner {
                 if requestedOwner != owner {
                     transition.commands.append(.focus(requestedOwner))
@@ -164,6 +187,7 @@ public struct TerminalInputSessionState: Equatable, Sendable {
         case .responderChanged(let owner, let isFirstResponder):
             if isFirstResponder {
                 actualOwner = owner
+                keyboardResumeOwner = owner
                 if canFocus {
                     requestedOwner = owner
                     deferredTapID = nil
@@ -248,6 +272,7 @@ public struct TerminalInputSessionState: Equatable, Sendable {
         commands: inout [TerminalInputSessionCommand]
     ) {
         requestedOwner = owner
+        keyboardResumeOwner = owner
         guard canFocus, actualOwner != owner else { return }
         commands.append(.focus(owner))
     }
