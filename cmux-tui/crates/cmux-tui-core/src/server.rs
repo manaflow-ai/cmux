@@ -4703,6 +4703,15 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
     true
 }
 
+fn complete_daemon_shutdown_after_ack(mux: &Mux, requesting_client: u64) {
+    mux.request_daemon_shutdown();
+    for peer in mux.control_clients.client_ids() {
+        if peer != requesting_client {
+            disconnect_client(mux, peer, true);
+        }
+    }
+}
+
 pub fn detach_control_client(mux: &Mux, client: u64) -> bool {
     disconnect_client(mux, client, true)
 }
@@ -4801,7 +4810,7 @@ fn handle_resource_session_shutdown(
         Ok(result) => {
             let sent = send_resource_response(writer, id, operation, Ok(result));
             if sent {
-                mux.request_daemon_shutdown();
+                complete_daemon_shutdown_after_ack(mux, client);
             } else {
                 mux.cancel_daemon_handoff();
             }
@@ -7062,12 +7071,7 @@ fn handle_request_with_cancellation(
     // thread time to flush the response before normal process teardown.
     if shutdown_daemon && response_ok {
         if sent {
-            mux.request_daemon_shutdown();
-            for peer in mux.control_clients.client_ids() {
-                if peer != client {
-                    disconnect_client(mux, peer, true);
-                }
-            }
+            complete_daemon_shutdown_after_ack(mux, client);
         } else {
             mux.cancel_daemon_handoff();
         }
