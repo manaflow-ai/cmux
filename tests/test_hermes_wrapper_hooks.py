@@ -38,6 +38,7 @@ class WrapperResult:
     hermes_home: str
     original_tmpdir: str
     tui_tmpdir_cleaned_before_teardown: bool | None
+    tui_watcher_cpu_seconds: float | None
     profile_homes: dict[str, str]
 
 
@@ -76,6 +77,21 @@ def read_payloads(path: Path) -> list[str]:
     ]
 
 
+def read_cpu_seconds(path: Path) -> float | None:
+    if not path.exists():
+        return None
+    value = path.read_text(encoding="utf-8").strip()
+    if not value:
+        return None
+    try:
+        return sum(
+            float(part) * (60**index)
+            for index, part in enumerate(reversed(value.split(":")))
+        )
+    except ValueError:
+        return None
+
+
 def run_wrapper(
     argv: list[str],
     *,
@@ -89,6 +105,7 @@ def run_wrapper(
     profile_names: tuple[str, ...] = (),
     tui_session_ids: tuple[str, ...] = (),
     tui_multiple_active_files: bool = False,
+    sample_tui_watcher_cpu: bool = False,
     expected_cmux_call_count: int | None = None,
 ) -> WrapperResult:
     with tempfile.TemporaryDirectory(prefix="cmux-hermes-wrapper-test-") as td:
@@ -132,6 +149,7 @@ def run_wrapper(
         cmux_env_log = tmp / "cmux-env.log"
         installer_started_log = tmp / "installer-started.log"
         installer_gate = tmp / "installer-gate"
+        tui_watcher_cpu_log = tmp / "tui-watcher-cpu.log"
         if installer_blocks:
             os.mkfifo(installer_gate)
 
@@ -173,6 +191,19 @@ if [[ -n "${FAKE_TUI_SESSION_IDS:-}" ]]; then
     printf '{"session_id":"%s"}\\n' "$fake_tui_session_id" > "$active_session_file"
     sleep 0.25
   done
+fi
+if [[ "${FAKE_SAMPLE_TUI_WATCHER_CPU:-0}" == "1" ]]; then
+  watcher_pid=""
+  for _ in {1..100}; do
+    watcher_pid="$(/usr/bin/pgrep -P "$$" -f 'cmux-hermes-agent-wrapper' | /usr/bin/head -n 1 || true)"
+    [[ -n "$watcher_pid" ]] && break
+    sleep 0.01
+  done
+  if [[ -n "$watcher_pid" ]]; then
+    # This is the controlled workload window for the CPU regression check.
+    sleep 0.5
+    /bin/ps -o time= -p "$watcher_pid" | /usr/bin/tr -d ' ' > "$FAKE_TUI_WATCHER_CPU_LOG" || true
+  fi
 fi
 """,
         )
@@ -228,6 +259,8 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
         else:
             env.pop("FAKE_TUI_SESSION_IDS", None)
         env["FAKE_TUI_MULTIPLE_ACTIVE_FILES"] = "1" if tui_multiple_active_files else "0"
+        env["FAKE_SAMPLE_TUI_WATCHER_CPU"] = "1" if sample_tui_watcher_cpu else "0"
+        env["FAKE_TUI_WATCHER_CPU_LOG"] = str(tui_watcher_cpu_log)
         if in_cmux:
             env["CMUX_SURFACE_ID"] = "11111111-1111-1111-1111-111111111111"
             env["CMUX_WORKSPACE_ID"] = "22222222-2222-2222-2222-222222222222"
@@ -307,6 +340,7 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
             hermes_home=str(hermes_home),
             original_tmpdir=str(original_tmpdir),
             tui_tmpdir_cleaned_before_teardown=tui_tmpdir_cleaned_before_teardown,
+            tui_watcher_cpu_seconds=read_cpu_seconds(tui_watcher_cpu_log),
             profile_homes={name: str(path) for name, path in profile_homes.items()},
         )
 
@@ -380,6 +414,7 @@ def test_tui_active_session_file_bridges_lifecycle(failures: list[str]) -> None:
     result = run_wrapper(
         ["--tui"],
         tui_session_ids=(first_session_id, second_session_id),
+        sample_tui_watcher_cpu=True,
     )
     expected_prefix = ["--socket", result.socket_path, "hooks", "hermes-agent"]
     expected_calls = [
@@ -442,6 +477,12 @@ def test_tui_active_session_file_bridges_lifecycle(failures: list[str]) -> None:
             f"TUI bridge: invocation-private TMPDIR was not cleaned up: {hermes_tmpdir}",
             failures,
         )
+    expect(
+        result.tui_watcher_cpu_seconds is not None
+        and result.tui_watcher_cpu_seconds < 0.2,
+        f"TUI bridge: watcher consumed CPU while idle: {result.tui_watcher_cpu_seconds}",
+        failures,
+    )
 
 
 def test_tui_bridge_fails_closed_on_untrusted_session_files(failures: list[str]) -> None:
