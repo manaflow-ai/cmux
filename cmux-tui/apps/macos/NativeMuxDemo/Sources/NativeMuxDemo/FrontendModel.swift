@@ -184,7 +184,10 @@ final class FrontendModel {
             await service.stopUpdates(generation: updates.generation)
             guard !Task.isCancelled else { return }
             await self?.disconnectAfterFailure(
-                FrontendServiceError.message("The session event stream ended.")
+                FrontendServiceError.message(L10n.text(
+                    "error.session_event_stream_ended",
+                    "The session event stream ended."
+                ))
             )
         }
     }
@@ -360,12 +363,14 @@ final class FrontendModel {
             selectors: selectors,
             onSuccess: { await self.reconcileFocusMutation(requestID) },
             onFailure: {
-                guard let rollback = self.focusMutations.rollback(requestID) else { return }
+                guard let rollback = self.focusMutations.rollback(requestID) else { return false }
                 self.selectedWorkspaceID = rollback.workspaceID
                 self.selectedScreenID = rollback.screenID
                 if let snapshot = self.snapshot {
                     self.reconcileTerminalControllers(snapshot)
                 }
+                self.scheduleRefresh()
+                return true
             }
         )
     }
@@ -596,7 +601,7 @@ final class FrontendModel {
         selectors: [String: String],
         fields: [String: JSONValue] = [:],
         onSuccess: (() async -> Void)? = nil,
-        onFailure: (() -> Void)? = nil
+        onFailure: (() -> Bool)? = nil
     ) {
         guard let service, let machineID, let sessionID else { return }
         var params: [String: JSONValue] = [
@@ -618,8 +623,9 @@ final class FrontendModel {
                     scheduleRefresh()
                 }
             } catch {
-                onFailure?()
-                errorMessage = error.localizedDescription
+                if onFailure?() ?? true {
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }

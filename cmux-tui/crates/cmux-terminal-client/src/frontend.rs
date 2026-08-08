@@ -142,6 +142,32 @@ pub struct CmuxFrontendRenderEvent {
     pub payload_length: usize,
 }
 
+unsafe fn copy_resource_update_from_state(
+    state: &FrontendControlState,
+    update: &mut CmuxFrontendResourceUpdate,
+    buffer: *mut u8,
+    capacity: usize,
+) -> bool {
+    update.payload_length = 0;
+    update.overflowed = false;
+    update.ended = state.resource_stream_ended.load(Ordering::Acquire);
+    if state.discard_resource_updates_if_overflowed() {
+        update.overflowed = true;
+        return true;
+    }
+    let mut queue = state.resource_updates.lock().unwrap();
+    let Some(payload) = queue.front() else {
+        return update.ended;
+    };
+    update.payload_length = payload.len();
+    if payload.len() > capacity || (payload.len() > 0 && buffer.is_null()) {
+        return true;
+    }
+    let payload = queue.pop_front().unwrap();
+    unsafe { std::ptr::copy_nonoverlapping(payload.as_ptr(), buffer, payload.len()) };
+    true
+}
+
 async fn open_control_stream(
     multiplexer: &Arc<ServiceMultiplexer>,
 ) -> Result<(Arc<ServiceStream>, VecDeque<StreamChunk>), String> {
@@ -498,25 +524,9 @@ pub unsafe extern "C" fn cmux_frontend_client_copy_resource_update(
 ) -> bool {
     let Some(client) = (unsafe { client.as_ref() }) else { return false };
     let Some(update) = (unsafe { update.as_mut() }) else { return false };
-    let state = &client.control_state;
-    update.payload_length = 0;
-    update.overflowed = false;
-    update.ended = state.resource_stream_ended.load(Ordering::Acquire);
-    if state.discard_resource_updates_if_overflowed() {
-        update.overflowed = true;
-        return true;
+    unsafe {
+        copy_resource_update_from_state(&client.control_state, update, buffer, capacity)
     }
-    let mut queue = state.resource_updates.lock().unwrap();
-    let Some(payload) = queue.front() else {
-        return update.ended;
-    };
-    update.payload_length = payload.len();
-    if payload.len() > capacity || (payload.len() > 0 && buffer.is_null()) {
-        return true;
-    }
-    let payload = queue.pop_front().unwrap();
-    unsafe { std::ptr::copy_nonoverlapping(payload.as_ptr(), buffer, payload.len()) };
-    true
 }
 
 /// Executes one public resource operation and returns allocated result JSON.
@@ -979,11 +989,40 @@ mod tests {
                 255
             );
         }
-        assert!(state.discard_resource_updates_if_overflowed());
+        let mut overflow = CmuxFrontendResourceUpdate {
+            payload_length: usize::MAX,
+            overflowed: false,
+            ended: false,
+        };
+        assert!(unsafe {
+            copy_resource_update_from_state(&state, &mut overflow, std::ptr::null_mut(), 0)
+        });
+        assert!(overflow.overflowed);
+        assert_eq!(overflow.payload_length, 0);
         assert!(state.resource_updates.lock().unwrap().is_empty());
         assert!(!state.resource_updates_overflowed.load(Ordering::Acquire));
         state.push_resource_update(&json!({"type":"stream_item","sequence":257}));
-        assert_eq!(state.resource_updates.lock().unwrap().len(), 1);
+        state.resource_stream_ended.store(true, Ordering::Release);
+        let mut descriptor = CmuxFrontendResourceUpdate {
+            payload_length: 0,
+            overflowed: false,
+            ended: false,
+        };
+        assert!(unsafe {
+            copy_resource_update_from_state(&state, &mut descriptor, std::ptr::null_mut(), 0)
+        });
+        assert!(descriptor.ended);
+        assert!(!descriptor.overflowed);
+        let mut payload = vec![0_u8; descriptor.payload_length];
+        assert!(unsafe {
+            copy_resource_update_from_state(
+                &state,
+                &mut descriptor,
+                payload.as_mut_ptr(),
+                payload.len(),
+            )
+        });
+        assert_eq!(serde_json::from_slice::<Value>(&payload).unwrap()["sequence"], 257);
     }
 
     #[test]
@@ -1081,12 +1120,21 @@ mod tests {
         let state = FrontendControlState::new(updates);
         let (sender, receiver) = oneshot::channel();
         state.pending.lock().unwrap().insert("native-test-1".into(), sender);
-        handle_control_line(
-            &state,
-            br#"{"protocol":"cmux.protocol/1","type":"response","id":"native-test-1","ok":true,"result":{"value":1}}"#,
-        );
+        let response_line = serde_json::to_vec(&json!({
+            "protocol": RESOURCE_PROTOCOL,
+            "type": "response",
+            "id": "native-test-1",
+            "ok": true,
+            "result": {"value": 1},
+        }))
+        .unwrap();
+        handle_control_line(&state, &response_line);
         let runtime = Runtime::new().unwrap();
-        let response = runtime.block_on(receiver).unwrap().unwrap();
+        let response = runtime
+            .block_on(tokio::time::timeout(Duration::from_secs(1), receiver))
+            .expect("resource response timed out")
+            .unwrap()
+            .unwrap();
         assert_eq!(response["result"]["value"], 1);
     }
 }

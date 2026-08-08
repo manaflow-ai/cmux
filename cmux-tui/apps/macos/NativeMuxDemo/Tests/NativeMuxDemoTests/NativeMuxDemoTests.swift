@@ -1,4 +1,5 @@
 import AppKit
+import CCmuxTerminal
 import CoreGraphics
 import Foundation
 import Testing
@@ -210,6 +211,51 @@ func terminalInputRelayReportsBoundedBufferDrops() async {
     var dropIterator = drops.stream.makeAsyncIterator()
     let dropSignal = await dropIterator.next()
     #expect(dropSignal != nil)
+}
+
+@Test
+func resourceDrainUsesTheCDescriptorTwoCallContract() throws {
+    var pending = [
+        Data(#"{"sequence":1}"#.utf8),
+        Data(#"{"sequence":2}"#.utf8),
+    ]
+    let batch = drainFrontendResourceUpdates { descriptor, buffer, capacity in
+        descriptor = CmuxFrontendResourceUpdate()
+        descriptor.ended = true
+        guard let payload = pending.first else { return true }
+        descriptor.payload_length = payload.count
+        guard let buffer, capacity >= payload.count else { return true }
+        payload.copyBytes(to: buffer, count: payload.count)
+        pending.removeFirst()
+        return true
+    }
+
+    #expect(batch.ended)
+    #expect(!batch.overflowed)
+    #expect(batch.envelopes.count == 2)
+    let sequences = try batch.envelopes.map { payload in
+        let object = try #require(
+            JSONSerialization.jsonObject(with: payload) as? [String: Int]
+        )
+        return try #require(object["sequence"])
+    }
+    #expect(sequences == [1, 2])
+}
+
+@Test
+func resourceDrainFailsClosedOnCDescriptorOverflow() {
+    var reportsOverflow = true
+    let batch = drainFrontendResourceUpdates { descriptor, _, _ in
+        descriptor = CmuxFrontendResourceUpdate()
+        guard reportsOverflow else { return false }
+        reportsOverflow = false
+        descriptor.overflowed = true
+        return true
+    }
+
+    #expect(batch.envelopes.isEmpty)
+    #expect(batch.overflowed)
+    #expect(!batch.ended)
 }
 
 @Test

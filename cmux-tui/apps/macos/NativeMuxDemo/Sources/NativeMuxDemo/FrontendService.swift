@@ -229,28 +229,9 @@ actor FrontendService {
     }
     return await enqueue {
       let raw = OpaquePointer(bitPattern: rawAddress)!
-      var result: [Data] = []
-      var ended = false
-      while true {
-        var descriptor = CmuxFrontendResourceUpdate()
-        guard cmux_frontend_client_copy_resource_update(raw, &descriptor, nil, 0) else { break }
-        ended = ended || descriptor.ended
-        if descriptor.overflowed {
-          return FrontendResourceUpdateBatch(envelopes: [], overflowed: true, ended: ended)
-        }
-        guard descriptor.payload_length > 0 else { break }
-        var payload = Data(count: descriptor.payload_length)
-        let copied = payload.withUnsafeMutableBytes { bytes in
-          cmux_frontend_client_copy_resource_update(raw, &descriptor, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count)
-        }
-        guard copied else { break }
-        ended = ended || descriptor.ended
-        if descriptor.overflowed {
-          return FrontendResourceUpdateBatch(envelopes: [], overflowed: true, ended: ended)
-        }
-        result.append(payload)
+      return drainFrontendResourceUpdates { descriptor, buffer, capacity in
+        cmux_frontend_client_copy_resource_update(raw, &descriptor, buffer, capacity)
       }
-      return FrontendResourceUpdateBatch(envelopes: result, overflowed: false, ended: ended)
     }
   }
 

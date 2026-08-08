@@ -44,6 +44,9 @@ let package = Package(
         .linkedFramework("WebKit"),
       ]
     ),
-    .testTarget(name: "NativeMuxDemoTests", dependencies: ["NativeMuxDemo"]),
+    .testTarget(
+      name: "NativeMuxDemoTests",
+      dependencies: ["CCmuxTerminal", "NativeMuxDemo"]
+    ),
   ]
 )
