@@ -135,6 +135,31 @@
     "faqFeatureA": "我們很想聽到你的回饋。在 GitHub 上提交一個 <issuesLink>issue</issuesLink> 或 <prLink>pull request</prLink>，或者 <mailLink>寄電子郵件給我們</mailLink>。"
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "總覽",
+      "team": "團隊"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "在供應商帳戶之間路由 LLM 請求，支援容錯移轉和依用量排程。",
+      "coderouterLink": "開啟 coderouter"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "管理共用 AI 帳戶，並使用 coderouter 路由請求。",
+      "title": "coderouter",
+      "description": "coderouter 在供應商帳戶之間路由 LLM 請求，支援容錯移轉和依用量排程。"
+    },
+    "accountMenu": {
+      "label": "帳戶選單",
+      "settings": "設定",
+      "billing": "帳單",
+      "signOut": "登出",
+      "signingOut": "正在登出…",
+      "signOutError": "無法登出，請再試一次。",
+      "signIn": "登入"
+    },
     "aiAccounts": {
       "metaTitle": "AI 帳戶 — cmux",
       "metaDescription": "管理 cmux 的團隊 AI 供應商帳戶。",
