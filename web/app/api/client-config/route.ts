@@ -14,8 +14,6 @@ import {
   postHogFlagsUrl,
 } from "../../../services/client-config/posthogFlags";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
   // An unset rule id means no rate limiting; a deleted rule (not-found) fails

@@ -11,8 +11,6 @@ import { setSpanAttributes } from "../../../../../../services/telemetry";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
 import { getStackServerApp } from "../../../../../lib/stack";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const SESSION_EXPIRES_IN_MS = 90 * 24 * 60 * 60 * 1000;
 

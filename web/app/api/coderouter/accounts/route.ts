@@ -13,8 +13,6 @@ import {
   reportCoderouterFailure,
 } from "../../../../services/coderouter/observability";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 128 * 1_024;
 

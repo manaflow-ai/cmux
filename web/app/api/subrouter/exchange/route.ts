@@ -1,8 +1,6 @@
 import { resolveSubrouterRequestContext } from "../../../../services/subrouter/requestContext";
 import { subrouterErrorResponse } from "../../../../services/subrouter/routeHelpers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
   const resolved = await resolveSubrouterRequestContext(request, {

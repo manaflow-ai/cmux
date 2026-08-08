@@ -30,8 +30,6 @@ import {
 } from "../../../services/account/deletionLock";
 import { sanitizeServerPublishedRoutes } from "../../../services/iroh/publicationPolicy";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 const MAX_DEVICES_PER_TEAM = 200;

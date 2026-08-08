@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 
 import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
 
-export const dynamic = "force-dynamic";
 
 type IdentityRouteDependencies = {
   readonly isConfigured: () => boolean;

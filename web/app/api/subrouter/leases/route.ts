@@ -4,8 +4,6 @@ import { subrouterErrorResponse } from "../../../../services/subrouter/routeHelp
 import type { SubrouterCredentialLeaseInput } from "../../../../services/subrouter/types";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 

@@ -40,8 +40,6 @@ import {
   type AuthedUser,
 } from "../../../../services/vms/auth";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 4 * 1_024;
 const RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS = 60;

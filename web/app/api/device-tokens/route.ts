@@ -21,8 +21,6 @@ import {
   assertAccountDeletionUserMutationAllowed,
 } from "../../../services/account/deletionLock";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const HEX_TOKEN = /^[0-9a-fA-F]{64,200}$/;
 

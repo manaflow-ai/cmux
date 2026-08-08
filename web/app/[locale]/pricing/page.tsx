@@ -53,7 +53,6 @@ import {
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 
-export const dynamic = "force-dynamic";
 
 export async function generateMetadata({
   params,

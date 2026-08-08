@@ -3,8 +3,6 @@ import {
   hostedSubrouterBaseURL,
 } from "@/services/subrouter/constants";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const DEFAULT_STACK_API_URL = "https://api.stack-auth.com/api/v1";
 

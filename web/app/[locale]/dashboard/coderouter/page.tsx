@@ -22,7 +22,6 @@ import {
   DeleteAiAccountButton,
 } from "../components/ai-account-forms";
 
-export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ locale: string }>;

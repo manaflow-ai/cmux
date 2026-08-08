@@ -342,6 +342,12 @@ jobs:
       - name: Web tests
         run: bun run test
 
+      - name: Install browser for instant navigation tests
+        run: bunx playwright install --with-deps chromium
+
+      - name: Instant navigation tests
+        run: bun run test:instant
+
   # Checks for in-app React webviews (currently the diff viewer; more cmux React
   # surfaces will live alongside it).
   react-apps-check:

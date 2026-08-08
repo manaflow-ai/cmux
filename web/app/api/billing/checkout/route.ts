@@ -28,7 +28,6 @@ import {
 } from "../../../../services/billing/plans";
 import { captureBillingCheckoutStarted } from "../../../../services/analytics/stripeBilling";
 
-export const dynamic = "force-dynamic";
 
 type CheckoutStackServerApp = StackServerApp<true>;
 

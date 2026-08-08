@@ -5,7 +5,6 @@ import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { pendingCliAuthClientForUserCode } from "@/services/vault/cliAuth";
 import { ApproveForm } from "./approve-form";
 
-export const dynamic = "force-dynamic";
 
 export default async function VaultCliAuthPage({
   params,

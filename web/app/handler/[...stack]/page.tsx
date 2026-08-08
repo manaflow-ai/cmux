@@ -1,8 +1,12 @@
-import { Suspense } from "react";
 import { MagicLinkSignIn, StackHandler } from "@stackframe/stack";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { stackServerApp } from "../../lib/stack";
+
+// Stack Auth owns this catch-all route and reads its URL before it can render.
+// Keep authentication reliable instead of withholding it behind an empty
+// instant-navigation boundary.
+export const instant = false;
 
 export default async function StackHandlerPage(
   props: { params: Promise<{ stack: string[] }> },
@@ -38,11 +42,7 @@ export default async function StackHandlerPage(
     );
   }
 
-  return (
-    <Suspense>
-      <StackHandler fullPage app={stackServerApp} params={props.params} />
-    </Suspense>
-  );
+  return <StackHandler fullPage app={stackServerApp} params={props.params} />;
 }
 
 function coderouterHost(host: string | null): boolean {

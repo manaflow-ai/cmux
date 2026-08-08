@@ -122,8 +122,26 @@ describe("Vault route helper", () => {
     expect(handler).toHaveBeenCalledTimes(2);
   });
 
-  test("still gates transcript vault routes on object storage", async () => {
+  test("hides transcript Vault routes when the release flag is off", async () => {
     delete process.env.CMUX_VAULT_ENABLED;
+    process.env.CMUX_VAULT_S3_BUCKET = "configured-without-release-flag";
+    const handler = mock(async () => Response.json({ ok: true }));
+
+    const response = await withVaultApiRoute(
+      new Request("https://cmux.test/api/vault/test"),
+      "/api/vault/test",
+      { "cmux.vault.operation": "test" },
+      "/api/vault/test failed",
+      handler,
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "vault_disabled" });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  test("gates enabled transcript Vault routes on object storage", async () => {
+    process.env.CMUX_VAULT_ENABLED = "1";
     delete process.env.CMUX_VAULT_S3_BUCKET;
     const handler = mock(async () => Response.json({ ok: true }));
 

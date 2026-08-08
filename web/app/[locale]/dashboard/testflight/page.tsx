@@ -9,7 +9,6 @@ import { testerGroupStatus } from "@/services/asc/testflight";
 import { isTestflightEligible } from "@/services/billing/pro";
 import { captureAscError } from "@/services/errors";
 
-export const dynamic = "force-dynamic";
 
 type SearchParams = {
   testflight?: string | string[];

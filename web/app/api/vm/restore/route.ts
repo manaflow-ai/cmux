@@ -23,7 +23,6 @@ import {
 import { restoreVm, runVmWorkflow } from "../../../../services/vms/workflows";
 import { VmTimingRecorder } from "../../../../services/vms/timings";
 
-export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(

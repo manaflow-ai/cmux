@@ -28,8 +28,6 @@ import {
   type AuthedUser,
 } from "../../../../services/vms/auth";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 32 * 1_024;
 

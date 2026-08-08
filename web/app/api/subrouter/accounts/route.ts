@@ -7,8 +7,6 @@ import {
 } from "../../../../services/subrouter/routeHelpers";
 import { resolveSubrouterRequestContext } from "../../../../services/subrouter/requestContext";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function GET(request: Request): Promise<Response> {
   const resolved = await resolveSubrouterRequestContext(request, {

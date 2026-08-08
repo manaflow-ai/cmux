@@ -17,6 +17,10 @@ mock.module("@/app/lib/stack", () => ({
   isStackConfigured: () => true,
 }));
 
+mock.module("@/services/vault/config", () => ({
+  isVaultEnabled: () => false,
+}));
+
 mock.module(
   "../app/[locale]/dashboard/components/dashboard-skeleton",
   () => ({

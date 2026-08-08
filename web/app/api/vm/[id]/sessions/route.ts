@@ -13,7 +13,6 @@ import {
 } from "../../../../../services/vms/workflows";
 import type { CloudVmSessionRow } from "../../../../../services/vms/repository";
 
-export const dynamic = "force-dynamic";
 
 export async function GET(
   request: Request,

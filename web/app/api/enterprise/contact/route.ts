@@ -15,8 +15,6 @@ import {
 } from "../../../../services/telemetry";
 import { checkEmailDeliverable } from "../../waitlist/email-check";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const enterpriseRecipient = "founders@manaflow.com";
 

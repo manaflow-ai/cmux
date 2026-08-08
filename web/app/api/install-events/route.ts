@@ -6,7 +6,6 @@ import {
   validInstallEventBody,
 } from "../../../services/analytics/install";
 
-export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
   const ruleId = process.env.CMUX_ANALYTICS_RATE_LIMIT_ID?.trim();

@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 
-export const dynamic = "force-dynamic";
 
 export default async function DashboardTeamPage({
   params,

@@ -35,7 +35,9 @@ const { DashboardShell } = await import(
 describe("dashboard shell", () => {
   test("mounts one account control and one theme control across responsive layouts", () => {
     const html = renderToStaticMarkup(
-      <DashboardShell><p>Dashboard content</p></DashboardShell>,
+      <DashboardShell vaultEnabled>
+        <p>Dashboard content</p>
+      </DashboardShell>,
     );
 
     expect(html.match(/data-testid="account-control"/g)).toHaveLength(1);
@@ -53,5 +55,18 @@ describe("dashboard shell", () => {
       /<nav[^>]*id="dashboard-mobile-nav"[^>]*>/,
     )?.[0];
     expect(controlledNavigation).toContain("hidden");
+  });
+
+  test("removes every Vault navigation entry when the release flag is off", () => {
+    const html = renderToStaticMarkup(
+      <DashboardShell vaultEnabled={false}>
+        <p>Dashboard content</p>
+      </DashboardShell>,
+    );
+
+    expect(html).not.toContain('href="/dashboard/vault"');
+    expect(html).not.toContain('href="/dashboard/vault/sessions"');
+    expect(html).not.toContain("vaultGroup");
+    expect(html).toContain('href="/dashboard/coderouter"');
   });
 });

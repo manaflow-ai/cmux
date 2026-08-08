@@ -1,9 +1,6 @@
 import { redirect } from "next/navigation";
 import { getPathname } from "@/i18n/navigation";
 
-export const dynamic = "force-dynamic";
-
-// Preserve old bookmarks while keeping coderouter as the only user-facing
 // product name and dashboard URL.
 export default async function LegacySubrouterRedirectPage({
   params,
