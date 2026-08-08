@@ -382,9 +382,12 @@ struct PanelFilePathHeader<TrailingContent: View>: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            CmuxSystemSymbolImage(systemName: iconSystemName, pointSize: 16)
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
+            CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
+                source: .systemSymbol(name: iconSystemName, accessibilityDescription: nil),
+                size: NSSize(width: 16, height: 16),
+                tintColor: PanelHeaderIconGlyph.tint(headerForeground: foregroundColor)
+            ))
+            .frame(width: 16, height: 16)
             Text(filePath)
                 .cmuxFont(size: 11, design: .monospaced)
                 .foregroundStyle(Color(nsColor: foregroundColor).opacity(0.68))
@@ -397,6 +400,7 @@ struct PanelFilePathHeader<TrailingContent: View>: View {
         .padding(.horizontal, 12)
         .frame(height: 30)
         .background(Color.clear)
+        .environment(\.panelHeaderIconTint, PanelHeaderIconGlyph.tint(headerForeground: foregroundColor))
     }
 }
 
@@ -411,19 +415,70 @@ struct PanelHeaderIconButton: View {
             PanelHeaderIconGlyph(systemName: systemName)
         }
         .buttonStyle(.plain)
-        .foregroundColor(.secondary)
         .disabled(isDisabled)
         .help(label)
         .accessibilityLabel(label)
     }
 }
 
+/// Panel-header glyph rendered through the appearance-resolved AppKit icon
+/// path (`CmuxResolvedIconImage`) instead of a template `NSImage` in a SwiftUI
+/// `Image`. Template-image tinting intermittently rasterizes fully transparent
+/// on macOS 15 while the control stays clickable (#8352, #7725, #4476); the
+/// resolved renderer draws into an explicit bitmap context, verifies the
+/// output has visible pixels, and re-renders on appearance changes.
 struct PanelHeaderIconGlyph: View {
     let systemName: String
+    @Environment(\.panelHeaderIconTint) private var headerTint
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
-        CmuxSystemSymbolImage(systemName: systemName, pointSize: 13)
-            .frame(width: 20, height: 20, alignment: .center)
-            .contentShape(Rectangle())
+        CmuxResolvedIconImage(
+            request: Self.request(systemName: systemName, tint: headerTint, isEnabled: isEnabled)
+        )
+        .frame(width: 13, height: 13)
+        .frame(width: 20, height: 20, alignment: .center)
+        .contentShape(Rectangle())
+    }
+
+    /// Builds the resolved-icon request for one header glyph.
+    ///
+    /// The tint is an explicit color (never left to template tinting): the
+    /// header's theme foreground when the glyph sits inside a
+    /// ``PanelFilePathHeader``, or the appearance-resolved secondary label
+    /// color otherwise. Disabled glyphs keep the color but drop alpha.
+    @MainActor
+    static func request(systemName: String, tint: NSColor?, isEnabled: Bool) -> CmuxResolvedIconRequest {
+        let baseTint = tint ?? .secondaryLabelColor
+        let resolvedTint = isEnabled
+            ? baseTint
+            : baseTint.withAlphaComponent(baseTint.alphaComponent * 0.45)
+        return CmuxResolvedIconRequest(
+            source: .systemSymbol(name: systemName, accessibilityDescription: nil),
+            size: NSSize(width: 13, height: 13),
+            tintColor: resolvedTint
+        )
+    }
+
+    /// Secondary-emphasis icon tint derived from a panel header's theme
+    /// foreground color, matching the previous `.secondary` template tint.
+    static func tint(headerForeground: NSColor) -> NSColor {
+        headerForeground.withAlphaComponent(headerForeground.alphaComponent * 0.55)
+    }
+}
+
+/// Explicit tint for ``PanelHeaderIconGlyph`` set by the enclosing
+/// ``PanelFilePathHeader`` so glyphs follow the panel's theme foreground even
+/// when the panel overrides the SwiftUI color scheme (the NSView-backed icon
+/// resolves the window appearance, not the SwiftUI override). `nil` falls back
+/// to the appearance-resolved secondary label color.
+private struct PanelHeaderIconTintKey: EnvironmentKey {
+    static let defaultValue: NSColor? = nil
+}
+
+extension EnvironmentValues {
+    var panelHeaderIconTint: NSColor? {
+        get { self[PanelHeaderIconTintKey.self] }
+        set { self[PanelHeaderIconTintKey.self] = newValue }
     }
 }
