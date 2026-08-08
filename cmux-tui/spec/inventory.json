@@ -1,7 +1,7 @@
 {
   "$schema": "./inventory.schema.json",
   "schema_version": 1,
-  "mux_protocol": 10,
+  "mux_protocol": 11,
   "resource_operations": [
     "agent.list",
     "agent.report",
@@ -211,6 +211,7 @@
       "sidebar-plugin",
       "mint-terminal-renderer",
       "get-cell-pixels",
+      "mint-terminal-renderer-by-terminal",
       "set-cell-pixels",
       "browser-frame-presented",
       "browser-mouse",
@@ -462,6 +463,7 @@
         "CellPixelSizeAck": 18,
         "KittyGraphicsLimitsAck": 19,
         "LaunchFailed": 20,
+        "TerminateAck": 21,
         "Input": 100,
         "Paste": 101,
         "ViewerSize": 102,
