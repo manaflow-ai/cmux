@@ -449,20 +449,38 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     assert!(!english.contains(&database.display().to_string()), "{english}");
     assert!(english.contains("no server is listening on this socket"), "{english}");
     assert!(!english.contains("nothing needs to be stopped"), "{english}");
-    assert!(
-        english.contains(&format!(
-            "cmux session 'name:{session}' reset-state --state '{}'",
-            state.display()
-        )),
-        "{english}"
-    );
-    assert!(
-        !english.contains(&format!(
-            "cmux session 'name:{session}' reset-state --state '{}' --force",
-            state.display()
-        )),
-        "{english}"
-    );
+    #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+    {
+        assert!(
+            english.contains(&format!(
+                "cmux session 'name:{session}' reset-state --state '{}'",
+                state.display()
+            )),
+            "{english}"
+        );
+        assert!(
+            !english.contains(&format!(
+                "cmux session 'name:{session}' reset-state --state '{}' --force",
+                state.display()
+            )),
+            "{english}"
+        );
+    }
+    #[cfg(not(any(
+        target_os = "ios",
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "android"
+    )))]
+    {
+        assert!(!english.contains(" reset-state"), "{english}");
+        assert!(
+            english.contains(
+                "scoped saved-state reset is not supported on this platform; no reset command is shown"
+            ),
+            "{english}"
+        );
+    }
     assert!(!english.contains("session current shutdown --force"), "{english}");
     assert!(english.contains("saved state still requires a newer cmux"), "{english}");
     assert!(english.contains(&format!("--session '{session}-separate'")), "{english}");
@@ -596,27 +614,73 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     assert!(!japanese.contains(&database.display().to_string()), "{japanese}");
     assert!(japanese.contains("このソケットを待ち受けているサーバーはありません"), "{japanese}");
     assert!(!japanese.contains("停止は不要"), "{japanese}");
-    assert!(
-        japanese.contains(&format!(
-            "cmux session 'name:{session}' reset-state --state '{}'",
-            state.display()
-        )),
-        "{japanese}"
-    );
-    assert!(
-        !japanese.contains(&format!(
-            "cmux session 'name:{session}' reset-state --state '{}' --force",
-            state.display()
-        )),
-        "{japanese}"
-    );
+    #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+    {
+        assert!(
+            japanese.contains(&format!(
+                "cmux session 'name:{session}' reset-state --state '{}'",
+                state.display()
+            )),
+            "{japanese}"
+        );
+        assert!(
+            !japanese.contains(&format!(
+                "cmux session 'name:{session}' reset-state --state '{}' --force",
+                state.display()
+            )),
+            "{japanese}"
+        );
+    }
+    #[cfg(not(any(
+        target_os = "ios",
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "android"
+    )))]
+    {
+        assert!(!japanese.contains(" reset-state"), "{japanese}");
+        assert!(
+            japanese.contains("このプラットフォームではスコープ付き保存状態リセットに対応していないため、リセットコマンドは表示しません"),
+            "{japanese}"
+        );
+    }
     assert!(!japanese.contains("session current shutdown --force"), "{japanese}");
     assert!(japanese.contains("保存状態には新しい cmux が必要です"), "{japanese}");
 
     fs::remove_dir_all(dir).unwrap();
 }
 
-#[cfg(unix)]
+#[test]
+fn session_reset_state_rejects_global_routing_options() {
+    let dir = unique_temp_dir("session-reset-routing-options");
+    let state = dir.join("state");
+    for (option, value) in
+        [("--socket", "ignored.sock"), ("--session", "ignored"), ("--machine", "ignored")]
+    {
+        let output = Command::new(bin())
+            .args([
+                "--json",
+                option,
+                value,
+                "session",
+                "target",
+                "reset-state",
+                "--state",
+            ])
+            .arg(&state)
+            .env_remove("CMUX_TUI_SOCKET")
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{option} unexpectedly reached reset execution");
+        let error: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(error["code"], "session.reset_state.routing_options_unsupported");
+        assert_eq!(error["details"]["options"], serde_json::json!([option]));
+        assert!(error["message"].as_str().unwrap().contains(option));
+        assert!(!state.exists(), "{option} created the ignored state root");
+    }
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
 #[test]
 fn session_reset_state_removes_only_the_named_saved_state() {
     let dir = unique_temp_dir("session-reset-state");
@@ -710,7 +774,7 @@ fn session_reset_state_removes_only_the_named_saved_state() {
     fs::remove_dir_all(dir).unwrap();
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
 #[test]
 fn session_reset_state_refuses_live_terminal_host_state() {
     let dir = unique_temp_dir("session-reset-live-host");
@@ -760,7 +824,7 @@ fn session_reset_state_refuses_live_terminal_host_state() {
     fs::remove_dir_all(dir).unwrap();
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
 #[test]
 fn session_reset_state_refuses_orphan_terminal_host_live_marker() {
     let dir = unique_temp_dir("session-reset-orphan-host-marker");
@@ -813,7 +877,7 @@ fn session_reset_state_refuses_orphan_terminal_host_live_marker() {
     fs::remove_dir_all(dir).unwrap();
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
 #[test]
 fn session_reset_state_removes_dead_orphan_terminal_host_live_marker() {
     let dir = unique_temp_dir("session-reset-dead-orphan-host-marker");

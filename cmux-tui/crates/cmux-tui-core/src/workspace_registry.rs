@@ -610,6 +610,31 @@ enum PendingSessionResetKind {
     TerminalHosts,
 }
 
+fn pending_session_reset_kind(rest: &str) -> Option<PendingSessionResetKind> {
+    let (kind, reset_id) = if let Some(reset_id) = rest.strip_prefix("session-") {
+        (PendingSessionResetKind::Session, reset_id)
+    } else if let Some(reset_id) = rest.strip_prefix("terminal-hosts-") {
+        (PendingSessionResetKind::TerminalHosts, reset_id)
+    } else {
+        return None;
+    };
+    is_canonical_reset_uuid_v4(reset_id).then_some(kind)
+}
+
+fn is_canonical_reset_uuid_v4(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 36
+        && bytes[8] == b'-'
+        && bytes[13] == b'-'
+        && bytes[18] == b'-'
+        && bytes[23] == b'-'
+        && bytes[14] == b'4'
+        && matches!(bytes[19], b'8' | b'9' | b'a' | b'b')
+        && bytes.iter().enumerate().all(|(index, byte)| {
+            matches!(index, 8 | 13 | 18 | 23) || matches!(*byte, b'0'..=b'9' | b'a'..=b'f')
+        })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PendingSessionResetDir {
     path: PathBuf,
@@ -655,10 +680,8 @@ fn pending_session_reset_dirs(
             continue;
         }
         let rest = &file_name[prefix.len()..file_name.len() - suffix.len()];
-        let kind = if rest.starts_with("terminal-hosts-") {
-            PendingSessionResetKind::TerminalHosts
-        } else {
-            PendingSessionResetKind::Session
+        let Some(kind) = pending_session_reset_kind(rest) else {
+            continue;
         };
         let path = entry.path();
         let metadata = fs::symlink_metadata(&path)

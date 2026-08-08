@@ -127,6 +127,7 @@ pub(crate) struct SessionResetMessages {
     pub no_state_root: &'static str,
     pub confirmation_required: &'static str,
     pub confirmation_recovery: &'static str,
+    routing_options_unsupported: &'static str,
     reset_failed: &'static str,
     pub reason_session_running: &'static str,
     pub recovery_session_running: &'static str,
@@ -148,6 +149,10 @@ pub(crate) struct SessionResetMessages {
 }
 
 impl SessionResetMessages {
+    pub(crate) fn routing_options_unsupported(&self, options: &str) -> String {
+        self.routing_options_unsupported.replace("{options}", options)
+    }
+
     pub(crate) fn reset_failed(&self, session: &str) -> String {
         self.reset_failed.replace("{session}", session)
     }
@@ -989,6 +994,7 @@ static ENGLISH: Catalog = Catalog {
         no_state_root: "cannot determine durable state directory; pass --state <path>",
         confirmation_required: "session reset-state --force requires a confirmation token from preview",
         confirmation_recovery: "rerun without --force, review the scoped targets, then retry with the printed --confirm-reset token",
+        routing_options_unsupported: "session reset-state does not accept global routing options: {options}; use --state <path> to select the saved-state root",
         reset_failed: "could not complete saved-state reset for session \"{session}\"",
         reason_session_running: "the session is still running",
         recovery_session_running: "stop the running session before retrying the reset",
@@ -1504,6 +1510,7 @@ static JAPANESE: Catalog = Catalog {
         no_state_root: "永続状態ディレクトリを特定できません。--state <path> を指定してください",
         confirmation_required: "session reset-state --force にはプレビューで表示された確認トークンが必要です",
         confirmation_recovery: "--force なしで再実行し、スコープ付き対象を確認してから、表示された --confirm-reset トークンを付けて再試行してください",
+        routing_options_unsupported: "session reset-state ではグローバルルーティングオプション {options} を使用できません。保存状態のルートを選択するには --state <path> を使用してください",
         reset_failed: "セッション \"{session}\" の保存状態リセットを完了できませんでした",
         reason_session_running: "セッションがまだ実行中です",
         recovery_session_running: "実行中のセッションを停止してからリセットを再試行してください",

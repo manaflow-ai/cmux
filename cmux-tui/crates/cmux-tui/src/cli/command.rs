@@ -2207,6 +2207,27 @@ pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthority
 pub(super) fn run_session_reset_state(global: GlobalArgs, plan: SessionResetStatePlan) -> i32 {
     let output = global.output;
     let messages = &crate::localization::catalog().session_reset;
+    let routing_options = [
+        global.socket.as_ref().map(|_| "--socket"),
+        global.session.as_ref().map(|_| "--session"),
+        global.machine.as_ref().map(|_| "--machine"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    if !routing_options.is_empty() {
+        let options = routing_options.join(", ");
+        return super::wire::print_local_error(
+            &json!({
+                "code": "session.reset_state.routing_options_unsupported",
+                "message": messages.routing_options_unsupported(&options),
+                "details": { "options": routing_options },
+                "retryable": false,
+            }),
+            output,
+            2,
+        );
+    }
     let state_root =
         match plan.state.map(PathBuf::from).or_else(cmux_tui_core::platform::workspace_state_dir) {
             Some(path) => path,
