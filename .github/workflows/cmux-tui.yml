@@ -328,7 +328,7 @@ jobs:
 
       - name: Ghostty VT cursor replay tests
         working-directory: ghostty
-        run: '"$CMUX_ZIG" build test-lib-vt -Dtest-filter="Terminal vt restores cursor"'
+        run: '"$CMUX_ZIG" build test-lib-vt -Dtest-filter="Terminal vt"'
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
