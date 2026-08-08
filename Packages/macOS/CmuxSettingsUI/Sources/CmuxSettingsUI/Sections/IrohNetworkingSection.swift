@@ -22,9 +22,11 @@ public struct IrohNetworkingSection: View {
             relayPolicyCard
             customRelayCard
             privateNetworkCard
+            connectionCheckCard
             diagnosticsCard
         }
         .task { await model.observe() }
+        .onDisappear { model.cancelConnectionCheck() }
         .sheet(isPresented: $showsCustomEditor) {
             NavigationStack {
                 IrohCustomRelayEditor(relay: editedCustomRelay) { relay, secret in
@@ -243,6 +245,15 @@ public struct IrohNetworkingSection: View {
                 ))
             }
         }
+    }
+
+    private var connectionCheckCard: some View {
+        IrohConnectionCheckCard(
+            report: model.connectionCheck,
+            snapshot: model.snapshot,
+            isRunning: model.isRunningConnectionCheck,
+            run: model.runConnectionCheck
+        )
     }
 
     private enum PreferenceChoice: Hashable {

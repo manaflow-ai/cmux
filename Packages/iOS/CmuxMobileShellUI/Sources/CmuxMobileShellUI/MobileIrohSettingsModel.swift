@@ -13,12 +13,16 @@ final class MobileIrohSettingsModel {
     private(set) var isMutating = false
     private(set) var showsSaveError = false
     private(set) var testResults: [String: CmxIrohRelayTestResult] = [:]
+    private(set) var connectionCheck: CmxIrohConnectionCheckReport?
+    private(set) var isRunningConnectionCheck = false
     private(set) var diagnosticReport = DiagnosticReport.empty
     private(set) var diagnosticExportText = ""
     private(set) var verboseLogEnabled = UserDefaults.standard.bool(
         forKey: MobileDebugLog.verboseLogDefaultsKey
     )
     private var diagnosticReloadGeneration: UInt64 = 0
+    private var connectionCheckTask: Task<Void, Never>?
+    private var connectionCheckGeneration: UInt64 = 0
 
     /// The durable verbose log file, offered for sharing once it exists.
     var verboseLogShareURL: URL? {
@@ -40,12 +44,10 @@ final class MobileIrohSettingsModel {
     }
 
     func observe() async {
-        snapshot = await controller.irohSettingsSnapshot()
-        await reloadDiagnostics()
+        await acceptSnapshot(await controller.irohSettingsSnapshot(), previousStatus: nil)
         for await next in controller.irohSettingsUpdates() {
             guard !Task.isCancelled else { return }
-            snapshot = next
-            await reloadDiagnostics()
+            await acceptSnapshot(next, previousStatus: snapshot.runtimeStatus)
         }
     }
 
@@ -98,6 +100,27 @@ final class MobileIrohSettingsModel {
 
     func testCustomRelay(id: String) {
         Task { testResults[id] = await controller.testIrohCustomRelay(id: id) }
+    }
+
+    func runConnectionCheck() {
+        // Reserve ownership before the task starts so rapid calls cannot
+        // create competing tasks whose cleanup clears each other's handle.
+        guard connectionCheckTask == nil, !isRunningConnectionCheck else { return }
+        connectionCheckGeneration &+= 1
+        let generation = connectionCheckGeneration
+        connectionCheckTask = Task { [weak self] in
+            guard let self else { return }
+            await runConnectionCheckAndWait()
+            if connectionCheckGeneration == generation {
+                connectionCheckTask = nil
+            }
+        }
+    }
+
+    func cancelConnectionCheck() {
+        connectionCheckGeneration &+= 1
+        connectionCheckTask?.cancel()
+        connectionCheckTask = nil
     }
 
     func upsertCustomPrivatePath(
@@ -158,6 +181,36 @@ final class MobileIrohSettingsModel {
         guard generation == diagnosticReloadGeneration else { return }
         diagnosticReport = report
         diagnosticExportText = blocks.joined(separator: "\n")
+    }
+
+    private func runConnectionCheckAndWait() async {
+        guard !Task.isCancelled, !isRunningConnectionCheck else { return }
+        isRunningConnectionCheck = true
+        defer { isRunningConnectionCheck = false }
+        let report = await controller.runIrohConnectionCheck()
+        guard !Task.isCancelled else { return }
+        let refreshedSnapshot = await controller.irohSettingsSnapshot()
+        guard !Task.isCancelled else { return }
+        connectionCheck = report
+        snapshot = refreshedSnapshot
+        await reloadDiagnostics()
+    }
+
+    private func acceptSnapshot(
+        _ next: CmxIrohSettingsSnapshot,
+        previousStatus: CmxIrohSettingsSnapshot.RuntimeStatus?
+    ) async {
+        snapshot = next
+        await reloadDiagnostics()
+        // Auto-diagnose only a diagnosed degraded entry: a connection failure
+        // in diagnostics, or a relay-configuration failure on the snapshot
+        // (relay-policy-only degradation carries no lastFailureKind).
+        guard !Task.isCancelled,
+              previousStatus != .degraded,
+              next.runtimeStatus == .degraded,
+              diagnosticReport.lastFailureKind != nil
+                  || next.failureDescription != nil else { return }
+        await runConnectionCheckAndWait()
     }
 }
 #endif

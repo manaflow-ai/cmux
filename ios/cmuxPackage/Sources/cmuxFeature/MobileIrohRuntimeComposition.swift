@@ -2505,6 +2505,32 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         }
     }
 
+    public func runIrohConnectionCheck() async -> CmxIrohConnectionCheckReport {
+        await refreshIrohSettings()
+        let snapshot = await irohSettingsSnapshot()
+        let diagnostics = await irohDiagnosticReport()
+        let relayReachability: CmxIrohConnectionCheckReport.RelayReachability
+        if let profile = await relayPolicyService?.effectivePolicy()?.endpointRelayProfile,
+           !profile.allowedRelayURLs.isEmpty {
+            if let isReachable = await runtime?.hasReachableRelay(in: profile.allowedRelayURLs) {
+                relayReachability = isReachable ? .reachable : .unreachable
+            } else {
+                relayReachability = .unavailable
+            }
+        } else {
+            relayReachability = .notConfigured
+        }
+        let macDiscovery: CmxIrohConnectionCheckReport.MacDiscovery =
+            await routeCatalog.liveMacCandidates(preferredTag: tag).isEmpty ? .missing : .found
+        return CmxIrohConnectionCheckReport(
+            role: .mobileClient,
+            snapshot: snapshot,
+            diagnostics: diagnostics,
+            relayReachability: relayReachability,
+            macDiscovery: macDiscovery
+        )
+    }
+
     public func upsertIrohCustomPrivatePath(
         _ path: CmxIrohCustomPrivatePathDraft
     ) async throws {
