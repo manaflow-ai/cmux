@@ -2057,6 +2057,10 @@ trait MessageSink: Send + Sync {
     fn set_write_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
         Ok(())
     }
+    #[cfg(test)]
+    fn flush_control(&self, _timeout: Duration) -> std::io::Result<()> {
+        Ok(())
+    }
     fn is_open(&self) -> bool;
     fn close(&self);
 }
@@ -11685,6 +11689,82 @@ mod tests {
         (writer, outbound, entered_rx, release_tx)
     }
 
+    struct BlockingFlushSink {
+        outbound: Arc<BoundedOutbound>,
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+
+    impl MessageSink for BlockingFlushSink {
+        fn send_initial(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_initial(text, stream)
+        }
+
+        fn send_stream(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_regular(text, stream)
+        }
+
+        fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
+            self.outbound.push_control(text)
+        }
+
+        fn send_terminal(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_terminal(text, stream)
+        }
+
+        fn flush_control(&self, _timeout: Duration) -> std::io::Result<()> {
+            self.entered.send(()).map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "flush blocker observer closed",
+                )
+            })?;
+            self.release.lock().unwrap().recv().map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "flush blocker release closed",
+                )
+            })
+        }
+
+        fn is_open(&self) -> bool {
+            self.outbound.is_open()
+        }
+
+        fn close(&self) {
+            self.outbound.close();
+        }
+    }
+
+    fn blocking_flush_writer() -> (
+        MessageWriter,
+        Arc<BoundedOutbound>,
+        std::sync::mpsc::Receiver<()>,
+        std::sync::mpsc::SyncSender<()>,
+    ) {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let writer = MessageWriter::new(BlockingFlushSink {
+            outbound: outbound.clone(),
+            entered: entered_tx,
+            release: Mutex::new(release_rx),
+        });
+        (writer, outbound, entered_rx, release_tx)
+    }
+
     fn pop_json(outbound: &BoundedOutbound) -> Value {
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
@@ -15919,6 +15999,43 @@ mod tests {
         assert_eq!(response["data"]["generation"], generation);
         assert!(accepted.control_clients.contains(local));
         assert!(!accepted.control_clients.contains(interactive));
+    }
+
+    #[test]
+    fn daemon_shutdown_waits_for_ack_flush_before_disconnecting_the_owner() {
+        let mux = test_mux();
+        let (writer, outbound, flush_entered, release_flush) = blocking_flush_writer();
+        let requester = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let interactive =
+            mux.control_clients.register(ClientTransport::Unix, test_writer());
+        let (_, generation) = mux.registry_identity();
+        let request = json!({
+            "id": 97,
+            "cmd": "shutdown-daemon",
+            "pid": std::process::id(),
+            "generation": generation,
+        })
+        .to_string();
+        let worker_mux = mux.clone();
+        let worker_writer = writer.clone();
+        let worker = std::thread::spawn(move || {
+            handle_message(&worker_mux, requester, &request, &worker_writer)
+        });
+
+        flush_entered
+            .recv_timeout(Duration::from_secs(2))
+            .expect("shutdown did not wait for the response flush");
+        assert!(!mux.daemon_shutdown_requested());
+        assert!(mux.control_clients.contains(interactive));
+
+        release_flush.send(()).unwrap();
+        assert!(worker.join().unwrap());
+        assert!(mux.daemon_shutdown_requested());
+        assert!(mux.control_clients.contains(requester));
+        assert!(!mux.control_clients.contains(interactive));
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["data"]["accepted"], true);
     }
 
     #[test]
