@@ -1081,6 +1081,35 @@ class cmux:
             params["label"] = label
         return dict(self._call("debug.window.screenshot", params) or {})
 
+    def font_resolve(
+        self,
+        panel: Union[str, int],
+        items: List[Dict[str, Any]],
+        timeout_s: float = 60.0,
+    ) -> dict:
+        """Resolve grapheme clusters through the live app's font pipeline.
+
+        items: [{"cluster": str, "bold"?: bool, "italic"?: bool,
+        "constraint_width"?: 1|2}], max 512 per call, answered in order.
+        Resolution order matters (dynamic font fallback is session-order
+        dependent), so submit clusters in canonical repertoire order.
+        """
+        sid = self._resolve_surface_id(panel)
+        params: Dict[str, Any] = {"surface_id": sid, "items": items}
+        return dict(self._call("debug.font.resolve", params, timeout_s=timeout_s) or {})
+
+    def font_rasterize(
+        self,
+        panel: Union[str, int],
+        items: List[Dict[str, Any]],
+        timeout_s: float = 120.0,
+    ) -> dict:
+        """Like font_resolve, but each glyph carries pixels (base64):
+        16-bit LE coverage for monochrome, premultiplied P3 BGRA for color."""
+        sid = self._resolve_surface_id(panel)
+        params: Dict[str, Any] = {"surface_id": sid, "items": items}
+        return dict(self._call("debug.font.rasterize", params, timeout_s=timeout_s) or {})
+
 
 def main() -> None:
     import argparse

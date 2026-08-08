@@ -270,6 +270,36 @@ void ghostty_surface_quicklook_font(void) {}
 void ghostty_surface_read_screen_tail_vt(void) {}
 void ghostty_surface_read_text(void) {}
 void ghostty_surface_refresh(void) {}
+ghostty_string_s ghostty_surface_font_resolve_json(
+    void *surface,
+    const char *cluster,
+    uintptr_t cluster_len,
+    bool bold,
+    bool italic,
+    uint8_t constraint_width) {
+    (void)surface;
+    (void)cluster;
+    (void)cluster_len;
+    (void)bold;
+    (void)italic;
+    (void)constraint_width;
+    return (ghostty_string_s){0};
+}
+ghostty_string_s ghostty_surface_font_rasterize_json(
+    void *surface,
+    const char *cluster,
+    uintptr_t cluster_len,
+    bool bold,
+    bool italic,
+    uint8_t constraint_width) {
+    (void)surface;
+    (void)cluster;
+    (void)cluster_len;
+    (void)bold;
+    (void)italic;
+    (void)constraint_width;
+    return (ghostty_string_s){0};
+}
 void ghostty_surface_render_grid_json(void) {}
 void ghostty_surface_render_grid_json_with_theme(void) {}
 ghostty_string_s ghostty_surface_render_grid_json_v2(
