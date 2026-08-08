@@ -197,7 +197,7 @@ impl Drop for RecoveryHarness {
         let endpoints =
             records.iter().map(|(_, record)| PathBuf::from(&record.endpoint)).collect::<Vec<_>>();
         for (path, record) in &records {
-            if let Ok(host) = adopt_terminal_host(record.clone(), path.clone()) {
+            if let Ok(mut host) = adopt_terminal_host(record.clone(), path.clone()) {
                 let _ = host.terminate();
                 host.disconnect();
             }
@@ -574,7 +574,7 @@ fn explicit_terminate_escalates_past_a_sighup_ignoring_child() {
     assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
 
     let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
-    let host = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
+    let mut host = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
     let shell_pid = host.snapshot.pid.unwrap() as libc::pid_t;
     host.terminate().unwrap();
     host.disconnect();
@@ -631,7 +631,7 @@ fn explicit_terminate_reaps_descendants_in_the_pty_group() {
         terminal_host_record_liveness(&record_path, &record).unwrap(),
         TerminalHostLiveness::Live,
     );
-    let host = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
+    let mut host = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
     host.terminate().unwrap();
     host.disconnect();
     wait_for_no_host_records(&harness.host_root());
@@ -1827,6 +1827,60 @@ fn client_reserved_create_retry_returns_original_binding_without_second_host() {
 }
 
 #[test]
+fn client_reserved_short_lived_create_replays_its_durable_exit_without_topology() {
+    let harness = RecoveryHarness::start("reserved-short-lived-create");
+    let workspace = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,
+            "cmd":"create-workspace",
+            "name":"Short-lived",
+            "key":"018f6e21-7b70-7e70-8000-000000000046",
+            "origin":"browser",
+            "mutation_id":"workspace-create",
+            "expected_revision":0,
+        }),
+    );
+    let terminal_id = TerminalId::random().unwrap().to_hex();
+    let create = serde_json::json!({
+        "id":2,
+        "cmd":"create-terminal",
+        "key":"018f6e21-7b70-7e70-8000-000000000046",
+        "argv":["/bin/sh","-c","exit 17"],
+        "terminal_id":terminal_id,
+        "origin":"browser",
+        "mutation_id":"terminal-create",
+        "expected_generation":workspace["generation"],
+        "expected_terminal_revision":0,
+        "cols":80,
+        "rows":24,
+    });
+
+    let first = request(&harness.socket, create.clone());
+    assert_eq!(first["terminal_id"], terminal_id);
+    assert_eq!(first["replayed"], false);
+    assert_eq!(first["already_exited"], true);
+    assert_eq!(first["lifecycle"], "exited");
+    assert_eq!(first["exit"]["outcome"], serde_json::json!({"kind":"exit","code":17}));
+    assert_eq!(first["surface"], serde_json::Value::Null);
+    assert_eq!(first["pane"], serde_json::Value::Null);
+    assert_eq!(first["screen"], serde_json::Value::Null);
+    assert_eq!(first["workspace"], serde_json::Value::Null);
+
+    let retry = request(&harness.socket, create);
+    assert_eq!(retry["replayed"], true);
+    assert_eq!(retry["terminal_id"], terminal_id);
+    assert_eq!(retry["already_exited"], true);
+    assert_eq!(retry["lifecycle"], "exited");
+    assert_eq!(retry["exit"], first["exit"]);
+    assert_eq!(retry["surface"], serde_json::Value::Null);
+    assert_eq!(retry["pane"], serde_json::Value::Null);
+    assert_eq!(retry["screen"], serde_json::Value::Null);
+    assert_eq!(retry["workspace"], serde_json::Value::Null);
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
 fn stalled_renderer_is_disconnected_without_freezing_the_host() {
     let harness = RecoveryHarness::start("stalled-renderer");
     let created = request(
@@ -2104,7 +2158,7 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
     );
     let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
 
-    let disconnected = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
+    let mut disconnected = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
     disconnected.disconnect();
     assert!(disconnected.terminate().is_err());
     assert!(record_path.exists(), "failed Terminate unlinked a live host record");

@@ -6,7 +6,7 @@
 // `cmuxVmPlan` takes precedence over `cmuxPlan` there and is left untouched
 // here so manual overrides survive.
 
-import { inArray, eq, and } from "drizzle-orm";
+import { inArray, eq, and, or } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
@@ -272,6 +272,45 @@ export async function hasActiveTeamSubscriptionForTeam(
           eq(stripeSubscriptions.scope, "team"),
           eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
           inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  } catch (error) {
+    if (isMissingDatabaseConfig(error)) return false;
+    throw error;
+  }
+}
+
+/**
+ * A hosted coderouter seat is covered either by the user's own Pro
+ * subscription or by the selected team's Team subscription. Keep this as one
+ * indexed query so route-session issuance does not serialize two RDS reads.
+ * The caller must establish membership in `stackTeamId` before calling.
+ */
+export async function hasActiveCoderouterSubscription(
+  stackUserId: string,
+  stackTeamId: string,
+): Promise<boolean> {
+  try {
+    const rows = await cloudDb()
+      .select({ id: stripeSubscriptions.id })
+      .from(stripeSubscriptions)
+      .where(
+        and(
+          inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
+          or(
+            and(
+              eq(stripeSubscriptions.stackUserId, stackUserId),
+              eq(stripeSubscriptions.scope, "user"),
+              eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+            ),
+            and(
+              eq(stripeSubscriptions.stackTeamId, stackTeamId),
+              eq(stripeSubscriptions.scope, "team"),
+              eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
+            ),
+          ),
         ),
       )
       .limit(1);
