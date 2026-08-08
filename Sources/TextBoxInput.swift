@@ -1501,10 +1501,12 @@ private final class TextBoxSubmitEventRunner {
     private var confirmedClaudeImageSubmissionTexts: [String: Int] = [:]
     private var observers: [NSObjectProtocol] = []
     private var waitTimeoutTimer: DispatchSourceTimer?
+    private var pasteFilePathTask: Task<Void, Never>?
+    private var pasteFilePathMutationLease: TerminalPasteboardMutationLease?
     private var releaseTickNotifications: (() -> Void)?
     private var releaseRenderedFrameNotifications: (() -> Void)?
-    private var originalPasteboardItems: [PasteboardItemSnapshot]?
-    private var temporaryPasteboardRestorationToken: TextBoxPasteboardRestorationToken?
+    private var temporaryPasteboardMutationResult:
+        TerminalPasteboardMutationResult?
     private var observationToken = UUID()
 
     private static var waitTimeoutSeconds: TimeInterval {
@@ -1516,8 +1518,10 @@ private final class TextBoxSubmitEventRunner {
         return 15
     }
 
-    private struct PasteboardItemSnapshot {
-        let representations: [(type: NSPasteboard.PasteboardType, data: Data)]
+    private enum PasteFilePathStart {
+        case pending
+        case completed
+        case rejected
     }
 
     private struct PendingRun {
@@ -1618,7 +1622,12 @@ private final class TextBoxSubmitEventRunner {
                     return
                 }
             case .pasteFilePath(let path):
-                guard pasteFilePath(path) else {
+                switch pasteFilePath(path) {
+                case .pending:
+                    return
+                case .completed:
+                    continue
+                case .rejected:
                     fail(.terminalWriteRejected)
                     return
                 }
@@ -1659,6 +1668,7 @@ private final class TextBoxSubmitEventRunner {
 
     private func fail(_ failure: TextBoxSubmit.CompletionContext.Failure) {
         removeObservers()
+        cancelPendingPasteboardMutation()
         restorePasteboardIfNeeded()
         let completion = onComplete
         onComplete = nil
@@ -1677,6 +1687,7 @@ private final class TextBoxSubmitEventRunner {
     }
 
     private func finish() {
+        cancelPendingPasteboardMutation()
         restorePasteboardIfNeeded()
         let completion = onComplete
         onComplete = nil
@@ -1749,6 +1760,7 @@ private final class TextBoxSubmitEventRunner {
 
     private func cancelForTesting() {
         removeObservers()
+        cancelPendingPasteboardMutation()
         restorePasteboardIfNeeded()
         onComplete = nil
     }
@@ -2016,86 +2028,125 @@ private final class TextBoxSubmitEventRunner {
         timer.resume()
     }
 
-    private func pasteFilePath(_ path: String) -> Bool {
+    private func pasteFilePath(_ path: String) -> PasteFilePathStart {
+        // A run can paste several images. Restore the prior temporary write
+        // first so each new receipt captures the user's latest clipboard.
+        restorePasteboardIfNeeded()
         let pasteboard = NSPasteboard.general
-        if originalPasteboardItems == nil {
-            originalPasteboardItems = Self.snapshotPasteboardItems(pasteboard)
-        } else if !TextBoxPasteboardRestorationGuard.isCurrentTemporaryWrite(
-            pasteboard: pasteboard,
-            token: temporaryPasteboardRestorationToken
-        ) {
-            originalPasteboardItems = Self.snapshotPasteboardItems(pasteboard)
-            temporaryPasteboardRestorationToken = nil
-        }
-
         let fileURL = URL(fileURLWithPath: path).standardizedFileURL
-        pasteboard.clearContents()
-        let wroteURL = pasteboard.writeObjects([fileURL as NSURL])
-        if !wroteURL {
-            pasteboard.clearContents()
-            pasteboard.declareTypes([.fileURL, PasteboardFileURLReader.legacyFilenamesPboardType], owner: nil)
-            _ = pasteboard.setString(fileURL.absoluteString, forType: .fileURL)
-            _ = pasteboard.setPropertyList([fileURL.path], forType: PasteboardFileURLReader.legacyFilenamesPboardType)
+        let item = NSPasteboardItem()
+        let wroteFileURL = item.setString(
+            fileURL.absoluteString,
+            forType: .fileURL
+        )
+        let wroteLegacyPaths = item.setPropertyList(
+            [fileURL.path],
+            forType: PasteboardFileURLReader.legacyFilenamesPboardType
+        )
+        guard wroteFileURL || wroteLegacyPaths else {
+            return .rejected
         }
-        temporaryPasteboardRestorationToken = TextBoxPasteboardRestorationGuard.token(
-            afterWritingTemporaryFileURL: fileURL,
-            to: pasteboard
-        )
-
-#if DEBUG
-        cmuxDebugLog(
-            "textbox.submit.pasteFile id=\(id.uuidString.prefix(5)) pathLength=\(fileURL.path.utf8.count) wroteURL=\(wroteURL ? 1 : 0) " +
-            "types=\((pasteboard.types ?? []).map(\.rawValue).joined(separator: ","))"
-        )
-#endif
-
-        let handled = surface.performExplicitInputBindingAction("paste_from_clipboard")
-#if DEBUG
-        cmuxDebugLog("textbox.submit.pasteFile.binding id=\(id.uuidString.prefix(5)) handled=\(handled ? 1 : 0)")
-#endif
-        if handled {
-            return true
-        } else {
+        guard let lease = GhosttyApp.terminalPasteboard.reserveMutation(
+            of: pasteboard,
+            replacingWith: [item]
+        ) else {
             filePasteFallbackSatisfiedClipboardRead = true
-            let sentFallback = surface.sendText(TerminalImageTransferPlanner.escapeForShell(path))
-            restorePasteboardIfNeeded()
-            return sentFallback
+            return surface.sendText(
+                TerminalImageTransferPlanner.escapeForShell(path)
+            ) ? .completed : .rejected
+        }
+        pasteFilePathMutationLease = lease
+
+        pasteFilePathTask = Task { @MainActor [weak self] in
+            guard let result = await lease.waitUntilApplied() else {
+                _ = lease.finish()
+                guard let self, Self.active[id] === self else { return }
+                pasteFilePathTask = nil
+                if pasteFilePathMutationLease === lease {
+                    pasteFilePathMutationLease = nil
+                }
+                fail(.terminalWriteRejected)
+                return
+            }
+            guard let self, Self.active[id] === self else {
+                _ = lease.finish()
+                return
+            }
+            pasteFilePathTask = nil
+            if pasteFilePathMutationLease === lease {
+                pasteFilePathMutationLease = nil
+            }
+
+            guard result.didWrite else {
+                _ = lease.finish()
+                filePasteFallbackSatisfiedClipboardRead = true
+                guard surface.sendText(
+                    TerminalImageTransferPlanner.escapeForShell(path)
+                ) else {
+                    fail(.terminalWriteRejected)
+                    return
+                }
+                processNext()
+                return
+            }
+            temporaryPasteboardMutationResult = result
+
+#if DEBUG
+            cmuxDebugLog(
+                "textbox.submit.pasteFile id=\(id.uuidString.prefix(5)) " +
+                "pathLength=\(fileURL.path.utf8.count) wroteURL=1 " +
+                "types=\((pasteboard.types ?? []).map(\.rawValue).joined(separator: ","))"
+            )
+#endif
+
+            let handled = surface.performExplicitInputBindingAction(
+                "paste_from_clipboard"
+            )
+            // The binding's synchronous runtime callback has now registered
+            // its read behind this mutation, so the lane can advance.
+            _ = lease.finish()
+#if DEBUG
+            cmuxDebugLog(
+                "textbox.submit.pasteFile.binding id=\(id.uuidString.prefix(5)) " +
+                "handled=\(handled ? 1 : 0)"
+            )
+#endif
+            guard handled else {
+                filePasteFallbackSatisfiedClipboardRead = true
+                let sentFallback = surface.sendText(
+                    TerminalImageTransferPlanner.escapeForShell(path)
+                )
+                restorePasteboardIfNeeded()
+                guard sentFallback else {
+                    fail(.terminalWriteRejected)
+                    return
+                }
+                processNext()
+                return
+            }
+            processNext()
+        }
+        return .pending
+    }
+
+    private func cancelPendingPasteboardMutation() {
+        pasteFilePathTask?.cancel()
+        pasteFilePathTask = nil
+        guard let lease = pasteFilePathMutationLease else { return }
+        pasteFilePathMutationLease = nil
+        let appliedResult = lease.finish()
+        if temporaryPasteboardMutationResult == nil {
+            temporaryPasteboardMutationResult = appliedResult
         }
     }
 
     private func restorePasteboardIfNeeded() {
-        guard let originalPasteboardItems else { return }
-        self.originalPasteboardItems = nil
-        let pasteboard = NSPasteboard.general
-        guard TextBoxPasteboardRestorationGuard.shouldRestore(
-            pasteboard: pasteboard,
-            token: temporaryPasteboardRestorationToken
-        ) else {
-            temporaryPasteboardRestorationToken = nil
-            return
-        }
-        temporaryPasteboardRestorationToken = nil
-        pasteboard.clearContents()
-        guard !originalPasteboardItems.isEmpty else { return }
-        let restoredItems = originalPasteboardItems.map { snapshot in
-            let item = NSPasteboardItem()
-            for representation in snapshot.representations {
-                item.setData(representation.data, forType: representation.type)
-            }
-            return item
-        }
-        pasteboard.writeObjects(restoredItems)
-    }
-
-    private static func snapshotPasteboardItems(_ pasteboard: NSPasteboard) -> [PasteboardItemSnapshot] {
-        (pasteboard.pasteboardItems ?? []).map { item in
-            PasteboardItemSnapshot(
-                representations: item.types.compactMap { type in
-                    guard let data = item.data(forType: type) else { return nil }
-                    return (type: type, data: data)
-                }
-            )
-        }
+        guard let result = temporaryPasteboardMutationResult else { return }
+        guard GhosttyApp.terminalPasteboard.restoreContents(
+            replacedBy: result,
+            in: .general
+        ) else { return }
+        temporaryPasteboardMutationResult = nil
     }
 
     private func claudeImageTokenReady() -> Bool {
@@ -5156,32 +5207,37 @@ final class TextBoxInputTextView: NSTextView {
             .filter { !$0.isEmpty }
             .joined(separator: " ")
 
-        var types: [NSPasteboard.PasteboardType] = [.string]
-        if !fileURLs.isEmpty {
-            types.append(.fileURL)
-            types.append(PasteboardFileURLReader.legacyFilenamesPboardType)
-        }
-
-        pasteboard.clearContents()
-        pasteboard.declareTypes(types, owner: nil)
-
+        let item = NSPasteboardItem()
         var wroteContent = false
         if !fileURLs.isEmpty {
             if let firstURL = fileURLs.first {
-                wroteContent = pasteboard.setString(firstURL.absoluteString, forType: .fileURL) || wroteContent
+                wroteContent = item.setString(
+                    firstURL.absoluteString,
+                    forType: .fileURL
+                ) || wroteContent
             }
-            wroteContent = pasteboard.setPropertyList(
+            wroteContent = item.setPropertyList(
                 fileURLs.map(\.path),
                 forType: PasteboardFileURLReader.legacyFilenamesPboardType
             ) || wroteContent
         }
 
         if !submissionText.isEmpty {
-            wroteContent = pasteboard.setString(submissionText, forType: .string) || wroteContent
+            wroteContent = item.setString(
+                submissionText,
+                forType: .string
+            ) || wroteContent
         } else if let firstURL = fileURLs.first {
-            wroteContent = pasteboard.setString(firstURL.path, forType: .string) || wroteContent
+            wroteContent = item.setString(
+                firstURL.path,
+                forType: .string
+            ) || wroteContent
         }
-        return wroteContent
+        guard wroteContent else { return false }
+        return GhosttyApp.terminalPasteboard.replaceContents(
+            of: pasteboard,
+            with: [item]
+        )
     }
 
     private func deleteAttachmentSelection(

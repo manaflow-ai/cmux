@@ -10,8 +10,11 @@ final class FakeTerminalSurfaceNativeView: NSView {
     var currentKeyStateIndicatorText: String? { nil }
     var isKeyboardCopyModeActive: Bool { false }
     var shouldDeferRuntimeInput = false
+    var runtimeInputDeferralResponses: [Bool] = []
+    var runtimeInputDeferralCallCount = 0
     var deferredRuntimeInputs: [() -> Void] = []
     var deferredRuntimeInputBytes: [Int] = []
+    var mobileMouseButtonEvents: [String] = []
 
     func toggleKeyboardCopyMode() -> Bool { false }
     func applyWindowBackgroundIfActive() {}
@@ -22,10 +25,30 @@ final class FakeTerminalSurfaceNativeView: NSView {
         estimatedBytes: Int,
         replay: @escaping () -> Void
     ) -> Bool {
-        guard shouldDeferRuntimeInput else { return false }
+        runtimeInputDeferralCallCount += 1
+        let shouldDefer = runtimeInputDeferralResponses.isEmpty
+            ? shouldDeferRuntimeInput
+            : runtimeInputDeferralResponses.removeFirst()
+        guard shouldDefer else { return false }
         deferredRuntimeInputBytes.append(estimatedBytes)
         deferredRuntimeInputs.append(replay)
         return true
+    }
+
+    func positionMobilePointer(
+        on _: ghostty_surface_t,
+        column _: Int,
+        row _: Int,
+        contentScale _: CGFloat
+    ) {}
+
+    func sendMobileMouseButton(
+        _ state: ghostty_input_mouse_state_e,
+        on _: ghostty_surface_t
+    ) {
+        mobileMouseButtonEvents.append(
+            state == GHOSTTY_MOUSE_PRESS ? "press" : "release"
+        )
     }
 }
 

@@ -290,11 +290,16 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             alignment: 8
         )
         defer { surface.deallocate() }
-        #expect(context.bindRuntimeClipboardSurface(surface))
+        #expect(context.bindRuntimeClipboardSurface(surface, generation: 7))
 
         #expect(context.registerRuntimeClipboardRequest(
             id: 29,
-            onInvalidation: { _, completesNativeRequest in
+            onInvalidation: { _, completesNativeRequest, _, disposition in
+                if case .discard = disposition {
+                    // Expected before native free.
+                } else {
+                    Issue.record("Native teardown must discard deferred input")
+                }
                 recorder.record(
                     "clipboard.invalidate.\(completesNativeRequest)"
                 )

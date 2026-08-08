@@ -3730,8 +3730,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
     private var eventMonitor: Any?
     nonisolated let terminalClipboardInputSequencer =
-        TerminalClipboardInputSequencer<NSEvent, UInt>(
-            maximumBufferedEvents: 256
+        TerminalClipboardInputSequencer<ClipboardDeferredInput, UInt>(
+            maximumBufferedEvents: 256,
+            maximumBufferedCost: 1_048_576
         )
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
@@ -4427,9 +4428,27 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
     func performBindingAction(_ action: String) -> Bool {
+        if deferRuntimeInputDuringClipboardRead(
+            estimatedBytes: action.utf8.count,
+            replay: { [weak self] in
+                _ = self?.performBindingAction(action)
+            }
+        ) {
+            return true
+        }
+        return performBindingActionImmediately(action)
+    }
+
+    private func performBindingActionImmediately(_ action: String) -> Bool {
         guard let surface = surface else { return false }
-        return action.withCString { cString in
-            ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
+        return withPotentialClipboardPasteIntent {
+            action.withCString { cString in
+                ghostty_surface_binding_action(
+                    surface,
+                    cString,
+                    UInt(strlen(cString))
+                )
+            }
         }
     }
 
@@ -4760,19 +4779,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func copyCurrentGhosttySelectionToClipboard(surface: ghostty_surface_t) -> Bool {
-        let generalPasteboard = NSPasteboard.general
-        let previousChangeCount = generalPasteboard.changeCount
-        let copied = performBindingAction("copy_to_clipboard")
-
-        // Ghostty owns clipboard formatting; the raw selection snapshot is only the no-op pasteboard fallback.
-        let ghosttyWroteFormattedText = generalPasteboard.changeCount != previousChangeCount
-            && generalPasteboard.availableType(from: [.string]) != nil
-        if ghosttyWroteFormattedText {
+        let copyAction = "copy_to_clipboard"
+        let formattedRepresentations = GhosttyApp.terminalPasteboard
+            .captureNextStandardClipboardRepresentations {
+                performBindingActionImmediately(copyAction)
+            }
+        if let formattedRepresentations {
+            GhosttyApp.terminalPasteboard.writeRepresentations(
+                formattedRepresentations,
+                to: GHOSTTY_CLIPBOARD_STANDARD
+            )
             return true
         }
 
         guard let selectedText = readSelectionSnapshot(surface: surface)?.string, !selectedText.isEmpty else {
-            return copied
+            return false
         }
 
         GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
@@ -4984,7 +5005,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @IBAction func copy(_ sender: Any?) {
         guard let surface else {
-            _ = performBindingAction("copy_to_clipboard")
+            _ = performBindingActionImmediately("copy_to_clipboard")
             return
         }
         if keyboardCopyModeActive {
@@ -5490,12 +5511,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ) -> Bool {
         withGhosttyBindingKeyEvent(for: event, surface: surface) { keyEvent in
             action.withCString { actionPointer in
-                ghostty_surface_key_consume_if_menu_action(
-                    surface,
-                    keyEvent,
-                    actionPointer,
-                    UInt(action.utf8.count)
-                )
+                withPotentialClipboardPasteIntent {
+                    ghostty_surface_key_consume_if_menu_action(
+                        surface,
+                        keyEvent,
+                        actionPointer,
+                        UInt(action.utf8.count)
+                    )
+                }
             }
         }
     }
@@ -5976,7 +5999,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
             }
         }
-        return ghostty_surface_key(surface, keyEvent)
+        return withPotentialClipboardPasteIntent {
+            ghostty_surface_key(surface, keyEvent)
+        }
+    }
+
+    private func sendGhosttyMouseButton(
+        _ surface: ghostty_surface_t,
+        state: ghostty_input_mouse_state_e,
+        button: ghostty_input_mouse_button_e,
+        mods: ghostty_input_mods_e
+    ) -> Bool {
+        withPotentialClipboardPasteIntent {
+            ghostty_surface_mouse_button(surface, state, button, mods)
+        }
     }
 
 #if DEBUG
@@ -6379,7 +6415,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if event.clickCount == 1 {
             ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, mouseModsFromEvent(event))
         }
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mouseModsFromEvent(event))
+        _ = sendGhosttyMouseButton(
+            surface,
+            state: GHOSTTY_MOUSE_PRESS,
+            button: GHOSTTY_MOUSE_LEFT,
+            mods: mouseModsFromEvent(event)
+        )
         hasPendingLeftMouseRelease = true
     }
 
@@ -6407,7 +6448,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         hasPendingLeftMouseRelease = false
         guard let surface else { return false }
         let point = convert(event.locationInWindow, from: nil)
-        let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mouseModsFromEvent(event))
+        let consumed = sendGhosttyMouseButton(
+            surface,
+            state: GHOSTTY_MOUSE_RELEASE,
+            button: GHOSTTY_MOUSE_LEFT,
+            mods: mouseModsFromEvent(event)
+        )
         _ = handleCommandClickRelease(at: point, modifierFlags: event.modifierFlags, ghosttyConsumed: consumed)
         return true
     }
@@ -6906,7 +6952,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         window?.makeFirstResponder(self)
         ghostty_surface_mouse_pos(surface, start.x, bounds.height - start.y, mods)
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
+        _ = sendGhosttyMouseButton(
+            surface,
+            state: GHOSTTY_MOUSE_PRESS,
+            button: GHOSTTY_MOUSE_LEFT,
+            mods: mods
+        )
 
         let steps = max(4, Int(max(abs(end.x - start.x), abs(end.y - start.y)) / max(cellSize.width, 1)))
         for step in 1...steps {
@@ -6924,7 +6975,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
 
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
+        _ = sendGhosttyMouseButton(
+            surface,
+            state: GHOSTTY_MOUSE_RELEASE,
+            button: GHOSTTY_MOUSE_LEFT,
+            mods: mods
+        )
         return ghostty_surface_has_selection(surface)
     }
 
@@ -7000,8 +7056,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         window?.makeFirstResponder(self)
         ghostty_surface_mouse_pos(surface, clampedPoint.x, bounds.height - clampedPoint.y, mods)
-        let pressHandled = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
-        let releaseConsumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
+        let pressHandled = sendGhosttyMouseButton(
+            surface,
+            state: GHOSTTY_MOUSE_PRESS,
+            button: GHOSTTY_MOUSE_LEFT,
+            mods: mods
+        )
+        let releaseConsumed = sendGhosttyMouseButton(
+            surface,
+            state: GHOSTTY_MOUSE_RELEASE,
+            button: GHOSTTY_MOUSE_LEFT,
+            mods: mods
+        )
         let resolution = handleCommandClickRelease(
             at: clampedPoint,
             modifierFlags: flags,
@@ -7044,8 +7110,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         window?.makeFirstResponder(self)
         ghostty_surface_mouse_pos(surface, clampedPoint.x, bounds.height - clampedPoint.y, noMods)
         flagsChanged(with: cmdDown)
-        let pressHandled = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, commandMods)
-        let releaseConsumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, commandMods)
+        let pressHandled = sendGhosttyMouseButton(
+            surface,
+            state: GHOSTTY_MOUSE_PRESS,
+            button: GHOSTTY_MOUSE_LEFT,
+            mods: commandMods
+        )
+        let releaseConsumed = sendGhosttyMouseButton(
+            surface,
+            state: GHOSTTY_MOUSE_RELEASE,
+            button: GHOSTTY_MOUSE_LEFT,
+            mods: commandMods
+        )
         flagsChanged(with: cmdUp)
 
         return [
@@ -7090,7 +7166,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, mouseModsFromEvent(event))
+        _ = sendGhosttyMouseButton(
+            surface,
+            state: GHOSTTY_MOUSE_PRESS,
+            button: GHOSTTY_MOUSE_RIGHT,
+            mods: mouseModsFromEvent(event)
+        )
     }
 
     override func rightMouseUp(with event: NSEvent) {
@@ -7101,7 +7182,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, mouseModsFromEvent(event))
+        _ = sendGhosttyMouseButton(
+            surface,
+            state: GHOSTTY_MOUSE_RELEASE,
+            button: GHOSTTY_MOUSE_RIGHT,
+            mods: mouseModsFromEvent(event)
+        )
     }
 
     override func otherMouseDown(with event: NSEvent) {
@@ -7116,7 +7202,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_MIDDLE, mouseModsFromEvent(event))
+        _ = sendGhosttyMouseButton(
+            surface,
+            state: GHOSTTY_MOUSE_PRESS,
+            button: GHOSTTY_MOUSE_MIDDLE,
+            mods: mouseModsFromEvent(event)
+        )
     }
 
     override func otherMouseUp(with event: NSEvent) {
@@ -7126,7 +7217,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         if routeInputDuringClipboardRead(event) { return }
         guard let surface = surface else { return }
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_MIDDLE, mouseModsFromEvent(event))
+        _ = sendGhosttyMouseButton(
+            surface,
+            state: GHOSTTY_MOUSE_RELEASE,
+            button: GHOSTTY_MOUSE_MIDDLE,
+            mods: mouseModsFromEvent(event)
+        )
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -7152,11 +7248,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if sendsTerminalPointerEvent {
             let point = convert(event.locationInWindow, from: nil)
             ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
-            _ = ghostty_surface_mouse_button(
+            _ = sendGhosttyMouseButton(
                 surface,
-                GHOSTTY_MOUSE_PRESS,
-                GHOSTTY_MOUSE_RIGHT,
-                mouseModsFromEvent(event)
+                state: GHOSTTY_MOUSE_PRESS,
+                button: GHOSTTY_MOUSE_RIGHT,
+                mods: mouseModsFromEvent(event)
             )
         }
 
@@ -11572,7 +11668,31 @@ extension GhosttyNSView: NSTextInputClient {
     /// execution, etc.). Programmatic callers can preserve literal ESC bytes so
     /// automation payloads remain byte-for-byte stable.
     fileprivate func sendTextToSurface(_ chars: String, preserveLiteralEscape: Bool) {
-        guard let surface = ensureSurfaceReadyForInput() else { return }
+        guard !chars.isEmpty else { return }
+        terminalSurface?.didReceiveExplicitInput()
+        recordDirectAgentHibernationTerminalInput()
+        sendTextToSurfaceAfterInputNotification(
+            chars,
+            preserveLiteralEscape: preserveLiteralEscape
+        )
+    }
+
+    private func sendTextToSurfaceAfterInputNotification(
+        _ chars: String,
+        preserveLiteralEscape: Bool
+    ) {
+        if deferRuntimeInputDuringClipboardRead(
+            estimatedBytes: chars.utf8.count,
+            replay: { [weak self] in
+                self?.sendTextToSurfaceAfterInputNotification(
+                    chars,
+                    preserveLiteralEscape: preserveLiteralEscape
+                )
+            }
+        ) {
+            return
+        }
+        guard ensureSurfaceReadyForInput() != nil else { return }
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
 #endif
@@ -11591,30 +11711,13 @@ extension GhosttyNSView: NSTextInputClient {
 
         func flushBufferedText() {
             guard !bufferedText.isEmpty else { return }
-            var keyEvent = ghostty_input_key_s()
-            keyEvent.action = GHOSTTY_ACTION_PRESS
-            keyEvent.keycode = 0
-            keyEvent.mods = GHOSTTY_MODS_NONE
-            keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-            keyEvent.unshifted_codepoint = 0
-            keyEvent.composing = false
-            bufferedText.withCString { ptr in
-                keyEvent.text = ptr
-                _ = sendGhosttyKey(surface, keyEvent)
-            }
+            let committedText = bufferedText
             bufferedText.removeAll(keepingCapacity: true)
+            sendCommittedTextChunk(committedText)
         }
 
         func sendControlKey(_ keycode: UInt32) {
-            var keyEvent = ghostty_input_key_s()
-            keyEvent.action = GHOSTTY_ACTION_PRESS
-            keyEvent.keycode = keycode
-            keyEvent.mods = GHOSTTY_MODS_NONE
-            keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-            keyEvent.unshifted_codepoint = 0
-            keyEvent.composing = false
-            keyEvent.text = nil
-            _ = sendGhosttyKey(surface, keyEvent)
+            sendCommittedControlKey(keycode)
         }
 
         for scalar in chars.unicodeScalars {
@@ -11654,6 +11757,47 @@ extension GhosttyNSView: NSTextInputClient {
             extra: "textBytes=\(chars.utf8.count)"
         )
 #endif
+    }
+
+    private func sendCommittedTextChunk(_ text: String) {
+        guard !text.isEmpty else { return }
+        if deferRuntimeInputDuringClipboardRead(
+            estimatedBytes: text.utf8.count,
+            replay: { [weak self] in self?.sendCommittedTextChunk(text) }
+        ) {
+            return
+        }
+        guard let surface = ensureSurfaceReadyForInput() else { return }
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = GHOSTTY_ACTION_PRESS
+        keyEvent.keycode = 0
+        keyEvent.mods = GHOSTTY_MODS_NONE
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.unshifted_codepoint = 0
+        keyEvent.composing = false
+        text.withCString { pointer in
+            keyEvent.text = pointer
+            _ = sendGhosttyKey(surface, keyEvent)
+        }
+    }
+
+    private func sendCommittedControlKey(_ keycode: UInt32) {
+        if deferRuntimeInputDuringClipboardRead(
+            estimatedBytes: MemoryLayout<UInt32>.size,
+            replay: { [weak self] in self?.sendCommittedControlKey(keycode) }
+        ) {
+            return
+        }
+        guard let surface = ensureSurfaceReadyForInput() else { return }
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = GHOSTTY_ACTION_PRESS
+        keyEvent.keycode = keycode
+        keyEvent.mods = GHOSTTY_MODS_NONE
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.unshifted_codepoint = 0
+        keyEvent.composing = false
+        keyEvent.text = nil
+        _ = sendGhosttyKey(surface, keyEvent)
     }
 
     /// External accessibility/dictation tools should commit plain text, but
@@ -12034,9 +12178,6 @@ extension GhosttyNSView: NSTextInputClient {
 #endif
 
         guard !sanitizedChars.isEmpty else { return }
-        terminalSurface?.didReceiveExplicitInput()
-        // Otherwise send directly to the terminal
-        recordDirectAgentHibernationTerminalInput()
         sendTextToSurface(
             sanitizedChars,
             preserveLiteralEscape: !isExternalCommittedText

@@ -347,6 +347,7 @@ extension TextBoxInputTextView {
             id: id
         ) else {
             pendingPasteReservations[id] = nil
+            didChangeText()
             return nil
         }
 

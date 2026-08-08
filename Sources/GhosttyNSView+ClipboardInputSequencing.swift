@@ -1,16 +1,41 @@
 import AppKit
+import CmuxTerminalCore
 
 extension GhosttyNSView {
-    func beginReservedClipboardRead(
+    enum ClipboardDeferredInput {
+        case appKitEvent(NSEvent)
+        case runtimeMutation(() -> Void)
+    }
+
+    func beginClipboardRead(
         _ requestID: UInt,
-        epoch: UInt64,
+        inputAdmission: RuntimeClipboardInputAdmission,
         onOverflow: @escaping () -> Void
     ) {
-        terminalClipboardInputSequencer.beginReservedRequest(
-            id: requestID,
-            epoch: epoch,
-            onOverflow: onOverflow
-        )
+        switch inputAdmission {
+        case .unsequenced(let epoch):
+            terminalClipboardInputSequencer.beginUnsequencedRequest(
+                id: requestID,
+                epoch: epoch
+            )
+        case .reserved(let epoch):
+            terminalClipboardInputSequencer.beginReservedRequest(
+                id: requestID,
+                onOverflow: { [weak self] in
+                    guard let self else {
+                        onOverflow()
+                        return
+                    }
+                    cancelClipboardRead(
+                        requestID,
+                        currentEpoch: terminalSurface?
+                            .runtimeSurfaceGeneration ?? epoch,
+                        deferredInputDisposition: .replay
+                    )
+                    onOverflow()
+                }
+            )
+        }
     }
 
     func clipboardReadRequiresConfirmation(
@@ -18,6 +43,16 @@ extension GhosttyNSView {
     ) {
         terminalClipboardInputSequencer.requireConfirmation(
             for: requestID
+        )
+    }
+
+    func performClipboardReadCompletionWhenReady(
+        _ requestID: UInt,
+        _ completion: @escaping () -> Void
+    ) {
+        terminalClipboardInputSequencer.performCompletionWhenReady(
+            id: requestID,
+            completion
         )
     }
 
@@ -30,44 +65,79 @@ extension GhosttyNSView {
             id: requestID,
             confirmed: confirmed,
             onLogicalCompletion: onLogicalCompletion
-        ) { [weak self] event in
-            self?.replayClipboardDeferredInput(event)
+        ) { [weak self] deferredInput in
+            self?.replayClipboardDeferredInput(deferredInput)
         }
     }
 
     func cancelClipboardRead(
         _ requestID: UInt,
-        currentEpoch: UInt64
+        currentEpoch: UInt64,
+        deferredInputDisposition: RuntimeClipboardDeferredInputDisposition
     ) {
         terminalClipboardInputSequencer.cancelRequest(
             id: requestID,
-            currentEpoch: currentEpoch
-        ) { [weak self] event in
-            self?.replayClipboardDeferredInput(event)
+            currentEpoch: currentEpoch,
+            deferredInputDisposition: deferredInputDisposition
+        ) { [weak self] deferredInput in
+            self?.replayClipboardDeferredInput(deferredInput)
         }
     }
 
     func cancelReservedClipboardRead(
         _ requestID: UInt,
-        currentEpoch: UInt64
+        requestEpoch: UInt64,
+        currentEpoch: UInt64,
+        deferredInputDisposition: RuntimeClipboardDeferredInputDisposition
     ) {
         terminalClipboardInputSequencer.cancelReservedRequest(
             id: requestID,
-            currentEpoch: currentEpoch
-        ) { [weak self] event in
-            self?.replayClipboardDeferredInput(event)
+            requestEpoch: requestEpoch,
+            currentEpoch: currentEpoch,
+            deferredInputDisposition: deferredInputDisposition
+        ) { [weak self] deferredInput in
+            self?.replayClipboardDeferredInput(deferredInput)
         }
     }
 
     func routeInputDuringClipboardRead(_ event: NSEvent) -> Bool {
         terminalClipboardInputSequencer.shouldDefer(
-            event,
+            .appKitEvent(event),
             epoch: terminalSurface?.runtimeSurfaceGeneration ?? .max,
             discardWhenFull: event.cmuxCanDiscardDuringClipboardRead
         )
     }
 
-    private func replayClipboardDeferredInput(_ event: NSEvent) {
+    func deferRuntimeInputDuringClipboardRead(
+        estimatedBytes: Int,
+        replay: @escaping () -> Void
+    ) -> Bool {
+        terminalClipboardInputSequencer.shouldDefer(
+            .runtimeMutation(replay),
+            epoch: terminalSurface?.runtimeSurfaceGeneration ?? .max,
+            estimatedCost: estimatedBytes
+        )
+    }
+
+    func withPotentialClipboardPasteIntent<Result>(
+        _ body: () throws -> Result
+    ) rethrows -> Result {
+        guard let terminalSurface else { return try body() }
+        return try terminalSurface.withRuntimeClipboardPasteIntent(body)
+    }
+
+    private func replayClipboardDeferredInput(
+        _ deferredInput: ClipboardDeferredInput
+    ) {
+        switch deferredInput {
+        case .appKitEvent(let event):
+            replayClipboardDeferredEvent(event)
+        case .runtimeMutation(let replay):
+            replay()
+        }
+    }
+
+    private func replayClipboardDeferredEvent(_ event: NSEvent) {
         switch event.type {
         case .keyDown:
             keyDown(with: event)

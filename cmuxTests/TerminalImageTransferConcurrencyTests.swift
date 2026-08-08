@@ -213,9 +213,15 @@ struct TerminalImageTransferConcurrencyTests {
         )
         var admitted = operation.admittedEvents().makeAsyncIterator()
         var started = operation.startedEvents().makeAsyncIterator()
-        let firstRequest = makeReadRequest(label: "first")
-        let secondRequest = makeReadRequest(label: "second")
-        let thirdRequest = makeReadRequest(label: "third")
+        let (firstPasteboard, firstRequest) = makeReadRequest(label: "first")
+        let (secondPasteboard, secondRequest) = makeReadRequest(label: "second")
+        let (thirdPasteboard, thirdRequest) = makeReadRequest(label: "third")
+        defer {
+            for pasteboard in [firstPasteboard, secondPasteboard, thirdPasteboard] {
+                pasteboard.clearContents()
+                pasteboard.releaseGlobally()
+            }
+        }
 
         let firstTask = Task {
             await service.prepare(request: firstRequest, mode: .paste)
@@ -280,8 +286,18 @@ struct TerminalImageTransferConcurrencyTests {
         var admitted = operation.admittedEvents().makeAsyncIterator()
         var started = operation.startedEvents().makeAsyncIterator()
         var reportedFailures = failures.events().makeAsyncIterator()
-        let firstRequest = makeReadRequest(label: "deadline-first")
-        let secondRequest = makeReadRequest(label: "deadline-second")
+        let (firstPasteboard, firstRequest) = makeReadRequest(
+            label: "deadline-first"
+        )
+        let (secondPasteboard, secondRequest) = makeReadRequest(
+            label: "deadline-second"
+        )
+        defer {
+            for pasteboard in [firstPasteboard, secondPasteboard] {
+                pasteboard.clearContents()
+                pasteboard.releaseGlobally()
+            }
+        }
 
         let firstTask = Task {
             await service.prepare(request: firstRequest, mode: .paste)
@@ -329,8 +345,18 @@ struct TerminalImageTransferConcurrencyTests {
         var admitted = operation.admittedEvents().makeAsyncIterator()
         var started = operation.startedEvents().makeAsyncIterator()
         var reportedFailures = failures.events().makeAsyncIterator()
-        let firstRequest = makeReadRequest(label: "admission-deadline-first")
-        let queuedRequest = makeReadRequest(label: "admission-deadline-queued")
+        let (firstPasteboard, firstRequest) = makeReadRequest(
+            label: "admission-deadline-first"
+        )
+        let (queuedPasteboard, queuedRequest) = makeReadRequest(
+            label: "admission-deadline-queued"
+        )
+        defer {
+            for pasteboard in [firstPasteboard, queuedPasteboard] {
+                pasteboard.clearContents()
+                pasteboard.releaseGlobally()
+            }
+        }
 
         let firstTask = Task {
             await service.prepare(request: firstRequest, mode: .paste)
@@ -374,9 +400,21 @@ struct TerminalImageTransferConcurrencyTests {
         )
         var admitted = operation.admittedEvents().makeAsyncIterator()
         var started = operation.startedEvents().makeAsyncIterator()
-        let firstRequest = makeReadRequest(label: "stuck-first")
-        let secondRequest = makeReadRequest(label: "stuck-second")
-        let thirdRequest = makeReadRequest(label: "stuck-third")
+        let (firstPasteboard, firstRequest) = makeReadRequest(
+            label: "stuck-first"
+        )
+        let (secondPasteboard, secondRequest) = makeReadRequest(
+            label: "stuck-second"
+        )
+        let (thirdPasteboard, thirdRequest) = makeReadRequest(
+            label: "stuck-third"
+        )
+        defer {
+            for pasteboard in [firstPasteboard, secondPasteboard, thirdPasteboard] {
+                pasteboard.clearContents()
+                pasteboard.releaseGlobally()
+            }
+        }
 
         let firstTask = Task {
             await service.prepare(request: firstRequest, mode: .paste)
@@ -440,9 +478,21 @@ struct TerminalImageTransferConcurrencyTests {
             failureSignal: { _ in }
         )
         var started = operation.startedEvents().makeAsyncIterator()
-        let firstRequest = makeReadRequest(label: "exhaustion-first")
-        let secondRequest = makeReadRequest(label: "exhaustion-second")
-        let thirdRequest = makeReadRequest(label: "exhaustion-third")
+        let (firstPasteboard, firstRequest) = makeReadRequest(
+            label: "exhaustion-first"
+        )
+        let (secondPasteboard, secondRequest) = makeReadRequest(
+            label: "exhaustion-second"
+        )
+        let (thirdPasteboard, thirdRequest) = makeReadRequest(
+            label: "exhaustion-third"
+        )
+        defer {
+            for pasteboard in [firstPasteboard, secondPasteboard, thirdPasteboard] {
+                pasteboard.clearContents()
+                pasteboard.releaseGlobally()
+            }
+        }
 
         let firstTask = Task {
             await service.prepare(request: firstRequest, mode: .paste)
@@ -489,9 +539,21 @@ struct TerminalImageTransferConcurrencyTests {
         var admitted = operation.admittedEvents().makeAsyncIterator()
         var started = operation.startedEvents().makeAsyncIterator()
         var reportedFailures = failures.events().makeAsyncIterator()
-        let firstRequest = makeReadRequest(label: "capacity-first")
-        let secondRequest = makeReadRequest(label: "capacity-second")
-        let rejectedRequest = makeReadRequest(label: "capacity-rejected")
+        let (firstPasteboard, firstRequest) = makeReadRequest(
+            label: "capacity-first"
+        )
+        let (secondPasteboard, secondRequest) = makeReadRequest(
+            label: "capacity-second"
+        )
+        let (rejectedPasteboard, rejectedRequest) = makeReadRequest(
+            label: "capacity-rejected"
+        )
+        defer {
+            for pasteboard in [firstPasteboard, secondPasteboard, rejectedPasteboard] {
+                pasteboard.clearContents()
+                pasteboard.releaseGlobally()
+            }
+        }
 
         let firstTask = Task {
             await service.prepare(request: firstRequest, mode: .paste)
@@ -539,8 +601,18 @@ struct TerminalImageTransferConcurrencyTests {
         )
         var admitted = operation.admittedEvents().makeAsyncIterator()
         var started = operation.startedEvents().makeAsyncIterator()
-        let firstRequest = makeReadRequest(label: "cancel-first")
-        let cancelledRequest = makeReadRequest(label: "cancel-second")
+        let (firstPasteboard, firstRequest) = makeReadRequest(
+            label: "cancel-first"
+        )
+        let (cancelledPasteboard, cancelledRequest) = makeReadRequest(
+            label: "cancel-second"
+        )
+        defer {
+            for pasteboard in [firstPasteboard, cancelledPasteboard] {
+                pasteboard.clearContents()
+                pasteboard.releaseGlobally()
+            }
+        }
 
         let firstTask = Task {
             await service.prepare(request: firstRequest, mode: .paste)
@@ -588,11 +660,16 @@ struct TerminalImageTransferConcurrencyTests {
     }
 
     @MainActor
-    private func makeReadRequest(label: String) -> TerminalPasteboardReadRequest {
+    private func makeReadRequest(
+        label: String
+    ) -> (NSPasteboard, TerminalPasteboardReadRequest) {
         let pasteboard = NSPasteboard(
             name: .init("cmux-tests-paste-lane-\(label)-\(UUID().uuidString)")
         )
         pasteboard.clearContents()
-        return TerminalPasteboardReadRequest(pasteboard: pasteboard)
+        return (
+            pasteboard,
+            TerminalPasteboardReadRequest(pasteboard: pasteboard)
+        )
     }
 }

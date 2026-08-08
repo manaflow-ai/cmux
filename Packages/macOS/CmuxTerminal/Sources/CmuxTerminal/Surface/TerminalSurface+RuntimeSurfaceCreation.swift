@@ -282,11 +282,6 @@ extension TerminalSurface {
                 }
             }
         }
-        if let createdSurface {
-            _ = callbackContext.takeUnretainedValue()
-                .bindRuntimeClipboardSurface(createdSurface)
-        }
-
         return (createdSurface, runtimeInitialInput)
     }
 

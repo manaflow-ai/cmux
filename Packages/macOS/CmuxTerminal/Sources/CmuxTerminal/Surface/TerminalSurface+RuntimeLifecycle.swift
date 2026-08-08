@@ -689,6 +689,11 @@ extension TerminalSurface {
                 "A native terminal surface requires callback userdata"
             )
         }
+        _ = surfaceCallbackContext.takeUnretainedValue()
+            .bindRuntimeClipboardSurface(
+                createdSurface,
+                generation: runtimeSurfaceGeneration
+            )
         installFontSizeActionObservation(
             on: createdSurface,
             callbackContext: surfaceCallbackContext

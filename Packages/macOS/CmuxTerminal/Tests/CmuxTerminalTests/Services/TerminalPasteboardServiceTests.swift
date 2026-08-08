@@ -172,6 +172,24 @@ struct ClipboardWriteCaptureTests {
         #expect(captured == "captured")
     }
 
+    @Test func representationCapturePreservesRichFormatting() {
+        let service = TerminalPasteboardService()
+        let expected: [TerminalClipboardRepresentation] = [
+            .init(mimeType: "text/html", string: "<strong>captured</strong>"),
+            .init(mimeType: "text/plain", string: "captured"),
+        ]
+
+        let captured = service.captureNextStandardClipboardRepresentations {
+            service.writeRepresentations(
+                expected,
+                to: GHOSTTY_CLIPBOARD_STANDARD
+            )
+            return true
+        }
+
+        #expect(captured == expected)
+    }
+
     @Test func returnsNilWhenActionFails() {
         let service = TerminalPasteboardService()
         let captured = service.captureNextStandardClipboardWrite { false }

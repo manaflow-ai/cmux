@@ -235,6 +235,11 @@ extension TerminalSurface {
             surfaceCallbackContext = callbackContext
         }
         surface = runtimeSurface
+        _ = callbackContext.takeUnretainedValue()
+            .bindRuntimeClipboardSurface(
+                runtimeSurface,
+                generation: runtimeSurfaceGeneration
+            )
         portalLifecycleState = .live
         runtimeSurfaceFreedOutOfBandForTesting = false
         cacheControllingTTYIdentity(for: runtimeSurface)

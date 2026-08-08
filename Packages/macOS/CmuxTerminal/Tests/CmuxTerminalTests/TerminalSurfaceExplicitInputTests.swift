@@ -6,7 +6,7 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct TerminalSurfaceExplicitInputTests {
-    private enum ProgrammaticInput: CaseIterable, Sendable {
+    private enum ProgrammaticInput: CaseIterable, Equatable, Sendable {
         case pasteText
         case keyText
         case namedKey
@@ -14,6 +14,10 @@ struct TerminalSurfaceExplicitInputTests {
         case bindingAction
         case mobileScroll
         case mobileClick
+
+        var expectedExplicitInputCount: Int {
+            self == .bindingAction ? 0 : 1
+        }
 
         @MainActor
         func send(to surface: TerminalSurface) {
@@ -53,9 +57,33 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(
             fixture.nativeView.deferredRuntimeInputBytes.allSatisfy { $0 > 0 }
         )
+        #expect(
+            fixture.paneHost.explicitInputCount
+                == input.expectedExplicitInputCount
+        )
         fixture.nativeView.shouldDeferRuntimeInput = false
         fixture.nativeView.deferredRuntimeInputs.removeFirst()()
         #expect(fixture.nativeView.deferredRuntimeInputs.isEmpty)
+        #expect(
+            fixture.paneHost.explicitInputCount
+                == input.expectedExplicitInputCount
+        )
+    }
+
+    @Test func parsedInputChecksDeferralBetweenLiveEvents() {
+        let fixture = makeFixture()
+        fixture.surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.nativeView.runtimeInputDeferralResponses = [false, true, true]
+
+        let result = fixture.surface.sendInputResult("x\r")
+
+        #expect(result == .queued)
+        #expect(fixture.nativeView.runtimeInputDeferralCallCount == 3)
+        #expect(fixture.nativeView.deferredRuntimeInputs.count == 2)
+        #expect(
+            fixture.nativeView.deferredRuntimeInputBytes.allSatisfy { $0 > 0 }
+        )
     }
 
     @Test func pasteTextNotifiesPaneHostBeforeQueueingOnAColdSurface() {
@@ -134,6 +162,28 @@ struct TerminalSurfaceExplicitInputTests {
         fixture.surface.mobileClick(col: 0, row: 0)
 
         #expect(fixture.paneHost.explicitInputCount == 2)
+    }
+
+    @Test func mobileMouseReleaseWaitsForPasteStartedByPress() {
+        let fixture = makeFixture()
+        fixture.surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.nativeView.runtimeInputDeferralResponses = [false, true]
+
+        fixture.surface.mobileClick(col: 4, row: 7)
+
+        #expect(fixture.nativeView.mobileMouseButtonEvents == ["press"])
+        #expect(fixture.nativeView.deferredRuntimeInputs.count == 1)
+        #expect(fixture.paneHost.explicitInputCount == 1)
+
+        fixture.nativeView.runtimeInputDeferralResponses = [false]
+        fixture.nativeView.deferredRuntimeInputs.removeFirst()()
+
+        #expect(
+            fixture.nativeView.mobileMouseButtonEvents == ["press", "release"]
+        )
+        #expect(fixture.nativeView.deferredRuntimeInputs.isEmpty)
+        #expect(fixture.paneHost.explicitInputCount == 1)
     }
 
     @Test func emptyMobileScrollDoesNotNotifyPaneHost() {

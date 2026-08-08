@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTerminalCore
 import os
 
 /// Preserves terminal input order while Ghostty is resolving a clipboard read.
@@ -6,19 +7,33 @@ import os
 final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendable> {
     typealias ReservedOverflowHandler = @MainActor @Sendable () -> Void
 
+    private struct ReservedAdmission: Sendable {
+        let epoch: UInt64
+        let order: UInt64
+        let overflowHandler: ReservedOverflowHandler
+    }
+
+    private struct OrderedOverflowHandler {
+        let order: UInt64
+        let handler: () -> Void
+    }
+
     private struct ReservedAdmissionState: Sendable {
-        var overflowHandlersByID: [RequestID: ReservedOverflowHandler] = [:]
-        var overflowCancellationDepth = 0
+        var nextOrder: UInt64 = 0
+        var admissionsByID: [RequestID: ReservedAdmission] = [:]
+        var overflowCancellationDepthByEpoch: [UInt64: Int] = [:]
     }
 
     private struct BufferedEvent {
         let event: Event
         let discardWhenFull: Bool
+        let estimatedCost: Int
     }
 
     private struct EpochBuffer {
         var events: [BufferedEvent] = []
         var nextEventIndex = 0
+        var pendingCost = 0
 
         var pendingCount: Int {
             events.count - nextEventIndex
@@ -27,11 +42,14 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
 
     private struct ActiveRequest {
         let epoch: UInt64
+        let defersInput: Bool
+        let reservationOrder: UInt64?
         let onOverflow: () -> Void
+        var readyCompletion: (() -> Void)?
     }
 
-    // Synchronous C callbacks reserve off-actor; this lock only transfers their
-    // bounded overflow handlers to main-actor admission and cancellation.
+    // Synchronous C callbacks reserve off-actor; this lock transfers their
+    // bounded epoch, order, and overflow state to main-actor lifecycle work.
     private nonisolated let reservedAdmissions = OSAllocatedUnfairLock(
         initialState: ReservedAdmissionState()
     )
@@ -42,25 +60,41 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
     private var confirmedRequestIDs: Set<RequestID> = []
     private var buffersByEpoch: [UInt64: EpochBuffer] = [:]
     private var replayingEpochs: Set<UInt64> = []
-    private var overflowCancellationDepth = 0
+    private var drainingCompletionEpochs: Set<UInt64> = []
+    private var overflowCancellationDepthByEpoch: [UInt64: Int] = [:]
     private var deferredOverflowReplays: [(
         epoch: UInt64,
         replay: (Event) -> Void
     )] = []
 
-    nonisolated init(maximumBufferedEvents: Int) {
+    private let maximumBufferedCost: Int
+
+    nonisolated init(
+        maximumBufferedEvents: Int,
+        maximumBufferedCost: Int = .max
+    ) {
         self.maximumBufferedEvents = max(0, maximumBufferedEvents)
+        self.maximumBufferedCost = max(0, maximumBufferedCost)
     }
 
     /// Marks a callback-issued request before its main-actor admission can run.
     @discardableResult
     nonisolated func reserveRequestAdmission(
         id: RequestID,
+        epoch: UInt64 = 0,
         onOverflow: @escaping ReservedOverflowHandler
     ) -> Bool {
         reservedAdmissions.withLock { state in
-            guard state.overflowCancellationDepth == 0 else { return false }
-            state.overflowHandlersByID[id] = onOverflow
+            guard (state.overflowCancellationDepthByEpoch[epoch] ?? 0) == 0 else {
+                return false
+            }
+            let order = state.nextOrder
+            state.nextOrder &+= 1
+            state.admissionsByID[id] = ReservedAdmission(
+                epoch: epoch,
+                order: order,
+                overflowHandler: onOverflow
+            )
             return true
         }
     }
@@ -72,24 +106,66 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
     ) {
         activeRequests[id] = ActiveRequest(
             epoch: epoch,
-            onOverflow: onOverflow
+            defersInput: true,
+            reservationOrder: nextRegistrationOrder(),
+            onOverflow: onOverflow,
+            readyCompletion: nil
+        )
+    }
+
+    /// Tracks a non-paste clipboard request without blocking terminal input.
+    func beginUnsequencedRequest(
+        id: RequestID,
+        epoch: UInt64
+    ) {
+        activeRequests[id] = ActiveRequest(
+            epoch: epoch,
+            defersInput: false,
+            reservationOrder: nil,
+            onOverflow: {},
+            readyCompletion: nil
         )
     }
 
     /// Admits a request previously marked by ``reserveRequestAdmission()``.
     func beginReservedRequest(
         id: RequestID,
-        epoch: UInt64 = 0,
         onOverflow: @escaping () -> Void = {}
     ) {
-        let hadReservation = reservedAdmissions.withLock { state in
-            state.overflowHandlersByID.removeValue(forKey: id) != nil
+        let admission = reservedAdmissions.withLock { state in
+            state.admissionsByID.removeValue(forKey: id)
         }
-        guard hadReservation else { return }
+        guard let admission else { return }
         activeRequests[id] = ActiveRequest(
-            epoch: epoch,
-            onOverflow: onOverflow
+            epoch: admission.epoch,
+            defersInput: true,
+            reservationOrder: admission.order,
+            onOverflow: onOverflow,
+            readyCompletion: nil
         )
+    }
+
+    /// Performs a prepared clipboard completion in request-registration order.
+    ///
+    /// Non-paste reads complete immediately. Reserved paste reads wait for
+    /// every earlier reservation in the same runtime epoch, including a
+    /// reservation whose main-actor admission has not run yet.
+    func performCompletionWhenReady(
+        id: RequestID,
+        _ completion: @escaping () -> Void
+    ) {
+        guard var request = activeRequests[id] else {
+            completion()
+            return
+        }
+        guard request.reservationOrder != nil else {
+            completion()
+            return
+        }
+        guard request.readyCompletion == nil else { return }
+        request.readyCompletion = completion
+        activeRequests[id] = request
+        drainReadyCompletions(for: request.epoch)
     }
 
     func requireConfirmation(for id: RequestID) {
@@ -100,40 +176,60 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
     func shouldDefer(
         _ event: Event,
         epoch: UInt64 = 0,
-        discardWhenFull: Bool = false
+        discardWhenFull: Bool = false,
+        estimatedCost: Int = 1
     ) -> Bool {
-        guard !replayingEpochs.contains(epoch) else { return false }
         guard hasRequestInFlight(for: epoch) else { return false }
 
+        let eventCost = max(0, estimatedCost)
         var buffer = buffersByEpoch[epoch] ?? EpochBuffer()
-        if buffer.pendingCount >= maximumBufferedEvents {
+        while !hasCapacity(in: buffer, forEventCost: eventCost) {
             if discardWhenFull {
                 return true
             }
             if let discardableIndex = buffer.events[
                 buffer.nextEventIndex...
             ].firstIndex(where: \.discardWhenFull) {
+                buffer.pendingCost -= buffer.events[discardableIndex]
+                    .estimatedCost
                 buffer.events.remove(at: discardableIndex)
             } else {
-                let reservedOverflowHandlers = beginReservedOverflowCancellation()
-                let activeOverflowHandlers = activeRequests.values
-                    .filter { $0.epoch == epoch }
-                    .map(\.onOverflow)
-                withOverflowCancellationBatch {
-                    activeOverflowHandlers.forEach { $0() }
-                    reservedOverflowHandlers.forEach { $0() }
+                let reservedOverflowHandlers = beginReservedOverflowCancellation(
+                    for: epoch
+                )
+                let activeOverflowHandlers = activeRequests.compactMap {
+                    id,
+                    request -> OrderedOverflowHandler? in
+                    guard request.epoch == epoch,
+                          request.defersInput,
+                          let order = request.reservationOrder else {
+                        return nil
+                    }
+                    activeRequests[id]?.readyCompletion = nil
+                    return OrderedOverflowHandler(
+                        order: order,
+                        handler: request.onOverflow
+                    )
                 }
-                let shouldContinueDeferring = hasRequestInFlight(for: epoch)
-                endReservedOverflowCancellation()
-                return shouldContinueDeferring
+                let overflowHandlers = (
+                    activeOverflowHandlers + reservedOverflowHandlers
+                ).sorted { $0.order < $1.order }
+                withOverflowCancellationBatch(for: epoch) {
+                    overflowHandlers.forEach { $0.handler() }
+                    endReservedOverflowCancellation(for: epoch)
+                }
+                guard hasRequestInFlight(for: epoch) else { return false }
+                buffer = buffersByEpoch[epoch] ?? EpochBuffer()
             }
         }
         buffer.events.append(
             BufferedEvent(
                 event: event,
-                discardWhenFull: discardWhenFull
+                discardWhenFull: discardWhenFull,
+                estimatedCost: eventCost
             )
         )
+        buffer.pendingCost += eventCost
         buffersByEpoch[epoch] = buffer
         return true
     }
@@ -143,27 +239,38 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
     func cancelRequest(
         id: RequestID,
         currentEpoch: UInt64,
+        deferredInputDisposition: RuntimeClipboardDeferredInputDisposition,
         replay: @escaping (Event) -> Void
     ) {
         guard let request = removeRequest(id: id) else { return }
-        buffersByEpoch.removeValue(forKey: request.epoch)
-        replayBufferedEvents(for: currentEpoch, replay: replay)
+        cancelBufferedInput(
+            requestEpoch: request.epoch,
+            currentEpoch: currentEpoch,
+            disposition: deferredInputDisposition,
+            replay: replay
+        )
+        drainReadyCompletions(for: request.epoch)
     }
 
     /// Consumes an admission that became stale before it could be associated
     /// with a request. Only input from the currently attached runtime survives.
     func cancelReservedRequest(
         id: RequestID,
+        requestEpoch: UInt64,
         currentEpoch: UInt64,
+        deferredInputDisposition: RuntimeClipboardDeferredInputDisposition,
         replay: @escaping (Event) -> Void
     ) {
         _ = reservedAdmissions.withLock { state in
-            state.overflowHandlersByID.removeValue(forKey: id)
+            state.admissionsByID.removeValue(forKey: id)
         }
-        buffersByEpoch = buffersByEpoch.filter { epoch, _ in
-            epoch == currentEpoch
-        }
-        replayBufferedEvents(for: currentEpoch, replay: replay)
+        cancelBufferedInput(
+            requestEpoch: requestEpoch,
+            currentEpoch: currentEpoch,
+            disposition: deferredInputDisposition,
+            replay: replay
+        )
+        drainReadyCompletions(for: requestEpoch)
     }
 
     func completeRequest(
@@ -188,46 +295,147 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
         _ = removeRequest(id: id)
         onLogicalCompletion()
         replayBufferedEvents(for: request.epoch, replay: replay)
+        drainReadyCompletions(for: request.epoch)
     }
 
-    private nonisolated var hasRequestAwaitingAdmission: Bool {
+    private nonisolated func hasRequestAwaitingAdmission(
+        for epoch: UInt64
+    ) -> Bool {
         reservedAdmissions.withLock { state in
-            !state.overflowHandlersByID.isEmpty
+            state.admissionsByID.values.contains { $0.epoch == epoch }
         }
     }
 
-    private func beginReservedOverflowCancellation() -> [ReservedOverflowHandler] {
+    private nonisolated func earliestReservedAdmissionOrder(
+        for epoch: UInt64
+    ) -> UInt64? {
         reservedAdmissions.withLock { state in
-            state.overflowCancellationDepth += 1
-            let handlers = Array(state.overflowHandlersByID.values)
-            state.overflowHandlersByID.removeAll(keepingCapacity: false)
+            state.admissionsByID.values
+                .filter { $0.epoch == epoch }
+                .map(\.order)
+                .min()
+        }
+    }
+
+    private nonisolated func nextRegistrationOrder() -> UInt64 {
+        reservedAdmissions.withLock { state in
+            let order = state.nextOrder
+            state.nextOrder &+= 1
+            return order
+        }
+    }
+
+    private func drainReadyCompletions(for epoch: UInt64) {
+        guard drainingCompletionEpochs.insert(epoch).inserted else { return }
+        defer { drainingCompletionEpochs.remove(epoch) }
+
+        while true {
+            let candidate = activeRequests.compactMap {
+                id,
+                request -> (id: RequestID, order: UInt64, completion: () -> Void)? in
+                guard request.epoch == epoch,
+                      let order = request.reservationOrder,
+                      let completion = request.readyCompletion else {
+                    return nil
+                }
+                return (id, order, completion)
+            }.min { $0.order < $1.order }
+            guard let candidate else { return }
+
+            let earliestActiveOrder = activeRequests.values.compactMap {
+                request -> UInt64? in
+                guard request.epoch == epoch else { return nil }
+                return request.reservationOrder
+            }.min()
+            let earliestWaitingOrder = earliestReservedAdmissionOrder(
+                for: epoch
+            )
+            let earliestOrder = [earliestActiveOrder, earliestWaitingOrder]
+                .compactMap { $0 }
+                .min()
+            guard earliestOrder == candidate.order else { return }
+
+            activeRequests[candidate.id]?.readyCompletion = nil
+            candidate.completion()
+            guard activeRequests[candidate.id] == nil else { return }
+        }
+    }
+
+    private func hasCapacity(
+        in buffer: EpochBuffer,
+        forEventCost eventCost: Int
+    ) -> Bool {
+        guard buffer.pendingCount < maximumBufferedEvents,
+              buffer.pendingCost <= maximumBufferedCost else {
+            return false
+        }
+        return eventCost <= maximumBufferedCost - buffer.pendingCost
+    }
+
+    private func beginReservedOverflowCancellation(
+        for epoch: UInt64
+    ) -> [OrderedOverflowHandler] {
+        reservedAdmissions.withLock { state in
+            state.overflowCancellationDepthByEpoch[epoch, default: 0] += 1
+            let matchingAdmissions = state.admissionsByID.compactMap {
+                id,
+                admission -> (RequestID, ReservedAdmission)? in
+                admission.epoch == epoch ? (id, admission) : nil
+            }
+            let handlers = matchingAdmissions.map { id, admission in
+                state.admissionsByID.removeValue(forKey: id)
+                return OrderedOverflowHandler(
+                    order: admission.order,
+                    handler: admission.overflowHandler
+                )
+            }
             return handlers
         }
     }
 
-    private func endReservedOverflowCancellation() {
+    private func endReservedOverflowCancellation(for epoch: UInt64) {
         reservedAdmissions.withLock { state in
-            precondition(state.overflowCancellationDepth > 0)
-            state.overflowCancellationDepth -= 1
+            let depth = state.overflowCancellationDepthByEpoch[epoch] ?? 0
+            precondition(depth > 0)
+            if depth == 1 {
+                state.overflowCancellationDepthByEpoch.removeValue(
+                    forKey: epoch
+                )
+            } else {
+                state.overflowCancellationDepthByEpoch[epoch] = depth - 1
+            }
         }
     }
 
     private func hasRequestInFlight(for epoch: UInt64) -> Bool {
-        overflowCancellationDepth > 0
-            || activeRequests.values.contains(where: { $0.epoch == epoch })
-            || hasRequestAwaitingAdmission
+        (overflowCancellationDepthByEpoch[epoch] ?? 0) > 0
+            || activeRequests.values.contains(where: {
+                $0.epoch == epoch && $0.defersInput
+            })
+            || hasRequestAwaitingAdmission(for: epoch)
     }
 
     /// Keeps replay closed until every overflowing request has been cancelled.
-    private func withOverflowCancellationBatch(_ body: () -> Void) {
-        overflowCancellationDepth += 1
+    private func withOverflowCancellationBatch(
+        for epoch: UInt64,
+        _ body: () -> Void
+    ) {
+        overflowCancellationDepthByEpoch[epoch, default: 0] += 1
         body()
-        overflowCancellationDepth -= 1
-        guard overflowCancellationDepth == 0 else { return }
+        let depth = overflowCancellationDepthByEpoch[epoch] ?? 0
+        precondition(depth > 0)
+        if depth == 1 {
+            overflowCancellationDepthByEpoch.removeValue(forKey: epoch)
+        } else {
+            overflowCancellationDepthByEpoch[epoch] = depth - 1
+        }
+        guard depth == 1 else { return }
 
-        let deferredReplays = deferredOverflowReplays
-        deferredOverflowReplays.removeAll(keepingCapacity: false)
-        for deferredReplay in deferredReplays {
+        let matchingReplays = deferredOverflowReplays.filter {
+            $0.epoch == epoch
+        }
+        deferredOverflowReplays.removeAll { $0.epoch == epoch }
+        for deferredReplay in matchingReplays {
             replayBufferedEvents(
                 for: deferredReplay.epoch,
                 replay: deferredReplay.replay
@@ -245,11 +453,27 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
         return request
     }
 
+    private func cancelBufferedInput(
+        requestEpoch: UInt64,
+        currentEpoch: UInt64,
+        disposition: RuntimeClipboardDeferredInputDisposition,
+        replay: @escaping (Event) -> Void
+    ) {
+        switch disposition {
+        case .replay:
+            replayBufferedEvents(for: requestEpoch, replay: replay)
+        case .discard:
+            buffersByEpoch.removeValue(forKey: requestEpoch)
+            guard currentEpoch != requestEpoch else { return }
+            replayBufferedEvents(for: currentEpoch, replay: replay)
+        }
+    }
+
     private func replayBufferedEvents(
         for epoch: UInt64,
         replay: @escaping (Event) -> Void
     ) {
-        if overflowCancellationDepth > 0 {
+        if (overflowCancellationDepthByEpoch[epoch] ?? 0) > 0 {
             deferredOverflowReplays.append((epoch, replay))
             return
         }
@@ -274,6 +498,8 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
               var buffer = buffersByEpoch[epoch],
               buffer.nextEventIndex < buffer.events.count {
             let event = buffer.events[buffer.nextEventIndex].event
+            buffer.pendingCost -= buffer.events[buffer.nextEventIndex]
+                .estimatedCost
             buffer.nextEventIndex += 1
             buffersByEpoch[epoch] = buffer
             replay(event)

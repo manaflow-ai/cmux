@@ -35,6 +35,31 @@ struct TerminalClipboardInputSequencerTests {
         #expect(delivered == ["paste", "suffix"])
     }
 
+    @Test("OSC 52 read streams never defer terminal input")
+    func unsequencedClipboardReadsNeverDeferInput() {
+        let sequencer = TerminalClipboardInputSequencer<String, Int>(
+            maximumBufferedEvents: 8
+        )
+        var logicalCompletionCount = 0
+
+        for requestID in 1...32 {
+            sequencer.beginUnsequencedRequest(id: requestID, epoch: 7)
+        }
+
+        #expect(!sequencer.shouldDefer("ctrl-c", epoch: 7))
+        #expect(!sequencer.shouldDefer("ordinary-input", epoch: 7))
+
+        for requestID in 1...32 {
+            sequencer.completeRequest(
+                id: requestID,
+                confirmed: false,
+                onLogicalCompletion: { logicalCompletionCount += 1 },
+                replay: { _ in Issue.record("Unsequenced input was buffered") }
+            )
+        }
+        #expect(logicalCompletionCount == 32)
+    }
+
     @Test("pre-admission overflow cancels paste before routing current input")
     func preAdmissionOverflowCancelsPasteFirst() async {
         let sequencer = TerminalClipboardInputSequencer<String, Int>(
@@ -45,7 +70,9 @@ struct TerminalClipboardInputSequencerTests {
             delivered.append("paste-cancelled")
             sequencer.cancelReservedRequest(
                 id: 1,
-                currentEpoch: 0
+                requestEpoch: 0,
+                currentEpoch: 0,
+                deferredInputDisposition: .replay
             ) {
                 delivered.append($0)
             }
@@ -84,7 +111,9 @@ struct TerminalClipboardInputSequencerTests {
             delivered.append("paste-1-cancelled")
             sequencer.cancelReservedRequest(
                 id: 1,
-                currentEpoch: 0
+                requestEpoch: 0,
+                currentEpoch: 0,
+                deferredInputDisposition: .replay
             ) {
                 delivered.append($0)
             }
@@ -93,18 +122,20 @@ struct TerminalClipboardInputSequencerTests {
             delivered.append("paste-2-cancelled")
             sequencer.cancelReservedRequest(
                 id: 2,
-                currentEpoch: 0
+                requestEpoch: 0,
+                currentEpoch: 0,
+                deferredInputDisposition: .replay
             ) {
                 delivered.append($0)
             }
         }
 
         await Task.detached {
-            sequencer.reserveRequestAdmission(
+            _ = sequencer.reserveRequestAdmission(
                 id: 1,
                 onOverflow: firstOverflow
             )
-            sequencer.reserveRequestAdmission(
+            _ = sequencer.reserveRequestAdmission(
                 id: 2,
                 onOverflow: secondOverflow
             )
@@ -120,6 +151,108 @@ struct TerminalClipboardInputSequencerTests {
                 == Set(["paste-1-cancelled", "paste-2-cancelled"])
         )
         #expect(Array(delivered.dropFirst(2)) == ["first", "second", "current"])
+    }
+
+    @Test("overflow cancels pre-admission and active pastes in registration order")
+    func overflowPreservesOrderAcrossAdmissionBoundary() {
+        let sequencer = TerminalClipboardInputSequencer<String, Int>(
+            maximumBufferedEvents: 1
+        )
+        var delivered: [String] = []
+
+        #expect(sequencer.reserveRequestAdmission(
+            id: 1,
+            onOverflow: {
+                delivered.append("paste-1-cancelled")
+                sequencer.cancelReservedRequest(
+                    id: 1,
+                    requestEpoch: 0,
+                    currentEpoch: 0,
+                    deferredInputDisposition: .replay
+                ) {
+                    delivered.append($0)
+                }
+            }
+        ))
+        #expect(sequencer.reserveRequestAdmission(id: 2, onOverflow: {}))
+        sequencer.beginReservedRequest(
+            id: 2,
+            onOverflow: {
+                delivered.append("paste-2-cancelled")
+                sequencer.cancelRequest(
+                    id: 2,
+                    currentEpoch: 0,
+                    deferredInputDisposition: .replay
+                ) {
+                    delivered.append($0)
+                }
+            }
+        )
+
+        #expect(sequencer.shouldDefer("buffered"))
+        #expect(!sequencer.shouldDefer("current"))
+        delivered.append("current")
+
+        #expect(
+            delivered == [
+                "paste-1-cancelled",
+                "paste-2-cancelled",
+                "buffered",
+                "current",
+            ]
+        )
+    }
+
+    @Test("overflow preserves registration order after reverse admission")
+    func overflowPreservesOrderAcrossReverseAdmission() {
+        let sequencer = TerminalClipboardInputSequencer<String, Int>(
+            maximumBufferedEvents: 1
+        )
+        var delivered: [String] = []
+
+        #expect(sequencer.reserveRequestAdmission(id: 1, onOverflow: {}))
+        #expect(sequencer.reserveRequestAdmission(id: 2, onOverflow: {}))
+        sequencer.beginReservedRequest(
+            id: 2,
+            onOverflow: {
+                delivered.append("paste-2-cancelled")
+                sequencer.cancelRequest(
+                    id: 2,
+                    currentEpoch: 0,
+                    deferredInputDisposition: .replay
+                ) {
+                    delivered.append($0)
+                }
+            }
+        )
+        sequencer.beginReservedRequest(
+            id: 1,
+            onOverflow: {
+                delivered.append("paste-1-cancelled")
+                sequencer.cancelRequest(
+                    id: 1,
+                    currentEpoch: 0,
+                    deferredInputDisposition: .replay
+                ) {
+                    delivered.append($0)
+                }
+            }
+        )
+        sequencer.requireConfirmation(for: 1)
+        sequencer.requireConfirmation(for: 2)
+
+        #expect(sequencer.shouldDefer("buffered"))
+        #expect(!sequencer.shouldDefer("current"))
+        delivered.append("current")
+
+        #expect(
+            delivered == [
+                "paste-1-cancelled",
+                "paste-2-cancelled",
+                "buffered",
+                "current",
+            ]
+        )
     }
 
     @Test("overflow cancels active and reserved requests before replay")
@@ -147,7 +280,9 @@ struct TerminalClipboardInputSequencerTests {
             delivered.append("reserved-cancelled")
             sequencer.cancelReservedRequest(
                 id: 2,
-                currentEpoch: 0
+                requestEpoch: 0,
+                currentEpoch: 0,
+                deferredInputDisposition: .replay
             ) {
                 delivered.append($0)
             }
@@ -177,6 +312,179 @@ struct TerminalClipboardInputSequencerTests {
         )
     }
 
+    @Test("overflow cleanup does not block a replacement runtime epoch")
+    func overflowCancellationIsEpochScoped() {
+        let sequencer = TerminalClipboardInputSequencer<String, Int>(
+            maximumBufferedEvents: 0
+        )
+        var replacementInputWasDeferred = true
+        var replacementAdmissionAccepted = false
+
+        sequencer.beginRequest(
+            id: 1,
+            epoch: 7,
+            onOverflow: {
+                replacementInputWasDeferred = sequencer.shouldDefer(
+                    "replacement-input",
+                    epoch: 9
+                )
+                replacementAdmissionAccepted = sequencer
+                    .reserveRequestAdmission(
+                        id: 2,
+                        epoch: 9,
+                        onOverflow: {}
+                    )
+                sequencer.completeRequest(id: 1, confirmed: false) { _ in
+                    Issue.record("Dying-runtime input was replayed")
+                }
+            }
+        )
+
+        #expect(!sequencer.shouldDefer("overflowing-input", epoch: 7))
+        #expect(!replacementInputWasDeferred)
+        #expect(replacementAdmissionAccepted)
+
+        sequencer.cancelReservedRequest(
+            id: 2,
+            requestEpoch: 9,
+            currentEpoch: 9,
+            deferredInputDisposition: .discard,
+            replay: { _ in Issue.record("Replacement input was buffered") }
+        )
+    }
+
+    @Test("retained input cost is bounded independently of event count")
+    func retainedInputCostOverflowCancelsPasteFirst() {
+        let sequencer = TerminalClipboardInputSequencer<String, Int>(
+            maximumBufferedEvents: 8,
+            maximumBufferedCost: 4
+        )
+        var delivered: [String] = []
+        sequencer.beginRequest(
+            id: 1,
+            epoch: 7,
+            onOverflow: {
+                delivered.append("paste-cancelled")
+                sequencer.completeRequest(id: 1, confirmed: false) {
+                    delivered.append($0)
+                }
+            }
+        )
+
+        #expect(
+            sequencer.shouldDefer("buffered", epoch: 7, estimatedCost: 4)
+        )
+        #expect(
+            !sequencer.shouldDefer("current", epoch: 7, estimatedCost: 5)
+        )
+        delivered.append("current")
+
+        #expect(delivered == ["paste-cancelled", "buffered", "current"])
+    }
+
+    @Test("confirmation-phase overflow cannot drop the triggering input")
+    func confirmationOverflowCancelsSequencingBeforeRoutingInput() {
+        let sequencer = TerminalClipboardInputSequencer<String, Int>(
+            maximumBufferedEvents: 8,
+            maximumBufferedCost: 4
+        )
+        var delivered: [String] = []
+        sequencer.beginRequest(
+            id: 1,
+            epoch: 7,
+            onOverflow: {
+                delivered.append("paste-cancelled")
+                sequencer.cancelRequest(
+                    id: 1,
+                    currentEpoch: 7,
+                    deferredInputDisposition: .replay
+                ) {
+                    delivered.append($0)
+                }
+            }
+        )
+        sequencer.requireConfirmation(for: 1)
+        #expect(
+            sequencer.shouldDefer("buffered", epoch: 7, estimatedCost: 4)
+        )
+        sequencer.completeRequest(id: 1, confirmed: true) { _ in
+            Issue.record("Confirmation released input before initial completion")
+        }
+
+        #expect(
+            !sequencer.shouldDefer("current", epoch: 7, estimatedCost: 5)
+        )
+        delivered.append("current")
+
+        #expect(delivered == ["paste-cancelled", "buffered", "current"])
+    }
+
+    @Test("overflow replay can reserve another paste before current input")
+    func overflowCannotDropInputBehindAReplayStartedPaste() {
+        let sequencer = TerminalClipboardInputSequencer<() -> Void, Int>(
+            maximumBufferedEvents: 2
+        )
+        var delivered: [String] = []
+        var nestedAdmissionAccepted = false
+        sequencer.beginRequest(
+            id: 1,
+            onOverflow: {
+                sequencer.cancelRequest(
+                    id: 1,
+                    currentEpoch: 0,
+                    deferredInputDisposition: .replay
+                ) { replay in
+                    replay()
+                }
+            }
+        )
+        #expect(sequencer.shouldDefer {
+            delivered.append("replayed-input")
+            nestedAdmissionAccepted = sequencer.reserveRequestAdmission(
+                id: 2,
+                onOverflow: {
+                    sequencer.cancelReservedRequest(
+                        id: 2,
+                        requestEpoch: 0,
+                        currentEpoch: 0,
+                        deferredInputDisposition: .replay
+                    ) { replay in
+                        replay()
+                    }
+                }
+            )
+        })
+        #expect(sequencer.shouldDefer {
+            delivered.append("queued-input")
+        })
+
+        let currentInputDeferred = sequencer.shouldDefer {
+            delivered.append("current-input")
+        }
+        if !currentInputDeferred {
+            delivered.append("current-input")
+        }
+
+        #expect(nestedAdmissionAccepted)
+        #expect(currentInputDeferred)
+        #expect(delivered == ["replayed-input"])
+
+        sequencer.beginReservedRequest(id: 2)
+        delivered.append("paste-2-complete")
+        sequencer.completeRequest(id: 2, confirmed: false) { replay in
+            replay()
+        }
+
+        #expect(
+            delivered == [
+                "replayed-input",
+                "paste-2-complete",
+                "queued-input",
+                "current-input",
+            ]
+        )
+    }
+
     @Test("overlapping reservations hold input through every request")
     func overlappingReservationsHoldInputThroughEveryRequest() async {
         let sequencer = TerminalClipboardInputSequencer<String, Int>(
@@ -185,8 +493,8 @@ struct TerminalClipboardInputSequencerTests {
         var delivered: [String] = []
 
         await Task.detached {
-            sequencer.reserveRequestAdmission(id: 1, onOverflow: {})
-            sequencer.reserveRequestAdmission(id: 2, onOverflow: {})
+            _ = sequencer.reserveRequestAdmission(id: 1, onOverflow: {})
+            _ = sequencer.reserveRequestAdmission(id: 2, onOverflow: {})
         }.value
         #expect(sequencer.shouldDefer("suffix"))
 
@@ -202,6 +510,39 @@ struct TerminalClipboardInputSequencerTests {
         sequencer.completeRequest(id: 2, confirmed: false) {
             delivered.append($0)
         }
+        #expect(delivered == ["paste-1", "paste-2", "suffix"])
+    }
+
+    @Test("chained paste completions preserve callback registration order")
+    func chainedPasteCompletionsPreserveRegistrationOrder() async {
+        let sequencer = TerminalClipboardInputSequencer<String, Int>(
+            maximumBufferedEvents: 8
+        )
+        var delivered: [String] = []
+
+        await Task.detached {
+            #expect(sequencer.reserveRequestAdmission(id: 1, onOverflow: {}))
+            #expect(sequencer.reserveRequestAdmission(id: 2, onOverflow: {}))
+        }.value
+        #expect(sequencer.shouldDefer("suffix"))
+
+        sequencer.beginReservedRequest(id: 2)
+        sequencer.performCompletionWhenReady(id: 2) {
+            delivered.append("paste-2")
+            sequencer.completeRequest(id: 2, confirmed: false) {
+                delivered.append($0)
+            }
+        }
+        #expect(delivered.isEmpty)
+
+        sequencer.beginReservedRequest(id: 1)
+        sequencer.performCompletionWhenReady(id: 1) {
+            delivered.append("paste-1")
+            sequencer.completeRequest(id: 1, confirmed: false) {
+                delivered.append($0)
+            }
+        }
+
         #expect(delivered == ["paste-1", "paste-2", "suffix"])
     }
 
@@ -274,6 +615,36 @@ struct TerminalClipboardInputSequencerTests {
         #expect(delivered == ["paste-2", "paste-2-complete", "suffix"])
     }
 
+    @Test("a replayed runtime batch pauses when it starts another paste")
+    func replayedRuntimeBatchCanDeferItsRemainingInput() {
+        let sequencer = TerminalClipboardInputSequencer<() -> Void, Int>(
+            maximumBufferedEvents: 8
+        )
+        var delivered: [String] = []
+        sequencer.beginRequest(id: 1)
+        #expect(sequencer.shouldDefer {
+            delivered.append("paste-2")
+            sequencer.beginRequest(id: 2)
+            let deferred = sequencer.shouldDefer {
+                delivered.append("suffix")
+            }
+            if !deferred {
+                delivered.append("suffix")
+            }
+        })
+
+        sequencer.completeRequest(id: 1, confirmed: false) { replay in
+            replay()
+        }
+        #expect(delivered == ["paste-2"])
+
+        delivered.append("paste-2-complete")
+        sequencer.completeRequest(id: 2, confirmed: false) { replay in
+            replay()
+        }
+        #expect(delivered == ["paste-2", "paste-2-complete", "suffix"])
+    }
+
     @Test("cancelling stale input preserves replacement-surface input")
     func cancellingStaleRequestPreservesReplacementInput() {
         let sequencer = TerminalClipboardInputSequencer<String, Int>(
@@ -285,7 +656,11 @@ struct TerminalClipboardInputSequencerTests {
 
         #expect(!sequencer.shouldDefer("replacement-input", epoch: 9))
         delivered.append("replacement-input")
-        sequencer.cancelRequest(id: 1, currentEpoch: 9) {
+        sequencer.cancelRequest(
+            id: 1,
+            currentEpoch: 9,
+            deferredInputDisposition: .discard
+        ) {
             delivered.append($0)
         }
 
@@ -300,12 +675,21 @@ struct TerminalClipboardInputSequencerTests {
         var delivered: [String] = []
 
         let reservationAccepted = await Task.detached {
-            sequencer.reserveRequestAdmission(id: 1, onOverflow: {})
+            sequencer.reserveRequestAdmission(
+                id: 1,
+                epoch: 7,
+                onOverflow: {}
+            )
         }.value
         #expect(reservationAccepted)
         #expect(sequencer.shouldDefer("dying-surface-input", epoch: 7))
 
-        sequencer.cancelReservedRequest(id: 1, currentEpoch: 7) {
+        sequencer.cancelReservedRequest(
+            id: 1,
+            requestEpoch: 7,
+            currentEpoch: 9,
+            deferredInputDisposition: .discard
+        ) {
             delivered.append($0)
         }
 

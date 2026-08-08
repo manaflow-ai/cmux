@@ -1,6 +1,7 @@
 public import Foundation
 public import GhosttyKit
 internal import CmuxFoundation
+internal import Darwin
 internal import os
 
 /// The retained userdata handed to libghostty surface callbacks.
@@ -20,20 +21,37 @@ internal import os
 /// been freed.
 public final class GhosttySurfaceCallbackContext {
     private typealias RuntimeClipboardInvalidation =
-        @MainActor @Sendable (_ wasAdmitted: Bool, _ completesNativeRequest: Bool) -> Void
+        @MainActor @Sendable (
+            _ wasAdmitted: Bool,
+            _ completesNativeRequest: Bool,
+            _ inputAdmission: RuntimeClipboardInputAdmission,
+            _ deferredInputDisposition: RuntimeClipboardDeferredInputDisposition
+        ) -> Void
 
     private struct RuntimeClipboardRequest: Sendable {
         var task: Task<Void, Never>?
         var isCommitted = false
         var wasAdmitted = false
+        let inputAdmission: RuntimeClipboardInputAdmission
         let onInvalidation: RuntimeClipboardInvalidation
     }
 
     private struct RuntimeClipboardState: Sendable {
         var acceptsRequests = true
         var surfaceAddress: UInt?
+        var surfaceGeneration: UInt64?
         var requests: [UInt: RuntimeClipboardRequest] = [:]
     }
+
+    // A process-wide TLS slot provides a zero-allocation, lock-free marker on
+    // the per-keystroke path after its one-time initialization. The marker is
+    // dispatch-scoped rather than context-scoped because Ghostty can fan an
+    // `all:` binding out to several surface callback contexts synchronously.
+    private static let runtimeClipboardPasteDispatchKey: pthread_key_t = {
+        var key = pthread_key_t()
+        precondition(pthread_key_create(&key, nil) == 0)
+        return key
+    }()
 
     /// The host view, used as a fallback identity source when the model
     /// reference has been released.
@@ -82,6 +100,7 @@ public final class GhosttySurfaceCallbackContext {
             0,
             maximumRuntimeClipboardRequests
         )
+        _ = Self.runtimeClipboardPasteDispatchKey
     }
 
     /// Arms one presentation repair for the next renderer mailbox-drain signal.
@@ -112,19 +131,49 @@ public final class GhosttySurfaceCallbackContext {
     /// The address never follows the host view to a replacement surface. A
     /// callback that arrives before binding or after invalidation fails closed.
     ///
-    /// - Parameter surface: The native surface created with this context.
+    /// - Parameters:
+    ///   - surface: The native surface created with this context.
+    ///   - generation: The model epoch installed for that native surface.
     /// - Returns: Whether the live context accepted this surface identity.
     @discardableResult
-    public func bindRuntimeClipboardSurface(_ surface: ghostty_surface_t) -> Bool {
+    public func bindRuntimeClipboardSurface(
+        _ surface: ghostty_surface_t,
+        generation: UInt64
+    ) -> Bool {
         let address = UInt(bitPattern: surface)
         return runtimeClipboardState.withLock { state in
             guard state.acceptsRequests,
-                  state.surfaceAddress == nil || state.surfaceAddress == address else {
+                  (state.surfaceAddress == nil && state.surfaceGeneration == nil)
+                    || (state.surfaceAddress == address
+                        && state.surfaceGeneration == generation) else {
                 return false
             }
             state.surfaceAddress = address
+            state.surfaceGeneration = generation
             return true
         }
+    }
+
+    /// Marks a synchronous native input dispatch as a potential user paste.
+    ///
+    /// Only clipboard reads re-entering on the same thread and call stack see
+    /// the intent. Concurrent OSC 52 reads therefore remain unsequenced, while
+    /// every read in a chained paste binding preserves input ordering.
+    ///
+    /// - Parameter body: The native binding, key, or pointer dispatch to perform.
+    /// - Returns: The value returned by `body`.
+    /// - Throws: Any error thrown by `body`.
+    public func withRuntimeClipboardPasteIntent<Result>(
+        _ body: () throws -> Result
+    ) rethrows -> Result {
+        let key = Self.runtimeClipboardPasteDispatchKey
+        let previousMarker = pthread_getspecific(key)
+        let marker = Unmanaged.passUnretained(self).toOpaque()
+        precondition(pthread_setspecific(key, marker) == 0)
+        defer {
+            precondition(pthread_setspecific(key, previousMarker) == 0)
+        }
+        return try body()
     }
 
     /// The immutable native surface address bound to this callback context.
@@ -141,30 +190,44 @@ public final class GhosttySurfaceCallbackContext {
     ///
     /// - Parameters:
     ///   - id: The bit pattern of libghostty's opaque request state.
-    ///   - reserveAdmission: Attempts a bounded synchronous reservation under
-    ///     the same lock as the request so teardown cannot overtake it.
+    ///   - reservePasteInput: Attempts a bounded synchronous input reservation
+    ///     for a paste request under the same lock as the request so teardown
+    ///     cannot overtake it.
     ///   - onInvalidation: Main-actor cleanup that completes or abandons the
     ///     native request and releases the matching input reservation.
     /// - Returns: Whether this live runtime context accepted the request.
     public func registerRuntimeClipboardRequest(
         id: UInt,
-        reserveAdmission: @Sendable () -> Bool = { true },
+        reservePasteInput: @Sendable (_ epoch: UInt64) -> Bool = { _ in true },
         onInvalidation: @escaping @MainActor @Sendable (
             _ wasAdmitted: Bool,
-            _ completesNativeRequest: Bool
+            _ completesNativeRequest: Bool,
+            _ inputAdmission: RuntimeClipboardInputAdmission,
+            _ deferredInputDisposition: RuntimeClipboardDeferredInputDisposition
         ) -> Void
     ) -> Bool {
         let requestLimit = maximumRuntimeClipboardRequests
+        let hasPasteIntent = pthread_getspecific(
+            Self.runtimeClipboardPasteDispatchKey
+        ) != nil
         return runtimeClipboardState.withLock { state in
             guard state.acceptsRequests,
                   state.surfaceAddress != nil,
+                  let surfaceGeneration = state.surfaceGeneration,
                   state.requests.count < requestLimit,
                   state.requests[id] == nil else {
                 return false
             }
-            guard reserveAdmission() else { return false }
+            let inputAdmission: RuntimeClipboardInputAdmission
+            if hasPasteIntent {
+                guard reservePasteInput(surfaceGeneration) else { return false }
+                inputAdmission = .reserved(epoch: surfaceGeneration)
+            } else {
+                inputAdmission = .unsequenced(epoch: surfaceGeneration)
+            }
             state.requests[id] = RuntimeClipboardRequest(
                 task: nil,
+                inputAdmission: inputAdmission,
                 onInvalidation: onInvalidation
             )
             return true
@@ -224,15 +287,17 @@ public final class GhosttySurfaceCallbackContext {
     /// - Returns: Whether the request still belongs to this live runtime.
     @MainActor
     @discardableResult
-    public func markRuntimeClipboardRequestAdmitted(_ id: UInt) -> Bool {
+    public func markRuntimeClipboardRequestAdmitted(
+        _ id: UInt
+    ) -> RuntimeClipboardInputAdmission? {
         runtimeClipboardState.withLock { state in
             guard var request = state.requests[id],
                   request.isCommitted else {
-                return false
+                return nil
             }
             request.wasAdmitted = true
             state.requests[id] = request
-            return true
+            return request.inputAdmission
         }
     }
 
@@ -256,14 +321,18 @@ public final class GhosttySurfaceCallbackContext {
     ///   - id: The registered native request identifier.
     ///   - completingNativeRequest: Whether invalidation should complete the
     ///     accepted libghostty request.
+    ///   - deferredInputDisposition: Whether input buffered for the request's
+    ///     runtime epoch should be replayed or discarded.
     @MainActor
     public func invalidateRuntimeClipboardRequest(
         _ id: UInt,
-        completingNativeRequest: Bool
+        completingNativeRequest: Bool,
+        deferredInputDisposition: RuntimeClipboardDeferredInputDisposition
     ) {
         Self.invalidateRuntimeClipboardRequest(
             id,
             completingNativeRequest: completingNativeRequest,
+            deferredInputDisposition: deferredInputDisposition,
             in: runtimeClipboardState
         )
     }
@@ -275,13 +344,15 @@ public final class GhosttySurfaceCallbackContext {
     /// domains.
     public func makeRuntimeClipboardInvalidationHandler(
         for id: UInt,
-        completingNativeRequest: Bool
+        completingNativeRequest: Bool,
+        deferredInputDisposition: RuntimeClipboardDeferredInputDisposition
     ) -> @MainActor @Sendable () -> Void {
         let runtimeClipboardState = runtimeClipboardState
         return {
             Self.invalidateRuntimeClipboardRequest(
                 id,
                 completingNativeRequest: completingNativeRequest,
+                deferredInputDisposition: deferredInputDisposition,
                 in: runtimeClipboardState
             )
         }
@@ -291,6 +362,7 @@ public final class GhosttySurfaceCallbackContext {
     private static func invalidateRuntimeClipboardRequest(
         _ id: UInt,
         completingNativeRequest: Bool,
+        deferredInputDisposition: RuntimeClipboardDeferredInputDisposition,
         in runtimeClipboardState: OSAllocatedUnfairLock<RuntimeClipboardState>
     ) {
         let request = runtimeClipboardState.withLock { state in
@@ -300,7 +372,9 @@ public final class GhosttySurfaceCallbackContext {
         request.task?.cancel()
         request.onInvalidation(
             request.wasAdmitted,
-            completingNativeRequest && request.isCommitted
+            completingNativeRequest && request.isCommitted,
+            request.inputAdmission,
+            deferredInputDisposition
         )
     }
 
@@ -311,7 +385,8 @@ public final class GhosttySurfaceCallbackContext {
     /// does not dereference a native surface that is already gone.
     ///
     /// - Parameter completingNativeRequests: Whether each invalidation should
-    ///   complete its accepted libghostty request before native free.
+    ///   complete its accepted libghostty request before native free. Deferred
+    ///   input is always discarded because the entire runtime is ending.
     @MainActor
     public func invalidateRuntimeClipboardRequests(
         completingNativeRequests: Bool
@@ -326,7 +401,9 @@ public final class GhosttySurfaceCallbackContext {
             request.task?.cancel()
             request.onInvalidation(
                 request.wasAdmitted,
-                completingNativeRequests && request.isCommitted
+                completingNativeRequests && request.isCommitted,
+                request.inputAdmission,
+                .discard
             )
         }
     }

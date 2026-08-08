@@ -4,6 +4,11 @@ import CmuxTerminalCore
 import GhosttyKit
 import os
 
+nonisolated private let runtimeClipboardLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "RuntimeClipboard"
+)
+
 extension GhosttyApp {
     static func runtimeReadClipboardCallback(
         _ userdata: UnsafeMutableRawPointer?,
@@ -16,15 +21,20 @@ extension GhosttyApp {
         let clipboardRequestID = UInt(bitPattern: state)
         let requestSurfaceView = callbackContext.surfaceView
         let operation = TerminalImageTransferOperation()
-        // Ghostty does not expose the request kind to this read callback; it
-        // arrives only at confirmation. Reserve every read so an actual paste
-        // can never be overtaken by input while crossing to the main actor.
+        guard let pasteboardReadLease = terminalPasteboard
+            .reserveClipboardRead(from: location) else {
+            return false
+        }
+        // Ghostty exposes the request kind only at confirmation. The callback
+        // context instead claims a synchronous paste intent from native input;
+        // independent reads such as OSC 52 remain unsequenced.
         guard let requestSurfaceAddress = callbackContext.registerRuntimeClipboardRead(
             id: clipboardRequestID,
             stateAddress: clipboardRequestID,
             operation: operation,
             surfaceView: requestSurfaceView
         ) else {
+            pasteboardReadLease.finish()
             return false
         }
 
@@ -34,6 +44,7 @@ extension GhosttyApp {
         )
         let preparationTask = Task {
             @MainActor [weak callbackContext, weak requestSurfaceView] in
+            defer { pasteboardReadLease.finish() }
             var startIterator = startEvents.makeAsyncIterator()
             guard await startIterator.next() != nil,
                   !Task.isCancelled else {
@@ -52,26 +63,25 @@ extension GhosttyApp {
                     == requestSurfaceAddress else {
                 callbackContext.invalidateRuntimeClipboardRequest(
                     clipboardRequestID,
-                    completingNativeRequest: true
+                    completingNativeRequest: true,
+                    deferredInputDisposition: .discard
                 )
                 return
             }
             guard let preparationService = requestSurfaceView
                 .imageTransferPreparation else {
-                Logger(
-                    subsystem: Bundle.main.bundleIdentifier
-                        ?? "com.cmuxterm.app",
-                    category: "RuntimeClipboard"
-                ).warning(
+                runtimeClipboardLogger.warning(
                     "Clipboard read rejected: missing paste preparation service"
                 )
                 callbackContext.invalidateRuntimeClipboardRequest(
                     clipboardRequestID,
-                    completingNativeRequest: true
+                    completingNativeRequest: true,
+                    deferredInputDisposition: .replay
                 )
                 return
             }
-            guard callbackContext.markRuntimeClipboardRequestAdmitted(
+            guard let inputAdmission = callbackContext
+                .markRuntimeClipboardRequestAdmitted(
                 clipboardRequestID
             ) else {
                 return
@@ -101,15 +111,20 @@ extension GhosttyApp {
                 }
             }
 
-            requestSurfaceView.beginReservedClipboardRead(
+            requestSurfaceView.beginClipboardRead(
                 clipboardRequestID,
-                epoch: requestSurfaceIdentity.generation,
+                inputAdmission: inputAdmission,
                 onOverflow: {
                     _ = operation.cancel()
                     overflowCleanup()
                     completeClipboardRequestOnMain(with: "")
                 }
             )
+
+            guard await pasteboardReadLease.waitUntilReady(),
+                  !Task.isCancelled else {
+                return
+            }
 
             guard let pasteboard = terminalPasteboard.pasteboard(for: location) else {
                 completeClipboardRequest(with: "")
@@ -124,6 +139,7 @@ extension GhosttyApp {
                 mode: .paste,
                 using: preparationService
             )
+            pasteboardReadLease.finish()
 
             guard !operation.isCancelled else {
                 if case .fileURLs(let fileURLs) = preparedContent {
@@ -277,6 +293,7 @@ extension GhosttyApp {
             startContinuation.yield()
         } else {
             preparationTask.cancel()
+            pasteboardReadLease.finish()
         }
         startContinuation.finish()
 

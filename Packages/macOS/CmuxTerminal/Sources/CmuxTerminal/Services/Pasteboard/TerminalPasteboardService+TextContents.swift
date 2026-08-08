@@ -20,32 +20,25 @@ extension TerminalPasteboardService: TerminalClipboardReading {
         let hasImagePayload = hasImageData(in: pasteboard)
         let hasRTFDAttachmentPayload = types.contains(.rtfd)
         let plainText = plainTextContents(from: pasteboard)
-        let htmlOutcome: HTMLPlainTextParseOutcome?
+        let parsedHTMLOutcome: HTMLPlainTextParseOutcome?
         if hasImagePayload {
-            let parser = HTMLPlainTextParser()
-            if let html = pasteboard.string(forType: .html) {
-                htmlOutcome = parser.outcome(from: html)
-            } else if let htmlData = pasteboard.data(forType: .html) {
-                htmlOutcome = parser.outcome(from: htmlData)
-            } else {
-                htmlOutcome = nil
-            }
-            if let htmlOutcome {
-                if htmlOutcome.confirmsNoVisibleText {
+            parsedHTMLOutcome = htmlOutcome(from: pasteboard)
+            if let parsedHTMLOutcome {
+                if parsedHTMLOutcome.confirmsNoVisibleText {
                     return nil
                 }
-                if htmlOutcome == .rejected, let plainText {
+                if parsedHTMLOutcome == .rejected, let plainText {
                     return plainText
                 }
             }
         } else {
-            htmlOutcome = nil
+            parsedHTMLOutcome = nil
         }
 
         if hasImagePayload || hasRTFDAttachmentPayload {
             guard let richText = richTextContents(
                 from: pasteboard,
-                precomputedHTMLOutcome: htmlOutcome
+                precomputedHTMLOutcome: parsedHTMLOutcome
             ) else {
                 return nil
             }
@@ -130,12 +123,18 @@ extension TerminalPasteboardService {
     private func htmlPlainTextContents(
         from pasteboard: NSPasteboard
     ) -> String? {
+        htmlOutcome(from: pasteboard)?.plainText
+    }
+
+    private func htmlOutcome(
+        from pasteboard: NSPasteboard
+    ) -> HTMLPlainTextParseOutcome? {
         let parser = HTMLPlainTextParser()
         if let html = pasteboard.string(forType: .html) {
-            return parser.plainText(from: html)
+            return parser.outcome(from: html)
         }
         guard let data = pasteboard.data(forType: .html) else { return nil }
-        return parser.plainText(from: data)
+        return parser.outcome(from: data)
     }
 
     private func plainTextContents(from pasteboard: NSPasteboard) -> String? {

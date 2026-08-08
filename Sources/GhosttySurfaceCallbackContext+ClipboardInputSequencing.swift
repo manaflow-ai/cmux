@@ -16,18 +16,25 @@ extension GhosttySurfaceCallbackContext {
         let inputSequencer = surfaceView?.terminalClipboardInputSequencer
         let overflowHandler = makeRuntimeClipboardInvalidationHandler(
             for: id,
-            completingNativeRequest: true
+            completingNativeRequest: true,
+            deferredInputDisposition: .replay
         )
         guard registerRuntimeClipboardRequest(
             id: id,
-            reserveAdmission: {
+            reservePasteInput: { epoch in
                 guard let inputSequencer else { return false }
                 return inputSequencer.reserveRequestAdmission(
                     id: id,
+                    epoch: epoch,
                     onOverflow: overflowHandler
                 )
             },
-            onInvalidation: { @MainActor [weak surfaceView] wasAdmitted, completesNativeRequest in
+            onInvalidation: {
+                @MainActor [weak surfaceView]
+                wasAdmitted,
+                completesNativeRequest,
+                inputAdmission,
+                deferredInputDisposition in
                 _ = operation.cancel()
                 surfaceView?.terminalSurface?.hostedView
                     .endImageTransferIndicator(for: operation)
@@ -54,12 +61,15 @@ extension GhosttySurfaceCallbackContext {
                 if wasAdmitted {
                     surfaceView?.cancelClipboardRead(
                         id,
-                        currentEpoch: currentEpoch
+                        currentEpoch: currentEpoch,
+                        deferredInputDisposition: deferredInputDisposition
                     )
-                } else {
+                } else if case .reserved(let requestEpoch) = inputAdmission {
                     surfaceView?.cancelReservedClipboardRead(
                         id,
-                        currentEpoch: currentEpoch
+                        requestEpoch: requestEpoch,
+                        currentEpoch: currentEpoch,
+                        deferredInputDisposition: deferredInputDisposition
                     )
                 }
             }
@@ -77,6 +87,35 @@ extension GhosttySurfaceCallbackContext {
         surfaceAddress: UInt,
         surfaceIdentity: TerminalClipboardRequestSurfaceIdentity
     ) {
+        guard let surfaceView else {
+            finishRuntimeClipboardRead(
+                text,
+                requestID: requestID,
+                stateAddress: stateAddress,
+                surfaceAddress: surfaceAddress,
+                surfaceIdentity: surfaceIdentity
+            )
+            return
+        }
+        surfaceView.performClipboardReadCompletionWhenReady(requestID) {
+            self.finishRuntimeClipboardRead(
+                text,
+                requestID: requestID,
+                stateAddress: stateAddress,
+                surfaceAddress: surfaceAddress,
+                surfaceIdentity: surfaceIdentity
+            )
+        }
+    }
+
+    @MainActor
+    private func finishRuntimeClipboardRead(
+        _ text: String,
+        requestID: UInt,
+        stateAddress: UInt,
+        surfaceAddress: UInt,
+        surfaceIdentity: TerminalClipboardRequestSurfaceIdentity
+    ) {
         guard let terminalSurface,
               surfaceIdentity.matches(terminalSurface),
               surfaceIdentity.surfaceAddress == surfaceAddress,
@@ -85,7 +124,8 @@ extension GhosttySurfaceCallbackContext {
               ) else {
             invalidateRuntimeClipboardRequest(
                 requestID,
-                completingNativeRequest: true
+                completingNativeRequest: true,
+                deferredInputDisposition: .discard
             )
             return
         }
@@ -132,7 +172,8 @@ extension GhosttySurfaceCallbackContext {
             surfaceView?.cancelClipboardRead(
                 stateAddress,
                 currentEpoch: surfaceView?.terminalSurface?
-                    .runtimeSurfaceGeneration ?? .max
+                    .runtimeSurfaceGeneration ?? .max,
+                deferredInputDisposition: .discard
             )
             return
         }

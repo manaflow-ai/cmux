@@ -617,15 +617,19 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         @objc private func contextMenuCopyPath(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? FileExplorerNode else { return }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(node.path, forType: .string)
+            GhosttyApp.terminalPasteboard.writeString(
+                node.path,
+                to: .general
+            )
         }
 
         @objc private func contextMenuCopyRelativePath(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? FileExplorerNode else { return }
             let relativePath = FileExplorerTerminalPathInsertion.relativePath(for: node.path, rootPath: store.rootPath)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(relativePath, forType: .string)
+            GhosttyApp.terminalPasteboard.writeString(
+                relativePath,
+                to: .general
+            )
         }
     }
 }
@@ -1495,14 +1499,18 @@ final class FileExplorerContainerView: NSView {
 
     @objc private func contextMenuCopySearchResultPath(_ sender: NSMenuItem) {
         guard let result = searchResult(forMenuItem: sender) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(result.path, forType: .string)
+        GhosttyApp.terminalPasteboard.writeString(
+            result.path,
+            to: .general
+        )
     }
 
     @objc private func contextMenuCopySearchResultRelativePath(_ sender: NSMenuItem) {
         guard let result = searchResult(forMenuItem: sender) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(result.relativePath, forType: .string)
+        GhosttyApp.terminalPasteboard.writeString(
+            result.relativePath,
+            to: .general
+        )
     }
 }
 

@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxTerminal
 import Foundation
 import Testing
 
@@ -198,6 +199,119 @@ struct TextBoxPendingPasteReservationInteractionTests {
         #expect(publishedStates == [true, false])
     }
 
+    @Test("composer reads wait for earlier writes before snapshotting")
+    func composerReadWaitsForEarlierWrite() async throws {
+        let fixture = makePasteboardFixture()
+        defer { fixture.cleanup() }
+        fixture.standard.clearContents()
+        fixture.standard.setString("old", forType: .string)
+
+        let firstRead = try #require(
+            fixture.service.reserveClipboardRead(
+                from: GHOSTTY_CLIPBOARD_STANDARD
+            )
+        )
+        #expect(await firstRead.waitUntilReady())
+        fixture.service.writeString(
+            "new",
+            to: GHOSTTY_CLIPBOARD_STANDARD
+        )
+
+        let (window, textView) = makeTextView()
+        defer { close(window) }
+        let preparedEvents = AsyncStream<TextBoxPastePreparedContent>
+            .makeStream()
+        var preparedIterator = preparedEvents.stream.makeAsyncIterator()
+        let operation = TerminalPastePreparationOperation(
+            pasteboardService: fixture.service
+        )
+        let preparationService = TerminalImageTransferPreparationService(
+            operation: { request in
+                operation.prepare(request: request)
+            },
+            cleanup: { _ in },
+            failureSignal: { _ in }
+        )
+
+        #expect(
+            textView.beginPreparingPaste(
+                from: fixture.standard,
+                using: preparationService,
+                pasteboardService: fixture.service
+            ) { textView, placeholderID, _, preparedContent in
+                if case .insertText(let text) = preparedContent {
+                    _ = textView.commitPendingPasteReservation(
+                        id: placeholderID,
+                        withText: text
+                    )
+                }
+                preparedEvents.continuation.yield(preparedContent)
+                preparedEvents.continuation.finish()
+            }
+        )
+
+        #expect(fixture.standard.string(forType: .string) == "old")
+        firstRead.finish()
+
+        #expect(await preparedIterator.next() == .insertText("new"))
+        #expect(textView.string == "new")
+    }
+
+    @Test("cancelling a queued composer read releases the pasteboard lane")
+    func cancellingQueuedComposerReadReleasesLane() async throws {
+        let fixture = makePasteboardFixture()
+        defer { fixture.cleanup() }
+        fixture.standard.clearContents()
+        fixture.standard.setString("old", forType: .string)
+
+        let firstRead = try #require(
+            fixture.service.reserveClipboardRead(
+                from: GHOSTTY_CLIPBOARD_STANDARD
+            )
+        )
+        #expect(await firstRead.waitUntilReady())
+
+        let (window, textView) = makeTextView()
+        defer { close(window) }
+        let operation = TerminalPastePreparationOperation(
+            pasteboardService: fixture.service
+        )
+        let preparationService = TerminalImageTransferPreparationService(
+            operation: { request in
+                operation.prepare(request: request)
+            },
+            cleanup: { _ in },
+            failureSignal: { _ in }
+        )
+        #expect(
+            textView.beginPreparingPaste(
+                from: fixture.standard,
+                using: preparationService,
+                pasteboardService: fixture.service
+            ) { _, _, _, _ in
+                Issue.record("Cancelled composer paste unexpectedly completed")
+            }
+        )
+
+        textView.cancelActivePastePreparations()
+        fixture.service.writeString(
+            "after-cancel",
+            to: GHOSTTY_CLIPBOARD_STANDARD
+        )
+        let finalRead = try #require(
+            fixture.service.reserveClipboardRead(
+                from: GHOSTTY_CLIPBOARD_STANDARD
+            )
+        )
+        firstRead.finish()
+
+        #expect(await finalRead.waitUntilReady())
+        #expect(
+            fixture.standard.string(forType: .string) == "after-cancel"
+        )
+        finalRead.finish()
+    }
+
     private func makeTextView() -> (NSWindow, TextBoxInputTextView) {
         let textView = TextBoxInputTextView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 30)
@@ -219,6 +333,35 @@ struct TextBoxPendingPasteReservationInteractionTests {
         window.makeFirstResponder(textView)
         textView.undoManager?.removeAllActions()
         return (window, textView)
+    }
+
+    private func makePasteboardFixture() -> (
+        service: TerminalPasteboardService,
+        standard: NSPasteboard,
+        selection: NSPasteboard,
+        cleanup: @MainActor () -> Void
+    ) {
+        let standard = NSPasteboard(
+            name: .init("cmux-composer-standard-\(UUID().uuidString)")
+        )
+        let selection = NSPasteboard(
+            name: .init("cmux-composer-selection-\(UUID().uuidString)")
+        )
+        let service = TerminalPasteboardService(
+            standardPasteboard: standard,
+            selectionPasteboard: selection
+        )
+        return (
+            service,
+            standard,
+            selection,
+            {
+                standard.clearContents()
+                selection.clearContents()
+                standard.releaseGlobally()
+                selection.releaseGlobally()
+            }
+        )
     }
 
     private func selectMiddleWord(in textView: TextBoxInputTextView) {
