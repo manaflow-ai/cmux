@@ -1091,6 +1091,57 @@ fn rewrite_server_start(args: &mut Vec<String>) {
     }
 }
 
+fn is_cli_invocation(args: &[String]) -> bool {
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--socket"
+            | "--session"
+            | "--machine"
+            | "--terminal"
+            | "--state"
+            | "--machine-provider"
+            | "--cloud-host"
+            | "--cloud-user"
+            | "--cloud-port"
+            | "--cloud-identity"
+            | "--ws"
+            | "--ws-token"
+            | "--remote-ws"
+            | "--remote-http"
+            | "--remote-state-dir"
+            | "--remote-link-socket"
+            | "--remote-admin-socket"
+            | "--remote-resume-lease-seconds"
+            | "--relay"
+            | "--relay-slot"
+            | "--relay-ticket-file"
+            | "--relay-ticket-command"
+            | "--relay-ticket-command-arg"
+            | "--advertise"
+            | "--term" => index += 2,
+            "--json" | "--jsonl" | "--quiet" => index += 1,
+            "--ephemeral"
+            | "--cloud"
+            | "--headless"
+            | "--ws-insecure-bind"
+            | "--remote"
+            | "--remote-ws-insecure-bind"
+            | "--iroh" => index += 1,
+            "--machine-provider-command" => return false,
+            "-h" | "--help" | "help" => return true,
+            "attach" => return false,
+            value if cli::is_public_scope(value) => return true,
+            value if value.starts_with('-') => index += 1,
+            // Session startup has no positional arguments. Route unknown
+            // top-level words through the public parser so typos cannot fall
+            // into the unrelated legacy startup help.
+            _ => return true,
+        }
+    }
+    false
+}
+
 fn main() {
     let mut raw_args = std::env::args().skip(1).collect::<Vec<_>>();
     // Private process mode used by the daemon when it launches one durable
@@ -1169,7 +1220,7 @@ fn main() {
     // headless owner. Keep startup in the established Args/run_server path so
     // lifecycle aliases cannot drift into a second server launcher.
     rewrite_server_start(&mut raw_args);
-    if cli::is_cli_invocation(&raw_args) {
+    if is_cli_invocation(&raw_args) {
         discard_provider_secret_environment();
         std::process::exit(cli::run(&raw_args, &usage()));
     }
@@ -2052,6 +2103,24 @@ mod tests {
 
     fn args(values: &[&str]) -> Args {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
+    }
+
+    #[test]
+    fn public_cli_routing_skips_private_process_option_values() {
+        let strings = |values: &[&str]| {
+            values.iter().map(|value| (*value).to_string()).collect::<Vec<_>>()
+        };
+        assert!(is_cli_invocation(&strings(&[
+            "--relay-slot",
+            "server",
+            "workspace",
+            "list",
+        ])));
+        assert!(!is_cli_invocation(&strings(&[
+            "--relay-slot",
+            "routing-key",
+            "--headless",
+        ])));
     }
 
     #[cfg(windows)]

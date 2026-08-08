@@ -69,55 +69,8 @@ impl std::fmt::Display for UsageError {
 
 impl std::error::Error for UsageError {}
 
-pub fn is_cli_invocation(args: &[String]) -> bool {
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--socket"
-            | "--session"
-            | "--machine"
-            | "--terminal"
-            | "--state"
-            | "--machine-provider"
-            | "--cloud-host"
-            | "--cloud-user"
-            | "--cloud-port"
-            | "--cloud-identity"
-            | "--ws"
-            | "--ws-token"
-            | "--remote-ws"
-            | "--remote-http"
-            | "--remote-state-dir"
-            | "--remote-link-socket"
-            | "--remote-admin-socket"
-            | "--remote-resume-lease-seconds"
-            | "--relay"
-            | "--relay-slot"
-            | "--relay-ticket-file"
-            | "--relay-ticket-command"
-            | "--relay-ticket-command-arg"
-            | "--advertise"
-            | "--term" => index += 2,
-            "--json" | "--jsonl" | "--quiet" => index += 1,
-            "--ephemeral"
-            | "--cloud"
-            | "--headless"
-            | "--ws-insecure-bind"
-            | "--remote"
-            | "--remote-ws-insecure-bind"
-            | "--iroh" => index += 1,
-            "--machine-provider-command" => return false,
-            "-h" | "--help" | "help" => return true,
-            "attach" => return false,
-            value if PUBLIC_SCOPES.contains(&value) => return true,
-            value if value.starts_with('-') => index += 1,
-            // Session startup has no positional arguments. Route unknown
-            // top-level words through the public parser so typos cannot fall
-            // into the unrelated legacy startup help.
-            _ => return true,
-        }
-    }
-    false
+pub fn is_public_scope(value: &str) -> bool {
+    PUBLIC_SCOPES.contains(&value)
 }
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
