@@ -57,6 +57,7 @@ public struct ClaudeTeamTaskListBinding: Codable, Equatable, Sendable {
         self.teamConfigurationGeneration = teamConfigurationGeneration
     }
 
+    /// Decodes and revalidates a persisted binding, rejecting invalid identities.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         guard let validated = ClaudeTeamTaskListBinding(
