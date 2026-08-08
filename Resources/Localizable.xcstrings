@@ -40430,121 +40430,121 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nاعكس جلسات tmux للمضيف البعيد داخل نافذة cmux الحالية عبر وضع تحكم tmux بواسطة SSH. تصبح كل جلسة مساحة عمل، وكل نافذة علامة تبويب، وكل نافذة متعددة الأجزاء تقسيمًا أصليًا. يتطلب ذلك تفعيل الإصدار التجريبي \"Remote tmux\".\n\nعند الحاجة إلى مصادقة تفاعلية، يشغّل cmux أمر ssh في هذه الطرفية ثم يعيد المحاولة عبر الاتصال المشترك. تُحترم الأسماء المستعارة وإعدادات ~/.ssh/config.\n\nFlags:\n  --port <n>          منفذ SSH\n  --identity <path>   مسار ملف هوية SSH\n  --no-focus          عدم تحديد مساحة العمل المعكوسة أو تنشيط نافذتها\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nPreslikava tmux sesije udaljenog hosta u trenutni cmux prozor putem SSH tmux kontrolnog režima. Svaka sesija postaje radni prostor, svaki prozor kartica, a prozor s više okana izvorna podjela. Potrebno je uključiti beta opciju \"Remote tmux\".\n\nAko je potrebna interaktivna autentifikacija, cmux pokreće ssh u ovom terminalu i zatim pokušava ponovo preko dijeljene veze. Poštuju se aliasi i postavke iz ~/.ssh/config.\n\nFlags:\n  --port <n>          SSH port\n  --identity <path>   putanja SSH identiteta\n  --no-focus          ne biraj preslikani radni prostor niti aktiviraj prozor\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nSpejl en fjernværts tmux-sessioner i det aktuelle cmux-vindue via SSH tmux-kontroltilstand. Hver session bliver et arbejdsområde, hvert vindue en fane og hvert vindue med flere ruder en integreret opdeling. Kræver at betaindstillingen \"Remote tmux\" er slået til.\n\nHvis interaktiv godkendelse er nødvendig, kører cmux ssh i denne terminal og prøver derefter igen via den delte forbindelse. Aliasser og indstillinger i ~/.ssh/config respekteres.\n\nFlags:\n  --port <n>          SSH-port\n  --identity <path>   sti til SSH-identitetsfil\n  --no-focus          vælg ikke det spejlede arbejdsområde eller aktivér vinduet\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nSpiegelt die tmux-Sitzungen eines entfernten Hosts per SSH-tmux-Steuermodus in das aktuelle cmux-Fenster. Jede Sitzung wird zu einem Arbeitsbereich, jedes Fenster zu einem Tab und jedes Fenster mit mehreren Bereichen zu einer nativen Teilung. Erfordert die aktivierte Betaoption \"Remote tmux\".\n\nWenn eine interaktive Authentifizierung nötig ist, führt cmux ssh in diesem Terminal aus und versucht es anschließend über die gemeinsame Verbindung erneut. Aliase und Einstellungen aus ~/.ssh/config werden berücksichtigt.\n\nFlags:\n  --port <n>          SSH-Port\n  --identity <path>   Pfad zur SSH-Identitätsdatei\n  --no-focus          Spiegel-Arbeitsbereich nicht auswählen und Fenster nicht aktivieren\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nMirror a remote host's tmux sessions into the current cmux window over SSH tmux control mode. Each session becomes a workspace, each window a tab, and each multi-pane window a native split. Requires the \"Remote tmux\" beta setting.\n\nIf interactive authentication is needed, cmux runs ssh in this terminal and then retries over the shared connection. ~/.ssh/config aliases and settings are honored.\n\nFlags:\n  --port <n>          SSH port\n  --identity <path>   SSH identity file path\n  --no-focus          Do not select the mirror workspace or activate its window\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>]\n                     [--transport ssh|et] [--transport-port <n>] [--no-focus]\n\nMirror a remote host's tmux sessions into the current window's sidebar over\nSSH tmux control mode (tmux -CC). Each session becomes a workspace, each\nwindow a tab, and each multi-pane window a native split. Requires the\n\"Remote tmux\" beta setting.\n\nIf the host needs interactive authentication (password, host-key confirmation,\nMFA, or a security-key touch), cmux runs ssh inline in this terminal so you can\nauthenticate, then mirrors the sessions over the shared SSH connection. Hosts\nthat authenticate non-interactively (ssh-agent / key in ~/.ssh/config) mirror\nwith no prompt. ~/.ssh/config aliases and their IdentityFile/ProxyJump/Port settings are honored.\n\nFlags:\n  --port <n>            SSH port\n  --identity <path>     SSH identity file path\n  --transport <name>    ssh (default) or et. et carries the control stream over\n                        EternalTerminal, which reconnects on its own, so the\n                        mirror survives a network change instead of respawning.\n  --transport-port <n>  Port the transport connects to: sshd's for ssh, etserver's\n                        for et (default 22 for ssh, 2022 for et)\n  --broker <name>       Reach the host through a broker declared under\n                        remoteTmux.brokers in cmux.json, instead of connecting\n                        directly. Names an entry you have already written down;\n                        it does not take a command. Use this where the host is\n                        only reachable through a jump host, proxy or wrapper.\n  --no-focus            Do not select the mirror workspace or focus its window\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nRefleja las sesiones tmux de un host remoto en la ventana actual de cmux mediante el modo de control tmux por SSH. Cada sesión se convierte en un espacio de trabajo, cada ventana en una pestaña y cada ventana con varios paneles en una división nativa. Requiere activar la función beta \"Remote tmux\".\n\nSi se necesita autenticación interactiva, cmux ejecuta ssh en este terminal y luego reintenta mediante la conexión compartida. Se respetan los alias y ajustes de ~/.ssh/config.\n\nFlags:\n  --port <n>          puerto SSH\n  --identity <path>   ruta del archivo de identidad SSH\n  --no-focus          no seleccionar el espacio reflejado ni activar su ventana\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nReproduit les sessions tmux d’un hôte distant dans la fenêtre cmux actuelle via le mode de contrôle tmux sur SSH. Chaque session devient un espace de travail, chaque fenêtre un onglet et chaque fenêtre à plusieurs volets une division native. Nécessite l’option bêta \"Remote tmux\".\n\nSi une authentification interactive est nécessaire, cmux exécute ssh dans ce terminal puis réessaie via la connexion partagée. Les alias et réglages de ~/.ssh/config sont respectés.\n\nFlags:\n  --port <n>          port SSH\n  --identity <path>   chemin du fichier d’identité SSH\n  --no-focus          ne pas sélectionner l’espace miroir ni activer sa fenêtre\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nReplica le sessioni tmux di un host remoto nella finestra cmux corrente tramite la modalità di controllo tmux su SSH. Ogni sessione diventa uno spazio di lavoro, ogni finestra una scheda e ogni finestra con più riquadri una suddivisione nativa. Richiede l’opzione beta \"Remote tmux\".\n\nSe serve l’autenticazione interattiva, cmux esegue ssh in questo terminale e poi riprova tramite la connessione condivisa. Gli alias e le impostazioni di ~/.ssh/config vengono rispettati.\n\nFlags:\n  --port <n>          porta SSH\n  --identity <path>   percorso del file di identità SSH\n  --no-focus          non selezionare lo spazio replicato né attivarne la finestra\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nSSH の tmux コントロールモードで、リモートホストの tmux セッションを現在の cmux ウィンドウにミラーリングします。各セッションはワークスペースに、各ウィンドウはタブに、複数ペインのウィンドウはネイティブな分割になります。「Remote tmux」ベータ設定を有効にする必要があります。\n\n対話型認証が必要な場合、cmux はこのターミナルで ssh を実行し、共有接続を使って再試行します。~/.ssh/config のエイリアスと設定も使用されます。\n\nFlags:\n  --port <n>          SSH ポート\n  --identity <path>   SSH 識別ファイルのパス\n  --no-focus          ミラーワークスペースを選択せず、ウィンドウもアクティブにしない\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nឆ្លុះសម័យ tmux របស់ម៉ាស៊ីនពីចម្ងាយចូលក្នុងបង្អួច cmux បច្ចុប្បន្ន តាមរយៈរបៀបបញ្ជា tmux លើ SSH។ សម័យនីមួយៗក្លាយជាកន្លែងធ្វើការ បង្អួចនីមួយៗក្លាយជាផ្ទាំង និងបង្អួចដែលមានផ្ទាំងច្រើនក្លាយជាការបំបែកដើម។ ត្រូវបើកមុខងារសាកល្បង \"Remote tmux\"។\n\nបើត្រូវការផ្ទៀងផ្ទាត់អន្តរកម្ម cmux នឹងដំណើរការ ssh ក្នុងស្ថានីយនេះ ហើយសាកល្បងម្តងទៀតតាមការតភ្ជាប់រួម។ ឈ្មោះកាត់ និងការកំណត់ក្នុង ~/.ssh/config ត្រូវបានគោរព។\n\nFlags:\n  --port <n>          ច្រក SSH\n  --identity <path>   ផ្លូវឯកសារអត្តសញ្ញាណ SSH\n  --no-focus          កុំជ្រើសកន្លែងធ្វើការឆ្លុះ ឬបើកបង្អួចរបស់វា\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nSSH tmux 제어 모드로 원격 호스트의 tmux 세션을 현재 cmux 창에 미러링합니다. 각 세션은 작업 공간이 되고, 각 창은 탭이 되며, 여러 패널이 있는 창은 네이티브 분할이 됩니다. \"Remote tmux\" 베타 설정을 켜야 합니다.\n\n대화형 인증이 필요하면 cmux가 이 터미널에서 ssh를 실행한 뒤 공유 연결을 통해 다시 시도합니다. ~/.ssh/config의 별칭과 설정도 적용됩니다.\n\nFlags:\n  --port <n>          SSH 포트\n  --identity <path>   SSH ID 파일 경로\n  --no-focus          미러 작업 공간을 선택하거나 창을 활성화하지 않음\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nSpeil tmux-øktene på en ekstern vert i det gjeldende cmux-vinduet via tmux-kontrollmodus over SSH. Hver økt blir et arbeidsområde, hvert vindu en fane og hvert vindu med flere ruter en integrert deling. Krever at betaalternativet \"Remote tmux\" er aktivert.\n\nHvis interaktiv autentisering er nødvendig, kjører cmux ssh i denne terminalen og prøver deretter på nytt via den delte forbindelsen. Aliaser og innstillinger i ~/.ssh/config blir brukt.\n\nFlags:\n  --port <n>          SSH-port\n  --identity <path>   bane til SSH-identitetsfil\n  --no-focus          ikke velg det speilede arbeidsområdet eller aktiver vinduet\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nOdzwierciedla sesje tmux zdalnego hosta w bieżącym oknie cmux przez tryb sterowania tmux po SSH. Każda sesja staje się obszarem roboczym, każde okno kartą, a okno z wieloma panelami natywnym podziałem. Wymaga włączenia funkcji beta \"Remote tmux\".\n\nJeśli potrzebne jest interaktywne uwierzytelnianie, cmux uruchamia ssh w tym terminalu, a następnie ponawia próbę przez współdzielone połączenie. Aliasy i ustawienia z ~/.ssh/config są respektowane.\n\nFlags:\n  --port <n>          port SSH\n  --identity <path>   ścieżka pliku tożsamości SSH\n  --no-focus          nie wybieraj obszaru lustrzanego ani nie aktywuj jego okna\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nEspelha as sessões tmux de um host remoto na janela atual do cmux pelo modo de controle tmux via SSH. Cada sessão vira um espaço de trabalho, cada janela uma aba e cada janela com vários painéis uma divisão nativa. Requer a opção beta \"Remote tmux\".\n\nSe for necessária autenticação interativa, o cmux executa ssh neste terminal e tenta novamente pela conexão compartilhada. Os aliases e ajustes de ~/.ssh/config são respeitados.\n\nFlags:\n  --port <n>          porta SSH\n  --identity <path>   caminho do arquivo de identidade SSH\n  --no-focus          não selecionar o espaço espelhado nem ativar sua janela\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nОтображает сеансы tmux удалённого узла в текущем окне cmux через режим управления tmux по SSH. Каждый сеанс становится рабочим пространством, каждое окно — вкладкой, а окно с несколькими панелями — нативным разделением. Требуется включить бета-функцию \"Remote tmux\".\n\nЕсли нужна интерактивная аутентификация, cmux запускает ssh в этом терминале, а затем повторяет попытку через общее соединение. Псевдонимы и настройки из ~/.ssh/config учитываются.\n\nFlags:\n  --port <n>          порт SSH\n  --identity <path>   путь к файлу идентификации SSH\n  --no-focus          не выбирать зеркальное пространство и не активировать его окно\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nมิเรอร์เซสชัน tmux ของโฮสต์ระยะไกลมายังหน้าต่าง cmux ปัจจุบันผ่านโหมดควบคุม tmux บน SSH แต่ละเซสชันจะเป็นพื้นที่ทำงาน แต่ละหน้าต่างจะเป็นแท็บ และหน้าต่างหลายบานจะเป็นการแบ่งแบบเนทีฟ ต้องเปิดใช้รุ่นเบต้า \"Remote tmux\"\n\nหากต้องยืนยันตัวตนแบบโต้ตอบ cmux จะเรียก ssh ในเทอร์มินัลนี้แล้วลองใหม่ผ่านการเชื่อมต่อที่ใช้ร่วมกัน โดยใช้ชื่อแทนและการตั้งค่าจาก ~/.ssh/config\n\nFlags:\n  --port <n>          พอร์ต SSH\n  --identity <path>   พาธไฟล์ข้อมูลประจำตัว SSH\n  --no-focus          ไม่เลือกพื้นที่ทำงานที่มิเรอร์หรือเปิดใช้งานหน้าต่าง\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nUzak bir ana makinenin tmux oturumlarını SSH tmux denetim modu üzerinden geçerli cmux penceresine yansıtır. Her oturum bir çalışma alanına, her pencere bir sekmeye ve çok bölmeli her pencere yerel bir bölmeye dönüşür. \"Remote tmux\" beta ayarının etkin olması gerekir.\n\nEtkileşimli kimlik doğrulama gerekirse cmux bu terminalde ssh çalıştırır ve ardından paylaşılan bağlantı üzerinden yeniden dener. ~/.ssh/config içindeki takma adlar ve ayarlar kullanılır.\n\nFlags:\n  --port <n>          SSH bağlantı noktası\n  --identity <path>   SSH kimlik dosyası yolu\n  --no-focus          yansıtılan çalışma alanını seçme veya penceresini etkinleştirme\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nВіддзеркалює сеанси tmux віддаленого вузла в поточному вікні cmux через режим керування tmux по SSH. Кожен сеанс стає робочим простором, кожне вікно — вкладкою, а вікно з кількома панелями — нативним поділом. Потрібно ввімкнути бета-функцію \"Remote tmux\".\n\nЯкщо потрібна інтерактивна автентифікація, cmux запускає ssh у цьому терміналі, а потім повторює спробу через спільне з’єднання. Псевдоніми й налаштування з ~/.ssh/config враховуються.\n\nFlags:\n  --port <n>          порт SSH\n  --identity <path>   шлях до файлу ідентифікації SSH\n  --no-focus          не вибирати віддзеркалений простір і не активувати його вікно\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\n通过 SSH tmux 控制模式，将远程主机的 tmux 会话镜像到当前 cmux 窗口中。每个会话成为一个工作区，每个窗口成为一个标签页，多窗格窗口则成为原生分栏。需要启用“Remote tmux”测试功能。\n\n如果需要交互式身份验证，cmux 会在此终端中运行 ssh，然后通过共享连接重试。系统会采用 ~/.ssh/config 中的别名和设置。\n\nFlags:\n  --port <n>          SSH 端口\n  --identity <path>   SSH 身份文件路径\n  --no-focus          不选择镜像工作区，也不激活其窗口\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\n透過 SSH tmux 控制模式，將遠端主機的 tmux 工作階段鏡像到目前的 cmux 視窗。每個工作階段會成為工作區，每個視窗會成為分頁，多窗格視窗則會成為原生分割。需要啟用「Remote tmux」測試功能。\n\n若需要互動式驗證，cmux 會在此終端機中執行 ssh，然後透過共用連線重試。系統會採用 ~/.ssh/config 中的別名與設定。\n\nFlags:\n  --port <n>          SSH 連接埠\n  --identity <path>   SSH 身分檔案路徑\n  --no-focus          不選取鏡像工作區，也不啟用其視窗\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         }
