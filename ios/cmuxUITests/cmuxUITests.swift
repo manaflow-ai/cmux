@@ -7441,6 +7441,19 @@ final class cmuxUITests: XCTestCase {
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 8))
 
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(
+            composerField.waitForExistence(timeout: 4),
+            "Rapid reversal coverage requires the Composer bar to be mounted"
+        )
+        let initialDock = waitForDock(in: app, describe: "composer and shortcut bars are both visible") {
+            guard $0["composerActive"] == "1",
+                  let composerMinY = $0["composerMinY"].flatMap(Double.init),
+                  let composerMaxY = $0["composerMaxY"].flatMap(Double.init) else { return false }
+            return composerMaxY - composerMinY > 1
+        }
+        XCTAssertEqual(initialDock["composerActive"], "1")
+
         surface.tap()
         guard let initialKeyboard = waitForSoftwareKeyboardKeyPlane(
             in: app,
