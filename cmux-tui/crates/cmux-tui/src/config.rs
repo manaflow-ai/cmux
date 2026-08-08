@@ -4545,10 +4545,7 @@ mod tests {
 
         let mut command = Command::new(&binary);
         command.stdout(Stdio::piped()).stderr(Stdio::null());
-        let defaults = match ghostty_defaults_from_helper_command(
-            command,
-            Duration::from_secs(2),
-        ) {
+        let defaults = match ghostty_defaults_from_helper_command(command, Duration::from_secs(2)) {
             GhosttyHelperDefaults::Resolved(defaults) => defaults,
             GhosttyHelperDefaults::Unavailable => panic!("helper output was not parsed"),
             GhosttyHelperDefaults::TimedOut => panic!("helper output timed out"),
