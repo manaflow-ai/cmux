@@ -223,6 +223,11 @@ public abstract class GeneratedCmuxClient {
         return MintTerminalRendererResult.fromWire(result);
     }
 
+    public final MintTerminalRendererResult mintTerminalRendererByTerminal(MintTerminalRendererByTerminalRequest request) throws CmuxException {
+        Object result = execute(Commands.MINT_TERMINAL_RENDERER_BY_TERMINAL, request.toWire());
+        return MintTerminalRendererResult.fromWire(result);
+    }
+
     public final EmptyResult moveTab(MoveTabRequest request) throws CmuxException {
         Object result = execute(Commands.MOVE_TAB, request.toWire());
         return EmptyResult.fromWire(result);

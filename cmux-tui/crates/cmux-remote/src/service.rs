@@ -1334,7 +1334,10 @@ async fn reset_tunnel_streams(streams: &Mutex<HashMap<u64, StreamRegistration>>,
 
 fn default_lane(service: Service) -> Lane {
     match service {
-        Service::MuxControl | Service::ProcessStream | Service::ComputerUse => Lane::Interactive,
+        Service::MuxControl
+        | Service::ProcessStream
+        | Service::TerminalBytes
+        | Service::ComputerUse => Lane::Interactive,
         Service::WorkspaceRpc => Lane::Control,
         Service::TcpTunnel => Lane::Tunnel,
     }
