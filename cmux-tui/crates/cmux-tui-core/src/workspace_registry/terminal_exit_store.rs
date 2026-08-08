@@ -2,6 +2,7 @@ use anyhow::Context;
 use rusqlite::{OptionalExtension, params};
 use serde_json::{Value, json};
 
+use super::journal_extensions::RuntimeAttachmentUpdate;
 use super::resource_store::validate_resource_patch;
 use super::{
     RegistryTerminal, ResourcePatch, TerminalLifecycle, WorkspaceMutation, WorkspaceRegistry,
@@ -9,7 +10,17 @@ use super::{
     session_journal::append_resource_journal_record, transaction_resource_revision,
     transaction_terminal_revision, validate_terminal_transition,
 };
+use crate::resource::TerminalPublicId;
 use crate::terminal_host_protocol::TerminalExit;
+
+pub(crate) struct TerminalExitRuntimeAttachment<'a> {
+    pub(crate) origin: &'a str,
+    pub(crate) idempotency_key: String,
+    pub(crate) runtime_id: String,
+    pub(crate) state: &'a str,
+    pub(crate) host_epoch: String,
+    pub(crate) lease_generation: String,
+}
 
 impl WorkspaceRegistry {
     /// Latch one authoritative process exit into both registry timelines.
@@ -25,6 +36,7 @@ impl WorkspaceRegistry {
         observed: &TerminalExit,
         mut terminal_snapshot: Value,
         topology: Option<(&ResourcePatch, &Value)>,
+        runtime_attachment: Option<TerminalExitRuntimeAttachment<'_>>,
     ) -> anyhow::Result<(RegistryTerminal, u64, u64, bool)> {
         anyhow::ensure!(observed.is_valid(), "terminal exit outcome is invalid");
         if let Some((patch, changes)) = topology {
@@ -230,8 +242,42 @@ impl WorkspaceRegistry {
             &result,
             &changes,
         )?;
+        if let Some(runtime_attachment) = runtime_attachment {
+            let terminal_public_id = TerminalPublicId::parse(public_id.clone())?;
+            if !runtime_attachment_is_interrupted(&tx, &terminal_public_id)? {
+                WorkspaceRegistry::record_runtime_attachment_update_in_transaction(
+                    &tx,
+                    &self.generation,
+                    RuntimeAttachmentUpdate {
+                        origin: runtime_attachment.origin,
+                        idempotency_key: runtime_attachment.idempotency_key.as_str(),
+                        terminal_id: &terminal_public_id,
+                        runtime_id: runtime_attachment.runtime_id.as_str(),
+                        state: runtime_attachment.state,
+                        host_epoch: runtime_attachment.host_epoch.as_str(),
+                        lease_generation: runtime_attachment.lease_generation.as_str(),
+                    },
+                )?;
+            }
+        }
         super::resource_store::prune_resource_mutations(&tx)?;
         tx.commit()?;
         Ok((terminal, next_terminal_revision, next_resource_revision, false))
     }
+}
+
+fn runtime_attachment_is_interrupted(
+    tx: &rusqlite::Transaction<'_>,
+    terminal_id: &TerminalPublicId,
+) -> anyhow::Result<bool> {
+    let state = tx
+        .query_row(
+            "SELECT state
+             FROM journal_runtime_attachment_states
+             WHERE terminal_id = ?1",
+            [terminal_id.as_str()],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    Ok(state.as_deref() == Some("interrupted"))
 }

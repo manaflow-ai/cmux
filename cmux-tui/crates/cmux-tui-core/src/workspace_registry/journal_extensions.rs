@@ -3,9 +3,9 @@ use super::session_persistence_store::apply_session_persistence_journal_record;
 use super::*;
 use crate::resource::WireDecimal;
 use crate::workspace_registry::session_journal::{
-    append_journal_record, expand_topology_subjects, query_session_journal_sequences,
-    terminal_topology_subjects_batch, unix_epoch_ms, JournalAppend,
-    MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
+    JournalAppend, MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES, append_journal_record,
+    expand_topology_subjects, query_session_journal_sequences, terminal_topology_subjects_batch,
+    unix_epoch_ms,
 };
 use serde_json::json;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -22,7 +22,47 @@ const SESSION_EFFECT_INTENT_OPERATION: &str = "session.effect.intent.record";
 #[allow(dead_code)]
 const SESSION_EFFECT_OUTCOME_OPERATION: &str = "session.effect.outcome.record";
 #[allow(dead_code)]
+const RUNTIME_ATTACHMENT_OPERATION: &str = "runtime.attachment.record";
+#[allow(dead_code)]
 const RUNTIME_HOST_LOSS_OPERATION: &str = "runtime.host_loss.record";
+
+pub(super) struct RuntimeAttachmentUpdate<'a> {
+    pub(super) origin: &'a str,
+    pub(super) idempotency_key: &'a str,
+    pub(super) terminal_id: &'a TerminalPublicId,
+    pub(super) runtime_id: &'a str,
+    pub(super) state: &'a str,
+    pub(super) host_epoch: &'a str,
+    pub(super) lease_generation: &'a str,
+}
+
+fn runtime_attachment_current_terminal_matches(
+    tx: &Transaction<'_>,
+    update: &RuntimeAttachmentUpdate<'_>,
+) -> anyhow::Result<Option<bool>> {
+    let current = tx
+        .query_row(
+            "SELECT host.incarnation, host.lifecycle
+             FROM resource_terminals AS terminal
+             JOIN terminal_hosts AS host ON host.terminal_id = terminal.terminal_id
+             WHERE terminal.public_id = ?1
+               AND terminal.deleted_revision IS NULL",
+            [update.terminal_id.as_str()],
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?;
+    let Some((incarnation, lifecycle)) = current else {
+        return Ok(None);
+    };
+    if incarnation.as_deref() != Some(update.runtime_id) {
+        return Ok(Some(false));
+    }
+    Ok(Some(match update.state {
+        "attached" => lifecycle == "running",
+        "detached" => lifecycle == "exited",
+        _ => false,
+    }))
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1449,6 +1489,197 @@ impl WorkspaceRegistry {
     }
 
     #[allow(dead_code)]
+    pub(crate) fn record_runtime_attachment_update(
+        &mut self,
+        origin: &str,
+        idempotency_key: &str,
+        terminal_id: &TerminalPublicId,
+        runtime_id: &str,
+        state: &str,
+        host_epoch: &str,
+        lease_generation: &str,
+    ) -> anyhow::Result<JournalAppendCommit> {
+        let tx = self.connection.transaction()?;
+        let commit = Self::record_runtime_attachment_update_in_transaction(
+            &tx,
+            &self.generation,
+            RuntimeAttachmentUpdate {
+                origin,
+                idempotency_key,
+                terminal_id,
+                runtime_id,
+                state,
+                host_epoch,
+                lease_generation,
+            },
+        )?;
+        tx.commit()?;
+        Ok(commit)
+    }
+
+    pub(super) fn record_runtime_attachment_update_in_transaction(
+        tx: &Transaction<'_>,
+        generation: &str,
+        update: RuntimeAttachmentUpdate<'_>,
+    ) -> anyhow::Result<JournalAppendCommit> {
+        validate_identifier("runtime attachment origin", update.origin)?;
+        validate_identifier("runtime attachment idempotency key", update.idempotency_key)?;
+        validate_runtime_loss_token("runtime id", update.runtime_id)?;
+        validate_runtime_loss_token("host epoch", update.host_epoch)?;
+        validate_runtime_loss_token("lease generation", update.lease_generation)?;
+        anyhow::ensure!(
+            matches!(update.state, "attached" | "detached" | "lost"),
+            "runtime attachment state is unsupported"
+        );
+        let payload = json!({
+            "format":"cmux.runtime-attachment.v1",
+            "terminal_id":update.terminal_id,
+            "runtime_id":update.runtime_id,
+            "state":update.state,
+            "host_epoch":update.host_epoch,
+            "lease_generation":update.lease_generation,
+        });
+        let fingerprint = Sha256::digest(
+            canonical_json(&json!({
+                "kind":"runtime.attachment.updated",
+                "payload":&payload,
+            }))?
+            .as_bytes(),
+        );
+        if let Some(commit) = operation_receipt(
+            tx,
+            RUNTIME_ATTACHMENT_OPERATION,
+            update.origin,
+            update.idempotency_key,
+            fingerprint.as_slice(),
+        )? {
+            return Ok(commit);
+        }
+        let session_id = transaction_session_id(tx)?;
+        let terminal_owner_matches = runtime_attachment_current_terminal_matches(tx, &update)?;
+        if let Some(matches_terminal) = terminal_owner_matches {
+            anyhow::ensure!(matches_terminal, "runtime attachment update is stale");
+        }
+        let current = tx
+            .query_row(
+                "SELECT session_id, runtime_id, state, host_epoch, lease_generation
+                 FROM journal_runtime_attachment_states
+                 WHERE terminal_id = ?1",
+                [update.terminal_id.as_str()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                    ))
+                },
+            )
+            .optional()?;
+        if let Some((stored_session, stored_runtime, stored_state, stored_epoch, stored_lease)) =
+            current
+        {
+            let same_identity = stored_session == session_id
+                && stored_runtime == update.runtime_id
+                && stored_epoch == update.host_epoch
+                && stored_lease == update.lease_generation;
+            let identity_change_matches_terminal = stored_session == session_id
+                && stored_state != "interrupted"
+                && !same_identity
+                && terminal_owner_matches == Some(true);
+            anyhow::ensure!(
+                (same_identity || identity_change_matches_terminal)
+                    && stored_state != "interrupted",
+                "runtime attachment update is stale"
+            );
+        }
+        let subjects = vec![
+            JournalSubject { kind: "session".into(), id: session_id },
+            JournalSubject { kind: "terminal".into(), id: update.terminal_id.to_string() },
+        ];
+        let producer =
+            JournalProducer { kind: "trusted_local_authority".into(), id: "cmux_tui".into() };
+        let authority = JournalAuthority {
+            principal_id: update.origin.into(),
+            lease_id: "session-persistence".into(),
+            generation: generation.into(),
+            role: "session.persistence".into(),
+        };
+        let event_id = random_event_id("runtime_attach");
+        let occurred_at_ms = unix_epoch_ms()?;
+        let sequence = append_journal_record(
+            tx,
+            &JournalAppend {
+                event_id: &event_id,
+                schema_version: 1,
+                kind: "runtime.attachment.updated",
+                class: JournalClass::State,
+                replay: JournalReplayPolicy::Required,
+                occurred_at_ms,
+                producer: &producer,
+                authority: Some(&authority),
+                causation_id: None,
+                correlation_id: Some(update.idempotency_key),
+                causation_depth: 0,
+                subjects: &subjects,
+                sensitivity: JournalSensitivity::Metadata,
+                payload: &payload,
+                content: None,
+                resource_revision: None,
+                previous_resource_revision: None,
+            },
+        )?;
+        apply_session_persistence_journal_record(
+            tx,
+            sequence,
+            "runtime.attachment.updated",
+            occurred_at_ms,
+            &producer,
+            Some(&authority),
+            &subjects,
+            &payload,
+        )?;
+        let result = json!({
+            "terminal_id":update.terminal_id,
+            "runtime_id":update.runtime_id,
+            "state":update.state,
+            "host_epoch":update.host_epoch,
+            "lease_generation":update.lease_generation,
+            "sequence":sequence.to_string(),
+            "event_id":event_id,
+        });
+        insert_operation_receipt(
+            tx,
+            RUNTIME_ATTACHMENT_OPERATION,
+            update.origin,
+            update.idempotency_key,
+            fingerprint.as_slice(),
+            sequence,
+            &result,
+        )?;
+        Ok(JournalAppendCommit { sequence, event_id, replayed: false })
+    }
+
+    pub(crate) fn runtime_attachment_lease_tokens(
+        &self,
+        terminal_id: &TerminalPublicId,
+        runtime_id: &str,
+    ) -> anyhow::Result<Option<(String, String)>> {
+        validate_runtime_loss_token("runtime id", runtime_id)?;
+        self.connection
+            .query_row(
+                "SELECT host_epoch, lease_generation
+                 FROM journal_runtime_attachment_states
+                 WHERE terminal_id = ?1 AND runtime_id = ?2",
+                params![terminal_id.as_str(), runtime_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    #[allow(dead_code)]
     pub(crate) fn record_runtime_host_loss_proof(
         &mut self,
         origin: &str,
@@ -1528,10 +1759,8 @@ impl WorkspaceRegistry {
             JournalSubject { kind: "session".into(), id: session_id },
             JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() },
         ];
-        let producer = JournalProducer {
-            kind: "trusted_local_authority".into(),
-            id: "cmux_tui".into(),
-        };
+        let producer =
+            JournalProducer { kind: "trusted_local_authority".into(), id: "cmux_tui".into() };
         let authority = JournalAuthority {
             principal_id: origin.into(),
             lease_id: "session-persistence".into(),
@@ -3130,9 +3359,9 @@ fn validate_runtime_loss_token(label: &str, value: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         !value.is_empty()
             && value.len() <= 128
-            && value.bytes().all(|byte| {
-                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.')
-            }),
+            && value
+                .bytes()
+                .all(|byte| { byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.') }),
         "{label} must contain 1 to 128 ASCII letters, digits, dash, underscore, or dot"
     );
     Ok(())

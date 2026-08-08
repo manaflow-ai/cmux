@@ -150,10 +150,7 @@ mod tests {
             77,
             SurfaceOptions::default(),
             Arc::downgrade(&mux),
-            TerminalHostIdentity {
-                terminal_id: "host-1".into(),
-                incarnation: "incarnation-1".into(),
-            },
+            TerminalHostIdentity::legacy("host-1", "incarnation-1"),
             terminal.clone(),
         )
         .unwrap();
@@ -199,10 +196,7 @@ mod tests {
             78,
             SurfaceOptions::default(),
             Arc::downgrade(&mux),
-            TerminalHostIdentity {
-                terminal_id: "host-4".into(),
-                incarnation: "incarnation-4".into(),
-            },
+            TerminalHostIdentity::legacy("host-4", "incarnation-4"),
             terminal.clone(),
         )
         .unwrap();

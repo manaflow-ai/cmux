@@ -3674,6 +3674,27 @@ impl Surface {
     }
 
     #[cfg(test)]
+    pub(crate) fn spawn_for_test_with_host_identity(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        resource_identity: Option<TabResourceIdentity>,
+        identity: crate::terminal_host_runtime::TerminalHostIdentity,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let cell_pixels =
+            mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
+        Self::spawn_for_test_with_lifetime_at_cell_pixels(
+            id,
+            opts,
+            mux,
+            resource_identity,
+            PtyLifetime::SessionOwned,
+            cell_pixels,
+            Some(identity),
+        )
+    }
+
+    #[cfg(test)]
     pub(crate) fn spawn_for_test_with_resource_identity_at_cell_pixels(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -3688,6 +3709,7 @@ impl Surface {
             resource_identity,
             PtyLifetime::SessionOwned,
             cell_pixels,
+            None,
         )
     }
 
@@ -3705,6 +3727,7 @@ impl Surface {
             None,
             PtyLifetime::DaemonOwned,
             cell_pixels,
+            None,
         )
     }
 
@@ -3716,6 +3739,7 @@ impl Surface {
         resource_identity: Option<TabResourceIdentity>,
         lifetime: PtyLifetime,
         cell_pixels: (u16, u16),
+        host_identity: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
     ) -> anyhow::Result<Arc<Surface>> {
         let terminal_public_id = resource_identity
             .as_ref()
@@ -3778,7 +3802,12 @@ impl Surface {
             terminal: Arc::new(PtyTerminalRuntime {
                 event_surface_id: id,
                 terminal_public_id: terminal_public_id.map(Arc::new),
-                journal_generation: Arc::from(format!("test-{id}")),
+                journal_generation: Arc::from(
+                    host_identity
+                        .as_ref()
+                        .map(|identity| identity.incarnation.clone())
+                        .unwrap_or_else(|| format!("test-{id}")),
+                ),
                 journal_capture_epoch: AtomicU64::new(0),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
@@ -3793,7 +3822,7 @@ impl Surface {
                 }),
                 lifetime,
                 supports_clear_history_key_fallback: AtomicBool::new(false),
-                host_identity: None,
+                host_identity,
                 #[cfg(unix)]
                 host_exit_record_path: None,
                 pid: Some(id as u32),
@@ -7496,10 +7525,10 @@ mod tests {
     #[test]
     fn exited_host_placeholder_preserves_identity_and_rejects_input() {
         let mux = Mux::new_for_test("exited-host-placeholder", SurfaceOptions::default());
-        let identity = crate::terminal_host_runtime::TerminalHostIdentity {
-            terminal_id: crate::terminal_host::TerminalId::random().unwrap().to_hex(),
-            incarnation: crate::terminal_host::HostIncarnation::random().unwrap().to_hex(),
-        };
+        let identity = crate::terminal_host_runtime::TerminalHostIdentity::legacy(
+            crate::terminal_host::TerminalId::random().unwrap().to_hex(),
+            crate::terminal_host::HostIncarnation::random().unwrap().to_hex(),
+        );
         let surface = Surface::exited_terminal_placeholder(
             91,
             SurfaceOptions::default(),

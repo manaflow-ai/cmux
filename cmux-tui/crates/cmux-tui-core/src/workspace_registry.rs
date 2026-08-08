@@ -87,6 +87,7 @@ pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
 use session_persistence_store::{
     create_session_persistence_schema, rebuild_session_persistence_from_journal,
 };
+pub(crate) use terminal_exit_store::TerminalExitRuntimeAttachment;
 
 // Schema 9 shipped independently on the journal and multiview development
 // branches. Schema 10 shipped the journal extensions. Version 11 is the first
@@ -114,6 +115,16 @@ const RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY: &str = "resource_effect_pepper_cl
 const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id.v1";
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
+
+pub(crate) struct TerminalRuntimeAttachment<'a> {
+    pub(crate) origin: &'a str,
+    pub(crate) idempotency_key: String,
+    pub(crate) terminal_id: TerminalPublicId,
+    pub(crate) runtime_id: &'a str,
+    pub(crate) state: &'a str,
+    pub(crate) host_epoch: &'a str,
+    pub(crate) lease_generation: &'a str,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnsupportedWorkspaceRegistrySchema {
@@ -1004,6 +1015,54 @@ impl WorkspaceRegistry {
         terminal: &RegistryTerminal,
         result: &Value,
     ) -> anyhow::Result<TerminalRegistryCommit> {
+        self.commit_terminal_inner(
+            mutation,
+            fingerprint,
+            expected_generation,
+            expected_revision,
+            event_kind,
+            terminal,
+            result,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn commit_terminal_with_runtime_attachment(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        event_kind: &str,
+        terminal: &RegistryTerminal,
+        result: &Value,
+        runtime_attachment: TerminalRuntimeAttachment<'_>,
+    ) -> anyhow::Result<TerminalRegistryCommit> {
+        self.commit_terminal_inner(
+            mutation,
+            fingerprint,
+            expected_generation,
+            expected_revision,
+            event_kind,
+            terminal,
+            result,
+            Some(runtime_attachment),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn commit_terminal_inner(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        event_kind: &str,
+        terminal: &RegistryTerminal,
+        result: &Value,
+        runtime_attachment: Option<TerminalRuntimeAttachment<'_>>,
+    ) -> anyhow::Result<TerminalRegistryCommit> {
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         validate_identifier("terminal event kind", event_kind)?;
@@ -1115,6 +1174,21 @@ impl WorkspaceRegistry {
                 result_json,
             ],
         )?;
+        if let Some(runtime_attachment) = runtime_attachment {
+            Self::record_runtime_attachment_update_in_transaction(
+                &tx,
+                &self.generation,
+                journal_extensions::RuntimeAttachmentUpdate {
+                    origin: runtime_attachment.origin,
+                    idempotency_key: runtime_attachment.idempotency_key.as_str(),
+                    terminal_id: &runtime_attachment.terminal_id,
+                    runtime_id: runtime_attachment.runtime_id,
+                    state: runtime_attachment.state,
+                    host_epoch: runtime_attachment.host_epoch,
+                    lease_generation: runtime_attachment.lease_generation,
+                },
+            )?;
+        }
         tx.commit()?;
         Ok(TerminalRegistryCommit { revision, result: result.clone(), replayed: false })
     }

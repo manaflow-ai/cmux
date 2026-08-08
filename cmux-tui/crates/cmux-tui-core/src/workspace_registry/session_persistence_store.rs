@@ -1,6 +1,6 @@
 use super::*;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 const SESSION_LIFECYCLE_FORMAT: &str = "cmux.session-lifecycle-state.v1";
@@ -419,6 +419,10 @@ fn runtime_attachment_from_record(
     if kind != "runtime.attachment.updated"
         || !is_trusted_session_persistence_record(producer, authority)
         || payload.get("format").and_then(Value::as_str) != Some("cmux.runtime-attachment.v1")
+        || !payload_keys_are_subset(
+            payload,
+            &["format", "terminal_id", "runtime_id", "state", "host_epoch", "lease_generation"],
+        )
     {
         return Ok(None);
     }
@@ -438,7 +442,7 @@ fn runtime_attachment_from_record(
     let Some(state) = payload
         .get("state")
         .and_then(Value::as_str)
-        .filter(|state| matches!(*state, "attached" | "detached" | "lost" | "interrupted"))
+        .filter(|state| matches!(*state, "attached" | "detached" | "lost"))
     else {
         return Ok(None);
     };
@@ -526,14 +530,7 @@ fn runtime_host_loss_from_current(
         || payload.get("format").and_then(Value::as_str) != Some("cmux.runtime-host-loss.v1")
         || !payload_keys_are_subset(
             payload,
-            &[
-                "format",
-                "terminal_id",
-                "runtime_id",
-                "host_epoch",
-                "lease_generation",
-                "proof",
-            ],
+            &["format", "terminal_id", "runtime_id", "host_epoch", "lease_generation", "proof"],
         )
     {
         return Ok(None);
