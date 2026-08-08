@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 11
-IR_SHA256 = '6bb971545bcadd7540cb467830ee8080503fdaf301549752da7ab5be6677b2d0'
+IR_SHA256 = '53474226ce24d06e7248ba1f4ce31f1a5dcf7189ea291ed13994cce8dbc5237b'
 
 
 @dataclass(frozen=True)

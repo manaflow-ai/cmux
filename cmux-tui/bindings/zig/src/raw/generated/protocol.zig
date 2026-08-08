@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 11;
-pub const ir_sha256 = "6bb971545bcadd7540cb467830ee8080503fdaf301549752da7ab5be6677b2d0";
+pub const ir_sha256 = "53474226ce24d06e7248ba1f4ce31f1a5dcf7189ea291ed13994cce8dbc5237b";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -3857,8 +3857,8 @@ pub fn zoomPane(client: anytype, request: ZoomPaneRequest) !wire.Decoded(ZoomPan
 pub const AgentChangedEvent = struct {
     event: []const u8,
     session: wire.Nullable([]const u8),
-    source: []const u8,
-    state: []const u8,
+    source: AgentSource,
+    state: AgentState,
     surface: Id,
     updated_at_ms: u64,
 };

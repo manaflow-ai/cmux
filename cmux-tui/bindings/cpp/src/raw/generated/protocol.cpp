@@ -11873,7 +11873,7 @@ Result<AgentChangedEvent> Codec<AgentChangedEvent>::decode(const Json& value) {
         return make_error(ErrorCode::decode, "missing required field 'source'");
     }
     if (field_source) {
-        auto decoded = decode_value<std::string>(*field_source);
+        auto decoded = decode_value<AgentSource>(*field_source);
         if (!decoded) return std::move(decoded).error();
         result.source = std::move(decoded).value();
     }
@@ -11882,7 +11882,7 @@ Result<AgentChangedEvent> Codec<AgentChangedEvent>::decode(const Json& value) {
         return make_error(ErrorCode::decode, "missing required field 'state'");
     }
     if (field_state) {
-        auto decoded = decode_value<std::string>(*field_state);
+        auto decoded = decode_value<AgentState>(*field_state);
         if (!decoded) return std::move(decoded).error();
         result.state = std::move(decoded).value();
     }

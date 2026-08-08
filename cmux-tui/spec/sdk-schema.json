@@ -8853,16 +8853,16 @@
           },
           "state": {
             "type": {
-              "kind": "scalar",
-              "name": "string"
+              "kind": "ref",
+              "name": "AgentState"
             },
             "presence": "required",
             "nullable": false
           },
           "source": {
             "type": {
-              "kind": "scalar",
-              "name": "string"
+              "kind": "ref",
+              "name": "AgentSource"
             },
             "presence": "required",
             "nullable": false

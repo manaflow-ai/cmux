@@ -13,8 +13,8 @@ import java.util.Objects;
 /** Immutable agent-changed event. Protocol v11; streams: subscribe. */
 public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
     private final String session;
-    private final String source;
-    private final String state;
+    private final AgentSource source;
+    private final AgentState state;
     private final UInt64 surface;
     private final UInt64 updatedAtMs;
 
@@ -34,8 +34,8 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
     public static Builder builder() { return new Builder(); }
 
     public String session() { return session; }
-    public String source() { return source; }
-    public String state() { return state; }
+    public AgentSource source() { return source; }
+    public AgentState state() { return state; }
     public UInt64 surface() { return surface; }
     public UInt64 updatedAtMs() { return updatedAtMs; }
     @Override public String event() { return "agent-changed"; }
@@ -47,9 +47,9 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
         Object rawSession = Wire.required(object, "session");
         builder.session(rawSession == null ? null : Wire.string(rawSession, "AgentChangedEvent.session"));
         Object rawSource = Wire.required(object, "source");
-        builder.source(Wire.string(rawSource, "AgentChangedEvent.source"));
+        builder.source(AgentSource.fromWire(rawSource));
         Object rawState = Wire.required(object, "state");
-        builder.state(Wire.string(rawState, "AgentChangedEvent.state"));
+        builder.state(AgentState.fromWire(rawState));
         Object rawSurface = Wire.required(object, "surface");
         builder.surface(Wire.uint64(rawSurface, "AgentChangedEvent.surface"));
         Object rawUpdatedAtMs = Wire.required(object, "updated_at_ms");
@@ -84,9 +84,9 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
     public static final class Builder {
         private String session;
         private boolean sessionSet;
-        private String source;
+        private AgentSource source;
         private boolean sourceSet;
-        private String state;
+        private AgentState state;
         private boolean stateSet;
         private UInt64 surface;
         private boolean surfaceSet;
@@ -98,12 +98,12 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
             this.sessionSet = true;
             return this;
         }
-        public Builder source(String value) {
+        public Builder source(AgentSource value) {
             this.source = value;
             this.sourceSet = true;
             return this;
         }
-        public Builder state(String value) {
+        public Builder state(AgentState value) {
             this.state = value;
             this.stateSet = true;
             return this;

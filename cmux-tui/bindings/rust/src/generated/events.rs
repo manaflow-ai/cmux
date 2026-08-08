@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 11, IR 6bb971545bcadd7540cb467830ee8080503fdaf301549752da7ab5be6677b2d0.
+// cmux-tui mux protocol 11, IR 53474226ce24d06e7248ba1f4ce31f1a5dcf7189ea291ed13994cce8dbc5237b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -13,8 +13,8 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentChangedEvent {
     pub session: Nullable<String>,
-    pub source: String,
-    pub state: String,
+    pub source: T::AgentSource,
+    pub state: T::AgentState,
     pub surface: T::Id,
     pub updated_at_ms: u64,
 }

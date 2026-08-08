@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 11U;
-inline constexpr std::string_view kProtocolIrSha256 = "6bb971545bcadd7540cb467830ee8080503fdaf301549752da7ab5be6677b2d0";
+inline constexpr std::string_view kProtocolIrSha256 = "53474226ce24d06e7248ba1f4ce31f1a5dcf7189ea291ed13994cce8dbc5237b";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -283,20 +283,6 @@ enum class BrowserStateEventStatus;
 enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
 
-struct Id {
-    std::uint64_t value{};
-    friend bool operator==(const Id&, const Id&) = default;
-};
-
-struct AgentChangedEvent {
-    std::optional<std::string> session{};
-    std::string source{};
-    std::string state{};
-    Id surface{};
-    std::uint64_t updated_at_ms{};
-    friend bool operator==(const AgentChangedEvent&, const AgentChangedEvent&) = default;
-};
-
 enum class AgentSource {
     detected,
     socket,
@@ -309,6 +295,20 @@ enum class AgentState {
     idle,
     done,
     unknown,
+};
+
+struct Id {
+    std::uint64_t value{};
+    friend bool operator==(const Id&, const Id&) = default;
+};
+
+struct AgentChangedEvent {
+    std::optional<std::string> session{};
+    AgentSource source{};
+    AgentState state{};
+    Id surface{};
+    std::uint64_t updated_at_ms{};
+    friend bool operator==(const AgentChangedEvent&, const AgentChangedEvent&) = default;
 };
 
 struct AgentRecord {

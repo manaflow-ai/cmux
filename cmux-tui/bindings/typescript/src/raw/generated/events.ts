@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 11, IR 6bb971545bcadd7540cb467830ee8080503fdaf301549752da7ab5be6677b2d0. */
+/* cmux-tui mux protocol 11, IR 53474226ce24d06e7248ba1f4ce31f1a5dcf7189ea291ed13994cce8dbc5237b. */
 
 
 import type * as T from "./types.js";
@@ -7,8 +7,8 @@ import type * as T from "./types.js";
 /** Protocol v11; emission: emitted; streams: subscribe. */
 export type AgentChangedEvent = { event: "agent-changed" } & {
   "session": (string) | null;
-  "source": string;
-  "state": string;
+  "source": T.AgentSource;
+  "state": T.AgentState;
   "surface": T.Id;
   "updated_at_ms": bigint;
 };

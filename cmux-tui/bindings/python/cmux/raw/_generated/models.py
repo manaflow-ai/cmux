@@ -1836,8 +1836,8 @@ class AgentChangedEvent(EventBase):
     surface: Id
     event: Literal['agent-changed']
     session: Union[str, None]
-    source: str
-    state: str
+    source: AgentSource
+    state: AgentState
     updated_at_ms: int
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
