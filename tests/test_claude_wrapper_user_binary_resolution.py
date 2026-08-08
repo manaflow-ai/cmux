@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import socket
 import subprocess
 import tempfile
 from pathlib import Path
@@ -134,6 +135,143 @@ echo real-claude "$@"
             failures.append(f"expected inherited cmux shim roots to be skipped, got {output!r}")
 
 
+def test_replay_path_beats_path_claude(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-replay-") as td:
+        root = Path(td)
+        replay_bin = root / "captured-bin"
+        path_bin = root / "older-path-bin"
+        replay_bin.mkdir()
+        path_bin.mkdir()
+
+        replay_claude = replay_bin / "claude"
+        write_executable(
+            replay_claude,
+            """#!/bin/sh
+echo captured-claude "$@"
+""",
+        )
+        write_executable(
+            path_bin / "claude",
+            """#!/bin/sh
+echo older-path-claude "$@"
+""",
+        )
+
+        env = minimal_env(f"{path_bin}:/usr/bin:/bin")
+        env["CMUX_RESOLVED_CLAUDE_PATH"] = str(replay_claude)
+        result = run_wrapper([str(WRAPPER), "--version"], env)
+        output = (result.stdout + result.stderr).strip()
+        if result.returncode != 0:
+            failures.append(f"replay-path wrapper exited {result.returncode}: {output}")
+        if output != "captured-claude --version":
+            failures.append(f"expected captured Claude to beat PATH, got {output!r}")
+
+
+def test_stale_replay_path_falls_back_to_path(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-stale-replay-") as td:
+        root = Path(td)
+        path_bin = root / "current-path-bin"
+        path_bin.mkdir()
+        write_executable(
+            path_bin / "claude",
+            """#!/bin/sh
+echo current-path-claude "$@"
+""",
+        )
+
+        env = minimal_env(f"{path_bin}:/usr/bin:/bin")
+        env["CMUX_RESOLVED_CLAUDE_PATH"] = str(root / "removed-bin" / "claude")
+        result = run_wrapper([str(WRAPPER), "--version"], env)
+        output = (result.stdout + result.stderr).strip()
+        if result.returncode != 0:
+            failures.append(f"stale-replay wrapper exited {result.returncode}: {output}")
+        if output != "current-path-claude --version":
+            failures.append(f"expected stale replay path to fall back to PATH, got {output!r}")
+
+
+def test_interactive_launch_exposes_resolved_path_without_passthrough_leak(
+    failures: list[str],
+) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-capture-") as td:
+        root = Path(td)
+        bin_dir = root / "bin"
+        home_dir = root / "home"
+        tmp_dir = root / "tmp"
+        for directory in (bin_dir, home_dir, tmp_dir):
+            directory.mkdir()
+
+        selected_claude = bin_dir / "claude"
+        write_executable(
+            selected_claude,
+            """#!/bin/sh
+printf 'resolved=%s\\n' "${CMUX_RESOLVED_CLAUDE_PATH-__UNSET__}"
+printf 'executable=%s\\n' "${CMUX_AGENT_LAUNCH_EXECUTABLE-__UNSET__}"
+printf 'argv='
+printf '<%s>' "$@"
+printf '\\n'
+""",
+        )
+        fake_cmux = bin_dir / "cmux"
+        write_executable(
+            fake_cmux,
+            """#!/bin/sh
+if [ "${1:-}" = "--socket" ] && [ "${3:-}" = "ping" ]; then
+  exit 0
+fi
+exit 1
+""",
+        )
+
+        socket_path = root / "cmux.sock"
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+            listener.bind(str(socket_path))
+            listener.listen(1)
+            env = minimal_env(f"{bin_dir}:/usr/bin:/bin", tmp_dir)
+            env.update(
+                {
+                    "HOME": str(home_dir),
+                    "CMUX_SURFACE_ID": "surface-replay-capture",
+                    "CMUX_SOCKET_PATH": str(socket_path),
+                    "CMUX_BUNDLED_CLI_PATH": str(fake_cmux),
+                }
+            )
+
+            interactive = run_wrapper([str(WRAPPER), "--model", "sonnet"], env)
+            interactive_output = (interactive.stdout + interactive.stderr).strip()
+            if interactive.returncode != 0:
+                failures.append(
+                    f"interactive capture wrapper exited {interactive.returncode}: {interactive_output}"
+                )
+            if f"resolved={selected_claude}" not in interactive_output:
+                failures.append(
+                    f"expected hook launch to expose selected resolved path, got {interactive_output!r}"
+                )
+            if f"executable={selected_claude}" not in interactive_output:
+                failures.append(
+                    f"expected hook launch executable capture to use selected path, got {interactive_output!r}"
+                )
+
+            replay_env = dict(env)
+            replay_env["CMUX_RESOLVED_CLAUDE_PATH"] = str(selected_claude)
+            passthrough = run_wrapper(
+                [str(WRAPPER), "doctor", "--flag", "space arg"],
+                replay_env,
+            )
+            passthrough_output = (passthrough.stdout + passthrough.stderr).strip()
+            if passthrough.returncode != 0:
+                failures.append(
+                    f"doctor passthrough wrapper exited {passthrough.returncode}: {passthrough_output}"
+                )
+            if "resolved=__UNSET__" not in passthrough_output:
+                failures.append(
+                    f"expected doctor passthrough to scrub replay key, got {passthrough_output!r}"
+                )
+            if "argv=<doctor><--flag><space arg>" not in passthrough_output:
+                failures.append(
+                    f"expected doctor passthrough argv to remain exact, got {passthrough_output!r}"
+                )
+
+
 def test_shell_integration_does_not_shim_grok(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-grok-wrapper-resolution-") as td:
         root = Path(td)
@@ -229,6 +367,9 @@ def main() -> int:
     failures: list[str] = []
     test_wrapper_skips_cmux_shims_and_bundled_claude(failures)
     test_wrapper_skips_inherited_cmux_cli_shim_roots(failures)
+    test_replay_path_beats_path_claude(failures)
+    test_stale_replay_path_falls_back_to_path(failures)
+    test_interactive_launch_exposes_resolved_path_without_passthrough_leak(failures)
     test_shell_integration_does_not_shim_grok(failures)
     test_shell_integration_preserves_empty_path_components(failures)
     if failures:
