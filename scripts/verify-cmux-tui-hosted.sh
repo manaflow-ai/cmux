@@ -120,7 +120,44 @@ fi
 
 run_url="https://github.com/$REPO/actions/runs/$run_id"
 echo "Run: $run_url"
-if ! gh run watch --repo "$REPO" "$run_id" --exit-status; then
+timeout_seconds="${CMUX_TUI_HOSTED_TIMEOUT_SECONDS:-7200}"
+if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
+  echo "error: CMUX_TUI_HOSTED_TIMEOUT_SECONDS must be a positive integer" >&2
+  exit 2
+fi
+
+deadline=$((SECONDS + timeout_seconds))
+last_report=$SECONDS
+run_status=""
+run_conclusion=""
+echo "Waiting for hosted verification"
+while ((SECONDS < deadline)); do
+  if run_state="$(
+    gh run view \
+      --repo "$REPO" \
+      "$run_id" \
+      --json status,conclusion \
+      --jq '[.status, .conclusion] | @tsv' 2>/dev/null
+  )"; then
+    IFS=$'\t' read -r run_status run_conclusion <<< "$run_state"
+    if [[ "$run_status" == "completed" ]]; then
+      break
+    fi
+  fi
+
+  if ((SECONDS - last_report >= 60)); then
+    echo "Still waiting: $run_url"
+    last_report=$SECONDS
+  fi
+  sleep 5
+done
+
+if [[ "$run_status" != "completed" ]]; then
+  echo "error: hosted verification did not complete within ${timeout_seconds}s: $run_url" >&2
+  exit 1
+fi
+
+if [[ "$run_conclusion" != "success" ]]; then
   echo "Hosted verification failed: $run_url" >&2
   gh run view --repo "$REPO" "$run_id" --log-failed || true
   exit 1
