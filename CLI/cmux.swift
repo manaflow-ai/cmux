@@ -29505,7 +29505,7 @@ export default CMUXSessionRestore;
         let configDirectoryFileError = String.localizedStringWithFormat(
             String(
                 localized: "cli.hooks.error.configDirectoryIsFile",
-                defaultValue: "cmux could not create the hooks directory: a file exists at %@; remove or rename the conflicting file and re-run `cmux hooks setup`"
+                defaultValue: "cmux could not create the hooks directory: a file exists at %@. Remove or rename the conflicting file, then run `cmux hooks setup` again."
             ),
             configDir
         )
@@ -29672,6 +29672,7 @@ export default CMUXSessionRestore;
         _ def: AgentHookDef,
         automaticReconciliation: Bool = false
     ) throws {
+        try Self.validateHookInstallDispatch(for: def)
         if def.name == "opencode" { try installOpenCodePluginHooks(def); return }
         if def.name == "pi" { try installPiExtensionHooks(def); return }
         if def.name == "omp" { try installOmpExtensionHooks(def); return }
@@ -29707,7 +29708,7 @@ export default CMUXSessionRestore;
         let configDirectoryFileError = String.localizedStringWithFormat(
             String(
                 localized: "cli.hooks.error.configDirectoryIsFile",
-                defaultValue: "cmux could not create the hooks directory: a file exists at %@; remove or rename the conflicting file and re-run `cmux hooks setup`"
+                defaultValue: "cmux could not create the hooks directory: a file exists at %@. Remove or rename the conflicting file, then run `cmux hooks setup` again."
             ),
             configDir
         )
@@ -30983,6 +30984,9 @@ export default CMUXSessionRestore;
         if let sessionId = normalizedHookValue(input.sessionId) {
             return sessionId
         }
+        if let sessionId = hermesAgentApprovalSessionId(def: def, input: input) {
+            return sessionId
+        }
         if def.name == "rovodev" {
             return RovoDevSessionResolver.inferredRovoDevSessionId(cwd: cwd, env: env) ?? ""
         }
@@ -31136,6 +31140,17 @@ export default CMUXSessionRestore;
             env: env
         )
 #endif
+        if isHermesAgentAutomaticApprovalObservation(def: def, input: input) {
+#if DEBUG
+            agentHookDebugLog(
+                "agentHook.skip agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) reason=automaticApprovalObservation",
+                socketPath: client.socketPath,
+                env: env
+            )
+#endif
+            print("{}")
+            return
+        }
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
         var didSendFeedTelemetry = false
         // Destructive session teardown shared by a genuine (non-turn-boundary)
@@ -36020,6 +36035,15 @@ export default CMUXSessionRestore;
                 skipped += 1
                 skippedNoBinary.append(def.name)
                 continue
+            }
+            if !isUninstall {
+                do {
+                    try Self.validateHookInstallDispatch(for: def)
+                } catch let error as CLIError {
+                    print("  \(def.name): \(error)")
+                    skipped += 1
+                    continue
+                }
             }
             print("  \(def.name):")
             if isUninstall {

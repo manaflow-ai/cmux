@@ -577,6 +577,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_SOCKET_PATH": socketPath,
             "CMUX_WORKSPACE_ID": workspaceId,
             "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_HERMES_AGENT_PID": String(getpid()),
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
@@ -635,7 +636,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let approvalCommandStart = state.commands.count
         let approval = runHermesHook(
             "notification",
-            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"pre_approval_request","extra":{"command":"rm -rf build","description":"recursive delete","pattern_key":"recursive delete","surface":"cli"}}"#
+            input: #"{"session_id":"","cwd":"\#(root.path)","hook_event_name":"pre_approval_request","extra":{"session_key":"\#(sessionId)","command":"rm -rf build","description":"recursive delete","pattern_key":"recursive delete","surface":"cli"}}"#
         )
         XCTAssertFalse(approval.timedOut, approval.stderr)
         XCTAssertEqual(approval.status, 0, approval.stderr)
@@ -665,7 +666,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let responseCommandStart = state.commands.count
         let response = runHermesHook(
             "approval-response",
-            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"post_approval_response","extra":{"approved":true}}"#
+            input: #"{"session_id":"","cwd":"\#(root.path)","hook_event_name":"post_approval_response","extra":{"session_key":"\#(sessionId)","surface":"cli","choice":"approve"}}"#
         )
         XCTAssertFalse(response.timedOut, response.stderr)
         XCTAssertEqual(response.status, 0, response.stderr)
@@ -690,6 +691,69 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNil(responseSession["lastBody"])
         XCTAssertNil(responseSession["lastNotificationStatus"])
         XCTAssertEqual(responseSession["runtimeStatus"] as? String, "running")
+
+        // Hermes emits an observer-only smart-approval pair before it decides
+        // whether a tool call can proceed automatically. These payloads omit
+        // top-level session_id and carry the real session as extra.session_key.
+        // They are not user-attention boundaries and must not notify or create
+        // a newer surface-keyed running session that suppresses the later,
+        // genuine post_llm_call completion.
+        let prompt = runHermesHook(
+            "prompt-submit",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"pre_llm_call","extra":{"turn_id":"turn-2","user_message":"4+4"}}"#
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let smartApprovalCommandStart = state.commands.count
+        let smartApproval = runHermesHook(
+            "notification",
+            input: #"{"session_id":"","cwd":"\#(root.path)","hook_event_name":"pre_approval_request","extra":{"session_key":"\#(sessionId)","surface":"smart","command":"python3 -c 'print(4+4)'","description":"run arithmetic helper"}}"#
+        )
+        XCTAssertFalse(smartApproval.timedOut, smartApproval.stderr)
+        XCTAssertEqual(smartApproval.status, 0, smartApproval.stderr)
+        XCTAssertEqual(smartApproval.stdout, "{}\n")
+
+        let smartApprovalCommands = Array(state.commands.dropFirst(smartApprovalCommandStart))
+        XCTAssertFalse(
+            smartApprovalCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Hermes smart approval is automatic and must not notify before the turn completes, saw \(smartApprovalCommands)"
+        )
+        XCTAssertFalse(
+            smartApprovalCommands.contains { $0.contains("set_status hermes-agent Hermes Agent needs input") },
+            "Hermes smart approval is automatic and must keep the running status, saw \(smartApprovalCommands)"
+        )
+
+        let smartResponse = runHermesHook(
+            "approval-response",
+            input: #"{"session_id":"","cwd":"\#(root.path)","hook_event_name":"post_approval_response","extra":{"session_key":"\#(sessionId)","surface":"smart","choice":"smart_approve","decided_by":"aux_llm"}}"#
+        )
+        XCTAssertFalse(smartResponse.timedOut, smartResponse.stderr)
+        XCTAssertEqual(smartResponse.status, 0, smartResponse.stderr)
+        XCTAssertEqual(smartResponse.stdout, "{}\n")
+
+        let finalResponse = "8"
+        let finalCommandStart = state.commands.count
+        let final = runHermesHook(
+            "agent-response",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"post_llm_call","extra":{"turn_id":"turn-2","user_message":"4+4","assistant_response":"\#(finalResponse)","model":"grok-4.5","platform":"cli"}}"#
+        )
+        XCTAssertFalse(final.timedOut, final.stderr)
+        XCTAssertEqual(final.status, 0, final.stderr)
+        XCTAssertEqual(final.stdout, "{}\n")
+
+        let finalCommands = Array(state.commands.dropFirst(finalCommandStart))
+        XCTAssertTrue(
+            finalCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Hermes Agent|Completed in ")
+                    && $0.contains("|\(finalResponse)")
+            },
+            "Hermes must notify from the final post_llm_call after automatic tool approval, saw \(finalCommands)"
+        )
+        XCTAssertTrue(
+            finalCommands.contains { $0.contains("set_status hermes-agent Idle") },
+            "Hermes must become idle only after the final response, saw \(finalCommands)"
+        )
     }
 
     func testHermesAgentSessionEndIsTurnBoundaryButFinalizeTearsDown() throws {

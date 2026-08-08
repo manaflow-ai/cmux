@@ -13,10 +13,45 @@ struct ProcessDetectedResumeIndexes: Sendable {
         }.value
     }
 
+    /// Loads current hook stores and captures an uncached process snapshot off-main.
+    static func loadFresh(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) async -> ProcessDetectedResumeIndexes {
+        await Task.detached(priority: .utility) {
+            loadFreshSynchronously(homeDirectory: homeDirectory, fileManager: fileManager)
+        }.value
+    }
+
+    /// Loads current hook stores and captures an uncached process snapshot synchronously.
+    ///
+    /// Use only from lifecycle callbacks that must finish persistence before returning,
+    /// such as update relaunch and system power-off.
+    static func loadFreshSynchronously(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) -> ProcessDetectedResumeIndexes {
+        loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager)
+    }
+
+    /// Returns the last published agent index without filesystem or process capture.
+    ///
+    /// This is the bounded fallback for a watchdog whose fresh capture already
+    /// exceeded its deadline. Process-backed surface bindings fail closed.
+    static func cached(
+        restorableAgentIndex: RestorableAgentSessionIndex
+    ) -> ProcessDetectedResumeIndexes {
+        ProcessDetectedResumeIndexes(
+            restorableAgentIndex: restorableAgentIndex,
+            surfaceResumeBindingIndex: .empty
+        )
+    }
+
     static func loadSynchronously(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
-        maximumSnapshotAge: TimeInterval? = nil
+        maximumSnapshotAge: TimeInterval? = nil,
+        cachedRestorableAgentIndex: RestorableAgentSessionIndex? = nil
     ) -> ProcessDetectedResumeIndexes {
         let capturedAt = Date().timeIntervalSince1970
         let processSnapshot = if let maximumSnapshotAge {
@@ -24,19 +59,29 @@ struct ProcessDetectedResumeIndexes: Sendable {
         } else {
             CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         }
-        let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
-        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
-            registry: registry,
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: capturedAt
-        )
-        let restorableAgentIndex = RestorableAgentSessionIndex.load(
-            homeDirectory: homeDirectory,
-            fileManager: fileManager,
-            registry: registry,
-            detectedSnapshots: detectedSnapshots
-        )
+        let restorableAgentIndex: RestorableAgentSessionIndex
+        if let cachedRestorableAgentIndex {
+            restorableAgentIndex = cachedRestorableAgentIndex.revalidatingCachedProcesses(
+                against: processSnapshot
+            )
+        } else {
+            let registry = CmuxVaultAgentRegistry.load(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager
+            )
+            let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+                registry: registry,
+                fileManager: fileManager,
+                processSnapshot: processSnapshot,
+                capturedAt: capturedAt
+            )
+            restorableAgentIndex = RestorableAgentSessionIndex.load(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager,
+                registry: registry,
+                detectedSnapshots: detectedSnapshots
+            )
+        }
         let detectedBindings = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
             fileManager: fileManager,
             processSnapshot: processSnapshot,
