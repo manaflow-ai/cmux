@@ -756,6 +756,114 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testHermesTUIApprovalWithoutSessionKeyKeepsActiveConversationResumeIdentity() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("hermes-tui-approval-session")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-tui-approval-\(UUID().uuidString)", isDirectory: true)
+        let tuiTempDirectory = root.appendingPathComponent("cmux-hermes-tui.A1B2C3", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "20260808_155500_hermes-session"
+
+        try FileManager.default.createDirectory(at: tuiTempDirectory, withIntermediateDirectories: true)
+        let activeSessionURL = tuiTempDirectory
+            .appendingPathComponent("hermes-tui-active-session-test.json", isDirectory: false)
+        try Data(#"{"session_id":"\#(sessionId)"}"#.utf8).write(to: activeSessionURL)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "TMPDIR": tuiTempDirectory.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_HERMES_AGENT_PID": String(getpid()),
+            "CMUX_HERMES_TUI_HOOK_BOOTSTRAP": "1",
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            let serverHandled = startAgentHookMockServer(
+                listenerFD: listenerFD,
+                state: state,
+                surfaceId: surfaceId
+            )
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "hermes-agent", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        let start = runHermesHook(
+            "session-start",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_start"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        // Hermes 0.20's TUI gateway does not include extra.session_key on
+        // approval hooks. The invocation-private active-session file remains
+        // the authoritative conversation identity for these callbacks.
+        let approval = runHermesHook(
+            "notification",
+            input: #"{"cwd":"\#(root.path)","hook_event_name":"pre_approval_request","extra":{"surface":"cli","command":"rm -rf build","description":"recursive delete"}}"#
+        )
+        XCTAssertFalse(approval.timedOut, approval.stderr)
+        XCTAssertEqual(approval.status, 0, approval.stderr)
+
+        let responseCommandStart = state.commands.count
+        let response = runHermesHook(
+            "approval-response",
+            input: #"{"cwd":"\#(root.path)","hook_event_name":"post_approval_response","extra":{"surface":"cli","choice":"approve"}}"#
+        )
+        XCTAssertFalse(response.timedOut, response.stderr)
+        XCTAssertEqual(response.status, 0, response.stderr)
+
+        let storeURL = root.appendingPathComponent(
+            "hermes-agent-hook-sessions.json",
+            isDirectory: false
+        )
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
+        )
+        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        XCTAssertEqual(Set(sessions.keys), [sessionId])
+        XCTAssertNil(
+            sessions[surfaceId],
+            "A TUI approval without session_key must never create a surface-UUID Hermes session"
+        )
+
+        let responseCommands = Array(state.commands.dropFirst(responseCommandStart))
+        let resumeRequests = responseCommands.compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        let resumeParams = try XCTUnwrap(
+            resumeRequests.last,
+            "Expected approval response to refresh the real Hermes resume binding; saw \(responseCommands)"
+        )
+        XCTAssertEqual(resumeParams["checkpoint_id"] as? String, sessionId)
+        XCTAssertNotEqual(resumeParams["checkpoint_id"] as? String, surfaceId)
+    }
+
     func testHermesAgentSessionEndIsTurnBoundaryButFinalizeTearsDown() throws {
         // Hermes fires the `on_session_end` plugin hook once per conversation turn
         // (end of every run_conversation()), not at the true session boundary, and a
