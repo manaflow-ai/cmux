@@ -377,7 +377,9 @@ impl RemoteTreeCache {
         self.agents = agents;
         let updates = std::mem::take(&mut self.agent_updates);
         for update in updates.into_values() {
-            if update.generation > refresh_generation {
+            if update.generation > refresh_generation
+                && self.surface_tabs.contains_key(&update.agent.surface)
+            {
                 self.replace_agent(update.agent);
             }
         }
