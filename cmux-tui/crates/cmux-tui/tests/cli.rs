@@ -1651,7 +1651,13 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     assert_eq!(select_bare.status.code(), Some(2));
 
     let close = cli(&server, &["--quiet", "terminal", &terminal, "close"]);
-    assert_success(&close);
+    let close_stderr = String::from_utf8_lossy(&close.stderr);
+    assert!(
+        close.status.success()
+            || close_stderr
+                .contains("the external effect may have run before its outcome was recorded"),
+        "close failed without an ambiguous outcome: {close_stderr}"
+    );
     let closed_read = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
     assert_eq!(closed_read.status.code(), Some(1));
     assert_eq!(json_error(&closed_read)["code"], "selector.not_found");

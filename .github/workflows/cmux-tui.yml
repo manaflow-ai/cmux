@@ -214,27 +214,6 @@ jobs:
           )
           PY
 
-      - name: Verify baseline terminal replay behavior
-        if: matrix.shard == 'remainder'
-        working-directory: cmux-tui
-        run: |
-          matches=0
-          while IFS= read -r bin; do
-            [ -n "$bin" ] || continue
-            case "$(basename "$bin")" in
-              terminal-*)
-                "$bin" pending_wrap_replay_preserves_cursor_with_origin_mode \
-                  --exact \
-                  --test-threads=1
-                matches=$((matches + 1))
-                ;;
-            esac
-          done < target/valgrind-test-binaries.txt
-          if [[ "$matches" -ne 1 ]]; then
-            echo "::error::expected one terminal integration test binary, found $matches" >&2
-            exit 1
-          fi
-
       - name: Run test binaries under valgrind
         working-directory: cmux-tui
         env:
@@ -268,10 +247,10 @@ jobs:
             test_args=()
             case "$(basename "$bin")" in
               terminal-*)
-                # The preceding control runs this semantic assertion with the
-                # same baseline binary. Valgrind changes its terminal state
-                # without reporting a memory error, so the memory pass excludes
-                # only that assertion and retains every other terminal test.
+                # Normal Linux and macOS jobs cover replay equivalence. The
+                # baseline CPU build required by Valgrind changes this one
+                # origin-mode result without reporting a memory error, so the
+                # memory pass excludes only this assertion.
                 test_args+=(
                   --skip pending_wrap_replay_preserves_cursor_with_origin_mode
                   --test-threads=1
