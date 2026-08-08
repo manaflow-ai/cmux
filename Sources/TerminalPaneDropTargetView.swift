@@ -115,7 +115,6 @@ final class PaneDropTargetView: NSView {
         // Dock panes route real live-surface tab drops to the Dock controller,
         // unless the same payload should insert its file path as terminal text.
         if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
-           transfer.isFromCurrentProcess,
            let dock = AppDelegate.shared?.dockForPane(dropContext.paneId),
            AppDelegate.shared?.canMoveSurfaceIntoDock(sourceTabId: transfer.tabId, destinationDock: dock) == true,
            !DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
@@ -171,8 +170,7 @@ final class PaneDropTargetView: NSView {
             return handled
         }
 
-        if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
-           transfer.isFromCurrentProcess {
+        if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard) {
             let zone = resolvedZone(for: sender, transfer: transfer, context: dropContext, workspace: workspace)
             let handled = workspace.performPortalPaneDrop(
                 tabId: transfer.tabId,
@@ -236,7 +234,6 @@ final class PaneDropTargetView: NSView {
 
         // Dock pane target: preview the Dock route unless this is file-drop-as-text.
         if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
-           transfer.isFromCurrentProcess,
            let dock = AppDelegate.shared?.dockForPane(dropContext.paneId),
            AppDelegate.shared?.canMoveSurfaceIntoDock(sourceTabId: transfer.tabId, destinationDock: dock) == true,
            !DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
@@ -275,8 +272,7 @@ final class PaneDropTargetView: NSView {
             return DragOverlayRoutingPolicy.textDropOperation(pasteboardTypes: sender.draggingPasteboard.types)
         }
 
-        if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
-           transfer.isFromCurrentProcess {
+        if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard) {
             let zone = resolvedZone(
                 for: sender,
                 transfer: transfer,

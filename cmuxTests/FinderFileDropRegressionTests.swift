@@ -1,6 +1,7 @@
 import XCTest
 import CmuxTerminal
 import AppKit
+import Bonsplit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -523,8 +524,21 @@ final class FinderFileDropRegressionTests: XCTestCase {
         ])
         let pasteboard = NSPasteboard(name: .init("cmux-test-file-preview-transfer-drop-\(UUID().uuidString)"))
         pasteboard.clearContents()
+        let registration = try XCTUnwrap(
+            TabDragTransferRegistry.process.register(
+                TabDragTransfer(
+                    tab: Tab(
+                        id: TabID(uuid: dragId),
+                        title: "from image pane.png",
+                        kind: "filePreview"
+                    ),
+                    sourcePaneId: PaneID()
+                )
+            )
+        )
+        defer { TabDragTransferRegistry.process.end(registration) }
         pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
-        pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+        XCTAssertTrue(registration.write(to: pasteboard))
 
         XCTAssertFalse(DragOverlayRoutingPolicy.hasFileURL(pasteboard.types))
         XCTAssertTrue(DragOverlayRoutingPolicy.hasFileDropPayload(pasteboard.types))

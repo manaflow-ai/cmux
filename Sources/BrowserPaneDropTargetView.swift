@@ -222,8 +222,7 @@ final class BrowserPaneDropTargetView: NSView {
             return handled
         }
 
-        if let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard),
-           transfer.isFromCurrentProcess {
+        if let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard) {
             if transfer.isFilePreview {
                 guard let entry = FilePreviewDragRegistry.shared.consume(id: transfer.tabId),
                       let workspace = AppDelegate.shared?.workspaceFor(tabId: dropContext.workspaceId) else {
@@ -390,8 +389,7 @@ final class BrowserPaneDropTargetView: NSView {
         }
 
         if let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard) {
-            guard transfer.isFromCurrentProcess,
-                  (!transfer.isFilePreview || FilePreviewDragRegistry.shared.contains(id: transfer.tabId)) else {
+            guard !transfer.isFilePreview || FilePreviewDragRegistry.shared.contains(id: transfer.tabId) else {
                 clearDragState(phase: "\(phase).reject")
                 return []
             }
@@ -430,7 +428,6 @@ final class BrowserPaneDropTargetView: NSView {
     /// workspace handlers.
     private func liveSurfaceTransfer(for sender: any NSDraggingInfo, destinationDock: DockSplitStore) -> BrowserPaneDragTransfer? {
         guard let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard),
-              transfer.isFromCurrentProcess,
               !transfer.isFilePreview,
               AppDelegate.shared?.canMoveSurfaceIntoDock(sourceTabId: transfer.tabId, destinationDock: destinationDock) == true else {
             return nil

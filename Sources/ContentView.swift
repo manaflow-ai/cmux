@@ -16377,38 +16377,26 @@ private struct SidebarMetadataMarkdownBlockRow: View {
 }
 
 enum BonsplitTabDragPayload {
-    static let typeIdentifier = "com.splittabbar.tabtransfer"
+    static let typeIdentifier = TabDragTransferRegistry.pasteboardType.rawValue
     static let dropContentType = UTType(exportedAs: typeIdentifier)
     static let dropContentTypes: [UTType] = [dropContentType]
-    private static let currentProcessId = Int32(ProcessInfo.processInfo.processIdentifier)
 
-    struct Transfer: Decodable {
-        struct TabInfo: Decodable {
+    struct Transfer: Equatable {
+        struct TabInfo: Equatable {
             let id: UUID
             let kind: String?
         }
 
         let tab: TabInfo
         let sourcePaneId: UUID
-        let sourceProcessId: Int32
 
-        private enum CodingKeys: String, CodingKey {
-            case tab
-            case sourcePaneId
-            case sourceProcessId
+        init(_ transfer: TabDragTransfer) {
+            self.tab = TabInfo(
+                id: transfer.tab.id.uuid,
+                kind: transfer.tab.kind
+            )
+            self.sourcePaneId = transfer.sourcePaneId.id
         }
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.tab = try container.decode(TabInfo.self, forKey: .tab)
-            self.sourcePaneId = try container.decode(UUID.self, forKey: .sourcePaneId)
-            // Legacy payloads won't include this field. Treat as foreign process.
-            self.sourceProcessId = try container.decodeIfPresent(Int32.self, forKey: .sourceProcessId) ?? -1
-        }
-    }
-
-    private static func isCurrentProcessTransfer(_ transfer: Transfer) -> Bool {
-        transfer.sourceProcessId == currentProcessId
     }
 
     static func currentTransfer() -> Transfer? {
@@ -16424,22 +16412,11 @@ enum BonsplitTabDragPayload {
         guard !DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboard.types) else {
             return nil
         }
-        let type = NSPasteboard.PasteboardType(typeIdentifier)
+        return liveTransfer(from: pasteboard).map(Transfer.init)
+    }
 
-        if let data = pasteboard.data(forType: type),
-           let transfer = try? JSONDecoder().decode(Transfer.self, from: data),
-           isCurrentProcessTransfer(transfer) {
-            return transfer
-        }
-
-        if let raw = pasteboard.string(forType: type),
-           let data = raw.data(using: .utf8),
-           let transfer = try? JSONDecoder().decode(Transfer.self, from: data),
-           isCurrentProcessTransfer(transfer) {
-            return transfer
-        }
-
-        return nil
+    static func liveTransfer(from pasteboard: NSPasteboard) -> TabDragTransfer? {
+        TabDragTransferRegistry.process.resolve(from: pasteboard)
     }
 }
 

@@ -13,37 +13,14 @@ typealias TerminalPaneDropContext = PaneDropContext
 struct PaneDragTransfer: Equatable {
     let tabId: UUID
     let sourcePaneId: UUID
-    let sourceProcessId: Int32
-
-    var isFromCurrentProcess: Bool {
-        sourceProcessId == Int32(ProcessInfo.processInfo.processIdentifier)
-    }
 
     static func decode(from pasteboard: NSPasteboard) -> PaneDragTransfer? {
-        if let data = pasteboard.data(forType: DragOverlayRoutingPolicy.bonsplitTabTransferType) {
-            return decode(from: data)
-        }
-        if let raw = pasteboard.string(forType: DragOverlayRoutingPolicy.bonsplitTabTransferType) {
-            return decode(from: Data(raw.utf8))
-        }
-        return nil
-    }
-
-    static func decode(from data: Data) -> PaneDragTransfer? {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let tab = json["tab"] as? [String: Any],
-              let tabIdRaw = tab["id"] as? String,
-              let tabId = UUID(uuidString: tabIdRaw),
-              let sourcePaneIdRaw = json["sourcePaneId"] as? String,
-              let sourcePaneId = UUID(uuidString: sourcePaneIdRaw) else {
+        guard let transfer = BonsplitTabDragPayload.liveTransfer(from: pasteboard) else {
             return nil
         }
-
-        let sourceProcessId = (json["sourceProcessId"] as? NSNumber)?.int32Value ?? -1
         return PaneDragTransfer(
-            tabId: tabId,
-            sourcePaneId: sourcePaneId,
-            sourceProcessId: sourceProcessId
+            tabId: transfer.tab.id.uuid,
+            sourcePaneId: transfer.sourcePaneId.id
         )
     }
 }

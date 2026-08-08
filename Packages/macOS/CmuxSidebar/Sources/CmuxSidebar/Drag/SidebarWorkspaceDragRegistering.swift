@@ -58,6 +58,7 @@ public protocol SidebarWorkspaceDragRegistering: AnyObject {
     ) -> Bool
 }
 
+/// Default session behavior for compatibility implementations of the original identity-only seam.
 public extension SidebarWorkspaceDragRegistering {
     /// Compatibility fallback for clients implementing the original identity-only seam.
     func beginSession(workspaceId: UUID) -> SidebarWorkspaceDragSession {
