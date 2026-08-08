@@ -2634,6 +2634,33 @@ fn reset_rename_child_exclusive(
     }
 }
 
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+fn checked_reset_exclusive_rename_supported(parent_fd: std::os::fd::RawFd) -> bool {
+    let empty = std::ffi::CStr::from_bytes_with_nul(b"\0")
+        .expect("exclusive rename probe has a nul terminator");
+    loop {
+        // SAFETY: renameatx_np reads two valid empty C strings. Empty source
+        // and destination names cannot rename any directory entry.
+        let result = unsafe {
+            libc::renameatx_np(
+                parent_fd,
+                empty.as_ptr(),
+                parent_fd,
+                empty.as_ptr(),
+                libc::RENAME_EXCL,
+            )
+        };
+        if result == 0 {
+            return false;
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return reset_exclusive_rename_probe_error_supported(&error);
+    }
+}
+
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn reset_rename_child_exclusive(
     parent_fd: std::os::fd::RawFd,
@@ -2671,6 +2698,39 @@ fn reset_rename_child_exclusive(
             )
         });
     }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn checked_reset_exclusive_rename_supported(parent_fd: std::os::fd::RawFd) -> bool {
+    let empty = std::ffi::CStr::from_bytes_with_nul(b"\0")
+        .expect("exclusive rename probe has a nul terminator");
+    loop {
+        // SAFETY: renameat2 reads two valid empty C strings. Empty source and
+        // destination names cannot rename any directory entry.
+        let result = unsafe {
+            libc::syscall(
+                libc::SYS_renameat2,
+                parent_fd,
+                empty.as_ptr(),
+                parent_fd,
+                empty.as_ptr(),
+                libc::RENAME_NOREPLACE,
+            )
+        };
+        if result == 0 {
+            return false;
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return reset_exclusive_rename_probe_error_supported(&error);
+    }
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+fn reset_exclusive_rename_probe_error_supported(error: &std::io::Error) -> bool {
+    error.raw_os_error() == Some(libc::ENOENT)
 }
 
 #[cfg(all(
@@ -2840,14 +2900,19 @@ pub fn checked_reset_deletion_supported(root: &Path) -> bool {
     use std::os::fd::AsRawFd;
 
     let parent = open_verified_reset_directory(root, "workspace state root");
-    parent
-        .is_ok_and(|parent| open_reset_child_dir(parent.as_raw_fd(), OsStr::new("."), root).is_ok())
+    parent.is_ok_and(|parent| {
+        open_reset_child_dir(parent.as_raw_fd(), OsStr::new("."), root).is_ok()
+            && checked_reset_exclusive_rename_supported(parent.as_raw_fd())
+    })
 }
 
 /// Return whether this process can enforce descriptor-relative reset deletion boundaries.
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-pub fn checked_reset_deletion_supported(_root: &Path) -> bool {
-    true
+pub fn checked_reset_deletion_supported(root: &Path) -> bool {
+    use std::os::fd::AsRawFd;
+
+    open_verified_reset_directory(root, "workspace state root")
+        .is_ok_and(|parent| checked_reset_exclusive_rename_supported(parent.as_raw_fd()))
 }
 
 /// Return whether this process can enforce descriptor-relative reset deletion boundaries.
