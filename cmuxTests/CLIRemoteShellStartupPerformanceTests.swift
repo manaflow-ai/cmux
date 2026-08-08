@@ -235,9 +235,13 @@ struct CLIRemoteShellStartupPerformanceTests {
           shift
           exec "$executable" "$@"
         fi
-        if [ "$1" = "rpc" ] && [ -n "${CMUX_FAKE_RELAY_RPC_GATE:-}" ]; then
-          while [ ! -f "$CMUX_FAKE_RELAY_RPC_GATE" ]; do sleep 0.05; done
-        fi
+        case "${1:-}:${2:-}" in
+          rpc:surface.report_tty|rpc:surface.ports_kick)
+            if [ -n "${CMUX_FAKE_RELAY_RPC_GATE:-}" ]; then
+              while [ ! -f "$CMUX_FAKE_RELAY_RPC_GATE" ]; do sleep 0.05; done
+            fi
+            ;;
+        esac
         exit 0
         """)
         try writeExecutable(at: bin.appendingPathComponent("tty"), contents: "#!/bin/sh\nprintf '%s\\n' /dev/ttys997")
