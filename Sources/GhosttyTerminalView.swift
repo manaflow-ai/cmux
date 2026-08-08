@@ -731,7 +731,7 @@ class GhosttyApp {
         startUptime: ProcessInfo.processInfo.systemUptime
     )
     private var appObservers: [NSObjectProtocol] = []
-    private var bellAudioSound: NSSound?
+    @MainActor private lazy var terminalBellService = TerminalBellService()
     private var backgroundEventCounter: UInt64 = 0
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
     private var defaultBackgroundScopeSource: String = "initialize"
@@ -2767,26 +2767,18 @@ class GhosttyApp {
         return Float(min(1.0, max(0.0, value)))
     }
 
+    @MainActor
     private func ringBell() {
         let features = bellFeatures()
-
-        if (features & (1 << 0)) != 0 {
-            NSSound.beep()
-        }
-
-        if (features & (1 << 1)) != 0,
-           let path = bellAudioPath(),
-           let sound = NSSound(contentsOfFile: path, byReference: false) {
-            sound.volume = bellAudioVolume()
-            bellAudioSound = sound
-            if !sound.play() {
-                bellAudioSound = nil
-            }
-        }
-
-        if (features & (1 << 2)) != 0 {
-            NSApp.requestUserAttention(.informationalRequest)
-        }
+        let customAudioEnabled = (features & (1 << 1)) != 0
+        // Ghostty bit 2 requests process-level attention. cmux deliberately
+        // leaves it out: Stage Manager can promote the entire window set, while
+        // cmux-owned notification state already presents background attention.
+        terminalBellService.ring(
+            systemSoundEnabled: (features & (1 << 0)) != 0,
+            customAudioPath: customAudioEnabled ? bellAudioPath() : nil,
+            customAudioVolume: customAudioEnabled ? bellAudioVolume() : 0.5
+        )
     }
 
     private func applyDefaultBackground(
