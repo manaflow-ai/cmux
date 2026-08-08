@@ -1,3 +1,5 @@
+import AppKit
+import AuthenticationServices
 import CMUXAuthCore
 import CmuxAuthRuntime
 import CmuxBrowser
@@ -953,6 +955,73 @@ struct BrowserWebContentProcessTests {
         ) as? [String: Bool]
         #expect(result?["bridge"] == true)
         #expect(result?["handler"] == false)
+    }
+
+    @Test
+    func webAuthnPresentationAnchorDoesNotAccumulateFallbackWindows() async {
+        weak var retiredCoordinator: BrowserWebAuthnCoordinator?
+        weak var delegateRetiredAnchor: NSWindow?
+        weak var teardownRetiredAnchor: NSWindow?
+        weak var deinitRetiredAnchor: NSWindow?
+
+        autoreleasepool {
+            let coordinator = BrowserWebAuthnCoordinator(
+                existingPresentationWindowProvider: { nil }
+            )
+            retiredCoordinator = coordinator
+            let authorizationRequest = ASAuthorizationAppleIDProvider().createRequest()
+            let controller = ASAuthorizationController(authorizationRequests: [authorizationRequest])
+
+            autoreleasepool {
+                let anchors = (0..<3).map { _ in
+                    coordinator.presentationAnchor(for: controller)
+                }
+                #expect(Set(anchors.map(ObjectIdentifier.init)).count == 1)
+                #expect(anchors.first?.isVisible == false)
+                #expect(anchors.first?.canBecomeKey == false)
+                #expect(anchors.first?.ignoresMouseEvents == true)
+                #expect(anchors.first?.isExcludedFromWindowsMenu == true)
+
+                delegateRetiredAnchor = anchors.first
+            }
+
+            #expect(delegateRetiredAnchor != nil)
+            autoreleasepool {
+                coordinator.authorizationController(
+                    controller: controller,
+                    didCompleteWithError: NSError(
+                        domain: "BrowserWebContentProcessTests",
+                        code: 1
+                    )
+                )
+            }
+            #expect(delegateRetiredAnchor == nil)
+
+            let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+            coordinator.install(on: webView)
+            autoreleasepool {
+                let anchor = coordinator.presentationAnchor(for: controller)
+                teardownRetiredAnchor = anchor
+            }
+
+            #expect(teardownRetiredAnchor != nil)
+            autoreleasepool {
+                coordinator.tearDown(from: webView)
+            }
+            #expect(teardownRetiredAnchor == nil)
+
+            autoreleasepool {
+                let anchor = coordinator.presentationAnchor(for: controller)
+                deinitRetiredAnchor = anchor
+            }
+            #expect(deinitRetiredAnchor != nil)
+        }
+
+        #expect(retiredCoordinator == nil)
+        for _ in 0..<10 where deinitRetiredAnchor != nil {
+            await Task.yield()
+        }
+        #expect(deinitRetiredAnchor == nil)
     }
 
     @Test
