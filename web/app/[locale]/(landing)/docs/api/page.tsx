@@ -169,6 +169,12 @@ export default function ApiPage() {
           </tr>
         </tbody>
       </table>
+      <Callout type="warn">
+        {t.rich("identifierSafety", {
+          ref: (chunks) => <code>{chunks}</code>,
+          flag: (chunks) => <code>{chunks}</code>,
+        })}
+      </Callout>
 
       <DocsHeading level={2} id="workspace-commands">{t("workspaceCommands")}</DocsHeading>
 

@@ -2946,6 +2946,7 @@ final class SocketClient {
         method: String,
         params: [String: Any] = [:],
         deadline: Date? = nil,
+        idleHandler: (() throws -> TimeInterval?)? = nil,
         onLine: (String) throws -> Void
     ) throws {
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
@@ -2968,14 +2969,15 @@ final class SocketClient {
         )
 
         while true {
-            let line = try readStreamLine(deadline: deadline)
+            let line = try readStreamLine(deadline: deadline, idleHandler: idleHandler)
             try onLine(line)
         }
     }
 
     private func readStreamLine(
         maxBytes: Int = 4 * 1024 * 1024,
-        deadline: Date? = nil
+        deadline: Date? = nil,
+        idleHandler: (() throws -> TimeInterval?)? = nil
     ) throws -> String {
         if deadline == nil {
             try configureReceiveTimeout(45)
@@ -2999,8 +3001,23 @@ final class SocketClient {
             guard streamReadBuffer.count < maxBytes else {
                 throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
             }
-            if let deadline {
-                try waitForReadableStream(deadline: deadline)
+            let idleDeadline = try idleHandler?().map {
+                Date(timeIntervalSinceNow: max(0, $0))
+            }
+            let nextDeadline: Date?
+            if let deadline, let idleDeadline {
+                nextDeadline = min(deadline, idleDeadline)
+            } else {
+                nextDeadline = deadline ?? idleDeadline
+            }
+            if let nextDeadline {
+                let isReadable = try waitForReadableStream(deadline: nextDeadline)
+                if !isReadable {
+                    if let deadline, deadline.timeIntervalSinceNow <= 0 {
+                        throw CLIError(message: "Event stream deadline exceeded")
+                    }
+                    continue
+                }
             }
             var chunk = [UInt8](repeating: 0, count: 8 * 1_024)
             let count = chunk.withUnsafeMutableBytes { bytes in
@@ -3028,12 +3045,10 @@ final class SocketClient {
         }
     }
 
-    private func waitForReadableStream(deadline: Date) throws {
+    private func waitForReadableStream(deadline: Date) throws -> Bool {
         while true {
             let remaining = deadline.timeIntervalSinceNow
-            guard remaining > 0 else {
-                throw CLIError(message: "Event stream deadline exceeded")
-            }
+            guard remaining > 0 else { return false }
             var descriptor = pollfd(fd: socketFD, events: Int16(POLLIN), revents: 0)
             let timeoutMilliseconds = min(
                 max(Int(ceil(remaining * 1_000)), 0),
@@ -3045,10 +3060,10 @@ final class SocketClient {
                 Int32(timeoutMilliseconds)
             )
             if ready > 0 {
-                return
+                return true
             }
             if ready == 0 {
-                throw CLIError(message: "Event stream deadline exceeded")
+                return false
             }
             if errno != EINTR {
                 throw CLIError(message: "Event stream socket read error")
@@ -15663,6 +15678,10 @@ struct CMUXCLI {
         case "ios":
             return iosSubcommandUsage()
         case "events":
+            let cursorFileDescription = String(
+                localized: "cli.events.help.cursorFile",
+                defaultValue: "Read the starting sequence and periodically checkpoint delivered events"
+            )
             let timeoutDescription = String(
                 localized: "cli.events.help.timeout",
                 defaultValue: "Exit unsuccessfully if no matching event arrives before the deadline"
@@ -15678,7 +15697,7 @@ struct CMUXCLI {
 
             Options:
               --after <seq>          Replay retained events after this sequence
-              --cursor-file <path>   Read the starting sequence from a file and update it after each event
+              --cursor-file <path>   \(cursorFileDescription)
               --name <event>         Filter by event name, repeatable
               --category <name>      Filter by category, repeatable
               --reconnect            Reconnect forever and resume from the last received sequence

@@ -1208,6 +1208,7 @@
       "targetWorkspace": "Ciljaj specifični radni prostor",
       "targetSurface": "Ciljaj specifičnu površinu",
       "idFormat": "Kontrola formata identifikatora u JSON izlazu",
+      "identifierSafety": "Koristite UUID-ove za automatizaciju koja kešira ciljeve. Kratke reference poput <ref>workspace:7</ref> pomoćne su oznake ograničene na sesiju, a sami numerički indeksi zavise od položaja. Zatražite <flag>--id-format both</flag>, sačuvajte očekivano mapiranje reference na UUID i provjerite ga prije izmjene.",
       "workspaceCommands": "Komande radnih prostora",
       "listWorkspacesDesc": "Izlistaj sve otvorene radne prostore.",
       "newWorkspaceDesc": "Kreiraj novi radni prostor.",

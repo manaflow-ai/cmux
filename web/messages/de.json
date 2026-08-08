@@ -1208,6 +1208,7 @@
       "targetWorkspace": "Einen bestimmten Workspace ansprechen",
       "targetSurface": "Eine bestimmte Oberfläche ansprechen",
       "idFormat": "ID-Format in der JSON-Ausgabe steuern",
+      "identifierSafety": "Verwenden Sie UUIDs für Automatisierungen, die Ziele zwischenspeichern. Kurzreferenzen wie <ref>workspace:7</ref> gelten nur innerhalb einer Sitzung, reine numerische Indizes sind positionsabhängig. Fordern Sie <flag>--id-format both</flag> an, speichern Sie die erwartete Zuordnung von Referenz zu UUID und prüfen Sie sie vor Änderungen.",
       "workspaceCommands": "Workspace-Befehle",
       "listWorkspacesDesc": "Alle geöffneten Workspaces auflisten.",
       "newWorkspaceDesc": "Einen neuen Workspace erstellen.",

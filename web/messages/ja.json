@@ -2051,6 +2051,7 @@
       "targetWorkspace": "特定のワークスペースを対象にする",
       "targetSurface": "特定のサーフェスを対象にする",
       "idFormat": "JSON出力での識別子フォーマットを制御",
+      "identifierSafety": "対象をキャッシュする自動化ではUUIDを使用してください。<ref>workspace:7</ref>のような短いrefはセッション内の補助ハンドルであり、数字だけのインデックスは位置を表します。<flag>--id-format both</flag>を指定し、想定するrefとUUIDの対応を保持して、変更前に検証してください。",
       "workspaceCommands": "ワークスペースコマンド",
       "listWorkspacesDesc": "すべてのワークスペースを一覧表示。",
       "newWorkspaceDesc": "新しいワークスペースを作成。",

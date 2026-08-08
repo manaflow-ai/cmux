@@ -1208,6 +1208,7 @@
       "targetWorkspace": "특정 워크스페이스 대상 지정",
       "targetSurface": "특정 서피스 대상 지정",
       "idFormat": "JSON 출력의 식별자 형식 제어",
+      "identifierSafety": "대상을 캐시하는 자동화에는 UUID를 사용하세요. <ref>workspace:7</ref> 같은 짧은 ref는 세션 범위의 편의용 핸들이며 숫자만 있는 인덱스는 위치에 따라 달라집니다. <flag>--id-format both</flag>를 요청하고 예상 ref-UUID 매핑을 유지한 뒤 변경 전에 검증하세요.",
       "workspaceCommands": "워크스페이스 명령",
       "listWorkspacesDesc": "열려 있는 모든 워크스페이스를 나열합니다.",
       "newWorkspaceDesc": "새 워크스페이스를 생성합니다.",

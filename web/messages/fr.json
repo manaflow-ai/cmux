@@ -1210,6 +1210,7 @@
       "targetWorkspace": "Cibler un espace de travail spécifique",
       "targetSurface": "Cibler une surface spécifique",
       "idFormat": "Format d'identifiant de contrôle dans la sortie JSON",
+      "identifierSafety": "Utilisez des UUID pour les automatisations qui mettent des cibles en cache. Les références courtes comme <ref>workspace:7</ref> sont des identifiants pratiques limités à la session, et les index numériques seuls sont positionnels. Demandez <flag>--id-format both</flag>, conservez la correspondance attendue entre référence et UUID, puis validez-la avant toute modification.",
       "workspaceCommands": "Commandes d'espace de travail",
       "listWorkspacesDesc": "Lister tous les espaces de travail ouverts.",
       "newWorkspaceDesc": "Créer un nouvel espace de travail.",

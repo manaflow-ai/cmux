@@ -2129,6 +2129,7 @@
       "targetWorkspace": "Target a specific workspace",
       "targetSurface": "Target a specific surface",
       "idFormat": "Control identifier format in JSON output",
+      "identifierSafety": "Use UUIDs for automation that caches targets. Short refs such as <ref>workspace:7</ref> are session-scoped convenience handles, and bare numeric indexes are positional. Request <flag>--id-format both</flag>, retain the expected ref-to-UUID mapping, and validate it before mutation.",
       "workspaceCommands": "Workspace commands",
       "listWorkspacesDesc": "List all open workspaces.",
       "newWorkspaceDesc": "Create a new workspace.",

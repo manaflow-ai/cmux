@@ -1208,6 +1208,7 @@
       "targetWorkspace": "Mål et spesifikt arbeidsområde",
       "targetSurface": "Mål en spesifikk overflate",
       "idFormat": "Kontroller identifikatorformat i JSON-utdata",
+      "identifierSafety": "Bruk UUID-er for automatisering som lagrer mål for senere bruk. Korte referanser som <ref>workspace:7</ref> er sesjonsavgrensede hjelpehåndtak, og rene numeriske indekser er posisjonsbaserte. Be om <flag>--id-format both</flag>, behold den forventede koblingen fra referanse til UUID, og valider den før endringer.",
       "workspaceCommands": "Arbeidsområdekommandoer",
       "listWorkspacesDesc": "List alle åpne arbeidsområder.",
       "newWorkspaceDesc": "Opprett et nytt arbeidsområde.",
