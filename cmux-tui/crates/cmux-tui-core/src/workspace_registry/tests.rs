@@ -2434,6 +2434,111 @@ fn terminal_lifecycle_is_exactly_once_and_has_an_independent_revision() {
 }
 
 #[test]
+fn terminal_running_attachment_commits_atomically_and_allows_new_identity_after_detach() {
+    let mut registry =
+        WorkspaceRegistry::in_memory("runtime-attachment-terminal-lifecycle").unwrap();
+    commit_terminal_topology(&mut registry, "runtime-attachment-terminal-topology");
+    let terminal_public_id = terminal_resource(TERMINAL_ONE);
+    let mut adopting = registry.terminal_record(TERMINAL_ONE).unwrap().unwrap();
+    adopting.lifecycle = TerminalLifecycle::Adopting;
+    adopting.incarnation = Some(INCARNATION_ONE.into());
+    let launching_revision = registry.terminal_snapshot().unwrap().revision;
+    registry
+        .commit_terminal(
+            &WorkspaceMutation::new("adopt-runtime-attachment", "daemon").unwrap(),
+            &json!({"op":"adopt-terminal","terminal_id":TERMINAL_ONE}),
+            None,
+            Some(launching_revision),
+            "terminal-adopting",
+            &adopting,
+            &json!({"terminal_id":TERMINAL_ONE,"state":"adopting"}),
+        )
+        .unwrap();
+    registry
+        .record_runtime_attachment_update(
+            "test",
+            "existing-runtime-attachment",
+            &terminal_public_id,
+            "runtime-stale",
+            "attached",
+            "host-stale",
+            "lease-stale",
+        )
+        .unwrap();
+
+    let mut running = adopting;
+    running.lifecycle = TerminalLifecycle::Running;
+    let adopting_revision = registry.terminal_snapshot().unwrap().revision;
+    let failed = registry
+        .commit_terminal_with_runtime_attachment(
+            &WorkspaceMutation::new("ready-runtime-attachment-fails", "daemon").unwrap(),
+            &json!({"op":"terminal-ready","terminal_id":TERMINAL_ONE}),
+            None,
+            Some(adopting_revision),
+            "terminal-ready",
+            &running,
+            &json!({"terminal_id":TERMINAL_ONE,"state":"running"}),
+            TerminalRuntimeAttachment {
+                origin: "cmux-tui-runtime",
+                idempotency_key: "runtime-attachment-current-fails".into(),
+                terminal_id: terminal_public_id.clone(),
+                runtime_id: INCARNATION_ONE,
+                state: "attached",
+                host_epoch: INCARNATION_ONE,
+                lease_generation: INCARNATION_ONE,
+            },
+        )
+        .unwrap_err();
+    assert!(failed.to_string().contains("runtime attachment update is stale"));
+    assert_eq!(
+        registry.terminal_record(TERMINAL_ONE).unwrap().unwrap().lifecycle,
+        TerminalLifecycle::Adopting
+    );
+
+    registry
+        .record_runtime_attachment_update(
+            "test",
+            "existing-runtime-detached",
+            &terminal_public_id,
+            "runtime-stale",
+            "detached",
+            "host-stale",
+            "lease-stale",
+        )
+        .unwrap();
+    let still_adopting_revision = registry.terminal_snapshot().unwrap().revision;
+    let committed = registry
+        .commit_terminal_with_runtime_attachment(
+            &WorkspaceMutation::new("ready-runtime-attachment-succeeds", "daemon").unwrap(),
+            &json!({"op":"terminal-ready","terminal_id":TERMINAL_ONE}),
+            None,
+            Some(still_adopting_revision),
+            "terminal-ready",
+            &running,
+            &json!({"terminal_id":TERMINAL_ONE,"state":"running"}),
+            TerminalRuntimeAttachment {
+                origin: "cmux-tui-runtime",
+                idempotency_key: "runtime-attachment-current-succeeds".into(),
+                terminal_id: terminal_public_id.clone(),
+                runtime_id: INCARNATION_ONE,
+                state: "attached",
+                host_epoch: INCARNATION_ONE,
+                lease_generation: INCARNATION_ONE,
+            },
+        )
+        .unwrap();
+    assert!(!committed.replayed);
+    assert_eq!(
+        registry.terminal_record(TERMINAL_ONE).unwrap().unwrap().lifecycle,
+        TerminalLifecycle::Running
+    );
+    assert_eq!(
+        runtime_attachment_committed_sequence(&registry, &terminal_public_id),
+        registry.session_journal_after(0, 1024).unwrap().head_sequence
+    );
+}
+
+#[test]
 fn first_exit_metadata_wins_and_exited_ids_cannot_be_relaunched() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     seed_workspace(&mut registry, "one");
@@ -3896,13 +4001,26 @@ fn runtime_attachment_recorder_is_receipt_gated_and_stale_safe() {
         .unwrap();
     assert!(!detached.replayed);
     assert_eq!(runtime_attachment_committed_sequence(&registry, &terminal_id), detached.sequence);
+    let reattached = registry
+        .record_runtime_attachment_update(
+            "test",
+            "runtime-attachment-new-runtime",
+            &terminal_id,
+            "runtime-recorder-b",
+            "attached",
+            "host-epoch-recorder-b",
+            "lease-recorder-b",
+        )
+        .unwrap();
+    assert!(!reattached.replayed);
+    assert_eq!(runtime_attachment_committed_sequence(&registry, &terminal_id), reattached.sequence);
     assert!(
         registry
             .record_runtime_attachment_update(
                 "test",
-                "runtime-attachment-stale-runtime",
+                "runtime-attachment-old-runtime-after-reattach",
                 &terminal_id,
-                "runtime-recorder-b",
+                "runtime-recorder-a",
                 "attached",
                 "host-epoch-recorder",
                 "lease-recorder",
@@ -3921,7 +4039,7 @@ fn runtime_attachment_recorder_is_receipt_gated_and_stale_safe() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(attachment_events, 2);
+    assert_eq!(attachment_events, 3);
     drop(registry);
     fs::remove_dir_all(root).unwrap();
 }

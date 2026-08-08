@@ -61,7 +61,8 @@ use crate::workspace_registry::{
     RegistrySnapshot, RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace,
     ResourceChange, ResourceEffectOutcome, ResourceEffectPreparation, ResourcePatch,
     ResourcePatchCommit, ResourceTopologySnapshot, TerminalExitRuntimeAttachment,
-    TerminalLifecycle, TerminalRegistrySnapshot, WorkspaceMutation, WorkspaceRegistry,
+    TerminalLifecycle, TerminalRegistrySnapshot, TerminalRuntimeAttachment, WorkspaceMutation,
+    WorkspaceRegistry,
 };
 use crate::{
     PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,
@@ -2795,15 +2796,40 @@ impl Mux {
             state.rebuild_resource_indexes();
         }
 
-        let revision = match commit_terminal_lifecycle(
-            &mut registry,
-            "terminal-ready",
-            "terminal-adopted",
-            terminal_id,
-            TerminalLifecycle::Running,
-            Some(incarnation),
-            None,
-        ) {
+        let runtime_attachment_public_id = registry.terminal_resource_id(terminal_id)?;
+        let lifecycle = if let Some(public_id) = runtime_attachment_public_id {
+            commit_terminal_lifecycle_with_runtime_attachment(
+                &mut registry,
+                "terminal-ready",
+                "terminal-adopted",
+                terminal_id,
+                TerminalLifecycle::Running,
+                Some(incarnation),
+                None,
+                TerminalRuntimeAttachment {
+                    origin: "cmux-tui-runtime",
+                    idempotency_key: format!(
+                        "runtime-attachment-attached-{terminal_id}-{incarnation}"
+                    ),
+                    terminal_id: public_id,
+                    runtime_id: incarnation,
+                    state: "attached",
+                    host_epoch: incarnation,
+                    lease_generation: incarnation,
+                },
+            )
+        } else {
+            commit_terminal_lifecycle(
+                &mut registry,
+                "terminal-ready",
+                "terminal-adopted",
+                terminal_id,
+                TerminalLifecycle::Running,
+                Some(incarnation),
+                None,
+            )
+        };
+        let revision = match lifecycle {
             Ok((_, revision)) => revision,
             Err(error) => {
                 *state = before;
@@ -2813,7 +2839,6 @@ impl Mux {
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);
-        self.record_terminal_runtime_attachment_source(terminal_id, incarnation, "attached")?;
         Ok(())
     }
 
@@ -14424,6 +14449,51 @@ fn commit_terminal_lifecycle(
     incarnation: Option<&str>,
     exit: Option<Value>,
 ) -> anyhow::Result<(RegistryTerminal, u64)> {
+    commit_terminal_lifecycle_inner(
+        registry,
+        event_kind,
+        operation,
+        terminal_id,
+        lifecycle,
+        incarnation,
+        exit,
+        None,
+    )
+}
+
+fn commit_terminal_lifecycle_with_runtime_attachment(
+    registry: &mut WorkspaceRegistry,
+    event_kind: &str,
+    operation: &str,
+    terminal_id: &str,
+    lifecycle: TerminalLifecycle,
+    incarnation: Option<&str>,
+    exit: Option<Value>,
+    runtime_attachment: TerminalRuntimeAttachment<'_>,
+) -> anyhow::Result<(RegistryTerminal, u64)> {
+    commit_terminal_lifecycle_inner(
+        registry,
+        event_kind,
+        operation,
+        terminal_id,
+        lifecycle,
+        incarnation,
+        exit,
+        Some(runtime_attachment),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn commit_terminal_lifecycle_inner(
+    registry: &mut WorkspaceRegistry,
+    event_kind: &str,
+    operation: &str,
+    terminal_id: &str,
+    lifecycle: TerminalLifecycle,
+    incarnation: Option<&str>,
+    exit: Option<Value>,
+    runtime_attachment: Option<TerminalRuntimeAttachment<'_>>,
+) -> anyhow::Result<(RegistryTerminal, u64)> {
     let snapshot = registry.terminal_snapshot()?;
     let mut terminal = registry
         .terminal_record(terminal_id)?
@@ -14434,25 +14504,40 @@ fn commit_terminal_lifecycle(
     }
     terminal.exit = exit;
     let mutation = WorkspaceMutation::local("cmux-tui-runtime");
-    let commit = registry.commit_terminal(
-        &mutation,
-        &serde_json::json!({
-            "op": operation,
-            "terminal_id": terminal.terminal_id,
-            "incarnation": terminal.incarnation,
-            "lifecycle": terminal.lifecycle,
-        }),
-        Some(&snapshot.generation),
-        Some(snapshot.revision),
-        event_kind,
-        &terminal,
-        &serde_json::json!({
-            "terminal_id": terminal.terminal_id,
-            "workspace_key": terminal.workspace_key,
-            "incarnation": terminal.incarnation,
-            "state": terminal.lifecycle,
-        }),
-    )?;
+    let fingerprint = serde_json::json!({
+        "op": operation,
+        "terminal_id": terminal.terminal_id,
+        "incarnation": terminal.incarnation,
+        "lifecycle": terminal.lifecycle,
+    });
+    let result = serde_json::json!({
+        "terminal_id": terminal.terminal_id,
+        "workspace_key": terminal.workspace_key,
+        "incarnation": terminal.incarnation,
+        "state": terminal.lifecycle,
+    });
+    let commit = if let Some(runtime_attachment) = runtime_attachment {
+        registry.commit_terminal_with_runtime_attachment(
+            &mutation,
+            &fingerprint,
+            Some(&snapshot.generation),
+            Some(snapshot.revision),
+            event_kind,
+            &terminal,
+            &result,
+            runtime_attachment,
+        )?
+    } else {
+        registry.commit_terminal(
+            &mutation,
+            &fingerprint,
+            Some(&snapshot.generation),
+            Some(snapshot.revision),
+            event_kind,
+            &terminal,
+            &result,
+        )?
+    };
     Ok((terminal, commit.revision))
 }
 

@@ -1548,12 +1548,15 @@ impl WorkspaceRegistry {
         if let Some((stored_session, stored_runtime, stored_state, stored_epoch, stored_lease)) =
             current
         {
+            let same_identity = stored_session == session_id
+                && stored_runtime == update.runtime_id
+                && stored_epoch == update.host_epoch
+                && stored_lease == update.lease_generation;
+            let new_identity_after_detach = stored_session == session_id
+                && stored_state == "detached"
+                && update.state == "attached";
             anyhow::ensure!(
-                stored_session == session_id
-                    && stored_runtime == update.runtime_id
-                    && stored_epoch == update.host_epoch
-                    && stored_lease == update.lease_generation
-                    && stored_state != "interrupted",
+                (same_identity || new_identity_after_detach) && stored_state != "interrupted",
                 "runtime attachment update is stale"
             );
         }
