@@ -37,8 +37,14 @@ struct MobileIrohConnectionCheckSection: View {
 
                 ForEach(report.stages) { stage in
                     LabeledContent(stageTitle(stage.kind)) {
-                        Label(stageStatus(stage.status), systemImage: stageSymbol(stage.status))
-                            .foregroundStyle(stageColor(stage.status))
+                        // A Label as the LabeledContent value inflates the row
+                        // to several hundred points on iOS 26 Forms; a plain
+                        // HStack keeps the standard row height.
+                        HStack(spacing: 5) {
+                            Image(systemName: stageSymbol(stage.status))
+                            Text(stageStatus(stage.status))
+                        }
+                        .foregroundStyle(stageColor(stage.status))
                     }
                 }
                 if report.recommendation != .none {
