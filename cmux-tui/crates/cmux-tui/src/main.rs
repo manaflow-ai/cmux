@@ -1732,13 +1732,17 @@ fn dispatch_local_owner_event(event: &cmux_tui_core::MuxEvent, reload: impl FnOn
     }
 }
 
+fn local_owner_reload_events(mux: &Mux) -> cmux_tui_core::MuxEventReceiver {
+    mux.subscribe_config_reload()
+}
+
 fn start_local_owner_event_loop(
     mux: &Arc<Mux>,
 ) -> (Arc<AtomicBool>, std::thread::JoinHandle<()>) {
     let stop = Arc::new(AtomicBool::new(false));
     let thread_stop = stop.clone();
     let weak_mux = Arc::downgrade(mux);
-    let events = mux.subscribe();
+    let events = local_owner_reload_events(mux);
     let thread = std::thread::spawn(move || {
         while !thread_stop.load(Ordering::Acquire) {
             match events.recv() {

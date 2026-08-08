@@ -4689,6 +4689,10 @@ impl Mux {
         self.subscribers.subscribe()
     }
 
+    pub fn subscribe_config_reload(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe_config_reload()
+    }
+
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
         self.subscribers.subscribe_attached_surface(surface)
     }
