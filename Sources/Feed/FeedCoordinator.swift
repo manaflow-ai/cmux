@@ -899,7 +899,7 @@ extension FeedCoordinator {
 
         for statusKey in movedStatusKeys {
             let movedEntry = movedTargets.lazy.compactMap {
-                pendingAttentionStates[$0]?.statusEntry
+                self.pendingAttentionStates[$0]?.statusEntry
             }.first
             guard let statusEntry = owner.statusEntry(
                 key: statusKey,
@@ -917,7 +917,7 @@ extension FeedCoordinator {
             let scopedTargets = pendingAttentionStates.keys.filter {
                 target in
                 guard target.statusKey == statusKey,
-                      let state = pendingAttentionStates[target],
+                      let state = self.pendingAttentionStates[target],
                       state.statusOwnerId == owner.id else {
                     return false
                 }

@@ -103,14 +103,13 @@ struct AgentLifecycleReconciliationStateTests {
         )
         var state = AgentLifecycleReconciliationState()
 
-        let token = try #require(
-            state.beginFeedAttention(
-                key: BuiltInAgentIntegration.cursor.statusKey,
-                panelId: panelId,
-                isBuiltIn: true,
-                processGeneration: newer
-            )
+        let startedAttention = state.beginFeedAttention(
+            key: BuiltInAgentIntegration.cursor.statusKey,
+            panelId: panelId,
+            isBuiltIn: true,
+            processGeneration: newer
         )
+        let token = try #require(startedAttention)
         #expect(
             state.resolvedStatesByPanelId[panelId]?[BuiltInAgentIntegration.cursor.statusKey]
                 == .needsInput
@@ -128,13 +127,12 @@ struct AgentLifecycleReconciliationStateTests {
             state.resolvedStatesByPanelId[panelId]?[BuiltInAgentIntegration.cursor.statusKey]
                 == .needsInput
         )
-        #expect(
-            state.endFeedAttention(
-                key: BuiltInAgentIntegration.cursor.statusKey,
-                panelId: panelId,
-                token: token
-            )
+        let endedAttention = state.endFeedAttention(
+            key: BuiltInAgentIntegration.cursor.statusKey,
+            panelId: panelId,
+            token: token
         )
+        #expect(endedAttention)
     }
 
     @Test("Replacement generation preserves attention without exact ownership")
@@ -152,50 +150,44 @@ struct AgentLifecycleReconciliationStateTests {
         )
         var state = AgentLifecycleReconciliationState()
 
-        let unidentifiedToken = try #require(
-            state.beginFeedAttention(
-                key: BuiltInAgentIntegration.cursor.statusKey,
-                panelId: panelId,
-                isBuiltIn: true
-            )
+        let startedUnidentifiedAttention = state.beginFeedAttention(
+            key: BuiltInAgentIntegration.cursor.statusKey,
+            panelId: panelId,
+            isBuiltIn: true
         )
-        #expect(
-            state.recordProcessGeneration(
-                key: BuiltInAgentIntegration.cursor.statusKey,
-                panelId: panelId,
-                generation: older,
-                isBuiltIn: true
-            )
+        let unidentifiedToken = try #require(startedUnidentifiedAttention)
+        let acceptedOlderGeneration = state.recordProcessGeneration(
+            key: BuiltInAgentIntegration.cursor.statusKey,
+            panelId: panelId,
+            generation: older,
+            isBuiltIn: true
         )
-        let olderToken = try #require(
-            state.beginFeedAttention(
-                key: BuiltInAgentIntegration.cursor.statusKey,
-                panelId: panelId,
-                isBuiltIn: true
-            )
+        #expect(acceptedOlderGeneration)
+        let startedOlderAttention = state.beginFeedAttention(
+            key: BuiltInAgentIntegration.cursor.statusKey,
+            panelId: panelId,
+            isBuiltIn: true
         )
+        let olderToken = try #require(startedOlderAttention)
 
-        #expect(
-            state.recordProcessGeneration(
-                key: BuiltInAgentIntegration.cursor.statusKey,
-                panelId: panelId,
-                generation: newer,
-                isBuiltIn: true
-            )
+        let acceptedNewerGeneration = state.recordProcessGeneration(
+            key: BuiltInAgentIntegration.cursor.statusKey,
+            panelId: panelId,
+            generation: newer,
+            isBuiltIn: true
         )
-        #expect(
-            !state.endFeedAttention(
-                key: BuiltInAgentIntegration.cursor.statusKey,
-                panelId: panelId,
-                token: olderToken
-            )
+        #expect(acceptedNewerGeneration)
+        let endedOlderAttention = state.endFeedAttention(
+            key: BuiltInAgentIntegration.cursor.statusKey,
+            panelId: panelId,
+            token: olderToken
         )
-        #expect(
-            state.endFeedAttention(
-                key: BuiltInAgentIntegration.cursor.statusKey,
-                panelId: panelId,
-                token: unidentifiedToken
-            )
+        #expect(!endedOlderAttention)
+        let endedUnidentifiedAttention = state.endFeedAttention(
+            key: BuiltInAgentIntegration.cursor.statusKey,
+            panelId: panelId,
+            token: unidentifiedToken
         )
+        #expect(endedUnidentifiedAttention)
     }
 }
