@@ -135,6 +135,31 @@
     "faqFeatureA": "Ми хочемо про це почути. Відкрийте <issuesLink>issue</issuesLink> або <prLink>pull request</prLink> на GitHub чи <mailLink>напишіть нам</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "огляд",
+      "team": "команда"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "Розподіляйте LLM-запити між обліковими записами провайдерів із відмовостійкістю та плануванням за навантаженням.",
+      "coderouterLink": "відкрити coderouter"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Керуйте спільними ШІ-обліковими записами та розподіляйте запити за допомогою coderouter.",
+      "title": "coderouter",
+      "description": "coderouter розподіляє LLM-запити між обліковими записами провайдерів із відмовостійкістю та плануванням за навантаженням."
+    },
+    "accountMenu": {
+      "label": "Меню облікового запису",
+      "settings": "Налаштування",
+      "billing": "Оплата",
+      "signOut": "Вийти",
+      "signingOut": "Вихід…",
+      "signOutError": "Не вдалося вийти. Спробуйте ще раз.",
+      "signIn": "Увійти"
+    },
     "aiAccounts": {
       "metaTitle": "Акаунти ШІ — cmux",
       "metaDescription": "Керуйте акаунтами постачальників ШІ команди в cmux.",
