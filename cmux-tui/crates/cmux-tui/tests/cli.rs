@@ -75,10 +75,9 @@ impl HeadlessServer {
             &self.socket,
             serde_json::json!({"id": u64::MAX - 1, "cmd": "list-workspaces"}),
         ) else {
-            return host_pids
-                .is_empty()
-                .then_some(())
-                .ok_or_else(|| format!("server socket unavailable; live host pids: {host_pids:?}"));
+            return host_pids.is_empty().then_some(()).ok_or_else(|| {
+                format!("server socket unavailable; live host pids: {host_pids:?}")
+            });
         };
         let mut surfaces = tree["workspaces"]
             .as_array()
@@ -182,11 +181,8 @@ impl HeadlessServer {
             .map(|entry| entry.path())
             .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
             .collect::<Vec<_>>();
-        let live_hosts = host_pids
-            .iter()
-            .copied()
-            .filter(|pid| process_exists(*pid))
-            .collect::<Vec<_>>();
+        let live_hosts =
+            host_pids.iter().copied().filter(|pid| process_exists(*pid)).collect::<Vec<_>>();
         let live_terminals = terminal_pids
             .iter()
             .copied()
