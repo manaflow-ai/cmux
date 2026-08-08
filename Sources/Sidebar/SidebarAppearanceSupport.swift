@@ -243,7 +243,10 @@ func sidebarSelectedWorkspaceBackgroundNSColor(
        let parsed = NSColor(hex: hex) {
         return parsed
     }
-    return cmuxAccentNSColor(for: colorScheme)
+    // Arc-style neutral selection: enough contrast to read as a pill without
+    // turning the active workspace into the sidebar's dominant color.
+    let white: CGFloat = colorScheme == .dark ? 0.27 : 0.86
+    return NSColor(srgbRed: white, green: white, blue: white, alpha: 1)
 }
 
 func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {

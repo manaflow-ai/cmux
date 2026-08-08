@@ -364,9 +364,9 @@ enum NotificationMenuSnapshotBuilder {
         case 0:
             return String(localized: "statusMenu.noUnread", defaultValue: "No unread notifications")
         case 1:
-            return String(localized: "statusMenu.unreadCount.one", defaultValue: "1 unread notification")
+            return String(localized: "notification.unreadCount.one", defaultValue: "1 unread notification")
         default:
-            return String(localized: "statusMenu.unreadCount.other", defaultValue: "\(unreadCount) unread notifications")
+            return String(localized: "notification.unreadCount.other", defaultValue: "\(unreadCount) unread notifications")
         }
     }
 }

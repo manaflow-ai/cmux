@@ -12,6 +12,8 @@ import SwiftUI
 @MainActor
 final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("SidebarWorkspaceRowTableCellView")
+    private static let backgroundCornerRadius: CGFloat = 10
+    private static let hoverBackgroundOpacity = 0.07
 
     // Chrome
     private let backgroundView = NSView()
@@ -183,7 +185,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         layer?.masksToBounds = false
 
         backgroundView.wantsLayer = true
-        backgroundView.layer?.cornerRadius = 6
+        backgroundView.layer?.cornerRadius = Self.backgroundCornerRadius
         backgroundView.layer?.cornerCurve = .continuous
         backgroundView.layer?.borderWidth = 0
         addSubview(backgroundView)
@@ -201,6 +203,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         statusGlyphButton.onClick = { [weak self] in self?.toggleStatusPopover() }
         contentContainer.addSubview(statusGlyphButton)
         contentContainer.addSubview(leadingBadge)
+        titleView.setAccessibilityIdentifier("SidebarWorkspaceTitle")
         contentContainer.addSubview(titleView)
         renameField.isHidden = true
         contentContainer.addSubview(renameField)
@@ -357,7 +360,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let settings = model.settings
 
         // Chrome
-        let style = sidebarWorkspaceRowBackgroundStyle(
+        let baseStyle = sidebarWorkspaceRowBackgroundStyle(
             activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
             isActive: model.isActive,
             isMultiSelected: model.isMultiSelected,
@@ -365,6 +368,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             colorScheme: palette.colorScheme,
             sidebarSelectionColorHex: settings.selectionColorHex
         )
+        let style = baseStyle == .clear && isPointerHovering
+            ? SidebarWorkspaceRowBackgroundStyle(
+                color: .labelColor,
+                opacity: Self.hoverBackgroundOpacity
+            )
+            : baseStyle
         applyBackgroundStyle(style)
         if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
             backgroundView.layer?.borderWidth = 1.5
@@ -442,17 +451,28 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             maxDisplayedLines: titleLineLimit,
             maxDisplayedCharacters: 2048
         )
+        let renderedTitle = SidebarMarkdownRenderer(markdown: boundedTitle).inline
+        let displayTitle = renderedTitle.map { String($0.characters) } ?? boundedTitle
 #if DEBUG
-        if titleView.stringValue != boundedTitle {
+        if titleView.stringValue != displayTitle {
             cmuxDebugLog(
                 "sidebar.row.titlePaint workspace=\(model.workspaceId.uuidString.prefix(8)) " +
-                "title=\"\(boundedTitle.prefix(40))\""
+                "titleUTF8Bytes=\(displayTitle.utf8.count)"
             )
         }
 #endif
-        titleView.stringValue = boundedTitle
-        titleView.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
-        titleView.textColor = palette.primaryText
+        let titleFont = NSFont.systemFont(ofSize: model.scaled(12.5), weight: .regular)
+        if let renderedTitle {
+            titleView.attributedStringValue = SidebarRowPalette.attributed(
+                renderedTitle,
+                font: titleFont,
+                color: palette.primaryText
+            )
+        } else {
+            titleView.stringValue = boundedTitle
+            titleView.font = titleFont
+            titleView.textColor = palette.primaryText
+        }
 
         // Badges / spinner / close
         let showsSpinner = model.showsAgentActivity && snapshot.activeCodingAgentCount > 0
@@ -573,7 +593,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         setAccessibilityIdentifier("sidebarWorkspace.\(model.workspaceId.uuidString)")
         setAccessibilityLabel(String(
             localized: "accessibility.workspacePosition",
-            defaultValue: "\(snapshot.title), workspace \(model.index + 1) of \(model.accessibilityWorkspaceCount)"
+            defaultValue: "\(displayTitle), workspace \(model.index + 1) of \(model.accessibilityWorkspaceCount)"
         ))
     }
 
@@ -607,7 +627,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             return model.isActive ? palette.primaryText.withAlphaComponent(0.25) : cmuxAccentNSColor()
         }()
         let badgeText: NSColor = model.isActive ? palette.primaryText : .white
-        let badgeFont = NSFont.systemFont(ofSize: model.scaled(9), weight: .semibold)
+        let badgeFont = NSFont.systemFont(ofSize: model.scaled(8.5), weight: .regular)
+        let unreadAccessibilityLabel = SidebarRowUnreadBadgeView.accessibilityLabel(
+            forUnreadCount: model.unreadCount
+        )
 
         let leadingBadgeVisible = badgeVisible && model.settings.notificationBadgePosition == .leading
         let trailingBadgeVisible = badgeVisible && model.settings.notificationBadgePosition == .trailing
@@ -618,9 +641,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         trailingBadge.isHidden = !trailingBadgeVisible || trailingSpinnerVisible || showsCloseNow
         if !leadingBadge.isHidden {
             leadingBadge.configure(count: model.unreadCount, fillColor: badgeFill, textColor: badgeText, font: badgeFont)
+            leadingBadge.setAccessibilityLabel(unreadAccessibilityLabel)
         }
         if !trailingBadge.isHidden {
             trailingBadge.configure(count: model.unreadCount, fillColor: badgeFill, textColor: badgeText, font: badgeFont)
+            trailingBadge.setAccessibilityLabel(unreadAccessibilityLabel)
         }
 
         let spinnerColor: NSColor = model.isActive
@@ -998,7 +1023,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         guard let model else { return }
         isEditing = true
         renameField.stringValue = model.snapshot.title
-        renameField.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
+        renameField.font = .systemFont(ofSize: model.scaled(12.5), weight: .regular)
         renameField.textColor = palette(model).selectedForeground(1.0)
         renameField.isHidden = false
         titleView.isHidden = true
@@ -1075,7 +1100,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let titleRowSpacing: CGFloat = (model.settings.loadingSpinnerPosition == .leading
             && model.showsAgentActivity && model.snapshot.activeCodingAgentCount > 0) ? 6 : 8
         var x = leading
-        let badgeSide = 16 * model.fontScale
+        let badgeSize = leadingBadge.fittingSize(
+            horizontalPadding: model.scaled(4),
+            minimumHeight: model.scaled(14)
+        )
+        let trailingBadgeSize = trailingBadge.fittingSize(
+            horizontalPadding: model.scaled(4),
+            minimumHeight: model.scaled(14)
+        )
         let spinnerSide = max(10, 12 * model.fontScale)
         let firstLineCenter = model.scaled(12.5) * 0.6 + y
 
@@ -1089,14 +1121,16 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
         let leadingSlotActive = (!leadingBadge.isHidden) || (leadingSpinner?.isHidden == false)
         if leadingSlotActive {
-            let side = !leadingBadge.isHidden ? badgeSide : spinnerSide
+            let size = !leadingBadge.isHidden
+                ? badgeSize
+                : NSSize(width: spinnerSide, height: spinnerSide)
             if !leadingBadge.isHidden {
-                place(leadingBadge, size: NSSize(width: side, height: side), centerY: firstLineCenter)
+                place(leadingBadge, size: size, centerY: firstLineCenter)
             }
             if let spinner = leadingSpinner, !spinner.isHidden {
                 place(spinner, size: NSSize(width: spinnerSide, height: spinnerSide), centerY: firstLineCenter)
             }
-            x += side + titleRowSpacing
+            x += size.width + titleRowSpacing
         }
         if !pinImageView.isHidden {
             let side = model.scaled(9) + 4
@@ -1118,7 +1152,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let closeHit = max(16, 16 * model.fontScale)
         let closeWidth = max(16, closeHit)
         let trailingSlotActive = !trailingBadge.isHidden || (trailingSpinner?.isHidden == false) || model.canCloseWorkspace
-        let titleMaxX = trailingSlotActive ? (trailing - closeWidth - titleRowSpacing) : trailing
+        let trailingSlotWidth: CGFloat = {
+            if !trailingBadge.isHidden { return trailingBadgeSize.width }
+            if trailingSpinner?.isHidden == false { return spinnerSide }
+            return closeWidth
+        }()
+        let titleMaxX = trailingSlotActive ? (trailing - trailingSlotWidth - titleRowSpacing) : trailing
         let titleWidth = max(10, titleMaxX - x)
         let titleHeight = isEditing
             ? ceil(renameField.intrinsicContentSize.height)
@@ -1137,8 +1176,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 )
                 if !trailingBadge.isHidden {
                     trailingBadge.frame = NSRect(
-                        x: trailing - badgeSide, y: firstLineCenter - badgeSide / 2,
-                        width: badgeSide, height: badgeSide
+                        x: trailing - trailingBadgeSize.width,
+                        y: firstLineCenter - trailingBadgeSize.height / 2,
+                        width: trailingBadgeSize.width,
+                        height: trailingBadgeSize.height
                     )
                 }
                 if let spinner = trailingSpinner, !spinner.isHidden {
@@ -1149,7 +1190,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 }
             }
         }
-        y += max(titleHeight, leadingSlotActive ? badgeSide : 0)
+        let leadingSlotHeight = leadingSlotActive
+            ? (!leadingBadge.isHidden ? badgeSize.height : spinnerSide)
+            : 0
+        let trailingSlotHeight = !trailingBadge.isHidden ? trailingBadgeSize.height : 0
+        y += max(titleHeight, leadingSlotHeight, trailingSlotHeight)
 
         func placeBlock(_ view: SidebarRowTextView) {
             guard !view.isHidden else { return }

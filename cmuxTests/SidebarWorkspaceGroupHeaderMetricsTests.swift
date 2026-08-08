@@ -14,8 +14,7 @@ import Testing
 
         #expect(metrics.chevronFontSize == SidebarWorkspaceGroupHeaderMetrics.baseChevronFontSize)
         #expect(metrics.chevronFrame == SidebarWorkspaceGroupHeaderMetrics.baseChevronFrame)
-        #expect(metrics.iconFontSize == SidebarWorkspaceGroupHeaderMetrics.baseIconFontSize)
-        #expect(metrics.iconFrame == SidebarWorkspaceGroupHeaderMetrics.baseIconFrame)
+        #expect(metrics.pinFrame == SidebarWorkspaceGroupHeaderMetrics.basePinFrame)
         #expect(metrics.nameFontSize == SidebarWorkspaceGroupHeaderMetrics.baseNameFontSize)
         #expect(metrics.unreadFontSize == SidebarWorkspaceGroupHeaderMetrics.baseUnreadFontSize)
         #expect(metrics.unreadHorizontalPadding == SidebarWorkspaceGroupHeaderMetrics.baseUnreadHorizontalPadding)
@@ -30,8 +29,7 @@ import Testing
 
         #expect(metrics.chevronFontSize == SidebarWorkspaceGroupHeaderMetrics.baseChevronFontSize * scale)
         #expect(metrics.chevronFrame == SidebarWorkspaceGroupHeaderMetrics.baseChevronFrame * scale)
-        #expect(metrics.iconFontSize == SidebarWorkspaceGroupHeaderMetrics.baseIconFontSize * scale)
-        #expect(metrics.iconFrame == SidebarWorkspaceGroupHeaderMetrics.baseIconFrame * scale)
+        #expect(metrics.pinFrame == SidebarWorkspaceGroupHeaderMetrics.basePinFrame * scale)
         #expect(metrics.nameFontSize == SidebarWorkspaceGroupHeaderMetrics.baseNameFontSize * scale)
         #expect(metrics.unreadFontSize == SidebarWorkspaceGroupHeaderMetrics.baseUnreadFontSize * scale)
         #expect(metrics.unreadHorizontalPadding == SidebarWorkspaceGroupHeaderMetrics.baseUnreadHorizontalPadding * scale)
@@ -46,8 +44,7 @@ import Testing
 
         #expect(metrics.chevronFontSize == SidebarWorkspaceGroupHeaderMetrics.baseChevronFontSize * scale)
         #expect(metrics.chevronFrame == SidebarWorkspaceGroupHeaderMetrics.baseChevronFrame * scale)
-        #expect(metrics.iconFontSize == SidebarWorkspaceGroupHeaderMetrics.baseIconFontSize * scale)
-        #expect(metrics.iconFrame == SidebarWorkspaceGroupHeaderMetrics.baseIconFrame * scale)
+        #expect(metrics.pinFrame == SidebarWorkspaceGroupHeaderMetrics.basePinFrame * scale)
         #expect(metrics.nameFontSize == SidebarWorkspaceGroupHeaderMetrics.baseNameFontSize * scale)
         #expect(metrics.unreadFontSize == SidebarWorkspaceGroupHeaderMetrics.baseUnreadFontSize * scale)
         #expect(metrics.unreadHorizontalPadding == SidebarWorkspaceGroupHeaderMetrics.baseUnreadHorizontalPadding * scale)

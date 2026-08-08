@@ -1,26 +1,28 @@
 import AppKit
 import CmuxFoundation
+import CmuxSettings
 import SwiftUI
 
 /// Pure-AppKit group header cell for the sidebar workspace table.
 ///
-/// Renders the collapsible group/folder header (pin, chevron, tinted icon,
-/// name, unread capsule, hover-revealed plus button) without any SwiftUI
+/// Renders the collapsible group header (pin, chevron, name, unread badge,
+/// hover-revealed plus button) without any SwiftUI
 /// hosting so scroll, hover, and reconfigure stay off the AttributeGraph.
 /// Layout is manual: subviews are created once and framed in `layout()`.
 @MainActor
 final class SidebarGroupHeaderTableCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("SidebarGroupHeaderTableCellView")
+    private static let backgroundCornerRadius: CGFloat = 10
+    private static let hoverBackgroundOpacity: CGFloat = 0.08
 
     private let backgroundView = NSView()
     private let pinImageView = NSImageView()
     private let chevronButton = SidebarHeaderGlyphButton()
-    private let iconImageView = NSImageView()
     private let nameField = NSTextField(labelWithString: "")
-    // Direct-draw badge (shared with workspace rows): NSTextField's
-    // intrinsic insets shift single digits off the circle's optical center.
+    // Direct-draw badge shared with workspace rows, avoiding NSTextField's
+    // asymmetric cell insets for small counts.
     private let unreadBadgeView = SidebarRowUnreadBadgeView()
-    private var unreadBadgeFont: NSFont = .systemFont(ofSize: 10, weight: .semibold)
+    private var unreadBadgeFont: NSFont = .systemFont(ofSize: 10, weight: .regular)
     private let plusButton = SidebarHeaderGlyphButton()
     private let topDropIndicator = NSView()
     private let bottomDropIndicator = NSView()
@@ -54,7 +56,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         layer?.masksToBounds = false
 
         backgroundView.wantsLayer = true
-        backgroundView.layer?.cornerRadius = 4
+        backgroundView.layer?.cornerRadius = Self.backgroundCornerRadius
         backgroundView.layer?.cornerCurve = .continuous
         addSubview(backgroundView)
 
@@ -64,12 +66,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         chevronButton.onClick = { [weak self] in self?.actions?.onToggleCollapsed() }
         addSubview(chevronButton)
 
-        iconImageView.imageScaling = .scaleProportionallyDown
-        addSubview(iconImageView)
-
         nameField.lineBreakMode = .byTruncatingTail
         nameField.maximumNumberOfLines = 1
         nameField.cell?.truncatesLastVisibleLine = true
+        nameField.setAccessibilityIdentifier("SidebarWorkspaceGroupName")
         addSubview(nameField)
 
         addSubview(unreadBadgeView)
@@ -165,27 +165,29 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 : String(localized: "workspaceGroup.collapse.a11y", defaultValue: "Collapse group")
         )
 
-        let iconSymbol = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: model.iconSymbol, configured: nil)
-        iconImageView.image = RenderableSystemSymbol.configuredAppKitImage(
-            systemName: iconSymbol,
-            pointSize: GlobalFontMagnification.scaledSize(metrics.iconFontSize, percent: percent),
-            weight: .semibold
-        )
-        iconImageView.contentTintColor = model.tintHex.flatMap { NSColor(hex: $0) } ?? .secondaryLabelColor
-
-        nameField.stringValue = model.name
-        nameField.font = .systemFont(
+        let nameFont = NSFont.systemFont(
             ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
-            weight: .semibold
+            weight: .regular
         )
-        nameField.textColor = model.isAnchorActive ? .labelColor : NSColor.labelColor.withAlphaComponent(0.9)
+        let nameColor = NSColor.labelColor
+        if let rendered = SidebarMarkdownRenderer(markdown: model.name).inline {
+            nameField.attributedStringValue = SidebarRowPalette.attributed(
+                rendered,
+                font: nameFont,
+                color: nameColor
+            )
+        } else {
+            nameField.stringValue = model.name
+            nameField.font = nameFont
+            nameField.textColor = nameColor
+        }
 
         let showsBadge = model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
         if showsBadge {
             unreadBadgeFont = .systemFont(
                 ofSize: GlobalFontMagnification.scaledSize(metrics.unreadFontSize, percent: percent),
-                weight: .semibold
+                weight: .regular
             )
             unreadBadgeView.configure(
                 count: model.anchorUnreadCount,
@@ -193,10 +195,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 textColor: .white,
                 font: unreadBadgeFont
             )
-            unreadBadgeView.setAccessibilityLabel(String.localizedStringWithFormat(
-                String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
-                model.anchorUnreadCount
-            ))
+            unreadBadgeView.setAccessibilityLabel(
+                SidebarRowUnreadBadgeView.accessibilityLabel(
+                    forUnreadCount: model.anchorUnreadCount
+                )
+            )
         }
 
         plusButton.glyphImage = RenderableSystemSymbol.configuredAppKitImage(
@@ -210,9 +213,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             defaultValue: "New workspace in group"
         ))
 
-        backgroundView.layer?.cornerRadius = model.isMultiSelected && !model.isAnchorActive
-            ? 6
-            : 4
+        backgroundView.layer?.cornerRadius = Self.backgroundCornerRadius
         backgroundView.layer?.backgroundColor = headerBackgroundColor(for: model).cgColor
 
         topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
@@ -230,7 +231,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         alphaValue = model.isBeingDragged ? 0.6 : 1
         updatePlusVisibility()
         setAccessibilityIdentifier("sidebarWorkspaceGroup.\(model.groupId.uuidString)")
-        setAccessibilityLabel(model.name)
+        setAccessibilityLabel(nameField.stringValue)
     }
 
     /// Live drop-line painting during native reorder drags; see
@@ -259,7 +260,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     func enforcePointerHovering(_ hovering: Bool) {
         guard isPointerHovering != hovering else { return }
         isPointerHovering = hovering
-        updatePlusVisibility()
+        if let model {
+            applyModel(model)
+        } else {
+            updatePlusVisibility()
+        }
     }
 
     /// Optimistic press treatment: paints the anchor-active header visuals
@@ -269,10 +274,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         guard let model, !model.isAnchorActive else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        backgroundView.layer?.cornerRadius = 4
+        backgroundView.layer?.cornerRadius = Self.backgroundCornerRadius
         backgroundView.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
         CATransaction.commit()
-        nameField.textColor = .labelColor
+        recolorName(.labelColor)
     }
 
     /// Modifier-click preview: paints the same dim membership tint as an
@@ -281,7 +286,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         guard let model, !model.isAnchorActive, !model.isMultiSelected else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        backgroundView.layer?.cornerRadius = 6
+        backgroundView.layer?.cornerRadius = Self.backgroundCornerRadius
         backgroundView.layer?.backgroundColor = headerMultiSelectionBackgroundColor(for: model).cgColor
         CATransaction.commit()
     }
@@ -292,10 +297,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         guard let model, model.isAnchorActive || model.isMultiSelected else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        backgroundView.layer?.cornerRadius = 4
+        backgroundView.layer?.cornerRadius = Self.backgroundCornerRadius
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
         CATransaction.commit()
-        nameField.textColor = NSColor.labelColor.withAlphaComponent(0.9)
+        recolorName(.labelColor)
     }
 
     /// Inverse of the press treatment: previewing a different row must peel a
@@ -308,12 +313,28 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         applyModel(model)
     }
 
+    private func recolorName(_ color: NSColor) {
+        let mutable = NSMutableAttributedString(attributedString: nameField.attributedStringValue)
+        mutable.addAttribute(
+            .foregroundColor,
+            value: color,
+            range: NSRange(location: 0, length: mutable.length)
+        )
+        nameField.attributedStringValue = mutable
+    }
+
     private func headerBackgroundColor(for model: SidebarGroupHeaderRowModel) -> NSColor {
         if model.isAnchorActive {
-            return NSColor.labelColor.withAlphaComponent(0.08)
+            let scheme: ColorScheme = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? .dark
+                : .light
+            return sidebarSelectedWorkspaceBackgroundNSColor(for: scheme)
         }
         if model.isMultiSelected {
             return headerMultiSelectionBackgroundColor(for: model)
+        }
+        if isPointerHovering {
+            return NSColor.labelColor.withAlphaComponent(Self.hoverBackgroundOpacity)
         }
         return .clear
     }
@@ -343,10 +364,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         let percent = model.globalFontMagnificationPercent
         let nameFont = NSFont.systemFont(
             ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
-            weight: .semibold
+            weight: .regular
         )
         let nameLineHeight = ceil(nameFont.ascender - nameFont.descender + nameFont.leading)
-        let content = max(metrics.chevronFrame, metrics.iconFrame, metrics.plusFrame, nameLineHeight)
+        let content = max(metrics.chevronFrame, metrics.plusFrame, nameLineHeight)
         return ceil(content + 10)
     }
 
@@ -359,55 +380,76 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
+        let percent = model.globalFontMagnificationPercent
         let outerPad = SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
         let bgFrame = NSRect(x: outerPad, y: 0, width: bounds.width - outerPad * 2, height: bounds.height)
         backgroundView.frame = bgFrame
         let contentMaxX = bgFrame.maxX - SidebarWorkspaceListMetrics.rowContentHorizontalPadding
         let midY = bounds.height / 2
-        var x = bgFrame.minX
+        var x = bgFrame.minX + SidebarWorkspaceListMetrics.rowContentHorizontalPadding
 
         func centered(_ size: CGFloat) -> NSRect {
             NSRect(x: x, y: midY - size / 2, width: size, height: size)
         }
 
         if !pinImageView.isHidden {
-            pinImageView.frame = centered(metrics.iconFrame)
+            pinImageView.frame = centered(metrics.pinFrame)
             x = pinImageView.frame.maxX + 4
         }
         chevronButton.frame = centered(metrics.chevronFrame)
         x = chevronButton.frame.maxX + 4
 
-        let plusSide = metrics.plusFrame
-        plusButton.frame = NSRect(x: contentMaxX - plusSide, y: midY - plusSide / 2, width: plusSide, height: plusSide)
-
-        iconImageView.frame = centered(metrics.iconFrame)
-        x = iconImageView.frame.maxX + 6
-
         var badgeSize = NSSize.zero
         if !unreadBadgeView.isHidden {
-            let textSize = NSString(string: "\(model.anchorUnreadCount)")
-                .size(withAttributes: [.font: unreadBadgeFont])
-            badgeSize = NSSize(
-                width: ceil(textSize.width) + metrics.unreadHorizontalPadding * 2,
-                height: ceil(textSize.height) + metrics.unreadVerticalPadding * 2
+            badgeSize = unreadBadgeView.fittingSize(
+                horizontalPadding: metrics.unreadHorizontalPadding,
+                minimumHeight: GlobalFontMagnification.scaledSize(
+                    14 * model.fontScale,
+                    percent: percent
+                )
             )
         }
 
-        let nameAvailable = max(0, (plusButton.frame.minX - 4) - x
-            - (badgeSize.width > 0 ? badgeSize.width + 6 : 0))
+        let badgeSpacing: CGFloat = 6
+        let badgeOnLeading = !unreadBadgeView.isHidden && model.notificationBadgePosition == .leading
+        let badgeOnTrailing = !unreadBadgeView.isHidden && model.notificationBadgePosition == .trailing
+        var trailingAccessoryMaxX = contentMaxX
+        if badgeOnTrailing {
+            unreadBadgeView.frame = NSRect(
+                x: contentMaxX - badgeSize.width,
+                y: midY - badgeSize.height / 2,
+                width: badgeSize.width,
+                height: badgeSize.height
+            )
+            unreadBadgeView.needsDisplay = true
+            trailingAccessoryMaxX = unreadBadgeView.frame.minX - badgeSpacing
+        }
+
+        let plusSide = metrics.plusFrame
+        plusButton.frame = NSRect(
+            x: trailingAccessoryMaxX - plusSide,
+            y: midY - plusSide / 2,
+            width: plusSide,
+            height: plusSide
+        )
+
+        let accessoryGap: CGFloat = 4
+        let nameAndLeadingBadgeMaxX = plusButton.frame.minX - accessoryGap
         let nameSize = nameField.attributedStringValue.size()
-        // The field owns ALL remaining width (truncation only when genuinely
-        // out of space); the badge tracks the measured text width instead.
+        let nameAvailable = badgeOnLeading
+            ? max(0, nameAndLeadingBadgeMaxX - x - badgeSpacing - badgeSize.width)
+            : max(0, nameAndLeadingBadgeMaxX - x)
+        let nameWidth = badgeOnLeading ? min(nameSize.width, nameAvailable) : nameAvailable
+        // The field owns all space before the fixed trailing accessories.
         nameField.frame = NSRect(
             x: x,
             y: midY - ceil(nameSize.height) / 2,
-            width: nameAvailable,
+            width: nameWidth,
             height: ceil(nameSize.height)
         )
-        if !unreadBadgeView.isHidden {
-            let badgeX = x + min(ceil(nameSize.width), nameAvailable) + 6
+        if badgeOnLeading {
             unreadBadgeView.frame = NSRect(
-                x: badgeX,
+                x: nameField.frame.maxX + badgeSpacing,
                 y: midY - badgeSize.height / 2,
                 width: badgeSize.width,
                 height: badgeSize.height
@@ -428,8 +470,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         )
 
         let pillSize = hintPill.fittingPillSize()
+        let pillMaxX = unreadBadgeView.isHidden
+            ? bounds.width - 10
+            : unreadBadgeView.frame.minX - badgeSpacing
         hintPill.frame = NSRect(
-            x: bounds.width - pillSize.width - 10 + ShortcutHintDebugSettings.clamped(model.shortcutHintXOffset),
+            x: pillMaxX - pillSize.width + ShortcutHintDebugSettings.clamped(model.shortcutHintXOffset),
             y: 6 + ShortcutHintDebugSettings.clamped(model.shortcutHintYOffset),
             width: pillSize.width,
             height: pillSize.height

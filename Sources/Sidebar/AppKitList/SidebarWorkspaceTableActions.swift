@@ -11,6 +11,9 @@ struct SidebarWorkspaceTableReorderDropUpdate {
     let indicator: SidebarDropIndicator?
     let scope: SidebarWorkspaceReorderDropIndicatorScope
     let draggedWorkspaceId: UUID
+    /// Ordered local workspace ids represented by this drag. A group anchor
+    /// expands to its rendered group block in the AppKit presentation layer.
+    let movingWorkspaceIds: [UUID]
     /// Scope-filtered ids for the indicator predicate, in display order.
     let indicatorRowIds: [UUID]
     /// The resolver plan this indicator was painted from. The drop commits
@@ -19,6 +22,22 @@ struct SidebarWorkspaceTableReorderDropUpdate {
     /// the coalesced repaint, so re-resolving could commit a different gap
     /// than the line the user released on.
     let plan: SidebarWorkspaceReorderDropPlan?
+
+    init(
+        indicator: SidebarDropIndicator?,
+        scope: SidebarWorkspaceReorderDropIndicatorScope,
+        draggedWorkspaceId: UUID,
+        movingWorkspaceIds: [UUID]? = nil,
+        indicatorRowIds: [UUID],
+        plan: SidebarWorkspaceReorderDropPlan?
+    ) {
+        self.indicator = indicator
+        self.scope = scope
+        self.draggedWorkspaceId = draggedWorkspaceId
+        self.movingWorkspaceIds = movingWorkspaceIds ?? [draggedWorkspaceId]
+        self.indicatorRowIds = indicatorRowIds
+        self.plan = plan
+    }
 }
 
 /// Closure bundle routing table input and drag operations to existing sidebar actions.

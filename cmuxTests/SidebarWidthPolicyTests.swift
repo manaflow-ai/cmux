@@ -1,6 +1,7 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSettings
 import SwiftUI
 import Testing
 import XCTest
@@ -137,6 +138,54 @@ final class SidebarWidthPolicyTests: XCTestCase {
             276,
             accuracy: 0.001
         )
+    }
+
+    func testSettingsFileStoreAppliesWorkspaceSpacingSetting() throws {
+        let defaults = UserDefaults.standard
+        let key = SidebarCatalogSection().workspaceSpacing.userDefaultsKey
+        let preserved = [
+            key,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ].map { ($0, defaults.object(forKey: $0)) }
+        defer {
+            for (key, value) in preserved {
+                if let value {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+
+        for (key, _) in preserved {
+            defaults.removeObject(forKey: key)
+        }
+
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "sidebar-workspace-spacing-settings-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "sidebar": {
+            "workspaceSpacing": 6
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.object(forKey: key) as? Int, 6)
     }
 
     func testSettingsFileStoreAppliesRightSidebarMaxWidthSetting() throws {
@@ -486,19 +535,19 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
             terminalRenderingMode: .windowHostBackdrop,
             unifySurfaceBackdrops: true,
             sidebarSettings: SidebarBackdropSettingsSnapshot(
-                materialRawValue: SidebarMaterialOption.sidebar.rawValue,
-                blendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
-                stateRawValue: SidebarStateOption.followWindow.rawValue,
-                tintHex: SidebarTintDefaults().hex,
+                materialRawValue: WindowChromeSidebarMaterialOption.sidebar.rawValue,
+                blendModeRawValue: WindowChromeSidebarBlendModeOption.withinWindow.rawValue,
+                stateRawValue: WindowChromeSidebarStateOption.followWindow.rawValue,
+                tintHex: WindowChromeSidebarTintDefaults().hex,
                 tintHexLight: nil,
                 tintHexDark: nil,
-                tintOpacity: SidebarTintDefaults().opacity,
+                tintOpacity: WindowChromeSidebarTintDefaults().opacity,
                 cornerRadius: 0,
                 blurOpacity: 1,
                 colorScheme: .light
             ),
             windowGlassSettings: WindowGlassSettingsSnapshot(
-                sidebarBlendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
+                sidebarBlendModeRawValue: WindowChromeSidebarBlendModeOption.withinWindow.rawValue,
                 isEnabled: false,
                 tintHex: "#000000",
                 tintOpacity: 0,

@@ -2041,7 +2041,7 @@ struct ContentView: View {
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults().hex
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
-    @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.sidebar.rawValue
+    @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.liquidGlass.rawValue
     @AppStorage("sidebarState") private var sidebarStateSetting = SidebarStateOption.followWindow.rawValue
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
@@ -10677,6 +10677,7 @@ struct VerticalTabsSidebar: View, Equatable {
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @LiveSetting(\.sidebar.workspaceSpacing) private var configuredWorkspaceSpacing
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
     @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
@@ -10743,7 +10744,9 @@ struct VerticalTabsSidebar: View, Equatable {
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
     private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
 
-    let tabRowSpacing: CGFloat = 2
+    var tabRowSpacing: CGFloat {
+        CGFloat(SidebarCatalogSection.clampedWorkspaceSpacing(configuredWorkspaceSpacing))
+    }
     private static let extensionSidebarObservationCoalesceInterval: DispatchQueue.SchedulerTimeType.Stride = .milliseconds(40)
     private static let extensionSidebarDisclosureAnimation = Animation.easeInOut(duration: 0.18)
     private var sidebarTitlebarInteractionHeight: CGFloat {
@@ -10974,7 +10977,10 @@ struct VerticalTabsSidebar: View, Equatable {
         isWorkspaceReorderDropTargetCollectionActive = false
         dragState.isSimulated = false
         #if DEBUG
-        AppDelegate.shared?.sidebarDragStateRegistry.unregister(windowId: windowId)
+        AppDelegate.shared?.sidebarDragStateRegistry.unregister(
+            windowId: windowId,
+            dragState: dragState
+        )
         #endif
         SidebarDragLifecycleNotification().postStateDidChange(
             tabId: nil,
@@ -11504,6 +11510,7 @@ struct VerticalTabsSidebar: View, Equatable {
             workspaceIds: isPresented ? renderContext.workspaceIds : tabManager.tabs.map(\.id),
             selectedWorkspaceId: selectedWorkspaceId,
             selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
+            rowSpacing: tabRowSpacing,
             isPresented: isPresented,
             unreadSource: sidebarUnread,
             onDeferredClickAwaitingApply: { appKitTableApplyRequestToken &+= 1 }
@@ -13555,10 +13562,17 @@ struct VerticalTabsSidebar: View, Equatable {
             return nil
         }
         dragAutoScrollController.updateFromDragLocation()
+        let movingWorkspaceIds = SidebarWorkspaceDragBlockResolver().movingWorkspaceIds(
+            orderedWorkspaceIds: tabManager.tabs.map(\.id),
+            selectedIds: selectedTabIds,
+            draggedId: draggedWorkspaceId,
+            anchorIds: Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+        )
         return SidebarWorkspaceTableReorderDropUpdate(
             indicator: plan.indicator,
             scope: plan.indicatorScope,
             draggedWorkspaceId: draggedWorkspaceId,
+            movingWorkspaceIds: movingWorkspaceIds,
             indicatorRowIds: sidebarDropIndicatorRowIds(
                 draggedWorkspaceId: draggedWorkspaceId,
                 scope: plan.indicatorScope,

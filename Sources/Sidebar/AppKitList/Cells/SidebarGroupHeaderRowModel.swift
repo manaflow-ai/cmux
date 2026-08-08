@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import CmuxSettings
 import Foundation
 
 /// Value-snapshot render input for one pure-AppKit sidebar group header row.
@@ -11,8 +12,6 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     let groupId: UUID
     let anchorWorkspaceId: UUID
     let name: String
-    let iconSymbol: String
-    let tintHex: String?
     let isCollapsed: Bool
     let isPinned: Bool
     let isAnchorActive: Bool
@@ -20,6 +19,7 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     let multiSelectionBackgroundStyle: SidebarWorkspaceRowBackgroundStyle
     let memberCount: Int
     var anchorUnreadCount: Int
+    let notificationBadgePosition: SidebarIndicatorPosition
     var canMarkRead: Bool
     var canMarkUnread: Bool
     var hasLatestNotifications: Bool

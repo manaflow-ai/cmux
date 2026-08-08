@@ -11,8 +11,6 @@ struct SidebarWorkspaceGroupRowSnapshot {
     let groupId: UUID
     let anchorWorkspaceId: UUID
     let name: String
-    let iconSymbol: String
-    let tintHex: String?
     let isCollapsed: Bool
     let isPinned: Bool
     let isAnchorActive: Bool

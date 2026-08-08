@@ -118,3 +118,24 @@ private final class FakeWorkspaceDragRegistry: SidebarWorkspaceDragRegistering {
         #expect(registry.currentWorkspaceId == nil)
     }
 }
+
+#if DEBUG
+@MainActor
+@Suite struct SidebarDragStateRegistryTests {
+    @Test func staleUnmountDoesNotRemoveReplacementRegistration() {
+        let registry = SidebarDragStateRegistry()
+        let windowId = UUID()
+        let staleState = SidebarDragState(workspaceDragRegistry: FakeWorkspaceDragRegistry())
+        let replacementState = SidebarDragState(workspaceDragRegistry: FakeWorkspaceDragRegistry())
+
+        registry.register(windowId: windowId, dragState: staleState)
+        registry.register(windowId: windowId, dragState: replacementState)
+        registry.unregister(windowId: windowId, dragState: staleState)
+
+        #expect(registry.state(forWindowId: windowId) === replacementState)
+
+        registry.unregister(windowId: windowId, dragState: replacementState)
+        #expect(registry.state(forWindowId: windowId) == nil)
+    }
+}
+#endif

@@ -31,15 +31,20 @@ struct SidebarVisualEffectBackground: NSViewRepresentable {
     }
 
     static var liquidGlassAvailable: Bool {
-        NSClassFromString("NSGlassEffectView") != nil
+        if #available(macOS 26.0, *) {
+            return true
+        }
+        return false
     }
 
     func makeNSView(context: Context) -> NSView {
-        if preferLiquidGlass, let glassClass = NSClassFromString("NSGlassEffectView") as? NSView.Type {
-            let glass = glassClass.init(frame: .zero)
-            glass.autoresizingMask = [.width, .height]
-            glass.wantsLayer = true
-            return glass
+        if preferLiquidGlass {
+            if #available(macOS 26.0, *) {
+                let glass = NSGlassEffectView(frame: .zero)
+                glass.style = .regular
+                glass.autoresizingMask = [.width, .height]
+                return glass
+            }
         }
 
         let view = NSVisualEffectView()
@@ -51,15 +56,15 @@ struct SidebarVisualEffectBackground: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         let clampedOpacity = max(0.0, min(1.0, opacity))
-        if nsView.className == "NSGlassEffectView" {
-            nsView.alphaValue = clampedOpacity
-            nsView.layer?.cornerRadius = cornerRadius
-            nsView.layer?.masksToBounds = cornerRadius > 0
-
-            let selector = NSSelectorFromString("setTintColor:")
-            if nsView.responds(to: selector) {
-                nsView.perform(selector, with: tintColor)
-            }
+        if #available(macOS 26.0, *), let glass = nsView as? NSGlassEffectView {
+            glass.style = .regular
+            glass.tintColor = tintColor
+            glass.cornerRadius = cornerRadius
+            glass.alphaValue = clampedOpacity
+            // `cornerRadius` is a native glass input. Layer clipping would
+            // flatten the lens and clip its edge illumination.
+            glass.layer?.masksToBounds = false
+            glass.autoresizingMask = [.width, .height]
         } else if let visualEffect = nsView as? NSVisualEffectView {
             visualEffect.material = material
             visualEffect.blendingMode = blendingMode
