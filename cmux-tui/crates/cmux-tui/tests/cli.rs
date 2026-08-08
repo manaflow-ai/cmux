@@ -309,6 +309,12 @@ fn server_lifecycle_help_and_typos_do_not_fall_back_to_startup_help() {
     assert!(leaf_error.contains("Did you mean `stop`?"), "{leaf_error}");
     assert!(!leaf_error.contains("START OPTIONS"), "{leaf_error}");
 
+    let json_typo = lifecycle_cli(&["--json", "server", "stpo"]);
+    assert_eq!(json_typo.status.code(), Some(2));
+    let json_error: serde_json::Value = serde_json::from_slice(&json_typo.stderr).unwrap();
+    assert_eq!(json_error["code"], "usage.invalid");
+    assert!(json_error["message"].as_str().unwrap().contains("Did you mean `stop`?"));
+
     let scope_typo = lifecycle_cli(&["sever", "stop"]);
     assert_eq!(scope_typo.status.code(), Some(2));
     let scope_error = String::from_utf8(scope_typo.stderr).unwrap();
@@ -326,7 +332,15 @@ fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
 
     let nested_connect_help = lifecycle_cli(&["remote", "connect", "--help"]);
     assert_success(&nested_connect_help);
-    assert!(String::from_utf8(nested_connect_help.stdout).unwrap().contains("connect [ROUTE]"));
+    let nested_connect_help = String::from_utf8(nested_connect_help.stdout).unwrap();
+    assert!(nested_connect_help.contains("cmux remote connect [ROUTE]"));
+    assert!(!nested_connect_help.contains("cmux-tui connect"));
+
+    let nested_stop_help = lifecycle_cli(&["remote", "stop", "--help"]);
+    assert_success(&nested_stop_help);
+    let nested_stop_help = String::from_utf8(nested_stop_help.stdout).unwrap();
+    assert!(nested_stop_help.contains("cmux remote stop"));
+    assert!(!nested_stop_help.contains("cmux-tui remote-stop"));
 
     let local_only_option = lifecycle_cli(&[
         "server",
@@ -347,6 +361,67 @@ fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     let error = String::from_utf8(remote_only_option.stderr).unwrap();
     assert!(error.contains("unknown") && error.contains("--socket"), "{error}");
     assert!(!error.contains("not running"), "{error}");
+}
+
+#[cfg(unix)]
+#[test]
+fn explicit_session_overrides_an_inherited_socket_route() {
+    let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let session = format!("explicit-route-{unique}");
+    let socket = cmux_tui_core::server::default_socket_path(&session);
+    fs::create_dir_all(socket.parent().unwrap()).unwrap();
+    let _ = fs::remove_file(&socket);
+    let listener = UnixListener::bind(&socket).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let expected_session = session.clone();
+    let thread = std::thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::WouldBlock
+                        && Instant::now() < deadline =>
+                {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("explicit session route was not used: {error}"),
+            }
+        };
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let mut request = String::new();
+        reader.read_line(&mut request).unwrap();
+        let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+        assert_eq!(request["cmd"], "identify");
+        writeln!(
+            writer,
+            "{}",
+            serde_json::json!({
+                "id":request["id"],
+                "ok":true,
+                "data":{
+                    "app":"cmux-tui",
+                    "session":expected_session,
+                    "pid":4242,
+                    "generation":"generation-a",
+                    "capabilities":[]
+                }
+            })
+        )
+        .unwrap();
+    });
+    let inherited = unique_temp_dir("inherited-wrong-route").join("wrong.sock");
+    let output = Command::new(bin())
+        .args(["--json", "--session", &session, "server", "status"])
+        .env("CMUX_TUI_SOCKET", &inherited)
+        .env_remove("CMUX_MUX_SOCKET")
+        .output()
+        .unwrap();
+    thread.join().unwrap();
+    assert_success(&output);
+    assert_eq!(json_output(&output)["session"], session);
+    fs::remove_file(socket).unwrap();
 }
 
 #[test]
