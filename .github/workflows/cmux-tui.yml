@@ -283,10 +283,6 @@ jobs:
 
       - name: cargo test
         working-directory: cmux-tui
-        env:
-          # Preserve strict local deadlines while allowing oversubscribed CI
-          # runners to prove ordering instead of racing scheduler latency.
-          CMUX_TEST_TIMEOUT_SCALE: "4"
         run: cargo test --workspace --locked
 
       - name: crossterm parser tests

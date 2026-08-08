@@ -1,4 +1,4 @@
-//! Transport-independent machine routing for `cmux.protocol/1`.
+//! Transport-independent machine routing for `cmux.protocol/2`.
 //!
 //! The session mux owns local terminal state. Machine catalogs and providers
 //! live in the outer runtime, so the public router crosses this injected
@@ -437,6 +437,7 @@ pub(crate) fn public_terminal_snapshot(
         .unwrap_or_else(|| (durable_size("cols", 80), durable_size("rows", 24)));
     let mut terminal = json!({
         "id": terminal_id,
+        "tab_id": tab_ids.first(),
         "tab_ids": tab_ids,
         "title": surface.map(crate::Surface::title).unwrap_or_default(),
         "cols": cols.max(1),
@@ -918,7 +919,7 @@ mod tests {
         idempotency_key: Option<&str>,
     ) -> Value {
         let mut request = json!({
-            "protocol":"cmux.protocol/1",
+            "protocol":"cmux.protocol/2",
             "type":"request",
             "id":id,
             "operation":operation,

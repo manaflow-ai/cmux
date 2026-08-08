@@ -25,6 +25,20 @@ public struct CmxIrohBrokerCredentials: Sendable, CustomStringConvertible,
     public var debugDescription: String { description }
 }
 
+private func isUnsupportedRegistrationScope(
+    _ error: CmxIrohTrustBrokerClientError
+) -> Bool {
+    guard case let .rejected(statusCode, code) = error else { return false }
+    return statusCode == 400 && code == "unknown_field"
+}
+
+private func isMissingScopedDiscoveryRoute(
+    _ error: CmxIrohTrustBrokerClientError
+) -> Bool {
+    guard case let .rejected(statusCode, _) = error else { return false }
+    return statusCode == 404
+}
+
 /// One authenticated account and credential pair captured atomically.
 ///
 /// Platform auth coordinators map their native session snapshot into this
@@ -174,10 +188,12 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private struct ConnectivitySyncRequest: Encodable {
         let protocolVersion: Int
         let knownRevision: UInt64?
+        let discoveryScope: CmxConnectivityDiscoveryScope?
 
         private enum CodingKeys: String, CodingKey {
             case protocolVersion = "protocol_version"
             case knownRevision = "known_revision"
+            case discoveryScope = "discovery_scope"
         }
 
         func encode(to encoder: any Encoder) throws {
@@ -186,12 +202,13 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             if let knownRevision {
                 try container.encode(knownRevision, forKey: .knownRevision)
             } else {
-                // The v2 wire contract distinguishes an initial sync (`null`)
+                // The wire contract distinguishes an initial sync (`null`)
                 // from an absent field. Swift's synthesized Optional encoding
                 // omits nil values, which the bounded server parser correctly
                 // rejects as an incomplete request.
                 try container.encodeNil(forKey: .knownRevision)
             }
+            try container.encodeIfPresent(discoveryScope, forKey: .discoveryScope)
         }
     }
 
@@ -252,17 +269,20 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private let transport: any CmxIrohHTTPTransport
     private let requestTimeout: TimeInterval
     private let backpressureGate: CmxIrohBrokerBackpressureGate?
+    private let discoveryScope: CmxConnectivityDiscoveryScope?
 
     /// Creates a client that rejects cleartext non-loopback API origins.
     public init(
         baseURL: URL,
         tokenSource: CmxIrohBrokerTokenSource,
+        discoveryScope: CmxConnectivityDiscoveryScope? = nil,
         requestTimeout: TimeInterval = 10,
         backpressureMode: CmxIrohBrokerBackpressureMode = .automatic
     ) throws {
         try self.init(
             baseURL: baseURL,
             tokenSource: tokenSource,
+            discoveryScope: discoveryScope,
             transport: CmxIrohURLSessionTransport(),
             requestTimeout: requestTimeout,
             backpressureMode: backpressureMode
@@ -273,6 +293,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     init(
         baseURL: URL,
         tokenSource: CmxIrohBrokerTokenSource,
+        discoveryScope: CmxConnectivityDiscoveryScope? = nil,
         transport: any CmxIrohHTTPTransport,
         requestTimeout: TimeInterval = 10,
         backpressureMode: CmxIrohBrokerBackpressureMode = .automatic
@@ -284,6 +305,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         self.tokenSource = tokenSource
         self.transport = transport
         self.requestTimeout = requestTimeout
+        self.discoveryScope = discoveryScope
         switch backpressureMode {
         case .automatic:
             backpressureGate = CmxIrohBrokerBackpressureGate()
@@ -314,12 +336,9 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     public func register(
         _ request: CmxIrohRegisterRequest
     ) async throws -> CmxIrohRegistrationResponse {
-        try await send(
-            path: "api/devices/iroh/register",
-            method: "POST",
-            body: request,
-            operation: .registration
-        )
+        try await withBackpressure(operation: .registration) {
+            try await self.registerUngated(request)
+        }
     }
 
     /// Runs the challenge and signed registration legs without regenerating payload bytes.
@@ -334,33 +353,42 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
                 body: prepared.challengeRequest
             )
             let request = try signer.sign(prepared: prepared, challenge: challenge)
-            return try await self.sendUngated(
-                path: "api/devices/iroh/register",
-                method: "POST",
-                body: request
-            )
+            return try await self.registerUngated(request)
         }
     }
 
     public func discover() async throws -> CmxIrohDiscoveryResponse {
         try await withBackpressure(operation: .discovery) {
-            try await self.discoverAllPages()
+            if self.discoveryScope != nil {
+                do {
+                    let response = try await self.syncConnectivityUngated(
+                        knownRevision: nil
+                    )
+                    if let snapshot = response.snapshot,
+                       response.snapshotIsComplete {
+                        return snapshot
+                    }
+                    if response.protocolVersion
+                        == CmxConnectivitySyncResponse.scopedProtocolVersion {
+                        throw CmxIrohTrustBrokerClientError.invalidResponse
+                    }
+                } catch let error as CmxIrohTrustBrokerClientError
+                    where isMissingScopedDiscoveryRoute(error) {
+                    // Older servers have only paginated global discovery.
+                }
+            }
+            return try await self.discoverAllPages()
         }
     }
 
-    /// Reconciles one completely installed route revision with connectivity v2.
+    /// Reconciles one completely installed route revision with connectivity v3,
+    /// falling back to global connectivity v2 on older servers.
     public func syncConnectivity(
         knownRevision: UInt64?
     ) async throws -> CmxConnectivitySyncResponse {
-        try await send(
-            path: "api/connectivity/v2/sync",
-            method: "POST",
-            body: ConnectivitySyncRequest(
-                protocolVersion: CmxConnectivitySyncResponse.protocolVersion,
-                knownRevision: knownRevision
-            ),
-            operation: .discovery
-        )
+        try await withBackpressure(operation: .discovery) {
+            try await self.syncConnectivityUngated(knownRevision: knownRevision)
+        }
     }
 
     public func issuePairGrant(
@@ -470,6 +498,80 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         guard response.revoked, response.lanRendezvousRotated else {
             throw CmxIrohTrustBrokerClientError.invalidResponse
         }
+    }
+
+    private func registerUngated(
+        _ request: CmxIrohRegisterRequest
+    ) async throws -> CmxIrohRegistrationResponse {
+        guard let discoveryScope else {
+            return try await sendUngated(
+                path: "api/devices/iroh/register",
+                method: "POST",
+                body: request.including(discoveryScope: nil)
+            )
+        }
+        do {
+            let response: CmxIrohRegistrationResponse = try await sendUngated(
+                path: "api/devices/iroh/register",
+                method: "POST",
+                body: request.including(discoveryScope: discoveryScope)
+            )
+            guard response.discovery != nil,
+                  response.discoveryScope == discoveryScope,
+                  response.discoveryScopeComplete == true,
+                  response.discoveryComplete != true else {
+                throw CmxIrohTrustBrokerClientError.invalidResponse
+            }
+            return response
+        } catch let error as CmxIrohTrustBrokerClientError
+            where isUnsupportedRegistrationScope(error) {
+            // Registration parsing happens before challenge consumption, so
+            // retrying the identical signature without the optional field is
+            // safe against older strict servers.
+            return try await sendUngated(
+                path: "api/devices/iroh/register",
+                method: "POST",
+                body: request.including(discoveryScope: nil)
+            )
+        }
+    }
+
+    private func syncConnectivityUngated(
+        knownRevision: UInt64?
+    ) async throws -> CmxConnectivitySyncResponse {
+        if let discoveryScope {
+            do {
+                let response: CmxConnectivitySyncResponse = try await sendUngated(
+                    path: "api/connectivity/v3/sync",
+                    method: "POST",
+                    body: ConnectivitySyncRequest(
+                        protocolVersion: CmxConnectivitySyncResponse.scopedProtocolVersion,
+                        knownRevision: knownRevision,
+                        discoveryScope: discoveryScope
+                    )
+                )
+                guard response.protocolVersion
+                        == CmxConnectivitySyncResponse.scopedProtocolVersion,
+                      response.discoveryScope == discoveryScope,
+                      !response.changed
+                        || response.snapshotScopeComplete == true else {
+                    throw CmxIrohTrustBrokerClientError.invalidResponse
+                }
+                return response
+            } catch let error as CmxIrohTrustBrokerClientError
+                where isMissingScopedDiscoveryRoute(error) {
+                // Continue with connectivity v2 below.
+            }
+        }
+        return try await sendUngated(
+            path: "api/connectivity/v2/sync",
+            method: "POST",
+            body: ConnectivitySyncRequest(
+                protocolVersion: CmxConnectivitySyncResponse.protocolVersion,
+                knownRevision: knownRevision,
+                discoveryScope: nil
+            )
+        )
     }
 
     private func send<Response: Decodable & Sendable, Body: Encodable>(

@@ -155,7 +155,7 @@ cmux::Client client_for(
 std::string response(
     std::string id,
     std::string result = "{}") {
-    return "{\"protocol\":\"cmux.protocol/1\",\"type\":\"response\",\"id\":\"" +
+    return "{\"protocol\":\"cmux.protocol/2\",\"type\":\"response\",\"id\":\"" +
            id + "\",\"ok\":true,\"result\":" + result + "}";
 }
 
@@ -197,7 +197,7 @@ std::string error_response(
     std::string id,
     std::string code,
     std::string details = "{}") {
-    return "{\"protocol\":\"cmux.protocol/1\",\"type\":\"response\",\"id\":\"" +
+    return "{\"protocol\":\"cmux.protocol/2\",\"type\":\"response\",\"id\":\"" +
            id + "\",\"ok\":false,\"error\":{\"code\":\"" + code +
            "\",\"message\":\"test error\",\"details\":" + details +
            ",\"retryable\":false}}";
@@ -595,7 +595,11 @@ TEST("all creation options validate and encode correlation keys") {
 
     cmux::SplitPaneOptions split(cmux::PaneDirection::right);
     split.correlation_key = "create-correlation";
+    split.viewport_width = 0.5;
     check(split.to_params());
+    CHECK_EQ(
+        split.to_params().value().at("viewport_width").as_double().value(),
+        0.5);
 
     cmux::CreateTerminalTabOptions terminal;
     terminal.correlation_key = "create-correlation";
@@ -717,6 +721,36 @@ TEST("mutation sends one stable injected idempotency key without retry") {
         std::string_view("42"));
 }
 
+TEST("workspace creation accepts an expected resource revision") {
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    enqueue(
+        state,
+        response(
+            "cpp-request-1",
+            R"({"value":{"kind":"workspace","workspace_id":"ws_0123456789abcdef0123456789abcdef"},"generation":"g","revision":"1","replayed":false})"));
+    auto key = cmux::MutationOptions::with_key("workspace-create-key");
+    CHECK(key);
+    auto result = client.mutate(
+        cmux::Operation::workspace_create,
+        {{"initial_content", cmux::Json("empty")}},
+        std::move(key).value().expecting(0));
+    CHECK(result);
+
+    std::lock_guard lock(state->mutex);
+    CHECK_EQ(state->outgoing.size(), 1U);
+    auto envelope = cmux::Json::parse(state->outgoing.front());
+    CHECK(envelope);
+    CHECK_EQ(
+        envelope.value().find("operation")->as_string().value(),
+        std::string_view("workspace.create"));
+    const auto* params =
+        envelope.value().find("params")->as_object().value();
+    CHECK_EQ(
+        params->at("expected_revision").as_string().value(),
+        std::string_view("0"));
+}
+
 TEST("default idempotency keys contain independent random 128-bit values") {
     const auto first = cmux::MutationOptions::unique().idempotency_key();
     const auto second = cmux::MutationOptions::unique().idempotency_key();
@@ -730,7 +764,7 @@ TEST("structured protocol errors retain code details and retryability") {
     auto client = client_for(state);
     enqueue(
         state,
-        R"({"protocol":"cmux.protocol/1","type":"response","id":"cpp-request-1","ok":false,"error":{"code":"selector.ambiguous","message":"two matches","details":{"token":"must-not-log","candidates":["ws_0123456789abcdef0123456789abcdef"]},"retryable":false}})");
+        R"({"protocol":"cmux.protocol/2","type":"response","id":"cpp-request-1","ok":false,"error":{"code":"selector.ambiguous","message":"two matches","details":{"token":"must-not-log","candidates":["ws_0123456789abcdef0123456789abcdef"]},"retryable":false}})");
     auto result = client.read(cmux::Operation::workspace_get);
     CHECK(!result);
     CHECK_EQ(
@@ -745,13 +779,13 @@ TEST("structured protocol errors retain code details and retryability") {
     CHECK(!result.error().retryable);
 }
 
-TEST("responses require exact v1 success and error variants") {
+TEST("responses require exact v2 success and error variants") {
     const auto run = [](std::string fields) {
         auto state = std::make_shared<FakeState>();
         auto client = client_for(state);
         enqueue(
             state,
-            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"response\","
+            "{\"protocol\":\"cmux.protocol/2\",\"type\":\"response\","
             "\"id\":\"cpp-request-1\"," +
                 fields + "}");
 
@@ -846,7 +880,7 @@ TEST("indeterminate mutations retain outcome details and never retry") {
     auto client = client_for(state);
     enqueue(
         state,
-        R"({"protocol":"cmux.protocol/1","type":"response","id":"cpp-request-1","ok":false,"error":{"code":"mutation.indeterminate","message":"external effect may have committed","details":{"idempotency_key":"indeterminate-test-key","operation":"workspace.rename","recovery":"inspect_state_then_retry_with_new_key"},"retryable":false}})");
+        R"({"protocol":"cmux.protocol/2","type":"response","id":"cpp-request-1","ok":false,"error":{"code":"mutation.indeterminate","message":"external effect may have committed","details":{"idempotency_key":"indeterminate-test-key","operation":"workspace.rename","recovery":"inspect_state_then_retry_with_new_key"},"retryable":false}})");
     auto key = cmux::MutationOptions::with_key("indeterminate-test-key");
     CHECK(key);
     auto result = client.mutate(
@@ -1938,7 +1972,7 @@ TEST("acknowledged stream has no implicit idle deadline") {
         wait_for_receive_timeouts(stream_state, idle_timeouts);
         enqueue(
             stream_state,
-            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+            "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
             "\"stream_id\":\"" +
                 stream_id +
                 "\",\"sequence\":\"1\",\"cursor\":{"
@@ -2079,7 +2113,7 @@ TEST("failed stream opens close the dedicated transport without cancellation") {
                 params->at("stream_id").as_string().value());
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"response\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"response\","
                 "\"id\":\"" +
                     request_id +
                     "\",\"ok\":true,\"result\":{\"stream_id\":\"" +
@@ -2156,7 +2190,7 @@ TEST("typed streams preserve unknown items and cancel deterministically") {
             std::memory_order_release);
         enqueue(
             stream_state,
-            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+            "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
             "\"stream_id\":\"" +
                 stream_id +
                 "\",\"sequence\":\"1\",\"cursor\":{\"generation\":\"g\","
@@ -2186,7 +2220,7 @@ TEST("typed streams preserve unknown items and cancel deterministically") {
             std::memory_order_release);
         enqueue(
             stream_state,
-            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_end\","
+            "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_end\","
             "\"stream_id\":\"" +
                 stream_id +
                 "\",\"reason\":\"canceled\",\"cursor\":{\"generation\":\"g\","
@@ -2415,7 +2449,7 @@ TEST("stream cancellation rejects malformed response envelopes once") {
                 std::string(cancel.find("id")->as_string().value());
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"response\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"response\","
                 "\"id\":\"" +
                     cancel_id + "\"," + fields + "}");
         });
@@ -2489,7 +2523,7 @@ TEST("stream cancellation validates typed stale items before discard") {
                 std::string(cancel.find("id")->as_string().value());
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
                 "\"stream_id\":\"" +
                     stream_id +
                     "\",\"sequence\":\"0\",\"cursor\":{\"generation\":\"g\","
@@ -2500,7 +2534,7 @@ TEST("stream cancellation validates typed stale items before discard") {
             enqueue(stream_state, response(cancel_id));
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_end\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_end\","
                 "\"stream_id\":\"" +
                     stream_id + "\",\"reason\":\"canceled\"}");
         });
@@ -2559,12 +2593,12 @@ TEST("stream cancellation validates typed stale items before discard") {
                 std::string(cancel.find("id")->as_string().value());
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_end\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_end\","
                 "\"stream_id\":\"" +
                     stream_id + "\",\"reason\":\"canceled\"}");
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
                 "\"stream_id\":\"" +
                     stream_id +
                     "\",\"sequence\":\"0\",\"cursor\":{\"generation\":\"g\","
@@ -2629,12 +2663,12 @@ TEST("stream cancellation validates typed stale items before discard") {
                 std::string(cancel.find("id")->as_string().value());
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_end\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_end\","
                 "\"stream_id\":\"" +
                     stream_id + "\",\"reason\":\"canceled\"}");
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
                 "\"stream_id\":\"" +
                     stream_id +
                     "\",\"sequence\":\"0\",\"cursor\":{\"generation\":\"g\","
@@ -2709,7 +2743,7 @@ TEST("stream cancellation has one total deadline across stale item drip") {
     for (std::uint64_t sequence = 1; sequence <= 20; ++sequence) {
         enqueue(
             stream_state,
-            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+            "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
             "\"stream_id\":\"" +
                 stream_id + "\",\"sequence\":\"" +
                 std::to_string(sequence) +
@@ -2781,7 +2815,7 @@ TEST("stream cancellation rejects wrong or malformed terminal ends once") {
             enqueue(stream_state, response(cancel_id));
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_end\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_end\","
                 "\"stream_id\":\"" +
                     (wrong_stream_id
                          ? "stream_ffffffffffffffffffffffffffffffff"
@@ -2868,7 +2902,7 @@ TEST("stream items require exact canonical envelopes") {
                 stream_open_response(request_id, stream_id));
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"" + type +
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"" + type +
                     "\",\"stream_id\":\"" +
                     (wrong_stream_id
                          ? "stream_ffffffffffffffffffffffffffffffff"
@@ -3114,7 +3148,7 @@ TEST("connection-control overflow closes the stream without a second cleanup") {
         for (std::uint64_t sequence = 1; sequence <= 257; ++sequence) {
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
                 "\"stream_id\":\"" +
                     stream_id + "\",\"sequence\":\"" +
                     std::to_string(sequence) +
@@ -3164,7 +3198,7 @@ TEST("stream open rejects a locally overflowing pre-ack queue") {
         for (std::uint64_t sequence = 1; sequence <= 257; ++sequence) {
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
                 "\"stream_id\":\"" +
                     stream_id + "\",\"sequence\":\"" +
                     std::to_string(sequence) +
@@ -3212,7 +3246,7 @@ TEST("stream open enforces the local buffered byte limit") {
         for (std::uint64_t sequence = 1; sequence <= 3; ++sequence) {
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
                 "\"stream_id\":\"" + stream_id + "\",\"sequence\":\"" +
                     std::to_string(sequence) +
                     "\",\"item\":{\"kind\":\"future\",\"payload\":\"" +
@@ -3257,7 +3291,7 @@ TEST("session stream events discriminate snapshot and delta at compile time") {
             std::string(params->at("stream_id").as_string().value());
         enqueue(
             stream_state,
-            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+            "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
             "\"stream_id\":\"" +
                 stream_id +
                 "\",\"sequence\":\"1\",\"cursor\":{\"generation\":\"g\","
@@ -3267,7 +3301,7 @@ TEST("session stream events discriminate snapshot and delta at compile time") {
                 resource_snapshot(1) + "}}");
         enqueue(
             stream_state,
-            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+            "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
             "\"stream_id\":\"" +
                 stream_id +
                 "\",\"sequence\":\"2\",\"cursor\":{\"generation\":\"g\","
@@ -3277,7 +3311,7 @@ TEST("session stream events discriminate snapshot and delta at compile time") {
                 "\"changes\":[]}}");
         enqueue(
             stream_state,
-            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_end\","
+            "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_end\","
             "\"stream_id\":\"" +
                 stream_id + "\",\"reason\":\"completed\"}");
         enqueue(
@@ -3341,7 +3375,7 @@ TEST("malformed known session events never downgrade to Unknown") {
             std::string(params->at("stream_id").as_string().value());
         enqueue(
             stream_state,
-            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+            "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
             "\"stream_id\":\"" +
                 stream_id +
                 "\",\"sequence\":\"1\",\"cursor\":{\"generation\":\"g\","

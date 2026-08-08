@@ -8,7 +8,7 @@ use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -40,7 +40,7 @@ use super::CLEAR_HISTORY_UNSUPPORTED_ERROR;
 use super::tree::parse_tree;
 use super::tree::{TreeCapabilities, TreeView, parse_tree_with_capabilities};
 
-const SUPPORTED_PROTOCOL_VERSION: u64 = 10;
+const SUPPORTED_PROTOCOL_VERSION: u64 = 11;
 const SURFACE_OVERFLOW_RETRY_DELAYS: [Duration; 3] =
     [Duration::from_millis(250), Duration::from_millis(500), Duration::from_secs(1)];
 const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
@@ -909,6 +909,59 @@ enum RequestDeadline {
     Fixed(Duration),
 }
 
+struct AttachResponseDeadline {
+    idle_timeout: Duration,
+    idle_deadline: Instant,
+    maximum_deadline: Instant,
+    observed_request_progress: u64,
+    observed_attach_progress: u64,
+}
+
+impl AttachResponseDeadline {
+    fn new(
+        started: Instant,
+        request_progress: u64,
+        attach_progress: u64,
+        idle_timeout: Duration,
+        maximum_timeout: Duration,
+    ) -> Self {
+        Self {
+            idle_timeout,
+            idle_deadline: started + idle_timeout,
+            maximum_deadline: started + maximum_timeout,
+            observed_request_progress: request_progress,
+            observed_attach_progress: attach_progress,
+        }
+    }
+
+    fn next_wait(
+        &mut self,
+        now: Instant,
+        request_progress: u64,
+        attach_progress: u64,
+    ) -> Option<Duration> {
+        if now >= self.maximum_deadline {
+            return None;
+        }
+        let progressed = if request_progress != self.observed_request_progress {
+            self.observed_request_progress = request_progress;
+            true
+        } else if self.observed_request_progress == 0
+            && attach_progress != self.observed_attach_progress
+        {
+            self.observed_attach_progress = attach_progress;
+            true
+        } else {
+            false
+        };
+        if progressed {
+            self.idle_deadline = now + self.idle_timeout;
+        }
+        let next_deadline = self.idle_deadline.min(self.maximum_deadline);
+        (now < next_deadline).then(|| next_deadline.saturating_duration_since(now))
+    }
+}
+
 struct PendingRemoteRequest {
     response: Sender<Value>,
     progress: Arc<AtomicU64>,
@@ -1357,6 +1410,12 @@ impl RemoteFrameLogs {
     }
 }
 
+#[derive(Default)]
+struct ExitedSurfaceState {
+    ids: HashSet<SurfaceId>,
+    handles: HashMap<SurfaceId, Weak<RemoteSurface>>,
+}
+
 pub struct RemoteSession {
     interactive_writer: InteractiveWriter,
     pending: Mutex<HashMap<u64, PendingRemoteRequest>>,
@@ -1364,6 +1423,7 @@ pub struct RemoteSession {
     attach_progress: AtomicU64,
     shutdown: AtomicBool,
     surfaces: Mutex<HashMap<SurfaceId, Arc<RemoteSurface>>>,
+    exited_surfaces: Mutex<ExitedSurfaceState>,
     surface_leases: Mutex<HashMap<SurfaceId, String>>,
     retired_surfaces: Mutex<HashSet<SurfaceId>>,
     tree: Mutex<RemoteTreeCache>,
@@ -1699,6 +1759,7 @@ impl RemoteSession {
             attach_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
             surfaces: Mutex::new(HashMap::new()),
+            exited_surfaces: Mutex::new(ExitedSurfaceState::default()),
             surface_leases: Mutex::new(HashMap::new()),
             retired_surfaces: Mutex::new(HashSet::new()),
             tree: Mutex::new(RemoteTreeCache::default()),
@@ -2165,7 +2226,10 @@ impl RemoteSession {
             }
             Some("surface-exited") => {
                 if let Some(id) = surface_id() {
-                    self.surface_overflow_recovery.lock().unwrap().remove(&id);
+                    // Retire the mirror immediately. The authoritative tree
+                    // refresh may lag this event, but input and reattach must
+                    // already fail closed for a known-exited surface.
+                    self.drop_surface(id);
                     self.tree_stale.store(true, Ordering::Release);
                     self.emit(MuxEvent::SurfaceExited(id));
                 }
@@ -2493,17 +2557,23 @@ impl RemoteSession {
         }
 
         let started = Instant::now();
-        let maximum_deadline = started + REMOTE_ATTACH_MAX_TIMEOUT;
-        let mut idle_deadline = started + REMOTE_ATTACH_IDLE_TIMEOUT;
-        let mut observed_progress = progress.load(Ordering::Acquire);
-        let mut observed_attach_progress = attach_progress;
+        let mut deadline = AttachResponseDeadline::new(
+            started,
+            progress.load(Ordering::Acquire),
+            attach_progress.expect("attach response wait requires an attach progress epoch"),
+            REMOTE_ATTACH_IDLE_TIMEOUT,
+            REMOTE_ATTACH_MAX_TIMEOUT,
+        );
         loop {
+            let request_progress = progress.load(Ordering::Acquire);
+            let attach_progress = self.attach_progress.load(Ordering::Acquire);
+            // Capture the deadline origin after the progress snapshots so scheduler
+            // preemption cannot consume a newly granted idle window.
             let now = Instant::now();
-            if now >= maximum_deadline {
+            let Some(wait) = deadline.next_wait(now, request_progress, attach_progress) else {
                 return Err(RemoteRequestError::Timeout);
-            }
-            let next_deadline = idle_deadline.min(maximum_deadline);
-            match rx.recv_timeout(next_deadline.saturating_duration_since(now)) {
+            };
+            match rx.recv_timeout(wait) {
                 Ok(response) => return Ok(response),
                 Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
                     return Err(RemoteRequestError::Shutdown);
@@ -2513,25 +2583,6 @@ impl RemoteSession {
             }
             if self.shutdown.load(Ordering::Acquire) {
                 return Err(RemoteRequestError::Shutdown);
-            }
-            let current_progress = progress.load(Ordering::Acquire);
-            if current_progress != observed_progress {
-                observed_progress = current_progress;
-                idle_deadline = Instant::now() + REMOTE_ATTACH_IDLE_TIMEOUT;
-                continue;
-            }
-            if observed_progress == 0
-                && let Some(observed) = observed_attach_progress.as_mut()
-            {
-                let current = self.attach_progress.load(Ordering::Acquire);
-                if current != *observed {
-                    *observed = current;
-                    idle_deadline = Instant::now() + REMOTE_ATTACH_IDLE_TIMEOUT;
-                    continue;
-                }
-            }
-            if Instant::now() >= idle_deadline {
-                return Err(RemoteRequestError::Timeout);
             }
         }
     }
@@ -3141,9 +3192,22 @@ impl RemoteSession {
     pub fn retire_surface(&self, id: SurfaceId) {
         let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
         self.retired_surfaces.lock().unwrap().insert(id);
-        self.surfaces.lock().unwrap().remove(&id);
+        let surface = self.surfaces.lock().unwrap().remove(&id);
+        let mut exited = self.exited_surfaces.lock().unwrap();
+        exited.ids.insert(id);
+        if let Some(surface) = surface {
+            exited.handles.insert(id, Arc::downgrade(&surface));
+        }
         self.surface_leases.lock().unwrap().remove(&id);
         self.surface_overflow_recovery.lock().unwrap().remove(&id);
+    }
+
+    pub fn drop_surface(&self, id: SurfaceId) {
+        self.retire_surface(id);
+    }
+
+    pub fn surface_is_exited(&self, id: SurfaceId) -> bool {
+        self.exited_surfaces.lock().unwrap().ids.contains(&id)
     }
 
     pub fn surface_kind(&self, id: SurfaceId) -> SurfaceKind {
@@ -3199,6 +3263,7 @@ impl RemoteSession {
             .lock()
             .unwrap()
             .retain(|surface_id| live_surface_ids.contains(surface_id));
+        self.prune_exited_surfaces(&live_surface_ids);
         self.surface_overflow_recovery
             .lock()
             .unwrap()
@@ -3213,6 +3278,20 @@ impl RemoteSession {
             surface.update_browser_source(browser_source_from_tree(&tree, id));
         }
         Ok(tree)
+    }
+
+    fn prune_exited_surfaces(&self, live_surface_ids: &HashSet<SurfaceId>) {
+        let mut exited = self.exited_surfaces.lock().unwrap();
+        let retained_handles = exited
+            .handles
+            .iter()
+            .filter_map(|(&id, surface)| (surface.strong_count() > 0).then_some(id))
+            .collect::<HashSet<_>>();
+        exited.ids.retain(|id| live_surface_ids.contains(id) || retained_handles.contains(id));
+        let retained_ids = exited.ids.clone();
+        exited
+            .handles
+            .retain(|id, surface| retained_ids.contains(id) && surface.strong_count() > 0);
     }
 
     pub fn invalidate_tree(&self) {
@@ -3561,6 +3640,7 @@ fn test_session_with_writer(
         attach_progress: AtomicU64::new(0),
         shutdown: AtomicBool::new(false),
         surfaces: Mutex::new(HashMap::new()),
+        exited_surfaces: Mutex::new(ExitedSurfaceState::default()),
         surface_leases: Mutex::new(HashMap::new()),
         retired_surfaces: Mutex::new(HashSet::new()),
         tree: Mutex::new(RemoteTreeCache::default()),
@@ -3585,7 +3665,7 @@ fn test_session_with_writer(
 
 #[cfg(test)]
 struct DeferredAttachTestWriter {
-    session: Arc<Mutex<Option<std::sync::Weak<RemoteSession>>>>,
+    session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
     attach_started: std::sync::mpsc::SyncSender<()>,
     release_attach: Option<Receiver<()>>,
     first_resize_failure: Option<(std::sync::mpsc::SyncSender<()>, Receiver<()>)>,
@@ -3679,7 +3759,7 @@ pub(super) fn test_session_with_deferred_attach() -> (Arc<RemoteSession>, Receiv
 #[cfg(test)]
 pub(super) fn test_session_with_missing_surface_attach(surface: SurfaceId) -> Arc<RemoteSession> {
     struct MissingSurfaceAttachWriter {
-        session: Arc<Mutex<Option<std::sync::Weak<RemoteSession>>>>,
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
         surface: SurfaceId,
     }
 
@@ -3694,7 +3774,7 @@ pub(super) fn test_session_with_missing_surface_attach(surface: SurfaceId) -> Ar
                 .lock()
                 .unwrap()
                 .as_ref()
-                .and_then(std::sync::Weak::upgrade)
+                .and_then(Weak::upgrade)
                 .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
             let response = session
                 .pending
@@ -3947,7 +4027,7 @@ pub(super) fn test_session_with_blocked_attach_transport_failure(
     struct BlockedAttachFailureWriter {
         reached: Arc<std::sync::Barrier>,
         release: Arc<std::sync::Barrier>,
-        session: Arc<Mutex<Option<std::sync::Weak<RemoteSession>>>>,
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
     }
 
     impl RemoteMessageWriter for BlockedAttachFailureWriter {
@@ -3964,7 +4044,7 @@ pub(super) fn test_session_with_blocked_attach_transport_failure(
                 .lock()
                 .unwrap()
                 .as_ref()
-                .and_then(std::sync::Weak::upgrade)
+                .and_then(Weak::upgrade)
                 .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
             let response = session
                 .pending
@@ -4018,8 +4098,8 @@ mod tests {
     }
 
     #[test]
-    fn protocol_10_identity_without_browser_capability_keeps_pty_sessions_compatible() {
-        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 10})).unwrap();
+    fn protocol_11_identity_without_browser_capability_keeps_pty_sessions_compatible() {
+        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 11})).unwrap();
     }
 
     #[test]
@@ -4036,24 +4116,24 @@ mod tests {
 
     #[test]
     fn per_surface_client_sizing_requires_protocol_10() {
-        assert_eq!(SUPPORTED_PROTOCOL_VERSION, 10);
+        assert!(SUPPORTED_PROTOCOL_VERSION >= 10);
     }
 
     #[test]
-    fn protocol_9_identity_is_rejected_before_workspace_loading() {
+    fn protocol_10_identity_is_rejected_before_workspace_loading() {
         let error =
-            validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 9})).unwrap_err();
+            validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 10})).unwrap_err();
         assert_eq!(
             error.to_string(),
-            "unsupported cmux-tui protocol 9; this client requires protocol 10; restart the cmux-tui server"
+            "unsupported cmux-tui protocol 10; this client requires protocol 11; restart the cmux-tui server"
         );
     }
 
     #[test]
-    fn protocol_10_identity_with_guarded_pointer_capability_is_accepted() {
+    fn protocol_11_identity_with_guarded_pointer_capability_is_accepted() {
         validate_remote_identity(&json!({
             "app": "cmux-tui",
-            "protocol": 10,
+            "protocol": 11,
             "capabilities": ["browser-pointer-frame-guard-v1"],
         }))
         .unwrap();
@@ -4087,8 +4167,8 @@ mod tests {
     }
 
     #[test]
-    fn protocol_10_identity_is_accepted() {
-        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 10})).unwrap();
+    fn protocol_11_identity_is_accepted() {
+        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 11})).unwrap();
     }
 
     #[test]
@@ -4571,6 +4651,7 @@ mod tests {
             attach_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
             surfaces: Mutex::new(HashMap::new()),
+            exited_surfaces: Mutex::new(ExitedSurfaceState::default()),
             surface_leases: Mutex::new(HashMap::new()),
             retired_surfaces: Mutex::new(HashSet::new()),
             tree: Mutex::new(RemoteTreeCache::default()),
@@ -5452,12 +5533,71 @@ mod tests {
         peer.join().unwrap();
     }
 
+    #[test]
+    fn attach_deadline_expires_without_progress() {
+        let started = Instant::now();
+        let idle = Duration::from_millis(10);
+        let mut deadline =
+            AttachResponseDeadline::new(started, 0, 3, idle, Duration::from_millis(100));
+
+        assert_eq!(deadline.next_wait(started, 0, 3), Some(idle));
+        assert_eq!(
+            deadline.next_wait(started + Duration::from_millis(9), 0, 3),
+            Some(Duration::from_millis(1))
+        );
+        assert_eq!(deadline.next_wait(started + idle, 0, 3), None);
+    }
+
+    #[test]
+    fn attach_deadline_extends_from_own_request_progress() {
+        let started = Instant::now();
+        let idle = Duration::from_millis(10);
+        let mut deadline =
+            AttachResponseDeadline::new(started, 0, 3, idle, Duration::from_millis(100));
+
+        assert_eq!(deadline.next_wait(started + Duration::from_millis(8), 1, 3), Some(idle));
+        assert_eq!(
+            deadline.next_wait(started + Duration::from_millis(10), 1, 3),
+            Some(Duration::from_millis(8))
+        );
+        assert_eq!(deadline.next_wait(started + Duration::from_millis(18), 1, 3), None);
+    }
+
+    #[test]
+    fn queued_attach_deadline_extends_from_connection_progress_until_own_progress() {
+        let started = Instant::now();
+        let idle = Duration::from_millis(10);
+        let mut deadline =
+            AttachResponseDeadline::new(started, 0, 3, idle, Duration::from_millis(100));
+
+        assert_eq!(deadline.next_wait(started + idle, 0, 4), Some(idle));
+        assert_eq!(deadline.next_wait(started + Duration::from_millis(20), 1, 5), Some(idle));
+        assert_eq!(deadline.next_wait(started + Duration::from_millis(30), 1, 6), None);
+    }
+
+    #[test]
+    fn attach_deadline_hard_maximum_wins_over_progress() {
+        let started = Instant::now();
+        let idle = Duration::from_millis(10);
+        let maximum = Duration::from_millis(25);
+        let mut deadline = AttachResponseDeadline::new(started, 0, 3, idle, maximum);
+
+        assert_eq!(deadline.next_wait(started + Duration::from_millis(9), 1, 3), Some(idle));
+        assert_eq!(
+            deadline.next_wait(started + Duration::from_millis(18), 2, 3),
+            Some(Duration::from_millis(7))
+        );
+        assert_eq!(deadline.next_wait(started + maximum, 3, 3), None);
+    }
+
     #[cfg(unix)]
     #[test]
-    fn queued_attach_waits_while_an_earlier_snapshot_is_progressing() {
+    fn queued_attach_preserves_two_request_wire_order() {
         let (client, server) = UnixStream::pair().unwrap();
         let (first_seen_tx, first_seen_rx) = channel();
-        let (release_tx, release_rx) = channel();
+        let (both_pending_tx, both_pending_rx) = channel();
+        let (release_responses_tx, release_responses_rx) = channel();
+        let (release_peer_tx, release_peer_rx) = channel();
         let peer = std::thread::spawn(move || {
             let mut peer = BufReader::new(server);
             for expected_command in ["identify", "set-client-info", "subscribe"] {
@@ -5482,39 +5622,38 @@ mod tests {
             peer.read_line(&mut first_line).unwrap();
             let first: Value = serde_json::from_str(&first_line).unwrap();
             assert_eq!(first["cmd"], "attach-surface");
+            assert_eq!(first["surface"], 7);
             first_seen_tx.send(()).unwrap();
 
             let mut second_line = String::new();
             peer.read_line(&mut second_line).unwrap();
             let second: Value = serde_json::from_str(&second_line).unwrap();
             assert_eq!(second["cmd"], "attach-surface");
+            assert_eq!(second["surface"], 8);
+            both_pending_tx.send(()).unwrap();
+            release_responses_rx.recv().unwrap();
 
-            let first_surface = first["surface"].as_u64().unwrap();
-            let event = format!(
-                "{{\"event\":\"vt-state\",\"surface\":{first_surface},\"cols\":80,\"rows\":24,\"data\":\"\",\"padding\":\"{}\"}}",
-                "x".repeat(768)
-            );
-            let splits = [64, 256, 512, event.len()];
-            let mut copied = 0;
-            for (index, end) in splits.into_iter().enumerate() {
-                peer.get_mut().write_all(&event.as_bytes()[copied..end]).unwrap();
-                peer.get_mut().flush().unwrap();
-                copied = end;
-                if index + 1 < splits.len() {
-                    std::thread::sleep(REMOTE_ATTACH_IDLE_TIMEOUT * 3 / 4);
-                }
-            }
-            peer.get_mut().write_all(b"\n").unwrap();
-            writeln!(peer.get_mut(), "{}", json!({"id": first["id"], "ok": true, "data": null}))
-                .unwrap();
-
-            let second_surface = second["surface"].as_u64().unwrap();
             writeln!(
                 peer.get_mut(),
                 "{}",
                 json!({
                     "event": "vt-state",
-                    "surface": second_surface,
+                    "surface": 7,
+                    "cols": 80,
+                    "rows": 24,
+                    "data": "",
+                })
+            )
+            .unwrap();
+            writeln!(peer.get_mut(), "{}", json!({"id": first["id"], "ok": true, "data": null}))
+                .unwrap();
+
+            writeln!(
+                peer.get_mut(),
+                "{}",
+                json!({
+                    "event": "vt-state",
+                    "surface": 8,
                     "cols": 80,
                     "rows": 24,
                     "data": "",
@@ -5523,7 +5662,7 @@ mod tests {
             .unwrap();
             writeln!(peer.get_mut(), "{}", json!({"id": second["id"], "ok": true, "data": null}))
                 .unwrap();
-            release_rx.recv().unwrap();
+            release_peer_rx.recv().unwrap();
         });
         let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
 
@@ -5537,10 +5676,30 @@ mod tests {
             second_session.try_ensure_surface_with_kind(8, SurfaceKind::Pty, None)
         });
 
+        both_pending_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let attach_progress = session.attach_progress.load(Ordering::Acquire);
+        session
+            .report_read_progress(br#"{"event":"vt-state","surface":7,"cols":80,"data":"partial"#);
+        assert_eq!(session.attach_progress.load(Ordering::Acquire), attach_progress + 1);
+        {
+            let pending = session.pending.lock().unwrap();
+            assert_eq!(pending.len(), 2);
+            let progress_for = |surface| {
+                pending
+                    .values()
+                    .find(|request| request.attach_surface == Some(surface))
+                    .unwrap()
+                    .progress
+                    .load(Ordering::Acquire)
+            };
+            assert_eq!(progress_for(7), 1);
+            assert_eq!(progress_for(8), 0);
+        }
+        release_responses_tx.send(()).unwrap();
         assert!(matches!(first.join().unwrap().unwrap(), RemoteSurfaceAttach::Attached(_)));
         assert!(matches!(second.join().unwrap().unwrap(), RemoteSurfaceAttach::Attached(_)));
         assert!(!session.shutdown.load(Ordering::Acquire));
-        release_tx.send(()).unwrap();
+        release_peer_tx.send(()).unwrap();
         peer.join().unwrap();
     }
 
@@ -5601,6 +5760,42 @@ mod tests {
         assert_eq!(release["cmd"], "detach-attached-view");
         assert_eq!(release["surface"], 7);
         assert_eq!(release["lease"], "test-view-lease");
+    }
+
+    #[test]
+    fn surface_exit_during_attach_retires_the_exact_mirror_before_return() {
+        let (session, attach_started_rx, release_attach_tx) = test_session_with_deferred_attach();
+        let attaching = session.clone();
+        let worker = std::thread::spawn(move || {
+            attaching.try_ensure_surface_with_kind(7, SurfaceKind::Pty, Some((80, 24)))
+        });
+        attach_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let mirror = session.surface(7).expect("attach did not stage its local mirror");
+
+        session.drop_surface(7);
+        release_attach_tx.send(()).unwrap();
+
+        assert!(matches!(worker.join().unwrap().unwrap(), RemoteSurfaceAttach::Retired));
+        assert!(!session.has_surface(7));
+        assert!(session.surface_is_exited(7));
+        assert!(crate::session::SurfaceHandle::Remote(mirror, session).is_dead());
+    }
+
+    #[test]
+    fn exited_marker_outlives_every_cached_remote_surface_handle() {
+        let session = super::test_session_with_provider_context(None, HashSet::new());
+        let surface = test_remote_surface(7);
+        session.surfaces.lock().unwrap().insert(7, surface.clone());
+        let handle = crate::session::SurfaceHandle::Remote(surface.clone(), session.clone());
+
+        session.drop_surface(7);
+        session.prune_exited_surfaces(&HashSet::new());
+
+        assert!(handle.is_dead());
+        drop(handle);
+        drop(surface);
+        session.prune_exited_surfaces(&HashSet::new());
+        assert!(!session.surface_is_exited(7));
     }
 
     #[cfg(unix)]
@@ -7736,6 +7931,25 @@ mod tests {
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         })
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn surface_exit_event_retires_the_mirror_before_tree_refresh() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+        session.surfaces.lock().unwrap().insert(7, test_remote_surface(7));
+
+        session.handle_line(json!({"event": "surface-exited", "surface": 7}));
+
+        assert!(!session.has_surface(7));
+        assert!(session.surface_is_exited(7));
+        assert!(session.tree_is_stale());
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::SurfaceExited(7))
+        ));
     }
 
     #[cfg(unix)]

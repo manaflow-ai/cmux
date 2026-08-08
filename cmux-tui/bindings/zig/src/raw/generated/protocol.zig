@@ -6,8 +6,8 @@ const wire = @import("../wire.zig");
 const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
-pub const mux_protocol: u16 = 10;
-pub const ir_sha256 = "24a8c46845f5755a0bd2c5257e8fad00f794271d032470af0e9c2614bc7eb8c1";
+pub const mux_protocol: u16 = 11;
+pub const ir_sha256 = "f43de75719bc1ec1e6a94c405a1f802a073eb93dfcb10ff6a3b68460bcb4499c";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -110,6 +110,51 @@ pub const BrowserFrame = struct {
     height: u32,
     seq: u64,
     width: u32,
+};
+
+pub const BrowserProviderAuthentication = enum {
+    none,
+    bearer,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "none")) return .none;
+        if (std.mem.eql(u8, value, "bearer")) return .bearer;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .none => "none",
+            .bearer => "bearer",
+        };
+    }
+};
+
+pub const BrowserProviderSnapshot = struct {
+    authentication: ?BrowserProviderAuthentication = null,
+    available: bool,
+    bearer_token: wire.Field([]const u8) = .absent,
+    clients: ?u64 = null,
+    endpoint: ?[]const u8 = null,
+    provider_id: ?[]const u8 = null,
+    revision: u64,
+    targets: []const BrowserProviderTarget,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "authentication",
+        "clients",
+        "endpoint",
+        "provider_id",
+    };
+};
+
+pub const BrowserProviderTarget = struct {
+    tab_id: []const u8,
+    target_id: []const u8,
+};
+
+pub const BrowserProviderUnregisterResult = struct {
+    removed: bool,
 };
 
 pub const CellPixelFailure = struct {
@@ -595,6 +640,7 @@ pub const LivePane = struct {
 pub const MintTerminalRendererResult = struct {
     endpoint: []const u8,
     incarnation: []const u8,
+    protocol_version: u16,
     rights: u32,
     terminal_id: []const u8,
     token: []const u8,
@@ -877,7 +923,7 @@ pub const ResizeSurfaceResult = struct {
 };
 
 pub const ResolveTerminalResult = struct {
-    exit: wire.Nullable(JsonValue),
+    exit: wire.Nullable(TerminalExit),
     generation: []const u8,
     launch_spec: JsonValue,
     lifecycle: TerminalLifecycle,
@@ -909,12 +955,16 @@ pub const ResourceSelectors = struct {
 };
 
 pub const RunResult = struct {
-    pane: Id,
-    screen: Id,
-    surface: Id,
-    terminal_id: wire.Nullable([]const u8),
+    already_exited: bool,
+    exit: wire.Nullable(TerminalExit),
+    lifecycle: TerminalLifecycle,
+    pane: wire.Nullable(Id),
+    screen: wire.Nullable(Id),
+    surface: wire.Nullable(Id),
+    terminal_id: []const u8,
     terminal_incarnation: wire.Nullable([]const u8),
-    workspace: Id,
+    terminal_revision: u64,
+    workspace: wire.Nullable(Id),
 };
 
 pub const Screen = struct {
@@ -1079,6 +1129,54 @@ pub const TerminalEventsResult = struct {
     generation: []const u8,
     registry_id: []const u8,
     terminal_revision: u64,
+};
+
+pub const TerminalExit = struct {
+    exited_at_ms: u64,
+    outcome: TerminalExitOutcome,
+};
+
+pub const TerminalExitOutcomeExit = struct {
+    code: i32,
+};
+
+pub const TerminalExitOutcomeSignal = struct {
+    core_dumped: bool,
+    signal: i32,
+};
+
+pub const TerminalExitOutcomeUnknown = struct {
+    reason: []const u8,
+};
+
+pub const TerminalExitOutcome = union(enum) {
+    exit: TerminalExitOutcomeExit,
+    signal: TerminalExitOutcomeSignal,
+    unknown: TerminalExitOutcomeUnknown,
+
+    pub const cmux_wire_custom_union = true;
+
+    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
+        return switch (self) {
+            .exit => |payload| try wire.encodeTagged(allocator, "kind", "exit", payload),
+            .signal => |payload| try wire.encodeTagged(allocator, "kind", "signal", payload),
+            .unknown => |payload| try wire.encodeTagged(allocator, "kind", "unknown", payload),
+        };
+    }
+
+    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
+        const tag_value = try wire.objectString(value, "kind");
+        if (std.mem.eql(u8, tag_value, "exit")) {
+            return .{ .exit = try wire.decodeLeaky(TerminalExitOutcomeExit, allocator, value) };
+        }
+        if (std.mem.eql(u8, tag_value, "signal")) {
+            return .{ .signal = try wire.decodeLeaky(TerminalExitOutcomeSignal, allocator, value) };
+        }
+        if (std.mem.eql(u8, tag_value, "unknown")) {
+            return .{ .unknown = try wire.decodeLeaky(TerminalExitOutcomeUnknown, allocator, value) };
+        }
+        return error.UnknownUnionVariant;
+    }
 };
 
 pub const TerminalKey = enum {
@@ -1507,22 +1605,24 @@ pub const TerminalModifiers = struct {
 };
 
 pub const TerminalPlacement = struct {
+    already_exited: bool,
+    exit: wire.Nullable(TerminalExit),
     generation: []const u8,
     key: []const u8,
-    lifecycle: wire.Nullable([]const u8),
-    pane: Id,
+    lifecycle: TerminalLifecycle,
+    pane: wire.Nullable(Id),
     registry_id: []const u8,
     replayed: bool,
-    screen: Id,
-    surface: Id,
-    terminal_id: wire.Nullable([]const u8),
+    screen: wire.Nullable(Id),
+    surface: wire.Nullable(Id),
+    terminal_id: []const u8,
     terminal_incarnation: wire.Nullable([]const u8),
     terminal_revision: u64,
-    workspace: Id,
+    workspace: wire.Nullable(Id),
 };
 
 pub const TerminalRecord = struct {
-    exit: wire.Nullable(JsonValue),
+    exit: wire.Nullable(TerminalExit),
     launch_spec: JsonValue,
     lifecycle: TerminalLifecycle,
     terminal_id: []const u8,
@@ -2253,6 +2353,7 @@ pub const CreateSurfaceWithReceiptRequest = struct {
     argv: wire.Field([]const []const u8) = .absent,
     cols: wire.Field(u16) = .absent,
     cwd: wire.Field([]const u8) = .absent,
+    idempotency_key: wire.Field([]const u8) = .absent,
     operation: []const u8,
     origin: []const u8,
     pane: wire.Field(Id) = .absent,
@@ -2279,6 +2380,9 @@ pub fn createSurfaceWithReceipt(client: anytype, request: CreateSurfaceWithRecei
             .authority = "control",
             .since = 10,
             .capability = "creation-receipts-v1",
+            .fields = &.{
+                .{ .name = "idempotency_key", .since = null, .capability = "creation-attempt-keys-v1" },
+            },
         },
         request,
     );
@@ -2430,6 +2534,23 @@ pub fn focusPane(client: anytype, request: FocusPaneRequest) !wire.Decoded(Focus
             .authority = "control",
             .since = 5,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const GetBrowserProviderRequest = struct {};
+
+pub const GetBrowserProviderResult = BrowserProviderSnapshot;
+
+pub fn getBrowserProvider(client: anytype, request: GetBrowserProviderRequest) !wire.Decoded(GetBrowserProviderResult) {
+    return client.callTyped(
+        GetBrowserProviderResult,
+        .{
+            .name = "get-browser-provider",
+            .authority = "local-admin",
+            .since = 10,
+            .capability = "browser-provider-v1",
         },
         request,
     );
@@ -2650,6 +2771,30 @@ pub fn mintTerminalRenderer(client: anytype, request: MintTerminalRendererReques
             .name = "mint-terminal-renderer",
             .authority = "frontend",
             .since = 9,
+            .capability = null,
+        },
+        request,
+    );
+}
+
+pub const MintTerminalRendererByTerminalRequest = struct {
+    terminal: []const u8,
+    ttl_ms: ?u64 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "ttl_ms",
+    };
+};
+
+pub const MintTerminalRendererByTerminalResult = MintTerminalRendererResult;
+
+pub fn mintTerminalRendererByTerminal(client: anytype, request: MintTerminalRendererByTerminalRequest) !wire.Decoded(MintTerminalRendererByTerminalResult) {
+    return client.callTyped(
+        MintTerminalRendererByTerminalResult,
+        .{
+            .name = "mint-terminal-renderer-by-terminal",
+            .authority = "frontend",
+            .since = 11,
             .capability = null,
         },
         request,
@@ -3012,6 +3157,29 @@ pub fn readScrollback(client: anytype, request: ReadScrollbackRequest) !wire.Dec
             .authority = "control",
             .since = 7,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const RegisterBrowserProviderRequest = struct {
+    authentication: BrowserProviderAuthentication,
+    bearer_token: wire.Field([]const u8) = .absent,
+    endpoint: []const u8,
+    provider_id: []const u8,
+    targets: []const BrowserProviderTarget,
+};
+
+pub const RegisterBrowserProviderResult = BrowserProviderSnapshot;
+
+pub fn registerBrowserProvider(client: anytype, request: RegisterBrowserProviderRequest) !wire.Decoded(RegisterBrowserProviderResult) {
+    return client.callTyped(
+        RegisterBrowserProviderResult,
+        .{
+            .name = "register-browser-provider",
+            .authority = "local-admin",
+            .since = 10,
+            .capability = "browser-provider-v1",
         },
         request,
     );
@@ -3798,6 +3966,23 @@ pub fn undoLayout(client: anytype, request: UndoLayoutRequest) !wire.Decoded(Und
             .authority = "control",
             .since = 9,
             .capability = "layout-undo-v1",
+        },
+        request,
+    );
+}
+
+pub const UnregisterBrowserProviderRequest = struct {};
+
+pub const UnregisterBrowserProviderResult = BrowserProviderUnregisterResult;
+
+pub fn unregisterBrowserProvider(client: anytype, request: UnregisterBrowserProviderRequest) !wire.Decoded(UnregisterBrowserProviderResult) {
+    return client.callTyped(
+        UnregisterBrowserProviderResult,
+        .{
+            .name = "unregister-browser-provider",
+            .authority = "local-admin",
+            .since = 10,
+            .capability = "browser-provider-v1",
         },
         request,
     );
@@ -4710,7 +4895,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 97;
+pub const command_count: usize = 101;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -4744,6 +4929,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "export-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "focus-direction", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "focus-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "get-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "get-cell-pixels", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "get-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "identify", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -4755,6 +4941,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "list-workspaces", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "mark-workspaces-provider-managed", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
     .{ .name = "mint-terminal-renderer", .authority = "frontend", .since = 9, .capability = null, .stream = null },
+    .{ .name = "mint-terminal-renderer-by-terminal", .authority = "frontend", .since = 11, .capability = null, .stream = null },
     .{ .name = "move-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "move-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "move-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -4772,6 +4959,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "put-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "read-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "read-scrollback", .authority = "control", .since = 7, .capability = null, .stream = null },
+    .{ .name = "register-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "release-attached-view-size", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "release-surface-size", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "reload-config", .authority = "control", .since = 6, .capability = null, .stream = null },
@@ -4806,6 +4994,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "swap-pane", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "terminal-events", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "undo-layout", .authority = "control", .since = 9, .capability = "layout-undo-v1", .stream = null },
+    .{ .name = "unregister-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "vt-state", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "wait-for", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "zoom-pane", .authority = "control", .since = 6, .capability = null, .stream = null },

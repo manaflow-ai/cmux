@@ -14,7 +14,7 @@ extension WorkspaceListView {
     var enablesWorkspaceReorder: Bool {
         moveWorkspace != nil
             && pendingWorkspaceMoveCount < Self.maxPipelinedWorkspaceMoves
-            && canRenderGroupsForSelection
+            && canMutateForegroundGroupsForSelection
             && trimmedQuery.isEmpty
             && filter.readState == .all
             && filter.machines.isEmpty
@@ -37,7 +37,7 @@ extension WorkspaceListView {
     var canCreateWorkspaceInGroups: Bool {
         createWorkspaceInGroup != nil
             && canCreateWorkspaceForMacSelection
-            && canRenderGroupsForSelection
+            && canMutateForegroundGroupsForSelection
     }
 
     func syncOptimisticWorkspaceOrder(moveDidFail: Bool = false) {

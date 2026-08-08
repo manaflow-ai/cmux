@@ -30,6 +30,7 @@ use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use anyhow::Context;
 use base64::Engine;
 use ghostty_vt::{
     Dirty, KeyAction, KeyEncoder, KeyInput, KittyReplayState, Mods, StyledRun, UnderlineStyle,
@@ -49,6 +50,9 @@ use zeroize::Zeroize;
 use crate::browser::{
     BrowserAttachUpdate, BrowserFrameUpdate, BrowserMouseDispatch, BrowserPointerOwner,
 };
+use crate::browser_provider::{
+    BrowserProviderAuthentication, BrowserProviderRegistration, BrowserProviderSnapshot,
+};
 use crate::journal_kernel::{JournalDocument, SharedJournalPage, SharedJournalRead};
 use crate::model::{Screen, State, Workspace};
 use crate::mux::{DaemonHandoffRequest, ResourceWaitWake, clamp_terminal_size};
@@ -56,7 +60,7 @@ use crate::platform::{self, transport};
 use crate::resource::{
     BrowserPublicId, ClientPublicId, ContentPublicId, RequestId as ResourceRequestId,
     ResourceError, ResourceOperation, ResponseEnvelope as ResourceResponseEnvelope, Selector,
-    SessionPublicId, StreamPublicId, TerminalPublicId, WireDecimal,
+    SessionPublicId, StreamPublicId, TabPublicId, TerminalPublicId, WireDecimal,
 };
 use crate::sidebar_resource::{
     SidebarRenderAttachment, SidebarRenderClientState, attach_sidebar_render, resolve_sidebar_view,
@@ -95,15 +99,18 @@ const LOCAL_JOURNAL_PRINCIPAL: &str = "cmux.local-owner";
 pub const VIEW_ATTACHMENT_LEASE_CAPABILITY: &str = "view-attachment-lease-v1";
 pub const VIEW_ATTACHMENT_DETACH_CAPABILITY: &str = "view-attachment-detach-v1";
 pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
+pub const CREATION_ATTEMPT_KEYS_CAPABILITY: &str = "creation-attempt-keys-v1";
 pub const CREATION_SELECTOR_FALLBACKS_CAPABILITY: &str = "creation-selector-fallbacks-v1";
 pub const MAX_CREATION_SELECTOR_FALLBACKS: usize = 7;
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
+pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
 pub const PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION: u32 = 10;
-pub const PROTOCOL_VERSION: u32 = PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION;
+pub const TERMINAL_LIFECYCLE_PROTOCOL_VERSION: u32 = 11;
+pub const PROTOCOL_VERSION: u32 = TERMINAL_LIFECYCLE_PROTOCOL_VERSION;
 const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = CLEAR_HISTORY_KEY_TEXT_MAX_BYTES;
 
 fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
@@ -122,8 +129,10 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         VIEW_ATTACHMENT_LEASE_CAPABILITY,
         VIEW_ATTACHMENT_DETACH_CAPABILITY,
         CREATION_RECEIPTS_CAPABILITY,
+        CREATION_ATTEMPT_KEYS_CAPABILITY,
         CREATION_SELECTOR_FALLBACKS_CAPABILITY,
         PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+        BROWSER_PROVIDER_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -495,7 +504,12 @@ struct Request {
 struct CreateSurfaceWithReceiptRequest {
     operation: String,
     origin: String,
+    /// Stable correlation identity for the logical creation across retries.
     receipt: String,
+    /// One execution attempt. Omission preserves the original adapter
+    /// behavior by using `receipt` for both identities.
+    #[serde(default)]
+    idempotency_key: Option<String>,
     /// Stable public identities captured by the frontend before the request
     /// is sent. Numeric targets remain a legacy fallback.
     #[serde(default)]
@@ -523,6 +537,13 @@ struct CreateSurfaceWithReceiptRequest {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BrowserProviderTargetRequest {
+    tab_id: String,
+    target_id: String,
+}
+
+#[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
@@ -545,6 +566,20 @@ enum Command {
         capabilities: Option<Vec<String>>,
     },
     ListClients,
+    /// Publish the native browser process's live CDP targets. This is an
+    /// owner-only, connection-scoped lease and never enters the journal.
+    RegisterBrowserProvider {
+        provider_id: String,
+        endpoint: String,
+        authentication: String,
+        #[serde(default)]
+        bearer_token: Option<String>,
+        targets: Vec<BrowserProviderTargetRequest>,
+    },
+    /// Return the current provider lease for local automation such as
+    /// Vercel agent-browser. Remote/WebSocket clients cannot read it.
+    GetBrowserProvider,
+    UnregisterBrowserProvider,
     /// Canonical non-tombstoned terminal placement/lifecycle snapshot.
     ListTerminals,
     /// Durable ordered terminal mutations after `terminal_revision`.
@@ -714,6 +749,14 @@ enum Command {
     /// daemon's durable owner capability.
     MintTerminalRenderer {
         surface: SurfaceId,
+        #[serde(default = "default_renderer_capability_ttl_ms")]
+        ttl_ms: u64,
+    },
+    /// Mint a renderer credential from the stable public terminal identity.
+    /// Remote clients must not depend on this daemon generation's local
+    /// numeric surface handle.
+    MintTerminalRendererByTerminal {
+        terminal: String,
         #[serde(default = "default_renderer_capability_ttl_ms")]
         ttl_ms: u64,
     },
@@ -3678,6 +3721,7 @@ impl ClientRegistry {
                     || capability == VIEW_ATTACHMENT_LEASE_CAPABILITY
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
                     || capability == CREATION_RECEIPTS_CAPABILITY
+                    || capability == CREATION_ATTEMPT_KEYS_CAPABILITY
                     || capability == CREATION_SELECTOR_FALLBACKS_CAPABILITY
             }));
         }
@@ -4809,13 +4853,17 @@ fn authenticate_websocket(
     }
 }
 
-fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
+fn disconnect_client(mux: &Arc<Mux>, client: u64, send_detached: bool) -> bool {
     let record = {
         let _lifecycle = mux.lock_client_sizing_lifecycle();
         let Some(record) = mux.control_clients.remove(client) else { return false };
         mux.remove_size_client_from_attached_surfaces(client, record.attached.keys().copied());
         record
     };
+    // Provider capabilities are valid only for the control connection that
+    // published them. Release before announcing detachment so waiters can
+    // never observe a stale target after the owning client is gone.
+    mux.unregister_browser_provider(client);
     if let Some(owner @ BrowserPointerOwner::Client(_)) = record.browser_pointer_owner {
         // Pointer commands do not require a frame-stream attachment, so any
         // browser worker may own this negotiated client. Disconnects are rare;
@@ -4851,7 +4899,7 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
     true
 }
 
-pub fn detach_control_client(mux: &Mux, client: u64) -> bool {
+pub fn detach_control_client(mux: &Arc<Mux>, client: u64) -> bool {
     disconnect_client(mux, client, true)
 }
 
@@ -5787,7 +5835,7 @@ pub(crate) fn public_client_id(
     client: u64,
 ) -> Result<ClientPublicId, ResourceError> {
     let mut digest = Sha256::new();
-    digest.update(b"cmux.protocol/1/client/");
+    digest.update(b"cmux.protocol/2/client/");
     digest.update(session_id.as_str().as_bytes());
     digest.update(b"/");
     digest.update(client.to_be_bytes());
@@ -6677,7 +6725,7 @@ fn send_resource_uncursored_stream_item(
     writer
         .send_stream_backpressured(
             &json!({
-                "protocol":"cmux.protocol/1",
+                "protocol":"cmux.protocol/2",
                 "type":"stream_item",
                 "stream_id":stream_id,
                 "sequence":sequence.to_string(),
@@ -8225,7 +8273,7 @@ fn send_resource_stream_item(
     writer
         .send_stream_backpressured(
             &json!({
-                "protocol":"cmux.protocol/1",
+                "protocol":"cmux.protocol/2",
                 "type":"stream_item",
                 "stream_id":stream_id,
                 "sequence":sequence.to_string(),
@@ -8301,7 +8349,7 @@ fn resource_stream_end(
     error: Option<(ResourceOperation, ResourceError)>,
 ) -> Value {
     let mut end = json!({
-        "protocol":"cmux.protocol/1",
+        "protocol":"cmux.protocol/2",
         "type":"stream_end",
         "stream_id":stream_id,
         "reason":reason,
@@ -8612,6 +8660,7 @@ fn create_surface_with_receipt(
         operation,
         origin,
         receipt,
+        idempotency_key,
         selectors: supplied_selectors,
         selector_fallbacks,
         pane,
@@ -8627,13 +8676,20 @@ fn create_surface_with_receipt(
         mux.control_clients.supports_capability(client, CREATION_RECEIPTS_CAPABILITY),
         "client did not negotiate {CREATION_RECEIPTS_CAPABILITY}"
     );
-    let mutation = WorkspaceMutation::new(receipt, origin)?;
+    anyhow::ensure!(
+        idempotency_key.is_none()
+            || mux.control_clients.supports_capability(client, CREATION_ATTEMPT_KEYS_CAPABILITY),
+        "client did not negotiate {CREATION_ATTEMPT_KEYS_CAPABILITY}"
+    );
+    let mutation =
+        WorkspaceMutation::new(idempotency_key.unwrap_or_else(|| receipt.clone()), origin)?;
     let size = paired_surface_size("create-surface-with-receipt", cols, rows)?;
     let mut fields = serde_json::Map::new();
     if let Some((cols, rows)) = size {
         fields.insert("cols".to_string(), json!(cols));
         fields.insert("rows".to_string(), json!(rows));
     }
+    fields.insert("correlation_key".to_string(), json!(receipt));
     let session_selectors = || crate::ResourceSelectors {
         machine: Some("current".to_string()),
         session: Some("current".to_string()),
@@ -8939,6 +8995,7 @@ fn pane_json(
                 "browser_status": surface.and_then(|s| s.browser_status().map(|status| status.as_str())),
                 "browser_error": surface.and_then(|s| s.browser_status().and_then(|status| status.error())),
                 "browser_frames_stalled": surface.and_then(|s| s.browser_frames_stalled()),
+                "url": surface.and_then(|s| s.browser_url()),
                 "supports_clear_history_key_fallback": surface
                     .is_some_and(|surface| surface.supports_clear_history_key_fallback()),
                 "notification": notifications.get(sid).copied().map(|n| {
@@ -8991,6 +9048,21 @@ fn screen_json(
         if let Some(width) = screen.viewport_base_width {
             value["viewport_base_width"] = json!(width);
         }
+    }
+    if screen.layout_columns_active() {
+        value["columns"] = json!(
+            screen
+                .layout_columns
+                .iter()
+                .map(|column| {
+                    json!({
+                        "id": column.id,
+                        "width": column.width,
+                        "layout": node_json(&column.root, screen.active_pane),
+                    })
+                })
+                .collect::<Vec<_>>()
+        );
     }
     value
 }
@@ -9231,6 +9303,109 @@ fn require_browser(surface: &crate::Surface) -> anyhow::Result<()> {
     } else {
         anyhow::bail!("PTY surface is not a browser surface")
     }
+}
+
+fn browser_provider_registration(
+    provider_id: String,
+    endpoint: String,
+    authentication: String,
+    bearer_token: Option<String>,
+    targets: Vec<BrowserProviderTargetRequest>,
+) -> anyhow::Result<BrowserProviderRegistration> {
+    anyhow::ensure!(
+        !provider_id.is_empty()
+            && provider_id.len() <= 128
+            && provider_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"-._:".contains(&byte)),
+        "browser provider id must contain 1..128 ASCII identifier characters"
+    );
+    anyhow::ensure!(endpoint.len() <= 2_048, "browser provider endpoint is too long");
+    let parsed = url::Url::parse(&endpoint).context("invalid browser provider endpoint")?;
+    anyhow::ensure!(parsed.scheme() == "ws", "browser provider endpoint must use ws://");
+    anyhow::ensure!(
+        parsed.username().is_empty() && parsed.password().is_none(),
+        "browser provider endpoint must not contain URL credentials"
+    );
+    anyhow::ensure!(parsed.port().is_some(), "browser provider endpoint must include a port");
+    anyhow::ensure!(
+        parsed.fragment().is_none(),
+        "browser provider endpoint must not have a fragment"
+    );
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("browser provider endpoint must include a host"))?;
+    let loopback = host.eq_ignore_ascii_case("localhost")
+        || host.parse::<std::net::IpAddr>().is_ok_and(|address| address.is_loopback());
+    anyhow::ensure!(
+        loopback,
+        "browser provider endpoint must be loopback; use an authenticated local gateway"
+    );
+
+    let authentication = match authentication.as_str() {
+        "none" => {
+            anyhow::ensure!(
+                bearer_token.is_none(),
+                "bearer_token is only valid with bearer authentication"
+            );
+            BrowserProviderAuthentication::None
+        }
+        "bearer" => {
+            let token = bearer_token
+                .filter(|token| !token.is_empty())
+                .ok_or_else(|| anyhow::anyhow!("bearer authentication requires bearer_token"))?;
+            anyhow::ensure!(
+                token.len() <= 4_096 && token.bytes().all(|byte| byte.is_ascii_graphic()),
+                "browser provider bearer token must contain 1..4096 visible ASCII characters"
+            );
+            BrowserProviderAuthentication::Bearer(token)
+        }
+        other => anyhow::bail!("unsupported browser provider authentication {other:?}"),
+    };
+
+    anyhow::ensure!(targets.len() <= 16_384, "too many browser provider targets");
+    let mut parsed_targets = BTreeMap::new();
+    for target in targets {
+        let tab_id =
+            TabPublicId::parse(target.tab_id).context("invalid browser provider tab_id")?;
+        anyhow::ensure!(
+            !target.target_id.is_empty()
+                && target.target_id.len() <= 512
+                && !target.target_id.chars().any(char::is_control),
+            "browser provider target_id must contain 1..512 non-control characters"
+        );
+        anyhow::ensure!(
+            parsed_targets.insert(tab_id, target.target_id).is_none(),
+            "duplicate browser provider tab_id"
+        );
+    }
+    Ok(BrowserProviderRegistration {
+        provider_id,
+        endpoint: parsed.to_string(),
+        authentication,
+        targets: parsed_targets,
+    })
+}
+
+fn browser_provider_json(snapshot: Option<BrowserProviderSnapshot>) -> Value {
+    let Some(snapshot) = snapshot else {
+        return json!({"available":false,"revision":0,"targets":[]});
+    };
+    let targets = snapshot
+        .targets
+        .into_iter()
+        .map(|(tab_id, target_id)| json!({"tab_id":tab_id,"target_id":target_id}))
+        .collect::<Vec<_>>();
+    json!({
+        "available":true,
+        "provider_id":snapshot.provider_id,
+        "endpoint":snapshot.endpoint,
+        "authentication":snapshot.authentication.name(),
+        "bearer_token":snapshot.authentication.bearer_token(),
+        "revision":snapshot.revision,
+        "clients":snapshot.clients,
+        "targets":targets,
+    })
 }
 
 fn handle_browser_frame_presented(
@@ -9665,17 +9840,14 @@ struct RenderClientState {
     graphics_placement_revision: u64,
     graphics_image_generations: Arc<[(u32, u64)]>,
     graphics_image_generations_match_snapshot: bool,
+    #[cfg(test)]
+    image_generation_scan_count: usize,
 }
-
-#[cfg(test)]
-static RENDER_CLIENT_IMAGE_SCAN_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 fn render_client_image_delta(
     previous: &[(u32, u64)],
     next: &[(u32, u64)],
 ) -> (HashSet<u32>, Vec<u32>) {
-    #[cfg(test)]
-    RENDER_CLIENT_IMAGE_SCAN_COUNT.fetch_add(previous.len().max(next.len()), Ordering::Relaxed);
     let mut changed = HashSet::new();
     let mut removed = Vec::new();
     let (mut previous_index, mut next_index) = (0, 0);
@@ -9735,6 +9907,8 @@ impl RenderClientState {
             graphics_placement_revision: graphics_delta.placement_revision,
             graphics_image_generations,
             graphics_image_generations_match_snapshot,
+            #[cfg(test)]
+            image_generation_scan_count: 0,
         }
     }
 
@@ -9791,6 +9965,13 @@ impl RenderClientState {
                     (HashSet::new(), Vec::new())
                 }
             } else {
+                #[cfg(test)]
+                {
+                    self.image_generation_scan_count += self
+                        .graphics_image_generations
+                        .len()
+                        .max(graphics_delta.image_generations.len());
+                }
                 render_client_image_delta(
                     &self.graphics_image_generations,
                     &graphics_delta.image_generations,
@@ -10281,6 +10462,21 @@ fn handle_command(
     handle_command_with_cancellation(mux, client, cmd, writer, None)
 }
 
+fn terminal_renderer_grant_json(
+    grant: crate::terminal_host_runtime::RendererGrant,
+    ttl_ms: u64,
+) -> Value {
+    json!({
+        "endpoint": grant.endpoint,
+        "terminal_id": grant.terminal_id,
+        "incarnation": grant.incarnation,
+        "token": grant.token,
+        "rights": grant.rights.bits(),
+        "protocol_version": grant.protocol_version,
+        "ttl_ms": ttl_ms,
+    })
+}
+
 fn handle_command_with_cancellation(
     mux: &Arc<Mux>,
     client: u64,
@@ -10337,6 +10533,38 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::ListClients => Ok(mux.control_clients_json(client)),
+        Command::RegisterBrowserProvider {
+            provider_id,
+            endpoint,
+            authentication,
+            bearer_token,
+            targets,
+        } => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("browser provider registration requires a trusted local connection");
+            }
+            let registration = browser_provider_registration(
+                provider_id,
+                endpoint,
+                authentication,
+                bearer_token,
+                targets,
+            )?;
+            let snapshot = mux.register_browser_provider(client, registration)?;
+            Ok(browser_provider_json(Some(snapshot)))
+        }
+        Command::GetBrowserProvider => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("browser provider discovery requires a trusted local connection");
+            }
+            Ok(browser_provider_json(mux.browser_provider_snapshot()))
+        }
+        Command::UnregisterBrowserProvider => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("browser provider registration requires a trusted local connection");
+            }
+            Ok(json!({"removed":mux.unregister_browser_provider(client)}))
+        }
         Command::ListTerminals => {
             let snapshot = mux.terminal_registry_snapshot()?;
             let terminals = snapshot
@@ -10765,15 +10993,17 @@ fn handle_command_with_cancellation(
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
             let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms))?;
-            Ok(json!({
-                "endpoint": grant.endpoint,
-                "terminal_id": grant.terminal_id,
-                "incarnation": grant.incarnation,
-                "token": grant.token,
-                "rights": grant.rights.bits(),
-                "protocol_version": grant.protocol_version,
-                "ttl_ms": ttl_ms,
-            }))
+            Ok(terminal_renderer_grant_json(grant, ttl_ms))
+        }
+        Command::MintTerminalRendererByTerminal { terminal, ttl_ms } => {
+            let terminal = TerminalPublicId::parse(terminal)?;
+            let surface = mux
+                .resource_surface_for_terminal(&terminal)
+                .ok_or_else(|| anyhow::anyhow!("terminal {terminal} is not live"))?;
+            let surface = get_surface(mux, surface)?;
+            require_pty(&surface)?;
+            let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms))?;
+            Ok(terminal_renderer_grant_json(grant, ttl_ms))
         }
         Command::ResolveTerminal { terminal_id } => {
             let Some(resolution) = mux.resolve_terminal(&terminal_id)? else {
@@ -12388,17 +12618,21 @@ mod tests {
 
     fn settle_browser_size(surface: &Arc<crate::Surface>, expected: (u16, u16)) {
         if surface.size() != expected {
-            let pending = surface
-                .pending_resize_completion(expected.0, expected.1)
-                .unwrap()
-                .unwrap_or_else(|| {
-                    panic!(
-                        "browser has size {:?} with no pending resize to {expected:?}",
-                        surface.size()
-                    )
-                });
-            wait_for_initial_browser_resize(&pending.completion, surface.id, pending.reservation)
+            if let Some(pending) =
+                surface.pending_resize_completion(expected.0, expected.1).unwrap()
+            {
+                wait_for_initial_browser_resize(
+                    &pending.completion,
+                    surface.id,
+                    pending.reservation,
+                )
                 .unwrap();
+            } else {
+                // The resize worker may commit between the size observation
+                // above and the pending-completion lookup. Absence is valid
+                // only when that exact resize has already landed.
+                assert_eq!(surface.size(), expected);
+            }
         }
         assert_eq!(surface.size(), expected);
     }
@@ -12881,7 +13115,6 @@ mod tests {
         let mut frame = render_protocol_frame(&mut terminal, &mut render_state);
         let placement_revision = frame.frame.kitty_graphics_delta.placement_revision;
         let mut client = RenderClientState::new(Arc::new(RenderService::new()), &frame);
-        RENDER_CLIENT_IMAGE_SCAN_COUNT.store(0, Ordering::Relaxed);
 
         replace_render_image(&mut frame, 41, [0, 0, 255]);
         let delta = serde_json::to_value(client.delta_message(1, &frame)).unwrap();
@@ -12894,8 +13127,7 @@ mod tests {
             1
         );
         assert_eq!(
-            RENDER_CLIENT_IMAGE_SCAN_COUNT.load(Ordering::Relaxed),
-            0,
+            client.image_generation_scan_count, 0,
             "pixel-only animation rebuilt the complete image-generation map"
         );
         assert_eq!(
@@ -12916,15 +13148,13 @@ mod tests {
         replace_render_image(&mut skipped, 41, [0, 0, 255]);
         let mut latest = skipped;
         replace_render_image(&mut latest, 42, [255, 255, 0]);
-        RENDER_CLIENT_IMAGE_SCAN_COUNT.store(0, Ordering::Relaxed);
 
         let delta = serde_json::to_value(client.delta_message(1, &latest)).unwrap();
         let images = delta["graphics"]["images"].as_array().unwrap();
 
         assert_eq!(images.len(), 2, "{delta:#}");
         assert_eq!(
-            RENDER_CLIENT_IMAGE_SCAN_COUNT.load(Ordering::Relaxed),
-            2,
+            client.image_generation_scan_count, 2,
             "a skipped frame did not use one bounded linear image diff"
         );
         assert!(delta["graphics"].get("placements").is_none(), "{delta:#}");
@@ -13067,7 +13297,7 @@ mod tests {
         idempotency_key: Option<&str>,
     ) -> String {
         let mut request = json!({
-            "protocol":"cmux.protocol/1",
+            "protocol":"cmux.protocol/2",
             "type":"request",
             "id":id,
             "operation":operation,
@@ -13088,7 +13318,7 @@ mod tests {
     fn resource_protocol_responses_are_identical_for_unix_and_websocket_clients() {
         let mux = test_mux();
         let request = serde_json::to_string(&json!({
-            "protocol":"cmux.protocol/1",
+            "protocol":"cmux.protocol/2",
             "type":"request",
             "id":"transport-parity",
             "operation":"session.ping",
@@ -13108,13 +13338,177 @@ mod tests {
 
         assert_eq!(responses[0], responses[1]);
         let response: Value = serde_json::from_str(&responses[0]).unwrap();
-        assert_eq!(response["protocol"], "cmux.protocol/1");
+        assert_eq!(response["protocol"], "cmux.protocol/2");
         assert_eq!(response["type"], "response");
         assert_eq!(response["id"], "transport-parity");
         assert_eq!(response["ok"], true);
         assert_eq!(response["result"]["alive"], true);
         assert_eq!(response["result"]["cursor"]["revision"], "0");
         assert!(response["result"]["cursor"]["generation"].as_str().is_some());
+    }
+
+    #[test]
+    fn browser_provider_is_owner_only_loopback_and_released_on_disconnect() {
+        let mux = test_mux();
+        let local_writer = test_writer();
+        let local = mux.control_clients.register(ClientTransport::Unix, local_writer.clone());
+        let tab_id = "tab_00000000000000000000000000000001";
+        let registered = handle_command(
+            &mux,
+            local,
+            Command::RegisterBrowserProvider {
+                provider_id: "browser-process-1".into(),
+                endpoint: "ws://127.0.0.1:9222/devtools/browser/one".into(),
+                authentication: "bearer".into(),
+                bearer_token: Some("secret-token".into()),
+                targets: vec![BrowserProviderTargetRequest {
+                    tab_id: tab_id.into(),
+                    target_id: "target-one".into(),
+                }],
+            },
+            &local_writer,
+        )
+        .unwrap();
+        assert_eq!(registered["available"], true);
+        assert_eq!(registered["authentication"], "bearer");
+        assert_eq!(registered["targets"][0]["tab_id"], tab_id);
+
+        let discovered =
+            handle_command(&mux, local, Command::GetBrowserProvider, &local_writer).unwrap();
+        assert_eq!(discovered["bearer_token"], "secret-token");
+
+        let remote_writer = test_writer();
+        let remote =
+            mux.control_clients.register(ClientTransport::WebSocket, remote_writer.clone());
+        let error = handle_command(
+            &mux,
+            remote,
+            Command::RegisterBrowserProvider {
+                provider_id: "browser-process-1".into(),
+                endpoint: "ws://127.0.0.1:9222/devtools/browser/one".into(),
+                authentication: "none".into(),
+                bearer_token: None,
+                targets: vec![],
+            },
+            &remote_writer,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("trusted local"));
+        assert!(
+            handle_command(&mux, remote, Command::GetBrowserProvider, &remote_writer)
+                .unwrap_err()
+                .to_string()
+                .contains("trusted local")
+        );
+
+        let error = browser_provider_registration(
+            "browser-process-1".into(),
+            "ws://192.0.2.1:9222/devtools/browser/one".into(),
+            "none".into(),
+            None,
+            vec![],
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("loopback"));
+
+        assert!(disconnect_client(&mux, local, false));
+        assert!(mux.browser_provider_snapshot().is_none());
+    }
+
+    #[test]
+    fn browser_provider_clients_share_one_process_without_sharing_client_state() {
+        let mux = test_mux();
+        let first_writer = test_writer();
+        let first = mux.control_clients.register(ClientTransport::Unix, first_writer.clone());
+        let second_writer = test_writer();
+        let second = mux.control_clients.register(ClientTransport::Unix, second_writer.clone());
+        let command = |tab_id: &str, target_id: &str| Command::RegisterBrowserProvider {
+            provider_id: "browser-process-1".into(),
+            endpoint: "ws://localhost:9222/devtools/browser/one".into(),
+            authentication: "none".into(),
+            bearer_token: None,
+            targets: vec![BrowserProviderTargetRequest {
+                tab_id: tab_id.into(),
+                target_id: target_id.into(),
+            }],
+        };
+        handle_command(
+            &mux,
+            first,
+            command("tab_00000000000000000000000000000001", "target-one"),
+            &first_writer,
+        )
+        .unwrap();
+        let snapshot = handle_command(
+            &mux,
+            second,
+            command("tab_00000000000000000000000000000002", "target-two"),
+            &second_writer,
+        )
+        .unwrap();
+        assert_eq!(snapshot["clients"], 2);
+        assert_eq!(snapshot["targets"].as_array().unwrap().len(), 2);
+
+        assert!(disconnect_client(&mux, first, false));
+        let snapshot = mux.browser_provider_snapshot().unwrap();
+        assert_eq!(snapshot.clients, 1);
+        assert_eq!(snapshot.targets.len(), 1);
+    }
+
+    #[test]
+    fn protocol_v1_is_rejected_before_returning_a_zero_view_terminal_snapshot() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(Some("exiting".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        mux.surface_exited(surface.id);
+
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let current_request = serde_json::to_string(&json!({
+            "protocol":crate::resource::PROTOCOL,
+            "type":"request",
+            "id":"current-zero-view-snapshot",
+            "operation":"session.snapshot",
+            "params":{"machine":"current","session":"current"},
+        }))
+        .unwrap();
+
+        assert!(handle_connection_message(&mux, client, &current_request, &writer, &scheduler));
+        let current_response = pop_json(&outbound);
+        assert_eq!(current_response["ok"], true);
+        let terminal = current_response["result"]["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .expect("the actual response contains the durable exit receipt");
+        assert_eq!(terminal["tab_id"], Value::Null);
+        assert_eq!(terminal["tab_ids"], json!([]));
+
+        let legacy_request = serde_json::to_string(&json!({
+            "protocol":"cmux.protocol/1",
+            "type":"request",
+            "id":"legacy-zero-view-snapshot",
+            "operation":"session.snapshot",
+            "params":{"machine":"current","session":"current"},
+        }))
+        .unwrap();
+
+        assert!(handle_connection_message(&mux, client, &legacy_request, &writer, &scheduler));
+        let response = pop_json(&outbound);
+
+        assert_eq!(response["protocol"], crate::resource::PROTOCOL);
+        assert_eq!(response["type"], "response");
+        assert_eq!(response["id"], "legacy-zero-view-snapshot");
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"]["code"], "validation.invalid");
+        assert_eq!(response["error"]["details"]["field"], "protocol");
+        assert!(response.get("result").is_none());
+
+        disconnect_client(&mux, client, false);
+        mux.shutdown();
     }
 
     #[test]
@@ -15704,7 +16098,7 @@ mod tests {
     #[test]
     fn connection_handler_owns_every_router_connection_operation() {
         let catalog: Value =
-            serde_json::from_str(include_str!("../../../spec/resource-operations-v1.json"))
+            serde_json::from_str(include_str!("../../../spec/resource-operations-v2.json"))
                 .unwrap();
         let mut connection_operations = 0usize;
         for name in catalog["operations"].as_object().unwrap().keys() {
@@ -17353,7 +17747,8 @@ mod tests {
         assert_eq!(STABLE_SPLIT_IDS_PROTOCOL_VERSION, 8);
         assert_eq!(STACK_LAYOUT_PROTOCOL_VERSION, 9);
         assert_eq!(PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION, 10);
-        assert_eq!(PROTOCOL_VERSION, 10);
+        assert_eq!(TERMINAL_LIFECYCLE_PROTOCOL_VERSION, 11);
+        assert_eq!(PROTOCOL_VERSION, 11);
         assert!(
             identity["capabilities"].as_array().is_some_and(|capabilities| capabilities
                 .iter()
@@ -17868,11 +18263,12 @@ mod tests {
         let selectors = mux.resource_selectors_for_pane(Some(pane)).unwrap();
         let receipt = "split-receipt-00000001";
         let origin = "tui-receipt-test";
-        let command = |direction: &str| {
+        let command = |direction: &str, idempotency_key: &str| {
             Command::CreateSurfaceWithReceipt(Box::new(CreateSurfaceWithReceiptRequest {
                 operation: format!("split-{direction}"),
                 origin: origin.to_string(),
                 receipt: receipt.to_string(),
+                idempotency_key: Some(idempotency_key.to_string()),
                 selectors: Some(selectors.clone()),
                 selector_fallbacks: Vec::new(),
                 pane: Some(pane),
@@ -17885,15 +18281,19 @@ mod tests {
                 rows: Some(30),
             }))
         };
-        let register = |writer: &MessageWriter| {
+        let register = |writer: &MessageWriter, attempt_keys: bool| {
             let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            let mut capabilities = vec![CREATION_RECEIPTS_CAPABILITY.to_string()];
+            if attempt_keys {
+                capabilities.push(CREATION_ATTEMPT_KEYS_CAPABILITY.to_string());
+            }
             handle_command(
                 &mux,
                 client,
                 Command::SetClientInfo {
                     name: Some("receipt test".to_string()),
                     kind: Some("tui".to_string()),
-                    capabilities: Some(vec![CREATION_RECEIPTS_CAPABILITY.to_string()]),
+                    capabilities: Some(capabilities),
                 },
                 writer,
             )
@@ -17901,15 +18301,39 @@ mod tests {
             client
         };
 
+        let legacy_writer = test_writer();
+        let legacy_client = register(&legacy_writer, false);
+        let capability_error = handle_command(
+            &mux,
+            legacy_client,
+            command("right", "split-attempt-unsupported"),
+            &legacy_writer,
+        )
+        .unwrap_err();
+        assert!(capability_error.to_string().contains(CREATION_ATTEMPT_KEYS_CAPABILITY));
+        assert!(disconnect_client(&mux, legacy_client, true));
+
         let first_writer = test_writer();
-        let first_client = register(&first_writer);
-        let first = handle_command(&mux, first_client, command("right"), &first_writer).unwrap();
+        let first_client = register(&first_writer, true);
+        let first = handle_command(
+            &mux,
+            first_client,
+            command("right", "split-attempt-00000001"),
+            &first_writer,
+        )
+        .unwrap();
         assert_eq!(first["replayed"], false);
         let created = first["surface"].as_u64().expect("creation omitted its surface");
         let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
         assert_eq!(snapshot["panes"].as_array().unwrap().len(), 2);
 
-        let replay = handle_command(&mux, first_client, command("right"), &first_writer).unwrap();
+        let replay = handle_command(
+            &mux,
+            first_client,
+            command("right", "split-attempt-00000001"),
+            &first_writer,
+        )
+        .unwrap();
         assert_eq!(replay["replayed"], true);
         assert_eq!(replay["surface"].as_u64(), Some(created));
         assert_eq!(
@@ -17924,14 +18348,24 @@ mod tests {
         assert!(disconnect_client(&mux, first_client, true));
 
         let second_writer = test_writer();
-        let second_client = register(&second_writer);
-        let reconnect_replay =
-            handle_command(&mux, second_client, command("right"), &second_writer).unwrap();
+        let second_client = register(&second_writer, true);
+        let reconnect_replay = handle_command(
+            &mux,
+            second_client,
+            command("right", "split-attempt-00000002"),
+            &second_writer,
+        )
+        .unwrap();
         assert_eq!(reconnect_replay["replayed"], true);
         assert_eq!(reconnect_replay["surface"].as_u64(), Some(created));
 
-        let conflict =
-            handle_command(&mux, second_client, command("down"), &second_writer).unwrap_err();
+        let conflict = handle_command(
+            &mux,
+            second_client,
+            command("down", "split-attempt-00000003"),
+            &second_writer,
+        )
+        .unwrap_err();
         assert!(
             conflict.to_string().contains("bound to different semantics"),
             "unexpected receipt conflict: {conflict:#}"
@@ -17944,6 +18378,67 @@ mod tests {
             1
         );
         assert!(disconnect_client(&mux, second_client, true));
+        mux.shutdown();
+    }
+
+    #[test]
+    fn browser_receipt_targets_an_exact_empty_workspace_without_focus_state() {
+        let mux = test_mux();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap().workspace;
+        let selectors = mux.resource_selectors_for_workspace(Some(workspace)).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientInfo {
+                name: Some("native browser bootstrap".to_string()),
+                kind: Some("native-browser".to_string()),
+                capabilities: Some(vec![CREATION_RECEIPTS_CAPABILITY.to_string()]),
+            },
+            &writer,
+        )
+        .unwrap();
+        let command = || {
+            Command::CreateSurfaceWithReceipt(Box::new(CreateSurfaceWithReceiptRequest {
+                operation: "new-browser-tab".to_string(),
+                origin: "native-browser-bootstrap-test".to_string(),
+                receipt: "browser-workspace-receipt-00000001".to_string(),
+                idempotency_key: None,
+                selectors: Some(selectors.clone()),
+                selector_fallbacks: Vec::new(),
+                pane: None,
+                workspace: None,
+                argv: None,
+                cwd: None,
+                url: Some("about:blank".to_string()),
+                width: None,
+                cols: None,
+                rows: None,
+            }))
+        };
+
+        let first = handle_command(&mux, client, command(), &writer).unwrap();
+        assert_eq!(first["replayed"], false);
+        let surface = first["surface"].as_u64().expect("creation omitted its surface");
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        assert_eq!(snapshot["workspaces"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["screens"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["panes"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["tabs"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["tabs"][0]["content_kind"], "browser");
+
+        let replay = handle_command(&mux, client, command(), &writer).unwrap();
+        assert_eq!(replay["replayed"], true);
+        assert_eq!(replay["surface"].as_u64(), Some(surface));
+        assert_eq!(
+            crate::resource_api::public_session_snapshot(&mux).unwrap()["tabs"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        mux.close_surface(surface).unwrap();
         mux.shutdown();
     }
 
@@ -17963,6 +18458,7 @@ mod tests {
                 operation: "split-right".to_string(),
                 origin: "tui-fallback-test".to_string(),
                 receipt: "split-fallback-receipt-00000001".to_string(),
+                idempotency_key: None,
                 selectors: Some(primary_selectors.clone()),
                 selector_fallbacks: vec![fallback_selectors.clone()],
                 pane: Some(primary_pane),
@@ -20303,6 +20799,7 @@ mod tests {
     fn identify_advertises_clear_history_key_only_with_bounded_fallback_writes() {
         let unsupported = advertised_capabilities(false);
         assert!(unsupported.contains(&CLEAR_HISTORY_CAPABILITY));
+        assert!(unsupported.contains(&CREATION_ATTEMPT_KEYS_CAPABILITY));
         assert!(!unsupported.contains(&CLEAR_HISTORY_KEY_CAPABILITY));
 
         let supported = advertised_capabilities(true);

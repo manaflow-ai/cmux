@@ -1045,6 +1045,7 @@ function optionFields(options: object): Record<string, unknown> {
       columns: "cols",
       widthPx: "width_px",
       heightPx: "height_px",
+      viewportWidth: "viewport_width",
       readOnly: "read_only",
       deltaRows: "delta_rows",
       deltaX: "delta_x",
@@ -1114,14 +1115,11 @@ function browserPointerFields(
 }
 
 function mutationParams(
-  operation: Operation,
+  _operation: Operation,
   params: Readonly<Record<string, unknown>>,
   options: MutationOptions,
 ): Readonly<Record<string, unknown>> {
   if (options.expectedRevision === undefined) return params;
-  if (operation.name === "workspace.create") {
-    throw new TypeError(`${operation.name} does not accept expectedRevision`);
-  }
   if (typeof options.expectedRevision !== "string") {
     throw new TypeError("expectedRevision must be a decimal string");
   }

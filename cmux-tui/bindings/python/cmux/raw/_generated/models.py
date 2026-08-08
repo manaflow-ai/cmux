@@ -53,6 +53,10 @@ class AgentState(str, Enum):
     DONE = 'done'
     UNKNOWN = 'unknown'
 
+class BrowserProviderAuthentication(str, Enum):
+    NONE = 'none'
+    BEARER = 'bearer'
+
 class ClientTransport(str, Enum):
     LOCAL = 'local'
     UNIX = 'unix'
@@ -272,6 +276,32 @@ class BrowserFrame:
     height: int
     seq: int
     width: int
+
+
+@dataclass(frozen=True)
+class BrowserProviderSnapshot:
+    __cmux_schema_path__: ClassVar[str] = 'types/BrowserProviderSnapshot'
+    available: bool
+    revision: int
+    targets: List[BrowserProviderTarget]
+    authentication: Union[BrowserProviderAuthentication, MissingType] = field(default=MISSING)
+    bearer_token: Union[str, None, MissingType] = field(default=MISSING)
+    clients: Union[int, MissingType] = field(default=MISSING)
+    endpoint: Union[str, MissingType] = field(default=MISSING)
+    provider_id: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class BrowserProviderTarget:
+    __cmux_schema_path__: ClassVar[str] = 'types/BrowserProviderTarget'
+    tab_id: str
+    target_id: str
+
+
+@dataclass(frozen=True)
+class BrowserProviderUnregisterResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/BrowserProviderUnregisterResult'
+    removed: bool
 
 
 @dataclass(frozen=True)
@@ -590,6 +620,7 @@ class MintTerminalRendererResult:
     terminal_id: str
     endpoint: str
     incarnation: str
+    protocol_version: int
     rights: int
     token: str
     ttl_ms: int
@@ -779,7 +810,7 @@ class ResolveTerminalResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ResolveTerminalResult'
     surface: Union[Id, None]
     terminal_id: str
-    exit: Union[JsonValue, None]
+    exit: Union[TerminalExit, None]
     generation: str
     launch_spec: JsonValue
     lifecycle: TerminalLifecycle
@@ -813,12 +844,16 @@ class ResourceSelectors:
 @dataclass(frozen=True)
 class RunResult:
     __cmux_schema_path__: ClassVar[str] = 'types/RunResult'
-    surface: Id
-    pane: Id
-    screen: Id
-    workspace: Id
-    terminal_id: Union[str, None]
+    surface: Union[Id, None]
+    pane: Union[Id, None]
+    screen: Union[Id, None]
+    workspace: Union[Id, None]
+    terminal_id: str
+    already_exited: bool
+    exit: Union[TerminalExit, None]
+    lifecycle: TerminalLifecycle
     terminal_incarnation: Union[str, None]
+    terminal_revision: int
 
 
 @dataclass(frozen=True)
@@ -916,6 +951,35 @@ class TerminalEventsResult:
 
 
 @dataclass(frozen=True)
+class TerminalExit:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalExit'
+    exited_at_ms: int
+    outcome: TerminalExitOutcome
+
+
+@dataclass(frozen=True)
+class TerminalExitOutcomeExit:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalExitOutcome/variants/exit'
+    code: int
+    kind: Literal['exit']
+
+
+@dataclass(frozen=True)
+class TerminalExitOutcomeSignal:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalExitOutcome/variants/signal'
+    core_dumped: bool
+    kind: Literal['signal']
+    signal: int
+
+
+@dataclass(frozen=True)
+class TerminalExitOutcomeUnknown:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalExitOutcome/variants/unknown'
+    kind: Literal['unknown']
+    reason: str
+
+
+@dataclass(frozen=True)
 class TerminalKeyInput:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalKeyInput'
     consumed_mods: TerminalModifiers
@@ -944,14 +1008,16 @@ class TerminalModifiers:
 @dataclass(frozen=True)
 class TerminalPlacement:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalPlacement'
-    surface: Id
-    pane: Id
-    screen: Id
-    workspace: Id
-    terminal_id: Union[str, None]
+    surface: Union[Id, None]
+    pane: Union[Id, None]
+    screen: Union[Id, None]
+    workspace: Union[Id, None]
+    terminal_id: str
+    already_exited: bool
+    exit: Union[TerminalExit, None]
     generation: str
     key: str
-    lifecycle: Union[Literal['running'], None]
+    lifecycle: TerminalLifecycle
     registry_id: str
     replayed: bool
     terminal_incarnation: Union[str, None]
@@ -962,7 +1028,7 @@ class TerminalPlacement:
 class TerminalRecord:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalRecord'
     terminal_id: str
-    exit: Union[JsonValue, None]
+    exit: Union[TerminalExit, None]
     launch_spec: JsonValue
     lifecycle: TerminalLifecycle
     terminal_incarnation: Union[str, None]
@@ -1252,6 +1318,7 @@ class CreateSurfaceWithReceiptRequest:
     argv: Union[List[str], None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     cwd: Union[str, None, MissingType] = field(default=MISSING)
+    idempotency_key: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     selector_fallbacks: Union[List[ResourceSelectors], MissingType] = field(default=MISSING)
     selectors: Union[ResourceSelectors, None, MissingType] = field(default=MISSING)
@@ -1318,6 +1385,12 @@ class FocusDirectionRequest:
 class FocusPaneRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/focus-pane/request'
     pane: Id
+
+
+@dataclass(frozen=True)
+class GetBrowserProviderRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/get-browser-provider/request'
+    pass
 
 
 @dataclass(frozen=True)
@@ -1393,6 +1466,13 @@ class MarkWorkspacesProviderManagedRequest:
 class MintTerminalRendererRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/mint-terminal-renderer/request'
     surface: Id
+    ttl_ms: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class MintTerminalRendererByTerminalRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/mint-terminal-renderer-by-terminal/request'
+    terminal: str
     ttl_ms: Union[int, MissingType] = field(default=MISSING)
 
 
@@ -1541,6 +1621,16 @@ class ReadScrollbackRequest:
     surface: Id
     start: int
     count: int
+
+
+@dataclass(frozen=True)
+class RegisterBrowserProviderRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/register-browser-provider/request'
+    authentication: BrowserProviderAuthentication
+    endpoint: str
+    provider_id: str
+    targets: List[BrowserProviderTarget]
+    bearer_token: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1822,6 +1912,12 @@ class UndoLayoutRequest:
     pane: Id
     confirm_close: Union[bool, MissingType] = field(default=MISSING)
     revision: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class UnregisterBrowserProviderRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/unregister-browser-provider/request'
+    pass
 
 
 @dataclass(frozen=True)
@@ -2360,6 +2456,7 @@ JsonValue = Any
 Layout = Union[LayoutLeaf, LayoutSplit, LayoutStack]
 LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
 Pane = Union[LivePane, DeadPane]
+TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
 KnownEvent = Union[BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
@@ -2374,6 +2471,7 @@ __all__ = [
     'AgentReportSource',
     'AgentSource',
     'AgentState',
+    'BrowserProviderAuthentication',
     'ClientTransport',
     'CursorStyle',
     'FrontendFocusTarget',
@@ -2392,6 +2490,9 @@ __all__ = [
     'AttachedViewOutcomeResult',
     'AttachedViewResizeResult',
     'BrowserFrame',
+    'BrowserProviderSnapshot',
+    'BrowserProviderTarget',
+    'BrowserProviderUnregisterResult',
     'CellPixelFailure',
     'CellPixelResize',
     'CellPixelSurface',
@@ -2456,6 +2557,10 @@ __all__ = [
     'Tab',
     'TerminalColors',
     'TerminalEventsResult',
+    'TerminalExit',
+    'TerminalExitOutcomeExit',
+    'TerminalExitOutcomeSignal',
+    'TerminalExitOutcomeUnknown',
     'TerminalKeyInput',
     'TerminalModifiers',
     'TerminalPlacement',
@@ -2499,6 +2604,7 @@ __all__ = [
     'ExportLayoutRequest',
     'FocusDirectionRequest',
     'FocusPaneRequest',
+    'GetBrowserProviderRequest',
     'GetCellPixelsRequest',
     'GetFrontendProjectionRequest',
     'IdentifyRequest',
@@ -2511,6 +2617,7 @@ __all__ = [
     'ListWorkspacesRequest',
     'MarkWorkspacesProviderManagedRequest',
     'MintTerminalRendererRequest',
+    'MintTerminalRendererByTerminalRequest',
     'MoveTabRequest',
     'MoveTerminalRequest',
     'MoveWorkspaceRequest',
@@ -2528,6 +2635,7 @@ __all__ = [
     'PutFrontendProjectionRequest',
     'ReadScreenRequest',
     'ReadScrollbackRequest',
+    'RegisterBrowserProviderRequest',
     'ReleaseAttachedViewSizeRequest',
     'ReleaseSurfaceSizeRequest',
     'ReloadConfigRequest',
@@ -2563,6 +2671,7 @@ __all__ = [
     'SwapPaneRequest',
     'TerminalEventsRequest',
     'UndoLayoutRequest',
+    'UnregisterBrowserProviderRequest',
     'VtStateRequest',
     'WaitForRequest',
     'ZoomPaneRequest',
@@ -2620,4 +2729,5 @@ __all__ = [
     'Layout',
     'LayoutUndoResult',
     'Pane',
+    'TerminalExitOutcome',
 ]

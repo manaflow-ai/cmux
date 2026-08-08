@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 #[test]
 fn capability_manifest_exactly_matches_the_canonical_catalog() {
     let catalog: Value =
-        serde_json::from_str(include_str!("../../../spec/resource-operations-v1.json")).unwrap();
+        serde_json::from_str(include_str!("../../../spec/resource-operations-v2.json")).unwrap();
     let manifest: Value = serde_json::from_str(include_str!("../.cmux-resource-api.json")).unwrap();
 
     assert_eq!(manifest["protocol"], catalog["protocol"]);

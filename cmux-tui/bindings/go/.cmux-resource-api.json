@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "6366fbadaa1a494ac54e9055a2d0498a21cafdc700e17aae8399354d183a1913",
+  "catalog_sha256": "fdac642f982895e6ea572f100cc1c231064b5fc67c1aa8cccf29affaa72e4c58",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -374,5 +374,5 @@
       "class": "mutation"
     }
   },
-  "protocol": "cmux.protocol/1"
+  "protocol": "cmux.protocol/2"
 }
