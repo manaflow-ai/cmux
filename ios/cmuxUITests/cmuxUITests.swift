@@ -7427,6 +7427,77 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// Reversing a keyboard dismissal before it settles must keep the Shortcut and
+    /// Composer bars in one visual dock. The surface samples their presentation-layer
+    /// seam every display frame; any transient separation remains observable after the
+    /// animation settles through `dockMaxInternalPresentationGap`.
+    @MainActor
+    func testTerminalDockStaysUnifiedAcrossRapidKeyboardReversals() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(
+            composerField.waitForExistence(timeout: 4),
+            "Rapid reversal coverage requires the Composer bar to be mounted"
+        )
+        let initialDock = waitForDock(in: app, describe: "composer and shortcut bars are both visible") {
+            guard $0["composerActive"] == "1",
+                  let composerMinY = $0["composerMinY"].flatMap(Double.init),
+                  let composerMaxY = $0["composerMaxY"].flatMap(Double.init) else { return false }
+            return composerMaxY - composerMinY > 1
+        }
+        XCTAssertEqual(initialDock["composerActive"], "1")
+
+        surface.tap()
+        guard let initialKeyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            surfaceDock(in: app),
+            surface: surface,
+            keyboard: initialKeyboard,
+            context: "rapid-reversal baseline"
+        )
+
+        let hideKeyboardButton = app.buttons["terminal.inputAccessory.hideKeyboard"]
+        XCTAssertTrue(hideKeyboardButton.waitForExistence(timeout: 4))
+
+        for cycle in 1...10 {
+            hideKeyboardButton.tap()
+            surface.tap()
+
+            guard let keyboard = waitForSoftwareKeyboardKeyPlane(
+                in: app,
+                minimumOverlap: 120,
+                timeout: 4
+            ) else { return }
+            let dock = surfaceDock(in: app)
+            assertTerminalDockPinnedToSoftwareKeyboard(
+                dock,
+                surface: surface,
+                keyboard: keyboard,
+                context: "rapid reversal \(cycle)"
+            )
+            guard let maximumGap = dock["dockMaxInternalPresentationGap"].flatMap(Double.init) else {
+                XCTFail("Missing per-frame dock seam metric after rapid reversal \(cycle). dock=\(dock)")
+                return
+            }
+            XCTAssertLessThanOrEqual(
+                maximumGap,
+                1,
+                "Shortcut and Composer bars separated during rapid reversal \(cycle). dock=\(dock)"
+            )
+        }
+    }
+
     @MainActor
     private func waitForKeyboardDismissal(in app: XCUIApplication) -> Bool {
         let expectation = XCTNSPredicateExpectation(
