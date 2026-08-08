@@ -35,9 +35,9 @@ mock.module("@/i18n/navigation", () => ({
     children: React.ReactNode;
   }) => <a href={href} {...props}>{children}</a>,
   redirect: () => undefined,
-  usePathname: () => "/dashboard/subrouter",
+  usePathname: () => "/dashboard/coderouter",
   useRouter: () => ({}),
-  getPathname: () => "/dashboard/subrouter",
+  getPathname: () => "/dashboard/coderouter",
 }));
 
 mock.module("../app/lib/stack", () => ({
@@ -103,11 +103,11 @@ mock.module("../app/[locale]/dashboard/components/ai-account-forms", () => ({
   DeleteAiAccountButton: () => null,
 }));
 
-const { default: SubrouterOverviewPage } = await import(
-  "../app/[locale]/dashboard/subrouter/page"
+const { default: CoderouterOverviewPage } = await import(
+  "../app/[locale]/dashboard/coderouter/page"
 );
 
-describe("Subrouter dashboard", () => {
+describe("coderouter dashboard", () => {
   beforeEach(() => {
     authorizationAvailable = false;
     authJsonAvailable = true;
@@ -117,7 +117,7 @@ describe("Subrouter dashboard", () => {
   });
 
   test("renders recovery UI when Stack authorization is unavailable", async () => {
-    const page = await SubrouterOverviewPage({
+    const page = await CoderouterOverviewPage({
       params: Promise.resolve({ locale: "en" }),
       searchParams: Promise.resolve({}),
     });
@@ -134,7 +134,7 @@ describe("Subrouter dashboard", () => {
     authorizationAvailable = true;
     cutoverReady = false;
 
-    const page = await SubrouterOverviewPage({
+    const page = await CoderouterOverviewPage({
       params: Promise.resolve({ locale: "en" }),
       searchParams: Promise.resolve({}),
     });
@@ -151,7 +151,7 @@ describe("Subrouter dashboard", () => {
     authorizationAvailable = true;
     authJsonAvailable = false;
 
-    const page = await SubrouterOverviewPage({
+    const page = await CoderouterOverviewPage({
       params: Promise.resolve({ locale: "en" }),
       searchParams: Promise.resolve({}),
     });
@@ -168,7 +168,7 @@ describe("Subrouter dashboard", () => {
     authorizationAvailable = true;
     hostedControlConfigured = false;
 
-    const page = await SubrouterOverviewPage({
+    const page = await CoderouterOverviewPage({
       params: Promise.resolve({ locale: "en" }),
       searchParams: Promise.resolve({}),
     });
