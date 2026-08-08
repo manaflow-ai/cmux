@@ -2047,13 +2047,11 @@ mod unix {
             record_metadata.as_ref(),
         )?;
         if record.record_version == 1 {
-            return Ok(
-                if record_file.is_none() && !Path::new(&record.endpoint).exists() {
-                    TerminalHostLiveness::Dead
-                } else {
-                    TerminalHostLiveness::Indeterminate
-                },
-            );
+            return Ok(if record_file.is_none() && !Path::new(&record.endpoint).exists() {
+                TerminalHostLiveness::Dead
+            } else {
+                TerminalHostLiveness::Indeterminate
+            });
         }
         let path = liveness_path(record_path, record);
         let name = path
@@ -9105,9 +9103,9 @@ mod unix {
 #[cfg(unix)]
 pub(crate) use unix::{
     ControlResponses, DecodedHostResize, DeferredCellPixelResolution, TerminalHostResetLock,
-    acquire_terminal_host_reset_lock_from_directory,
-    adopt_terminal_host_with_kitty_limits, decode_host_resize_payload_for_version,
-    terminal_host_record_liveness_from_directory, validate_terminal_host_record_from_directory,
+    acquire_terminal_host_reset_lock_from_directory, adopt_terminal_host_with_kitty_limits,
+    decode_host_resize_payload_for_version, terminal_host_record_liveness_from_directory,
+    validate_terminal_host_record_from_directory,
 };
 #[cfg(unix)]
 pub use unix::{

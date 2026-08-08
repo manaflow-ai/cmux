@@ -5909,9 +5909,7 @@ fn prepare_terminal_host_root_for_reset_at(
         .iter()
         .filter(|(_, record)| record.record_version >= 2)
         .filter_map(|(record_path, record)| {
-            terminal_host_live_marker_path(record_path, record)
-                .file_name()
-                .map(OsString::from)
+            terminal_host_live_marker_path(record_path, record).file_name().map(OsString::from)
         })
         .collect::<HashSet<_>>();
     for name in reset_dir_child_names(directory, root, "terminal host state")? {
@@ -5942,12 +5940,8 @@ fn prepare_terminal_host_root_for_reset_at(
                     let name = marker.file_name().ok_or_else(|| {
                         anyhow::anyhow!("terminal-host liveness path has no file name")
                     })?;
-                    match lock_verified_dead_live_marker_at(
-                        directory,
-                        name,
-                        &marker,
-                        expected_uid,
-                    )? {
+                    match lock_verified_dead_live_marker_at(directory, name, &marker, expected_uid)?
+                    {
                         TerminalHostLiveMarkerLock::Locked(lease) => live_marker_leases.push(lease),
                         TerminalHostLiveMarkerLock::Missing => {}
                         TerminalHostLiveMarkerLock::Unsafe => {
@@ -6008,10 +6002,9 @@ fn load_terminal_host_records_for_reset_at(
         if reset_stat_metadata_fingerprint(&current) != reset_stat_metadata_fingerprint(&stat) {
             anyhow::bail!("terminal-host record changed while reading: {}", path.display());
         }
-        let record = serde_json::from_slice::<crate::terminal_host_runtime::TerminalHostRecord>(
-            &bytes,
-        )
-        .with_context(|| format!("decode terminal-host record {}", path.display()))?;
+        let record =
+            serde_json::from_slice::<crate::terminal_host_runtime::TerminalHostRecord>(&bytes)
+                .with_context(|| format!("decode terminal-host record {}", path.display()))?;
         crate::terminal_host_runtime::validate_terminal_host_record_from_directory(
             directory, &path, &file, &record,
         )

@@ -392,8 +392,8 @@ fn reset_child_directory_open_rejects_mount_boundary() {
     use std::os::fd::AsRawFd;
 
     let root = File::open("/").unwrap();
-    let error = open_reset_child_dir(root.as_raw_fd(), OsStr::new("proc"), Path::new("/proc"))
-        .unwrap_err();
+    let error =
+        open_reset_child_dir(root.as_raw_fd(), OsStr::new("proc"), Path::new("/proc")).unwrap_err();
 
     assert_eq!(
         error.downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error),
