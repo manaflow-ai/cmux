@@ -29,8 +29,7 @@ struct WorkspaceDetailOverflowMenu: View, Equatable {
                 actions: workspaceActions
             )
         } label: {
-            Image(systemName: "ellipsis.circle")
-                .frame(width: 44, height: 44)
+            Image(systemName: "ellipsis")
         }
         .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
         .accessibilityLabel(L10n.string(

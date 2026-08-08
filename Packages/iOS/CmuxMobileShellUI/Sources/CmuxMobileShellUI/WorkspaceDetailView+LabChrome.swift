@@ -89,13 +89,11 @@ extension WorkspaceDetailView {
         case .some(.titleSwitcher):
             if shouldShowChatToggle {
                 chatToggleButton
-                    .frame(width: 44, height: 44)
             }
         case .some(.terminalFocus):
             HStack(spacing: 8) {
                 if shouldShowChatToggle {
                     chatToggleButton
-                        .frame(width: 44, height: 44)
                 }
                 WorkspaceDetailOverflowMenu(
                     terminalValue: terminalPickerMenuValue,
@@ -111,12 +109,10 @@ extension WorkspaceDetailView {
                     syncTerminalPickerRows(includeTitleChanges: includeTitleChanges)
                 }
             }
-            .frame(width: shouldShowChatToggle ? 96 : 44, height: 44, alignment: .trailing)
         case .some(.switcherSheet):
             HStack(spacing: 8) {
                 if shouldShowChatToggle {
                     chatToggleButton
-                        .frame(width: 44, height: 44)
                 }
                 Button(action: createTerminalFromToolbar) {
                     Label(
@@ -124,17 +120,14 @@ extension WorkspaceDetailView {
                         systemImage: "plus"
                     )
                     .labelStyle(.iconOnly)
-                    .frame(width: 44, height: 44)
                 }
                 .foregroundStyle(store.activeTerminalTheme.terminalChromeForegroundColor)
                 .accessibilityIdentifier("MobileWorkspaceLabQuickNewTerminalButton")
             }
-            .frame(width: shouldShowChatToggle ? 96 : 44, height: 44, alignment: .trailing)
         case .some(.titleStepper):
             HStack(spacing: 8) {
                 if shouldShowChatToggle {
                     chatToggleButton
-                        .frame(width: 44, height: 44)
                 }
                 WorkspaceTerminalStepper(
                     canStep: terminalPickerLiveRows.count > 1,
@@ -144,7 +137,6 @@ extension WorkspaceDetailView {
                 )
                 .equatable()
             }
-            .frame(height: 44, alignment: .trailing)
         }
     }
 

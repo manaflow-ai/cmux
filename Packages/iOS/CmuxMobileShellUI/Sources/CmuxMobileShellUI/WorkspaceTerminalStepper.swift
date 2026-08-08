@@ -15,10 +15,9 @@ struct WorkspaceTerminalStepper: View, Equatable {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 12) {
             Button(action: selectPrevious) {
                 Image(systemName: "chevron.left")
-                    .frame(width: 36, height: 44)
             }
             .accessibilityLabel(L10n.string(
                 "mobile.workspace.detail.previousTerminal",
@@ -28,7 +27,6 @@ struct WorkspaceTerminalStepper: View, Equatable {
 
             Button(action: selectNext) {
                 Image(systemName: "chevron.right")
-                    .frame(width: 36, height: 44)
             }
             .accessibilityLabel(L10n.string(
                 "mobile.workspace.detail.nextTerminal",
