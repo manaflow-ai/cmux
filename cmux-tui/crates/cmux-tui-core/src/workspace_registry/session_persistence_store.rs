@@ -1234,3 +1234,20 @@ fn upsert_session_effect_workflow(
     )?;
     Ok(())
 }
+
+impl WorkspaceRegistry {
+    pub(crate) fn runtime_attachment_state(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> anyhow::Result<Option<String>> {
+        self.connection
+            .query_row(
+                "SELECT state FROM journal_runtime_attachment_states
+                 WHERE terminal_id = ?1",
+                [terminal_id.as_str()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+}
