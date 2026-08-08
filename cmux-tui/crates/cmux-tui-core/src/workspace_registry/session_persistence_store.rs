@@ -237,6 +237,19 @@ pub(super) fn apply_session_persistence_journal_record(
     )? {
         upsert_session_effect_workflow(transaction, &row)?;
     }
+    if let Some((runtime, lifecycle)) = runtime_host_loss_from_record(
+        transaction,
+        sequence,
+        kind,
+        occurred_at_ms,
+        producer,
+        authority,
+        subjects,
+        payload,
+    )? {
+        upsert_runtime_attachment(transaction, &runtime)?;
+        upsert_session_lifecycle(transaction, &lifecycle)?;
+    }
     Ok(())
 }
 
@@ -328,6 +341,19 @@ fn derive_session_persistence_from_journal(
                 &record.payload,
             )? {
                 effect_workflows.insert(row.workflow_id.clone(), row);
+            }
+            if let Some((runtime, lifecycle_row)) = runtime_host_loss_from_record_map(
+                &runtime_attachments,
+                record.sequence,
+                &record.kind,
+                record.occurred_at_ms,
+                &record.producer,
+                authority,
+                &record.subjects,
+                &record.payload,
+            )? {
+                runtime_attachments.insert(runtime.terminal_id.to_string(), runtime);
+                lifecycle.insert(lifecycle_row.session_id.clone(), lifecycle_row);
             }
         }
         if empty || sequence >= page.head_sequence {
@@ -432,6 +458,147 @@ fn runtime_attachment_from_record(
         updated_at_ms: occurred_at_ms,
         committed_sequence: sequence,
     }))
+}
+
+fn runtime_host_loss_from_record(
+    transaction: &Transaction<'_>,
+    sequence: u64,
+    kind: &str,
+    occurred_at_ms: u64,
+    producer: &JournalProducer,
+    authority: Option<&JournalAuthority>,
+    subjects: &[JournalSubject],
+    payload: &Value,
+) -> anyhow::Result<Option<(RuntimeAttachmentRow, SessionLifecycleRow)>> {
+    let Some(terminal_id) = payload.get("terminal_id").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    let current = read_runtime_attachment(transaction, terminal_id)?;
+    runtime_host_loss_from_current(
+        current.as_ref(),
+        sequence,
+        kind,
+        occurred_at_ms,
+        producer,
+        authority,
+        subjects,
+        payload,
+    )
+}
+
+fn runtime_host_loss_from_record_map(
+    current: &BTreeMap<String, RuntimeAttachmentRow>,
+    sequence: u64,
+    kind: &str,
+    occurred_at_ms: u64,
+    producer: &JournalProducer,
+    authority: Option<&JournalAuthority>,
+    subjects: &[JournalSubject],
+    payload: &Value,
+) -> anyhow::Result<Option<(RuntimeAttachmentRow, SessionLifecycleRow)>> {
+    let Some(terminal_id) = payload.get("terminal_id").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    runtime_host_loss_from_current(
+        current.get(terminal_id),
+        sequence,
+        kind,
+        occurred_at_ms,
+        producer,
+        authority,
+        subjects,
+        payload,
+    )
+}
+
+fn runtime_host_loss_from_current(
+    current: Option<&RuntimeAttachmentRow>,
+    sequence: u64,
+    kind: &str,
+    occurred_at_ms: u64,
+    producer: &JournalProducer,
+    authority: Option<&JournalAuthority>,
+    subjects: &[JournalSubject],
+    payload: &Value,
+) -> anyhow::Result<Option<(RuntimeAttachmentRow, SessionLifecycleRow)>> {
+    if kind != "runtime.host_loss.proven"
+        || !is_trusted_session_persistence_record(producer, authority)
+        || payload.get("format").and_then(Value::as_str) != Some("cmux.runtime-host-loss.v1")
+        || !payload_keys_are_subset(
+            payload,
+            &[
+                "format",
+                "terminal_id",
+                "runtime_id",
+                "host_epoch",
+                "lease_generation",
+                "proof",
+            ],
+        )
+    {
+        return Ok(None);
+    }
+    let Some(session_id) = subject_id(subjects, "session") else {
+        return Ok(None);
+    };
+    let Some(terminal_subject) = subject_id(subjects, "terminal") else {
+        return Ok(None);
+    };
+    let Ok(terminal_id) = TerminalPublicId::parse(terminal_subject.to_string()) else {
+        return Ok(None);
+    };
+    if payload.get("terminal_id").and_then(Value::as_str) != Some(terminal_id.as_str()) {
+        return Ok(None);
+    }
+    let Some(runtime_id) = non_empty_payload_text(payload, "runtime_id") else {
+        return Ok(None);
+    };
+    let Some(host_epoch) = non_empty_payload_text(payload, "host_epoch") else {
+        return Ok(None);
+    };
+    let Some(lease_generation) = non_empty_payload_text(payload, "lease_generation") else {
+        return Ok(None);
+    };
+    let Some(proof) = payload
+        .get("proof")
+        .and_then(Value::as_str)
+        .filter(|value| matches!(*value, "host_liveness_dead" | "machine_epoch_advanced"))
+    else {
+        return Ok(None);
+    };
+    let Some(current) = current else {
+        return Ok(None);
+    };
+    if current.session_id != session_id
+        || current.terminal_id != terminal_id
+        || current.runtime_id != runtime_id
+        || current.host_epoch != host_epoch
+        || current.lease_generation != lease_generation
+        || current.state == "interrupted"
+    {
+        return Ok(None);
+    }
+    if !matches!(current.state.as_str(), "attached" | "detached" | "lost") {
+        return Ok(None);
+    }
+    let runtime = RuntimeAttachmentRow {
+        session_id: current.session_id.clone(),
+        terminal_id: current.terminal_id.clone(),
+        runtime_id: current.runtime_id.clone(),
+        state: "interrupted".into(),
+        host_epoch: current.host_epoch.clone(),
+        lease_generation: current.lease_generation.clone(),
+        updated_at_ms: occurred_at_ms,
+        committed_sequence: sequence,
+    };
+    let lifecycle = SessionLifecycleRow {
+        session_id: current.session_id.clone(),
+        state: "interrupted".into(),
+        reason: Some(format!("runtime_host_loss:{proof}")),
+        updated_at_ms: occurred_at_ms,
+        committed_sequence: sequence,
+    };
+    Ok(Some((runtime, lifecycle)))
 }
 
 fn hibernation_policy_from_record(
@@ -837,6 +1004,56 @@ fn upsert_runtime_attachment(
         ],
     )?;
     Ok(())
+}
+
+fn read_runtime_attachment(
+    transaction: &Transaction<'_>,
+    terminal_id: &str,
+) -> anyhow::Result<Option<RuntimeAttachmentRow>> {
+    let stored = transaction
+        .query_row(
+            "SELECT session_id, runtime_id, state, host_epoch, lease_generation,
+                    updated_at_ms, committed_sequence
+             FROM journal_runtime_attachment_states
+             WHERE terminal_id = ?1",
+            [terminal_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((
+        session_id,
+        runtime_id,
+        state,
+        host_epoch,
+        lease_generation,
+        updated_at_ms,
+        committed_sequence,
+    )) = stored
+    else {
+        return Ok(None);
+    };
+    Ok(Some(RuntimeAttachmentRow {
+        session_id,
+        terminal_id: TerminalPublicId::parse(terminal_id.to_string())?,
+        runtime_id,
+        state,
+        host_epoch,
+        lease_generation,
+        updated_at_ms: u64::try_from(updated_at_ms)
+            .context("stored runtime attachment timestamp is negative")?,
+        committed_sequence: u64::try_from(committed_sequence)
+            .context("stored runtime attachment sequence is negative")?,
+    }))
 }
 
 fn upsert_hibernation_policy(
