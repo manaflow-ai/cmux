@@ -1243,11 +1243,20 @@ impl PtyTerminalRuntime {
         Some(TerminalJournalUpdateGuard { epoch: &self.journal_capture_epoch })
     }
 
-    fn close_terminal_journal_capture_when_idle(&self) {
+    fn close_terminal_journal_capture_when_idle(&self, timeout: Duration) {
+        let deadline = Instant::now() + timeout;
         loop {
             let gate = self.journal_capture_gate.lock().unwrap();
             if self.journal_capture_epoch.load(Ordering::Acquire) & 1 == 0 {
                 self.journal_capture_open.store(false, Ordering::Release);
+                return;
+            }
+            if Instant::now() >= deadline {
+                self.journal_capture_open.store(false, Ordering::Release);
+                eprintln!(
+                    "cmux-tui: terminal journal capture did not become idle within {} ms; closing capture",
+                    timeout.as_millis()
+                );
                 return;
             }
             drop(gate);
@@ -3923,10 +3932,10 @@ impl Surface {
             }
         }
         // A reader that is blocked in the PTY has an even capture epoch and
-        // does not delay shutdown. An odd epoch means that terminal state has
-        // changed and its matching journal output is still in flight. Do not
-        // close the gate until that exact update reaches the ingress lane.
-        pty.close_terminal_journal_capture_when_idle();
+        // does not delay shutdown. Give an in-flight journal update the same
+        // bounded drain interval, then close its gate so a failed journal
+        // cannot prevent daemon shutdown forever.
+        pty.close_terminal_journal_capture_when_idle(timeout);
     }
 
     #[cfg(test)]
@@ -5794,14 +5803,23 @@ impl PtySurface {
                     if !self.journal_capture_open.load(Ordering::Acquire) {
                         return;
                     }
-                    let Some(retry) = mux.try_journal_terminal_output(
+                    let retry = match mux.try_journal_terminal_output(
                         terminal_id.clone(),
                         self.journal_generation.clone(),
                         occurred_at_ms,
                         pending,
-                    ) else {
-                        break;
+                    ) {
+                        Ok(retry) => retry,
+                        Err(error) => {
+                            self.journal_capture_open.store(false, Ordering::Release);
+                            mux.request_daemon_shutdown();
+                            eprintln!(
+                                "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
+                            );
+                            return;
+                        }
                     };
+                    let Some(retry) = retry else { break };
                     pending = retry;
                 }
                 std::thread::sleep(Duration::from_millis(1));

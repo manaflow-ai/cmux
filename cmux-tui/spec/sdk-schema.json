@@ -9092,7 +9092,7 @@
       },
       "stream": null,
       "constraints": [
-        "Provider endpoints and optional bearer credentials are disclosed only over a trusted local transport.",
+        "Provider endpoints and targets are disclosed only over a trusted local transport; bearer credentials are accepted only during registration and are never returned.",
         "Automation must select a target by stable tab id instead of treating CDP discovery as topology authority."
       ]
     },

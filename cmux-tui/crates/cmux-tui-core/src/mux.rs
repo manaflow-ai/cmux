@@ -4535,24 +4535,38 @@ impl Mux {
         generation: Arc<str>,
         occurred_at_ms: u64,
         bytes: Vec<u8>,
-    ) -> Option<Vec<u8>> {
+    ) -> Result<Option<Vec<u8>>, String> {
         if bytes.is_empty() {
-            return None;
+            return Ok(None);
         }
-        self.journal_ingress
-            .try_send(crate::journal_ingress::JournalIngressEvent::TerminalOutput {
+        match self.journal_ingress.try_send(
+            crate::journal_ingress::JournalIngressEvent::TerminalOutput {
                 terminal_id,
                 generation,
                 occurred_at_ms,
                 bytes,
-            })
-            .err()
-            .and_then(|event| match *event {
-                crate::journal_ingress::JournalIngressEvent::TerminalOutput { bytes, .. } => {
-                    Some(bytes)
-                }
-                _ => None,
-            })
+            },
+        ) {
+            Ok(()) => Ok(None),
+            Err(crate::journal_ingress::JournalIngressTrySendError::Full(event)) => {
+                Ok(match *event {
+                    crate::journal_ingress::JournalIngressEvent::TerminalOutput {
+                        bytes, ..
+                    } => Some(bytes),
+                    _ => None,
+                })
+            }
+            Err(crate::journal_ingress::JournalIngressTrySendError::Failed {
+                event,
+                error,
+            }) => {
+                debug_assert!(matches!(
+                    *event,
+                    crate::journal_ingress::JournalIngressEvent::TerminalOutput { .. }
+                ));
+                Err(error)
+            }
+        }
     }
 
     pub(crate) fn flush_terminal_journal(&self) -> anyhow::Result<()> {

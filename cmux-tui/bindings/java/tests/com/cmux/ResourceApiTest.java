@@ -531,7 +531,7 @@ public final class ResourceApiTest {
             "lifecycle", "running"
         ));
         require(
-            legacyTerminal.tabIds().equals(List.of(legacyTerminal.tabId().orElseThrow())),
+            legacyTerminal.tabIds().equals(List.of(new Ids.TabId("tab_" + HEX))),
             "protocol-one terminal tab_id expands to tabIds"
         );
         Map<String, Object> legacyDetachedFields = new LinkedHashMap<>();
@@ -545,7 +545,7 @@ public final class ResourceApiTest {
         Snapshots.TerminalSnapshot legacyDetached =
             Client.decodeTerminal(legacyDetachedFields);
         require(
-            legacyDetached.tabId().isEmpty() && legacyDetached.tabIds().isEmpty(),
+            legacyDetached.tabIds().isEmpty(),
             "protocol-one detached terminal expands to empty tabIds"
         );
         expect(

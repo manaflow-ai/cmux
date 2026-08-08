@@ -12,7 +12,7 @@ use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{
-    Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError, channel, sync_channel,
+    Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel,
 };
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
@@ -363,39 +363,130 @@ impl Drop for SessionEventWorker {
     }
 }
 
-enum FrontendJournalMessage {
-    Event(Session, Box<FrontendJournalEvent>),
-    Stop,
+struct PendingFrontendJournalEvent {
+    sequence: u64,
+    session: Session,
+    event: Box<FrontendJournalEvent>,
+}
+
+impl PendingFrontendJournalEvent {
+    fn slot(&self) -> usize {
+        match self.event.as_ref() {
+            FrontendJournalEvent::Focus { .. } => 0,
+            FrontendJournalEvent::Resize { .. } => 1,
+            FrontendJournalEvent::Viewport { .. } => 2,
+        }
+    }
+}
+
+#[derive(Default)]
+struct FrontendJournalQueueState {
+    pending: [Option<PendingFrontendJournalEvent>; 3],
+    next_sequence: u64,
+    stopping: bool,
+}
+
+#[derive(Default)]
+struct FrontendJournalQueue {
+    state: Mutex<FrontendJournalQueueState>,
+    changed: Condvar,
+}
+
+impl FrontendJournalQueue {
+    fn push(&self, session: Session, event: FrontendJournalEvent) {
+        let slot = match &event {
+            FrontendJournalEvent::Focus { .. } => 0,
+            FrontendJournalEvent::Resize { .. } => 1,
+            FrontendJournalEvent::Viewport { .. } => 2,
+        };
+        let mut state = self.state.lock().unwrap();
+        if state.stopping {
+            return;
+        }
+        state.next_sequence = state.next_sequence.wrapping_add(1).max(1);
+        let sequence = state.next_sequence;
+        state.pending[slot] = Some(PendingFrontendJournalEvent {
+            sequence,
+            session,
+            event: Box::new(event),
+        });
+        drop(state);
+        self.changed.notify_one();
+    }
+
+    fn take(&self) -> Option<PendingFrontendJournalEvent> {
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if let Some(slot) = state
+                .pending
+                .iter()
+                .enumerate()
+                .filter_map(|(slot, pending)| pending.as_ref().map(|pending| (slot, pending.sequence)))
+                .min_by_key(|(_, sequence)| *sequence)
+                .map(|(slot, _)| slot)
+            {
+                return state.pending[slot].take();
+            }
+            if state.stopping {
+                return None;
+            }
+            state = self.changed.wait(state).unwrap();
+        }
+    }
+
+    fn retry(&self, pending: PendingFrontendJournalEvent) -> Option<PendingFrontendJournalEvent> {
+        let state = self.state.lock().unwrap();
+        if state.stopping || state.pending[pending.slot()].is_some() {
+            None
+        } else {
+            Some(pending)
+        }
+    }
+
+    fn stop(&self) {
+        self.state.lock().unwrap().stopping = true;
+        self.changed.notify_one();
+    }
+
+    fn stopping(&self) -> bool {
+        self.state.lock().unwrap().stopping
+    }
+
+    #[cfg(test)]
+    fn pending_count(&self) -> usize {
+        self.state.lock().unwrap().pending.iter().flatten().count()
+    }
 }
 
 struct FrontendJournalWorker {
-    sender: Option<Sender<FrontendJournalMessage>>,
+    queue: Option<Arc<FrontendJournalQueue>>,
     worker: Option<JoinHandle<()>>,
 }
 
 impl FrontendJournalWorker {
     fn spawn() -> anyhow::Result<Self> {
-        let (sender, receiver) = channel();
+        let queue = Arc::new(FrontendJournalQueue::default());
+        let worker_queue = queue.clone();
         let worker = std::thread::Builder::new()
             .name("frontend-session-journal".into())
-            .spawn(move || run_frontend_journal_worker(receiver))?;
-        Ok(Self { sender: Some(sender), worker: Some(worker) })
+            .spawn(move || run_frontend_journal_worker(&worker_queue))?;
+        Ok(Self { queue: Some(queue), worker: Some(worker) })
     }
 
     #[cfg(test)]
     const fn disabled() -> Self {
-        Self { sender: None, worker: None }
+        Self { queue: None, worker: None }
     }
 
     fn send(&self, session: Session, event: FrontendJournalEvent) {
-        if let Some(sender) = &self.sender {
-            let _ = sender.send(FrontendJournalMessage::Event(session, Box::new(event)));
+        if let Some(queue) = &self.queue {
+            queue.push(session, event);
         }
     }
 
     fn stop_and_join(&mut self) {
-        if let Some(sender) = self.sender.take() {
-            let _ = sender.send(FrontendJournalMessage::Stop);
+        if let Some(queue) = self.queue.take() {
+            queue.stop();
         }
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
@@ -409,30 +500,20 @@ impl Drop for FrontendJournalWorker {
     }
 }
 
-fn run_frontend_journal_worker(receiver: Receiver<FrontendJournalMessage>) {
-    let mut pending = VecDeque::new();
-    loop {
-        if pending.is_empty() {
-            match receiver.recv() {
-                Ok(FrontendJournalMessage::Event(session, event)) => {
-                    pending.push_back((session, event));
+fn run_frontend_journal_worker(queue: &FrontendJournalQueue) {
+    while let Some(mut pending) = queue.take() {
+        loop {
+            if pending.session.journal_frontend_event(pending.event.as_ref().clone()).is_ok() {
+                break;
+            }
+            let Some(retry) = queue.retry(pending) else {
+                if queue.stopping() {
+                    return;
                 }
-                Ok(FrontendJournalMessage::Stop) | Err(_) => return,
-            }
-        }
-        let committed = pending.front().is_some_and(|(session, event)| {
-            session.journal_frontend_event(event.as_ref().clone()).is_ok()
-        });
-        if committed {
-            pending.pop_front();
-            continue;
-        }
-        match receiver.recv_timeout(Duration::from_millis(100)) {
-            Ok(FrontendJournalMessage::Event(session, event)) => {
-                pending.push_back((session, event));
-            }
-            Ok(FrontendJournalMessage::Stop) | Err(RecvTimeoutError::Disconnected) => return,
-            Err(RecvTimeoutError::Timeout) => {}
+                break;
+            };
+            pending = retry;
+            std::thread::sleep(Duration::from_millis(100));
         }
     }
 }
@@ -19081,6 +19162,62 @@ mod tests {
         app.outer_size.0 = 80;
         app.focus = FocusTarget::WorkspaceRail;
         assert!(!app.frontend_presentation_unchanged());
+    }
+
+    #[test]
+    fn frontend_journal_queue_keeps_only_the_latest_event_of_each_type() {
+        let queue = FrontendJournalQueue::default();
+        let session = Session::Local(Mux::new(
+            "frontend-journal-bounded-coalescing",
+            SurfaceOptions::default(),
+        ));
+        let projection = FrontendProjectionPublicId::parse(
+            "projection_00000000000000000000000000000001",
+        )
+        .unwrap();
+        let focus = |event_id: &str| FrontendJournalEvent::Focus {
+            event_id: event_id.into(),
+            frontend_projection_id: projection.clone(),
+            generation: "generation-1".into(),
+            target: FrontendFocusTarget::Pane,
+            workspace_id: None,
+            screen_id: None,
+            pane_id: None,
+            tab_id: None,
+            content_id: None,
+        };
+
+        queue.push(session.clone(), focus("focus-old"));
+        queue.push(
+            session.clone(),
+            FrontendJournalEvent::Resize {
+                event_id: "resize-latest".into(),
+                frontend_projection_id: projection.clone(),
+                generation: "generation-1".into(),
+                cols: 80,
+                rows: 24,
+                cell_width: 8,
+                cell_height: 16,
+            },
+        );
+        queue.push(
+            session.clone(),
+            FrontendJournalEvent::Viewport {
+                event_id: "viewport-latest".into(),
+                frontend_projection_id: projection.clone(),
+                generation: "generation-1".into(),
+                screen_id: None,
+                offset: 0,
+                target: 0,
+                settled: true,
+            },
+        );
+        queue.push(session, focus("focus-latest"));
+
+        assert_eq!(queue.pending_count(), 3);
+        assert_eq!(queue.take().unwrap().event.event_id(), "resize-latest");
+        assert_eq!(queue.take().unwrap().event.event_id(), "viewport-latest");
+        assert_eq!(queue.take().unwrap().event.event_id(), "focus-latest");
     }
 
     #[test]

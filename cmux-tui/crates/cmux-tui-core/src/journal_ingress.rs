@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::mem::size_of;
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +19,7 @@ const JOURNAL_DURABLE_BATCH_BYTES: usize = 8 * 1024 * 1024;
 pub(crate) const TERMINAL_OUTPUT_INGRESS_BYTES: usize = 64 * 1024;
 const TERMINAL_OUTPUT_BATCH_BYTES: usize = 256 * 1024;
 const JOURNAL_TERMINAL_FAILURE_RETRY_ATTEMPTS: usize = 6;
+const JOURNAL_DURABLE_WAIT: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -232,6 +233,14 @@ pub(crate) struct JournalIngressReceivers {
     state: Arc<JournalIngressState>,
 }
 
+pub(crate) enum JournalIngressTrySendError {
+    Full(Box<JournalIngressEvent>),
+    Failed {
+        event: Box<JournalIngressEvent>,
+        error: String,
+    },
+}
+
 #[derive(Default)]
 struct JournalIngressState {
     failure: Mutex<Option<String>>,
@@ -311,14 +320,14 @@ impl JournalIngressSender {
     pub(crate) fn try_send(
         &self,
         event: JournalIngressEvent,
-    ) -> Result<(), Box<JournalIngressEvent>> {
+    ) -> Result<(), JournalIngressTrySendError> {
         debug_assert!(matches!(
             &event,
             JournalIngressEvent::TerminalOutput { .. } | JournalIngressEvent::TerminalResize { .. }
         ));
         let Some(sender) = &self.terminal_sender else { return Ok(()) };
-        if self.state.failure().is_some() {
-            return Ok(());
+        if let Some(error) = self.state.failure() {
+            return Err(JournalIngressTrySendError::Failed { event: Box::new(event), error });
         }
         match sender.try_send(QueuedJournalEvent { event, completion: None }) {
             Ok(()) => {
@@ -330,8 +339,15 @@ impl JournalIngressSender {
                 }
                 Ok(())
             }
-            Err(TrySendError::Full(queued)) => Err(Box::new(queued.event)),
-            Err(TrySendError::Disconnected(_)) => Ok(()),
+            Err(TrySendError::Full(queued)) => {
+                Err(JournalIngressTrySendError::Full(Box::new(queued.event)))
+            }
+            Err(TrySendError::Disconnected(queued)) => {
+                Err(JournalIngressTrySendError::Failed {
+                    event: Box::new(queued.event),
+                    error: self.writer_error(),
+                })
+            }
         }
     }
 
@@ -346,17 +362,27 @@ impl JournalIngressSender {
         };
         let Some(sender) = sender else { return Ok(()) };
         let (completion, result) = sync_channel(1);
-        self.enqueue(
+        let deadline = Instant::now() + JOURNAL_DURABLE_WAIT;
+        self.enqueue_until(
             sender,
             QueuedJournalEvent {
                 event,
                 completion: Some(JournalIngressCompletion::Durable(completion)),
             },
+            deadline,
         )
         .map_err(anyhow::Error::msg)?;
         result
-            .recv()
-            .map_err(|_| anyhow::Error::msg(self.writer_error()))?
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .map_err(|error| match error {
+                std::sync::mpsc::RecvTimeoutError::Timeout => anyhow::anyhow!(
+                    "timed out after {} ms waiting for session journal durability",
+                    JOURNAL_DURABLE_WAIT.as_millis()
+                ),
+                std::sync::mpsc::RecvTimeoutError::Disconnected => {
+                    anyhow::Error::msg(self.writer_error())
+                }
+            })?
             .map_err(anyhow::Error::msg)
     }
 
@@ -417,6 +443,41 @@ impl JournalIngressSender {
             }
         }
         Ok(())
+    }
+
+    fn enqueue_until(
+        &self,
+        sender: &SyncSender<QueuedJournalEvent>,
+        event: QueuedJournalEvent,
+        deadline: Instant,
+    ) -> Result<(), String> {
+        let mut pending = event;
+        loop {
+            if let Some(error) = self.state.failure() {
+                return Err(error);
+            }
+            match sender.try_send(pending) {
+                Ok(()) => {
+                    if let Some(wake) = &self.wake_sender {
+                        match wake.try_send(()) {
+                            Ok(()) | Err(TrySendError::Full(())) => {}
+                            Err(TrySendError::Disconnected(())) => {}
+                        }
+                    }
+                    return Ok(());
+                }
+                Err(TrySendError::Full(event)) => pending = event,
+                Err(TrySendError::Disconnected(_)) => return Err(self.writer_error()),
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(format!(
+                    "timed out after {} ms waiting to queue a durable session journal event",
+                    JOURNAL_DURABLE_WAIT.as_millis()
+                ));
+            }
+            std::thread::sleep(remaining.min(Duration::from_millis(10)));
+        }
     }
 
     fn writer_error(&self) -> String {
@@ -488,6 +549,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             let failure = receivers.state.fail(format!(
                                 "session journal writer failed permanently: {summary}"
                             ));
+                            mux.request_daemon_shutdown();
                             complete_batch_error(&batch, failure.clone());
                             for pending_batch in pending {
                                 complete_batch_error(&pending_batch, failure.clone());
@@ -809,6 +871,47 @@ mod tests {
     }
 
     #[test]
+    fn shutdown_has_a_deadline_when_the_journal_stays_locked() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-journal-locked-shutdown-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "terminal-journal-locked-shutdown",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let database_path = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+            .find(|path| path.is_file())
+            .expect("persistent journal database");
+        let blocker = rusqlite::Connection::open(database_path).unwrap();
+        blocker.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        mux.journal_terminal_output(
+            Arc::new(public_id("term", 15, TerminalPublicId::parse)),
+            Arc::from("locked-shutdown-generation"),
+            b"blocked until the shutdown deadline".to_vec(),
+        );
+
+        let started = Instant::now();
+        mux.shutdown();
+
+        assert!(
+            started.elapsed() < JOURNAL_DURABLE_WAIT + Duration::from_secs(2),
+            "a locked journal must not prevent shutdown forever"
+        );
+        blocker.execute_batch("ROLLBACK;").unwrap();
+        mux.flush_terminal_journal().unwrap();
+        drop(blocker);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn shutdown_joins_terminal_readers_before_the_final_journal_fence() {
         let root = std::env::temp_dir().join(format!(
             "cmux-terminal-reader-shutdown-{}-{}",
@@ -1069,6 +1172,20 @@ mod tests {
 
         assert!(started.elapsed() < Duration::from_secs(3));
         assert!(error.to_string().contains("injected permanent terminal journal failure"));
+        assert!(
+            mux.daemon_shutdown_requested(),
+            "a permanent output gap must stop the daemon instead of continuing silently"
+        );
+        assert!(
+            mux.try_journal_terminal_output(
+                Arc::new(public_id("term", 14, TerminalPublicId::parse)),
+                Arc::from("permanent-writer-failure-generation"),
+                42,
+                b"must not be accepted".to_vec(),
+            )
+            .is_err(),
+            "later output must observe the terminal writer failure"
+        );
         assert!(
             mux.flush_terminal_journal()
                 .unwrap_err()

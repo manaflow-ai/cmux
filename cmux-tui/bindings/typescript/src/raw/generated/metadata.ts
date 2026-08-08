@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 11, IR 934440b84cbcf885b22a233214f5954a31eb1d42bd4abd34ee0ca141906b2226. */
+/* cmux-tui mux protocol 11, IR 536268a614cad1e011105c31de780ef468c07a01c8f283c722725ee656276072. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 11 as const;
-export const SDK_IR_SHA256 = "934440b84cbcf885b22a233214f5954a31eb1d42bd4abd34ee0ca141906b2226" as const;
+export const SDK_IR_SHA256 = "536268a614cad1e011105c31de780ef468c07a01c8f283c722725ee656276072" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -448,7 +448,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Provider endpoints and optional bearer credentials are disclosed only over a trusted local transport.",
+      "Provider endpoints and targets are disclosed only over a trusted local transport; bearer credentials are accepted only during registration and are never returned.",
       "Automation must select a target by stable tab id instead of treating CDP discovery as topology authority."
     ]
   },
