@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
-MUX_PROTOCOL = 10
-IR_SHA256 = '16906e2638310a262e3b0580c5efb9d47204e9f92d869df8d5cb545d142a2627'
+MUX_PROTOCOL = 11
+IR_SHA256 = 'f43de75719bc1ec1e6a94c405a1f802a073eb93dfcb10ff6a3b68460bcb4499c'
 
 
 @dataclass(frozen=True)
@@ -603,6 +603,18 @@ COMMANDS = {
         None,
         {
             'surface': CommandFieldMetadata(None, None),
+            'ttl_ms': CommandFieldMetadata(None, None),
+        },
+    ),
+    'mint-terminal-renderer-by-terminal': CommandMetadata(
+        'mint-terminal-renderer-by-terminal',
+        'frontend',
+        11,
+        None,
+        ('frontend',),
+        None,
+        {
+            'terminal': CommandFieldMetadata(None, None),
             'ttl_ms': CommandFieldMetadata(None, None),
         },
     ),

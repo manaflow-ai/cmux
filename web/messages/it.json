@@ -135,6 +135,31 @@
     "faqFeatureA": "Vogliamo saperlo. Apri una <issuesLink>issue</issuesLink> o una <prLink>pull request</prLink> su GitHub, oppure <mailLink>scrivici</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "panoramica",
+      "team": "team"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "Instrada le richieste LLM tra gli account dei provider con failover e pianificazione basata sull’utilizzo.",
+      "coderouterLink": "apri coderouter"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Gestisci gli account IA condivisi e instrada le richieste con coderouter.",
+      "title": "coderouter",
+      "description": "coderouter instrada le richieste LLM tra gli account dei provider con failover e pianificazione basata sull’utilizzo."
+    },
+    "accountMenu": {
+      "label": "Menu account",
+      "settings": "Impostazioni",
+      "billing": "Fatturazione",
+      "signOut": "Esci",
+      "signingOut": "Uscita…",
+      "signOutError": "Impossibile uscire. Riprova.",
+      "signIn": "Accedi"
+    },
     "aiAccounts": {
       "metaTitle": "Account IA — cmux",
       "metaDescription": "Gestisci gli account dei provider IA del team per cmux.",

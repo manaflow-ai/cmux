@@ -9,6 +9,10 @@ extension MobileShellComposite {
     public var supportsBrowserStreamDialogs: Bool {
         supportsBrowserStream && supportedHostCapabilities.contains(Self.browserStreamDialogCapability)
     }
+    /// Whether the connected Mac can create a browser panel for the phone to stream.
+    public var supportsBrowserStreamCreate: Bool {
+        supportsBrowserStream && supportedHostCapabilities.contains(Self.browserStreamCreateCapability)
+    }
     static let chatArtifactFoldersCapability = "chat.artifact.folders.v1"
     static let terminalArtifactListCapability = "terminal.artifact.list.v1"
 
