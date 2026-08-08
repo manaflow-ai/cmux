@@ -445,6 +445,49 @@ import Testing
         #expect(restored[ids[0].uuidString] == before[ids[0]])
     }
 
+    /// A manual override hides, but does not surrender, the workspace's saved
+    /// auto color. Otherwise a newly created workspace can take that color and
+    /// clearing the override has to recolor one of them.
+    @Test
+    func manualOverrideKeepsTheSavedAutoColorReserved() throws {
+        let defaults = Self.suite()
+        let overridden = UUID()
+        let newWorkspace = UUID()
+        let manualColor = "#ABCDEF"
+        let reservedColor = try #require(
+            WorkspaceAutoTabColorAssignment.nextColorHex(
+                palette: Self.palette,
+                usedHexes: [manualColor]
+            )
+        )
+        defaults.set(
+            [overridden.uuidString: reservedColor],
+            forKey: WorkspaceAutoColorAssignmentStore.defaultsKey
+        )
+
+        let whileOverridden = WorkspaceAutoColorAssignmentStore.reconcile(
+            needingAssignment: [newWorkspace],
+            liveIds: [overridden, newWorkspace],
+            manualColorHexes: [manualColor],
+            palette: Self.palette,
+            defaults: defaults
+        )
+        let newWorkspaceColor = try #require(whileOverridden[newWorkspace.uuidString])
+
+        #expect(newWorkspaceColor != reservedColor)
+
+        let afterClearing = WorkspaceAutoColorAssignmentStore.reconcile(
+            needingAssignment: [overridden, newWorkspace],
+            liveIds: [overridden, newWorkspace],
+            manualColorHexes: [],
+            palette: Self.palette,
+            defaults: defaults
+        )
+
+        #expect(afterClearing[overridden.uuidString] == reservedColor)
+        #expect(afterClearing[newWorkspace.uuidString] == newWorkspaceColor)
+    }
+
     /// The failure this guards against: a reconcile that ran mid-restore, when
     /// no workspaces were loaded yet, used to wipe the table and hand every
     /// workspace a different color on the next pass.
