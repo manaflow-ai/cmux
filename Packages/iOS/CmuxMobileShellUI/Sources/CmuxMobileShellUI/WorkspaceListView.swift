@@ -223,27 +223,13 @@ struct WorkspaceListView: View {
         }
     }
 
-    /// Distinct physical computers this device knows about: computers with
-    /// visible workspace rows plus every paired Mac (paired-but-offline
-    /// computers count — the sort preference governs them the moment they
-    /// reconnect, and a wedged secondary connection must not hide the control).
-    var knownComputerDeviceIDs: Set<String> {
-        var ids = Set(
-            (machineSnapshots ?? liveMachineSnapshots).filterMachines.map(\.macDeviceID)
-        )
-        for mac in displayPairedMacsForPicker {
-            ids.insert(mac.macDeviceID)
-        }
-        ids.remove("")
-        return ids
-    }
-
     /// The sort mode the filter menu offers, or `nil` to hide the sort section:
     /// sorting is an All Computers concern, so a single-machine scope (whose
-    /// order is the Mac's own sidebar order) offers none, and a device that has
-    /// only ever known one computer has nothing to sort.
+    /// order is the Mac's own sidebar order) offers none. No computer-count
+    /// gate: the preference is worth setting before a second computer pairs,
+    /// and a wedged or offline secondary connection must not hide the control.
     var workspaceSortMenuMode: MobileWorkspaceSortMode? {
-        guard setWorkspaceSortMode != nil, knownComputerDeviceIDs.count > 1 else { return nil }
+        guard setWorkspaceSortMode != nil else { return nil }
         switch visibleMacSelection {
         case .all, .automatic:
             return workspaceSortMode

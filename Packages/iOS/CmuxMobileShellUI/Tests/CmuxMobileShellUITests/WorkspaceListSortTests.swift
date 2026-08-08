@@ -148,17 +148,26 @@ import Testing
         #expect(view.computerOrderSheetMachines.map(\.macDeviceID).contains("mac-b"))
     }
 
-    @Test func sortMenuHiddenWhenOnlyOneComputerIsKnown() async throws {
-        let store = await shellStore(pairedMacs: [
+    @Test func sortMenuShowsEvenWithOneOrZeroKnownComputers() async throws {
+        // The preference is worth setting before a second computer pairs, and
+        // a count gate would hide the control behind connection state.
+        let oneMacStore = await shellStore(pairedMacs: [
             pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20),
         ])
-        let view = workspaceListView(
+        let oneMacView = workspaceListView(
             workspaces: [workspace(id: "a-1", macDeviceID: "mac-a", activityAt: 100)],
-            store: store,
+            store: oneMacStore,
+            workspaceSortMode: .automatic
+        )
+        let emptyStore = await shellStore(pairedMacs: [])
+        let emptyView = workspaceListView(
+            workspaces: [],
+            store: emptyStore,
             workspaceSortMode: .automatic
         )
 
-        #expect(view.workspaceSortMenuMode == nil)
+        #expect(oneMacView.workspaceSortMenuMode == .automatic)
+        #expect(emptyView.workspaceSortMenuMode == .automatic)
     }
 
     @Test func computerOrderSheetListsStoredPriorityFirst() async throws {
