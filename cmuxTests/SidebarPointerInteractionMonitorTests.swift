@@ -223,6 +223,11 @@ import Testing
 
         monitor.setWorkspaceDragEnabled(true, for: rowId)
         #expect(monitor.workspaceDragCandidate(at: CGPoint(x: 100, y: 54))?.workspaceId == workspaceId)
+
+        monitor.setWorkspaceDragEnabled(false, for: rowId)
+        monitor.removeFrame(for: rowId)
+        monitor.updateFrame(frame, for: rowId, workspaceId: workspaceId)
+        #expect(monitor.workspaceDragCandidate(at: CGPoint(x: 100, y: 54))?.workspaceId == workspaceId)
     }
 
     @Test func convertsSwiftUIRowFrameToAppKitSourceFrame() {
