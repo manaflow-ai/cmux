@@ -737,26 +737,15 @@ enum SchemaSocketOwner {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ResetStateRecoverySupport {
     Supported,
-    #[cfg_attr(
-        any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"),
-        allow(dead_code)
-    )]
     Unsupported,
 }
 
-#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
 fn reset_state_recovery_support() -> ResetStateRecoverySupport {
-    ResetStateRecoverySupport::Supported
-}
-
-#[cfg(not(any(
-    target_os = "ios",
-    target_os = "macos",
-    target_os = "linux",
-    target_os = "android"
-)))]
-fn reset_state_recovery_support() -> ResetStateRecoverySupport {
-    ResetStateRecoverySupport::Unsupported
+    if cmux_tui_core::checked_reset_deletion_supported() {
+        ResetStateRecoverySupport::Supported
+    } else {
+        ResetStateRecoverySupport::Unsupported
+    }
 }
 
 fn schema_socket_owner(

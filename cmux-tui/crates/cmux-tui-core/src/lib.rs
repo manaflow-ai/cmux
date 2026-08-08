@@ -70,7 +70,7 @@ pub use workspace_registry::{
     FrontendProjection, PersistentSessionStateReset, PersistentSessionStateResetPreview,
     PersistentSessionStateResetter, ProjectionCommit, RegistryCommit, RegistryEvent,
     RegistrySnapshot, RegistryWorkspace, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation,
-    WorkspaceRegistry,
+    WorkspaceRegistry, checked_reset_deletion_supported,
 };
 
 pub use cmux_remote_protocol::REMOTE_SESSION_MESSAGE_MAX_BYTES;

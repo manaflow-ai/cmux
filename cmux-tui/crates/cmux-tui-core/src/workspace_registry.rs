@@ -78,6 +78,8 @@ const MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES: u64 = 1024 * 1024;
 const MAX_RESET_CONFIRMATION_FINGERPRINT_MANIFEST_BYTES: usize = 16 * 1024 * 1024;
 #[cfg(test)]
 const MAX_RESET_CONFIRMATION_FINGERPRINT_MANIFEST_BYTES: usize = 1024;
+#[cfg(unix)]
+const MAX_TERMINAL_HOST_RECORD_BYTES: u64 = 1024 * 1024;
 const RESOURCE_EFFECT_PEPPER_BYTES: usize = 32;
 const RESOURCE_EFFECT_PEPPER_FILE: &str = "resource-effect-pepper";
 const RESOURCE_EFFECT_PEPPER_LOCK_FILE: &str = "resource-effect-pepper.lock";
@@ -956,6 +958,7 @@ fn collect_reset_directory_fingerprints_at(
 
     let mut names = reset_dir_child_names(directory, display_path, "reset path")?;
     names.sort();
+    budget.check_queued_child(names.len().saturating_sub(1), display_path)?;
     for name in names {
         if relative_path == Path::new(".")
             && ignored_root_child.is_some_and(|ignored| name == std::ffi::OsStr::new(ignored))
@@ -1189,7 +1192,13 @@ fn rename_reset_dir_for_deletion_at(
                         source_name,
                         &candidate,
                         source,
-                    )?;
+                    )
+                    .with_context(|| {
+                        format!(
+                            "preserve changed reset path {} after validation failed: {error:#}",
+                            source.display()
+                        )
+                    })?;
                     return Err(error);
                 }
                 sync_private_reset_rename_at(root_directory, root, &candidate, label)?;
@@ -2253,6 +2262,9 @@ fn reset_dir_child_names(
         if name == b"." || name == b".." {
             continue;
         }
+        if names.len() >= MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES {
+            return Err(reset_confirmation_scan_limit_error("paths", display_path));
+        }
         names.push(std::ffi::OsStr::from_bytes(name).to_os_string());
     }
     Ok(names)
@@ -2714,31 +2726,74 @@ fn ensure_checked_reset_deletion_supported(root: &Path) -> anyhow::Result<()> {
             return unsupported_checked_reset_deletion(root, "saved state");
         }
     }
-    #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
-    {
-        let _ = root;
+    if checked_reset_deletion_supported() {
         Ok(())
-    }
-    #[cfg(not(any(
-        target_os = "ios",
-        target_os = "macos",
-        target_os = "linux",
-        target_os = "android"
-    )))]
-    {
+    } else {
         unsupported_checked_reset_deletion(root, "saved state")
     }
 }
 
-#[cfg(any(
-    test,
-    not(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))
-))]
 fn unsupported_checked_reset_deletion(path: &Path, label: &str) -> anyhow::Result<()> {
     anyhow::bail!(
         "safe saved-state reset is not supported on this platform because cmux cannot verify {label} during deletion: {}",
         path.display()
     )
+}
+
+/// Return whether this process can enforce descriptor-relative reset deletion boundaries.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub fn checked_reset_deletion_supported() -> bool {
+    const RESOLVE_NO_XDEV: u64 = 0x01;
+    const RESOLVE_NO_SYMLINKS: u64 = 0x04;
+    const RESOLVE_BENEATH: u64 = 0x08;
+
+    let path = std::ffi::CString::new(".").expect("reset capability path has no nul byte");
+    let how = ResetOpenHow {
+        flags: (libc::O_RDONLY | libc::O_CLOEXEC | libc::O_DIRECTORY) as u64,
+        mode: 0,
+        resolve: RESOLVE_NO_XDEV | RESOLVE_NO_SYMLINKS | RESOLVE_BENEATH,
+    };
+    loop {
+        // SAFETY: openat2 reads a static relative path and immutable open_how value.
+        let descriptor = unsafe {
+            libc::syscall(
+                libc::SYS_openat2,
+                libc::AT_FDCWD,
+                path.as_ptr(),
+                &how as *const ResetOpenHow,
+                std::mem::size_of::<ResetOpenHow>(),
+            )
+        };
+        if descriptor >= 0 {
+            // SAFETY: close releases the descriptor returned by openat2.
+            unsafe {
+                libc::close(descriptor as libc::c_int);
+            }
+            return true;
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return false;
+    }
+}
+
+/// Return whether this process can enforce descriptor-relative reset deletion boundaries.
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+pub fn checked_reset_deletion_supported() -> bool {
+    true
+}
+
+/// Return whether this process can enforce descriptor-relative reset deletion boundaries.
+#[cfg(not(any(
+    target_os = "ios",
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "android"
+)))]
+pub fn checked_reset_deletion_supported() -> bool {
+    false
 }
 
 fn reset_path_fingerprint(
@@ -5311,6 +5366,8 @@ static RESET_REPLACE_STATE_ROOT_BEFORE_GUARD: std::sync::Mutex<
 static RESET_REPLACE_STATE_ROOT_AFTER_GUARD: std::sync::Mutex<Option<(PathBuf, PathBuf, PathBuf)>> =
     std::sync::Mutex::new(None);
 #[cfg(all(unix, test))]
+static RESET_AFTER_GUARD_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+#[cfg(all(unix, test))]
 static RESET_REPLACE_SESSION_DIR_BEFORE_WRITER_LOCK: std::sync::Mutex<
     Option<(PathBuf, PathBuf, PathBuf)>,
 > = std::sync::Mutex::new(None);
@@ -5940,8 +5997,13 @@ fn load_terminal_host_records_for_reset_at(
             anyhow::bail!("terminal-host record changed while opening: {}", path.display());
         }
         let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes)
+        (&mut file)
+            .take(MAX_TERMINAL_HOST_RECORD_BYTES + 1)
+            .read_to_end(&mut bytes)
             .with_context(|| format!("read terminal-host record {}", path.display()))?;
+        if bytes.len() as u64 > MAX_TERMINAL_HOST_RECORD_BYTES {
+            anyhow::bail!("terminal-host record is too large: {}", path.display());
+        }
         let current = reset_child_stat(directory.as_raw_fd(), &name, &path)?;
         if reset_stat_metadata_fingerprint(&current) != reset_stat_metadata_fingerprint(&stat) {
             anyhow::bail!("terminal-host record changed while reading: {}", path.display());

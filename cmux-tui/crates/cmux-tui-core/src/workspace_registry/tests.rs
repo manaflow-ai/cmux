@@ -611,6 +611,7 @@ fn terminal_host_reset_holds_structured_live_marker_lock() {
         workspace_key: String::new(),
         supports_set_defaults: true,
         supports_clear_history: true,
+        supports_terminate_ack: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -703,6 +704,7 @@ fn terminal_host_reset_checks_legacy_live_marker_as_orphan() {
         workspace_key: String::new(),
         supports_set_defaults: false,
         supports_clear_history: false,
+        supports_terminate_ack: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -809,6 +811,7 @@ fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
         workspace_key: String::new(),
         supports_set_defaults: true,
         supports_clear_history: true,
+        supports_terminate_ack: false,
     };
     let record_path = record.record_path(&host_root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -890,6 +893,7 @@ fn reset_state_root_symlink_swap_does_not_write_outside_state() {
 fn reset_state_root_swap_after_guard_stays_on_verified_directory() {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
+    let _hook_guard = RESET_AFTER_GUARD_TEST_LOCK.lock().unwrap();
     let root = temp_root("reset-state-root-swap-after-guard");
     let outside = temp_root("reset-state-root-swap-after-guard-outside");
     let moved_root = temp_root("reset-state-root-after-guard");
@@ -927,6 +931,7 @@ fn reset_state_root_swap_after_guard_keeps_live_terminal_host_state() {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
+    let _hook_guard = RESET_AFTER_GUARD_TEST_LOCK.lock().unwrap();
     let root = temp_root("reset-live-host-root-swap-after-guard");
     let outside = temp_root("reset-live-host-root-swap-after-guard-outside");
     let moved_root = temp_root("reset-live-host-root-after-guard");
@@ -947,6 +952,7 @@ fn reset_state_root_swap_after_guard_keeps_live_terminal_host_state() {
         workspace_key: String::new(),
         supports_set_defaults: true,
         supports_clear_history: true,
+        supports_terminate_ack: false,
     };
     let record_path = record.record_path(&host_root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -1107,7 +1113,10 @@ fn reset_terminal_host_root_symlink_swap_does_not_write_outside_state() {
     let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
     *RESET_REPLACE_TERMINAL_HOST_ROOT_BEFORE_LOCK.lock().unwrap() = None;
 
-    assert!(format!("{error:#}").contains("terminal-host root"), "{error:#}");
+    assert!(
+        format!("{error:#}").contains("terminal host state path changed while opening"),
+        "{error:#}"
+    );
     assert_eq!(fs::read(outside.join("sentinel")).unwrap(), b"outside");
     assert_eq!(fs::metadata(&outside).unwrap().mode() & 0o777, 0o755);
     assert!(!outside.join(TERMINAL_HOST_PUBLICATION_LOCK_FILE).exists());

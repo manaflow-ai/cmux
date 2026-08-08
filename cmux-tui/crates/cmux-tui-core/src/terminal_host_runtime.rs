@@ -1877,7 +1877,28 @@ mod unix {
             .parent()
             .ok_or_else(|| anyhow::anyhow!("terminal-host record has no parent directory"))?;
         let uid = fs::metadata(parent)?.uid();
-        let metadata = fs::symlink_metadata(record_path).ok();
+        let metadata = fs::symlink_metadata(record_path)
+            .with_context(|| format!("inspect terminal-host record {}", record_path.display()))?;
+        validate_terminal_host_record_with_metadata(record_path, record, uid, Some(&metadata))
+    }
+
+    fn validate_terminal_host_record_for_liveness(
+        record_path: &Path,
+        record: &TerminalHostRecord,
+    ) -> anyhow::Result<TerminalHostIdentity> {
+        let parent = record_path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("terminal-host record has no parent directory"))?;
+        let uid = fs::metadata(parent)?.uid();
+        let metadata = match fs::symlink_metadata(record_path) {
+            Ok(metadata) => Some(metadata),
+            Err(error) if error.kind() == std_io::ErrorKind::NotFound => None,
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!("inspect terminal-host record {}", record_path.display())
+                });
+            }
+        };
         validate_terminal_host_record_with_metadata(record_path, record, uid, metadata.as_ref())
     }
 
@@ -2093,7 +2114,7 @@ mod unix {
         record_path: &Path,
         record: &TerminalHostRecord,
     ) -> anyhow::Result<TerminalHostLiveness> {
-        validate_terminal_host_record(record_path, record)?;
+        validate_terminal_host_record_for_liveness(record_path, record)?;
         if record.record_version == 1 {
             // v1 predates process-bound liveness proof. Preserve and adopt a
             // reachable legacy host, but never infer death from PID/socket
@@ -4497,7 +4518,7 @@ mod unix {
 
     pub(crate) struct TerminalHostResetLock {
         file: File,
-        _root: File,
+        root: File,
     }
 
     impl TerminalHostResetLock {
@@ -4506,7 +4527,7 @@ mod unix {
         }
 
         pub(crate) fn root_directory(&self) -> &File {
-            &self._root
+            &self.root
         }
     }
 
@@ -4552,7 +4573,7 @@ mod unix {
         validate_terminal_host_reset_root(root, &root_file)?;
         let lock = acquire_terminal_host_reset_lock_from_directory(root, root_file)?;
         if let Some(lock) = &lock {
-            validate_terminal_host_reset_root(root, &lock._root)?;
+            validate_terminal_host_reset_root(root, &lock.root)?;
         }
         Ok(lock)
     }
@@ -4574,7 +4595,7 @@ mod unix {
             || format!("terminal host state has live or unverified hosts: {}", root.display()),
         )?;
         validate_terminal_host_publication_lock_at(&root_file, &path, &file)?;
-        Ok(Some(TerminalHostResetLock { file, _root: root_file }))
+        Ok(Some(TerminalHostResetLock { file, root: root_file }))
     }
 
     fn open_terminal_host_publication_lock_at(root: &File, create: bool) -> std_io::Result<File> {
