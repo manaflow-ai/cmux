@@ -202,14 +202,8 @@ fn json_value_resident_bytes(value: &serde_json::Value) -> usize {
 
 #[derive(Debug)]
 enum JournalIngressCompletion {
-    Durable {
-        sender: SyncSender<Result<(), String>>,
-        deadline: Instant,
-    },
-    Producer {
-        sender: SyncSender<Result<crate::JournalAppendCommit, String>>,
-        deadline: Instant,
-    },
+    Durable { sender: SyncSender<Result<(), String>>, deadline: Instant },
+    Producer { sender: SyncSender<Result<crate::JournalAppendCommit, String>>, deadline: Instant },
 }
 
 impl JournalIngressCompletion {
@@ -254,10 +248,7 @@ pub(crate) struct JournalIngressReceivers {
 
 pub(crate) enum JournalIngressTrySendError {
     Full(Box<JournalIngressEvent>),
-    Failed {
-        event: Box<JournalIngressEvent>,
-        error: String,
-    },
+    Failed { event: Box<JournalIngressEvent>, error: String },
 }
 
 #[derive(Default)]
@@ -281,12 +272,7 @@ impl JournalIngressSender {
         let state = Arc::new(JournalIngressState::default());
         if !enabled {
             return (
-                Self {
-                    terminal_sender: None,
-                    durable_sender: None,
-                    wake_sender: None,
-                    state,
-                },
+                Self { terminal_sender: None, durable_sender: None, wake_sender: None, state },
                 None,
             );
         }
@@ -361,12 +347,10 @@ impl JournalIngressSender {
             Err(TrySendError::Full(queued)) => {
                 Err(JournalIngressTrySendError::Full(Box::new(queued.event)))
             }
-            Err(TrySendError::Disconnected(queued)) => {
-                Err(JournalIngressTrySendError::Failed {
-                    event: Box::new(queued.event),
-                    error: self.writer_error(),
-                })
-            }
+            Err(TrySendError::Disconnected(queued)) => Err(JournalIngressTrySendError::Failed {
+                event: Box::new(queued.event),
+                error: self.writer_error(),
+            }),
         }
     }
 
@@ -1106,11 +1090,7 @@ mod tests {
 
         let started = Instant::now();
         let error = mux
-            .append_journal_ingress(
-                &ingress,
-                "client_registry_lock",
-                "registry_lock_deadline_1",
-            )
+            .append_journal_ingress(&ingress, "client_registry_lock", "registry_lock_deadline_1")
             .unwrap_err();
 
         assert!(error.to_string().contains("timed out"));
@@ -1127,9 +1107,10 @@ mod tests {
         blocker.join().unwrap();
         let records = mux.session_journal_after(0, 1024).unwrap().records;
         assert!(
-            records
-                .iter()
-                .all(|record| !record.payload.to_string().contains("registry-mutex-deadline-marker")),
+            records.iter().all(|record| !record
+                .payload
+                .to_string()
+                .contains("registry-mutex-deadline-marker")),
             "a producer event must not commit after its mutex admission deadline"
         );
         drop(mux);
@@ -1412,10 +1393,7 @@ mod tests {
             "later output must observe the terminal writer failure"
         );
         assert!(
-            mux.flush_terminal_journal()
-                .unwrap_err()
-                .to_string()
-                .contains("failed permanently"),
+            mux.flush_terminal_journal().unwrap_err().to_string().contains("failed permanently"),
             "later barriers must observe the writer terminal state"
         );
         drop(injector);

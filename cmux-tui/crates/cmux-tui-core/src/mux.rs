@@ -4559,10 +4559,7 @@ impl Mux {
                     _ => None,
                 })
             }
-            Err(crate::journal_ingress::JournalIngressTrySendError::Failed {
-                event,
-                error,
-            }) => {
+            Err(crate::journal_ingress::JournalIngressTrySendError::Failed { event, error }) => {
                 debug_assert!(matches!(
                     *event,
                     crate::journal_ingress::JournalIngressEvent::TerminalOutput { .. }
@@ -4636,7 +4633,9 @@ impl Mux {
                 Err(std::sync::TryLockError::WouldBlock) => {
                     let remaining = deadline.saturating_duration_since(Instant::now());
                     if remaining.is_zero() {
-                        anyhow::bail!("timed out waiting for the workspace registry journal writer");
+                        anyhow::bail!(
+                            "timed out waiting for the workspace registry journal writer"
+                        );
                     }
                     std::thread::sleep(remaining.min(Duration::from_millis(10)));
                 }
@@ -4647,11 +4646,10 @@ impl Mux {
         };
         let remaining = deadline.saturating_duration_since(Instant::now());
         anyhow::ensure!(!remaining.is_zero(), "session journal commit deadline expired");
-        let commits = registry
-            .append_journal_ingress_events_with_busy_timeout(
-                events,
-                remaining.min(sqlite_wait_cap),
-            )?;
+        let commits = registry.append_journal_ingress_events_with_busy_timeout(
+            events,
+            remaining.min(sqlite_wait_cap),
+        )?;
         self.publish_journal_event();
         Ok(commits)
     }

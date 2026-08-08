@@ -519,8 +519,8 @@ mod tests {
     #[test]
     fn mirrored_terminal_uses_the_callers_workspace_placement() {
         let mut topology = topology();
-        topology["workspaces"][1]["screens"][0]["panes"][0]["tabs"][0]
-            ["terminal_resource_id"] = json!("term_one");
+        topology["workspaces"][1]["screens"][0]["panes"][0]["tabs"][0]["terminal_resource_id"] =
+            json!("term_one");
         let scope = ProviderScope {
             workspace: Some("workspace-one".into()),
             terminal: Some("term_one".into()),

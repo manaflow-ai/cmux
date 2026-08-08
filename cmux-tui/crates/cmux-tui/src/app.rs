@@ -11,9 +11,7 @@ use std::io::Write;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc::{
-    Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel,
-};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -19175,10 +19173,9 @@ mod tests {
             "frontend-journal-bounded-coalescing",
             SurfaceOptions::default(),
         ));
-        let projection = FrontendProjectionPublicId::parse(
-            "projection_00000000000000000000000000000001",
-        )
-        .unwrap();
+        let projection =
+            FrontendProjectionPublicId::parse("projection_00000000000000000000000000000001")
+                .unwrap();
         let focus = |event_id: &str| FrontendJournalEvent::Focus {
             event_id: event_id.into(),
             frontend_projection_id: projection.clone(),
