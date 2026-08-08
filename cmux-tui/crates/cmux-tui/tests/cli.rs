@@ -2830,6 +2830,7 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
         workspace_key: String::new(),
         supports_set_defaults: true,
         supports_clear_history: true,
+        supports_terminate_ack: false,
     };
     let record_path = record.record_path(root);
     let live_path = record_path.with_extension(format!("{incarnation}-{host_start_nonce}.live"));
