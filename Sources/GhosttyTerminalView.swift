@@ -869,6 +869,14 @@ class GhosttyApp {
     }
 
     private func initializeGhostty() {
+        // Embedded Ghostty snapshots the host process environment here and
+        // clones it into every surface. A GUI launch from inside Claude Code is
+        // an independent session boundary, so remove the launching session's
+        // identity and trust state before Ghostty captures that snapshot.
+        for key in ClaudeSessionEnvironmentPolicy().inheritedIndependentLaunchKeys {
+            unsetenv(key)
+        }
+
         // Ensure TUI apps can use colors even if NO_COLOR is set in the launcher env.
         if getenv("NO_COLOR") != nil {
             unsetenv("NO_COLOR")
