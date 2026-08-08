@@ -322,6 +322,41 @@ import Testing
         #expect(first == second)
     }
 
+    /// An unavoidable duplicate still counts as a use of that color. Otherwise
+    /// the next new workspace can reuse it again and skew a balanced 2/1/1
+    /// distribution to 3/1/1.
+    @Test
+    func preservedDuplicateCountsTowardLeastUsedRecycling() {
+        let defaults = Self.suite()
+        let ids = (0..<5).map { _ in UUID() }
+        defaults.set(
+            [
+                ids[0].uuidString: Self.palette[0].hex,
+                ids[1].uuidString: Self.palette[0].hex,
+                ids[2].uuidString: Self.palette[1].hex,
+                ids[3].uuidString: Self.palette[2].hex,
+            ],
+            forKey: WorkspaceAutoColorAssignmentStore.defaultsKey
+        )
+
+        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+            needingAssignment: ids,
+            liveIds: Set(ids),
+            manualColorHexes: [],
+            palette: Self.palette,
+            defaults: defaults
+        )
+        var counts: [String: Int] = [:]
+        for id in ids {
+            if let hex = after[id.uuidString] {
+                counts[hex, default: 0] += 1
+            }
+        }
+
+        #expect(counts.count == Self.palette.count)
+        #expect(counts.values.max()! - counts.values.min()! <= 1)
+    }
+
     @Test
     func reassignsWhenTheStoredColorLeavesThePalette() {
         let defaults = Self.suite()
