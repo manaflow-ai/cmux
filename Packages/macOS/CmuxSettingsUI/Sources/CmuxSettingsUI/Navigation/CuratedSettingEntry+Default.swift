@@ -19,7 +19,7 @@ extension Array where Element == CuratedSettingEntry {
     public static var cmuxDefault: [CuratedSettingEntry] {
         [
             // Account / integrations
-            .init(section: .account, id: "account", title: "Account", synonyms: "auth authentication login logout signin sign-in signout sign-out email user profile stack team"),
+            .init(section: .account, id: "account", title: "Account", synonyms: "auth authentication login logout signin sign-in signout sign-out email user profile team"),
             .init(section: .automation, id: "claude-code", title: "Claude Code Integration", synonyms: "automation.claudeCodeIntegration claude code hooks agent integration status notifications"),
             .init(section: .automation, id: "claude-path", title: "Claude Binary Path", synonyms: "automation.claudeBinaryPath claude binary executable path cli command custom"),
             .init(section: .automation, id: "ripgrep-path", title: "Ripgrep Binary Path", synonyms: "automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom"),
