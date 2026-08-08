@@ -61,7 +61,8 @@ struct SidebarAppKitRowCellTests {
         settings: SidebarTabItemSettingsSnapshot? = nil,
         customDescription: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
-        shortcutHintText: String? = nil
+        shortcutHintText: String? = nil,
+        unreadCount: Int = 0
     ) -> SidebarWorkspaceRowModel {
         let resolvedSettings = settings
             ?? SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!)
@@ -78,7 +79,7 @@ struct SidebarAppKitRowCellTests {
             isMultiSelected: false,
             canCloseWorkspace: canClose,
             accessibilityWorkspaceCount: 1,
-            unreadCount: 0,
+            unreadCount: unreadCount,
             latestNotificationText: nil,
             showsAgentActivity: resolvedSettings.details.showAgentActivity,
             rowSpacing: 8,
@@ -240,6 +241,132 @@ struct SidebarAppKitRowCellTests {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
     }
 
+    private static func makeGroupModel(
+        name: String = "Group",
+        isPinned: Bool = false,
+        unreadCount: Int = 0
+    ) -> SidebarGroupHeaderRowModel {
+        SidebarGroupHeaderRowModel(
+            groupId: UUID(),
+            anchorWorkspaceId: UUID(),
+            name: name,
+            iconSymbol: "folder",
+            tintHex: nil,
+            isCollapsed: false,
+            isPinned: isPinned,
+            isAnchorActive: false,
+            isMultiSelected: false,
+            multiSelectionBackgroundStyle: .clear,
+            memberCount: 1,
+            anchorUnreadCount: unreadCount,
+            canMarkRead: unreadCount > 0,
+            canMarkUnread: unreadCount == 0,
+            hasLatestNotifications: unreadCount > 0,
+            canMarkAllRead: unreadCount > 0,
+            canMarkAllUnread: unreadCount == 0,
+            shortcutHintText: nil,
+            shortcutHintXOffset: 0,
+            shortcutHintYOffset: 0,
+            fontScale: 1,
+            globalFontMagnificationPercent: 100,
+            cwdContextMenuItems: [],
+            rowSpacing: 1,
+            isFirstRow: true,
+            isBeingDragged: false,
+            topDropIndicatorVisible: false,
+            bottomDropIndicatorVisible: false
+        )
+    }
+
+    private struct BrightInkMetrics {
+        let bounds: NSRect
+        let luminanceWeightedCentroid: NSPoint
+        let pixelCount: Int
+    }
+
+    private static func brightInkMetrics(
+        in view: NSView,
+        renderingScale: CGFloat = 4
+    ) throws -> BrightInkMetrics {
+        view.layoutSubtreeIfNeeded()
+        view.displayIfNeeded()
+        let bounds = view.bounds.integral
+        let pixelsWide = max(1, Int(ceil(bounds.width * renderingScale)))
+        let pixelsHigh = max(1, Int(ceil(bounds.height * renderingScale)))
+        let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try #require(CGContext(
+            data: nil,
+            width: pixelsWide,
+            height: pixelsHigh,
+            bitsPerComponent: 8,
+            bytesPerRow: pixelsWide * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.scaleBy(x: renderingScale, y: renderingScale)
+        context.translateBy(x: -bounds.minX, y: -bounds.minY)
+        let graphicsContext = NSGraphicsContext(cgContext: context, flipped: false)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = graphicsContext
+        view.draw(bounds)
+        graphicsContext.flushGraphics()
+        NSGraphicsContext.restoreGraphicsState()
+        let bitmap = NSBitmapImageRep(cgImage: try #require(context.makeImage()))
+
+        let scaleX = CGFloat(bitmap.pixelsWide) / bounds.width
+        let scaleY = CGFloat(bitmap.pixelsHigh) / bounds.height
+        var minimumX = bitmap.pixelsWide
+        var minimumY = bitmap.pixelsHigh
+        var maximumX = -1
+        var maximumY = -1
+        var brightPixelCount = 0
+        var weightedCentroidX: CGFloat = 0
+        var weightedCentroidY: CGFloat = 0
+        var totalWeight: CGFloat = 0
+
+        for x in 0..<bitmap.pixelsWide {
+            for y in 0..<bitmap.pixelsHigh {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                      color.alphaComponent > 0.5,
+                      min(color.redComponent, color.greenComponent, color.blueComponent) > 0.72 else {
+                    continue
+                }
+                minimumX = min(minimumX, x)
+                minimumY = min(minimumY, y)
+                maximumX = max(maximumX, x)
+                maximumY = max(maximumY, y)
+                brightPixelCount += 1
+                let viewX = bounds.minX + (CGFloat(x) + 0.5) / scaleX
+                let viewY = bounds.minY + (CGFloat(y) + 0.5) / scaleY
+                let weight = (
+                    0.2126 * color.redComponent
+                    + 0.7152 * color.greenComponent
+                    + 0.0722 * color.blueComponent
+                ) * color.alphaComponent
+                weightedCentroidX += viewX * weight
+                weightedCentroidY += viewY * weight
+                totalWeight += weight
+            }
+        }
+
+        try #require(maximumX >= minimumX && maximumY >= minimumY)
+        try #require(brightPixelCount > 0)
+        try #require(totalWeight > 0)
+        return BrightInkMetrics(
+            bounds: NSRect(
+                x: bounds.minX + CGFloat(minimumX) / scaleX,
+                y: bounds.minY + CGFloat(minimumY) / scaleY,
+                width: CGFloat(maximumX - minimumX + 1) / scaleX,
+                height: CGFloat(maximumY - minimumY + 1) / scaleY
+            ),
+            luminanceWeightedCentroid: NSPoint(
+                x: weightedCentroidX / totalWeight,
+                y: weightedCentroidY / totalWeight
+            ),
+            pixelCount: brightPixelCount
+        )
+    }
+
     private static func textView(in cell: SidebarWorkspaceRowTableCellView, linkedTo url: URL) -> SidebarRowTextView? {
         descendants(of: cell)
             .compactMap { $0 as? SidebarRowTextView }
@@ -327,6 +454,119 @@ struct SidebarAppKitRowCellTests {
         window.sendEvent(down)
         window.sendEvent(up)
         return hitView
+    }
+
+    @Test
+    func unreadBadgesUseCircularMediumCountRendering() throws {
+        let workspace = Self.configuredCell(
+            model: Self.makeModel(canClose: false, unreadCount: 2)
+        )
+        workspace.frame = NSRect(x: 0, y: 0, width: 320, height: 44)
+        workspace.layoutSubtreeIfNeeded()
+        let workspaceBadge = try #require(
+            Self.descendants(of: workspace)
+                .compactMap { $0 as? SidebarRowUnreadBadgeView }
+                .first { !$0.isHidden }
+        )
+
+        let group = SidebarGroupHeaderTableCellView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 32)
+        )
+        group.configurePresentation(model: Self.makeGroupModel(name: "Core", unreadCount: 2))
+        group.layoutSubtreeIfNeeded()
+        let groupBadge = try #require(
+            Self.descendants(of: group)
+                .compactMap { $0 as? SidebarRowUnreadBadgeView }
+                .first { !$0.isHidden }
+        )
+
+        let cases: [(String, SidebarRowUnreadBadgeView, NSColor, NSFont, NSFont)] = [
+            (
+                "workspace",
+                workspaceBadge,
+                cmuxAccentNSColor(),
+                .systemFont(ofSize: 8.5, weight: .medium),
+                .systemFont(ofSize: 9, weight: .semibold)
+            ),
+            (
+                "group",
+                groupBadge,
+                NSColor.controlAccentColor,
+                .systemFont(ofSize: 10, weight: .medium),
+                .systemFont(ofSize: 10, weight: .semibold)
+            ),
+        ]
+
+        for (label, badge, fillColor, expectedFont, oversizedFont) in cases {
+            let actualInk = try Self.brightInkMetrics(in: badge)
+            let expectedReference = SidebarRowUnreadBadgeView()
+            expectedReference.configure(
+                count: 2,
+                fillColor: fillColor,
+                textColor: .white,
+                font: expectedFont
+            )
+            expectedReference.frame = NSRect(origin: .zero, size: badge.bounds.size)
+            let expectedInk = try Self.brightInkMetrics(in: expectedReference)
+
+            let oversizedReference = SidebarRowUnreadBadgeView()
+            oversizedReference.configure(
+                count: 2,
+                fillColor: fillColor,
+                textColor: .white,
+                font: oversizedFont
+            )
+            oversizedReference.frame = NSRect(origin: .zero, size: badge.bounds.size)
+            let oversizedInk = try Self.brightInkMetrics(in: oversizedReference)
+
+            #expect(
+                abs(badge.bounds.width - badge.bounds.height) < 0.001,
+                "\(label) single-digit unread badge should stay circular"
+            )
+            #expect(
+                abs(actualInk.pixelCount - expectedInk.pixelCount)
+                    < abs(actualInk.pixelCount - oversizedInk.pixelCount),
+                "\(label) unread badge count should render closer to medium-weight text than semibold oversized text"
+            )
+            #expect(
+                abs(actualInk.bounds.midY - badge.bounds.midY) <= 0.25,
+                "\(label) unread badge count should stay vertically centered"
+            )
+        }
+    }
+
+    @Test
+    func unreadBadgesOpticallyCenterSingleDigitBrightInkAtRetinaScale() throws {
+        let workspace = Self.configuredCell(
+            model: Self.makeModel(canClose: false, unreadCount: 1)
+        )
+        workspace.frame = NSRect(x: 0, y: 0, width: 320, height: 44)
+        workspace.layoutSubtreeIfNeeded()
+        let workspaceBadge = try #require(
+            Self.descendants(of: workspace)
+                .compactMap { $0 as? SidebarRowUnreadBadgeView }
+                .first { !$0.isHidden }
+        )
+
+        let group = SidebarGroupHeaderTableCellView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 32)
+        )
+        group.configurePresentation(model: Self.makeGroupModel(name: "Core", unreadCount: 1))
+        group.layoutSubtreeIfNeeded()
+        let groupBadge = try #require(
+            Self.descendants(of: group)
+                .compactMap { $0 as? SidebarRowUnreadBadgeView }
+                .first { !$0.isHidden }
+        )
+
+        for (label, badge) in [("workspace", workspaceBadge), ("group", groupBadge)] {
+            let ink = try Self.brightInkMetrics(in: badge, renderingScale: 2)
+            let opticalDrift = ink.luminanceWeightedCentroid.x - badge.bounds.midX
+            #expect(
+                abs(opticalDrift) <= 0.25,
+                "\(label) unread badge bright-ink centroid drifted \(opticalDrift) pt"
+            )
+        }
     }
 
     private static let linkedMetadataMarkdown =

@@ -607,7 +607,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             return model.isActive ? palette.primaryText.withAlphaComponent(0.25) : cmuxAccentNSColor()
         }()
         let badgeText: NSColor = model.isActive ? palette.primaryText : .white
-        let badgeFont = NSFont.systemFont(ofSize: model.scaled(9), weight: .semibold)
+        let badgeFont = NSFont.systemFont(ofSize: model.scaled(8.5), weight: .medium)
 
         let leadingBadgeVisible = badgeVisible && model.settings.notificationBadgePosition == .leading
         let trailingBadgeVisible = badgeVisible && model.settings.notificationBadgePosition == .trailing
@@ -1075,7 +1075,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let titleRowSpacing: CGFloat = (model.settings.loadingSpinnerPosition == .leading
             && model.showsAgentActivity && model.snapshot.activeCodingAgentCount > 0) ? 6 : 8
         var x = leading
-        let badgeSide = 16 * model.fontScale
+        let badgeSize = leadingBadge.fittingSize(
+            horizontalPadding: model.scaled(4),
+            minimumHeight: model.scaled(14)
+        )
+        let trailingBadgeSize = trailingBadge.fittingSize(
+            horizontalPadding: model.scaled(4),
+            minimumHeight: model.scaled(14)
+        )
         let spinnerSide = max(10, 12 * model.fontScale)
         let firstLineCenter = model.scaled(12.5) * 0.6 + y
 
@@ -1089,14 +1096,16 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
         let leadingSlotActive = (!leadingBadge.isHidden) || (leadingSpinner?.isHidden == false)
         if leadingSlotActive {
-            let side = !leadingBadge.isHidden ? badgeSide : spinnerSide
+            let size = !leadingBadge.isHidden
+                ? badgeSize
+                : NSSize(width: spinnerSide, height: spinnerSide)
             if !leadingBadge.isHidden {
-                place(leadingBadge, size: NSSize(width: side, height: side), centerY: firstLineCenter)
+                place(leadingBadge, size: size, centerY: firstLineCenter)
             }
             if let spinner = leadingSpinner, !spinner.isHidden {
                 place(spinner, size: NSSize(width: spinnerSide, height: spinnerSide), centerY: firstLineCenter)
             }
-            x += side + titleRowSpacing
+            x += size.width + titleRowSpacing
         }
         if !pinImageView.isHidden {
             let side = model.scaled(9) + 4
@@ -1118,7 +1127,20 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let closeHit = max(16, 16 * model.fontScale)
         let closeWidth = max(16, closeHit)
         let trailingSlotActive = !trailingBadge.isHidden || (trailingSpinner?.isHidden == false) || model.canCloseWorkspace
-        let titleMaxX = trailingSlotActive ? (trailing - closeWidth - titleRowSpacing) : trailing
+        let trailingSlotWidth: CGFloat = {
+            var width: CGFloat = 0
+            if !trailingBadge.isHidden {
+                width = max(width, trailingBadgeSize.width)
+            }
+            if trailingSpinner?.isHidden == false {
+                width = max(width, spinnerSide)
+            }
+            if model.canCloseWorkspace {
+                width = max(width, closeWidth)
+            }
+            return width
+        }()
+        let titleMaxX = trailingSlotActive ? (trailing - trailingSlotWidth - titleRowSpacing) : trailing
         let titleWidth = max(10, titleMaxX - x)
         let titleHeight = isEditing
             ? ceil(renameField.intrinsicContentSize.height)
@@ -1137,8 +1159,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 )
                 if !trailingBadge.isHidden {
                     trailingBadge.frame = NSRect(
-                        x: trailing - badgeSide, y: firstLineCenter - badgeSide / 2,
-                        width: badgeSide, height: badgeSide
+                        x: trailing - trailingBadgeSize.width,
+                        y: firstLineCenter - trailingBadgeSize.height / 2,
+                        width: trailingBadgeSize.width,
+                        height: trailingBadgeSize.height
                     )
                 }
                 if let spinner = trailingSpinner, !spinner.isHidden {
@@ -1149,7 +1173,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 }
             }
         }
-        y += max(titleHeight, leadingSlotActive ? badgeSide : 0)
+        let leadingSlotHeight = leadingSlotActive
+            ? (!leadingBadge.isHidden ? badgeSize.height : spinnerSide)
+            : 0
+        let trailingSlotHeight = !trailingBadge.isHidden ? trailingBadgeSize.height : 0
+        y += max(titleHeight, leadingSlotHeight, trailingSlotHeight)
 
         func placeBlock(_ view: SidebarRowTextView) {
             guard !view.isHidden else { return }
