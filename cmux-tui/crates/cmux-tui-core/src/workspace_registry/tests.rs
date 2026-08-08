@@ -481,15 +481,15 @@ fn checked_reset_deletion_support_uses_state_root() {
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn reset_exclusive_rename_probe_rejects_blocked_syscalls() {
-    assert!(reset_exclusive_rename_probe_error_supported(
-        &std::io::Error::from_raw_os_error(libc::ENOENT)
-    ));
-    assert!(!reset_exclusive_rename_probe_error_supported(
-        &std::io::Error::from_raw_os_error(libc::ENOSYS)
-    ));
-    assert!(!reset_exclusive_rename_probe_error_supported(
-        &std::io::Error::from_raw_os_error(libc::EPERM)
-    ));
+    assert!(reset_exclusive_rename_probe_error_supported(&std::io::Error::from_raw_os_error(
+        libc::ENOENT
+    )));
+    assert!(!reset_exclusive_rename_probe_error_supported(&std::io::Error::from_raw_os_error(
+        libc::ENOSYS
+    )));
+    assert!(!reset_exclusive_rename_probe_error_supported(&std::io::Error::from_raw_os_error(
+        libc::EPERM
+    )));
 }
 
 #[test]
