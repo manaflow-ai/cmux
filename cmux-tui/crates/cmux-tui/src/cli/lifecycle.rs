@@ -383,8 +383,7 @@ fn print_success(value: Value, output: OutputMode) -> i32 {
 mod tests {
     use std::io::{self, Read, Write};
     use std::net::Shutdown;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
 
     use super::*;
 
@@ -425,8 +424,8 @@ mod tests {
     }
 
     struct TimeoutRecordingStream {
-        read_timeout_set: Arc<AtomicBool>,
-        write_timeout_set: Arc<AtomicBool>,
+        read_timeout: Arc<Mutex<Option<Duration>>>,
+        write_timeout: Arc<Mutex<Option<Duration>>>,
     }
 
     impl Read for TimeoutRecordingStream {
@@ -448,18 +447,18 @@ mod tests {
     impl transport::Stream for TimeoutRecordingStream {
         fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
             Ok(Box::new(Self {
-                read_timeout_set: self.read_timeout_set.clone(),
-                write_timeout_set: self.write_timeout_set.clone(),
+                read_timeout: self.read_timeout.clone(),
+                write_timeout: self.write_timeout.clone(),
             }))
         }
 
         fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
-            self.read_timeout_set.store(timeout.is_some(), Ordering::Release);
+            *self.read_timeout.lock().unwrap() = timeout;
             Ok(())
         }
 
         fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
-            self.write_timeout_set.store(timeout.is_some(), Ordering::Release);
+            *self.write_timeout.lock().unwrap() = timeout;
             Ok(())
         }
 
@@ -479,17 +478,38 @@ mod tests {
 
     #[test]
     fn lifecycle_deadline_bounds_reads_and_writes() {
-        let read_timeout_set = Arc::new(AtomicBool::new(false));
-        let write_timeout_set = Arc::new(AtomicBool::new(false));
+        let read_timeout = Arc::new(Mutex::new(None));
+        let write_timeout = Arc::new(Mutex::new(None));
         let stream: Box<dyn transport::Stream> = Box::new(TimeoutRecordingStream {
-            read_timeout_set: read_timeout_set.clone(),
-            write_timeout_set: write_timeout_set.clone(),
+            read_timeout: read_timeout.clone(),
+            write_timeout: write_timeout.clone(),
         });
         let mut connection = BufReader::new(stream);
+        let requested = Duration::from_secs(1);
 
-        require_time_remaining(&mut connection, Instant::now() + Duration::from_secs(1)).unwrap();
+        require_time_remaining(&mut connection, Instant::now() + requested).unwrap();
 
-        assert!(read_timeout_set.load(Ordering::Acquire));
-        assert!(write_timeout_set.load(Ordering::Acquire));
+        let read_timeout = read_timeout.lock().unwrap().unwrap();
+        let write_timeout = write_timeout.lock().unwrap().unwrap();
+        assert!(!read_timeout.is_zero());
+        assert!(read_timeout <= requested);
+        assert!(!write_timeout.is_zero());
+        assert!(write_timeout <= requested);
+    }
+
+    #[test]
+    fn lifecycle_io_errors_preserve_timeout_classification() {
+        assert_eq!(
+            exchange_io_error(io::Error::from(io::ErrorKind::TimedOut)),
+            ExchangeError::Timeout
+        );
+        assert_eq!(
+            exchange_io_error(io::Error::from(io::ErrorKind::WouldBlock)),
+            ExchangeError::Timeout
+        );
+        assert_eq!(
+            exchange_io_error(io::Error::from(io::ErrorKind::BrokenPipe)),
+            ExchangeError::Transport
+        );
     }
 }
