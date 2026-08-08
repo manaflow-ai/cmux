@@ -135,6 +135,31 @@
     "faqFeatureA": "យើងចង់ស្ដាប់វា។ បើក <issuesLink>issue</issuesLink> ឬ <prLink>pull request</prLink> នៅលើ GitHub ឬ <mailLink>ផ្ញើអ៊ីមែលមកយើង</mailLink>។"
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "ទិដ្ឋភាពទូទៅ",
+      "team": "ក្រុម"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។",
+      "coderouterLink": "បើក coderouter"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "គ្រប់គ្រងគណនី AI ដែលបានចែករំលែក និងបញ្ជូនសំណើដោយប្រើ coderouter។",
+      "title": "coderouter",
+      "description": "coderouter បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។"
+    },
+    "accountMenu": {
+      "label": "ម៉ឺនុយគណនី",
+      "settings": "ការកំណត់",
+      "billing": "ការទូទាត់",
+      "signOut": "ចាកចេញ",
+      "signingOut": "កំពុងចាកចេញ…",
+      "signOutError": "មិនអាចចាកចេញបានទេ។ សូមព្យាយាមម្តងទៀត។",
+      "signIn": "ចូល"
+    },
     "aiAccounts": {
       "metaTitle": "គណនី AI — cmux",
       "metaDescription": "គ្រប់គ្រងគណនីអ្នកផ្តល់សេវា AI របស់ក្រុមសម្រាប់ cmux។",

@@ -135,6 +135,31 @@
     "faqFeatureA": "Nous voulons l'entendre. Ouvrez une <issuesLink>issue</issuesLink> ou une <prLink>pull request</prLink> sur GitHub, ou <mailLink>écrivez-nous</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "aperçu",
+      "team": "équipe"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "Acheminez les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation.",
+      "coderouterLink": "ouvrir coderouter"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Gérez les comptes d’IA partagés et acheminez les requêtes avec coderouter.",
+      "title": "coderouter",
+      "description": "coderouter achemine les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation."
+    },
+    "accountMenu": {
+      "label": "Menu du compte",
+      "settings": "Réglages",
+      "billing": "Facturation",
+      "signOut": "Se déconnecter",
+      "signingOut": "Déconnexion…",
+      "signOutError": "Impossible de se déconnecter. Réessayez.",
+      "signIn": "Se connecter"
+    },
     "aiAccounts": {
       "metaTitle": "Comptes IA — cmux",
       "metaDescription": "Gérez les comptes de fournisseurs d'IA de l'équipe pour cmux.",

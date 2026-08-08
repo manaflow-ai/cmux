@@ -1,6 +1,7 @@
 import SwiftUI
 import Bonsplit
 import CmuxAppKitSupportUI
+import CmuxSettingsUI
 
 /// SwiftUI fallback content for canvas panes whose panel kind is not yet
 /// direct-hosted (browser, markdown, file preview, agent session, ...).
@@ -17,6 +18,7 @@ struct CanvasHostedPanelContentView: View {
     let portalPriority: Int
     let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
+    let settingsRuntime: SettingsRuntime?
     let customSidebarTabManager: TabManager?
     let onRequestPanelFocus: () -> Void
 
@@ -43,6 +45,8 @@ struct CanvasHostedPanelContentView: View {
             onAutoResumeAgentHibernation: {},
             onTriggerFlash: {}
         )
+        .environment(\.settingsRuntime, settingsRuntime)
+        .environment(\.workspaceAttentionColor, presentation.workspaceAttentionColor)
         // Window-portal content (webviews) floats above the pane's layer
         // border; this inset keeps the focus ring visible around it.
         .padding(.horizontal, 2)

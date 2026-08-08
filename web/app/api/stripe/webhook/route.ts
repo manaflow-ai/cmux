@@ -19,7 +19,10 @@ import {
   recordCheckoutCompletion as recordCheckoutCompletionDefault,
 } from "../../../../services/billing/purchase";
 import { sendProSignupWelcome as sendProSignupWelcomeDefault } from "../../../../services/billing/proFulfillment";
-import { revokeRouteTokensForUser as revokeRouteTokensForUserDefault } from "../../../../services/coderouter/repository";
+import {
+  revokeRouteTokensForTeam as revokeRouteTokensForTeamDefault,
+  revokeRouteTokensForUser as revokeRouteTokensForUserDefault,
+} from "../../../../services/coderouter/repository";
 import { isStripeBillingConfigured, stripe } from "../../../../services/billing/stripe";
 import {
   recordSpanError,
@@ -39,6 +42,7 @@ type StripeWebhookDependencies = {
   applySubscriptionUpdate: typeof applySubscriptionUpdateDefault;
   sendProSignupWelcome: typeof sendProSignupWelcomeDefault;
   revokeCoderouterRouteTokens: typeof revokeRouteTokensForUserDefault;
+  revokeCoderouterTeamRouteTokens: typeof revokeRouteTokensForTeamDefault;
   captureStripeBillingEvent: typeof captureStripeBillingEventDefault;
   defer: (task: () => Promise<void>) => void;
 };
@@ -52,6 +56,7 @@ const defaultDependencies: StripeWebhookDependencies = {
   applySubscriptionUpdate: applySubscriptionUpdateDefault,
   sendProSignupWelcome: sendProSignupWelcomeDefault,
   revokeCoderouterRouteTokens: revokeRouteTokensForUserDefault,
+  revokeCoderouterTeamRouteTokens: revokeRouteTokensForTeamDefault,
   captureStripeBillingEvent: captureStripeBillingEventDefault,
   defer: (task) => after(task),
 };
@@ -278,10 +283,13 @@ async function applySubscriptionEntitlementUpdate(
   const result = await dependencies.applySubscriptionUpdate(subscription);
   if (
     !("skipped" in result)
-    && result.scope === "user"
     && !result.isActive
   ) {
-    await dependencies.revokeCoderouterRouteTokens(result.stackUserId);
+    if (result.scope === "user") {
+      await dependencies.revokeCoderouterRouteTokens(result.stackUserId);
+    } else {
+      await dependencies.revokeCoderouterTeamRouteTokens(result.stackTeamId);
+    }
   }
   return result;
 }

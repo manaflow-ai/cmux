@@ -135,6 +135,31 @@
     "faqFeatureA": "نريد أن نسمعه. افتح <issuesLink>issue</issuesLink> أو <prLink>pull request</prLink> على GitHub، أو <mailLink>راسلنا عبر البريد</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "نظرة عامة",
+      "team": "الفريق"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "توجيه طلبات نماذج اللغة عبر حسابات المزوّدين مع تجاوز الأعطال وجدولة تراعي الاستخدام.",
+      "coderouterLink": "فتح coderouter"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "إدارة حسابات الذكاء الاصطناعي المشتركة وتوجيه الطلبات باستخدام coderouter.",
+      "title": "coderouter",
+      "description": "يوجّه coderouter طلبات نماذج اللغة عبر حسابات المزوّدين مع تجاوز الأعطال وجدولة تراعي الاستخدام."
+    },
+    "accountMenu": {
+      "label": "قائمة الحساب",
+      "settings": "الإعدادات",
+      "billing": "الفوترة",
+      "signOut": "تسجيل الخروج",
+      "signingOut": "جارٍ تسجيل الخروج…",
+      "signOutError": "تعذّر تسجيل الخروج. حاول مرة أخرى.",
+      "signIn": "تسجيل الدخول"
+    },
     "aiAccounts": {
       "metaTitle": "حسابات الذكاء الاصطناعي — cmux",
       "metaDescription": "إدارة حسابات مزوّدي الذكاء الاصطناعي للفريق في cmux.",
