@@ -271,6 +271,7 @@ class TerminalController {
         "__internal_flags",
         "focus_window",
         "select_workspace",
+        "move_workspace_to_window",
         "focus_surface",
         "focus_pane",
         "focus_surface_by_panel",
@@ -283,6 +284,7 @@ class TerminalController {
     private nonisolated static let focusIntentV2Methods: Set<String> = [
         "window.focus",
         "workspace.select",
+        "workspace.move_to_window",
         "workspace.next",
         "workspace.previous",
         "workspace.last",
