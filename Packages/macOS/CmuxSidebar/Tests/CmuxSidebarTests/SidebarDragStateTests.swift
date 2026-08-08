@@ -4,8 +4,58 @@ import Testing
 import CmuxFoundation
 @testable import CmuxSidebar
 
+/// Implements only the original public requirements to prove source-compatible injection.
+@MainActor
+private final class FakeWorkspaceDragRegistry: SidebarWorkspaceDragRegistering {
+    var currentWorkspaceId: UUID?
+    private(set) var beginCalls: [UUID] = []
+    private(set) var endCalls: [UUID] = []
+
+    func begin(workspaceId: UUID) {
+        beginCalls.append(workspaceId)
+        currentWorkspaceId = workspaceId
+    }
+
+    func end(workspaceId: UUID) {
+        endCalls.append(workspaceId)
+        if currentWorkspaceId == workspaceId {
+            currentWorkspaceId = nil
+        }
+    }
+}
+
 @MainActor
 @Suite struct SidebarDragStateTests {
+    @Test func publicIdentityRegistryInjectionRemainsSourceCompatible() {
+        let registry = FakeWorkspaceDragRegistry()
+        let state = SidebarDragState(workspaceDragRegistry: registry)
+        let id = UUID()
+
+        state.beginDragging(tabId: id)
+        #expect(state.draggedTabId == id)
+        #expect(registry.beginCalls == [id])
+
+        state.clearDrag()
+        #expect(state.draggedTabId == nil)
+        #expect(registry.endCalls == [id])
+        #expect(registry.currentWorkspaceId == nil)
+    }
+
+    @Test func publicIdentityRegistryMirrorDoesNotClearSource() {
+        let registry = FakeWorkspaceDragRegistry()
+        let source = SidebarDragState(workspaceDragRegistry: registry)
+        let destination = SidebarDragState(workspaceDragRegistry: registry)
+        let id = UUID()
+
+        source.beginDragging(tabId: id)
+        #expect(destination.mirrorDragging(tabId: id))
+        destination.clearDrag()
+
+        #expect(registry.endCalls.isEmpty)
+        #expect(registry.currentWorkspaceId == id)
+        source.clearDrag()
+    }
+
     @Test func beginDraggingSetsLocalAndProcessWideIdentity() {
         let registry = SidebarWorkspaceDragRegistry()
         let state = SidebarDragState(workspaceDragRegistry: registry)
