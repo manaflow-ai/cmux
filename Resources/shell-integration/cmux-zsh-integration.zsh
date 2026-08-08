@@ -1363,17 +1363,28 @@ _cmux_report_pr_for_path() {
     # sitting on a branch that will never have a PR (e.g. main) burns a
     # GitHub GraphQL API call every poll interval forever — and the GraphQL
     # quota (5,000/hr) is shared across the user's whole account.
-    # EPOCHSECONDS is unset unless zsh/datetime is loaded and the $SECONDS
-    # fallback is shell-relative, so normalize `now` to a real epoch here;
-    # this also makes the timestamp writes below epoch-based so the
-    # comparison stays coherent across shells.
-    now="$(command date +%s 2>/dev/null || echo "$now")"
-    local cache_timestamp=""
-    [[ -r "$timestamp_file" ]] && cache_timestamp="$(<"$timestamp_file")"
-    if [[ "${2:-0}" != "1" && -n "$branch" && "$cache_no_pr_branch" == "$branch" ]] \
-        && [[ "$cache_timestamp" == <-> ]] && (( now - cache_timestamp < 900 )); then
-        _cmux_pr_debug_log "$branch" "no-pr-backoff"
-        return 0
+    # The guard only trusts a cache record written for this exact repo with
+    # an explicit "none" result and a plausible (not future) epoch age.
+    # EPOCHSECONDS requires zsh/datetime and the $SECONDS fallback is
+    # shell-relative, so `now` is normalized to a real epoch first; if that
+    # normalization fails the backoff is skipped for this invocation and
+    # `now` is left untouched.
+    local epoch_now="" cache_repo="" cache_timestamp=""
+    epoch_now="$(command date +%s 2>/dev/null || true)"
+    [[ "$epoch_now" == <-> ]] || epoch_now=""
+    if [[ -n "$epoch_now" ]]; then
+        now="$epoch_now"
+        [[ -r "$timestamp_file" ]] && cache_timestamp="$(<"$timestamp_file")"
+        [[ -r "$repo_file" ]] && cache_repo="$(<"$repo_file")"
+        if [[ "${2:-0}" != "1" && -n "$branch" \
+            && "$cache_no_pr_branch" == "$branch" \
+            && "$cache_repo" == "$repo_path" \
+            && "$cache_result" == "none" ]] \
+            && [[ "$cache_timestamp" == <-> ]] \
+            && (( now >= cache_timestamp && now - cache_timestamp < 900 )); then
+            _cmux_pr_debug_log "$branch" "no-pr-backoff"
+            return 0
+        fi
     fi
 
     repo_slug="$(_cmux_github_repo_slug_for_path "$repo_path")"
