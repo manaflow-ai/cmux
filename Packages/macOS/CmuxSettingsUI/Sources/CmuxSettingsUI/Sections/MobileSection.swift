@@ -13,6 +13,7 @@ public struct MobileSection: View {
     @State private var displayName: DefaultsValueModel<String>
     @State private var artifactFolderAccess: DefaultsValueModel<MobileArtifactFolderAccess>
     @State private var status: MobilePairingStatusModel
+    @State private var phonePush: MobilePhonePushSettingsModel
 
     /// The user's in-progress port edit, or `nil` when the field should track
     /// the persisted value. Local so editing does not rebind the listener; only
@@ -51,6 +52,7 @@ public struct MobileSection: View {
             key: catalog.mobile.artifactFolderAccess
         ))
         _status = State(initialValue: MobilePairingStatusModel(hostActions: hostActions))
+        _phonePush = State(initialValue: MobilePhonePushSettingsModel(hostActions: hostActions))
         self.hostActions = hostActions
     }
 
@@ -76,6 +78,12 @@ public struct MobileSection: View {
             SettingsSectionHeader(String(localized: "settings.section.mobile", defaultValue: "Mobile"), section: .mobile)
             SettingsCard {
                 pairDeviceRow
+                SettingsCardDivider()
+                phonePushForwardingRow
+                SettingsCardDivider()
+                phonePushModeRow
+                SettingsCardDivider()
+                phonePushHideContentRow
                 SettingsCardDivider()
                 iOSPairingHostRow
                 SettingsCardDivider()
@@ -105,8 +113,109 @@ public struct MobileSection: View {
             displayName,
             artifactFolderAccess,
             status,
+            phonePush,
         ]
         models.forEach { $0.startObserving() }
+    }
+
+    @ViewBuilder
+    private var phonePushForwardingRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:mobile:phone-push-forwarding",
+            String(
+                localized: "settings.mobile.phonePush.forwarding",
+                defaultValue: "Forward Notifications to iPhone"
+            ),
+            subtitle: phonePush.current.forwardingEnabled
+                ? String(
+                    localized: "settings.mobile.phonePush.forwarding.subtitleOn",
+                    defaultValue: "Sends local agent alerts from this Mac to cmux on your iPhone and iPad."
+                )
+                : String(
+                    localized: "settings.mobile.phonePush.forwarding.subtitleOff",
+                    defaultValue: "Stops this Mac from sending local agent alerts to mobile devices."
+                )
+        ) {
+            Toggle(
+                "",
+                isOn: Binding(
+                    get: { phonePush.current.forwardingEnabled },
+                    set: { phonePush.update(.forwardingEnabled($0)) }
+                )
+            )
+            .labelsHidden()
+            .controlSize(.small)
+            .accessibilityIdentifier("SettingsMobilePhonePushForwardingToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var phonePushModeRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:mobile:phone-push-mode",
+            String(
+                localized: "settings.mobile.phonePush.mode",
+                defaultValue: "When to Send"
+            ),
+            subtitle: String(
+                localized: "settings.mobile.phonePush.mode.subtitle",
+                defaultValue: "Always sends every local agent alert. Away mode waits until this Mac is locked, asleep, or idle."
+            )
+        ) {
+            Picker(
+                "",
+                selection: Binding(
+                    get: { phonePush.current.mode },
+                    set: { phonePush.update(.mode($0)) }
+                )
+            ) {
+                Text(String(
+                    localized: "settings.mobile.phonePush.mode.always",
+                    defaultValue: "Always"
+                ))
+                .tag(MobilePhonePushSettingsSnapshot.Mode.always)
+                Text(String(
+                    localized: "settings.mobile.phonePush.mode.onlyWhenAway",
+                    defaultValue: "Only When Away"
+                ))
+                .tag(MobilePhonePushSettingsSnapshot.Mode.onlyWhenAway)
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .controlSize(.small)
+            .disabled(!phonePush.current.forwardingEnabled)
+            .accessibilityIdentifier("SettingsMobilePhonePushModePicker")
+        }
+    }
+
+    @ViewBuilder
+    private var phonePushHideContentRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:mobile:phone-push-hide-content",
+            String(
+                localized: "settings.mobile.phonePush.hideContent",
+                defaultValue: "Hide Notification Content"
+            ),
+            subtitle: String(
+                localized: "settings.mobile.phonePush.hideContent.subtitle",
+                defaultValue: "Sends a generic message instead of agent and terminal text."
+            )
+        ) {
+            Toggle(
+                "",
+                isOn: Binding(
+                    get: { phonePush.current.hideContent },
+                    set: { phonePush.update(.hideContent($0)) }
+                )
+            )
+            .labelsHidden()
+            .controlSize(.small)
+            .disabled(!phonePush.current.forwardingEnabled)
+            .accessibilityIdentifier("SettingsMobilePhonePushHideContentToggle")
+        }
     }
 
     @ViewBuilder

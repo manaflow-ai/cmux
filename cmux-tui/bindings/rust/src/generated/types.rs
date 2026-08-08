@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350.
+// cmux-tui mux protocol 11, IR 5299d9228d2d800423d244630722c8606297370f5962458962b88af542fd5cc1.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -72,6 +72,20 @@ pub struct AppliedPane {
 pub struct ApplyLayoutResult {
     pub panes: Vec<AppliedPane>,
     pub screen: Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttachedViewOutcomeResult {
+    pub outcome: ViewAttachmentOutcome,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttachedViewResizeResult {
+    pub accepted: bool,
+    pub outcome: ViewAttachmentOutcome,
+    pub reservation_id: Nullable<u64>,
 }
 
 #[rustfmt::skip]
@@ -415,6 +429,7 @@ pub struct LivePane {
 pub struct MintTerminalRendererResult {
     pub endpoint: String,
     pub incarnation: String,
+    pub protocol_version: u16,
     pub rights: u32,
     pub terminal_id: String,
     pub token: String,
@@ -670,7 +685,7 @@ pub struct ResizeSurfaceResult {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResolveTerminalResult {
-    pub exit: Nullable<JsonValue>,
+    pub exit: Nullable<TerminalExit>,
     pub generation: String,
     pub launch_spec: JsonValue,
     pub lifecycle: TerminalLifecycle,
@@ -683,14 +698,55 @@ pub struct ResolveTerminalResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ResourceSelectors {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub agent: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub browser: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub client: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub frontend_projection: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub machine: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub notification: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pairing_request: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub screen: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub session: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub sidebar_view: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub split: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stream: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub tab: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace: Optional<String>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunResult {
-    pub pane: Id,
-    pub screen: Id,
-    pub surface: Id,
-    pub terminal_id: Nullable<String>,
+    pub already_exited: bool,
+    pub exit: Nullable<TerminalExit>,
+    pub lifecycle: TerminalLifecycle,
+    pub pane: Nullable<Id>,
+    pub screen: Nullable<Id>,
+    pub surface: Nullable<Id>,
+    pub terminal_id: String,
     pub terminal_incarnation: Nullable<String>,
-    pub workspace: Id,
+    pub terminal_revision: u64,
+    pub workspace: Nullable<Id>,
 }
 
 #[rustfmt::skip]
@@ -839,6 +895,32 @@ pub struct TerminalEventsResult {
     pub generation: String,
     pub registry_id: String,
     pub terminal_revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalExit {
+    pub exited_at_ms: u64,
+    pub outcome: TerminalExitOutcome,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum TerminalExitOutcome {
+    #[serde(rename = "exit")]
+    Exit {
+        code: i32,
+    },
+    #[serde(rename = "signal")]
+    Signal {
+        core_dumped: bool,
+        signal: i32,
+    },
+    #[serde(rename = "unknown")]
+    Unknown {
+        reason: String,
+    },
 }
 
 #[rustfmt::skip]
@@ -1133,24 +1215,26 @@ pub struct TerminalModifiers {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalPlacement {
+    pub already_exited: bool,
+    pub exit: Nullable<TerminalExit>,
     pub generation: String,
     pub key: String,
-    pub lifecycle: Nullable<String>,
-    pub pane: Id,
+    pub lifecycle: TerminalLifecycle,
+    pub pane: Nullable<Id>,
     pub registry_id: String,
     pub replayed: bool,
-    pub screen: Id,
-    pub surface: Id,
-    pub terminal_id: Nullable<String>,
+    pub screen: Nullable<Id>,
+    pub surface: Nullable<Id>,
+    pub terminal_id: String,
     pub terminal_incarnation: Nullable<String>,
     pub terminal_revision: u64,
-    pub workspace: Id,
+    pub workspace: Nullable<Id>,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalRecord {
-    pub exit: Nullable<JsonValue>,
+    pub exit: Nullable<TerminalExit>,
     pub launch_spec: JsonValue,
     pub lifecycle: TerminalLifecycle,
     pub terminal_id: String,
@@ -1184,6 +1268,17 @@ pub struct Tree {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub workspace_revision: Option<u64>,
     pub workspaces: Vec<Workspace>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ViewAttachmentOutcome {
+    #[serde(rename = "applied")]
+    Applied,
+    #[serde(rename = "passive")]
+    Passive,
+    #[serde(rename = "superseded")]
+    Superseded,
 }
 
 #[rustfmt::skip]

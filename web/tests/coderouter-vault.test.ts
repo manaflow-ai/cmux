@@ -12,7 +12,7 @@ const codex = {
   expiresAt: Date.now() + 3_600_000,
 };
 
-describe("CodeRouter Stack vault", () => {
+describe("coderouter vault", () => {
   test("accepts complete Codex and OpenCode Go credentials", () => {
     expect(parseCredential(codex)).toEqual(codex);
     expect(parseCredential({
@@ -39,7 +39,7 @@ describe("CodeRouter Stack vault", () => {
       accounts: {
         "account-1": { revision: 1, credential: { ...codex, refreshToken: "" } },
       },
-    })).toThrow("invalid Stack CodeRouter vault account");
+    })).toThrow("invalid coderouter vault account");
   });
 
   test("treats an absent vault as an empty versioned vault", () => {

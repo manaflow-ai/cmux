@@ -12,6 +12,7 @@ import {
   cloudVmSessions,
   cloudVmUsageEvents,
   cloudVms,
+  deviceTokens,
   devices,
   proWelcomeFulfillments,
   stripeCustomers,
@@ -895,6 +896,35 @@ describe("account deletion route", () => {
       "transaction",
       "transaction-lock",
     ]);
+  });
+
+  test("blocks cmux row deletion while a phone push delivery lease is active", async () => {
+    listedPersonalVmIds = [];
+    transactionSelectResults = [
+      [],
+      [{ deliveryLeaseUntil: new Date(Date.now() + 30_000) }],
+    ];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(409);
+    const body = await response.json() as {
+      error: string;
+      retryable: boolean;
+      retryAfterSeconds: number;
+      destroyedVms: number;
+    };
+    expect(body).toMatchObject({
+      error: "account_delete_push_delivery_in_progress",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expect(body.retryAfterSeconds).toBeGreaterThan(0);
+    expect(body.retryAfterSeconds).toBeLessThanOrEqual(30);
+    expect(response.headers.get("retry-after"))
+      .toBe(String(body.retryAfterSeconds));
+    expect(deletedTables).not.toContain(deviceTokens);
+    expect(deleteStackUser).not.toHaveBeenCalled();
   });
 
   test("blocks Stack deletion when PostHog account analytics deletion fails", async () => {

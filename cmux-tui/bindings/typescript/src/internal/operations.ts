@@ -108,6 +108,7 @@ export const operations = Object.freeze({
   terminalViewerRelease: op("terminal.viewer.release", "connection_control"),
   terminalViewportScroll: op("terminal.viewport.scroll", "mutation"),
   terminalMove: op("terminal.move", "mutation"),
+  terminalProject: op("terminal.project", "mutation"),
   terminalAttach: op("terminal.attach", "stream_open"),
   terminalClose: op("terminal.close", "mutation"),
 

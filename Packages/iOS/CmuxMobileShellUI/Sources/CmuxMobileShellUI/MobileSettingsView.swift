@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -119,6 +120,18 @@ struct MobileSettingsView: View {
                                 L10n.string("mobile.settings.mac", defaultValue: "Computer"),
                                 value: connectedHostName
                             )
+                        }
+                        if let store,
+                           store.connectionState == .connected,
+                           let routeKind = store.activeRoute?.kind {
+                            LabeledContent(
+                                L10n.string(
+                                    "mobile.settings.activeTransport",
+                                    defaultValue: "Active Transport"
+                                ),
+                                value: activeTransportName(routeKind)
+                            )
+                            .accessibilityIdentifier("MobileSettingsActiveTransport")
                         }
                     }
                 }
@@ -380,24 +393,20 @@ struct MobileSettingsView: View {
                 }
 
                 Section(L10n.string("mobile.settings.notifications", defaultValue: "Push Alerts")) {
-                    Button {
-                        Task {
-                            if notificationsEnabled {
-                                await pushCoordinator.disable()
-                                notificationsEnabled = false
-                            } else {
-                                notificationsEnabled = await pushCoordinator.enable()
-                            }
-                        }
-                    } label: {
-                        Label(
-                            notificationsEnabled
-                                ? L10n.string("mobile.notifications.disable", defaultValue: "Turn Off Push Alerts")
-                                : L10n.string("mobile.notifications.enable", defaultValue: "Notify Me When Agents Need Me"),
-                            systemImage: notificationsEnabled ? "bell.slash" : "bell"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsNotifications")
+                    MobilePushSettingsContent(
+                        readiness: pushCoordinator.readiness(
+                            macStatus: store?.phonePushMacStatus,
+                            macAccountMismatch: store?.connectionRequiresReauth == true
+                        ),
+                        phoneEnabled: $notificationsEnabled,
+                        macStatus: store?.phonePushMacStatus,
+                        supportsMacSettings: store?.supportsPhonePushSettings == true,
+                        supportsMacTest: store?.supportsPhonePushTest == true,
+                        onPhoneEnabledChange: updatePhonePushEnabled,
+                        onRepair: repairPhonePush,
+                        onMacMutation: updateMacPhonePush,
+                        onSendTest: sendPhonePushTest
+                    )
                 }
 
                 Section {
@@ -441,7 +450,13 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsVersionRow")
                 }
             }
-            .onAppear { notificationsEnabled = pushCoordinator.isEnabled }
+            .task {
+                notificationsEnabled = pushCoordinator.isEnabled
+                await pushCoordinator.refreshReadiness()
+            }
+            .onChange(of: pushCoordinator.isEnabled) { _, enabled in
+                notificationsEnabled = enabled
+            }
             .navigationTitle(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -499,6 +514,102 @@ struct MobileSettingsView: View {
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
+    }
+
+    private func activeTransportName(_ kind: CmxAttachTransportKind) -> String {
+        switch kind {
+        case .tailscale:
+            L10n.string(
+                "mobile.settings.activeTransport.tailscale",
+                defaultValue: "Tailscale"
+            )
+        case .iroh:
+            L10n.string(
+                "mobile.settings.activeTransport.iroh",
+                defaultValue: "Iroh"
+            )
+        case .websocket:
+            L10n.string(
+                "mobile.settings.activeTransport.websocket",
+                defaultValue: "WebSocket"
+            )
+        case .debugLoopback:
+            L10n.string(
+                "mobile.settings.activeTransport.simulator",
+                defaultValue: "Simulator"
+            )
+        }
+    }
+
+    @MainActor
+    private func updatePhonePushEnabled(_ enabled: Bool) async -> Bool {
+        if enabled {
+            _ = await pushCoordinator.enable()
+            // A denied OS authorization still accepts the user's app-level
+            // intent. Keep the toggle on so readiness can surface the Settings
+            // recovery action instead of rolling the preference back.
+            return pushCoordinator.isEnabled
+        }
+        await pushCoordinator.disable()
+        return !pushCoordinator.isEnabled
+    }
+
+    @MainActor
+    private func repairPhonePush(
+        _ repair: MobilePushReadiness.Repair
+    ) async -> Bool {
+        switch repair {
+        case .enableOnPhone:
+            return await updatePhonePushEnabled(true)
+        case .openSystemSettings:
+            pushCoordinator.openSystemSettings()
+            return true
+        case .retryDeviceTokenRegistration:
+            pushCoordinator.retryDeviceTokenRegistration()
+            await pushCoordinator.refreshReadiness()
+            return true
+        case .retryRegistration:
+            await pushCoordinator.syncTokenIfPossible()
+            await pushCoordinator.refreshReadiness()
+            return true
+        case .signInAgain, .signIntoMatchingAccount:
+            signOut?()
+            return signOut != nil
+        case .connectMac:
+            startPairingScanner?()
+            return startPairingScanner != nil
+        case .leaveMacOrUseAlwaysMode:
+            return await store?.updatePhonePushSettings(mode: .always) == true
+        case .enableOnMac:
+            return await store?.updatePhonePushSettings(
+                forwardingEnabled: true
+            ) == true
+        case .waitForDeviceToken, .finishAccountDeletion,
+             .disablePushOnAnotherDevice, .rebuildMatchingApps:
+            return false
+        }
+    }
+
+    @MainActor
+    private func updateMacPhonePush(
+        _ mutation: MobilePushMacMutation
+    ) async -> Bool {
+        guard let store else { return false }
+        switch mutation {
+        case let .forwardingEnabled(enabled):
+            return await store.updatePhonePushSettings(
+                forwardingEnabled: enabled
+            )
+        case let .mode(mode):
+            return await store.updatePhonePushSettings(mode: mode)
+        case let .hideContent(hidden):
+            return await store.updatePhonePushSettings(hideContent: hidden)
+        }
+    }
+
+    @MainActor
+    private func sendPhonePushTest() async -> MobilePhonePushTestStage {
+        await store?.sendPhonePushTest() ?? .unavailable
     }
 
     private static var crashReportingEnabled: Bool {

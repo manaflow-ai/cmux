@@ -69,7 +69,7 @@ class FakeTransport implements Transport {
 
   respond(request: Record<string, unknown>, result: unknown): void {
     this.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "response",
       id: request.id,
       ok: true,
@@ -83,7 +83,7 @@ class FakeTransport implements Transport {
     item: Record<string, unknown>,
   ): void {
     this.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "stream_item",
       stream_id: streamId,
       sequence,
@@ -97,7 +97,7 @@ class FakeTransport implements Transport {
     recovery?: string,
   ): void {
     this.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "stream_end",
       stream_id: streamId,
       reason,

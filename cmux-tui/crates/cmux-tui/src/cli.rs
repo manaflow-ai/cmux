@@ -1,8 +1,8 @@
-//! Hand-designed noun-first command line for `cmux.protocol/1`.
+//! Hand-designed noun-first command line for `cmux.protocol/2`.
 //!
 //! The public grammar lives here and in `cli/command.rs`. The wire transport
 //! is deliberately isolated in `cli/wire.rs`, so public commands cannot
-//! accidentally fall back to the pre-v1 command protocol.
+//! accidentally fall back to the private command protocol.
 
 mod command;
 mod raw;
@@ -373,7 +373,7 @@ USAGE
   cmux terminal <selector> copy|process show [OPTIONS]
   cmux terminal <selector> process wait [--timeout-ms <n>]
   cmux terminal <selector> viewport scroll --delta-rows <n>
-  cmux terminal <selector> move|attach|close [OPTIONS]
+  cmux terminal <selector> move|project|attach|close [OPTIONS]
 ";
 
 const BROWSER_HELP: &str = "\
@@ -432,7 +432,7 @@ USAGE
     [--mutation --idempotency-key <value>] [--stream]
   cmux raw command --request-json <full-object>
 
-`raw operation` uses cmux.protocol/1. `raw command` is an unsafe internal
+`raw operation` uses cmux.protocol/2. `raw command` is an unsafe internal
 escape for the legacy control protocol and provides no compatibility promise.
 ";
 
@@ -481,6 +481,7 @@ mod tests {
         assert!(SESSION_HELP.contains("creation <correlation-key> resolve"));
         assert!(TERMINAL_HELP.contains("screen wait --pattern <regex>"));
         assert!(TERMINAL_HELP.contains("process wait [--timeout-ms <n>]"));
+        assert!(TERMINAL_HELP.contains("move|project|attach|close"));
     }
 
     #[test]

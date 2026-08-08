@@ -73,7 +73,7 @@ describe("localized pricing page", () => {
     proUser.update.mockClear();
   });
 
-  test("does not render Manage billing for non-Pro snapshots", async () => {
+  test("defaults public pricing to annual billing with compact paid-plan CTAs", async () => {
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
     const html = renderToStaticMarkup(element);
 
@@ -82,9 +82,18 @@ describe("localized pricing page", () => {
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
     expect(html).not.toContain("/mo.");
-    expect(html).toContain("$35/user/mo");
+    expect(html).toContain("$28/user/mo");
     expect(html).toContain(
-      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=month",
+      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=year",
+    );
+    expect(html).toContain(
+      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year",
+    );
+    expect(html).toMatch(
+      /href="\/api\/billing\/checkout\?plan=pro[^"]*interval=year"[^>]*class="[^"]*px-3 py-1\.5 text-xs[^"]*"[^>]*><span>Get Pro/,
+    );
+    expect(html).toMatch(
+      /href="\/api\/billing\/checkout\?plan=team[^"]*interval=year"[^>]*class="[^"]*px-3 py-1\.5 text-xs[^"]*"[^>]*><span>Get Teams/,
     );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
@@ -144,6 +153,26 @@ describe("localized pricing page", () => {
     expect(html).toContain('<button type="button" role="radio" aria-checked="true"');
     expect(html).not.toContain('href="?interval=');
     expect(html).toContain("mx-auto mt-6 flex w-fit");
+  });
+
+  test("honors an explicit monthly billing interval", async () => {
+    const element = await PricingPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({ interval: "month" }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain("$30");
+    expect(html).toContain("$35");
+    expect(html).toContain(
+      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=month",
+    );
+    expect(html).toContain(
+      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=month",
+    );
+    expect(html).toContain(
+      '<button type="button" role="radio" aria-checked="true" tabindex="0" class="bg-foreground px-3 py-1.5 font-medium text-background">Monthly</button>',
+    );
   });
 });
 

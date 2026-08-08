@@ -36,6 +36,7 @@ final class MobileBrowserStreamSession {
     /// committed render, because an unsynchronized snapshot of a freshly
     /// (re)hosted or still-loading web view is a blank white bitmap.
     private var hasCapturedCommittedFrame = false
+    private var hasRecordedFirstDeliveredFrame = false
     private var synchronizedFirstCaptureFailures = 0
 
     /// Bound on the synchronized first capture so an occluded render host
@@ -110,6 +111,12 @@ final class MobileBrowserStreamSession {
         case let .dirty(focused):
             if let focused, editableFocused != focused {
                 editableFocused = focused
+                MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
+                    .browserEditableFocus,
+                    a: focused ? 1 : 0,
+                    b: 3,
+                    c: TerminalController.mobileBrowserPanelCorrelation(panelID)
+                ))
                 scheduleStateEmission()
             }
             noteDirty()
@@ -297,6 +304,16 @@ final class MobileBrowserStreamSession {
             if !delivered {
                 pacing.acknowledge(sequence: sequence)
                 pacing.noteDirty(at: clock.now)
+            } else if !hasRecordedFirstDeliveredFrame {
+                // The first-frame stage means the phone actually received a
+                // frame: record it once per session, after delivery succeeds,
+                // never for the capture alone.
+                hasRecordedFirstDeliveredFrame = true
+                MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
+                    .browserStreamLifecycle,
+                    a: 4,
+                    c: TerminalController.mobileBrowserPanelCorrelation(panelID)
+                ))
             }
             return delivered
         } catch is CancellationError {

@@ -376,6 +376,9 @@ class Operations:
     TERMINAL_MOVE = _op(
         "terminal.move", "mutation", ("session", "terminal"), "terminal"
     )
+    TERMINAL_PROJECT = _op(
+        "terminal.project", "mutation", ("session", "terminal"), "tab"
+    )
     TERMINAL_ATTACH = _op(
         "terminal.attach", "stream_open", ("session", "terminal"), "stream"
     )

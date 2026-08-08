@@ -117,7 +117,7 @@ extension MobileHostService {
             return nil
         case "mobile.events.unsubscribe", "mobile.events.probe":
             return nil
-        case "mobile.host.status":
+        case "mobile.host.status", "phone_push.status.get":
             return nil
         default:
             return scopedTicketError
