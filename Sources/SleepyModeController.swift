@@ -90,6 +90,9 @@ final class SleepyModeController {
     func deactivate() {
         guard isActive else { return }
         isActive = false
+        // Drop any in-flight lock attempt: `powerUIState` outlives this session,
+        // so a late completion would otherwise report its result onto the next one.
+        powerUIState.cancelLock()
         removeScreenObserver()
         endPowerAssertions()
         tearDownOverlayWindows()

@@ -38,11 +38,30 @@ final class SleepyPowerControls: SleepyPowerControlling {
         await runner.run("/usr/bin/pmset", ["displaysleepnow"])
     }
 
-    /// Engages the real macOS login lock via the supported `CGSession -suspend`
-    /// mechanism (returning to the session requires the account password /
-    /// Touch ID) — Apple's loginwindow, not our overlay, and no private symbol.
-    func lockMacNow() async {
-        await runner.run("/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession", ["-suspend"])
+    /// The supported `CGSession -suspend` tool. Apple removed `User.menu` from
+    /// `Menu Extras` (it is gone on macOS 26, still present on macOS 15), which
+    /// is why this path can no longer be assumed to exist.
+    nonisolated static let legacyLockTool = "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession"
+
+    /// Engages the real macOS login lock — Apple's loginwindow, not our overlay,
+    /// so returning to the session requires the account password / Touch ID.
+    ///
+    /// Prefers the supported `CGSession` tool and only falls back to the private
+    /// `SACLockScreenImmediate` where that tool is absent. The choice is made by
+    /// probing for the tool rather than by comparing OS versions: the exact
+    /// release Apple dropped it in is not something to guess at, and a wrong
+    /// threshold would break every version in between.
+    ///
+    /// The legacy tool is awaited to completion rather than fire-and-forget: a
+    /// process that starts and then exits non-zero has not locked anything, and
+    /// reporting that as success would leave the user staring at an unlocked Mac
+    /// with no fallback attempted.
+    @discardableResult
+    func lockMacNow() async -> Bool {
+        if await runner.canRun(Self.legacyLockTool), await runner.runAwaitingExit(Self.legacyLockTool, ["-suspend"]) {
+            return true
+        }
+        return await runner.lockScreen()
     }
 
     func isLowPowerOn() async -> Bool {
