@@ -124,6 +124,63 @@ enum FileExternalOpenAction {
     static func revealInFinder(fileURL: URL) {
         NSWorkspace.shared.activateFileViewerSelecting([fileURL])
     }
+
+    /// Single entry point for every menu that carries a request, so the preview
+    /// header, the Files tree, and the Files search results cannot drift.
+    @MainActor
+    static func perform(_ request: FileExternalOpenRequest) {
+        switch request.action {
+        case .open(let applicationURL):
+            guard let applicationURL else {
+                openDefault(fileURL: request.fileURL)
+                return
+            }
+            open(fileURL: request.fileURL, applicationURL: applicationURL)
+        case .pickApplication:
+            openWithPickedApplication(fileURL: request.fileURL)
+        case .revealInFinder:
+            revealInFinder(fileURL: request.fileURL)
+        }
+    }
+
+    /// Backs "Open With > Other…". Returns false when the user cancels.
+    /// Main-actor bound because the picker runs a modal `NSOpenPanel`.
+    @MainActor
+    @discardableResult
+    static func openWithPickedApplication(
+        fileURL: URL,
+        picker: FileExternalOpenApplicationPicker = .live,
+        openFile: (URL, URL) -> Bool = { fileURL, applicationURL in
+            FileExternalOpenAction.open(fileURL: fileURL, applicationURL: applicationURL)
+        }
+    ) -> Bool {
+        guard let applicationURL = picker.pickApplication(fileURL) else { return false }
+        return openFile(fileURL, applicationURL)
+    }
+}
+
+/// Chooses an application outside the ones Launch Services already associates
+/// with a file, which is what Finder's "Open With > Other…" offers.
+@MainActor
+struct FileExternalOpenApplicationPicker {
+    var pickApplication: (URL) -> URL?
+
+    static let live = FileExternalOpenApplicationPicker(
+        pickApplication: { Self.runApplicationPanel(for: $0) }
+    )
+
+    private static func runApplicationPanel(for fileURL: URL) -> URL? {
+        let panel = NSOpenPanel()
+        panel.message = FileExternalOpenText.chooseApplicationMessage(for: fileURL)
+        panel.prompt = FileExternalOpenText.chooseApplicationPrompt
+        panel.allowedContentTypes = [.application]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
+    }
 }
 
 enum FileExternalOpenText {
@@ -142,6 +199,22 @@ enum FileExternalOpenText {
 
     static var revealInFinder: String {
         String(localized: "fileExplorer.contextMenu.revealInFinder", defaultValue: "Reveal in Finder")
+    }
+
+    static var openWithOther: String {
+        String(localized: "filePreview.openWith.other", defaultValue: "Other…")
+    }
+
+    static var chooseApplicationPrompt: String {
+        String(localized: "filePreview.openWith.choosePrompt", defaultValue: "Open")
+    }
+
+    static func chooseApplicationMessage(for fileURL: URL) -> String {
+        let format = String(
+            localized: "filePreview.openWith.chooseMessage",
+            defaultValue: "Choose an application to open “%@”."
+        )
+        return String(format: format, fileURL.lastPathComponent)
     }
 }
 
@@ -174,33 +247,51 @@ enum FileExternalOpenMenuFactory {
             action: .revealInFinder
         ))
 
-        if !otherApplications.isEmpty {
-            menu.addItem(.separator())
-            let openWithMenu = NSMenu(title: FileExternalOpenText.openWithMenu)
-            openWithMenu.autoenablesItems = false
-            for application in otherApplications {
-                openWithMenu.addItem(menuItem(
-                    title: application.displayName,
-                    fileURL: fileURL,
-                    action: .open(applicationURL: application.url)
-                ))
-            }
-            let openWithItem = NSMenuItem(
-                title: FileExternalOpenText.openWithMenu,
-                action: nil,
-                keyEquivalent: ""
-            )
-            openWithItem.submenu = openWithMenu
-            menu.addItem(openWithItem)
-        }
+        menu.addItem(.separator())
+        let openWithItem = NSMenuItem(
+            title: FileExternalOpenText.openWithMenu,
+            action: nil,
+            keyEquivalent: ""
+        )
+        openWithItem.submenu = makeOpenWithSubmenu(
+            fileURL: fileURL,
+            otherApplications: otherApplications
+        )
+        menu.addItem(openWithItem)
 
         return menu
+    }
+
+    /// Always carries an "Other…" entry so a file can reach an application
+    /// Launch Services does not associate with it.
+    private static func makeOpenWithSubmenu(
+        fileURL: URL,
+        otherApplications: [FileExternalOpenApplication]
+    ) -> NSMenu {
+        let submenu = NSMenu(title: FileExternalOpenText.openWithMenu)
+        submenu.autoenablesItems = false
+        for application in otherApplications {
+            submenu.addItem(menuItem(
+                title: application.displayName,
+                fileURL: fileURL,
+                action: .open(applicationURL: application.url)
+            ))
+        }
+        if !otherApplications.isEmpty {
+            submenu.addItem(.separator())
+        }
+        submenu.addItem(menuItem(
+            title: FileExternalOpenText.openWithOther,
+            fileURL: fileURL,
+            action: .pickApplication
+        ))
+        return submenu
     }
 
     private static func menuItem(
         title: String,
         fileURL: URL,
-        action: FileExternalOpenMenuPayloadAction
+        action: FileExternalOpenRequestAction
     ) -> NSMenuItem {
         let item = NSMenuItem(
             title: title,
@@ -208,10 +299,7 @@ enum FileExternalOpenMenuFactory {
             keyEquivalent: ""
         )
         item.target = FileExternalOpenMenuActionTarget.shared
-        item.representedObject = FileExternalOpenMenuActionPayload(
-            fileURL: fileURL,
-            action: action
-        )
+        item.representedObject = FileExternalOpenRequest(fileURL: fileURL, action: action)
         return item
     }
 }
@@ -401,38 +489,14 @@ private struct FileExternalOpenHeaderMenuButton: View {
     }
 }
 
-private enum FileExternalOpenMenuPayloadAction {
-    case open(applicationURL: URL?)
-    case revealInFinder
-}
-
-private final class FileExternalOpenMenuActionPayload: NSObject {
-    let fileURL: URL
-    let action: FileExternalOpenMenuPayloadAction
-
-    init(fileURL: URL, action: FileExternalOpenMenuPayloadAction) {
-        self.fileURL = fileURL
-        self.action = action
-    }
-}
-
 private final class FileExternalOpenMenuActionTarget: NSObject {
     static let shared = FileExternalOpenMenuActionTarget()
 
+    // Menu actions arrive on the main thread, and the picker runs a modal panel.
+    @MainActor
     @objc func open(_ item: NSMenuItem) {
-        guard let payload = item.representedObject as? FileExternalOpenMenuActionPayload else {
-            return
-        }
-        switch payload.action {
-        case .open(let applicationURL):
-            guard let applicationURL else {
-                FileExternalOpenAction.openDefault(fileURL: payload.fileURL)
-                return
-            }
-            FileExternalOpenAction.open(fileURL: payload.fileURL, applicationURL: applicationURL)
-        case .revealInFinder:
-            FileExternalOpenAction.revealInFinder(fileURL: payload.fileURL)
-        }
+        guard let request = item.representedObject as? FileExternalOpenRequest else { return }
+        FileExternalOpenAction.perform(request)
     }
 }
 
