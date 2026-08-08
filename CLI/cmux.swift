@@ -32776,7 +32776,7 @@ export default CMUXSessionRestore;
                 source: source,
                 event: reportedHookEventName,
                 toolName: ""
-            ).0
+            ).hookEventName
         } else {
             hookEventName = fallbackHookEventName
         }
