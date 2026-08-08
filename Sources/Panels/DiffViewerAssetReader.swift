@@ -4,22 +4,22 @@ import zlib
 /// Reads an allowlisted diff-viewer asset in chunks suitable for a URL scheme task.
 /// WebKit does not honor Content-Encoding for app-owned custom schemes, so `.deflate`
 /// assets must be inflated before they cross the scheme-handler boundary.
-final class DiffViewerAssetReader {
+actor DiffViewerAssetReader {
     private static let maxInflatedSize = 32 * 1024 * 1024
 
+    private let fileURL: URL
     private var decodedData: Data?
     private var decodedOffset = 0
     private var fileHandle: FileHandle?
 
-    init(fileURL: URL) throws {
-        if fileURL.lastPathComponent.hasSuffix(".deflate") {
-            decodedData = try Self.inflateZlib(Data(contentsOf: fileURL, options: .mappedIfSafe))
-        } else {
-            fileHandle = try FileHandle(forReadingFrom: fileURL)
-        }
+    init(fileURL: URL) {
+        self.fileURL = fileURL
     }
 
     func read(upToCount count: Int) throws -> Data {
+        try Task.checkCancellation()
+        try openIfNeeded()
+
         if let decodedData {
             guard decodedOffset < decodedData.count else { return Data() }
             let end = min(decodedOffset + count, decodedData.count)
@@ -29,9 +29,23 @@ final class DiffViewerAssetReader {
         return try fileHandle?.read(upToCount: count) ?? Data()
     }
 
-    func close() throws {
-        try fileHandle?.close()
+    func close() {
+        try? fileHandle?.close()
         fileHandle = nil
+    }
+
+    deinit {
+        try? fileHandle?.close()
+    }
+
+    private func openIfNeeded() throws {
+        guard decodedData == nil, fileHandle == nil else { return }
+        if fileURL.lastPathComponent.hasSuffix(".deflate") {
+            let compressed = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+            decodedData = try Self.inflateZlib(compressed)
+        } else {
+            fileHandle = try FileHandle(forReadingFrom: fileURL)
+        }
     }
 
     private static func inflateZlib(_ compressed: Data) throws -> Data {
@@ -53,6 +67,7 @@ final class DiffViewerAssetReader {
             var chunk = [UInt8](repeating: 0, count: chunkSize)
 
             while true {
+                try Task.checkCancellation()
                 let result = chunk.withUnsafeMutableBytes { outputBuffer -> Int32 in
                     stream.next_out = outputBuffer.bindMemory(to: Bytef.self).baseAddress
                     stream.avail_out = uInt(chunkSize)

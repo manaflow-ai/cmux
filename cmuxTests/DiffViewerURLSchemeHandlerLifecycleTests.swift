@@ -12,7 +12,88 @@ import WebKit
 @Suite(.serialized)
 struct DiffViewerURLSchemeHandlerLifecycleTests {
     @Test(.timeLimit(.minutes(1)))
-    func callbacksStayOnMainThreadAndStopNeverWaitsForCallbackDelivery() async throws {
+    func successfulStreamDeliversEveryCallbackOnMainThread() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+
+        let schemeTask = DiffViewerRecordingSchemeTask(
+            request: URLRequest(url: fixture.requestURL)
+        )
+
+        fixture.handler.webView(fixture.webView, start: schemeTask)
+
+        var callbacks: [DiffViewerRecordingSchemeTask.Callback] = []
+        for await callback in schemeTask.callbacks {
+            callbacks.append(callback)
+        }
+
+        #expect(callbacks.map(\.kind) == [.response, .data, .finish])
+        #expect(callbacks.allSatisfy(\.wasOnMainThread))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func streamFailureIsDeliveredOnMainThread() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+        try FileManager.default.removeItem(at: fixture.fileURL)
+
+        let schemeTask = DiffViewerRecordingSchemeTask(
+            request: URLRequest(url: fixture.requestURL)
+        )
+
+        fixture.handler.webView(fixture.webView, start: schemeTask)
+
+        var callbacks: [DiffViewerRecordingSchemeTask.Callback] = []
+        for await callback in schemeTask.callbacks {
+            callbacks.append(callback)
+        }
+
+        #expect(callbacks.map(\.kind) == [.response, .failure])
+        #expect(callbacks.allSatisfy(\.wasOnMainThread))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func stopNeverWaitsForOffMainCallbackDelivery() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+
+        let schemeTask = DiffViewerRecordingSchemeTask(
+            request: URLRequest(url: fixture.requestURL),
+            simulatesBlockingMainHop: true
+        )
+        var callbackIterator = schemeTask.callbacks.makeAsyncIterator()
+        var blockingHopEntryIterator = schemeTask.blockingHopEntries.makeAsyncIterator()
+        var blockingHopExitIterator = schemeTask.blockingHopExits.makeAsyncIterator()
+
+        fixture.handler.webView(fixture.webView, start: schemeTask)
+        let firstCallback = try #require(await callbackIterator.next())
+
+        // The pre-fix handler reaches this branch: its stream queue reports that
+        // the callback is parked waiting for the main run loop. Waiting for the
+        // entry signal before stopping makes the lifecycle ordering causal.
+        if !firstCallback.wasOnMainThread {
+            _ = try #require(await blockingHopEntryIterator.next())
+        }
+
+        fixture.handler.webView(fixture.webView, stop: schemeTask)
+        schemeTask.releaseBlockingMainHop()
+
+        if !firstCallback.wasOnMainThread {
+            let exit = try #require(await blockingHopExitIterator.next())
+            #expect(exit == .releasedByTest)
+        }
+
+        #expect(firstCallback.kind == .response)
+        #expect(firstCallback.wasOnMainThread)
+    }
+
+    private func makeFixture() throws -> (
+        handler: CmuxDiffViewerURLSchemeHandler,
+        webView: WKWebView,
+        rootURL: URL,
+        fileURL: URL,
+        requestURL: URL
+    ) {
         let token = UUID().uuidString.lowercased()
         let rootURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
@@ -21,7 +102,6 @@ struct DiffViewerURLSchemeHandlerLifecycleTests {
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
         try "<!doctype html><title>deadlock regression</title>"
             .write(to: fileURL, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: rootURL) }
 
         let handler = CmuxDiffViewerURLSchemeHandler()
         try handler.register(
@@ -31,69 +111,92 @@ struct DiffViewerURLSchemeHandlerLifecycleTests {
         let requestURL = try #require(URL(
             string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.html"
         ))
-        let schemeTask = DiffViewerBlockingMainHopSchemeTask(
-            request: URLRequest(url: requestURL)
-        )
-        var callbackIterator = schemeTask.callbacks.makeAsyncIterator()
         let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
-
-        handler.webView(webView, start: schemeTask)
-        let firstCallback = try #require(await callbackIterator.next())
-
-        let clock = ContinuousClock()
-        let startedAt = clock.now
-        handler.webView(webView, stop: schemeTask)
-        let stopDuration = startedAt.duration(to: clock.now)
-
-        #expect(firstCallback.wasOnMainThread)
-        #expect(stopDuration < .milliseconds(250))
+        return (handler, webView, rootURL, fileURL, requestURL)
     }
 }
 
 /// Models WebKit's synchronous off-main hop to the main run loop without
 /// leaving a permanently wedged test process. A callback delivered off-main
 /// remains in flight for one second, so a blocking `stop` is deterministic.
-private final class DiffViewerBlockingMainHopSchemeTask: NSObject, WKURLSchemeTask {
+private final class DiffViewerRecordingSchemeTask: NSObject, WKURLSchemeTask {
     struct Callback: Sendable {
+        enum Kind: Sendable, Equatable {
+            case response
+            case data
+            case finish
+            case failure
+        }
+
+        let kind: Kind
         let wasOnMainThread: Bool
+    }
+
+    enum BlockingHopExit: Sendable, Equatable {
+        case releasedByTest
+        case safetyTimeout
     }
 
     let request: URLRequest
     let callbacks: AsyncStream<Callback>
+    let blockingHopEntries: AsyncStream<Void>
+    let blockingHopExits: AsyncStream<BlockingHopExit>
 
     private let callbackContinuation: AsyncStream<Callback>.Continuation
-    private let simulatedMainHop = DispatchSemaphore(value: 0)
+    private let blockingHopEntryContinuation: AsyncStream<Void>.Continuation
+    private let blockingHopExitContinuation: AsyncStream<BlockingHopExit>.Continuation
+    private let simulatesBlockingMainHop: Bool
+    private let blockingMainHopRelease = DispatchSemaphore(value: 0)
 
-    init(request: URLRequest) {
+    init(request: URLRequest, simulatesBlockingMainHop: Bool = false) {
         self.request = request
-        let stream = AsyncStream<Callback>.makeStream()
-        callbacks = stream.stream
-        callbackContinuation = stream.continuation
+        self.simulatesBlockingMainHop = simulatesBlockingMainHop
+
+        let callbackStream = AsyncStream<Callback>.makeStream()
+        callbacks = callbackStream.stream
+        callbackContinuation = callbackStream.continuation
+
+        let blockingHopEntryStream = AsyncStream<Void>.makeStream()
+        blockingHopEntries = blockingHopEntryStream.stream
+        blockingHopEntryContinuation = blockingHopEntryStream.continuation
+
+        let blockingHopExitStream = AsyncStream<BlockingHopExit>.makeStream()
+        blockingHopExits = blockingHopExitStream.stream
+        blockingHopExitContinuation = blockingHopExitStream.continuation
     }
 
     func didReceive(_ response: URLResponse) {
-        recordCallback()
+        recordCallback(.response)
     }
 
     func didReceive(_ data: Data) {
-        recordCallback()
+        recordCallback(.data)
     }
 
     func didFinish() {
-        recordCallback()
+        recordCallback(.finish)
         callbackContinuation.finish()
     }
 
     func didFailWithError(_ error: Error) {
-        recordCallback()
+        recordCallback(.failure)
         callbackContinuation.finish()
     }
 
-    private func recordCallback() {
+    func releaseBlockingMainHop() {
+        blockingMainHopRelease.signal()
+    }
+
+    private func recordCallback(_ kind: Callback.Kind) {
         let wasOnMainThread = Thread.isMainThread
-        callbackContinuation.yield(Callback(wasOnMainThread: wasOnMainThread))
-        if !wasOnMainThread {
-            _ = simulatedMainHop.wait(timeout: .now() + 1)
+        callbackContinuation.yield(Callback(kind: kind, wasOnMainThread: wasOnMainThread))
+        if simulatesBlockingMainHop, !wasOnMainThread {
+            blockingHopEntryContinuation.yield(())
+            let result = blockingMainHopRelease.wait(timeout: .now() + 1)
+            blockingHopExitContinuation.yield(
+                result == .success ? .releasedByTest : .safetyTimeout
+            )
+            blockingHopExitContinuation.finish()
         }
     }
 }
