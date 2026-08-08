@@ -52,6 +52,7 @@ use crate::remote_runtime::{
 use crate::session::{RemoteSession, Session};
 
 const REMOTE_COMMANDS: &[&str] = &[
+    "remote",
     "connect",
     "ssh",
     "forward",
@@ -103,6 +104,7 @@ fn run_inner(args: &[String], usage: &str) -> anyhow::Result<()> {
         Some("remote-sidecar") => run_remote_sidecar(&args[1..]),
         Some("remote-stop") => run_remote_stop(&args[1..]),
         Some("install-self") => run_install_self(&args[1..]),
+        Some("remote") => Err(anyhow!(catalog().remote_client.remote_lifecycle_help)),
         _ => Err(anyhow!("unknown remote command\n\n{usage}")),
     }
 }
@@ -189,6 +191,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("remote-link") => client.remote_link_help,
         Some("remote-stop") => catalog().remote.remote_stop_help,
         Some("install-self") => client.install_self_help,
+        Some("remote") => client.remote_lifecycle_help,
         _ => client.command_help,
     }
 }

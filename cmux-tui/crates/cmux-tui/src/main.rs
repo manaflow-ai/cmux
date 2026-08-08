@@ -33,6 +33,7 @@ mod remote_cli;
 #[cfg(not(unix))]
 mod remote_cli {
     const REMOTE_COMMANDS: &[&str] = &[
+        "remote",
         "connect",
         "ssh",
         "forward",
@@ -298,13 +299,14 @@ cmux - terminal multiplexer and resource client
 
 USAGE
   cmux [OPTIONS]           Start a session
-  cmux daemon [OPTIONS]    Start a headless session and remote daemon
-  cmux connect <ROUTE>     Attach through an authenticated remote route
-  cmux ssh <HOST>          Bootstrap and attach over direct SSH
-  cmux forward <ROUTE>     Forward a workspace TCP service locally
-  cmux rpc <ROUTE>         Run workspace coding-agent RPC requests
-  cmux enroll <ACTION>     Enroll, approve, list, or revoke devices
-  cmux known-daemons       List client-pinned daemon identities and routes
+  cmux server <ACTION>     Start, inspect, stop, or reload one local session
+  cmux remote connect <ROUTE>  Attach through an authenticated remote route
+  cmux remote ssh <HOST>       Bootstrap and attach over direct SSH
+  cmux remote forward <ROUTE> Forward a workspace TCP service locally
+  cmux remote rpc <ROUTE>     Run workspace coding-agent RPC requests
+  cmux remote enroll <ACTION> Enroll, approve, list, or revoke devices
+  cmux remote known-daemons   List client-pinned daemon identities and routes
+  cmux remote stop            Stop authenticated remote access explicitly
   cmux attach [OPTIONS]    Attach to a session or one terminal
   cmux relay [OPTIONS]     Relay protocol bytes over stdio
   {machine_agent_usage}
@@ -473,11 +475,6 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     match args.peek().map(|s| s.as_str()) {
         Some("attach") => {
             out.attach = true;
-            args.next();
-        }
-        Some("daemon") => {
-            out.remote = true;
-            out.headless = true;
             args.next();
         }
         _ => {}
@@ -1063,7 +1060,7 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
 }
 
 fn main() {
-    let raw_args = std::env::args().skip(1).collect::<Vec<_>>();
+    let mut raw_args = std::env::args().skip(1).collect::<Vec<_>>();
     // Private process mode used by the daemon when it launches one durable
     // terminal host per PTY. Keep this out of public help and dispatch it
     // before installing the interactive daemon's signal handlers: the host
@@ -1091,6 +1088,18 @@ fn main() {
     if let Some(exit_code) = provider_authority::try_run(&raw_args) {
         std::process::exit(exit_code);
     }
+    if raw_args.first().map(String::as_str) == Some("remote") {
+        match raw_args.get(1).map(String::as_str) {
+            Some("stop") => {
+                raw_args.drain(..2);
+                raw_args.insert(0, "remote-stop".to_string());
+            }
+            Some("connect" | "ssh" | "forward" | "rpc" | "enroll" | "known-daemons") => {
+                raw_args.remove(0);
+            }
+            _ => {}
+        }
+    }
     if remote_cli::is_remote_invocation(&raw_args) {
         discard_provider_secret_environment();
         std::process::exit(remote_cli::run(&raw_args, &usage()));
@@ -1115,6 +1124,16 @@ fn main() {
             std::process::exit(1);
         }
         return;
+    }
+    // `server start` is the canonical spelling for the existing foreground
+    // headless owner. Keep startup in the established Args/run_server path so
+    // lifecycle aliases cannot drift into a second server launcher.
+    if raw_args.first().map(String::as_str) == Some("server")
+        && raw_args.get(1).map(String::as_str) == Some("start")
+        && !raw_args.iter().any(|arg| matches!(arg.as_str(), "-h" | "--help"))
+    {
+        raw_args.drain(..2);
+        raw_args.insert(0, "--headless".to_string());
     }
     if cli::is_cli_invocation(&raw_args) {
         discard_provider_secret_environment();
@@ -1893,7 +1912,8 @@ mod remote_args_tests {
     fn daemon_accepts_native_and_durable_object_relay_registrations() {
         let args = parse_args(
             [
-                "daemon",
+                "--headless",
+                "--remote",
                 "--relay",
                 "relay+wss://relay.example",
                 "--relay-slot",
@@ -1942,7 +1962,8 @@ mod remote_args_tests {
         let marker = "inline-daemon-secret-marker";
         let error = parse_args_result(
             [
-                "daemon",
+                "--headless",
+                "--remote",
                 "--relay",
                 "relay+wss://relay.example",
                 "--relay-slot",

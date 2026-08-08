@@ -527,7 +527,7 @@ fn human_key_rank(key: &str) -> usize {
     }
 }
 
-fn resolve_socket(global: &GlobalArgs) -> PathBuf {
+pub(super) fn resolve_socket(global: &GlobalArgs) -> PathBuf {
     if let Some(path) = &global.socket {
         return path.clone();
     }

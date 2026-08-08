@@ -5,6 +5,7 @@
 //! accidentally fall back to the private command protocol.
 
 mod command;
+mod lifecycle;
 mod raw;
 mod wire;
 
@@ -15,6 +16,7 @@ use command::{CommandPlan, ParsedCommand};
 
 const PUBLIC_SCOPES: &[&str] = &[
     "machine",
+    "server",
     "session",
     "client",
     "workspace",
@@ -70,12 +72,48 @@ pub fn is_cli_invocation(args: &[String]) -> bool {
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
-            "--socket" | "--session" | "--machine" => index += 2,
+            "--socket"
+            | "--session"
+            | "--machine"
+            | "--terminal"
+            | "--state"
+            | "--machine-provider"
+            | "--cloud-host"
+            | "--cloud-user"
+            | "--cloud-port"
+            | "--cloud-identity"
+            | "--ws"
+            | "--ws-token"
+            | "--remote-ws"
+            | "--remote-http"
+            | "--remote-state-dir"
+            | "--remote-link-socket"
+            | "--remote-admin-socket"
+            | "--remote-resume-lease-seconds"
+            | "--relay"
+            | "--relay-slot"
+            | "--relay-ticket-file"
+            | "--relay-ticket-command"
+            | "--relay-ticket-command-arg"
+            | "--advertise"
+            | "--term" => index += 2,
             "--json" | "--jsonl" | "--quiet" => index += 1,
+            "--ephemeral"
+            | "--cloud"
+            | "--headless"
+            | "--ws-insecure-bind"
+            | "--remote"
+            | "--remote-ws-insecure-bind"
+            | "--iroh" => index += 1,
+            "--machine-provider-command" => return false,
             "-h" | "--help" | "help" => return true,
+            "attach" => return false,
             value if PUBLIC_SCOPES.contains(&value) => return true,
             value if value.starts_with('-') => index += 1,
-            _ => return false,
+            // Session startup has no positional arguments. Route unknown
+            // top-level words through the public parser so typos cannot fall
+            // into the unrelated legacy startup help.
+            _ => return true,
         }
     }
     false
@@ -94,6 +132,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             0
         }
         Ok(ParsedCommand::Command { global, plan }) => match plan {
+            CommandPlan::Server(server) => lifecycle::run(global, server),
             CommandPlan::Protocol(request) => wire::run(global, request),
             CommandPlan::SessionResetState(plan) => command::run_session_reset_state(global, plan),
             CommandPlan::Plugin(plugin) => command::run_plugin(global, plugin),
@@ -114,6 +153,9 @@ fn parse(args: &[String]) -> Result<ParsedCommand, UsageError> {
     if command_args.is_empty() {
         return Err(UsageError::new("missing resource scope; use --help to list scopes"));
     }
+    if command_args[0] == "daemon" {
+        return Err(UsageError::new(crate::localization::catalog().local_server.daemon_removed));
+    }
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
@@ -121,7 +163,7 @@ fn parse(args: &[String]) -> Result<ParsedCommand, UsageError> {
             Some(scope) if PUBLIC_SCOPES.contains(&scope.as_str()) => {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
             }
-            Some(scope) => Err(UsageError::new(format!("unknown resource scope {scope:?}"))),
+            Some(scope) => Err(unknown_scope(scope)),
         };
     }
     if command_args
@@ -129,12 +171,61 @@ fn parse(args: &[String]) -> Result<ParsedCommand, UsageError> {
         .take_while(|value| value.as_str() != "--")
         .any(|value| matches!(value.as_str(), "-h" | "--help"))
     {
-        let scope =
-            command_args.iter().find(|value| PUBLIC_SCOPES.contains(&value.as_str())).cloned();
-        return Ok(ParsedCommand::Help(scope));
+        let words = command_args
+            .iter()
+            .take_while(|value| value.as_str() != "--")
+            .filter(|value| !value.starts_with('-'))
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        let topic = match words.as_slice() {
+            ["server", action, ..]
+                if matches!(*action, "start" | "status" | "stop" | "reload-config") =>
+            {
+                Some(format!("server {action}"))
+            }
+            [scope, ..] if PUBLIC_SCOPES.contains(scope) => Some((*scope).to_string()),
+            _ => None,
+        };
+        return Ok(ParsedCommand::Help(topic));
     }
     let plan = command::parse(&command_args)?;
     Ok(ParsedCommand::Command { global, plan })
+}
+
+fn unknown_scope(scope: &str) -> UsageError {
+    let suffix = suggestion(scope, PUBLIC_SCOPES)
+        .map(|candidate| format!(". Did you mean `{candidate}`?"))
+        .unwrap_or_default();
+    UsageError::new(format!("unknown resource scope {scope:?}{suffix}"))
+}
+
+pub(super) fn suggestion<'a>(value: &str, candidates: &'a [&str]) -> Option<&'a str> {
+    candidates
+        .iter()
+        .copied()
+        .map(|candidate| (edit_distance(value, candidate), candidate))
+        .min_by_key(|(distance, _)| *distance)
+        .filter(|(distance, candidate)| {
+            *distance <= 2 || (*distance == 3 && candidate.len().max(value.len()) >= 8)
+        })
+        .map(|(_, candidate)| candidate)
+}
+
+fn edit_distance(left: &str, right: &str) -> usize {
+    let right = right.chars().collect::<Vec<_>>();
+    let mut previous = (0..=right.len()).collect::<Vec<_>>();
+    for (row, left) in left.chars().enumerate() {
+        let mut current = vec![row + 1];
+        for (column, right) in right.iter().enumerate() {
+            current.push(
+                (current[column] + 1)
+                    .min(previous[column + 1] + 1)
+                    .min(previous[column] + usize::from(left != *right)),
+            );
+        }
+        previous = current;
+    }
+    previous[right.len()]
 }
 
 fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), UsageError> {
@@ -214,6 +305,11 @@ fn print_scope_help(scope: Option<&str>) {
 
 fn scope_help(scope: &str) -> &'static str {
     match scope {
+        "server" => crate::localization::catalog().local_server.help,
+        "server start" => crate::localization::catalog().local_server.start_help,
+        "server status" => crate::localization::catalog().local_server.status_help,
+        "server stop" => crate::localization::catalog().local_server.stop_help,
+        "server reload-config" => crate::localization::catalog().local_server.reload_config_help,
         "machine" => MACHINE_HELP,
         "session" => SESSION_HELP,
         "client" => CLIENT_HELP,
@@ -241,7 +337,9 @@ USAGE
   cmux [START OPTIONS]
   cmux attach [START OPTIONS]
   cmux relay [ROUTING OPTIONS]
+  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [OPTIONS]
   cmux machine-agent [OPTIONS]
+  cmux server <start|status|stop|reload-config> [OPTIONS]
   cmux [GLOBAL OPTIONS] <scope> <action>
 
 GLOBAL OPTIONS
@@ -260,6 +358,7 @@ PROCESS HELP
   cmux machine-agent --help
 
 RESOURCE SCOPES
+  server        Manage one named local durable session owner
   machine       Inspect the local machine and session route
   session       Inspect and control a session
   client        Inspect connected clients
@@ -291,7 +390,7 @@ USAGE
 const SESSION_HELP: &str = "\
 USAGE
   cmux session list
-  cmux session <selector> open|show|snapshot|ping|shutdown
+  cmux session <selector> open|show|snapshot|ping|shutdown|stop
   cmux session <name> reset-state [--force --confirm-reset <token>] [--state <path>]
   cmux session <selector> creation <correlation-key> resolve
   cmux session <selector> events [--generation <value> --revision <decimal>]

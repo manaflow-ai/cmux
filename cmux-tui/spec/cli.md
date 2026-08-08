@@ -12,6 +12,7 @@ request:
 
 ```text
 cmux [START OPTIONS]
+cmux server start [START OPTIONS]
 cmux attach [START OPTIONS] [--terminal <terminal-id>]
 cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
@@ -24,6 +25,32 @@ from `cmux terminal list` and renders only that terminal, without session
 chrome or unrelated event traffic. Startup attach does not accept internal
 runtime identifiers, abbreviated identifiers, names, or `current`.
 
+`server` is the local durable mux owner for exactly one named session:
+
+```text
+cmux server start [START OPTIONS]
+cmux server status [--session <name>] [--socket <path>]
+cmux server stop [--session <name>] [--socket <path>] [--force]
+cmux server reload-config [--session <name>] [--socket <path>]
+```
+
+`server start` is the canonical foreground spelling of `--headless`.
+Detached startup is deferred until cmux has explicit supervisor ownership,
+readiness, log, PID/state, crash, and stop contracts.
+`server stop` first reads the process identity, then sends the existing PID and
+generation-fenced graceful shutdown operation. An absent server is success,
+and stopping never deletes the durable topology. `session <name> stop` is an
+alias for the same local operation. `--all` is intentionally deferred until a
+multi-session registry can identify every target without introducing a second
+command registry.
+
+Authenticated network operations use `remote connect|ssh|forward|rpc`,
+`remote enroll`, `remote known-daemons`, and `remote stop`; they cannot accept
+local server targeting. `server start` accepts the explicit remote-listener
+flags when the owning process also serves authenticated clients. Top-level
+remote commands and `remote-stop` remain compatibility aliases for one release
+cycle.
+
 ## Public grammar
 
 ```text
@@ -33,7 +60,7 @@ cmux [GLOBAL OPTIONS] <resource> <action> [OPTIONS]
 The public resource roots are:
 
 ```text
-machine  session  client  workspace  screen  pane  tab
+server   machine  session  client  workspace  screen  pane  tab
 terminal browser  notification  agent  sidebar
 pairing  projection  provider  raw
 ```
@@ -149,7 +176,7 @@ machine <selector> session list
 machine <selector> session <selector> open
 
 session list
-session <selector> open|show|snapshot|events|ping|shutdown
+session <selector> open|show|snapshot|events|ping|shutdown|stop
 session <name> reset-state [--force --confirm-reset <token>] [--state <path>]
 session <selector> creation <correlation-key> resolve
 session <selector> config reload
