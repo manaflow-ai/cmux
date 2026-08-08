@@ -2210,6 +2210,32 @@ mod tests {
         assert!(!events.overflowed());
     }
 
+    #[test]
+    fn local_owner_event_loop_stop_wakes_without_a_mux_event() {
+        let mux = Arc::new(Mux::new("owner-event-stop", SurfaceOptions::default()));
+        let (stop, thread) = start_local_owner_event_loop(&mux);
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+
+        stop.store(true, Ordering::Release);
+        std::thread::spawn(move || done_tx.send(thread.join()).unwrap());
+        let stopped_without_event = match done_rx.recv_timeout(Duration::from_secs(1)) {
+            Ok(result) => {
+                result.unwrap();
+                true
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => false,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                panic!("owner event loop join observer disconnected")
+            }
+        };
+        if !stopped_without_event {
+            mux.emit(cmux_tui_core::MuxEvent::ConfigReloadRequested);
+            done_rx.recv_timeout(Duration::from_secs(2)).unwrap().unwrap();
+        }
+
+        assert!(stopped_without_event, "owner event loop required a mux event to stop");
+    }
+
     #[cfg(windows)]
     #[test]
     fn recovery_commands_identify_the_powershell_dialect() {
