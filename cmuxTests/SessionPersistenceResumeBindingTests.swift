@@ -216,7 +216,8 @@ import Testing
 
         #expect(binding.kind == nil)
         #expect(binding.command.contains(executablePath), "\(binding.command)")
-        #expect(startupInput.contains("codex 'resume' 'session-legacy-cli'"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("resume session-legacy-cli"), "\(startupInput)")
         #expect(!startupInput.contains(executablePath), "\(startupInput)")
     }
 
@@ -263,7 +264,8 @@ import Testing
             )
 
             let startupInput = try #require(binding.startupInput)
-            #expect(startupInput.contains("codex 'resume' 'session-managed-cli'"), "\(startupInput)")
+            #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+            #expect(startupInput.contains("resume session-managed-cli"), "\(startupInput)")
             #expect(!startupInput.contains(executablePath), "\(startupInput)")
         }
     }
@@ -287,7 +289,9 @@ import Testing
 
         let startupInput = try #require(binding.startupInput)
 
-        #expect(startupInput.contains("CMUX_TRACE=1 codex 'resume' 'session-env-cli'"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_TRACE=1"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("resume session-env-cli"), "\(startupInput)")
         #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
     }
 
@@ -309,7 +313,9 @@ import Testing
         )
         let startupInput = try #require(binding.startupInput)
 
-        #expect(startupInput.contains("env 'CMUX_TRACE=1' codex 'resume' 'session-quoted-env-cli'"), "\(startupInput)")
+        #expect(startupInput.contains("env CMUX_TRACE=1"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("resume session-quoted-env-cli"), "\(startupInput)")
         #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
     }
 

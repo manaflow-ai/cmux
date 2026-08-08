@@ -113,6 +113,7 @@ extension TerminalController {
             inPane: paneId,
             url: kind == .browser ? url : nil,
             command: kind == .terminal ? inputs.initialCommand : nil,
+            initialInput: kind == .terminal ? inputs.initialInput : nil,
             workingDirectory: kind == .terminal ? inputs.workingDirectory : nil,
             environment: inputs.startupEnvironment,
             tmuxStartCommand: kind == .terminal ? inputs.tmuxStartCommand : nil,

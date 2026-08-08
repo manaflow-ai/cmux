@@ -37,6 +37,9 @@ process.env.SUBROUTER_ALLOWED_TEAM_IDS ??= "*";
 process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS ??= "0";
 process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS ??= "10000";
 
+// This suite varies hosted Subrouter configuration between isolated test cases.
+mock.module("../app/env", () => ({ env: process.env }));
+
 const ACCOUNT_USER_ID = "account-user-1";
 const originalPostHogPersonalApiKey = process.env.POSTHOG_PERSONAL_API_KEY;
 const originalPostHogApiHost = process.env.POSTHOG_API_HOST;

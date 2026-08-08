@@ -7540,6 +7540,7 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool = true,
         workingDirectory: String? = nil,
         initialCommand: String? = nil,
+        initialInput: String? = nil,
         tmuxStartCommand: String? = nil,
         startupEnvironment: [String: String] = [:],
         initialDividerPosition: CGFloat? = nil,
@@ -7554,6 +7555,7 @@ final class Workspace: Identifiable, ObservableObject {
             focus: focus,
             workingDirectory: workingDirectory,
             initialCommand: initialCommand,
+            initialInput: initialInput,
             tmuxStartCommand: tmuxStartCommand,
             startupEnvironment: startupEnvironment,
             initialDividerPosition: initialDividerPosition,
@@ -7563,7 +7565,7 @@ final class Workspace: Identifiable, ObservableObject {
         ).panel
     }
 
-    /// Like ``newTerminalSplit(from:orientation:insertFirst:focus:workingDirectory:initialCommand:tmuxStartCommand:startupEnvironment:initialDividerPosition:remotePTYSessionID:)``
+    /// Like ``newTerminalSplit(from:orientation:insertFirst:focus:workingDirectory:initialCommand:initialInput:tmuxStartCommand:startupEnvironment:initialDividerPosition:remotePTYSessionID:)``
     /// but distinguishes a split routed to the remote tmux mirror from a genuine
     /// failure, so socket/CLI handlers can report the routed request as accepted.
     /// (Reporting an error makes automation retry and duplicate remote panes.)
@@ -7574,6 +7576,7 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool = true,
         workingDirectory: String? = nil,
         initialCommand: String? = nil,
+        initialInput: String? = nil,
         tmuxStartCommand: String? = nil,
         startupEnvironment: [String: String] = [:],
         initialDividerPosition: CGFloat? = nil,
@@ -7606,6 +7609,7 @@ final class Workspace: Identifiable, ObservableObject {
             focus: focus,
             workingDirectory: workingDirectory,
             initialCommand: initialCommand,
+            initialInput: initialInput,
             tmuxStartCommand: tmuxStartCommand,
             startupEnvironment: startupEnvironment,
             initialDividerPosition: initialDividerPosition,
@@ -7623,6 +7627,7 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool,
         workingDirectory: String?,
         initialCommand: String?,
+        initialInput: String?,
         tmuxStartCommand: String?,
         startupEnvironment: [String: String],
         initialDividerPosition: CGFloat?,
@@ -7710,6 +7715,7 @@ final class Workspace: Identifiable, ObservableObject {
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
+            initialInput: initialInput,
             additionalEnvironment: effectiveStartupEnvironment
         )
         configureNewTerminalPanel(

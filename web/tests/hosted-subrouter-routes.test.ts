@@ -18,6 +18,9 @@ process.env.SUBROUTER_HOSTED_URL = "https://sr.test";
 process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN =
   "0123456789abcdef0123456789abcdef-test";
 
+// This suite varies hosted Subrouter configuration between isolated test cases.
+mock.module("../app/env", () => ({ env: process.env }));
+
 let currentUser: ReturnType<typeof stackUser> | null = null;
 let authJson = {
   accessToken: "cookie-access",

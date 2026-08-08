@@ -4832,11 +4832,15 @@ struct CMUXCLI {
             let (sfArg, rem2) = parseOption(rem1, name: "--surface")
             let (focusOpt, rem3) = parseOption(rem2, name: "--focus")
             let (windowOpt, rem4) = parseOption(rem3, name: "--window")
+            let (commandOpt, rem5) = try parseTerminalCreationCommandOption(
+                rem4,
+                commandName: "new-split"
+            )
             let windowRaw = windowOpt ?? windowId
             let workspaceArg = wsArg ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let surfaceRaw = sfArg ?? panelArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-            let direction = try validatedSplitDirection(rem4.first, commandName: "new-split")
-            if let unknown = rem4.dropFirst().first(where: { $0.hasPrefix("--") }) {
+            let direction = try validatedSplitDirection(rem5.first, commandName: "new-split")
+            if let unknown = rem5.dropFirst().first(where: { $0.hasPrefix("--") }) {
                 throw CLIError(message: "new-split: unknown flag '\(unknown)'")
             }
             var params: [String: Any] = ["direction": direction]
@@ -4846,6 +4850,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId, windowHandle: winId)
             if let sfId { params["surface_id"] = sfId }
+            applyTerminalCreationCommandOption(commandOpt, to: &params)
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.split", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat))
@@ -4939,6 +4944,15 @@ struct CMUXCLI {
             let profile = try parseBrowserProfileOption(commandArgs).selector
             let placement = optionValue(commandArgs, name: "--placement")
             let focusOpt = optionValue(commandArgs, name: "--focus")
+            let commandOpt = try parseTerminalCreationCommandOption(
+                commandArgs,
+                commandName: "new-pane"
+            ).command
+            try validateTerminalCreationCommandOption(
+                commandOpt,
+                type: type,
+                commandName: "new-pane"
+            )
             var params: [String: Any] = ["direction": direction]
             let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
             if let winId { params["window_id"] = winId }
@@ -4956,6 +4970,7 @@ struct CMUXCLI {
                 params["profile"] = profile
             }
             if let placement { params["placement"] = placement }
+            applyTerminalCreationCommandOption(commandOpt, to: &params)
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "pane.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "dock_surface", "dock_pane", "workspace"]))
@@ -4969,6 +4984,15 @@ struct CMUXCLI {
             let workingDirectory = optionValue(commandArgs, name: "--working-directory") ?? optionValue(commandArgs, name: "--cwd")
             let placement = optionValue(commandArgs, name: "--placement")
             let focusOpt = optionValue(commandArgs, name: "--focus")
+            let commandOpt = try parseTerminalCreationCommandOption(
+                commandArgs,
+                commandName: "new-surface"
+            ).command
+            try validateTerminalCreationCommandOption(
+                commandOpt,
+                type: type,
+                commandName: "new-surface"
+            )
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
             if let winId { params["window_id"] = winId }
@@ -4986,6 +5010,7 @@ struct CMUXCLI {
                !workingDirectory.isEmpty {
                 params["working_directory"] = resolvePath(workingDirectory)
             }
+            applyTerminalCreationCommandOption(commandOpt, to: &params)
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "dock_surface", "dock_pane", "workspace"]))
@@ -7862,7 +7887,10 @@ struct CMUXCLI {
         windowOverride: String?,
         honorJSONOutput: Bool
     ) throws {
-        let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
+        let (commandOpt, rem0) = try parseTerminalCreationCommandOption(
+            commandArgs,
+            commandName: commandName
+        )
         let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
         let (nameOpt, rem2) = parseOption(rem1, name: "--name")
         let (descriptionOpt, rem3) = parseOption(rem2, name: "--description")
@@ -7909,6 +7937,9 @@ struct CMUXCLI {
         if let cwdOpt {
             params["cwd"] = resolvePath(cwdOpt)
         }
+        if layoutOpt == nil {
+            applyTerminalCreationCommandOption(commandOpt, to: &params)
+        }
         if let nameOpt { params["title"] = nameOpt }
         if let descriptionOpt { params["description"] = descriptionOpt }
         if let groupOpt { params["group_id"] = groupOpt }
@@ -7932,14 +7963,6 @@ struct CMUXCLI {
             print(jsonString(formatIDs(response, mode: idFormat)))
         } else {
             print("OK \(wsId)")
-        }
-        if layoutOpt == nil, let commandText = commandOpt, !wsId.isEmpty {
-            let text = unescapeSendText(commandText + "\\n")
-            let sendParams: [String: Any] = [
-                "text": text,
-                "workspace_id": wsId
-            ]
-            _ = try client.sendV2(method: "surface.send_text", params: sendParams)
         }
     }
 
@@ -15594,6 +15617,10 @@ struct CMUXCLI {
 
     /// Return the help/usage text for a subcommand, or nil if the command is unknown.
     private func subcommandUsage(_ command: String) -> String? {
+        let initialCommandDescription = String(
+            localized: "cli.terminalCreation.help.initialCommandDescription",
+            defaultValue: "Run this as the new terminal's initial command"
+        )
         switch command {
         case "remotes", "remote":
             return Self.remotesUsage
@@ -16347,7 +16374,7 @@ struct CMUXCLI {
               --name <title>       Set a custom name for the new workspace
               --description <text> Set a custom description for the new workspace
               --cwd <path>         Set the working directory for the new workspace
-              --command <text>     Send text+Enter to the new workspace after creation
+              --command <text>     \(initialCommandDescription)
               --env KEY=VALUE      Set a workspace environment variable. Repeatable.
                                    Reserved CMUX_* variables cannot be overridden.
               --env-file <path>    Load KEY=VALUE lines from a file. Repeatable.
@@ -16550,6 +16577,7 @@ struct CMUXCLI {
               --panel <id|ref>       Alias for --surface
               --window <id|ref|index>
                                       Window context for workspace/surface refs and indexes
+              --command <text>     \(initialCommandDescription)
               --focus <true|false>   Focus the new split (default: false)
 
             Example:
@@ -16697,6 +16725,7 @@ struct CMUXCLI {
               --window <id|ref|index>             Window context for workspace refs and indexes
               --url <url>                         URL for browser panes
               \(String(localized: "cli.newPane.help.profileDescription", defaultValue: "--profile <name|uuid>                Browser profile name or UUID"))
+              --command <text>                     \(initialCommandDescription)
               --focus <true|false>                Focus the new pane (default: false)
 
             Example:
@@ -16724,6 +16753,7 @@ struct CMUXCLI {
                                            Provider for agent-session surfaces (default: codex)
               --renderer <react|solid>    Renderer for agent-session surfaces (default: react)
               --working-directory <path>   Working directory for terminal and agent surfaces
+              --command <text>             \(initialCommandDescription)
               --focus <true|false>        Focus the new surface (default: false)
 
             Example:
@@ -17652,6 +17682,105 @@ struct CMUXCLI {
             .replacingOccurrences(of: "\r", with: "\\r")
         return "\"\(escaped)\""
     }
+
+    /// Adds a non-empty user command plus Enter as spawn-time terminal input.
+    ///
+    /// Command text does not use `send`'s escape grammar: literal `\n`, `\r`,
+    /// and `\t` sequences must reach the shell unchanged.
+    private func applyTerminalCreationCommandOption(
+        _ command: String?,
+        to params: inout [String: Any]
+    ) {
+        if let command = nonBlankTerminalCreationCommand(command) {
+            params["initial_input"] = command + "\r"
+        }
+    }
+
+    /// Rejects terminal-only command input for explicitly non-terminal types.
+    private func validateTerminalCreationCommandOption(
+        _ command: String?,
+        type: String?,
+        commandName: String
+    ) throws {
+        guard nonBlankTerminalCreationCommand(command) != nil,
+              let type,
+              type.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "terminal" else {
+            return
+        }
+        throw CLIError(message: String(
+            format: String(
+                localized: "cli.terminalCreation.error.commandRequiresTerminalType",
+                defaultValue: "%@: --command can only be used with --type terminal"
+            ),
+            locale: .current,
+            commandName
+        ))
+    }
+
+    /// Returns the original command when it contains non-whitespace content.
+    private func nonBlankTerminalCreationCommand(_ command: String?) -> String? {
+        guard let command,
+              !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return command
+    }
+
+    /// Parses terminal-creation command text without consuming a following flag as its value.
+    private func parseTerminalCreationCommandOption(
+        _ args: [String],
+        commandName: String
+    ) throws -> (command: String?, remaining: [String]) {
+        var remaining: [String] = []
+        var command: String?
+        var index = 0
+        var pastTerminator = false
+
+        while index < args.count {
+            let argument = args[index]
+            if pastTerminator || argument == "--" {
+                pastTerminator = true
+                remaining.append(argument)
+                index += 1
+                continue
+            }
+            if argument == "--command" {
+                guard index + 1 < args.count,
+                      !args[index + 1].hasPrefix("--") else {
+                    throw terminalCreationCommandMissingValueError(commandName: commandName)
+                }
+                command = args[index + 1]
+                index += 2
+                continue
+            }
+            if argument.hasPrefix("--command=") {
+                let value = String(argument.dropFirst("--command=".count))
+                guard !value.isEmpty else {
+                    throw terminalCreationCommandMissingValueError(commandName: commandName)
+                }
+                command = value
+                index += 1
+                continue
+            }
+            remaining.append(argument)
+            index += 1
+        }
+
+        return (command, remaining)
+    }
+
+    /// Builds the localized diagnostic shared by all terminal-creation commands.
+    private func terminalCreationCommandMissingValueError(commandName: String) -> CLIError {
+        CLIError(message: String(
+            format: String(
+                localized: "cli.terminalCreation.error.commandRequiresValue",
+                defaultValue: "%@: --command requires <text>"
+            ),
+            locale: .current,
+            commandName
+        ))
+    }
+
     func parseOption(_ args: [String], name: String) -> (String?, [String]) {
         var remaining: [String] = []
         var value: String?
@@ -36492,15 +36621,15 @@ export default CMUXSessionRestore;
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
           ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
-          new-split <left|right|up|down> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--panel <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
+          new-split <left|right|up|down> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--panel <id|ref|index>] [--window <id|ref|index>] [--command <text>] [--focus <true|false>]
           list-panes [--workspace <id|ref|index>] [--window <id|ref|index>]
           list-pane-surfaces [--workspace <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>]
           tree [--all] [--workspace <id|ref|index>] [--window <id|ref|index>]
           top [--all] [--workspace <id|ref|index>] [--window <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
           memory [--all] [--workspace <id|ref|index>] [--groups <count>]
           focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
-          new-pane [--type <terminal|browser|simulator>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>]
-          new-surface [--type <terminal|browser|simulator|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--focus <true|false>]
+          new-pane [--type <terminal|browser|simulator>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--command <text>] [--focus <true|false>]
+          new-surface [--type <terminal|browser|simulator|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--command <text>] [--focus <true|false>]
           close-surface [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
