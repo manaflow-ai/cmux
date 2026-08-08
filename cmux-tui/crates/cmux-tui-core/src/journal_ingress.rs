@@ -564,11 +564,11 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     );
                     return;
                 }
-                let remaining = retry_deadline.saturating_duration_since(Instant::now());
                 let events = batch.iter().map(|queued| &queued.event).collect::<Vec<_>>();
                 match mux.commit_session_journal_events(
                     &events,
-                    remaining.min(JOURNAL_SQLITE_RETRY_SLICE),
+                    retry_deadline,
+                    JOURNAL_SQLITE_RETRY_SLICE,
                 ) {
                     Ok(commits) => {
                         complete_batch_success(&batch, commits);
@@ -580,18 +580,18 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             eprintln!("cmux-tui: append session journal batch: {summary}");
                             reported_error = Some(summary.clone());
                         }
+                        let remaining = retry_deadline.saturating_duration_since(Instant::now());
+                        if remaining.is_zero() {
+                            stop_writer_after_retry_deadline(
+                                &mux,
+                                &receivers,
+                                &batch,
+                                pending,
+                                &format!("journal commit: {summary}"),
+                            );
+                            return;
+                        }
                         if retryable_sqlite_error(&error) {
-                            let remaining = retry_deadline.saturating_duration_since(Instant::now());
-                            if remaining.is_zero() {
-                                stop_writer_after_retry_deadline(
-                                    &mux,
-                                    &receivers,
-                                    &batch,
-                                    pending,
-                                    &format!("locked database: {summary}"),
-                                );
-                                return;
-                            }
                             let epoch = mux.journal_event_epoch();
                             mux.wait_for_journal_event(epoch, delay.min(remaining));
                             delay = (delay * 2).min(Duration::from_secs(1));
@@ -1066,6 +1066,72 @@ mod tests {
         );
         blocker.execute_batch("ROLLBACK;").unwrap();
         drop(blocker);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn producer_deadline_includes_workspace_registry_mutex_admission() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-producer-registry-lock-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "journal-producer-registry-lock",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let locked_mux = mux.clone();
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        let blocker = std::thread::spawn(move || {
+            locked_mux.hold_workspace_registry_for_test(entered, release_receiver);
+        });
+        entered_receiver.recv().unwrap();
+        let ingress = crate::agent_hook_journal_ingress(
+            "codex",
+            "SubagentStop",
+            None,
+            serde_json::json!({
+                "session_id":"registry-lock-root",
+                "root_session_id":"registry-lock-root",
+                "parent_session_id":"registry-lock-root",
+                "child_agent_id":"registry-lock-child",
+                "message":"registry-mutex-deadline-marker",
+            }),
+        )
+        .unwrap();
+
+        let started = Instant::now();
+        let error = mux
+            .append_journal_ingress(
+                &ingress,
+                "client_registry_lock",
+                "registry_lock_deadline_1",
+            )
+            .unwrap_err();
+
+        assert!(error.to_string().contains("timed out"));
+        assert!(
+            started.elapsed() < JOURNAL_DURABLE_WAIT + Duration::from_secs(2),
+            "registry mutex admission must not outlive the producer deadline"
+        );
+        let shutdown_deadline = Instant::now() + Duration::from_secs(1);
+        while !mux.daemon_shutdown_requested() && Instant::now() < shutdown_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(mux.daemon_shutdown_requested());
+        release.send(()).unwrap();
+        blocker.join().unwrap();
+        let records = mux.session_journal_after(0, 1024).unwrap().records;
+        assert!(
+            records
+                .iter()
+                .all(|record| !record.payload.to_string().contains("registry-mutex-deadline-marker")),
+            "a producer event must not commit after its mutex admission deadline"
+        );
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }

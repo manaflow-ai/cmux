@@ -1736,6 +1736,7 @@ pub struct Mux {
     /// publication of revisioned workspace deltas. Lock order is always
     /// registry, then state.
     workspace_registry: Mutex<WorkspaceRegistry>,
+    session_public_id: SessionPublicId,
     state: Mutex<State>,
     subscribers: MuxEventBroadcaster,
     next_id: AtomicU64,
@@ -2075,6 +2076,7 @@ impl Mux {
             notification_ledger,
         } = restore_public_projections(&state, registry.public_projections()?)?;
         let journal_producers = registry.journal_producer_manifests()?;
+        let session_public_id = registry.session_id().clone();
         let journal_kernel = crate::journal_kernel::JournalKernel::new(
             registry.session_journal_database_path(),
             &journal_producers,
@@ -2087,6 +2089,7 @@ impl Mux {
         Self::rebuild_split_screen_index(&mut state);
         let mux = Arc::new(Mux {
             workspace_registry: Mutex::new(registry),
+            session_public_id,
             state: Mutex::new(state),
             subscribers: MuxEventBroadcaster::default(),
             next_id: AtomicU64::new(next_id),
@@ -4581,13 +4584,12 @@ impl Mux {
         &self,
         event: crate::FrontendJournalEvent,
     ) -> anyhow::Result<()> {
-        let session_id = self.workspace_registry.lock().unwrap().session_id().clone();
-        let principal_id = crate::server::public_client_id(&session_id, 0)?.to_string();
+        let principal_id = crate::server::public_client_id(&self.session_public_id, 0)?.to_string();
         self.journal_frontend_event(principal_id, event)
     }
 
     pub(crate) fn session_public_id(&self) -> SessionPublicId {
-        self.workspace_registry.lock().unwrap().session_id().clone()
+        self.session_public_id.clone()
     }
 
     pub(crate) fn journal_frontend_event(
@@ -4625,15 +4627,44 @@ impl Mux {
     pub(crate) fn commit_session_journal_events(
         &self,
         events: &[&crate::journal_ingress::JournalIngressEvent],
-        sqlite_wait: Duration,
+        deadline: Instant,
+        sqlite_wait_cap: Duration,
     ) -> anyhow::Result<Vec<Option<crate::JournalAppendCommit>>> {
-        let commits = self
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .append_journal_ingress_events_with_busy_timeout(events, sqlite_wait)?;
+        let mut registry = loop {
+            match self.workspace_registry.try_lock() {
+                Ok(registry) => break registry,
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        anyhow::bail!("timed out waiting for the workspace registry journal writer");
+                    }
+                    std::thread::sleep(remaining.min(Duration::from_millis(10)));
+                }
+                Err(std::sync::TryLockError::Poisoned(_)) => {
+                    anyhow::bail!("workspace registry journal writer lock is poisoned");
+                }
+            }
+        };
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        anyhow::ensure!(!remaining.is_zero(), "session journal commit deadline expired");
+        let commits = registry
+            .append_journal_ingress_events_with_busy_timeout(
+                events,
+                remaining.min(sqlite_wait_cap),
+            )?;
         self.publish_journal_event();
         Ok(commits)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn hold_workspace_registry_for_test(
+        &self,
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: std::sync::mpsc::Receiver<()>,
+    ) {
+        let _registry = self.workspace_registry.lock().unwrap();
+        entered.send(()).unwrap();
+        release.recv().unwrap();
     }
 
     pub(crate) fn journal_event_epoch(&self) -> u64 {
