@@ -4200,6 +4200,7 @@ pub(crate) struct MenuSearch {
     pub placeholder: String,
     pub input: TextInput,
     items: Arc<[MenuItem]>,
+    lowered_labels: Arc<[String]>,
     fallback: Arc<[MenuItem]>,
 }
 
@@ -4268,6 +4269,10 @@ impl ContextMenu {
         let label = label.into();
         let placeholder = placeholder.into();
         let search_items: Arc<[MenuItem]> = items.into();
+        let lowered_labels = search_items
+            .iter()
+            .map(|item| item.label().unwrap_or_default().to_lowercase())
+            .collect::<Arc<[String]>>();
         let fallback: Arc<[MenuItem]> = fallback.into();
         let mut visible = fallback.to_vec();
         if !visible.is_empty() && !search_items.is_empty() {
@@ -4284,6 +4289,7 @@ impl ContextMenu {
                 placeholder,
                 input: TextInput::new(String::new()),
                 items: search_items,
+                lowered_labels,
                 fallback,
             }),
             right_press: (x, y),
@@ -4300,14 +4306,9 @@ impl ContextMenu {
         let matches = search
             .items
             .iter()
-            .filter(|item| {
-                terms.is_empty()
-                    || item.label().is_some_and(|label| {
-                        let label = label.to_lowercase();
-                        terms.iter().all(|term| label.contains(term))
-                    })
-            })
-            .cloned()
+            .zip(search.lowered_labels.iter())
+            .filter(|(_, label)| terms.is_empty() || terms.iter().all(|term| label.contains(term)))
+            .map(|(item, _)| item.clone())
             .collect::<Vec<_>>();
         let mut visible = search.fallback.to_vec();
         if !matches.is_empty() && !search.fallback.is_empty() {
@@ -8468,12 +8469,12 @@ impl App {
 
     pub(crate) fn projection_rows(&self, index: usize) -> Vec<ProjectionRow> {
         let Some(spec) = self.config.sidebar.views.get(index) else { return Vec::new() };
+        let empty_collapsed = HashSet::new();
         let collapsed = self
             .projection_rails
             .get(&spec.id)
             .map(|state| &state.collapsed)
-            .cloned()
-            .unwrap_or_default();
+            .unwrap_or(&empty_collapsed);
         let agents = spec
             .includes(SidebarResourceKind::Agents)
             // Finished reports are historical records, not active agents.
@@ -8491,7 +8492,7 @@ impl App {
             &self.tree,
             &agents,
             self.sidebar_workspace_selection,
-            &collapsed,
+            collapsed,
         )
     }
 

@@ -686,6 +686,7 @@ pub(crate) struct SidebarMessages {
     pub panes: &'static str,
     pub tabs: &'static str,
     pub agents: &'static str,
+    pub projection_path_separator: &'static str,
     pub new_machine: &'static str,
     pub connect_machine: &'static str,
     pub no_machines: &'static str,
@@ -1337,6 +1338,7 @@ OPTIONS:
         panes: "panes",
         tabs: "tabs",
         agents: "agents",
+        projection_path_separator: " › ",
         new_machine: "new machine",
         connect_machine: "connect machine",
         no_machines: "no machines",
@@ -1426,7 +1428,7 @@ OPTIONS:
         machine_managed_authority_invalid: "The machine provider returned an invalid managed workspace authority binding",
         machine_catalog_create_unsupported: "This machine catalog cannot create machines",
         machine_creation_source_unavailable: "This machine creation source is unavailable",
-        machine_name_required: "Machine name is required",
+        machine_name_required: "Enter a machine name",
         client_machine_unavailable: "This client-owned machine is unavailable",
         prototype_machine_added: "Added prototype machine",
         machine_catalog_provider_actions_unsupported: "This machine catalog has no provider actions",
@@ -1853,6 +1855,7 @@ ID とセッション:
         panes: "ペイン",
         tabs: "タブ",
         agents: "エージェント",
+        projection_path_separator: " › ",
         new_machine: "新規マシン",
         connect_machine: "マシンを接続",
         no_machines: "マシンがありません",
@@ -2177,7 +2180,7 @@ mod tests {
         assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.other_host, "SSH ホストを追加…");
         assert_eq!(
             catalog_for_locale("en_US.UTF-8").sidebar.machine_name_required,
-            "Machine name is required"
+            "Enter a machine name"
         );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_name_required,

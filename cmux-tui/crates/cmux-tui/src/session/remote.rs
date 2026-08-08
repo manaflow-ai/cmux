@@ -3237,11 +3237,15 @@ impl RemoteSession {
                 return Err(e);
             }
         };
-        let agents = self.request(json!({"cmd": "list-agents"})).ok().and_then(|data| {
-            data.get("agents")
-                .cloned()
-                .and_then(|agents| serde_json::from_value::<Vec<AgentInfo>>(agents).ok())
-        });
+        let agents = self
+            .request(json!({"cmd": "list-agents"}))
+            .ok()
+            .and_then(|data| {
+                data.get("agents")
+                    .cloned()
+                    .and_then(|agents| serde_json::from_value::<Vec<AgentInfo>>(agents).ok())
+            })
+            .unwrap_or_default();
         let capabilities = self.capabilities.lock().unwrap();
         let tree = parse_tree_with_capabilities(
             &data,
@@ -3271,9 +3275,7 @@ impl RemoteSession {
         let tree = {
             let mut cache = self.tree.lock().unwrap();
             cache.replace(tree, refresh_generation);
-            if let Some(agents) = agents {
-                cache.agents = agents;
-            }
+            cache.agents = agents;
             cache.view.clone()
         };
         let surfaces = self.surfaces.lock().unwrap().clone();
@@ -5217,6 +5219,90 @@ mod tests {
         list_requests: usize,
     }
 
+    struct AgentRefreshWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+        agent_requests: usize,
+    }
+
+    impl RemoteMessageWriter for AgentRefreshWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let response = match request.get("cmd").and_then(Value::as_str) {
+                Some("list-workspaces") => json!({
+                    "id": id,
+                    "ok": true,
+                    "data": {
+                        "workspaces": [{
+                            "id": 1,
+                            "active": true,
+                            "screens": [{
+                                "id": 2,
+                                "active": true,
+                                "active_pane": 3,
+                                "layout": {"type": "leaf", "pane": 3},
+                                "panes": [{
+                                    "id": 3,
+                                    "active_tab": 0,
+                                    "tabs": [{"surface": 4, "kind": "pty"}],
+                                }],
+                            }],
+                        }],
+                    },
+                }),
+                Some("list-agents") => {
+                    self.agent_requests += 1;
+                    if self.agent_requests == 1 {
+                        json!({
+                            "id": id,
+                            "ok": true,
+                            "data": {
+                                "agents": [{
+                                    "surface": 4,
+                                    "state": "working",
+                                    "source": "hook",
+                                    "session": "agent-session",
+                                    "updated_at_ms": 1,
+                                }],
+                            },
+                        })
+                    } else {
+                        json!({"id": id, "ok": false, "error": "agent snapshot unavailable"})
+                    }
+                }
+                command => {
+                    return Err(io::Error::other(format!(
+                        "unexpected agent refresh command {command:?}"
+                    )));
+                }
+            };
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let pending = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            pending
+                .response
+                .send(response)
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     impl RemoteMessageWriter for EnsureInitialTreeWriter {
         fn send(&mut self, message: &str) -> io::Result<()> {
             let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
@@ -5297,6 +5383,23 @@ mod tests {
             Some(4),
             "startup returned before the client could route input to its created terminal"
         );
+    }
+
+    #[test]
+    fn failed_agent_refresh_clears_last_known_agent_rows() {
+        let session_slot = Arc::new(Mutex::new(None));
+        let remote = test_session(Box::new(AgentRefreshWriter {
+            session: session_slot.clone(),
+            agent_requests: 0,
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&remote));
+
+        remote.refresh_tree().unwrap();
+        assert_eq!(remote.cached_agents().len(), 1);
+
+        remote.refresh_tree().unwrap();
+
+        assert!(remote.cached_agents().is_empty());
     }
 
     #[test]
