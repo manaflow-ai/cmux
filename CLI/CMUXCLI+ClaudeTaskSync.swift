@@ -537,7 +537,6 @@ extension CMUXCLI {
         client: SocketClient,
         telemetry: CLISocketSentryTelemetry,
         workspaceIDs: [String],
-        includeFallbackDestinations: Bool = false,
         deadlineUptime: TimeInterval
     ) throws -> Bool {
         var legacyDirectoryNames: Set<String> = [taskDirectoryName]
@@ -578,6 +577,7 @@ extension CMUXCLI {
         client: SocketClient,
         telemetry: CLISocketSentryTelemetry,
         workspaceIDs: [String],
+        includeFallbackDestinations: Bool = false,
         deadlineUptime: TimeInterval
     ) throws -> Bool {
         let recordedWorkspaceIDs = try sessionStore.legacyClaudeTaskOwnerWorkspaceIDs(

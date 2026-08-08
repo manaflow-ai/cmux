@@ -325,7 +325,11 @@ public struct ClaudeTeamTaskListResolver {
         if let agentID {
             return configurationAgentIDs(config).contains(agentID)
         }
-        return nonEmpty(config.leadSessionId) == nonEmpty(sessionID)
+        guard let leadSessionID = nonEmpty(config.leadSessionId),
+              let hookSessionID = nonEmpty(sessionID) else {
+            return false
+        }
+        return leadSessionID == hookSessionID
     }
 
     private func taskListBinding(

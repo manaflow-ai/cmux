@@ -597,19 +597,26 @@ final class ClaudeHookSessionStore {
         taskListID: String,
         taskStoreIdentity: ClaudeTaskStoreIdentity
     ) throws -> ClaudeHookTaskListDestinationRecord? {
-        try withLockedState { state in
+        guard let normalizedTaskListID = normalizeOptional(taskListID),
+              normalizedTaskListID != ".",
+              normalizedTaskListID != "..",
+              !normalizedTaskListID.contains("/"),
+              !normalizedTaskListID.contains("\0") else {
+            return nil
+        }
+        return try withLockedState { state in
             guard state.claudeTaskListDestinations.count
                     <= ClaudeHookTaskListDestinationRecord.maximumRecordCount else {
                 throw POSIXError(.E2BIG)
             }
             let storageKey = claudeTaskListStorageKey(
-                taskListID: taskListID,
+                taskListID: normalizedTaskListID,
                 taskStoreIdentity: taskStoreIdentity
             )
             let record = state.claudeTaskListDestinations[storageKey]
-                ?? state.claudeTaskListDestinations[taskListID]
+                ?? state.claudeTaskListDestinations[normalizedTaskListID]
             guard let record,
-                  record.taskListID == taskListID,
+                  record.taskListID == normalizedTaskListID,
                   record.taskStoreIdentity == taskStoreIdentity
                     || record.taskStoreIdentity == nil else {
                 return nil
@@ -715,26 +722,33 @@ final class ClaudeHookSessionStore {
         taskListID: String,
         taskStoreIdentity: ClaudeTaskStoreIdentity
     ) throws -> ClaudeHookTeamTaskBindingRecord? {
-        try withLockedState { state in
+        guard let normalizedTaskListID = normalizeOptional(taskListID),
+              normalizedTaskListID != ".",
+              normalizedTaskListID != "..",
+              !normalizedTaskListID.contains("/"),
+              !normalizedTaskListID.contains("\0") else {
+            return nil
+        }
+        return try withLockedState { state in
             guard state.claudeTeamTaskBindings.count
                     <= ClaudeHookTeamTaskBindingRecord.maximumRecordCount else {
                 throw POSIXError(.E2BIG)
             }
             let storageKey = claudeTeamTaskBindingStorageKey(
-                taskListID: taskListID,
+                taskListID: normalizedTaskListID,
                 taskStoreIdentity: taskStoreIdentity
             )
             let record: ClaudeHookTeamTaskBindingRecord
             if let exactRecord = state.claudeTeamTaskBindings[storageKey] {
                 guard exactRecord.binding.taskStoreIdentity == taskStoreIdentity,
-                      exactRecord.binding.taskListID == taskListID else {
+                      exactRecord.binding.taskListID == normalizedTaskListID else {
                     return nil
                 }
                 record = exactRecord
             } else {
-                guard let legacyRecord = state.claudeTeamTaskBindings[taskListID],
+                guard let legacyRecord = state.claudeTeamTaskBindings[normalizedTaskListID],
                       legacyRecord.binding.taskStoreIdentity == nil,
-                      legacyRecord.binding.taskListID == taskListID else {
+                      legacyRecord.binding.taskListID == normalizedTaskListID else {
                     return nil
                 }
                 record = legacyRecord
@@ -822,8 +836,11 @@ final class ClaudeHookSessionStore {
         retiredRecords: [ClaudeHookTeamTaskBindingRecord]
     ) throws -> [String] {
         let normalizedWorkspaceIDs = Set(workspaceIDs.compactMap(normalizeOptional)).sorted()
-        guard !normalizedWorkspaceIDs.isEmpty,
-              normalizedWorkspaceIDs.count <= ClaudeHookTeamTaskBindingRecord.maximumWorkspaceCount else {
+        guard !normalizedWorkspaceIDs.isEmpty else {
+            throw POSIXError(.EINVAL)
+        }
+        guard normalizedWorkspaceIDs.count
+                <= ClaudeHookTeamTaskBindingRecord.maximumWorkspaceCount else {
             throw POSIXError(.E2BIG)
         }
         return try withLockedState { state in
@@ -2255,7 +2272,6 @@ final class ClaudeHookSessionStore {
             let result = try body(&state)
             try checkLockDeadline()
             try saveUnlocked(state)
-            try checkLockDeadline()
             return result
         }
     }
@@ -4674,6 +4690,7 @@ struct CMUXCLI {
             )
         } catch {
             guard claudeTaskSyncDeadlineUptime == nil else {
+                cliTelemetry.captureError(stage: "socket_auth", error: error)
                 cliTelemetry.breadcrumb("claude-hook.task-sync.authentication-failed")
                 printClaudeHookAck()
                 return

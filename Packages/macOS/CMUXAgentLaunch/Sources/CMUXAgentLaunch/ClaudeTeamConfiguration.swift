@@ -8,4 +8,22 @@ struct ClaudeTeamConfiguration: Decodable {
     let leadSessionId: String?
     /// The agents whose hook identities belong to the team.
     let members: [ClaudeTeamConfigurationMember]
+
+    private enum CodingKeys: CodingKey {
+        case name
+        case leadAgentId
+        case leadSessionId
+        case members
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        leadAgentId = try container.decodeIfPresent(String.self, forKey: .leadAgentId)
+        leadSessionId = try container.decodeIfPresent(String.self, forKey: .leadSessionId)
+        members = try container.decodeIfPresent(
+            [ClaudeTeamConfigurationMember].self,
+            forKey: .members
+        ) ?? []
+    }
 }

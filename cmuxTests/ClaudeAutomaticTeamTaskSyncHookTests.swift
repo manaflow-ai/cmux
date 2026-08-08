@@ -2,7 +2,7 @@ import CMUXAgentLaunch
 import Foundation
 import Testing
 
-@Suite("Claude automatic-team task sync")
+@Suite("Claude automatic-team task sync", .serialized)
 struct ClaudeAutomaticTeamTaskSyncHookTests {
     @Test("Same-named teams in independent Claude profiles keep distinct owners")
     func isolatesTaskStoresWithTheSameTeamName() throws {
@@ -723,7 +723,7 @@ struct ClaudeAutomaticTeamTaskSyncHookTests {
         } else {
             defaultInput = #"{"session_id":"\#(sessionId)","hook_event_name":"PostToolUse","tool_name":"\#(toolName)","tool_input":{"taskId":"1","status":"in_progress"}}"#
         }
-        ClaudeHookLiveDeliveryHarness.runHookProcess(
+        return ClaudeHookLiveDeliveryHarness.runHookProcess(
             context: context,
             arguments: ["hooks", "claude", "task-sync"],
             environment: environment,

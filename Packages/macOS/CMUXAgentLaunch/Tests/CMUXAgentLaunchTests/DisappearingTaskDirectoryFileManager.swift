@@ -9,6 +9,11 @@ final class DisappearingTaskDirectoryFileManager: ClaudeTaskFileSystem {
     private var didRemoveDirectory = false
     private var directoryValidationCount = 0
 
+    /// The post-load recheck in `ClaudeTaskSnapshotLoader.loadKnownTaskList`.
+    /// The first lookup resolves the directory; the second revalidates it after
+    /// the snapshot read. Update this ordinal if the loader adds a lookup.
+    private static let postLoadRevalidationIndex = 2
+
     init(
         disappearingDirectoryURL: URL,
         deletesAfterEnumeration: Bool = false
@@ -54,7 +59,8 @@ final class DisappearingTaskDirectoryFileManager: ClaudeTaskFileSystem {
            url == disappearingDirectoryURL,
            keys.contains(.isDirectoryKey) {
             directoryValidationCount += 1
-            if directoryValidationCount == 2, !didRemoveDirectory {
+            if directoryValidationCount == Self.postLoadRevalidationIndex,
+               !didRemoveDirectory {
                 didRemoveDirectory = true
                 try fileManager.removeItem(at: url)
             }

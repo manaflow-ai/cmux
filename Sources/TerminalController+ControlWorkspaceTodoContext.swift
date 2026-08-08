@@ -36,13 +36,13 @@ extension TerminalController: ControlWorkspaceTodoContext {
     ) -> TodoWorkspaceResolution {
         if let workspaceID {
             if let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
-               let workspace = owner.tabs.first(where: { $0.id == workspaceID }) {
+               let workspace = owner.workspacesById[workspaceID] {
                 return .found(tabManager: owner, workspace: workspace)
             }
             guard let tabManager = resolveTabManager(routing: routing) else {
                 return .tabManagerUnavailable
             }
-            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+            guard let workspace = tabManager.workspacesById[workspaceID] else {
                 return .notFound
             }
             return .found(tabManager: tabManager, workspace: workspace)
@@ -51,7 +51,7 @@ extension TerminalController: ControlWorkspaceTodoContext {
             return .tabManagerUnavailable
         }
         guard let selectedId = tabManager.selectedTabId,
-              let workspace = tabManager.tabs.first(where: { $0.id == selectedId }) else {
+              let workspace = tabManager.workspacesById[selectedId] else {
             return .notFound
         }
         return .found(tabManager: tabManager, workspace: workspace)

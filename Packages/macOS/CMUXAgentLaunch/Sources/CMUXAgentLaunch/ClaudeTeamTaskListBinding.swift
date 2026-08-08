@@ -18,6 +18,14 @@ public struct ClaudeTeamTaskListBinding: Codable, Equatable, Sendable {
     /// Bounded metadata generation that proved this identity unique.
     let teamConfigurationGeneration: String?
 
+    private enum CodingKeys: CodingKey {
+        case taskStoreIdentity
+        case taskListID
+        case leaderSessionID
+        case agentIDs
+        case teamConfigurationGeneration
+    }
+
     /// Creates a canonical binding from one decoded team configuration.
     init?(
         taskListID: String,
@@ -47,6 +55,33 @@ public struct ClaudeTeamTaskListBinding: Codable, Equatable, Sendable {
         self.leaderSessionID = normalizedLeaderSessionID
         self.agentIDs = normalizedAgentIDs
         self.teamConfigurationGeneration = teamConfigurationGeneration
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard let validated = ClaudeTeamTaskListBinding(
+            taskListID: try container.decode(String.self, forKey: .taskListID),
+            taskStoreIdentity: try container.decodeIfPresent(
+                ClaudeTaskStoreIdentity.self,
+                forKey: .taskStoreIdentity
+            ),
+            leaderSessionID: try container.decodeIfPresent(
+                String.self,
+                forKey: .leaderSessionID
+            ),
+            agentIDs: try container.decodeIfPresent([String].self, forKey: .agentIDs) ?? [],
+            teamConfigurationGeneration: try container.decodeIfPresent(
+                String.self,
+                forKey: .teamConfigurationGeneration
+            )
+        ) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .taskListID,
+                in: container,
+                debugDescription: "Non-canonical or identity-less team task list binding"
+            )
+        }
+        self = validated
     }
 
     /// Whether this proof owns a hook's exact team identity.
