@@ -402,6 +402,33 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
+    func successfulSignOutClearsRegistrationPublicationState() async throws {
+        let fixture = try HostRuntimeFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let store = TestControllableSecureCredentialStore()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: TestIrohHostBroker(
+                registrationBinding: fixture.binding,
+                discovery: fixture.discovery
+            ),
+            configuration: fixture.configuration,
+            pendingRevocations: CmxIrohPendingRevocationOutbox(secureStore: store),
+            handleTransport: { session, _ in await session.close() }
+        )
+        try await runtime.start()
+        #expect(await runtime.lastRegistrationRefreshState != nil)
+
+        let preparation = await runtime.deactivateForSignOut()
+
+        #expect(preparation.wasPersisted)
+        #expect(await runtime.snapshot().state == .inactive)
+        // A stale fingerprint surviving sign-out could suppress the next
+        // account's non-forced publications when reachability matches.
+        #expect(await runtime.lastRegistrationRefreshState == nil)
+    }
+
+    @Test
     func requiredBindPolicyIsForwardedToTheEndpointGeneration() async throws {
         let fixture = try HostRuntimeFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
