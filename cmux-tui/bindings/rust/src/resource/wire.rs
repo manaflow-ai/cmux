@@ -516,6 +516,10 @@ pub(crate) fn move_destination(options: MoveDestination) -> Params {
         .u32(field::INDEX, options.index)
 }
 
+pub(crate) fn terminal_project(options: TerminalProjectOptions) -> Params {
+    move_destination(options.destination).optional_string(field::NAME, options.name)
+}
+
 pub(crate) fn pane_swap(options: PaneSwapOptions) -> Params {
     Params::new()
         .selector(field::OTHER_WORKSPACE, &options.other_workspace)

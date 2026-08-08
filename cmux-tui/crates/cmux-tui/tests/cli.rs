@@ -1,11 +1,10 @@
 use std::fs;
 #[cfg(unix)]
-use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(unix)]
-use std::os::fd::FromRawFd;
+use std::os::fd::AsRawFd;
 #[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 #[cfg(unix)]
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
@@ -24,15 +23,27 @@ struct HeadlessServer {
 
 impl HeadlessServer {
     fn start(name: &str) -> Self {
+        Self::start_with_config(name, None)
+    }
+
+    fn start_with_config(name: &str, config_contents: Option<&str>) -> Self {
         let dir = unique_temp_dir(name);
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
         let state = dir.join("state");
+        // A headless fixture must never inherit the developer's real plugin
+        // configuration. Server-owned plugins are configured explicitly by
+        // the tests that exercise them.
+        let config = dir.join("config.json");
+        if let Some(contents) = config_contents {
+            fs::write(&config, contents).unwrap();
+        }
         let child = Command::new(bin())
             .args(["--headless", "--socket"])
             .arg(&socket)
             .arg("--state")
             .arg(&state)
+            .env("CMUX_TUI_CONFIG", &config)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
@@ -53,7 +64,7 @@ impl HeadlessServer {
         panic!("headless server did not create socket at {}", self.socket.display());
     }
 
-    fn close_all_surfaces(&self) -> bool {
+    fn close_all_resources(&self) -> bool {
         let host_root =
             cmux_tui_core::terminal_host_runtime::terminal_host_root(&self.state, "main");
         // Capture exact host PIDs before close can remove their discovery
@@ -92,6 +103,34 @@ impl HeadlessServer {
             })
             .filter_map(|pid| u32::try_from(pid).ok())
             .collect::<Vec<_>>();
+
+        // A terminal runtime is independent of its placements. Explicitly
+        // close every terminal resource, including zero-view terminals that
+        // cannot appear in the legacy workspace tree below.
+        if let Ok(output) = Command::new(bin())
+            .args(["--json", "--socket"])
+            .arg(&self.socket)
+            .args(["terminal", "list"])
+            .env_remove("CMUX_TUI_SOCKET")
+            .output()
+            && output.status.success()
+            && let Ok(terminals) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            && let Some(terminals) = terminals.as_array()
+        {
+            for terminal in terminals {
+                let Some(terminal_id) = terminal["id"].as_str() else { continue };
+                let _ = Command::new(bin())
+                    .args(["--quiet", "--socket"])
+                    .arg(&self.socket)
+                    .args(["terminal", terminal_id, "close"])
+                    .env_remove("CMUX_TUI_SOCKET")
+                    .output();
+            }
+        }
+
+        // Close any remaining browser placements. Terminal placements were
+        // already removed by terminal.close, so missing-surface responses are
+        // expected and harmless here.
         for (index, surface) in surfaces.into_iter().enumerate() {
             let index = u64::try_from(index).expect("surface count fits a protocol request id");
             let _ = try_json_socket_request(
@@ -126,12 +165,46 @@ impl HeadlessServer {
     }
 }
 
+#[cfg(unix)]
+fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if child.try_wait().unwrap().is_some() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    false
+}
+
+#[cfg(unix)]
+fn wait_for_processes_to_exit(pids: &[u32], timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if pids.iter().copied().all(|pid| !process_exists(pid) && !process_group_exists(pid)) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    false
+}
+
+#[cfg(unix)]
+fn signal_test_process_group(pid: u32, signal: libc::c_int) {
+    let Ok(pid) = libc::pid_t::try_from(pid) else { return };
+    // SAFETY: the test just captured this isolated PTY process group from its
+    // private terminal-host record or process-info response.
+    unsafe {
+        libc::kill(-pid, signal);
+    }
+}
+
 impl Drop for HeadlessServer {
     fn drop(&mut self) {
         // Durable terminal hosts intentionally outlive the daemon. Tests must
-        // close their canonical surfaces first rather than assuming SIGKILL
-        // of the daemon also owns or reaps its per-terminal processes.
-        let hosts_stopped = self.close_all_surfaces();
+        // close their terminal resources first rather than assuming SIGKILL
+        // of the daemon also owns or reaps their processes.
+        let hosts_stopped = self.close_all_resources();
         let _ = self.child.kill();
         let _ = self.child.wait();
         let _ = fs::remove_file(&self.socket);
@@ -267,7 +340,7 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     let state = dir.join("state");
     let home = dir.join("home");
     fs::create_dir_all(&home).unwrap();
-    let session = "schema-{found}";
+    let session = "--old-schema-{found}";
 
     drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
     let database = fs::read_dir(&state)
@@ -374,10 +447,40 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     assert!(english.contains(&format!("session socket: {}", socket.display())), "{english}");
     assert!(!english.contains("state database:"), "{english}");
     assert!(!english.contains(&database.display().to_string()), "{english}");
-    assert!(
-        english.contains("no server is listening on this socket; nothing needs to be stopped"),
-        "{english}"
-    );
+    assert!(english.contains("no server is listening on this socket"), "{english}");
+    assert!(!english.contains("nothing needs to be stopped"), "{english}");
+    #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+    {
+        assert!(
+            english.contains(&format!(
+                "cmux session 'name:{session}' reset-state --state '{}'",
+                state.display()
+            )),
+            "{english}"
+        );
+        assert!(
+            !english.contains(&format!(
+                "cmux session 'name:{session}' reset-state --state '{}' --force",
+                state.display()
+            )),
+            "{english}"
+        );
+    }
+    #[cfg(not(any(
+        target_os = "ios",
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "android"
+    )))]
+    {
+        assert!(!english.contains(" reset-state"), "{english}");
+        assert!(
+            english.contains(
+                "scoped saved-state reset is not supported on this platform; no reset command is shown"
+            ),
+            "{english}"
+        );
+    }
     assert!(!english.contains("session current shutdown --force"), "{english}");
     assert!(english.contains("saved state still requires a newer cmux"), "{english}");
     assert!(english.contains(&format!("--session '{session}-separate'")), "{english}");
@@ -509,12 +612,665 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     assert!(japanese.contains("セッションソケット:"), "{japanese}");
     assert!(!japanese.contains("状態データベース:"), "{japanese}");
     assert!(!japanese.contains(&database.display().to_string()), "{japanese}");
-    assert!(
-        japanese.contains("このソケットを待ち受けているサーバーはありません。停止は不要です"),
-        "{japanese}"
-    );
+    assert!(japanese.contains("このソケットを待ち受けているサーバーはありません"), "{japanese}");
+    assert!(!japanese.contains("停止は不要"), "{japanese}");
+    #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+    {
+        assert!(
+            japanese.contains(&format!(
+                "cmux session 'name:{session}' reset-state --state '{}'",
+                state.display()
+            )),
+            "{japanese}"
+        );
+        assert!(
+            !japanese.contains(&format!(
+                "cmux session 'name:{session}' reset-state --state '{}' --force",
+                state.display()
+            )),
+            "{japanese}"
+        );
+    }
+    #[cfg(not(any(
+        target_os = "ios",
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "android"
+    )))]
+    {
+        assert!(!japanese.contains(" reset-state"), "{japanese}");
+        assert!(
+            japanese.contains("このプラットフォームではスコープ付き保存状態リセットに対応していないため、リセットコマンドは表示しません"),
+            "{japanese}"
+        );
+    }
     assert!(!japanese.contains("session current shutdown --force"), "{japanese}");
     assert!(japanese.contains("保存状態には新しい cmux が必要です"), "{japanese}");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn session_reset_state_rejects_global_routing_options() {
+    let dir = unique_temp_dir("session-reset-routing-options");
+    let state = dir.join("state");
+    for (option, value) in
+        [("--socket", "ignored.sock"), ("--session", "ignored"), ("--machine", "ignored")]
+    {
+        let output = Command::new(bin())
+            .args(["--json", option, value, "session", "target", "reset-state", "--state"])
+            .arg(&state)
+            .env_remove("CMUX_TUI_SOCKET")
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{option} unexpectedly reached reset execution");
+        let error: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(error["code"], "session.reset_state.routing_options_unsupported");
+        assert_eq!(error["details"]["options"], serde_json::json!([option]));
+        assert!(error["message"].as_str().unwrap().contains(option));
+        assert!(!state.exists(), "{option} created the ignored state root");
+    }
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn session_reset_state_removes_only_the_named_saved_state() {
+    let dir = unique_temp_dir("session-reset-state");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let stale_session = "schema-reset-target";
+    let kept_session = "schema-reset-kept";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, stale_session).unwrap());
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, kept_session).unwrap());
+    let session_database = |session: &str| {
+        fs::read_dir(&state)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+            .filter(|path| path.is_file())
+            .find(|path| {
+                let connection = rusqlite::Connection::open(path).unwrap();
+                let session_id: String = connection
+                    .query_row("SELECT value FROM meta WHERE key = 'session_name'", [], |row| {
+                        row.get(0)
+                    })
+                    .unwrap();
+                session_id == session
+            })
+            .expect("session database")
+    };
+    let stale_database = session_database(stale_session);
+    let kept_database = session_database(kept_session);
+    let stale_host_root =
+        cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, stale_session);
+    let kept_host_root =
+        cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, kept_session);
+    fs::create_dir_all(&stale_host_root).unwrap();
+    fs::create_dir_all(&kept_host_root).unwrap();
+    fs::write(stale_host_root.join("orphaned-sidecar"), b"stale").unwrap();
+    fs::write(kept_host_root.join("orphaned-sidecar"), b"kept").unwrap();
+    let connection = rusqlite::Connection::open(&stale_database).unwrap();
+    connection.execute("UPDATE meta SET value = '999' WHERE key = 'schema_version'", []).unwrap();
+    drop(connection);
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", stale_session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    assert_eq!(preview["session"], stale_session);
+    assert_eq!(preview["requires_force"], true);
+    assert_eq!(preview["state_root"], state.display().to_string());
+    assert_eq!(preview["session_dir"], stale_database.parent().unwrap().display().to_string());
+    assert_eq!(preview["terminal_host_root"], stale_host_root.display().to_string());
+    let confirm_reset = preview["confirm_reset"].as_str().unwrap().to_string();
+    assert!(stale_database.exists(), "preview removed stale database");
+    assert!(stale_host_root.exists(), "preview removed stale terminal-host state");
+
+    let rejected = Command::new(bin())
+        .args(["session", stale_session, "reset-state", "--force", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!rejected.status.success(), "force without preview token unexpectedly succeeded");
+    assert!(stale_database.exists(), "rejected force removed stale database");
+    assert!(stale_host_root.exists(), "rejected force removed stale terminal-host state");
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            stale_session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            &confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&reset);
+    assert!(!stale_database.exists(), "reset left stale database at {}", stale_database.display());
+    assert!(!stale_host_root.exists(), "reset left stale terminal-host state");
+    assert!(kept_database.exists(), "reset removed another session's database");
+    assert!(kept_host_root.exists(), "reset removed another session's terminal-host state");
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, stale_session).unwrap());
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn session_reset_state_refuses_live_terminal_host_state() {
+    let dir = unique_temp_dir("session-reset-live-host");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-live-host";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
+    let _live_host = create_live_terminal_host_record(&host_root);
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env("LC_ALL", "C")
+        .env("LC_MESSAGES", "C")
+        .env("LANG", "C")
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset unexpectedly succeeded");
+    let stderr = String::from_utf8(reset.stderr).unwrap();
+    assert!(stderr.contains("could not complete saved-state reset for session"), "{stderr}");
+    assert!(stderr.contains("stop it cleanly before retrying the reset"), "{stderr}");
+    assert!(!stderr.contains(&state.display().to_string()), "{stderr}");
+    assert!(database.exists(), "reset removed the registry while a live host was present");
+    assert!(host_root.exists(), "reset removed live terminal-host state");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn session_reset_state_refuses_orphan_terminal_host_live_marker() {
+    let dir = unique_temp_dir("session-reset-orphan-host-marker");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-orphan-host";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    let live_marker = host_root.join("orphan.live");
+    let live_file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_marker)
+        .unwrap();
+    assert_eq!(unsafe { libc::flock(live_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset unexpectedly succeeded");
+    assert!(database.exists(), "reset removed the registry while a live marker was present");
+    assert!(live_marker.exists(), "reset removed the orphan live marker");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn session_reset_state_removes_dead_orphan_terminal_host_live_marker() {
+    let dir = unique_temp_dir("session-reset-dead-orphan-host-marker");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-dead-orphan-host";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    let live_marker = host_root.join("orphan.live");
+    fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_marker)
+        .unwrap();
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&reset);
+    assert!(!database.exists(), "reset left the registry after removing a dead live marker");
+    assert!(!host_root.exists(), "reset left terminal-host state after removing a dead marker");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_reset_state_rejects_stale_preview_when_targets_change() {
+    let dir = unique_temp_dir("session-reset-stale-preview");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-stale-preview";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
+    assert!(!host_root.exists());
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let stale_confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(host_root.join("sentinel"), b"new-host-state").unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            stale_confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset accepted a stale preview token");
+    assert!(database.exists(), "reset removed the registry with a stale token");
+    assert!(host_root.join("sentinel").exists(), "reset removed newly appeared host state");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_reset_state_rejects_preview_for_recreated_registry() {
+    let dir = unique_temp_dir("session-reset-recreated-registry");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-recreated-registry";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let original_database = find_session_database(&state, session);
+    let session_dir = original_database.parent().unwrap().to_path_buf();
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let stale_confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    fs::remove_dir_all(&session_dir).unwrap();
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let recreated_database = find_session_database(&state, session);
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            stale_confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset accepted a token from a replaced registry");
+    assert!(recreated_database.exists(), "reset removed the recreated registry");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_reset_state_rejects_preview_when_session_sidecar_appears() {
+    let dir = unique_temp_dir("session-reset-new-sidecar");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-new-sidecar";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let session_dir = database.parent().unwrap();
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let stale_confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    let sidecar = session_dir.join("workspace-registry.sqlite3-wal");
+    fs::write(&sidecar, b"new-sidecar-state").unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            stale_confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset accepted a token before a new sidecar existed");
+    assert!(database.exists(), "reset removed the registry with a stale token");
+    assert!(sidecar.exists(), "reset removed a sidecar that was not previewed");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn session_reset_state_rejects_preview_when_nested_session_file_appears() {
+    let dir = unique_temp_dir("session-reset-new-nested-file");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-new-nested-file";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let session_dir = database.parent().unwrap();
+    let nested_dir = session_dir.join("nested");
+    fs::create_dir_all(&nested_dir).unwrap();
+    fs::write(nested_dir.join("previewed"), b"old").unwrap();
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let stale_confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    let unpreviewed = nested_dir.join("unpreviewed");
+    fs::write(&unpreviewed, b"new").unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            stale_confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset accepted a token before a nested file existed");
+    assert!(database.exists(), "reset removed the registry with a stale token");
+    assert!(unpreviewed.exists(), "reset removed a nested file that was not previewed");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_reset_state_bad_token_does_not_mutate_state_root() {
+    let dir = unique_temp_dir("session-reset-bad-token-no-mutation");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    fs::create_dir_all(&state).unwrap();
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o755)).unwrap();
+    let session = "schema-reset-bad-token";
+    let resetter = cmux_tui_core::PersistentSessionStateResetter::new(state.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            "wrong-token",
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset accepted a wrong confirmation token");
+    assert!(!state.join("session-locks").exists(), "wrong-token reset created session locks");
+    assert_eq!(fs::metadata(&state).unwrap().permissions().mode() & 0o777, 0o755);
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_reset_state_rejects_symlinked_terminal_host_state() {
+    let dir = unique_temp_dir("session-reset-symlink-host");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-symlink-host";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
+    let outside_host_root = dir.join("outside-host-state");
+    fs::create_dir_all(&outside_host_root).unwrap();
+    fs::set_permissions(&outside_host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    let outside_sentinel = outside_host_root.join("sentinel");
+    fs::write(&outside_sentinel, b"outside").unwrap();
+    symlink(&outside_host_root, &host_root).unwrap();
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset accepted a symlinked host root");
+    assert!(database.exists(), "reset removed the registry after rejecting host root");
+    assert!(fs::symlink_metadata(&host_root).unwrap().file_type().is_symlink());
+    assert!(outside_sentinel.exists(), "reset mutated the symlink target");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_reset_state_rejects_symlinked_state_root() {
+    let dir = unique_temp_dir("session-reset-symlink-root");
+    fs::create_dir_all(&dir).unwrap();
+    let actual_state = dir.join("actual-state");
+    let state = dir.join("state-link");
+    let session = "schema-reset-symlink-root";
+    fs::create_dir_all(&actual_state).unwrap();
+    fs::write(actual_state.join("root-sentinel"), b"keep").unwrap();
+    symlink(&actual_state, &state).unwrap();
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&actual_state, session);
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::write(host_root.join("orphaned-sidecar"), b"stale").unwrap();
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!preview.status.success(), "preview accepted a symlinked state root");
+    let preview_error: serde_json::Value = serde_json::from_slice(&preview.stderr).unwrap();
+    assert_eq!(preview_error["code"], "session.reset_state.filesystem");
+
+    let reset = Command::new(bin())
+        .args([
+            "--json",
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            "unused",
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset accepted a symlinked state root");
+    let reset_error: serde_json::Value = serde_json::from_slice(&reset.stderr).unwrap();
+    assert_eq!(reset_error["code"], "session.reset_state.filesystem");
+    assert!(database.exists(), "reset removed stale database through symlinked state root");
+    assert!(host_root.exists(), "reset removed terminal-host state through symlinked state root");
+    assert!(fs::symlink_metadata(&state).unwrap().file_type().is_symlink());
+    assert!(actual_state.join("root-sentinel").exists(), "reset removed root sibling data");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn session_reset_state_missing_target_does_not_mutate_state_root() {
+    let dir = unique_temp_dir("session-reset-missing-target");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("not-cmux-state");
+    fs::create_dir_all(&state).unwrap();
+    #[cfg(unix)]
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(state.join("sentinel"), b"keep").unwrap();
+
+    let reset = Command::new(bin())
+        .args(["--json", "session", "missing-session", "reset-state", "--force", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&reset);
+    let reset: serde_json::Value = serde_json::from_slice(&reset.stdout).unwrap();
+    assert_eq!(reset["removed_session_state"], false);
+    assert_eq!(reset["removed_terminal_hosts"], false);
+    assert!(state.join("sentinel").exists());
+    assert!(!state.join("session-locks").exists());
+    #[cfg(unix)]
+    assert_eq!(fs::metadata(&state).unwrap().permissions().mode() & 0o777, 0o755);
 
     fs::remove_dir_all(dir).unwrap();
 }
@@ -606,6 +1362,97 @@ fn machine_agent_is_a_real_entrypoint_without_changing_ordinary_cli_dispatch() {
     let version = Command::new(bin()).arg("--version").output().unwrap();
     assert_success(&version);
     assert!(String::from_utf8(version.stdout).unwrap().starts_with("cmux "));
+}
+
+#[test]
+fn ghostty_config_helper_outputs_resolved_file_defaults() {
+    let dir = unique_temp_dir("ghostty-config-helper-output");
+    let config_home = dir.join("config");
+    let ghostty_dir = config_home.join("ghostty");
+    fs::create_dir_all(&ghostty_dir).unwrap();
+    fs::write(
+        ghostty_dir.join("config"),
+        "foreground = #010203\n\
+         background = #040506\n\
+         cursor-color = #070809\n\
+         cursor-style = block_hollow\n\
+         cursor-style-blink = false\n\
+         palette = 2=#0a0b0c\n",
+    )
+    .unwrap();
+
+    let output = Command::new(bin())
+        .arg("__ghostty-config-defaults")
+        .env("HOME", dir.join("home"))
+        .env("CFFIXED_USER_HOME", dir.join("home"))
+        .env("XDG_CONFIG_HOME", &config_home)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    fs::remove_dir_all(dir).unwrap();
+
+    assert!(stdout.contains("foreground = #010203\n"), "{stdout}");
+    assert!(stdout.contains("background = #040506\n"), "{stdout}");
+    assert!(stdout.contains("cursor-color = #070809\n"), "{stdout}");
+    assert!(stdout.contains("cursor-style = block_hollow\n"), "{stdout}");
+    assert!(stdout.contains("cursor-style-blink = false\n"), "{stdout}");
+    assert!(stdout.contains("palette = 2=#0a0b0c\n"), "{stdout}");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn ghostty_config_helper_scrubs_provider_env_before_desktop_probe() {
+    let dir = unique_temp_dir("ghostty-config-helper-provider-env");
+    let config_home = dir.join("config");
+    let ghostty_dir = config_home.join("ghostty");
+    let theme_dir = ghostty_dir.join("themes");
+    let bin_dir = dir.join("bin");
+    fs::create_dir_all(&theme_dir).unwrap();
+    fs::create_dir_all(&bin_dir).unwrap();
+    fs::write(
+        ghostty_dir.join("config"),
+        "window-theme = system\n\
+         theme = dark:Dark Direct Probe, light:Light Direct Probe\n",
+    )
+    .unwrap();
+    fs::write(theme_dir.join("Dark Direct Probe"), "foreground = #010203\n").unwrap();
+    fs::write(theme_dir.join("Light Direct Probe"), "foreground = #a0b0c0\n").unwrap();
+    let gdbus = bin_dir.join("gdbus");
+    fs::write(
+        &gdbus,
+        "#!/bin/sh\n\
+         if [ \"${CMUX_MACHINE_PROVIDER_TOKEN+x}\" = x ] || [ \"${CMUX_PROVIDER_WORKSPACE_AUTHORITY+x}\" = x ]; then\n\
+         \tprintf '(<uint32 2>,)\\n'\n\
+         \texit 0\n\
+         fi\n\
+         printf '(<uint32 1>,)\\n'\n",
+    )
+    .unwrap();
+    fs::set_permissions(&gdbus, fs::Permissions::from_mode(0o700)).unwrap();
+
+    let output = Command::new(bin())
+        .arg("__ghostty-config-defaults")
+        .env("HOME", dir.join("home"))
+        .env("CFFIXED_USER_HOME", dir.join("home"))
+        .env("XDG_CONFIG_HOME", &config_home)
+        .env("PATH", &bin_dir)
+        .env("CMUX_MACHINE_PROVIDER_TOKEN", "direct-helper-token")
+        .env("CMUX_PROVIDER_WORKSPACE_AUTHORITY", "direct-helper-authority")
+        .env_remove("AppleInterfaceStyle")
+        .env_remove("GTK_THEME")
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    fs::remove_dir_all(dir).unwrap();
+
+    assert!(stdout.contains("foreground = #010203\n"), "{stdout}");
+    assert!(!stdout.contains("foreground = #a0b0c0\n"), "{stdout}");
 }
 
 #[cfg(unix)]
@@ -725,7 +1572,7 @@ fn noun_first_ratio_commands_reject_nonfinite_values_before_connecting() {
 
 #[cfg(unix)]
 struct PtyChild {
-    child: Child,
+    child: Box<dyn cmux_pty::Child + Send + Sync>,
     output_drain: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -736,37 +1583,13 @@ impl PtyChild {
     }
 
     fn start_with_env(args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> Self {
-        let mut master = -1;
-        let mut slave = -1;
-        let mut size = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
-        let opened = unsafe {
-            libc::openpty(
-                &mut master,
-                &mut slave,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &raw mut size,
-            )
-        };
-        assert_eq!(opened, 0, "openpty failed: {}", std::io::Error::last_os_error());
-        let mut master = unsafe { File::from_raw_fd(master) };
-        let slave = unsafe { File::from_raw_fd(slave) };
+        let spawned = spawn_pty_child(args, env);
+        let mut master = spawned.master.try_clone_reader().unwrap();
         let output_drain = std::thread::spawn(move || {
             let mut buffer = [0; 8192];
             while master.read(&mut buffer).is_ok_and(|read| read > 0) {}
         });
-        let mut command = Command::new(bin());
-        command.args(args).env_remove("CMUX_TUI_SOCKET");
-        for (key, value) in env {
-            command.env(key, value);
-        }
-        let child = command
-            .stdin(Stdio::from(slave.try_clone().unwrap()))
-            .stdout(Stdio::from(slave.try_clone().unwrap()))
-            .stderr(Stdio::from(slave))
-            .spawn()
-            .unwrap();
-        Self { child, output_drain: Some(output_drain) }
+        Self { child: spawned.child, output_drain: Some(output_drain) }
     }
 }
 
@@ -783,47 +1606,55 @@ impl Drop for PtyChild {
 
 #[cfg(unix)]
 struct DisconnectablePtyChild {
-    child: Child,
-    master: Option<File>,
+    child: Box<dyn cmux_pty::Child + Send + Sync>,
+    master: Option<Box<dyn cmux_pty::MasterPty + Send>>,
 }
 
 #[cfg(unix)]
 impl DisconnectablePtyChild {
     fn start(args: &[&str]) -> Self {
-        let mut master = -1;
-        let mut slave = -1;
-        let mut size = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
-        let opened = unsafe {
-            libc::openpty(
-                &mut master,
-                &mut slave,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &raw mut size,
-            )
-        };
-        assert_eq!(opened, 0, "openpty failed: {}", std::io::Error::last_os_error());
-        let flags = unsafe { libc::fcntl(master, libc::F_GETFD) };
-        assert_ne!(flags, -1, "fcntl(F_GETFD) failed: {}", std::io::Error::last_os_error());
-        let cloexec = unsafe { libc::fcntl(master, libc::F_SETFD, flags | libc::FD_CLOEXEC) };
-        assert_ne!(cloexec, -1, "fcntl(F_SETFD) failed: {}", std::io::Error::last_os_error());
-
-        let master = unsafe { File::from_raw_fd(master) };
-        let slave = unsafe { File::from_raw_fd(slave) };
-        let child = Command::new(bin())
-            .args(args)
-            .env_remove("CMUX_TUI_SOCKET")
-            .stdin(Stdio::from(slave.try_clone().unwrap()))
-            .stdout(Stdio::from(slave.try_clone().unwrap()))
-            .stderr(Stdio::from(slave))
-            .spawn()
-            .unwrap();
-        Self { child, master: Some(master) }
+        let spawned = spawn_pty_child(args, &[]);
+        Self { child: spawned.child, master: Some(spawned.master) }
     }
 
     fn disconnect_host_terminal(&mut self) {
         self.master.take();
     }
+}
+
+#[cfg(unix)]
+fn spawn_pty_child(args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> cmux_pty::SpawnedPty {
+    let pair =
+        cmux_pty::open(cmux_pty::PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+            .unwrap();
+    let mut command = cmux_pty::PtyCommand::new(bin());
+    command.args(args.iter().copied());
+    command.env_clear();
+    for (key, value) in std::env::vars() {
+        if key != "CMUX_TUI_SOCKET" {
+            command.env(key, value);
+        }
+    }
+    for (key, value) in env {
+        command.env(*key, value.to_string_lossy());
+    }
+    pair.spawn(command).unwrap()
+}
+
+#[cfg(unix)]
+fn plain_tui_is_ready(server: &HeadlessServer) -> bool {
+    let clients = json_cli(server, &["client", "list"]);
+    if !clients.status.success()
+        || !json_output(&clients).as_array().is_some_and(|clients| {
+            clients.iter().any(|client| client["client_kind"].as_str() == Some("tui"))
+        })
+    {
+        return false;
+    }
+
+    let terminals = json_cli(server, &["terminal", "list"]);
+    terminals.status.success()
+        && json_output(&terminals).as_array().is_some_and(|terminals| !terminals.is_empty())
 }
 
 #[cfg(unix)]
@@ -837,27 +1668,17 @@ impl Drop for DisconnectablePtyChild {
 
 #[cfg(unix)]
 #[test]
-fn startup_config_helper_inherits_no_provider_secrets() {
-    let dir = unique_temp_dir("provider-secret-config-helper");
+fn startup_does_not_invoke_external_ghostty_config_resolver() {
+    let dir = unique_temp_dir("external-ghostty-config-resolver");
     fs::create_dir_all(&dir).unwrap();
-    let helper = dir.join("ghostty-secret-probe");
-    let capture = dir.join("inherited-env.txt");
+    let helper = dir.join("ghostty-config-probe");
+    let capture = dir.join("resolver-invoked.txt");
     let socket = dir.join("mux.sock");
     fs::write(
         &helper,
         r#"#!/bin/sh
-{
-if [ "${CMUX_MACHINE_PROVIDER_TOKEN+x}" = x ]; then
-    echo token=present
-else
-    echo token=absent
-fi
-if [ "${CMUX_PROVIDER_WORKSPACE_AUTHORITY+x}" = x ]; then
-    echo authority=present
-else
-    echo authority=absent
-fi
-} > "$CMUX_TEST_SECRET_CAPTURE"
+echo invoked > "$CMUX_TEST_GHOSTTY_CAPTURE"
+exit 0
 "#,
     )
     .unwrap();
@@ -867,7 +1688,7 @@ fi
         .args(["--machine-provider", "/does/not/exist", "--headless", "--socket"])
         .arg(&socket)
         .env("GHOSTTY_BIN", &helper)
-        .env("CMUX_TEST_SECRET_CAPTURE", &capture)
+        .env("CMUX_TEST_GHOSTTY_CAPTURE", &capture)
         .env("CMUX_MACHINE_PROVIDER_TOKEN", "edge-test-bearer")
         .env("CMUX_PROVIDER_WORKSPACE_AUTHORITY", "provider-workspace-authority-test-00000001")
         .env_remove("CMUX_TUI_SOCKET")
@@ -875,8 +1696,7 @@ fi
         .unwrap();
 
     assert!(!output.status.success(), "conflicting provider launch unexpectedly succeeded");
-    let inherited = fs::read_to_string(&capture).unwrap();
-    assert_eq!(inherited, "token=absent\nauthority=absent\n");
+    assert!(!capture.exists(), "startup invoked external Ghostty config resolver");
     fs::remove_dir_all(dir).unwrap();
 }
 
@@ -891,22 +1711,13 @@ fn plain_launch_attaches_to_existing_local_session() {
         if let Some(status) = tui.child.try_wait().unwrap() {
             panic!("plain launch exited instead of attaching: {status}");
         }
-        let clients = json_cli(&server, &["client", "list"]);
-        if clients.status.success() {
-            let clients = json_output(&clients);
-            if clients
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|client| client["client_kind"].as_str() == Some("tui"))
-            {
-                return;
-            }
+        if plain_tui_is_ready(&server) {
+            return;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
 
-    panic!("plain launch never attached as a TUI client");
+    panic!("plain launch never attached to its committed initial terminal");
 }
 
 #[cfg(unix)]
@@ -921,22 +1732,13 @@ fn host_terminal_disconnect_exits_frontend_without_stopping_server() {
         if let Some(status) = tui.child.try_wait().unwrap() {
             panic!("plain launch exited before host disconnect: {status}");
         }
-        let clients = json_cli(&server, &["client", "list"]);
-        if clients.status.success() {
-            let clients = json_output(&clients);
-            if clients
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|client| client["client_kind"].as_str() == Some("tui"))
-            {
-                attached = true;
-                break;
-            }
+        if plain_tui_is_ready(&server) {
+            attached = true;
+            break;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    assert!(attached, "plain launch never attached before host disconnect");
+    assert!(attached, "plain launch never attached to its committed terminal before disconnect");
 
     tui.disconnect_host_terminal();
     let exit_deadline = Instant::now() + Duration::from_secs(5);
@@ -1018,6 +1820,80 @@ fn explicit_attach_registers_a_full_session_tui_client() {
     }
 
     panic!("explicit attach never registered the full session");
+}
+
+#[cfg(unix)]
+#[test]
+fn graceful_shutdown_stops_server_owned_sidebar_process() {
+    let mut server = HeadlessServer::start_with_config(
+        "sidebar-host-shutdown",
+        Some(r#"{"sidebar":{"plugin":{"command":["/bin/cat"]}}}"#),
+    );
+    let sidebar = try_json_socket_request(
+        &server.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "sidebar-plugin",
+            "cols": 20,
+            "rows": 8,
+            "relaunch": true,
+        }),
+    )
+    .expect("start configured sidebar plugin");
+    let surface = sidebar["surface"].as_u64().expect("sidebar plugin surface");
+    let plugin_pid = try_json_socket_request(
+        &server.socket,
+        serde_json::json!({"id": 2, "cmd": "process-info", "surface": surface}),
+    )
+    .and_then(|response| response["pid"].as_u64())
+    .and_then(|pid| u32::try_from(pid).ok())
+    .expect("sidebar plugin PID");
+
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
+    let records = cmux_tui_core::terminal_host_runtime::load_terminal_host_records(&host_root)
+        .expect("load sidebar terminal-host record");
+    let used_durable_host = !records.is_empty();
+    let mut owned_pids = vec![plugin_pid];
+    owned_pids.extend(records.iter().map(|(_, record)| record.host_pid));
+
+    let server_pid = libc::pid_t::try_from(server.child.id()).unwrap();
+    // SAFETY: this PID is the live child owned by the test fixture.
+    assert_eq!(unsafe { libc::kill(server_pid, libc::SIGINT) }, 0);
+    let server_stopped = wait_for_child_exit(&mut server.child, Duration::from_secs(10));
+    let owned_processes_stopped = wait_for_processes_to_exit(&owned_pids, Duration::from_secs(5));
+
+    // Keep lifecycle regressions leak-free. Every captured process group and
+    // record belongs to this fixture's private state root.
+    if !owned_processes_stopped {
+        for pid in &owned_pids {
+            signal_test_process_group(*pid, libc::SIGTERM);
+        }
+        if !wait_for_processes_to_exit(&owned_pids, Duration::from_secs(2)) {
+            for pid in &owned_pids {
+                signal_test_process_group(*pid, libc::SIGKILL);
+            }
+            assert!(
+                wait_for_processes_to_exit(&owned_pids, Duration::from_secs(2)),
+                "fixture could not reap its isolated sidebar processes"
+            );
+        }
+        for (record_path, record) in &records {
+            let _ = cmux_tui_core::terminal_host_runtime::remove_stale_terminal_host_record(
+                record_path,
+                record,
+            );
+        }
+    }
+
+    assert!(server_stopped, "SIGINT did not complete graceful server shutdown");
+    assert!(
+        !used_durable_host,
+        "server-owned sidebar process entered the durable terminal-host registry"
+    );
+    assert!(
+        owned_processes_stopped,
+        "graceful shutdown left its server-owned sidebar process alive"
+    );
 }
 
 #[cfg(unix)]
@@ -1142,6 +2018,7 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     let sizing_workspace = json_cli(&server, &["workspace", "create", "--name", "cli-test"]);
     assert_success(&sizing_workspace);
     let created = json_output(&sizing_workspace);
+    let workspace_id = created["value"]["workspace_id"].as_str().unwrap().to_string();
     let screen_id = created["value"]["screen_id"].as_str().unwrap().to_string();
     let pane0 = created["value"]["pane_id"].as_str().unwrap().to_string();
     let terminal = created["value"]["terminal_id"].as_str().unwrap().to_string();
@@ -1247,6 +2124,55 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     let split = json_cli(&server, &["pane", &pane0, "split", "--right"]);
     assert_success(&split);
     let pane1 = json_output(&split)["value"]["pane_id"].as_str().unwrap().to_string();
+    let projected = json_cli(
+        &server,
+        &[
+            "terminal",
+            &terminal,
+            "project",
+            "--workspace",
+            &workspace_id,
+            "--screen",
+            &screen_id,
+            "--pane",
+            &pane1,
+            "--index",
+            "0",
+            "--name",
+            "mirror",
+        ],
+    );
+    assert_success(&projected);
+    let projected = json_output(&projected);
+    assert_eq!(projected["value"]["focused"], false);
+    let projected_tab = projected["value"]["id"].as_str().unwrap();
+    let terminals = json_cli(&server, &["terminal", "list"]);
+    assert_success(&terminals);
+    let terminals = json_output(&terminals);
+    let source =
+        terminals.as_array().unwrap().iter().find(|candidate| candidate["id"] == terminal).unwrap();
+    assert_eq!(source["tab_ids"].as_array().unwrap().len(), 2);
+    let snapshot = json_cli(&server, &["session", "current", "snapshot"]);
+    assert_success(&snapshot);
+    let snapshot_json = json_output(&snapshot);
+    let projected_record = snapshot_json["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tab| tab["id"].as_str() == Some(projected_tab))
+        .unwrap();
+    assert_eq!(projected_record["pane_id"], pane1);
+    assert_eq!(projected_record["focused"], false);
+    let focused_tab = snapshot_json["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tab| tab["pane_id"] == pane1 && tab["focused"] == true)
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_ne!(focused_tab, projected_tab);
 
     let new_pane = json_cli(
         &server,
@@ -1500,6 +2426,17 @@ fn assert_subscribe_reports_tree_changed(server: &HeadlessServer) {
 
     std::thread::sleep(Duration::from_millis(200));
     let tab = json_cli(server, &["tab", "create", "terminal"]);
+    if !tab.status.success() {
+        let mut lines = Vec::new();
+        while let Ok(line) = rx.recv_timeout(Duration::from_millis(250)) {
+            lines.push(line);
+        }
+        panic!(
+            "tab creation failed while subscribed; stdout={} stderr={} events={lines:?}",
+            String::from_utf8_lossy(&tab.stdout),
+            String::from_utf8_lossy(&tab.stderr),
+        );
+    }
     assert_success(&tab);
 
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -1843,6 +2780,7 @@ fn layout_split_ratio(node: &serde_json::Value, split_id: &str) -> Option<f64> {
     }
 }
 
+#[track_caller]
 fn assert_success(output: &Output) {
     assert!(
         output.status.success(),
@@ -1851,6 +2789,63 @@ fn assert_success(output: &Output) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+fn find_session_database(state: &std::path::Path, session: &str) -> PathBuf {
+    fs::read_dir(state)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+        .filter(|path| path.is_file())
+        .find(|path| {
+            let connection = rusqlite::Connection::open(path).unwrap();
+            let session_id: String = connection
+                .query_row("SELECT value FROM meta WHERE key = 'session_name'", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            session_id == session
+        })
+        .expect("session database")
+}
+
+#[cfg(unix)]
+fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
+    fs::create_dir_all(root).unwrap();
+    fs::set_permissions(root, fs::Permissions::from_mode(0o700)).unwrap();
+    let terminal_id = "0000000000004000800000000000002a";
+    let incarnation = "0000000000004000800000000000002b";
+    let owner_token = "01".repeat(32);
+    let host_start_nonce = "02".repeat(32);
+    let uid = fs::metadata(root).unwrap().uid();
+    let record = cmux_tui_core::terminal_host_runtime::TerminalHostRecord {
+        record_version: 2,
+        terminal_id: terminal_id.to_string(),
+        incarnation: incarnation.to_string(),
+        endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
+        owner_token,
+        host_pid: std::process::id(),
+        host_start_nonce: host_start_nonce.clone(),
+        workspace_key: String::new(),
+        supports_set_defaults: true,
+        supports_clear_history: true,
+    };
+    let record_path = record.record_path(root);
+    let live_path = record_path.with_extension(format!("{incarnation}-{host_start_nonce}.live"));
+    let live_file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_path)
+        .unwrap();
+    assert_eq!(unsafe { libc::flock(live_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let mut record_file =
+        fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record_path).unwrap();
+    record_file.write_all(&serde_json::to_vec(&record).unwrap()).unwrap();
+    record_file.sync_all().unwrap();
+    live_file
 }
 
 fn unique_temp_dir(name: &str) -> PathBuf {

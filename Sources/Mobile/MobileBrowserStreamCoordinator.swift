@@ -19,6 +19,7 @@ final class MobileBrowserStreamCoordinator {
             return nil
         }
         let key = SessionKey(connectionID: connectionID, panelID: panel.id)
+        let replacedExisting = sessions[key] != nil
         if let previous = sessions.removeValue(forKey: key) {
             await previous.stop(sendClosed: false)
         }
@@ -39,6 +40,11 @@ final class MobileBrowserStreamCoordinator {
         }
         sessions[key] = session
         session.start()
+        MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
+            .browserStreamLifecycle,
+            a: replacedExisting ? 2 : 1,
+            c: TerminalController.mobileBrowserPanelCorrelation(panel.id)
+        ))
         return MobileBrowserWireEncoder().descriptor(panel: panel)
     }
 
@@ -65,6 +71,11 @@ final class MobileBrowserStreamCoordinator {
         let key = SessionKey(connectionID: connectionID, panelID: panelID)
         guard let session = sessions.removeValue(forKey: key) else { return false }
         await session.stop(sendClosed: false)
+        MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
+            .browserStreamLifecycle,
+            a: 3,
+            c: TerminalController.mobileBrowserPanelCorrelation(panelID)
+        ))
         return true
     }
 

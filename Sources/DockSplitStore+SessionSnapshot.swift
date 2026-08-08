@@ -86,6 +86,60 @@ extension DockSplitStore {
         )
     }
 
+    /// Captures one Dock panel for the Dock-local closed-item history without
+    /// walking every other panel in the split tree.
+    func closedPanelSessionSnapshot(
+        panelId: UUID,
+        restorableAgentIndex: RestorableAgentSessionIndex?
+    ) -> SessionPanelSnapshot? {
+        let transfer = detachedSurfaceTransfersByPanelId[panelId]
+        let observationWorkspaceId =
+            transfer?.sessionRestoreWorkspaceId ?? workspaceId
+        let terminalFontSizeSnapshotProjection:
+            WorkspaceTerminalFontSizeSnapshotProjection?
+        if panels[panelId] is TerminalPanel {
+            if let workspace = terminalFontSizeOwningWorkspace {
+                terminalFontSizeSnapshotProjection =
+                    terminalFontSizeChangeArbiter?
+                        .snapshotProjection(
+                            for: workspace,
+                            panelIds: [panelId]
+                        )
+            } else {
+                terminalFontSizeSnapshotProjection =
+                    terminalFontSizeChangeArbiter?
+                        .snapshotProjection(
+                            for: self,
+                            panelIds: [panelId]
+                        )
+            }
+        } else {
+            terminalFontSizeSnapshotProjection = nil
+        }
+
+        return sessionPanelSnapshot(
+            panelId: panelId,
+            includeScrollback: true,
+            observation: restorableAgentIndex?.entry(
+                workspaceId: observationWorkspaceId,
+                panelId: panelId
+            ),
+            detectedResumeBinding: nil,
+            terminalFontSizeSnapshotProjection:
+                terminalFontSizeSnapshotProjection,
+            currentAgentProcessIdentity: {
+                guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+                return AgentPIDProcessIdentity(pid: pid_t($0))
+            },
+            agentProcessPresence: {
+                guard $0 > 0, $0 <= Int(Int32.max) else {
+                    return .absent
+                }
+                return PIDPresence.current(pid: pid_t($0))
+            }
+        )
+    }
+
     private func orderedSessionPanelIds() -> [UUID] {
         var result: [UUID] = []
         var seen: Set<UUID> = []

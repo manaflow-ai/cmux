@@ -123,6 +123,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowPushReadinessPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.pushReadinessPreviewState != nil
+        #else
+        return false
+        #endif
+    }
+
     #if os(iOS)
     /// A configured launch attach route (dev/UITest auto-pair) owns startup
     /// connections outright; background onboarding discovery must not race it.
@@ -162,6 +170,16 @@ struct CMUXMobileRootView: View {
     @ViewBuilder private var changesPreview: some View {
         #if os(iOS) && DEBUG
         ChangesPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
+    @ViewBuilder private var pushReadinessPreview: some View {
+        #if os(iOS) && DEBUG
+        MobilePushReadinessPreviewView(
+            state: UITestConfig.pushReadinessPreviewState ?? "healthy"
+        )
         #else
         EmptyView()
         #endif
@@ -308,7 +326,9 @@ struct CMUXMobileRootView: View {
 
     @ViewBuilder
     private var rootContent: some View {
-        if shouldShowChangesPreview {
+        if shouldShowPushReadinessPreview {
+            pushReadinessPreview
+        } else if shouldShowChangesPreview {
             changesPreview
         } else if shouldShowHideComputersVerifier {
             hideComputersVerifier
@@ -364,7 +384,10 @@ struct CMUXMobileRootView: View {
                     signOut: signOut,
                     showAddDevice: showAddDevice,
                     showPairingScanner: showPairingScanner,
-                    reconnectStoredMac: reconnectStoredMacIfNeeded
+                    reconnectStoredMac: reconnectStoredMacIfNeeded,
+                    workspaceListDidBecomeVisible: {
+                        await pushCoordinator.workspaceListDidBecomeVisible()
+                    }
                 )
             }
         }
@@ -504,6 +527,8 @@ struct CMUXMobileRootView: View {
             connectionPhase: UITestConfig.onboardingConnectionFallbackEnabled
                 ? .fallback
                 : .searching,
+            connectionMethod: connectionMethodStore?.method ?? .automatic,
+            onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: {},

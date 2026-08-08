@@ -30,6 +30,7 @@ EVENTS=(
   "customer.subscription.deleted"
   "invoice.paid"
   "invoice.payment_failed"
+  "charge.refunded"
 )
 
 if [[ ! -f "$SECRET_FILE" ]]; then
@@ -73,14 +74,19 @@ stripe_get() {
   local path="$1"
   shift
   printf 'Authorization: Bearer %s\n' "$STRIPE_PROVISION_KEY" |
-    curl -fsS --header @- --get "$@" "${STRIPE_API_BASE}${path}"
+    curl -fsS --connect-timeout 5 --max-time 30 --retry 2 --retry-all-errors \
+      --header @- --get "$@" "${STRIPE_API_BASE}${path}"
 }
 
 stripe_post() {
   local path="$1"
   shift
+  # POST mutations are not automatically retried without a stable Stripe
+  # idempotency key. A failed operator run safely re-discovers completed
+  # catalog objects before attempting a new mutation.
   printf 'Authorization: Bearer %s\n' "$STRIPE_PROVISION_KEY" |
-    curl -fsS --header @- -X POST "$@" "${STRIPE_API_BASE}${path}"
+    curl -fsS --connect-timeout 5 --max-time 30 \
+      --header @- -X POST "$@" "${STRIPE_API_BASE}${path}"
 }
 
 product_matches_catalog_identity() {
@@ -101,29 +107,43 @@ product_matches_catalog_identity() {
 ensure_product() {
   local name="$1"
   local plan="$2"
-  local response product_json product_id starting_after
+  local response product_id next_page page_product_ids
   local -a matching_product_ids=()
   local -a page_args=(--data-urlencode "limit=100")
 
-  starting_after=""
+  next_page=""
   while :; do
-    page_args=(--data-urlencode "limit=100")
-    if [[ -n "$starting_after" ]]; then
-      page_args+=(--data-urlencode "starting_after=${starting_after}")
+    page_args=(
+      --data-urlencode "limit=100"
+      --data-urlencode "query=active:'true' AND metadata['app']:'cmux' AND metadata['plan']:'${plan}'"
+    )
+    if [[ -n "$next_page" ]]; then
+      page_args+=(--data-urlencode "page=${next_page}")
     fi
     response="$(
-      stripe_get "/products" "${page_args[@]}"
+      stripe_get "/products/search" "${page_args[@]}"
     )"
-    while IFS= read -r product_json; do
-      if product_matches_catalog_identity "$product_json" "$name" "$plan"; then
-        matching_product_ids+=("$(jq -er '.id' <<<"$product_json")")
-      fi
-    done < <(jq -c '.data[]' <<<"$response")
+    echo "Scanned Stripe products for ${plan}." >&2
+    page_product_ids="$(
+      jq -r --arg name "$name" --arg plan "$plan" '
+        .data[]
+        | select(
+            .name == $name
+            and .active == true
+            and .metadata.app == "cmux"
+            and .metadata.plan == $plan
+          )
+        | .id
+      ' <<<"$response"
+    )"
+    while IFS= read -r product_id; do
+      [[ -n "$product_id" ]] && matching_product_ids+=("$product_id")
+    done <<<"$page_product_ids"
 
     if [[ "$(jq -r '.has_more // false' <<<"$response")" != "true" ]]; then
       break
     fi
-    starting_after="$(jq -er '.data[-1].id' <<<"$response")"
+    next_page="$(jq -er '.next_page' <<<"$response")"
   done
 
   if (( ${#matching_product_ids[@]} > 1 )); then
@@ -159,6 +179,7 @@ canonical_product() {
       --data-urlencode "expand[]=data.product" \
       --data-urlencode "limit=1"
   )"
+  echo "Checked Stripe price ${monthly_lookup_key}." >&2
   product_id="$(jq -r '.data[0].product.id // empty' <<<"$response")"
   if [[ -z "$product_id" ]]; then
     ensure_product "$name" "$plan"
@@ -227,8 +248,11 @@ ensure_price() {
   echo "Created price ${lookup_key}: ${price_id}"
 }
 
+echo "Resolving ${MODE} Stripe catalog…" >&2
 pro_product_id="$(canonical_product "cmux-pro-monthly" "cmux Pro" "pro")"
+echo "Resolved Pro product." >&2
 team_product_id="$(canonical_product "cmux-team-monthly" "cmux Team" "team")"
+echo "Resolved Team product." >&2
 
 ensure_price "$pro_product_id" "cmux-pro-monthly" "3000" "month" "cmux Pro Monthly"
 # Keep the original $240 annual Price active for existing subscribers. Stripe

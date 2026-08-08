@@ -73,6 +73,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use anyhow::Context;
 use cmux_tui_core::resource::TerminalPublicId;
 use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceOptions};
 #[cfg(unix)]
@@ -110,18 +111,32 @@ pub(crate) fn shutdown_requested() -> bool {
 }
 
 #[cfg(unix)]
-fn install_signal_handlers() {
+fn install_signal_handlers() -> io::Result<()> {
     unsafe {
-        libc::signal(libc::SIGTERM, handle_signal as *const () as libc::sighandler_t);
-        libc::signal(libc::SIGINT, handle_signal as *const () as libc::sighandler_t);
-        libc::signal(libc::SIGHUP, handle_signal as *const () as libc::sighandler_t);
+        let mut action = std::mem::zeroed::<libc::sigaction>();
+        action.sa_sigaction = handle_signal as *const () as libc::sighandler_t;
+        if libc::sigemptyset(&mut action.sa_mask) != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // Termination must interrupt startup and teardown syscalls. In
+        // particular, reopening `/dev/tty` can block forever after the host
+        // PTY disappears if the handler is installed with SA_RESTART.
+        action.sa_flags = 0;
+        for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+            if libc::sigaction(signal, &action, std::ptr::null_mut()) != 0 {
+                return Err(io::Error::last_os_error());
+            }
+        }
     }
+    Ok(())
 }
 
 // No POSIX signals on Windows; Ctrl-C arrives as console input and the
 // TUI's normal quit path handles shutdown.
 #[cfg(not(unix))]
-fn install_signal_handlers() {}
+fn install_signal_handlers() -> io::Result<()> {
+    Ok(())
+}
 
 #[cfg(target_os = "linux")]
 fn linux_environment_variable_present(name: &[u8]) -> bool {
@@ -719,6 +734,31 @@ enum SchemaSocketOwner {
     Unverified,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResetStateRecoverySupport {
+    Supported,
+    #[cfg_attr(
+        any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"),
+        allow(dead_code)
+    )]
+    Unsupported,
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+fn reset_state_recovery_support() -> ResetStateRecoverySupport {
+    ResetStateRecoverySupport::Supported
+}
+
+#[cfg(not(any(
+    target_os = "ios",
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "android"
+)))]
+fn reset_state_recovery_support() -> ResetStateRecoverySupport {
+    ResetStateRecoverySupport::Unsupported
+}
+
 fn schema_socket_owner(
     socket_path: &Path,
     expected_session: &str,
@@ -786,6 +826,7 @@ fn workspace_schema_startup_error(
     error: anyhow::Error,
     session: &str,
     socket_path: &Path,
+    state_root: Option<&Path>,
 ) -> anyhow::Error {
     let Some(schema) = error.downcast_ref::<cmux_tui_core::UnsupportedWorkspaceRegistrySchema>()
     else {
@@ -811,7 +852,12 @@ fn workspace_schema_startup_error(
             );
             format!("{}\n  {stop_command}", messages.stop_newer_server)
         }
-        SchemaSocketOwner::Absent => messages.no_server_listening.to_string(),
+        SchemaSocketOwner::Absent => absent_socket_schema_recovery(
+            messages,
+            session,
+            state_root,
+            reset_state_recovery_support(),
+        ),
         SchemaSocketOwner::ForcedHandoffUnsupported => {
             messages.forced_handoff_unsupported.to_string()
         }
@@ -831,6 +877,48 @@ fn workspace_schema_startup_error(
         messages.start_separate_session,
         separate_command,
     ))
+}
+
+fn absent_socket_schema_recovery(
+    messages: &localization::StartupMessages,
+    session: &str,
+    state_root: Option<&Path>,
+    support: ResetStateRecoverySupport,
+) -> String {
+    match support {
+        ResetStateRecoverySupport::Supported => {
+            let reset_command = session_reset_state_command(session, state_root);
+            format!(
+                "{}\n{}\n  {}",
+                messages.no_server_listening, messages.reset_saved_state, reset_command
+            )
+        }
+        ResetStateRecoverySupport::Unsupported => {
+            format!("{}\n{}", messages.no_server_listening, messages.reset_saved_state_unsupported)
+        }
+    }
+}
+
+fn session_reset_state_command(session: &str, state_root: Option<&Path>) -> String {
+    let selector = session_selector_for_command(session);
+    let mut command =
+        format!("{}cmux session {} reset-state", shell_prompt(), shell_quote(&selector));
+    if let Some(state_root) = state_root {
+        command.push_str(" --state ");
+        command.push_str(&shell_quote(&state_root.display().to_string()));
+    }
+    command
+}
+
+fn session_selector_for_command(session: &str) -> String {
+    match cmux_tui_core::resource::Selector::parse(session) {
+        Ok(cmux_tui_core::resource::Selector::Name(name))
+            if name == session && !session.starts_with('-') =>
+        {
+            session.to_string()
+        }
+        _ => format!("name:{session}"),
+    }
 }
 
 impl Args {
@@ -996,11 +1084,25 @@ fn main() {
         }
         return;
     }
+    if config::is_ghostty_config_helper_invocation(&raw_args) {
+        if let Err(error) = harden_provider_secret_process() {
+            eprintln!("cmux-tui: cannot protect machine-provider credentials: {error}");
+            std::process::exit(1);
+        }
+        discard_provider_secret_environment();
+        std::process::exit(config::run_ghostty_config_helper());
+    }
     if let Err(error) = harden_provider_secret_process() {
         eprintln!("cmux-tui: cannot protect machine-provider credentials: {error}");
         std::process::exit(1);
     }
-    install_signal_handlers();
+    if let Err(error) = install_signal_handlers() {
+        eprintln!(
+            "cmux-tui: {}",
+            localization::catalog().runtime.signal_handlers_failed(&error.to_string())
+        );
+        std::process::exit(1);
+    }
     #[cfg(target_os = "linux")]
     if let Some(exit_code) = provider_authority::try_run(&raw_args) {
         std::process::exit(exit_code);
@@ -1411,7 +1513,14 @@ fn run_server(
                 unreachable!("conflicting provider authority inputs rejected above")
             }
         }
-        .map_err(|error| workspace_schema_startup_error(error, &args.session, &socket_path))?;
+        .map_err(|error| {
+            workspace_schema_startup_error(
+                error,
+                &args.session,
+                &socket_path,
+                state_root.as_deref(),
+            )
+        })?;
     // Headless sessions have no host terminal to query, so seed the mux from
     // Ghostty's config before any protocol client can create a surface.
     mux.seed_default_colors_if_no_durable_override(config.terminal_defaults);
@@ -1490,7 +1599,12 @@ fn run_server(
     } else if let Some(runtime) = machine_runtime {
         run_machine_client(runtime)
     } else {
-        run_tui(Session::Local(mux.clone()), args.session, None)
+        match RemoteSession::connect(&socket_path)
+            .context("connect the interactive client to its session server")
+        {
+            Ok(remote) => run_tui(Session::Remote(remote), args.session, None),
+            Err(error) => Err(error),
+        }
     };
     #[cfg(unix)]
     if let Some(runtime) = remote_runtime {
@@ -1906,6 +2020,42 @@ mod tests {
     fn recovery_commands_identify_the_powershell_dialect() {
         assert_eq!(shell_prompt(), "PowerShell> ");
         assert_eq!(shell_quote(r"C:\future session.sock"), r"'C:\future session.sock'");
+    }
+
+    #[test]
+    fn absent_socket_recovery_only_shows_reset_when_supported() {
+        let messages = &localization::catalog_for_locale("en_US.UTF-8").startup;
+        let state_root = Path::new("/tmp/cmux state");
+        let supported = absent_socket_schema_recovery(
+            messages,
+            "future-session",
+            Some(state_root),
+            ResetStateRecoverySupport::Supported,
+        );
+        assert!(supported.contains("no server is listening on this socket"), "{supported}");
+        assert!(supported.contains("reset-state"), "{supported}");
+        assert!(supported.contains("--state '/tmp/cmux state'"), "{supported}");
+
+        let main_supported = absent_socket_schema_recovery(
+            messages,
+            "main",
+            Some(state_root),
+            ResetStateRecoverySupport::Supported,
+        );
+        assert!(
+            main_supported.contains("cmux session 'main' reset-state --state '/tmp/cmux state'"),
+            "{main_supported}"
+        );
+
+        let unsupported = absent_socket_schema_recovery(
+            messages,
+            "future-session",
+            Some(state_root),
+            ResetStateRecoverySupport::Unsupported,
+        );
+        assert!(unsupported.contains("no server is listening on this socket"), "{unsupported}");
+        assert!(unsupported.contains("scoped saved-state reset is not supported"), "{unsupported}");
+        assert!(!unsupported.contains("reset-state"), "{unsupported}");
     }
 
     #[test]

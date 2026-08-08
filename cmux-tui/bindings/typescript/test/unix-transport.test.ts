@@ -625,7 +625,7 @@ test("Unix resource streams outlive their acknowledged open deadline", async () 
         if (request.operation === "session.events") {
           const streamId = request.params.stream_id as string;
           socket.write(`${JSON.stringify({
-            protocol: "cmux.protocol/1",
+            protocol: "cmux.protocol/2",
             type: "response",
             id: request.id,
             ok: true,
@@ -633,7 +633,7 @@ test("Unix resource streams outlive their acknowledged open deadline", async () 
           })}\n`);
           emitEvent = () => {
             socket.write(`${JSON.stringify({
-              protocol: "cmux.protocol/1",
+              protocol: "cmux.protocol/2",
               type: "stream_item",
               stream_id: streamId,
               sequence: "0",
@@ -644,14 +644,14 @@ test("Unix resource streams outlive their acknowledged open deadline", async () 
         }
         assert.equal(request.operation, "stream.cancel");
         socket.write(`${JSON.stringify({
-          protocol: "cmux.protocol/1",
+          protocol: "cmux.protocol/2",
           type: "response",
           id: request.id,
           ok: true,
           result: {},
         })}\n`);
         socket.write(`${JSON.stringify({
-          protocol: "cmux.protocol/1",
+          protocol: "cmux.protocol/2",
           type: "stream_end",
           stream_id: request.params.stream,
           reason: "canceled",
