@@ -1,5 +1,6 @@
 import Combine
 import CmuxCore
+import CMUXAgentLaunch
 import Darwin
 import Foundation
 import Observation
