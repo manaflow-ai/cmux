@@ -158,8 +158,8 @@ private final class FakeWorkspaceDragRegistry: SidebarWorkspaceDragRegistering {
         let first = UUID()
         let second = UUID()
 
-        let firstSession = registry.begin(workspaceId: first)
-        let secondSession = registry.begin(workspaceId: second)
+        let firstSession = registry.beginSession(workspaceId: first)
+        let secondSession = registry.beginSession(workspaceId: second)
         // A late clear from the superseded first drag is a no-op.
         registry.end(sessionId: firstSession.id)
         #expect(registry.currentWorkspaceId == second)

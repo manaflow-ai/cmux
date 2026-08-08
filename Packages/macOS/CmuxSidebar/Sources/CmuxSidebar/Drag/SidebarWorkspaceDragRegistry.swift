@@ -1,5 +1,5 @@
 public import Foundation
-import AppKit
+public import AppKit
 
 /// Process-wide coordinator for the workspace currently being dragged in any
 /// window's sidebar.
@@ -9,7 +9,7 @@ import AppKit
 /// callback clears the token and all matching window-local state together, so
 /// no view callback is the sole owner of process-wide cleanup.
 @MainActor
-public final class SidebarWorkspaceDragRegistry {
+public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragRegistering {
     private(set) var currentSession: SidebarWorkspaceDragSession?
     private var nativeDragSources: [UUID: SidebarWorkspaceDragSessionSource] = [:]
     private var participants: [SidebarWorkspaceDragParticipantReference] = []
@@ -20,15 +20,39 @@ public final class SidebarWorkspaceDragRegistry {
     /// The workspace participating in the active process-wide drag, if any.
     public var currentWorkspaceId: UUID? { currentSession?.workspaceId }
 
-    @discardableResult
-    func begin(workspaceId: UUID) -> SidebarWorkspaceDragSession {
+    /// Begins a drag through the source-compatible identity API.
+    /// - Parameter workspaceId: The workspace whose drag began.
+    public func begin(workspaceId: UUID) {
+        _ = beginSession(workspaceId: workspaceId)
+    }
+
+    /// Clears a drag through the source-compatible identity API.
+    /// - Parameter workspaceId: The workspace whose drag ended.
+    public func end(workspaceId: UUID) {
+        guard currentWorkspaceId == workspaceId else { return }
+        endCurrentSession()
+    }
+
+    /// Begins a tokenized session, superseding any prior workspace drag.
+    /// - Parameter workspaceId: The workspace whose drag began.
+    /// - Returns: The new generation-tokenized session.
+    public func beginSession(workspaceId: UUID) -> SidebarWorkspaceDragSession {
         endCurrentSession()
         let session = SidebarWorkspaceDragSession(workspaceId: workspaceId)
         currentSession = session
         return session
     }
 
-    func beginNativeDragging(
+    /// Resolves the live tokenized session for a matching workspace.
+    /// - Parameter workspaceId: The workspace identity observed by a destination.
+    /// - Returns: The matching session, or `nil` for stale pasteboard identity.
+    public func session(matching workspaceId: UUID) -> SidebarWorkspaceDragSession? {
+        guard currentSession?.workspaceId == workspaceId else { return nil }
+        return currentSession
+    }
+
+    /// Starts and retains the AppKit source for a matching tokenized session.
+    public func beginNativeDragging(
         sessionId: UUID,
         pasteboardItem: NSPasteboardItem,
         sourceView: NSView,
@@ -59,12 +83,16 @@ public final class SidebarWorkspaceDragRegistry {
         end(sessionId: sessionId)
     }
 
-    func end(sessionId: UUID) {
+    /// Ends only the session whose generation token still matches.
+    /// - Parameter sessionId: The token returned by ``beginSession(workspaceId:)``.
+    public func end(sessionId: UUID) {
         guard currentSession?.id == sessionId else { return }
         endCurrentSession()
     }
 
-    func register(_ state: SidebarDragState) {
+    /// Registers a window-local presentation for coordinated terminal cleanup.
+    /// - Parameter state: The state to clear when its matching session ends.
+    public func register(_ state: SidebarDragState) {
         participants.removeAll { $0.state == nil || $0.state === state }
         participants.append(SidebarWorkspaceDragParticipantReference(state: state))
     }

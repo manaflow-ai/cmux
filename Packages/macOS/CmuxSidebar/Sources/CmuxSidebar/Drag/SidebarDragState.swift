@@ -44,12 +44,12 @@ public final class SidebarDragState {
     /// mirrored here.
     public var foreignDraggedIsPinned: Bool?
 
-    private let workspaceDragRegistry: SidebarWorkspaceDragRegistry
+    private let workspaceDragRegistry: any SidebarWorkspaceDragRegistering
 
     /// Creates a drag state wired to the process-wide cross-window registry.
     /// - Parameter workspaceDragRegistry: The shared registry that records which
     ///   workspace is being dragged across all windows.
-    public init(workspaceDragRegistry: SidebarWorkspaceDragRegistry) {
+    public init(workspaceDragRegistry: any SidebarWorkspaceDragRegistering) {
         self.workspaceDragRegistry = workspaceDragRegistry
         workspaceDragRegistry.register(self)
     }
@@ -63,7 +63,7 @@ public final class SidebarDragState {
     /// Marks `tabId` as this window's dragged workspace and records it as the
     /// process-wide in-flight drag.
     public func beginDragging(tabId: UUID) {
-        let session = workspaceDragRegistry.begin(workspaceId: tabId)
+        let session = workspaceDragRegistry.beginSession(workspaceId: tabId)
         activate(session: session, role: .source(session.id))
     }
 
@@ -90,7 +90,7 @@ public final class SidebarDragState {
         draggingFrame: NSRect,
         dragImage: NSImage
     ) -> Bool {
-        let session = workspaceDragRegistry.begin(workspaceId: tabId)
+        let session = workspaceDragRegistry.beginSession(workspaceId: tabId)
         activate(session: session, role: .source(session.id))
         guard workspaceDragRegistry.beginNativeDragging(
             sessionId: session.id,
@@ -101,6 +101,7 @@ public final class SidebarDragState {
             dragImage: dragImage
         ) else {
             workspaceDragRegistry.end(sessionId: session.id)
+            clearPresentation()
             return false
         }
         return true
@@ -110,8 +111,9 @@ public final class SidebarDragState {
     /// Returns false when `tabId` is stale or no process-wide drag is active.
     @discardableResult
     public func mirrorDragging(tabId: UUID) -> Bool {
-        guard let session = workspaceDragRegistry.currentSession,
-              session.workspaceId == tabId else { return false }
+        guard let session = workspaceDragRegistry.session(matching: tabId) else {
+            return false
+        }
         // Re-observing the same session must not downgrade its source to a
         // mirror; source ownership is immutable for the session's lifetime.
         if let sessionRole, sessionRole.sessionId == session.id {
