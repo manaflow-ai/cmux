@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { StackProvider, StackTheme } from "@stackframe/stack";
 import { redirect } from "next/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
+import { isVaultEnabled } from "@/services/vault/config";
 import { DashboardSkeleton } from "./components/dashboard-skeleton";
 import { DashboardQueryProvider } from "./components/query-provider";
 import { DashboardShell } from "./dashboard-shell";
@@ -27,7 +28,7 @@ export default async function DashboardLayout({
       <StackProvider app={getStackServerApp()}>
         <StackTheme>
           <DashboardQueryProvider>
-            <DashboardShell>
+            <DashboardShell vaultEnabled={isVaultEnabled()}>
               <Suspense fallback={<DashboardSkeleton />}>{children}</Suspense>
             </DashboardShell>
           </DashboardQueryProvider>

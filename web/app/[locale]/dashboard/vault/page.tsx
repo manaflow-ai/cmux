@@ -1,11 +1,12 @@
 import { eq, sql } from "drizzle-orm";
 import { getTranslations } from "next-intl/server";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cloudDb } from "@/db/client";
 import { vaultSessions } from "@/db/schema";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { formatBytes, formatDate } from "@/services/vault/format";
+import { isVaultEnabled } from "@/services/vault/config";
 
 
 export default async function VaultOverviewPage({
@@ -13,6 +14,8 @@ export default async function VaultOverviewPage({
 }: {
   params: Promise<{ locale: string }>;
 }) {
+  if (!isVaultEnabled()) notFound();
+
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "vault.overview" });
 

@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cloudDb } from "@/db/client";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
@@ -7,6 +7,7 @@ import {
   serializeVaultSessionListPage,
   VAULT_SESSION_LIST_PAGE_SIZE,
 } from "@/services/vault/sessionList";
+import { isVaultEnabled } from "@/services/vault/config";
 import { SessionsTable } from "./sessions-table";
 
 
@@ -17,6 +18,8 @@ export default async function VaultSessionsPage({
   params: Promise<{ locale: string }>;
   searchParams: Promise<{ q?: string; cursor?: string; before?: string }>;
 }) {
+  if (!isVaultEnabled()) notFound();
+
   const { locale } = await params;
   const filters = await searchParams;
 

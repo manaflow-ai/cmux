@@ -9,6 +9,7 @@ import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { presignGet } from "@/services/vault/storage";
 import { formatBytes, formatDate, truncateMiddle } from "@/services/vault/format";
 import { fetchTranscriptHeadBatch } from "@/services/vault/transcript-head";
+import { isVaultEnabled } from "@/services/vault/config";
 import { Link } from "@/i18n/navigation";
 import { CopyButton } from "../../copy-button";
 import { TranscriptViewer } from "./transcript-viewer";
@@ -21,6 +22,8 @@ export default async function VaultSessionDetailPage({
 }: {
   params: Promise<{ locale: string; id: string }>;
 }) {
+  if (!isVaultEnabled()) notFound();
+
   const { locale, id } = await params;
   const t = await getTranslations({ locale, namespace: "vault.detail" });
 
@@ -162,15 +165,9 @@ async function TranscriptHead({
   readonly sessionId: string;
   readonly objectKey: string;
 }) {
+  let head: Awaited<ReturnType<typeof fetchTranscriptHeadBatch>>;
   try {
-    const head = await fetchTranscriptHeadBatch(await presignGet(objectKey));
-    return (
-      <TranscriptViewer
-        sessionId={sessionId}
-        initialMessages={head.messages}
-        complete={head.complete}
-      />
-    );
+    head = await fetchTranscriptHeadBatch(await presignGet(objectKey));
   } catch {
     return (
       <TranscriptViewer
@@ -180,6 +177,13 @@ async function TranscriptHead({
       />
     );
   }
+  return (
+    <TranscriptViewer
+      sessionId={sessionId}
+      initialMessages={head.messages}
+      complete={head.complete}
+    />
+  );
 }
 
 function TranscriptLoadingFallback({ line }: { readonly line: string }) {
