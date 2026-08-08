@@ -17,8 +17,10 @@ foreground job-control group as a teardown target distinct from the original
 session-leader group and drives both through one bounded shutdown state machine.
 It builds on `81b4de4f5`, which preserves the stable POSIX process-group identity
 after its direct-child leader exits and sends each graceful/escalation signal
-exactly once. It includes `d462c1d97`, the Hangul
-NFC/NFD font-resolution integration, and `9513174f2`, the
+exactly once. It includes `d462c1d97`, the fork-main merge of the Hangul
+NFC/NFD font-resolution integration from
+https://github.com/manaflow-ai/ghostty/pull/185, including its test at
+`0316a8de8` and fix at `3fbdd078d`. It also includes `9513174f2`, the
 current-fork reapplication of the VT stream-boundary API previously pinned at
 `11aa609d7`. cmux uses that VT contract to retain incomplete escape-sequence
 bytes across distributed snapshot handoff. The current pin builds on
@@ -37,6 +39,48 @@ commits on current fork main and clarified the callback's non-reentrant
 contract. PR 172 then recorded the original font branch as ancestry without
 changing the integrated tree, so the final pin descends from both former
 gitlinks (`cd1f8e012` and `80d7fb35a`).
+
+### Hangul NFC/NFD canonical font resolution
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/185
+- Commits:
+  - `0316a8de8` (test: NFC and NFD Hangul must resolve the same font face)
+  - `3fbdd078d` (font: resolve NFD Hangul clusters via canonical composition)
+- Files:
+  - `src/font/hangul.zig` (new)
+  - `src/font/main.zig`
+  - `src/font/shaper/run.zig`
+  - `src/font/shaper/coretext.zig` (test)
+- Summary:
+  - Font selection keyed on the raw stored codepoints of a grapheme cluster,
+    so a decomposed Hangul cluster queried the resolver with its leading jamo
+    while the equivalent precomposed syllable queried with the syllable
+    codepoint, selecting different fallback faces (and bypassing
+    `font-codepoint-map` entries for U+AC00-U+D7A3) for canonically
+    equivalent text.
+  - `src/font/hangul.zig` implements the algorithmic Hangul canonical
+    composition from The Unicode Standard ch. 3.12 (L+V, L+V+T, and LV+T
+    clusters over the modern jamo ranges). `RunIterator.indexForCell`
+    resolves the face through the composed codepoint first, so both
+    encodings produce the identical resolver query.
+  - Terminal cell contents and shaper input are unchanged: copy/paste of NFD
+    text still returns the original NFD codepoints, and CoreText/HarfBuzz
+    compose the cluster during shaping when the face carries the precomposed
+    glyph.
+- Conflict note:
+  - Upstream tracks the same defect in
+    https://github.com/ghostty-org/ghostty/discussions/4163. If upstream
+    lands its own cluster-level or normalization-based resolution, prefer
+    the upstream mechanism and drop `src/font/hangul.zig` plus the
+    `indexForCell` hook, keeping the `coretext.zig` regression test to prove
+    the behavior survives the merge.
+- Fixes:
+  - https://github.com/manaflow-ai/cmux/issues/9583
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3fbdd078dfc499134710d3cf9ce2c5e06fa101aa-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `e8ce9217b32486f8070600b673d9a25e7270dcca9f5565781684f92ffb2f7eb5`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### VT stream-boundary visibility
 
@@ -112,27 +156,6 @@ gitlinks (`cd1f8e012` and `80d7fb35a`).
     keep separate direct-child and per-group liveness state, stop targeting a
     foreground group after it disappears, and preserve the shared SIGHUP,
     signal-`0` polling, SIGKILL, and bounded final-reap deadlines.
-
-### Canonical Hangul font resolution
-
-- Pull request:
-  - https://github.com/manaflow-ai/ghostty/pull/185
-- Commits:
-  - `0316a8de8` (test: NFC and NFD Hangul must resolve the same font face)
-  - `3fbdd078d` (font: resolve NFD Hangul clusters via canonical composition)
-- Files:
-  - `src/font/hangul.zig`
-  - `src/font/main.zig`
-  - `src/font/shaper/coretext.zig`
-  - `src/font/shaper/run.zig`
-- Summary:
-  - Composes modern Hangul jamo clusters algorithmically for font-resolver
-    lookup so canonically equivalent NFC and NFD text selects the same face.
-  - Preserves the original cell codepoints and shaper input, including NFD
-    copy/paste contents.
-- Conflict note:
-  - Preserve canonical composition at font lookup only; do not rewrite stored
-    terminal cells or the text passed to the shaper.
 
 The renderer line was reviewed in
 https://github.com/manaflow-ai/ghostty/pull/168, following the merged
