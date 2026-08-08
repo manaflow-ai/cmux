@@ -519,6 +519,10 @@ pub(crate) fn validate_journal_producer_manifest(
     );
     anyhow::ensure!(manifest.manifest_version > 0, "manifest_version must be positive");
     anyhow::ensure!(
+        manifest.max_sensitivity != JournalSensitivity::Secret,
+        "secret journal payload storage is unavailable until encrypted retention is implemented"
+    );
+    anyhow::ensure!(
         manifest
             .permissions
             .iter()
@@ -536,6 +540,10 @@ pub(crate) fn validate_journal_producer_manifest(
     );
     let mut identities = BTreeSet::new();
     for event in &manifest.events {
+        anyhow::ensure!(
+            event.sensitivity != JournalSensitivity::Secret,
+            "secret journal payload storage is unavailable until encrypted retention is implemented"
+        );
         validate_dotted_kind(&event.kind)?;
         anyhow::ensure!(
             event.kind.starts_with(&format!("{}.", manifest.namespace)),

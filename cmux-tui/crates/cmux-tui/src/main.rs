@@ -1706,10 +1706,30 @@ fn run_server(
     };
     #[cfg(unix)]
     let remote_shutdown = remote_runtime.map(|runtime| runtime.shutdown()).transpose();
+    #[cfg(unix)]
+    {
+        finish_server_shutdown(websocket_server, &mux, &socket_path, remote_shutdown, result)
+    }
+    #[cfg(not(unix))]
+    {
+        drop(websocket_server);
+        mux.shutdown();
+        cmux_tui_core::server::cleanup(&socket_path);
+        result
+    }
+}
+
+#[cfg(unix)]
+fn finish_server_shutdown<W, R>(
+    websocket_server: Option<W>,
+    mux: &Arc<Mux>,
+    socket_path: &Path,
+    remote_shutdown: anyhow::Result<Option<R>>,
+    result: anyhow::Result<()>,
+) -> anyhow::Result<()> {
     drop(websocket_server);
     mux.shutdown();
-    cmux_tui_core::server::cleanup(&socket_path);
-    #[cfg(unix)]
+    cmux_tui_core::server::cleanup(socket_path);
     remote_shutdown.map(|_| ())?;
     result
 }
@@ -2111,6 +2131,35 @@ mod tests {
 
     fn args(values: &[&str]) -> Args {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_shutdown_failure_still_stops_the_mux_and_removes_the_socket() {
+        let socket_path = std::env::temp_dir().join(format!(
+            "cmux-remote-shutdown-{}-{}.sock",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&socket_path, b"test socket marker").unwrap();
+        let mux = Mux::new("remote-shutdown-failure", SurfaceOptions::default());
+
+        let error = finish_server_shutdown(
+            Some(()),
+            &mux,
+            &socket_path,
+            Err::<Option<()>, _>(anyhow::anyhow!("injected remote shutdown failure")),
+            Ok(()),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("injected remote shutdown failure"), "{error}");
+        assert!(mux.daemon_shutdown_requested());
+        assert!(!socket_path.exists());
     }
 
     #[cfg(unix)]

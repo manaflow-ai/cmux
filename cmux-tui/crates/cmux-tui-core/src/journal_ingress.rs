@@ -16,7 +16,7 @@ const JOURNAL_TERMINAL_QUEUE_CAPACITY: usize = 1024;
 const JOURNAL_DURABLE_QUEUE_CAPACITY: usize = 256;
 const JOURNAL_TERMINAL_BATCH_CHUNKS: usize = 64;
 const JOURNAL_DURABLE_BATCH_BYTES: usize = 8 * 1024 * 1024;
-const TERMINAL_OUTPUT_INGRESS_BYTES: usize = 64 * 1024;
+pub(crate) const TERMINAL_OUTPUT_INGRESS_BYTES: usize = 64 * 1024;
 const TERMINAL_OUTPUT_BATCH_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -276,6 +276,27 @@ impl JournalIngressSender {
             event => {
                 let _ = self.enqueue(sender, QueuedJournalEvent { event, completion: None });
             }
+        }
+    }
+
+    pub(crate) fn try_send(&self, event: JournalIngressEvent) -> Result<(), JournalIngressEvent> {
+        debug_assert!(matches!(
+            &event,
+            JournalIngressEvent::TerminalOutput { .. } | JournalIngressEvent::TerminalResize { .. }
+        ));
+        let Some(sender) = &self.terminal_sender else { return Ok(()) };
+        match sender.try_send(QueuedJournalEvent { event, completion: None }) {
+            Ok(()) => {
+                if let Some(wake) = &self.wake_sender {
+                    match wake.try_send(()) {
+                        Ok(()) | Err(TrySendError::Full(())) => {}
+                        Err(TrySendError::Disconnected(())) => {}
+                    }
+                }
+                Ok(())
+            }
+            Err(TrySendError::Full(queued)) => Err(queued.event),
+            Err(TrySendError::Disconnected(_)) => Ok(()),
         }
     }
 
@@ -778,6 +799,66 @@ mod tests {
             output.terminal_output.as_deref(),
             Some(b"persist after reader shutdown starts".as_slice())
         );
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shutdown_is_bounded_when_a_descendant_keeps_the_pty_open() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-descendant-shutdown-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let descendant_pid_path = root.join("descendant.pid");
+        let mux = Mux::open_persistent(
+            "terminal-descendant-shutdown",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let surface = crate::Surface::spawn(
+            mux.next_id(),
+            crate::SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "sleep 30 & echo $! > \"$1\"; exit 0".into(),
+                    "cmux-shutdown-test".into(),
+                    descendant_pid_path.to_string_lossy().into_owned(),
+                ]),
+                ..crate::SurfaceOptions::default()
+            },
+            Arc::downgrade(&mux),
+        )
+        .unwrap();
+        mux.insert_surface_runtime_for_test(surface.clone());
+
+        let pid_deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !descendant_pid_path.is_file() && std::time::Instant::now() < pid_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let descendant_pid = std::fs::read_to_string(&descendant_pid_path)
+            .unwrap()
+            .trim()
+            .parse::<libc::pid_t>()
+            .unwrap();
+
+        let started = std::time::Instant::now();
+        mux.shutdown();
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "shutdown waited without a bound for a descendant-held PTY"
+        );
+
+        assert_eq!(unsafe { libc::kill(descendant_pid, libc::SIGKILL) }, 0);
+        let reader_deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !surface.is_dead() && std::time::Instant::now() < reader_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(surface.is_dead(), "terminal reader did not stop after descendant cleanup");
+        drop(surface);
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }

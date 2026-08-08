@@ -115,6 +115,7 @@ const KITTY_IMAGE_BUDGET_RETRY_INITIAL: Duration = Duration::from_millis(25);
 const KITTY_IMAGE_BUDGET_RETRY_MAX: Duration = Duration::from_secs(1);
 const KITTY_IMAGE_BUDGET_RETRY_MAX_ATTEMPTS: u32 = 4;
 const TERMINAL_HOST_CLOSE_WAIT: Duration = Duration::from_secs(4);
+const TERMINAL_READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 pub(crate) const RENDER_ATTACHMENT_LIMIT: usize = 64;
 const KITTY_IMAGE_PROCESS_BUDGET_BYTES: u64 = 128 * 1024 * 1024;
 // libghostty owns independent primary and alternate screen stores. cmux also
@@ -4527,6 +4528,32 @@ impl Mux {
         });
     }
 
+    pub(crate) fn try_journal_terminal_output(
+        &self,
+        terminal_id: Arc<TerminalPublicId>,
+        generation: Arc<str>,
+        occurred_at_ms: u64,
+        bytes: Vec<u8>,
+    ) -> Option<Vec<u8>> {
+        if bytes.is_empty() {
+            return None;
+        }
+        self.journal_ingress
+            .try_send(crate::journal_ingress::JournalIngressEvent::TerminalOutput {
+                terminal_id,
+                generation,
+                occurred_at_ms,
+                bytes,
+            })
+            .err()
+            .and_then(|event| match event {
+                crate::journal_ingress::JournalIngressEvent::TerminalOutput { bytes, .. } => {
+                    Some(bytes)
+                }
+                _ => None,
+            })
+    }
+
     pub(crate) fn flush_terminal_journal(&self) -> anyhow::Result<()> {
         self.journal_ingress.flush_terminal()
     }
@@ -8089,11 +8116,12 @@ impl Mux {
             surface.shutdown_for_daemon();
         }
         for surface in surfaces {
-            surface.join_terminal_reader();
+            surface.finish_terminal_reader(TERMINAL_READER_SHUTDOWN_TIMEOUT);
         }
-        // Every terminal input source has stopped and its reader has drained.
-        // Fence the terminal ingress lane while this Mux still owns the
-        // registry so the last Arc cannot drop parser-accepted output.
+        // Each terminal reader has drained or its journal capture gate is
+        // closed. Fence the terminal ingress lane while this Mux still owns
+        // the registry. The closed gate prevents a timed-out reader from
+        // inserting output after this barrier.
         if let Err(error) = self.flush_terminal_journal() {
             eprintln!("cmux-tui: flush terminal journal during shutdown: {error:#}");
         }

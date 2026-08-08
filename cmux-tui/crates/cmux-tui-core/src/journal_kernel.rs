@@ -400,6 +400,10 @@ impl JournalKernel {
             )?;
         let sensitivity = ingress.sensitivity.unwrap_or(event.sensitivity);
         anyhow::ensure!(
+            sensitivity != JournalSensitivity::Secret,
+            "secret journal payload storage is unavailable until encrypted retention is implemented"
+        );
+        anyhow::ensure!(
             sensitivity_rank(sensitivity) <= sensitivity_rank(producer.max_sensitivity),
             "journal event sensitivity exceeds producer authority"
         );
@@ -429,6 +433,14 @@ fn compile_journal_producers(
 fn compile_journal_producer(
     manifest: &JournalProducerManifest,
 ) -> anyhow::Result<CompiledJournalProducer> {
+    anyhow::ensure!(
+        manifest.max_sensitivity != JournalSensitivity::Secret
+            && manifest
+                .events
+                .iter()
+                .all(|event| event.sensitivity != JournalSensitivity::Secret),
+        "secret journal payload storage is unavailable until encrypted retention is implemented"
+    );
     let events = manifest
         .events
         .iter()
@@ -545,7 +557,10 @@ fn push_bounded_journal_document(
 #[cfg(test)]
 mod performance_tests {
     use super::*;
-    use crate::{JournalAuthority, JournalProducer, JournalSubject, SessionJournalRecord};
+    use crate::{
+        JournalAuthority, JournalEventSchema, JournalProducer, JournalSubject,
+        SessionJournalRecord,
+    };
     use std::time::Instant;
 
     fn record(sequence: u64) -> SessionJournalRecord {
@@ -578,6 +593,54 @@ mod performance_tests {
             previous_resource_revision: None,
             terminal_output: None,
         }
+    }
+
+    fn producer_manifest() -> JournalProducerManifest {
+        JournalProducerManifest {
+            producer_id: "kernel_test".into(),
+            namespace: "plugin.kernel_test".into(),
+            manifest_version: 1,
+            max_sensitivity: JournalSensitivity::Sensitive,
+            permissions: vec!["journal.append.plugin.kernel_test".into()],
+            events: vec![JournalEventSchema {
+                kind: "plugin.kernel_test.event".into(),
+                schema_version: 1,
+                class: JournalClass::Observation,
+                replay: JournalReplayPolicy::Advisory,
+                sensitivity: JournalSensitivity::Sensitive,
+                payload_schema: json!({"type":"object"}),
+            }],
+        }
+    }
+
+    #[test]
+    fn persisted_secret_producer_manifests_fail_closed() {
+        let mut manifest = producer_manifest();
+        manifest.max_sensitivity = JournalSensitivity::Secret;
+        let error = JournalKernel::new(None, &[manifest]).err().unwrap().to_string();
+        assert!(error.contains("encrypted retention"), "{error}");
+    }
+
+    #[test]
+    fn runtime_secret_sensitivity_overrides_fail_closed() {
+        let manifest = producer_manifest();
+        let kernel = JournalKernel::new(None, std::slice::from_ref(&manifest)).unwrap();
+        let error = kernel
+            .validate_ingress(&JournalIngress {
+                producer_id: manifest.producer_id,
+                manifest_version: manifest.manifest_version,
+                kind: manifest.events[0].kind.clone(),
+                schema_version: manifest.events[0].schema_version,
+                occurred_at_ms: None,
+                subjects: Vec::new(),
+                sensitivity: Some(JournalSensitivity::Secret),
+                payload: json!({}),
+                causation_id: None,
+                correlation_id: None,
+            })
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("encrypted retention"), "{error}");
     }
 
     fn linear_read_after(kernel: &JournalKernel, sequence: u64, limit: usize) -> SharedJournalRead {

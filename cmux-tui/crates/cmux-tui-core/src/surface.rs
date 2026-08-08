@@ -1233,10 +1233,19 @@ impl Drop for TerminalJournalUpdateGuard<'_> {
 }
 
 impl PtyTerminalRuntime {
-    fn begin_terminal_journal_update(&self) -> TerminalJournalUpdateGuard<'_> {
+    fn begin_terminal_journal_update(&self) -> Option<TerminalJournalUpdateGuard<'_>> {
+        let _gate = self.journal_capture_gate.lock().unwrap();
+        if !self.journal_capture_open.load(Ordering::Acquire) {
+            return None;
+        }
         let previous = self.journal_capture_epoch.fetch_add(1, Ordering::AcqRel);
         debug_assert_eq!(previous & 1, 0, "terminal journal updates must not overlap");
-        TerminalJournalUpdateGuard { epoch: &self.journal_capture_epoch }
+        Some(TerminalJournalUpdateGuard { epoch: &self.journal_capture_epoch })
+    }
+
+    fn close_terminal_journal_capture(&self) {
+        let _gate = self.journal_capture_gate.lock().unwrap();
+        self.journal_capture_open.store(false, Ordering::Release);
     }
 }
 
@@ -1255,8 +1264,11 @@ pub struct PtyTerminalRuntime {
     /// Even while the emulator and terminal journal agree, odd while one
     /// output frame has updated one side but not yet reached the other.
     journal_capture_epoch: AtomicU64,
-    /// Owned reader join fence. Shutdown joins this handle before it inserts
-    /// the final journal barrier.
+    journal_capture_gate: Mutex<()>,
+    journal_capture_open: AtomicBool,
+    /// Owned reader join fence. Shutdown gives this reader a bounded drain
+    /// interval, then closes journal capture before it inserts the final
+    /// journal barrier.
     reader_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
     term: Mutex<Box<Terminal>>,
     stream_progress: Box<TerminalStreamProgress>,
@@ -2183,6 +2195,8 @@ impl Surface {
                     crate::workspace_registry::new_uuid_v4()
                 )),
                 journal_capture_epoch: AtomicU64::new(0),
+                journal_capture_gate: Mutex::new(()),
+                journal_capture_open: AtomicBool::new(true),
                 reader_thread: Mutex::new(None),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
@@ -2267,9 +2281,9 @@ impl Surface {
                     };
                     let pty = surface.as_pty().expect("surface reader got non-pty surface");
                     let journal_target = pty.journal_target();
-                    let journal_enabled = journal_target.is_some();
                     let journal_update =
-                        journal_enabled.then(|| pty.begin_terminal_journal_update());
+                        journal_target.as_ref().and_then(|_| pty.begin_terminal_journal_update());
+                    let journal_enabled = journal_update.is_some();
                     let mut scroll_changed = None;
                     let generation = {
                         let mut term = pty.term.lock().unwrap();
@@ -2322,7 +2336,7 @@ impl Surface {
                     if let (Some(journal_target), Some(journal_output)) =
                         (journal_target, journal_output)
                     {
-                        pty.journal_output(journal_target, journal_output.into_owned());
+                        pty.journal_output_if_open(journal_target, journal_output.into_owned());
                     }
                     drop(journal_update);
                     pty.stream_progress.notify();
@@ -2615,6 +2629,8 @@ impl Surface {
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation,
                 journal_capture_epoch: AtomicU64::new(0),
+                journal_capture_gate: Mutex::new(()),
+                journal_capture_open: AtomicBool::new(true),
                 reader_thread: Mutex::new(None),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
@@ -2759,9 +2775,10 @@ impl Surface {
                                 let mut scroll_changed = None;
                                 let mut title_update = None;
                                 let journal_target = pty.journal_target();
-                                let journal_enabled = journal_target.is_some();
-                                let journal_update =
-                                    journal_enabled.then(|| pty.begin_terminal_journal_update());
+                                let journal_update = journal_target
+                                    .as_ref()
+                                    .and_then(|_| pty.begin_terminal_journal_update());
+                                let journal_enabled = journal_update.is_some();
                                 let defaults = mux
                                     .upgrade()
                                     .map(|mux| mux.default_colors())
@@ -2843,7 +2860,7 @@ impl Surface {
                                 if let (Some(journal_target), Some(journal_output)) =
                                     (journal_target, journal_output)
                                 {
-                                    pty.journal_output(journal_target, journal_output);
+                                    pty.journal_output_if_open(journal_target, journal_output);
                                 }
                                 drop(journal_update);
                                 pty.stream_progress.notify();
@@ -3581,6 +3598,8 @@ impl Surface {
                 terminal_public_id: Some(Arc::new(terminal_public_id)),
                 journal_generation,
                 journal_capture_epoch: AtomicU64::new(0),
+                journal_capture_gate: Mutex::new(()),
+                journal_capture_open: AtomicBool::new(true),
                 reader_thread: Mutex::new(None),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
@@ -3798,6 +3817,8 @@ impl Surface {
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation: Arc::from(format!("test-{id}")),
                 journal_capture_epoch: AtomicU64::new(0),
+                journal_capture_gate: Mutex::new(()),
+                journal_capture_open: AtomicBool::new(true),
                 reader_thread: Mutex::new(None),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
@@ -3868,16 +3889,27 @@ impl Surface {
         self.as_pty().map(|pty| pty.journal_capture_epoch.load(Ordering::Acquire))
     }
 
-    pub(crate) fn join_terminal_reader(&self) {
+    pub(crate) fn finish_terminal_reader(&self, timeout: Duration) {
         let Some(pty) = self.as_pty() else {
             return;
         };
-        let Some(reader) = pty.reader_thread.lock().unwrap().take() else {
-            return;
-        };
-        if reader.join().is_err() {
-            eprintln!("cmux-tui: terminal reader thread panicked during shutdown");
+        if let Some(reader) = pty.reader_thread.lock().unwrap().take() {
+            let deadline = Instant::now() + timeout;
+            while !reader.is_finished() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            if reader.is_finished() {
+                if reader.join().is_err() {
+                    eprintln!("cmux-tui: terminal reader thread panicked during shutdown");
+                }
+            } else {
+                eprintln!(
+                    "cmux-tui: terminal reader did not stop within {} ms; closing journal capture",
+                    timeout.as_millis()
+                );
+            }
         }
+        pty.close_terminal_journal_capture();
     }
 
     #[cfg(test)]
@@ -3894,7 +3926,7 @@ impl Surface {
     pub(crate) fn begin_terminal_journal_update_for_test(
         &self,
     ) -> Option<TerminalJournalUpdateGuard<'_>> {
-        self.as_pty().map(|pty| pty.begin_terminal_journal_update())
+        self.as_pty().and_then(|pty| pty.begin_terminal_journal_update())
     }
 
     pub(crate) fn as_browser(&self) -> Option<&BrowserSurface> {
@@ -5734,12 +5766,33 @@ impl PtySurface {
         mux.terminal_journal_enabled().then_some((mux, terminal_id))
     }
 
-    fn journal_output(
+    fn journal_output_if_open(
         &self,
         (mux, terminal_id): (Arc<Mux>, Arc<TerminalPublicId>),
         bytes: Vec<u8>,
     ) {
-        mux.journal_terminal_output(terminal_id, self.journal_generation.clone(), bytes);
+        let occurred_at_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+        for chunk in bytes.chunks(crate::journal_ingress::TERMINAL_OUTPUT_INGRESS_BYTES) {
+            let mut pending = chunk.to_vec();
+            loop {
+                {
+                    let _gate = self.journal_capture_gate.lock().unwrap();
+                    if !self.journal_capture_open.load(Ordering::Acquire) {
+                        return;
+                    }
+                    let Some(retry) = mux.try_journal_terminal_output(
+                        terminal_id.clone(),
+                        self.journal_generation.clone(),
+                        occurred_at_ms,
+                        pending,
+                    ) else {
+                        break;
+                    };
+                    pending = retry;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
     }
 
     fn journal_geometry(&self, geometry: PtyGeometry) {

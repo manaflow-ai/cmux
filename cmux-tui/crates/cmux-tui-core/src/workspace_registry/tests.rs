@@ -4902,6 +4902,26 @@ fn receipt_test_producer() -> JournalProducerManifest {
 }
 
 #[test]
+fn journal_producers_reject_plaintext_secret_schemas() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-secret-schema").unwrap();
+    let mut manifest = receipt_test_producer();
+    manifest.max_sensitivity = JournalSensitivity::Secret;
+    let error = registry
+        .put_journal_producer(&manifest, "client_secret", "install_secret_producer")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("encrypted retention"), "{error}");
+
+    manifest.max_sensitivity = JournalSensitivity::Sensitive;
+    manifest.events[0].sensitivity = JournalSensitivity::Secret;
+    let error = registry
+        .put_journal_producer(&manifest, "client_secret", "install_secret_event")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("encrypted retention"), "{error}");
+}
+
+#[test]
 fn journal_commit_time_is_local_and_independent_of_producer_time() {
     let mut registry = WorkspaceRegistry::in_memory("journal-independent-commit-time").unwrap();
     let manifest = receipt_test_producer();

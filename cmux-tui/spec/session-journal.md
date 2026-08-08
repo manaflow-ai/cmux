@@ -136,6 +136,8 @@ authority and export redaction use this field before payload delivery.
 Storage v1 conservatively marks generic resource payloads `sensitive` because
 whole-resource upserts may contain names, URLs, or upstream agent session IDs.
 Producer-specific redacted event shapes may lower that classification later.
+Storage v1 rejects `secret` producer schemas and ingress overrides because it
+does not have encrypted retention. The enum reserves that future policy.
 
 ## Subscription API
 
@@ -168,8 +170,8 @@ dimension are ORed, and filtered records still advance the cursor:
 - `subjects` matches a subject kind, ID, or both, and every entry contains at
   least one of those fields;
 - `max_sensitivity` accepts `public`, `metadata`, or `sensitive`, with each
-  threshold including lower levels. Omission uses the transport cap:
-  `sensitive` for a trusted local Unix client and `metadata` remotely;
+  threshold including lower levels. Omission defaults to `metadata` on every
+  transport. A trusted local Unix client can explicitly request `sensitive`;
 - `regex` is compiled once and matches `kind`, `subjects`, `payload`, the
   complete record, or exact decoded `terminal_output` bytes after structured
   filters pass.
@@ -610,9 +612,9 @@ the same synchronous SQLite calls onto another worker and add scheduling hops;
 it would not make the database engine asynchronous.
 
 Canonical segments are retained until explicit session deletion or an explicit
-export-and-forget policy. Size pressure cannot silently delete history. Secret
-content has a separate encrypted retention policy and journaled redaction
-markers.
+export-and-forget policy. Size pressure cannot silently delete history. Storage
+v1 does not accept secret content. Encrypted secret retention and journaled
+redaction markers are reserved for a later storage version.
 
 ## Migration state
 
