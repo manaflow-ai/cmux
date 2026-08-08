@@ -9,6 +9,7 @@ import os
 import signal
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -17,6 +18,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-hermes-agent-wrapper"
+SOURCE_TUI_PYTHON_WRAPPER = ROOT / "Resources" / "bin" / "cmux-hermes-python-wrapper"
+SOURCE_TUI_SITECUSTOMIZE = ROOT / "Resources" / "bin" / "cmux-hermes-sitecustomize.py"
 SESSION_ID = "01JZ123456789ABCDEFGHJKMNP"
 
 
@@ -39,6 +42,7 @@ class WrapperResult:
     original_tmpdir: str
     tui_tmpdir_cleaned_before_teardown: bool | None
     tui_watcher_cpu_seconds: float | None
+    tui_gateway_events: list[str]
     profile_homes: dict[str, str]
 
 
@@ -106,6 +110,8 @@ def run_wrapper(
     tui_session_ids: tuple[str, ...] = (),
     tui_multiple_active_files: bool = False,
     sample_tui_watcher_cpu: bool = False,
+    tui_gateway_turns: int = 0,
+    tui_gateway_compute_host: bool = False,
     expected_cmux_call_count: int | None = None,
 ) -> WrapperResult:
     with tempfile.TemporaryDirectory(prefix="cmux-hermes-wrapper-test-") as td:
@@ -135,6 +141,15 @@ def run_wrapper(
         wrapper = wrapper_dir / "cmux-hermes-agent-wrapper"
         shutil.copy2(SOURCE_WRAPPER, wrapper)
         wrapper.chmod(0o755)
+        if SOURCE_TUI_PYTHON_WRAPPER.is_file():
+            python_wrapper = wrapper_dir / SOURCE_TUI_PYTHON_WRAPPER.name
+            shutil.copy2(SOURCE_TUI_PYTHON_WRAPPER, python_wrapper)
+            python_wrapper.chmod(0o755)
+        if SOURCE_TUI_SITECUSTOMIZE.is_file():
+            shutil.copy2(
+                SOURCE_TUI_SITECUSTOMIZE,
+                wrapper_dir / SOURCE_TUI_SITECUSTOMIZE.name,
+            )
 
         # Match the real per-surface topology. The PATH candidate named
         # `hermes` points back to the wrapper, so resolution must skip it and
@@ -150,8 +165,53 @@ def run_wrapper(
         installer_started_log = tmp / "installer-started.log"
         installer_gate = tmp / "installer-gate"
         tui_watcher_cpu_log = tmp / "tui-watcher-cpu.log"
+        tui_gateway_events_log = tmp / "tui-gateway-events.log"
         if installer_blocks:
             os.mkfifo(installer_gate)
+
+        fake_tui_gateway_root = tmp / "fake-hermes-python"
+        if tui_gateway_turns:
+            for package in ("agent", "hermes_cli", "tui_gateway"):
+                package_dir = fake_tui_gateway_root / package
+                package_dir.mkdir(parents=True)
+                (package_dir / "__init__.py").write_text("", encoding="utf-8")
+            (fake_tui_gateway_root / "hermes_cli" / "config.py").write_text(
+                "def load_config():\n"
+                "    return {'hooks': {}}\n",
+                encoding="utf-8",
+            )
+            (fake_tui_gateway_root / "agent" / "shell_hooks.py").write_text(
+                "import os\n"
+                "\n"
+                "_registered = False\n"
+                "\n"
+                "def register_from_config(_config, *, accept_hooks=False):\n"
+                "    global _registered\n"
+                "    _registered = True\n"
+                "\n"
+                "def emit_turn(runtime, turn):\n"
+                "    if not _registered:\n"
+                "        return\n"
+                "    with open(os.environ['FAKE_TUI_GATEWAY_EVENTS_LOG'], 'a', encoding='utf-8') as log:\n"
+                "        for event in ('prompt-submit', 'agent-response', 'session-end'):\n"
+                "            log.write(f'{runtime}:{event}:{turn}\\n')\n",
+                encoding="utf-8",
+            )
+            runtime_module = (
+                "import os\n"
+                "from agent.shell_hooks import emit_turn\n"
+                "\n"
+                "for turn in range(1, int(os.environ['FAKE_TUI_GATEWAY_TURNS']) + 1):\n"
+                "    emit_turn(RUNTIME_NAME, turn)\n"
+            )
+            (fake_tui_gateway_root / "tui_gateway" / "entry.py").write_text(
+                "RUNTIME_NAME = 'gateway'\n" + runtime_module,
+                encoding="utf-8",
+            )
+            (fake_tui_gateway_root / "tui_gateway" / "compute_host.py").write_text(
+                "RUNTIME_NAME = 'compute-host'\n" + runtime_module,
+                encoding="utf-8",
+            )
 
         real_hermes = real_dir / "hermes"
         make_executable(
@@ -173,6 +233,8 @@ printf '%s\\0' "$@" >> "$FAKE_REAL_ARGS_LOG"
   printf 'CMUX_AGENT_RESTORE_LAUNCH=%s\\n' "${CMUX_AGENT_RESTORE_LAUNCH-__UNSET__}"
   printf 'HERMES_HOME=%s\\n' "${HERMES_HOME-__UNSET__}"
   printf 'TMPDIR=%s\\n' "${TMPDIR-__UNSET__}"
+  printf 'HERMES_PYTHON=%s\\n' "${HERMES_PYTHON-__UNSET__}"
+  printf 'CMUX_HERMES_TUI_REAL_PYTHON=%s\\n' "${CMUX_HERMES_TUI_REAL_PYTHON-__UNSET__}"
   printf 'PATH=%s\\n' "$PATH"
   printf 'REAL_PID=%s\\n' "$$"
 } > "$FAKE_REAL_ENV_LOG"
@@ -203,6 +265,14 @@ if [[ "${FAKE_SAMPLE_TUI_WATCHER_CPU:-0}" == "1" ]]; then
     # This is the controlled workload window for the CPU regression check.
     sleep 0.5
     /bin/ps -o time= -p "$watcher_pid" | /usr/bin/tr -d ' ' > "$FAKE_TUI_WATCHER_CPU_LOG" || true
+  fi
+fi
+if (( ${FAKE_TUI_GATEWAY_TURNS:-0} > 0 )); then
+  fake_tui_python="${HERMES_PYTHON:-$FAKE_HERMES_PYTHON}"
+  export PYTHONPATH="$FAKE_TUI_GATEWAY_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+  "$fake_tui_python" -m tui_gateway.entry
+  if [[ "${FAKE_TUI_GATEWAY_COMPUTE_HOST:-0}" == "1" ]]; then
+    "$fake_tui_python" -m tui_gateway.compute_host
   fi
 fi
 """,
@@ -261,6 +331,13 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
         env["FAKE_TUI_MULTIPLE_ACTIVE_FILES"] = "1" if tui_multiple_active_files else "0"
         env["FAKE_SAMPLE_TUI_WATCHER_CPU"] = "1" if sample_tui_watcher_cpu else "0"
         env["FAKE_TUI_WATCHER_CPU_LOG"] = str(tui_watcher_cpu_log)
+        env["FAKE_TUI_GATEWAY_TURNS"] = str(tui_gateway_turns)
+        env["FAKE_TUI_GATEWAY_COMPUTE_HOST"] = "1" if tui_gateway_compute_host else "0"
+        env["FAKE_TUI_GATEWAY_ROOT"] = str(fake_tui_gateway_root)
+        env["FAKE_TUI_GATEWAY_EVENTS_LOG"] = str(tui_gateway_events_log)
+        env["FAKE_HERMES_PYTHON"] = sys.executable
+        if tui_gateway_turns:
+            env["HERMES_PYTHON"] = sys.executable
         if in_cmux:
             env["CMUX_SURFACE_ID"] = "11111111-1111-1111-1111-111111111111"
             env["CMUX_WORKSPACE_ID"] = "22222222-2222-2222-2222-222222222222"
@@ -341,6 +418,11 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
             original_tmpdir=str(original_tmpdir),
             tui_tmpdir_cleaned_before_teardown=tui_tmpdir_cleaned_before_teardown,
             tui_watcher_cpu_seconds=read_cpu_seconds(tui_watcher_cpu_log),
+            tui_gateway_events=(
+                tui_gateway_events_log.read_text(encoding="utf-8").splitlines()
+                if tui_gateway_events_log.exists()
+                else []
+            ),
             profile_homes={name: str(path) for name, path in profile_homes.items()},
         )
 
@@ -531,6 +613,32 @@ def test_tui_bridge_fails_closed_on_untrusted_session_files(failures: list[str])
         )
 
 
+def test_tui_gateway_registers_hooks_for_every_turn(failures: list[str]) -> None:
+    result = run_wrapper(
+        ["--tui"],
+        tui_gateway_turns=2,
+        tui_gateway_compute_host=True,
+    )
+    expected_events = [
+        f"{runtime}:{event}:{turn}"
+        for runtime in ("gateway", "compute-host")
+        for turn in (1, 2)
+        for event in ("prompt-submit", "agent-response", "session-end")
+    ]
+
+    expect(
+        result.returncode == 0,
+        f"TUI per-turn hooks: wrapper exited {result.returncode}: {result.stderr}",
+        failures,
+    )
+    expect(
+        result.tui_gateway_events == expected_events,
+        "TUI per-turn hooks: fresh gateway processes did not retain hook callbacks "
+        f"across turns: {result.tui_gateway_events}",
+        failures,
+    )
+
+
 def test_explicit_classic_cli_skips_tui_watcher(failures: list[str]) -> None:
     result = run_wrapper(["--cli"])
     expect(
@@ -699,6 +807,7 @@ def main() -> int:
         test_session_entrypoints(failures)
         test_tui_active_session_file_bridges_lifecycle(failures)
         test_tui_bridge_fails_closed_on_untrusted_session_files(failures)
+        test_tui_gateway_registers_hooks_for_every_turn(failures)
         test_explicit_classic_cli_skips_tui_watcher(failures)
         test_profile_scoped_hook_install(failures)
         test_administrative_entrypoints_bypass_install(failures)
