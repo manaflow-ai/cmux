@@ -3162,7 +3162,7 @@ fn ghostty_defaults() -> DefaultColors {
 }
 
 enum GhosttyHelperDefaults {
-    Resolved(DefaultColors),
+    Resolved(Box<DefaultColors>),
     Unavailable,
     TimedOut,
 }
@@ -3173,7 +3173,7 @@ fn ghostty_defaults_from_sources(
     helper_defaults: GhosttyHelperDefaults,
 ) -> DefaultColors {
     let parsed = match helper_defaults {
-        GhosttyHelperDefaults::Resolved(defaults) => defaults,
+        GhosttyHelperDefaults::Resolved(defaults) => *defaults,
         GhosttyHelperDefaults::Unavailable => {
             parse_ghostty_defaults_from_paths(config_paths, theme_dirs).unwrap_or_default()
         }
@@ -3242,7 +3242,7 @@ pub(crate) fn run_ghostty_config_helper() -> i32 {
         platform::ghostty_theme_dirs(),
     ) {
         GhosttyConfigParseOutcome::Parsed(defaults) => {
-            print!("{}", serialize_ghostty_defaults(defaults));
+            print!("{}", serialize_ghostty_defaults(*defaults));
             0
         }
         GhosttyConfigParseOutcome::Missing => 1,
@@ -3304,7 +3304,9 @@ fn ghostty_defaults_from_helper_command(
         return GhosttyHelperDefaults::Unavailable;
     }
     match output_reader.wait() {
-        Some(output) => GhosttyHelperDefaults::Resolved(parse_resolved_ghostty_defaults(&output)),
+        Some(output) => {
+            GhosttyHelperDefaults::Resolved(Box::new(parse_resolved_ghostty_defaults(&output)))
+        }
         None => GhosttyHelperDefaults::Unavailable,
     }
 }
@@ -3478,13 +3480,13 @@ fn parse_ghostty_defaults_from_paths(
     theme_dirs: Vec<PathBuf>,
 ) -> Option<DefaultColors> {
     match parse_ghostty_defaults_from_paths_result(config_paths, theme_dirs) {
-        GhosttyConfigParseOutcome::Parsed(defaults) => Some(defaults),
+        GhosttyConfigParseOutcome::Parsed(defaults) => Some(*defaults),
         GhosttyConfigParseOutcome::Missing | GhosttyConfigParseOutcome::TimedOut => None,
     }
 }
 
 enum GhosttyConfigParseOutcome {
-    Parsed(DefaultColors),
+    Parsed(Box<DefaultColors>),
     Missing,
     TimedOut,
 }
@@ -3524,7 +3526,7 @@ fn parse_ghostty_defaults_with_theme_dirs(text: &str, theme_dirs: &[PathBuf]) ->
 #[cfg(test)]
 fn parse_ghostty_defaults_from_path(path: &Path, theme_dirs: &[PathBuf]) -> Option<DefaultColors> {
     match parse_ghostty_defaults_from_path_result(path, theme_dirs) {
-        GhosttyConfigParseOutcome::Parsed(defaults) => Some(defaults),
+        GhosttyConfigParseOutcome::Parsed(defaults) => Some(*defaults),
         GhosttyConfigParseOutcome::Missing | GhosttyConfigParseOutcome::TimedOut => None,
     }
 }
@@ -3546,15 +3548,15 @@ fn parse_ghostty_defaults_from_path_result_until(
     let mut theme_candidates = Vec::new();
     let overrides = match parse_ghostty_config_file_until(path, &mut theme_candidates, deadline_at)
     {
-        GhosttyConfigParseOutcome::Parsed(overrides) => overrides,
+        GhosttyConfigParseOutcome::Parsed(overrides) => *overrides,
         outcome => return outcome,
     };
-    GhosttyConfigParseOutcome::Parsed(resolve_parsed_ghostty_defaults(
+    GhosttyConfigParseOutcome::Parsed(Box::new(resolve_parsed_ghostty_defaults(
         theme_candidates,
         theme_dirs,
         overrides,
         deadline_at,
-    ))
+    )))
 }
 
 const GHOSTTY_CONFIG_MAX_FILES: usize = 64;
@@ -3640,7 +3642,7 @@ fn parse_ghostty_config_file_until(
     }
 
     if loaded_root {
-        GhosttyConfigParseOutcome::Parsed(overrides)
+        GhosttyConfigParseOutcome::Parsed(Box::new(overrides))
     } else {
         GhosttyConfigParseOutcome::Missing
     }
@@ -3828,9 +3830,9 @@ fn desktop_theme_command_output(
     let mut command = Command::new(program);
     command
         .args(args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
     #[cfg(unix)]
     command.process_group(0);
     let mut child = command.spawn().ok()?;
@@ -5869,7 +5871,7 @@ mod tests {
         let defaults = ghostty_defaults_from_sources(
             vec![config],
             Vec::new(),
-            GhosttyHelperDefaults::Resolved(helper),
+            GhosttyHelperDefaults::Resolved(Box::new(helper)),
         );
 
         let _ = std::fs::remove_dir_all(dir);

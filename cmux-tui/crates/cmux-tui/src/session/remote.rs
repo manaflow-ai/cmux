@@ -4188,7 +4188,7 @@ mod tests {
 
     #[test]
     fn per_surface_client_sizing_requires_protocol_10() {
-        assert!(SUPPORTED_PROTOCOL_VERSION >= 10);
+        const { assert!(SUPPORTED_PROTOCOL_VERSION >= 10) };
     }
 
     #[test]

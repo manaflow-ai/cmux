@@ -6574,6 +6574,13 @@ const MIN_CONTENT_WIDTH: u16 = 40;
 const MIN_TABBED_PANE_HEIGHT: u16 = 3;
 const RAIL_REVEAL_HYSTERESIS: u16 = 4;
 
+#[derive(Clone, Copy, Default)]
+struct SidebarWidthOverrides {
+    workspace: Option<u16>,
+    machine: Option<u16>,
+    tabs: Option<u16>,
+}
+
 fn clamp_rail_width(desired: u16, configured_max: u16, available: u16) -> Option<u16> {
     let configured_max = if configured_max > 0 { configured_max } else { u16::MAX };
     let effective_max = available.min(configured_max);
@@ -6588,9 +6595,7 @@ fn sidebar_layout_for(
     compact: bool,
     machine_visible: bool,
     size: (u16, u16),
-    workspace_override: Option<u16>,
-    machine_override: Option<u16>,
-    tabs_override: Option<u16>,
+    overrides: SidebarWidthOverrides,
 ) -> SidebarLayout {
     sidebar_layout_for_state(
         config,
@@ -6598,9 +6603,9 @@ fn sidebar_layout_for(
         compact,
         machine_visible,
         size,
-        workspace_override,
-        machine_override,
-        tabs_override,
+        overrides.workspace,
+        overrides.machine,
+        overrides.tabs,
         &HashMap::new(),
         &HashSet::new(),
         None,
@@ -7572,9 +7577,7 @@ fn run_with_machine_updates_inner(
             false,
             machine_ui.is_some(),
             (w, h),
-            None,
-            None,
-            None,
+            SidebarWidthOverrides::default(),
         )
         .content;
         content_size_for_rect(pane, config.scrollbar.position).unwrap_or((1, 1))
@@ -8478,18 +8481,17 @@ impl App {
             .get(&spec.id)
             .map(|state| &state.collapsed)
             .unwrap_or(&empty_collapsed);
-        let agents = spec
-            .includes(SidebarResourceKind::Agents)
+        let agents = if spec.includes(SidebarResourceKind::Agents) {
             // Finished reports are historical records, not active agents.
             // Otherwise detached "surface..." rows remain forever after exit.
-            .then(|| {
-                self.session
-                    .agents()
-                    .into_iter()
-                    .filter(|agent| !matches!(agent.state.as_str(), "done" | "unknown"))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+            self.session
+                .agents()
+                .into_iter()
+                .filter(|agent| !matches!(agent.state.as_str(), "done" | "unknown"))
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
         crate::sidebar_projection::rows(
             spec,
             &self.tree,
@@ -13190,9 +13192,7 @@ impl App {
         } else if let Some(menu) = self.menu.as_mut() {
             menu.insert_search_text(&text);
             Ok(RenderAction::Draw)
-        } else if self.machine_sidebar_focused() {
-            Ok(RenderAction::Draw)
-        } else if self.tabs_sidebar_focused() {
+        } else if self.machine_sidebar_focused() || self.tabs_sidebar_focused() {
             Ok(RenderAction::Draw)
         } else if self.workspace_sidebar_focused() {
             if self.config.sidebar.plugin.is_some() {
@@ -21710,7 +21710,14 @@ mod tests {
     #[test]
     fn zero_width_startup_hides_sidebar_without_panicking() {
         let config = Config::default();
-        let layout = sidebar_layout_for(&config, true, false, false, (0, 24), None, None, None);
+        let layout = sidebar_layout_for(
+            &config,
+            true,
+            false,
+            false,
+            (0, 24),
+            SidebarWidthOverrides::default(),
+        );
         assert!(layout.workspace.is_none());
         assert_eq!(layout.content.width, 0);
     }
@@ -22994,13 +23001,13 @@ mod tests {
         let mut config = Config::default();
         config.sidebar.width = 28;
         config.sidebar.compact_width = 10;
-        let full = sidebar_layout_for(&config, true, false, false, (100, 30), Some(35), None, None);
+        let overrides =
+            SidebarWidthOverrides { workspace: Some(35), ..SidebarWidthOverrides::default() };
+        let full = sidebar_layout_for(&config, true, false, false, (100, 30), overrides);
         assert_eq!(full.workspace.map(|area| area.width), Some(35));
-        let compact =
-            sidebar_layout_for(&config, true, true, false, (100, 30), Some(35), None, None);
+        let compact = sidebar_layout_for(&config, true, true, false, (100, 30), overrides);
         assert_eq!(compact.workspace.map(|area| area.width), Some(10));
-        let hidden =
-            sidebar_layout_for(&config, false, true, false, (100, 30), Some(35), None, None);
+        let hidden = sidebar_layout_for(&config, false, true, false, (100, 30), overrides);
         assert_eq!(hidden.workspace, None);
 
         let mux = Mux::new("compact-sidebar-action-test", SurfaceOptions::default());
@@ -23038,18 +23045,39 @@ mod tests {
             .collect();
         config.sidebar.views_explicit = true;
 
-        let full = sidebar_layout_for(&config, true, false, true, (120, 30), None, None, None);
+        let full = sidebar_layout_for(
+            &config,
+            true,
+            false,
+            true,
+            (120, 30),
+            SidebarWidthOverrides::default(),
+        );
         assert_eq!(full.machine, Some(Rect { x: 0, y: 0, width: 18, height: 30 }));
         assert_eq!(full.workspace, Some(Rect { x: 18, y: 0, width: 22, height: 30 }));
         assert_eq!(full.tabs, Some(Rect { x: 40, y: 0, width: 24, height: 30 }));
         assert_eq!(full.content.x, 64);
 
-        let medium = sidebar_layout_for(&config, true, false, true, (60, 30), None, None, None);
+        let medium = sidebar_layout_for(
+            &config,
+            true,
+            false,
+            true,
+            (60, 30),
+            SidebarWidthOverrides::default(),
+        );
         assert_eq!(medium.machine, None);
         assert!(medium.workspace.is_some());
         assert!(medium.tabs.is_some());
 
-        let narrow = sidebar_layout_for(&config, true, false, true, (50, 30), None, None, None);
+        let narrow = sidebar_layout_for(
+            &config,
+            true,
+            false,
+            true,
+            (50, 30),
+            SidebarWidthOverrides::default(),
+        );
         assert_eq!(narrow.machine, None);
         assert_eq!(narrow.tabs, None);
         assert_eq!(narrow.workspace.map(|rect| rect.width), Some(10));
