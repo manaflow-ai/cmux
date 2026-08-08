@@ -9,7 +9,7 @@ import Testing
 #endif
 
 /// Behavior coverage for auto-assigned workspace rail colors
-/// (`workspaceColors.autoAssignColors`).
+/// (`workspaceColors.indicatorStyle = leftRailAuto`).
 ///
 /// Two properties are load-bearing:
 /// 1. Every palette color is used once before any repeats, so rails stay
@@ -343,9 +343,8 @@ import Testing
     // MARK: - Enablement rules
 
     @Test
-    func railColorIsNilWhenTheFeatureIsOff() {
+    func railColorIsNilForManualLeftRail() {
         #expect(WorkspaceAutoTabColorAssignment.railColorHex(
-            isEnabled: false,
             indicatorStyle: .leftRail,
             customColorHex: nil,
             assignedColorHex: "#1565C0"
@@ -357,7 +356,6 @@ import Testing
     @Test
     func railColorIsNilUnderSolidFill() {
         #expect(WorkspaceAutoTabColorAssignment.railColorHex(
-            isEnabled: true,
             indicatorStyle: .solidFill,
             customColorHex: nil,
             assignedColorHex: "#1565C0"
@@ -367,18 +365,16 @@ import Testing
     @Test
     func manualColorWinsOverTheAutoAssignedColor() {
         #expect(WorkspaceAutoTabColorAssignment.railColorHex(
-            isEnabled: true,
-            indicatorStyle: .leftRail,
+            indicatorStyle: .leftRailAuto,
             customColorHex: "#ABCDEF",
             assignedColorHex: "#1565C0"
         ) == nil)
     }
 
     @Test
-    func railColorResolvesWhenEnabledOnLeftRailWithoutAManualColor() {
+    func railColorResolvesForLeftRailAutoWithoutAManualColor() {
         #expect(WorkspaceAutoTabColorAssignment.railColorHex(
-            isEnabled: true,
-            indicatorStyle: .leftRail,
+            indicatorStyle: .leftRailAuto,
             customColorHex: nil,
             assignedColorHex: "#1565C0"
         ) == "#1565C0")
@@ -387,8 +383,7 @@ import Testing
     @Test
     func railColorIsNilWithoutAnAssignment() {
         #expect(WorkspaceAutoTabColorAssignment.railColorHex(
-            isEnabled: true,
-            indicatorStyle: .leftRail,
+            indicatorStyle: .leftRailAuto,
             customColorHex: nil,
             assignedColorHex: nil
         ) == nil)
@@ -600,7 +595,7 @@ import Testing
     @Test
     func autoColorDrawsTheRail() {
         let railColor = sidebarWorkspaceRowExplicitRailNSColor(
-            activeTabIndicatorStyle: .leftRail,
+            activeTabIndicatorStyle: .leftRailAuto,
             customColorHex: nil,
             autoRailColorHex: "#1565C0",
             colorScheme: .dark
@@ -612,7 +607,7 @@ import Testing
     @Test
     func manualColorTakesPrecedenceInTheRailRenderer() {
         let manual = sidebarWorkspaceRowExplicitRailNSColor(
-            activeTabIndicatorStyle: .leftRail,
+            activeTabIndicatorStyle: .leftRailAuto,
             customColorHex: "#C0392B",
             autoRailColorHex: "#1565C0",
             colorScheme: .dark
@@ -626,13 +621,23 @@ import Testing
         #expect(manual == expected)
     }
 
+    @Test
+    func manualLeftRailIgnoresAStaleAutoColor() {
+        #expect(sidebarWorkspaceRowExplicitRailNSColor(
+            activeTabIndicatorStyle: .leftRail,
+            customColorHex: nil,
+            autoRailColorHex: "#1565C0",
+            colorScheme: .dark
+        ) == nil)
+    }
+
     /// Regression guard for the selection affordance: the selected row keeps
     /// the selection background, and an unselected auto-colored row keeps a
     /// clear background, so exactly one row reads as selected.
     @Test
     func autoColorNeverChangesTheRowBackground() {
         let selected = sidebarWorkspaceRowBackgroundStyle(
-            activeTabIndicatorStyle: .leftRail,
+            activeTabIndicatorStyle: .leftRailAuto,
             isActive: true,
             isMultiSelected: false,
             customColorHex: nil,
@@ -640,7 +645,7 @@ import Testing
             sidebarSelectionColorHex: nil
         )
         let unselected = sidebarWorkspaceRowBackgroundStyle(
-            activeTabIndicatorStyle: .leftRail,
+            activeTabIndicatorStyle: .leftRailAuto,
             isActive: false,
             isMultiSelected: false,
             customColorHex: nil,
@@ -660,20 +665,21 @@ import Testing
         let defaults = Self.suite()
         let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
 
-        #expect(!settings.autoAssignsWorkspaceColors)
+        #expect(settings.activeTabIndicatorStyle == .leftRail)
         #expect(settings.autoAssignedColorHexes.isEmpty)
     }
 
     @Test
     func settingsSnapshotLoadsAssignmentsWhenEnabled() {
         let defaults = Self.suite()
-        defaults.set(true, forKey: WorkspaceColorsCatalogSection().autoAssignColors.userDefaultsKey)
+        let key = WorkspaceColorsCatalogSection().indicatorStyle
+        UserDefaultsSettingsClient(defaults: defaults).set(.leftRailAuto, for: key)
         let ids = [UUID()]
         Self.assign(count: 1, defaults: defaults, ids: ids)
 
         let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
 
-        #expect(settings.autoAssignsWorkspaceColors)
+        #expect(settings.activeTabIndicatorStyle == .leftRailAuto)
         #expect(settings.autoAssignedColorHexes[ids[0].uuidString] != nil)
     }
 
@@ -685,11 +691,118 @@ import Testing
         let ids = [UUID()]
         let before = Self.assign(count: 1, defaults: defaults, ids: ids)
 
-        defaults.set(false, forKey: WorkspaceColorsCatalogSection().autoAssignColors.userDefaultsKey)
+        UserDefaultsSettingsClient(defaults: defaults).set(
+            .leftRail,
+            for: WorkspaceColorsCatalogSection().indicatorStyle
+        )
 
         #expect(WorkspaceAutoColorAssignmentStore.assignedColorHex(
             for: ids[0],
             defaults: defaults
         ) == before[ids[0]])
+    }
+
+    /// The real settings-change path covers the full lifecycle: one existing
+    /// workspace gets a rail on enable; disabling hides auto rails; re-enabling
+    /// colors every workspace opened while disabled; and a workspace created
+    /// while enabled joins automatically.
+    @MainActor
+    @Test
+    func enablingAndDisablingAppliesToEveryOpenWorkspace() async throws {
+        let defaults = Self.suite()
+        let key = WorkspaceColorsCatalogSection().indicatorStyle
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            settings: settings,
+            autoWorkspaceColorDefaults: defaults,
+            closeTabWarningDefaults: defaults
+        )
+        let first = try #require(manager.selectedWorkspace)
+
+        // Let the initial workspace's disabled reconcile finish, then exercise
+        // the same defaults notification that the Settings model emits.
+        await Task.yield()
+        settings.set(.leftRailAuto, for: key)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+        await Task.yield()
+
+        let oneWorkspaceSettings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let firstEnabledSnapshot = SidebarWorkspaceSnapshotFactory(
+            workspace: first,
+            settings: oneWorkspaceSettings,
+            showsAgentActivity: false
+        ).makeSnapshot()
+        #expect(firstEnabledSnapshot.autoRailColorHex != nil)
+
+        settings.set(.leftRail, for: key)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+        await Task.yield()
+        let oneWorkspaceDisabledSettings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        #expect(
+            SidebarWorkspaceSnapshotFactory(
+                workspace: first,
+                settings: oneWorkspaceDisabledSettings,
+                showsAgentActivity: false
+            ).makeSnapshot().autoRailColorHex == nil
+        )
+
+        let second = manager.addWorkspace(
+            eagerLoadTerminal: false,
+            autoWelcomeIfNeeded: false,
+            autoRefreshMetadata: false
+        )
+        await Task.yield()
+
+        settings.set(.leftRailAuto, for: key)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+        await Task.yield()
+
+        let allEnabledSettings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let enabledColors = [first, second].compactMap { workspace in
+            SidebarWorkspaceSnapshotFactory(
+                workspace: workspace,
+                settings: allEnabledSettings,
+                showsAgentActivity: false
+            ).makeSnapshot().autoRailColorHex
+        }
+        #expect(enabledColors.count == 2)
+        #expect(Set(enabledColors).count == 2)
+
+        let third = manager.addWorkspace(
+            eagerLoadTerminal: false,
+            autoWelcomeIfNeeded: false,
+            autoRefreshMetadata: false
+        )
+        await Task.yield()
+        let afterCreationSettings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let colorsAfterCreation = [first, second, third].compactMap { workspace in
+            SidebarWorkspaceSnapshotFactory(
+                workspace: workspace,
+                settings: afterCreationSettings,
+                showsAgentActivity: false
+            ).makeSnapshot().autoRailColorHex
+        }
+        #expect(colorsAfterCreation.count == 3)
+        #expect(Set(colorsAfterCreation).count == 3)
+
+        let storedBeforeDisable = WorkspaceAutoColorAssignmentStore.assignments(defaults: defaults)
+        settings.set(.leftRail, for: key)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+        await Task.yield()
+
+        let disabledSettings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        for workspace in [first, second, third] {
+            let snapshot = SidebarWorkspaceSnapshotFactory(
+                workspace: workspace,
+                settings: disabledSettings,
+                showsAgentActivity: false
+            ).makeSnapshot()
+            #expect(snapshot.autoRailColorHex == nil)
+        }
+        #expect(
+            WorkspaceAutoColorAssignmentStore.assignments(defaults: defaults)
+                == storedBeforeDisable
+        )
     }
 }

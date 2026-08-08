@@ -23,10 +23,9 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let showsNotificationMessage: Bool
     let notificationMessageLineLimit: Int
     let activeTabIndicatorStyle: WorkspaceIndicatorStyle
-    let autoAssignsWorkspaceColors: Bool
     /// Persisted auto color per workspace, keyed by `stableId.uuidString`.
-    /// Left empty unless `autoAssignsWorkspaceColors` is on, so the defaults
-    /// read stays off the per-row snapshot path while the feature is disabled.
+    /// Left empty unless the indicator is `leftRailAuto`, so the defaults read
+    /// stays off the per-row snapshot path in the other two modes.
     let autoAssignedColorHexes: [String: String]
     let loadingSpinnerPosition: SidebarIndicatorPosition
     let notificationBadgePosition: SidebarIndicatorPosition
@@ -88,10 +87,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
             showPorts: details.showPorts,
             hideAllDetails: hidesAllDetails
         )
-
         activeTabIndicatorStyle = settings.value(for: workspaceColors.indicatorStyle)
-        autoAssignsWorkspaceColors = settings.value(for: workspaceColors.autoAssignColors)
-        autoAssignedColorHexes = autoAssignsWorkspaceColors
+        autoAssignedColorHexes = activeTabIndicatorStyle.automaticallyAssignsWorkspaceColors
             ? WorkspaceAutoColorAssignmentStore.assignments(defaults: defaults)
             : [:]
         loadingSpinnerPosition = settings.value(for: sidebar.loadingSpinnerPosition)

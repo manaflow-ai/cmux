@@ -195748,13 +195748,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspaceColors.autoAssignColors automatic auto random assign colors every workspace rail stable unique distinct"
+            "value": "leftRailAuto automatic auto random assign colors every workspace rail stable unique distinct"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspaceColors.autoAssignColors 自動 ランダム 色 割り当て ワークスペース レール 一意 区別 • workspaceColors.autoAssignColors automatic auto random assign colors every workspace rail stable unique distinct"
+            "value": "leftRailAuto 自動 ランダム 色 割り当て ワークスペース レール 一意 区別 • leftRailAuto automatic auto random assign colors every workspace rail stable unique distinct"
           }
         }
       }
@@ -203903,57 +203903,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法載入設定。請重新啟動 cmux 並回報此問題。"
-          }
-        }
-      }
-    },
-    "settings.workspaceColors.autoAssign": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Assign Colors Automatically"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自動的に色を割り当てる"
-          }
-        }
-      }
-    },
-    "settings.workspaceColors.autoAssign.subtitleOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Only workspaces you color manually show a left rail."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "手動で色を設定したワークスペースだけに左レールが表示されます。"
-          }
-        }
-      }
-    },
-    "settings.workspaceColors.autoAssign.subtitleOn": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspaces without a color get their own palette color on the left rail, and keep it across restarts. You can still set a color yourself, which always wins."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "色が設定されていないワークスペースには、それぞれ固有のパレットの色が左レールに表示され、再起動後も同じ色を保ちます。自分で色を設定することもでき、その場合は常にそちらが優先されます。"
           }
         }
       }
@@ -217761,6 +217710,35 @@
           "stringUnit": {
             "state": "translated",
             "value": "Лівий рейл"
+          }
+        }
+      }
+    },
+    "sidebar.activeTabIndicator.leftRailAuto": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Left Rail Auto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左レール（自動）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "왼쪽 레일(자동)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лівий рейл (авто)"
           }
         }
       }

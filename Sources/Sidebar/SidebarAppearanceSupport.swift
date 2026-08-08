@@ -274,19 +274,27 @@ struct SidebarWorkspaceRowBackgroundStyle: Equatable, Hashable {
 
 /// Rail color for a workspace row, or `nil` when no rail should be drawn.
 ///
-/// `autoRailColorHex` is the identity-derived fallback used when the workspace
-/// has no manual color (see `WorkspaceAutoTabColorAssignment`). It is applied
-/// here rather than folded into `customColorHex` upstream so it can never leak
-/// into `sidebarWorkspaceRowBackgroundStyle`, where a row-filling color would
-/// compete with the selected-row highlight.
+/// `autoRailColorHex` is the persisted palette fallback used when the
+/// workspace has no manual color (see `WorkspaceAutoTabColorAssignment`). It
+/// is applied here rather than folded into `customColorHex` upstream so it can
+/// never leak into `sidebarWorkspaceRowBackgroundStyle`, where a row-filling
+/// color would compete with the selected-row highlight.
 func sidebarWorkspaceRowExplicitRailNSColor(
     activeTabIndicatorStyle: WorkspaceIndicatorStyle,
     customColorHex: String?,
     autoRailColorHex: String? = nil,
     colorScheme: ColorScheme
 ) -> NSColor? {
-    guard activeTabIndicatorStyle == .leftRail,
-          let railHex = customColorHex ?? autoRailColorHex else {
+    let railHex: String?
+    switch activeTabIndicatorStyle {
+    case .solidFill:
+        railHex = nil
+    case .leftRail:
+        railHex = customColorHex
+    case .leftRailAuto:
+        railHex = customColorHex ?? autoRailColorHex
+    }
+    guard let railHex else {
         return nil
     }
     return WorkspaceTabColorSettings.displayNSColor(
@@ -313,12 +321,12 @@ func sidebarWorkspaceRowBackgroundStyle(
         WorkspaceTabColorSettings.displayNSColor(
             hex: $0,
             colorScheme: colorScheme,
-            forceBright: activeTabIndicatorStyle == .leftRail
+            forceBright: activeTabIndicatorStyle.usesLeftRail
         )
     }
 
     switch activeTabIndicatorStyle {
-    case .leftRail:
+    case .leftRail, .leftRailAuto:
         if isActive {
             return SidebarWorkspaceRowBackgroundStyle(
                 color: selectedBackground,

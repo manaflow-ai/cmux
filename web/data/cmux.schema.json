@@ -1139,8 +1139,9 @@
         "indicatorStyle": {
           "type": "string",
           "enum": [
-            "leftRail",
             "solidFill",
+            "leftRail",
+            "leftRailAuto",
             "rail",
             "border",
             "wash",
@@ -1150,12 +1151,7 @@
             "blueWashColorRail"
           ],
           "default": "leftRail",
-          "description": "Active workspace indicator style. Legacy aliases are accepted and normalized."
-        },
-        "autoAssignColors": {
-          "type": "boolean",
-          "default": false,
-          "description": "Give every workspace without an explicit color its own color from the palette, drawn on the left rail. No two workspaces share a color until the palette runs out, after which the least-used color is reused. Assignments are saved, so a workspace keeps its color across restarts, and a color you set by hand always wins. Ignored unless indicatorStyle is leftRail, because solidFill colors the whole row and would compete with the selected-workspace highlight."
+          "description": "Workspace color presentation: solidFill colors the whole row, leftRail shows only colors chosen manually, and leftRailAuto gives every uncolored workspace its own persisted palette color on the rail. Auto assignments stay distinct until the palette runs out, and a color chosen manually always wins. Legacy aliases are accepted and normalized."
         },
         "selectionColor": {
           "$ref": "#/$defs/colorHexOrNull",

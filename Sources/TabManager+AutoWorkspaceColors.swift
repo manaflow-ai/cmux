@@ -24,12 +24,14 @@ extension TabManager {
     ///
     /// Existing assignments are preserved, so deleting or reordering a
     /// workspace never recolors the survivors.
-    func reconcileAutoWorkspaceColorsNow(defaults: UserDefaults = .standard) {
+    func reconcileAutoWorkspaceColorsNow(defaults explicitDefaults: UserDefaults? = nil) {
+        let defaults = explicitDefaults ?? autoWorkspaceColorDefaults
         let keys = WorkspaceColorsCatalogSection()
         let settingsClient = UserDefaultsSettingsClient(defaults: defaults)
-        guard settingsClient.value(for: keys.autoAssignColors) else {
-            // Leaving stored assignments in place means turning the feature back
-            // on restores the same colors instead of reshuffling them.
+        guard settingsClient.value(for: keys.indicatorStyle)
+            .automaticallyAssignsWorkspaceColors else {
+            // Leaving stored assignments in place means returning to Left Rail
+            // Auto restores the same colors instead of reshuffling them.
             return
         }
 

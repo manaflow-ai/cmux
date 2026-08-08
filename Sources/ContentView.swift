@@ -15492,7 +15492,7 @@ struct TabItemView: View, Equatable {
 
     private var activeBorderLineWidth: CGFloat {
         switch activeTabIndicatorStyle {
-        case .leftRail:
+        case .leftRail, .leftRailAuto:
             return 0
         case .solidFill:
             return isActive ? 1.5 : 0
@@ -15502,7 +15502,7 @@ struct TabItemView: View, Equatable {
     private var activeBorderColor: Color {
         guard isActive else { return .clear }
         switch activeTabIndicatorStyle {
-        case .leftRail:
+        case .leftRail, .leftRailAuto:
             return .clear
         case .solidFill:
             return Color.primary.opacity(0.5)
@@ -16252,7 +16252,7 @@ struct TabItemView: View, Equatable {
         WorkspaceTabColorSettings.displayNSColor(
             hex: hex,
             colorScheme: colorScheme,
-            forceBright: activeTabIndicatorStyle == .leftRail
+            forceBright: activeTabIndicatorStyle.usesLeftRail
         ) ?? NSColor(hex: hex) ?? .gray
     }
 

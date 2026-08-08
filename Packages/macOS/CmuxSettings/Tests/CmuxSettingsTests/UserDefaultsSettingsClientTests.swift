@@ -120,6 +120,7 @@ struct UserDefaultsSettingsClientTests {
 struct WorkspaceIndicatorStyleLegacyDecodeTests {
     @Test(arguments: [
         ("leftRail", WorkspaceIndicatorStyle.leftRail),
+        ("leftRailAuto", .leftRailAuto),
         ("solidFill", .solidFill),
         ("rail", .leftRail),
         ("border", .solidFill),
@@ -142,6 +143,7 @@ struct WorkspaceIndicatorStyleLegacyDecodeTests {
 
     @Test func encodesModernRawValue() {
         #expect(WorkspaceIndicatorStyle.leftRail.encodeForUserDefaults() as? String == "leftRail")
+        #expect(WorkspaceIndicatorStyle.leftRailAuto.encodeForJSON() as? String == "leftRailAuto")
         #expect(WorkspaceIndicatorStyle.solidFill.encodeForJSON() as? String == "solidFill")
     }
 }

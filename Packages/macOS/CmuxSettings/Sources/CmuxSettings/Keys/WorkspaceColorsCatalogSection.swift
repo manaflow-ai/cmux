@@ -20,16 +20,6 @@ public struct WorkspaceColorsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarNotificationBadgeColorHex"
     )
 
-    /// Gives every workspace without an explicit color a stable palette color
-    /// derived from its identity. Only the `leftRail` indicator draws it: the
-    /// `solidFill` indicator paints the whole row, so auto-assigning there
-    /// would compete with the selected-row highlight.
-    public let autoAssignColors = DefaultsKey<Bool>(
-        id: "workspaceColors.autoAssignColors",
-        defaultValue: false,
-        userDefaultsKey: "workspaceTabColor.autoAssignColors"
-    )
-
     public let palette = DefaultsKey<[String: String]>(
         id: "workspaceColors.colors",
         defaultValue: [:],

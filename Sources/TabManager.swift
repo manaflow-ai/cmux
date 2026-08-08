@@ -407,6 +407,10 @@ class TabManager: ObservableObject {
     /// Typed synchronous settings access (CmuxSettings).
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
+    /// Persistence suite for auto-assigned workspace colors. Injected so the
+    /// full settings-change lifecycle is testable without touching the user's
+    /// standard defaults domain.
+    let autoWorkspaceColorDefaults: UserDefaults
     private let defaultWorkspaceWorkingDirectoryProvider: () -> String
     let workspaceCustomizationStore: WorkspaceCustomizationStore
     private var lastFocusHistoryIncludesPanesAndTabs: Bool
@@ -497,6 +501,7 @@ class TabManager: ObservableObject {
         focusHistoryNow: @escaping @MainActor @Sendable () -> Date = { Date() },
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
+        autoWorkspaceColorDefaults: UserDefaults = .standard,
         defaultWorkspaceWorkingDirectoryProvider: @escaping () -> String = {
             GhosttyWorkingDirectoryResolver(
                 homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
@@ -512,6 +517,7 @@ class TabManager: ObservableObject {
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.settings = settings
+        self.autoWorkspaceColorDefaults = autoWorkspaceColorDefaults
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
         self.workspaceCustomizationStore = workspaceCustomizationStore ?? WorkspaceCustomizationStore()
         let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs

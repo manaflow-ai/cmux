@@ -82,7 +82,6 @@ struct SidebarWorkspaceSnapshotFactory {
             isPinned: workspace.isPinned,
             customColorHex: workspace.customColor,
             autoRailColorHex: WorkspaceAutoTabColorAssignment.railColorHex(
-                isEnabled: settings.autoAssignsWorkspaceColors,
                 indicatorStyle: settings.activeTabIndicatorStyle,
                 customColorHex: workspace.customColor,
                 assignedColorHex: settings.autoAssignedColorHexes[workspace.stableId.uuidString]

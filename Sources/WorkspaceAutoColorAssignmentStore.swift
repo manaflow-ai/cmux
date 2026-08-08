@@ -35,8 +35,10 @@ enum WorkspaceAutoColorAssignmentStore {
     /// Brings stored assignments in line with the current workspaces.
     ///
     /// Gives every workspace in `needingAssignment` a color if it does not have
-    /// one yet. Existing assignments are never rewritten, which is what keeps
-    /// colors stable across creation, reorder, and deletion.
+    /// one yet. Existing assignments are preserved unless their palette color
+    /// disappeared or they conflict with a color reserved by another live
+    /// workspace, which keeps colors stable across creation, reorder, deletion,
+    /// and temporary manual overrides.
     ///
     /// `liveIds` decides which stored colors count as *in use* for allocation,
     /// but does not by itself delete anything. A caller can only see the
@@ -88,9 +90,20 @@ enum WorkspaceAutoColorAssignmentStore {
         // partial list — during restore, or from a window that does not own
         // every workspace — and hand out a color that a workspace which was not
         // visible yet already holds. Without this, that duplicate is permanent.
+        let needingKeys = Set(needingAssignment.map(\.uuidString))
         var used: [String] = manualColorHexes
         var taken = Set(manualColorHexes.map(WorkspaceAutoTabColorAssignment.normalized))
         var pending: [String] = []
+
+        // A manual color temporarily hides, but must not surrender, this
+        // workspace's saved auto color. Reserve that hidden assignment so a
+        // newly created workspace cannot take it and force a recolor when the
+        // manual override is later cleared.
+        for key in liveKeys.subtracting(needingKeys) {
+            guard let current = stored[key] else { continue }
+            used.append(current)
+            taken.insert(WorkspaceAutoTabColorAssignment.normalized(current))
+        }
 
         for id in needingAssignment {
             let key = id.uuidString

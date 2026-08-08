@@ -7,8 +7,8 @@ import XCTest
 /// and `Packages/macOS/CmuxSettings/.../Keys/WorkspaceColorsCatalogSection.swift`):
 ///
 /// - **Workspace Color Indicator** (`workspaceColors.indicatorStyle`,
-///   UserDefaults `sidebarActiveTabIndicatorStyle`): menu Picker, Left
-///   Rail / Solid Fill.
+///   UserDefaults `sidebarActiveTabIndicatorStyle`): menu Picker with Solid
+///   Fill, Left Rail, and Left Rail Auto.
 /// - **Selection Highlight** (`workspaceColors.selectionColor`,
 ///   UserDefaults `sidebarSelectionColorHex`): `ColorPicker` + a "Reset"
 ///   button shown only when a custom hex is stored.
@@ -62,6 +62,8 @@ import XCTest
 // TIER 2 (needs runtime seam): Workspace Color Indicator (left rail vs
 //   solid fill) — only changes `activeBorderLineWidth`/`activeBorderColor`
 //   on the active workspace tab; pixel-only, no accessibility value.
+// TIER 1: all three indicator modes share one picker, and the rows below expose
+//   frames, so XCUITest can prove switching modes never shifts the card.
 // TIER 2 (needs runtime seam): Selection Highlight color — only changes
 //   the selected workspace tab background fill; pixel-only, and the
 //   ColorPicker drives NSColorPanel which XCUITest cannot reliably set.
@@ -83,7 +85,6 @@ final class SettingsWorkspaceColorsBehaviorUITests: SettingsUITestCase {
     /// UserDefaults keys (raw `userDefaultsKey`s) backing this section.
     private static let workspaceColorKeys = [
         "sidebarActiveTabIndicatorStyle",
-        "workspaceTabColor.autoAssignColors",
         "sidebarSelectionColorHex",
         "sidebarNotificationBadgeColorHex",
         "workspaceTabColor.colors",
@@ -108,6 +109,40 @@ final class SettingsWorkspaceColorsBehaviorUITests: SettingsUITestCase {
     override func tearDown() {
         resetDefaults(Self.workspaceColorKeys)
         super.tearDown()
+    }
+
+    func testIndicatorPickerOffersAutoModeWithoutShiftingRows() {
+        let app = makeLaunchedApp()
+        let window = openSettings(app)
+        defer { closeSettings(app, window) }
+
+        navigate(window, to: "Workspace Colors")
+
+        let picker = requireElement(
+            candidates: [
+                window.popUpButtons["SettingsWorkspaceColorsIndicatorPicker"],
+                window.menuButtons["SettingsWorkspaceColorsIndicatorPicker"],
+                window.descendants(matching: .any)["SettingsWorkspaceColorsIndicatorPicker"],
+            ],
+            timeout: 5,
+            description: "workspace color indicator picker"
+        )
+        let selectionTitle = window.staticTexts["Selection Highlight"]
+        XCTAssertTrue(selectionTitle.waitForExistence(timeout: 4))
+        let initialSelectionY = selectionTitle.frame.minY
+
+        for style in ["Solid Fill", "Left Rail", "Left Rail Auto"] {
+            selectIndicatorStyle(style, picker: picker, app: app, window: window)
+            XCTAssertLessThan(
+                abs(selectionTitle.frame.minY - initialSelectionY),
+                3,
+                "Changing to \(style) must not shift the settings below the picker"
+            )
+        }
+        XCTAssertFalse(
+            window.descendants(matching: .any)["SettingsWorkspaceColorsAutoAssignToggle"].exists,
+            "The three-mode picker replaces the separate auto-assign switch"
+        )
     }
 
     /// TIER 1: with no stored palette override, the section renders the
@@ -161,5 +196,24 @@ final class SettingsWorkspaceColorsBehaviorUITests: SettingsUITestCase {
             window.staticTexts["Reset Palette"].exists,
             "Reset Palette row missing"
         )
+    }
+
+    private func selectIndicatorStyle(
+        _ title: String,
+        picker: XCUIElement,
+        app: XCUIApplication,
+        window: XCUIElement
+    ) {
+        picker.click()
+        let candidates = [
+            app.menuItems[title],
+            window.menuItems[title],
+            picker.menuItems[title],
+        ]
+        XCTAssertTrue(
+            poll(timeout: 4) { candidates.contains(where: \.exists) },
+            "Expected workspace indicator menu item \(title)"
+        )
+        candidates.first(where: \.exists)?.click()
     }
 }

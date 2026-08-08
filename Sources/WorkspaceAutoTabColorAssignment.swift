@@ -83,16 +83,14 @@ enum WorkspaceAutoTabColorAssignment {
     /// Resolves the rail color for one workspace, applying the full enablement rule.
     ///
     /// Returns `nil` — leaving the rail hidden exactly as today — whenever the
-    /// feature is off, the workspace already carries a manual color, the
-    /// indicator style is not `leftRail`, or no color has been assigned.
+    /// indicator style is not `leftRailAuto`, the workspace already carries a
+    /// manual color, or no color has been assigned.
     static func railColorHex(
-        isEnabled: Bool,
         indicatorStyle: WorkspaceIndicatorStyle,
         customColorHex: String?,
         assignedColorHex: String?
     ) -> String? {
-        guard isEnabled,
-              indicatorStyle == .leftRail,
+        guard indicatorStyle.automaticallyAssignsWorkspaceColors,
               customColorHex == nil else {
             return nil
         }
