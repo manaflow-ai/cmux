@@ -61,15 +61,30 @@ final class FilePreviewPDFSharingPresenter: NSObject {
         activePicker.delegate = nil
         activePicker.close()
     }
-}
 
-extension FilePreviewPDFSharingPresenter: @MainActor NSSharingServicePickerDelegate {
-    func sharingServicePicker(
-        _ sharingServicePicker: NSSharingServicePicker,
-        didChoose service: NSSharingService?
-    ) {
+    private func pickerDidChooseService(_ sharingServicePicker: NSSharingServicePicker) {
         guard sharingServicePicker === activePicker else { return }
         sharingServicePicker.delegate = nil
         activePicker = nil
     }
 }
+
+#if compiler(>=6.2)
+extension FilePreviewPDFSharingPresenter: @MainActor NSSharingServicePickerDelegate {
+    func sharingServicePicker(
+        _ sharingServicePicker: NSSharingServicePicker,
+        didChoose service: NSSharingService?
+    ) {
+        pickerDidChooseService(sharingServicePicker)
+    }
+}
+#else
+extension FilePreviewPDFSharingPresenter: NSSharingServicePickerDelegate {
+    func sharingServicePicker(
+        _ sharingServicePicker: NSSharingServicePicker,
+        didChoose service: NSSharingService?
+    ) {
+        pickerDidChooseService(sharingServicePicker)
+    }
+}
+#endif

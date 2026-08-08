@@ -100,10 +100,11 @@
       "vaultGroup": "vault",
       "vaultOverview": "概要",
       "vaultSessions": "セッション",
-      "subrouterGroup": "subrouter",
-      "subrouterOverview": "概要",
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "概要",
       "accountGroup": "アカウント",
       "billing": "請求",
+      "team": "チーム",
       "testflight": "iOS TestFlight"
     },
     "home": {
@@ -112,13 +113,24 @@
       "vaultName": "vault",
       "vaultDescription": "同期済みエージェントセッションの閲覧とCLIアクセスの管理を行います。",
       "vaultLink": "vaultを開く",
-      "subrouterName": "subrouter",
-      "subrouterDescription": "プロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
-      "subrouterLink": "subrouterを開く"
+      "coderouterName": "coderouter",
+      "coderouterDescription": "プロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
+      "coderouterLink": "coderouterを開く"
     },
-    "subrouter": {
-      "title": "subrouter",
-      "description": "subrouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。"
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "共有AIアカウントを管理し、coderouterでリクエストをルーティングします。",
+      "title": "coderouter",
+      "description": "coderouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。"
+    },
+    "accountMenu": {
+      "label": "アカウントメニュー",
+      "settings": "設定",
+      "billing": "請求",
+      "signOut": "サインアウト",
+      "signingOut": "サインアウト中…",
+      "signOutError": "サインアウトできませんでした。もう一度お試しください。",
+      "signIn": "サインイン"
     },
     "billing": {
       "eyebrow": "アカウント",
@@ -237,8 +249,8 @@
       "teamSwitcherLabel": "チーム",
       "notConfiguredTitle": "AIアカウント管理はまだ利用できません",
       "notConfiguredBody": "このデプロイではチームAIアカウントが有効になっていません。しばらくしてから再試行するか、サポートにお問い合わせください。",
-      "migrationPendingTitle": "アカウントを移行中です",
-      "migrationPendingBody": "共有アカウントは移行が完了するまで一時的に利用できません。しばらくしてからもう一度お試しください。",
+      "migrationPendingTitle": "アカウントを一時的に利用できません",
+      "migrationPendingBody": "共有アカウントは一時的に利用できません。しばらくしてからもう一度お試しください。",
       "loadErrorTitle": "アカウントを読み込めませんでした",
       "loadErrorBody": "アカウントサービスに接続できませんでした。しばらくしてから再試行してください。",
       "accountsTitle": "接続済みアカウント",
