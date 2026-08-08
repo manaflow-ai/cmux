@@ -66,17 +66,12 @@ extension AppDelegate {
     @discardableResult
     func routeTerminalBellAttention(
         preferredTabID: UUID?,
-        surfaceID: UUID?
+        surfaceID: UUID
     ) -> Bool {
-        let fallbackTarget = terminalBellFallbackTarget()
-        let requestedSurfaceID = surfaceID ?? fallbackTarget?.surfaceID
-        let requestedTabID = preferredTabID ?? fallbackTarget?.tabID
-
-        guard let requestedSurfaceID,
-              let owner = notificationSurfaceOwner(
-                  surfaceID: requestedSurfaceID,
-                  preferredTabID: requestedTabID
-              ) else {
+        guard let owner = notificationSurfaceOwner(
+            surfaceID: surfaceID,
+            preferredTabID: preferredTabID
+        ) else {
             return false
         }
 
@@ -100,13 +95,6 @@ extension AppDelegate {
             reason: .notificationArrival,
             shouldFocus: false
         )
-    }
-
-    private func terminalBellFallbackTarget() -> (tabID: UUID, surfaceID: UUID)? {
-        terminalBellFocusedTarget() ?? resolveFocusedNotificationTarget(preferredWindow: nil).flatMap {
-            guard let surfaceID = $0.surfaceId else { return nil }
-            return (tabID: $0.tabId, surfaceID: surfaceID)
-        }
     }
 
     private func terminalBellFocusedTarget() -> (tabID: UUID, surfaceID: UUID)? {

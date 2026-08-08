@@ -2776,7 +2776,7 @@ class GhosttyApp {
             customAudioPath: customAudioEnabled ? bellAudioPath() : nil,
             customAudioVolume: customAudioEnabled ? bellAudioVolume() : 0.5
         )
-        if (features & (1 << 2)) != 0 {
+        if (features & (1 << 2)) != 0, let surfaceID {
             AppDelegate.shared?.routeTerminalBellAttention(
                 preferredTabID: tabID,
                 surfaceID: surfaceID
