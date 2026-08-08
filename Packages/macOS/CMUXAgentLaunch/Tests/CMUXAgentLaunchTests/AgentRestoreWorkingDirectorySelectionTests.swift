@@ -1,0 +1,53 @@
+import Foundation
+import Testing
+@testable import CMUXAgentLaunch
+
+struct AgentRestoreWorkingDirectorySelectionTests {
+    @Test("Exact and unavailable selections survive persistence")
+    func persistsRestrictiveSelections() throws {
+        for selection in [
+            AgentRestoreWorkingDirectorySelection.exact("/home/remote/project"),
+            .exact(nil),
+            .unavailable,
+        ] {
+            let data = try JSONEncoder().encode(selection)
+            let decoded = try JSONDecoder().decode(
+                AgentRestoreWorkingDirectorySelection.self,
+                from: data
+            )
+            #expect(decoded == selection)
+        }
+    }
+
+    @Test("Stored selections cannot be weakened by later callers")
+    func retainsStricterSelection() {
+        let storedDirectory = "/home/remote/project"
+        let capturedDirectory = "/Users/alice/captured"
+
+        #expect(
+            AgentRestoreWorkingDirectorySelection.exact(storedDirectory).restricted(
+                by: .recordedFallback(preferred: capturedDirectory)
+            ) == .exact(storedDirectory)
+        )
+        #expect(
+            AgentRestoreWorkingDirectorySelection.unavailable.restricted(
+                by: .exact(capturedDirectory)
+            ) == .unavailable
+        )
+        #expect(
+            AgentRestoreWorkingDirectorySelection.exact(storedDirectory).restricted(
+                by: .exact(nil)
+            ) == .exact(nil)
+        )
+    }
+
+    @Test("Exact nil never falls back to captured cwd values")
+    func exactNilDoesNotFallBack() {
+        #expect(
+            AgentRestoreWorkingDirectorySelection.exact(nil).resolved(
+                snapshotWorkingDirectory: "/Users/alice/snapshot",
+                launchWorkingDirectory: "/Users/alice/launch"
+            ) == nil
+        )
+    }
+}

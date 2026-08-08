@@ -5924,6 +5924,7 @@ extension TabManager {
         hasher.combine(snapshot.sessionId)
         hashOptionalString(snapshot.workingDirectory, into: &hasher)
         hashAgentLaunchCommand(snapshot.launchCommand, into: &hasher)
+        hasher.combine(snapshot.restoreWorkingDirectorySelection)
     }
 
     nonisolated private static func hashAgentLaunchCommand(

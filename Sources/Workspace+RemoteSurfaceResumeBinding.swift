@@ -48,7 +48,8 @@ extension Workspace {
         for binding: SurfaceResumeBindingSnapshot?,
         expectedWorkspaceID: UUID,
         expectedSurfaceID: UUID,
-        persistentPTYSessionID: String
+        persistentPTYSessionID: String,
+        includeStoredStartupInput: Bool = true
     ) -> String? {
         guard let binding,
               case .persistentSSH(let context) = binding.launchFlavor,
@@ -62,9 +63,15 @@ extension Workspace {
               configuration.preserveAfterTerminalExit,
               !configuration.skipDaemonBootstrap,
               configuration.persistentDaemonSlot != nil,
-              let relayPort = configuration.relayPort,
-              let startupInput = binding.remoteStartupInput() else {
+              let relayPort = configuration.relayPort else {
             return nil
+        }
+        let startupInput: String?
+        if includeStoredStartupInput {
+            guard let input = binding.remoteStartupInput() else { return nil }
+            startupInput = input
+        } else {
+            startupInput = nil
         }
         return SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(
             relayPort: relayPort,
@@ -96,7 +103,9 @@ extension Workspace {
             for: effectiveBinding,
             expectedWorkspaceID: id,
             expectedSurfaceID: panelID,
-            persistentPTYSessionID: persistentPTYSessionID
+            persistentPTYSessionID: persistentPTYSessionID,
+            includeStoredStartupInput:
+                restoredAgentSnapshotsByPanelId[panelID]?.restoreWorkingDirectorySelection == nil
         )
     }
 }

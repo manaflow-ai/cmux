@@ -290,11 +290,18 @@ extension TerminalController {
                 nil
             }
         if let agent = compatibleAgent {
-            let launchCommand = binding?.launchCommand ?? agent.launchCommand
-            let workingDirectory = target.restoredResumeWorkingDirectory
-                ?? binding?.cwd
-                ?? agent.workingDirectory
-                ?? launchCommand?.workingDirectory
+            let workingDirectorySelection = agent.effectiveRestoreWorkingDirectorySelection(
+                .recordedFallback(preferred: target.restoredResumeWorkingDirectory ?? binding?.cwd)
+            )
+            guard workingDirectorySelection.permitsResume else { return nil }
+            let launchCommand = agent.constrainedLaunchCommand(
+                binding?.launchCommand ?? agent.launchCommand,
+                selection: workingDirectorySelection
+            )
+            let workingDirectory = workingDirectorySelection.resolved(
+                snapshotWorkingDirectory: agent.workingDirectory,
+                launchWorkingDirectory: launchCommand?.workingDirectory
+            )
             let permissionMode = binding?.permissionMode ?? agent.permissionMode
             let mode: AgentRestoreRequestMode = agent.kind.restoreMode == .relaunchCommand
                 ? .relaunchAgent
@@ -302,7 +309,7 @@ extension TerminalController {
             let preparedArguments = agent.kind.restoreMode == .resumeSession
                 ? agent.preparedResumeArguments(
                     launchCommand: launchCommand,
-                    workingDirectory: workingDirectory,
+                    workingDirectorySelection: workingDirectorySelection,
                     observedPermissionMode: permissionMode
                 )
                 : nil
@@ -324,8 +331,13 @@ extension TerminalController {
                     ? nil
                     : workingDirectory,
                 permissionMode: permissionMode,
-                legacyCommand: compatibilityBinding?.inlineStartupInput
+                legacyCommand: agent.restoreWorkingDirectorySelection == nil
+                    ? compatibilityBinding?.inlineStartupInput
+                    : nil
             )
+        }
+        guard target.restorableAgent?.restoreWorkingDirectorySelection == nil else {
+            return nil
         }
         guard let binding else { return nil }
         let trimmedKind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines)

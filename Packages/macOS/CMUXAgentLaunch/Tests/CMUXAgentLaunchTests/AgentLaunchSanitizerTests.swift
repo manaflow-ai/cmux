@@ -698,8 +698,25 @@ struct AgentLaunchSanitizerTests {
             AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                 from: ["codex", "resume", "session", "-C/local/repo", "--model", "gpt-5.4"],
                 workingDirectory: nil,
+                agentKind: "codex",
                 removeAllWorkingDirectoryOptions: true
             ) == ["codex", "resume", "session", "--model", "gpt-5.4"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["kimi", "--resume", "session", "-Continue", "--model", "kimi-k2"],
+                workingDirectory: nil,
+                agentKind: "kimi",
+                removeAllWorkingDirectoryOptions: true
+            ) == ["kimi", "--resume", "session", "-Continue", "--model", "kimi-k2"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["custom-agent", "-Color", "always"],
+                workingDirectory: nil,
+                agentKind: "custom-agent",
+                removeAllWorkingDirectoryOptions: true
+            ) == ["custom-agent", "-Color", "always"]
         )
     }
 }

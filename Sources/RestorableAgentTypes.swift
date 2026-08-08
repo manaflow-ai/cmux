@@ -184,7 +184,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?
     ) -> String? {
-        AgentResumeCommandBuilder.resumeShellCommand(
+        AgentResumeCommandBuilder().resumeShellCommand(
             kind: self,
             sessionId: sessionId,
             launchCommand: launchCommand,
@@ -210,55 +210,3 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
 }
 
 typealias AgentLaunchCommandSnapshot = AgentLaunchCommand
-
-/// Selects whether agent restore may consult cwd values recorded with the agent process.
-enum RestorableAgentWorkingDirectorySelection: Sendable {
-    /// Prefer the supplied cwd, then fall back through the agent and launch snapshots.
-    case recordedFallback(preferred: String?)
-    /// Use only the supplied cwd; an explicit `nil` must remain `nil`.
-    case exact(String?)
-    /// Do not build a resume command because a required trusted cwd is unavailable.
-    case unavailable
-
-    /// Whether restore may build and launch the agent command.
-    var permitsResume: Bool {
-        switch self {
-        case .recordedFallback, .exact:
-            true
-        case .unavailable:
-            false
-        }
-    }
-
-    /// Whether captured argv cwd options must be discarded instead of value-matched.
-    var discardsRecordedCwdOptions: Bool {
-        switch self {
-        case .recordedFallback:
-            false
-        case .exact, .unavailable:
-            true
-        }
-    }
-
-    func resolved(
-        snapshotWorkingDirectory: String?,
-        launchWorkingDirectory: String?
-    ) -> String? {
-        let candidates: [String?] = switch self {
-        case .recordedFallback(let preferred):
-            [preferred, snapshotWorkingDirectory, launchWorkingDirectory]
-        case .exact(let workingDirectory):
-            [workingDirectory]
-        case .unavailable:
-            []
-        }
-        for candidate in candidates {
-            guard let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !trimmed.isEmpty else {
-                continue
-            }
-            return trimmed
-        }
-        return nil
-    }
-}

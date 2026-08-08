@@ -363,6 +363,18 @@ extension Workspace {
                 $0,
                 resumeBinding: resumeBinding
             )
+        }.map { indexedSnapshot in
+            guard let retainedSnapshot = restoredAgentSnapshotsByPanelId[panelId],
+                  retainedSnapshot.kind.rawValue == indexedSnapshot.kind.rawValue,
+                  ManagedAgentSessionIdentity.sessionIDsMatch(
+                    kind: indexedSnapshot.kind.rawValue,
+                    lhs: retainedSnapshot.sessionId,
+                    rhs: indexedSnapshot.sessionId
+                  ),
+                  let selection = retainedSnapshot.restoreWorkingDirectorySelection else {
+                return indexedSnapshot
+            }
+            return indexedSnapshot.applyingRestoreWorkingDirectorySelection(selection)
         }
         if indexedRestorableAgent != nil, compatibleIndexedRestorableAgent == nil {
             clearRestoredAgentSnapshot(panelId: panelId)
@@ -1013,6 +1025,17 @@ extension Workspace {
             return binding
         }
 
+        if let storedSelection = restorableAgent.restoreWorkingDirectorySelection {
+            let selection = restorableAgent.effectiveRestoreWorkingDirectorySelection(
+                storedSelection
+            )
+            let workingDirectory = selection.resolved(
+                snapshotWorkingDirectory: restorableAgent.workingDirectory,
+                launchWorkingDirectory: restorableAgent.launchCommand?.workingDirectory
+            )
+            return binding.retargetingWorkingDirectory(workingDirectory)
+        }
+
         // Restore has no live hook cwd; use the snapshot's derived restorable cwd
         // and fall back to launch capture only for older snapshots.
         let snapshotRestorableWorkingDirectory =
@@ -1338,6 +1361,36 @@ extension Workspace {
             let restoresRemoteWorkspaceTerminalSnapshot =
                 remoteStartupCommand != nil &&
                 (snapshot.terminal?.isRemoteTerminal != false || shouldRestoreSingleDefaultCloudTerminal)
+            let remoteRestoreWorkingDirectorySelection: AgentRestoreWorkingDirectorySelection? = {
+                guard restoresRemoteWorkspaceTerminalSnapshot,
+                      let restorableAgent else {
+                    return nil
+                }
+                guard restorableAgent.registration?.cwd != .ignore else {
+                    return .exact(nil)
+                }
+                guard restorableAgent.kind.cwdNamespacing != .byDirectory else {
+                    // Directory-keyed agents require their launch cwd to find the
+                    // session namespace. A trusted remote launch cwd is not persisted.
+                    return .unavailable
+                }
+                let trustedRuntimeDirectory = snapshot.directoryIsTrustedRemoteReport == true
+                    ? snapshot.terminal?.workingDirectory
+                    : nil
+                return .exact(AgentResumeWorkingDirectory().resolve(
+                    kind: restorableAgent.kind.rawValue,
+                    runtimeCwd: trustedRuntimeDirectory,
+                    launchWorkingDirectory: nil
+                ))
+            }()
+            let retainedRestorableAgent: SessionRestorableAgentSnapshot? =
+                if let remoteRestoreWorkingDirectorySelection {
+                    restorableAgent?.applyingRestoreWorkingDirectorySelection(
+                        remoteRestoreWorkingDirectorySelection
+                    )
+                } else {
+                    restorableAgent
+                }
             let restoredRemotePTYSessionID: String? = {
                 guard !isDefaultFreestyleSSHDRemoteWorkspace else {
                     return nil
@@ -1366,7 +1419,7 @@ extension Workspace {
             )
             let resumeBinding = Self.resumeBindingForSessionRestore(
                 locatedResumeBinding,
-                restorableAgent: restorableAgent
+                restorableAgent: retainedRestorableAgent
             )
             let resumeBindingForStartup =
                 restoredHibernation != nil ||
@@ -1384,7 +1437,8 @@ extension Workspace {
                     for: effectiveResumeBindingForStartup,
                     expectedWorkspaceID: restoredResumeSnapshotWorkspaceID,
                     expectedSurfaceID: snapshot.id,
-                    persistentPTYSessionID: restoredRemotePTYSessionID
+                    persistentPTYSessionID: restoredRemotePTYSessionID,
+                    includeStoredStartupInput: remoteRestoreWorkingDirectorySelection == nil
                 )
             } else {
                 nil
@@ -1405,7 +1459,7 @@ extension Workspace {
                 : nil
             let savedWorkingDirectory = effectiveResumeBinding?.cwd
                 ?? (restoresUntrustedSavedDirectory ? nil : snapshot.terminal?.workingDirectory)
-                ?? (restoresUntrustedSavedDirectory ? nil : restorableAgent?.workingDirectory)
+                ?? (restoresUntrustedSavedDirectory ? nil : retainedRestorableAgent?.workingDirectory)
                 ?? (restoresUntrustedSavedDirectory ? nil : snapshot.directory)
             let workingDirectory = savedWorkingDirectory
                 ?? currentDirectory
@@ -1416,53 +1470,28 @@ extension Workspace {
                 if unresolvedBindingLaunch != nil {
                     return effectiveResumeBindingForStartup?.cwd ?? workingDirectory
                 }
-                guard let restorableAgent else { return savedWorkingDirectory }
-                if restorableAgent.registration?.cwd == .ignore {
+                guard let retainedRestorableAgent else { return savedWorkingDirectory }
+                if retainedRestorableAgent.registration?.cwd == .ignore {
                     return nil
                 }
                 if restoresRemoteWorkspaceTerminalSnapshot {
-                    // The panel report authenticates only its runtime cwd. Agent
-                    // snapshot fields have separate provenance and cannot become
-                    // trusted merely because the panel later reported a directory.
-                    guard snapshot.directoryIsTrustedRemoteReport == true else {
-                        return nil
-                    }
-                    guard restorableAgent.kind.cwdNamespacing == .cwdInFile else {
-                        // Directory-keyed agents need their original launch cwd to
-                        // find the session namespace. No trusted launch-cwd source is
-                        // persisted yet, so fail closed instead of guessing.
-                        return nil
-                    }
-                    return AgentResumeWorkingDirectory().resolve(
-                        kind: restorableAgent.kind.rawValue,
-                        runtimeCwd: snapshot.terminal?.workingDirectory,
-                        launchWorkingDirectory: nil
+                    return retainedRestorableAgent.restoreWorkingDirectorySelection?.resolved(
+                        snapshotWorkingDirectory: retainedRestorableAgent.workingDirectory,
+                        launchWorkingDirectory: retainedRestorableAgent.launchCommand?.workingDirectory
                     )
                 }
-                return restorableAgent.workingDirectory
-                    ?? restorableAgent.launchCommand?.workingDirectory
+                return retainedRestorableAgent.workingDirectory
+                    ?? retainedRestorableAgent.launchCommand?.workingDirectory
                     ?? workingDirectory
             }()
-            let remoteResumeWorkingDirectorySelection: RestorableAgentWorkingDirectorySelection = {
-                guard restoresRemoteWorkspaceTerminalSnapshot else {
-                    return .exact(resumeSessionWorkingDirectory)
-                }
-                guard restorableAgent?.registration?.cwd != .ignore else {
-                    return .exact(nil)
-                }
-                guard restorableAgent?.kind.cwdNamespacing != .byDirectory else {
-                    return .unavailable
-                }
-                return .exact(resumeSessionWorkingDirectory)
-            }()
             let canAttemptAgentResumeLaunch = !restoresRemoteWorkspaceTerminalSnapshot ||
-                remoteResumeWorkingDirectorySelection.permitsResume
+                remoteRestoreWorkingDirectorySelection?.permitsResume != false
             let restoredAgentWillRunStartupCommand = restorableAgent != nil &&
                 restoredPersistentSSHResumeCommand != nil &&
                 resumeBinding?.isAgentHookBinding == true
             let restorableAgentForContinuation =
                 canAttemptAgentResumeLaunch || restoredAgentWillRunStartupCommand
-                    ? restorableAgent
+                    ? retainedRestorableAgent
                     : nil
             let restoredBindingLaunch = unresolvedBindingLaunch
             let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingLaunch == nil
@@ -1487,7 +1516,7 @@ extension Workspace {
             let agentSessionAlreadyActive: Bool = {
                 guard canAttemptAgentResumeLaunch,
                       shouldAutoResumeAgent, restoredHibernation == nil, restoredBindingLaunch == nil,
-                      let restorableAgent else {
+                      let retainedRestorableAgent else {
                     return false
                 }
                 let liveIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
@@ -1495,14 +1524,14 @@ extension Workspace {
                 let liveEntry = liveIndex.entry(workspaceId: id, panelId: snapshot.id)
                 if AgentResumeLiveness.hasLiveProcess(
                     for: liveEntry,
-                    kind: restorableAgent.kind.rawValue,
-                    sessionId: restorableAgent.sessionId
+                    kind: retainedRestorableAgent.kind.rawValue,
+                    sessionId: retainedRestorableAgent.sessionId
                 ) {
                     return true
                 }
                 return !AgentResumeLaunchGuard.shared.claimResumeLaunch(
-                    kind: restorableAgent.kind.rawValue,
-                    sessionId: restorableAgent.sessionId
+                    kind: retainedRestorableAgent.kind.rawValue,
+                    sessionId: retainedRestorableAgent.sessionId
                 )
             }()
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
@@ -1512,13 +1541,10 @@ extension Workspace {
                     restoredBindingLaunch == nil &&
                     !agentSessionAlreadyActive {
                     if restoresRemoteWorkspaceTerminalSnapshot {
-                        restorableAgent?.resumeStartupInput(
-                            useLocalRestoreVerb: false,
-                            workingDirectorySelection: remoteResumeWorkingDirectorySelection
-                        )
+                        retainedRestorableAgent?.resumeStartupInput(useLocalRestoreVerb: false)
                             .map(SurfaceResumeStartupLaunch.input)
                     } else {
-                        restorableAgent?.resumeStartupInput(
+                        retainedRestorableAgent?.resumeStartupInput(
                             restoringWorkingDirectory: resumeSessionWorkingDirectory
                         ).map(SurfaceResumeStartupLaunch.input)
                     }

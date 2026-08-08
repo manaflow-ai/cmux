@@ -261,14 +261,9 @@ public enum AgentLaunchSanitizer {
                 workingDirectoryValue(value, matches: $0)
             } == true
         }
-        var valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--work-dir", "--workspace"]
-        var attachedShortValueOptions: Set<String> = ["-C"]
-        if agentKind == "kimi" || agentKind == "qoder" {
-            // `-w` is a cwd alias for Kimi/Qoder, but a worktree selector for
-            // Claude Teams and Grok. Interpret it only with known agent semantics.
-            valueOptions.insert("-w")
-            attachedShortValueOptions.insert("-w")
-        }
+        let optionPolicy = AgentWorkingDirectoryOptionPolicy(agentKind: agentKind)
+        let valueOptions = optionPolicy.valueOptions
+        let attachedShortValueOptions = optionPolicy.attachedShortValueOptions
         let optionPrefixes = valueOptions.map { "\($0)=" }
         var result: [String] = []
         var index = 0
