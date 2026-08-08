@@ -2600,6 +2600,15 @@ mod tests {
     }
 
     #[test]
+    fn remote_session_exposes_owner_shutdown_to_the_frontend_loop() {
+        let session = super::test_remote_session_without_provider_authority();
+
+        assert!(!session.daemon_shutdown_requested());
+        session.begin_shutdown();
+        assert!(session.daemon_shutdown_requested());
+    }
+
+    #[test]
     fn resizing_a_surface_after_its_attachment_disappears_is_superseded() {
         let surface = test_remote_surface_with_missing_attachment_lease(77);
         let (report_tx, report_rx) = std::sync::mpsc::sync_channel(1);

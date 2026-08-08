@@ -2123,6 +2123,19 @@ mod tests {
         ])));
     }
 
+    #[test]
+    fn interactive_remote_client_observes_local_owner_shutdown() {
+        let mux = Mux::new_for_test("interactive-owner", SurfaceOptions::default());
+        let session = session::test_remote_session_without_provider_authority();
+
+        assert!(!session.daemon_shutdown_requested());
+        assert!(!propagate_local_owner_shutdown(&mux, &session));
+        mux.request_daemon_shutdown();
+        assert!(propagate_local_owner_shutdown(&mux, &session));
+        assert!(session.daemon_shutdown_requested());
+        mux.shutdown();
+    }
+
     #[cfg(windows)]
     #[test]
     fn recovery_commands_identify_the_powershell_dialect() {
