@@ -19,7 +19,7 @@ jobs:
 
       - name: Resolve workspace lockfile
         working-directory: cmux-tui
-        run: cargo metadata --format-version 1 --no-deps >/dev/null
+        run: cargo metadata --format-version 1 >/dev/null
 
       - name: Upload generated lockfile
         if: always()
