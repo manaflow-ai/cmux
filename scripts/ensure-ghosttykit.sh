@@ -58,11 +58,9 @@ if [[ ! -d "$PROJECT_DIR/ghostty" ]]; then
   exit 1
 fi
 
-if ! command -v zig >/dev/null 2>&1; then
-  echo "Error: zig is not installed." >&2
-  echo "Install via: brew install zig" >&2
-  exit 1
-fi
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/ghostty-zig-version.sh"
+ghostty_require_compatible_zig "$PROJECT_DIR"
 
 if [[ ! -f "$PROJECT_DIR/ghostty/include/ghostty.h" ]]; then
   echo "error: ghostty/include/ghostty.h is missing. Run ./scripts/setup.sh first." >&2
