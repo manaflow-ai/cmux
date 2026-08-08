@@ -2796,50 +2796,93 @@ impl Mux {
             state.rebuild_resource_indexes();
         }
 
-        let runtime_attachment_public_id = registry.terminal_resource_id(terminal_id)?;
-        let lifecycle = if let Some(public_id) = runtime_attachment_public_id {
-            commit_terminal_lifecycle_with_runtime_attachment(
-                &mut registry,
-                "terminal-ready",
-                "terminal-adopted",
-                terminal_id,
-                TerminalLifecycle::Running,
-                Some(incarnation),
-                None,
-                TerminalRuntimeAttachment {
-                    origin: "cmux-tui-runtime",
-                    idempotency_key: format!(
-                        "runtime-attachment-attached-{terminal_id}-{incarnation}"
-                    ),
-                    terminal_id: public_id,
-                    runtime_id: incarnation,
-                    state: "attached",
-                    host_epoch: incarnation,
-                    lease_generation: incarnation,
-                },
-            )
-        } else {
-            commit_terminal_lifecycle(
-                &mut registry,
-                "terminal-ready",
-                "terminal-adopted",
-                terminal_id,
-                TerminalLifecycle::Running,
-                Some(incarnation),
-                None,
-            )
+        let mut resource_projection_committed = false;
+        let mut publish_resource = false;
+        let runtime_attachment_public_id = match registry.terminal_resource_id(terminal_id)? {
+            Some(public_id) => public_id,
+            None => {
+                let commit = self.commit_terminal_adoption_resource_projection_locked(
+                    &mut registry,
+                    &mut state,
+                    terminal_id,
+                    incarnation,
+                )?;
+                state.resource_revision = commit.revision;
+                resource_projection_committed = true;
+                publish_resource = !commit.replayed;
+                registry.terminal_resource_id(terminal_id)?.ok_or_else(|| {
+                    anyhow::anyhow!("terminal adoption did not persist a public terminal identity")
+                })?
+            }
         };
+        let lifecycle = commit_terminal_lifecycle_with_runtime_attachment(
+            &mut registry,
+            "terminal-ready",
+            "terminal-adopted",
+            terminal_id,
+            TerminalLifecycle::Running,
+            Some(incarnation),
+            None,
+            TerminalRuntimeAttachment {
+                origin: "cmux-tui-runtime",
+                idempotency_key: format!("runtime-attachment-attached-{terminal_id}-{incarnation}"),
+                terminal_id: runtime_attachment_public_id,
+                runtime_id: incarnation,
+                state: "attached",
+                host_epoch: incarnation,
+                lease_generation: incarnation,
+            },
+        );
         let revision = match lifecycle {
             Ok((_, revision)) => revision,
             Err(error) => {
-                *state = before;
+                if !resource_projection_committed {
+                    *state = before;
+                }
                 return Err(error);
             }
         };
         drop(state);
+        if publish_resource {
+            self.publish_resource_event();
+        }
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);
         Ok(())
+    }
+
+    fn commit_terminal_adoption_resource_projection_locked(
+        &self,
+        registry: &mut WorkspaceRegistry,
+        state: &mut State,
+        terminal_id: &str,
+        incarnation: &str,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let topology = registry.resource_topology_snapshot()?;
+        let projection = self.resource_effect_projection_locked(
+            registry,
+            state,
+            serde_json::json!({
+                "terminal_id": terminal_id,
+                "incarnation": incarnation,
+            }),
+        )?;
+        let mutation = WorkspaceMutation::local("cmux-tui-runtime");
+        let fingerprint = serde_json::json!({
+            "op": "terminal-adoption-resource",
+            "terminal_id": terminal_id,
+            "incarnation": incarnation,
+        });
+        registry.commit_resource_patch(
+            &mutation,
+            "terminal.adoption.project",
+            &fingerprint,
+            Some(&topology.generation),
+            Some(topology.revision),
+            &projection.patch,
+            &projection.result,
+            &projection.changes,
+        )
     }
 
     #[cfg(unix)]

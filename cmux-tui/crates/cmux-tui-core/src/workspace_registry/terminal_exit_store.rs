@@ -240,22 +240,40 @@ impl WorkspaceRegistry {
         )?;
         if let Some(runtime_attachment) = runtime_attachment {
             let terminal_public_id = TerminalPublicId::parse(public_id.clone())?;
-            WorkspaceRegistry::record_runtime_attachment_update_in_transaction(
-                &tx,
-                &self.generation,
-                RuntimeAttachmentUpdate {
-                    origin: runtime_attachment.origin,
-                    idempotency_key: runtime_attachment.idempotency_key.as_str(),
-                    terminal_id: &terminal_public_id,
-                    runtime_id: runtime_attachment.runtime_id,
-                    state: runtime_attachment.state,
-                    host_epoch: runtime_attachment.host_epoch,
-                    lease_generation: runtime_attachment.lease_generation,
-                },
-            )?;
+            if !runtime_attachment_is_interrupted(&tx, &terminal_public_id)? {
+                WorkspaceRegistry::record_runtime_attachment_update_in_transaction(
+                    &tx,
+                    &self.generation,
+                    RuntimeAttachmentUpdate {
+                        origin: runtime_attachment.origin,
+                        idempotency_key: runtime_attachment.idempotency_key.as_str(),
+                        terminal_id: &terminal_public_id,
+                        runtime_id: runtime_attachment.runtime_id,
+                        state: runtime_attachment.state,
+                        host_epoch: runtime_attachment.host_epoch,
+                        lease_generation: runtime_attachment.lease_generation,
+                    },
+                )?;
+            }
         }
         super::resource_store::prune_resource_mutations(&tx)?;
         tx.commit()?;
         Ok((terminal, next_terminal_revision, next_resource_revision, false))
     }
+}
+
+fn runtime_attachment_is_interrupted(
+    tx: &rusqlite::Transaction<'_>,
+    terminal_id: &TerminalPublicId,
+) -> anyhow::Result<bool> {
+    let state = tx
+        .query_row(
+            "SELECT state
+             FROM journal_runtime_attachment_states
+             WHERE terminal_id = ?1",
+            [terminal_id.as_str()],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    Ok(state.as_deref() == Some("interrupted"))
 }
