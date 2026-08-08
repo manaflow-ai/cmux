@@ -371,6 +371,12 @@ fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     assert!(nested_stop_help.contains("cmux remote stop"));
     assert!(!nested_stop_help.contains("cmux-tui remote-stop"));
 
+    let typo_help = lifecycle_cli(&["remote", "frobnicate", "--help"]);
+    assert_success(&typo_help);
+    let typo_help = String::from_utf8(typo_help.stdout).unwrap();
+    assert!(typo_help.contains("cmux remote stop"), "{typo_help}");
+    assert!(typo_help.contains("cmux remote connect"), "{typo_help}");
+
     let unknown_remote_action = lifecycle_cli(&["remote", "frobnicate"]);
     assert_eq!(unknown_remote_action.status.code(), Some(1));
     let error = String::from_utf8(unknown_remote_action.stderr).unwrap();
