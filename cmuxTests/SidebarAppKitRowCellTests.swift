@@ -955,7 +955,7 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func multilineLastLineTruncationHidesLinkFromAccessibility() throws {
+    func multilineLastLineTruncationHidesLinkFromAccessibilityAndPointer() throws {
         let url = try #require(URL(string: "https://cmux.com"))
         let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         let filler = String(repeating: "a", count: 500)
@@ -1016,6 +1016,57 @@ struct SidebarAppKitRowCellTests {
         #expect(textView.lineBreakMode == .byWordWrapping)
         #expect(textView.cell?.truncatesLastVisibleLine == true)
         #expect(Self.accessibilityLinks(in: textView).isEmpty)
+
+        let textRect = textView.cell?.titleRect(forBounds: textView.bounds) ?? textView.bounds
+        let pointerStorage = NSTextStorage(attributedString: textView.attributedStringValue)
+        let pointerLayoutManager = NSLayoutManager()
+        let pointerContainer = NSTextContainer(size: textRect.size)
+        pointerContainer.lineFragmentPadding = 0
+        pointerContainer.maximumNumberOfLines = textView.maximumNumberOfLines
+        pointerContainer.lineBreakMode = .byTruncatingTail
+        pointerLayoutManager.addTextContainer(pointerContainer)
+        pointerStorage.addLayoutManager(pointerLayoutManager)
+        pointerLayoutManager.ensureLayout(for: pointerContainer)
+        let pointerGlyphRange = pointerLayoutManager.glyphRange(for: pointerContainer)
+        var pointerTruncatedRange = NSRange(location: NSNotFound, length: 0)
+        pointerLayoutManager.enumerateLineFragments(forGlyphRange: pointerGlyphRange) {
+            _, _, _, lineGlyphRange, _ in
+            let candidate = pointerLayoutManager.truncatedGlyphRange(
+                inLineFragmentForGlyphAt: lineGlyphRange.location
+            )
+            if candidate.location != NSNotFound {
+                pointerTruncatedRange = candidate
+            }
+        }
+        #expect(pointerTruncatedRange.location != NSNotFound)
+        let ellipsisRect = pointerLayoutManager.boundingRect(
+            forGlyphRange: pointerTruncatedRange,
+            in: pointerContainer
+        )
+        #expect(!ellipsisRect.isEmpty)
+        let ellipsisPoint = NSPoint(x: ellipsisRect.midX, y: ellipsisRect.midY)
+        let ellipsisGlyphIndex = pointerLayoutManager.glyphIndex(
+            for: ellipsisPoint,
+            in: pointerContainer
+        )
+        #expect(NSLocationInRange(ellipsisGlyphIndex, pointerTruncatedRange))
+        let ellipsisCharacterIndex = pointerLayoutManager.characterIndexForGlyph(
+            at: ellipsisGlyphIndex
+        )
+        #expect(
+            Self.linkURL(
+                from: textView.attributedStringValue.attribute(
+                    .sidebarRowLink,
+                    at: ellipsisCharacterIndex,
+                    effectiveRange: nil
+                )
+            ) == url
+        )
+        let ellipsisPointInHost = textView.convert(
+            NSPoint(x: textRect.minX + ellipsisPoint.x, y: textRect.minY + ellipsisPoint.y),
+            to: host
+        )
+        #expect(textView.hitTest(ellipsisPointInHost) == nil)
         #expect(openedURL == nil)
     }
 
