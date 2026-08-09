@@ -40,14 +40,13 @@ public struct ClaudeTaskRootResolver {
     }
 
     private func configRootURL() -> URL {
-        let configuredDirectory = environment["CLAUDE_CONFIG_DIR"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let configuredDirectory = nonEmptyEnvironmentValue(environment["CLAUDE_CONFIG_DIR"])
         let environmentHome = nonEmptyEnvironmentValue(environment["HOME"]).map {
             URL(fileURLWithPath: $0, isDirectory: true)
         }
         let hookHomeURL = environmentHome ?? homeDirectoryURL
         let configURL: URL
-        if let configuredDirectory, !configuredDirectory.isEmpty {
+        if let configuredDirectory {
             if configuredDirectory == "~" {
                 configURL = hookHomeURL
             } else if configuredDirectory.hasPrefix("~/") {
