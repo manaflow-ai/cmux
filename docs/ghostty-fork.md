@@ -115,6 +115,7 @@ gitlinks (`cd1f8e012` and `80d7fb35a`).
   - `81b4de4f5` (fix: preserve graceful process-group teardown)
   - `babe4266c` (test: cover distinct foreground process-group teardown)
   - `47e9bd4c9` (fix: reap foreground job-control process groups)
+  - `f66cfbd6f` (merge: integrate descendant reaping into Ghostty `main`)
 - Files:
   - `include/ghostty.h`
   - `src/Surface.zig`
