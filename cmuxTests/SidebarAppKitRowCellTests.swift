@@ -667,6 +667,82 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func inactiveDarkDescriptionRastersSemanticColorsAfterLightConfiguration() throws {
+        let lightAppearance = try #require(NSAppearance(named: .aqua))
+        let darkAppearance = try #require(NSAppearance(named: .darkAqua))
+        let url = try #require(URL(string: "https://cmux.com"))
+        let model = Self.makeModel(
+            isActive: false,
+            customDescription: "Plain **bold** [cmux](\(url.absoluteString))"
+        )
+        var configuredCell: SidebarWorkspaceRowTableCellView?
+        var configuredWindow: NSWindow?
+        lightAppearance.performAsCurrentDrawingAppearance {
+            let cell = Self.configuredCell(model: model)
+            configuredCell = cell
+            configuredWindow = Self.layoutCell(cell, model: model)
+        }
+        let cell = try #require(configuredCell)
+        let window = try #require(configuredWindow)
+        defer { window.close() }
+
+        window.appearance = darkAppearance
+        let textView = try #require(
+            Self.descriptionTextView(in: cell, showing: "Plain bold cmux")
+        )
+        let attributed = textView.attributedStringValue
+        let display = attributed.string as NSString
+        let proseRange = display.range(of: "Plain bold")
+        let expectedLinkRange = display.range(of: "cmux")
+        try #require(proseRange.location != NSNotFound)
+        try #require(expectedLinkRange.location != NSNotFound)
+        let linkLocation = try #require(Self.firstRowLinkLocation(in: attributed))
+        var linkRange = NSRange(location: NSNotFound, length: 0)
+        let linkValue = attributed.attribute(
+            .sidebarRowLink,
+            at: linkLocation,
+            effectiveRange: &linkRange
+        )
+        #expect(Self.linkURL(from: linkValue) == url)
+        #expect(linkRange == expectedLinkRange)
+
+        let background = try #require(NSColor(hex: "#080300"))
+        let raster = try Self.raster(
+            of: textView,
+            background: background,
+            appearance: darkAppearance
+        )
+        let proseGlyph = try Self.mostVisibleGlyphColor(
+            in: raster,
+            horizontallyWithin: textView.accessibilityFrame(forLinkRange: proseRange),
+            excluding: background
+        )
+        let linkGlyph = try Self.mostVisibleGlyphColor(
+            in: raster,
+            horizontallyWithin: textView.accessibilityFrame(forLinkRange: linkRange),
+            excluding: background
+        )
+
+        var expectedProse: NSColor?
+        var expectedLink: NSColor?
+        darkAppearance.performAsCurrentDrawingAppearance {
+            expectedProse = cmuxCompositedNSColor(
+                NSColor.secondaryLabelColor.withAlphaComponent(0.95),
+                over: background
+            ).usingColorSpace(.sRGB)
+            expectedLink = NSColor.linkColor.usingColorSpace(.sRGB)
+        }
+        let resolvedProse = try #require(expectedProse)
+        let resolvedLink = try #require(expectedLink)
+
+        #expect(Self.distance(proseGlyph, resolvedProse) < 0.12)
+        #expect(Self.distance(linkGlyph, resolvedLink) < 0.12)
+        #expect(cmuxContrastRatio(foreground: proseGlyph, background: background) >= 3)
+        #expect(cmuxContrastRatio(foreground: linkGlyph, background: background) >= 3)
+        #expect(Self.distance(proseGlyph, linkGlyph) > 0.15)
+    }
+
+    @Test
     func accessibilityLinkIdentitySurvivesSelectedRowReconfigurationWithoutResizing() throws {
         let workspaceID = UUID()
         let url = try #require(URL(string: "https://cmux.com"))
@@ -1318,7 +1394,11 @@ struct SidebarAppKitRowCellTests {
 
     /// Composites the text field over `background` so glyph pixels can be
     /// compared against a concrete color instead of a transparent bitmap.
-    private static func raster(of view: NSView, background: NSColor) throws -> NSBitmapImageRep {
+    private static func raster(
+        of view: NSView,
+        background: NSColor,
+        appearance: NSAppearance? = nil
+    ) throws -> NSBitmapImageRep {
         let size = view.bounds.size
         #expect(size.width > 0 && size.height > 0)
         let rep = try #require(
@@ -1336,12 +1416,19 @@ struct SidebarAppKitRowCellTests {
             )
         )
         let context = try #require(NSGraphicsContext(bitmapImageRep: rep))
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = context
-        background.setFill()
-        NSBezierPath(rect: NSRect(origin: .zero, size: size)).fill()
-        view.displayIgnoringOpacity(view.bounds, in: context)
-        NSGraphicsContext.restoreGraphicsState()
+        let draw = {
+            NSGraphicsContext.saveGraphicsState()
+            defer { NSGraphicsContext.restoreGraphicsState() }
+            NSGraphicsContext.current = context
+            background.setFill()
+            NSBezierPath(rect: NSRect(origin: .zero, size: size)).fill()
+            view.displayIgnoringOpacity(view.bounds, in: context)
+        }
+        if let appearance {
+            appearance.performAsCurrentDrawingAppearance(draw)
+        } else {
+            draw()
+        }
         return rep
     }
 
@@ -1350,13 +1437,23 @@ struct SidebarAppKitRowCellTests {
     /// antialiased edge blends from masquerading as a system-link-color glyph.
     private static func mostVisibleGlyphColor(
         in raster: NSBitmapImageRep,
+        horizontallyWithin bounds: NSRect? = nil,
         excluding background: NSColor
     ) throws -> NSColor {
         let ignored = try #require(background.usingColorSpace(.sRGB))
+        let xRange: Range<Int>
+        if let bounds {
+            let lowerBound = max(0, Int(floor(bounds.minX)))
+            let upperBound = min(raster.pixelsWide, Int(ceil(bounds.maxX)))
+            try #require(lowerBound < upperBound, "glyph bounds must intersect the raster")
+            xRange = lowerBound ..< upperBound
+        } else {
+            xRange = 0 ..< raster.pixelsWide
+        }
         var mostVisible: NSColor?
         var greatestDistance = CGFloat.zero
         for y in 0 ..< raster.pixelsHigh {
-            for x in 0 ..< raster.pixelsWide {
+            for x in xRange {
                 guard let pixel = raster.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
                 let backgroundDistance = distance(pixel, ignored)
                 if backgroundDistance > greatestDistance {
