@@ -3,7 +3,7 @@ import Foundation
 import GhosttyKit
 import os
 import Testing
-import CmuxTerminalCore
+@testable import CmuxTerminalCore
 @testable import CmuxTerminal
 
 @Suite struct ExternalHoverWorkServiceTests {
@@ -110,6 +110,12 @@ import CmuxTerminalCore
         // then discarded before logging".
         var metricsCalls = 0
         var lastMetrics: ExternalHoverReadMetrics?
+#if DEBUG
+        var candidateOnlyResolutionCalls = 0
+        var structuredOutcomeResolutionCalls = 0
+        var windowPreparationCalls = 0
+        var evaluatorCalls = 0
+#endif
     }
 
     private func makeRequest(
@@ -150,6 +156,7 @@ import CmuxTerminalCore
     private func makeService(
         teardownCoordinator: TerminalSurfaceRuntimeTeardownCoordinator,
         counts: CallCounts,
+        resolver: TerminalPathResolver? = nil,
         onRead: (@Sendable () -> Void)? = nil,
         setterResult: HoverActivationTokenValue? = HoverActivationTokenValue(bits: (1, 1, 1, 1)),
         drainDiagnostics: @escaping ExternalHoverWorkService.DrainDiagnostics = { _, _ in (entries: [], droppedCountCumulative: 0) },
@@ -172,7 +179,7 @@ import CmuxTerminalCore
     ) -> ExternalHoverWorkService {
         ExternalHoverWorkService(
             teardownCoordinator: teardownCoordinator,
-            resolver: TerminalPathResolver(fileExists: { $0 == Self.existingPath }),
+            resolver: resolver ?? TerminalPathResolver(fileExists: { $0 == Self.existingPath }),
             readPhysicalRows: { _, topRow, rowCount, expectedColumns, _ in
                 counts.reads += 1
                 onRead?()
@@ -1064,6 +1071,97 @@ import CmuxTerminalCore
         #expect(counts.drainCalls == 0, "gate OFF must never drain on the render-trigger path either")
     }
 
+#if DEBUG
+    /// Review B1 — the diagnostics gate must choose the cheap candidate-only
+    /// resolver in the normal path. With diagnostics enabled, the same
+    /// fixture may use the structured outcome path for logging, but it must
+    /// resolve to the identical candidate and cell ranges. The observer is
+    /// an executable DEBUG seam: this test does not infer the selected path
+    /// from log absence or source shape.
+    @Test func diagnosticsGateSelectsCandidateOnlyPathOffAndStructuredPathOnWithSameParity() async {
+        let offTeardownCoordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let onTeardownCoordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let offCounts = CallCounts()
+        let onCounts = CallCounts()
+        let offLifetimeID = Self.makeLifetime()
+        let onLifetimeID = Self.makeLifetime()
+        let offSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let onSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer {
+            offSurface.deallocate()
+            onSurface.deallocate()
+        }
+
+        let offMirror = HoverCallbackMirror()
+        let onMirror = HoverCallbackMirror()
+        offMirror.publish(.init(lifetimeID: offLifetimeID, hoverEventID: 1, eligible: true, visible: true))
+        onMirror.publish(.init(lifetimeID: onLifetimeID, hoverEventID: 1, eligible: true, visible: true))
+
+        let offMailboxCoordinator = Self.makeCoordinator()
+        let onMailboxCoordinator = Self.makeCoordinator()
+
+        func instrumentedResolver(for counts: CallCounts) -> TerminalPathResolver {
+            var resolver = TerminalPathResolver(fileExists: { $0 == Self.existingPath })
+            resolver.debugSetResolutionObserver { step in
+                switch step {
+                case .windowPrepared:
+                    counts.windowPreparationCalls += 1
+                case .evaluatorInvoked:
+                    counts.evaluatorCalls += 1
+                }
+            }
+            return resolver
+        }
+
+        let offService = makeService(
+            teardownCoordinator: offTeardownCoordinator, counts: offCounts,
+            resolver: instrumentedResolver(for: offCounts), diagnosticsEnabled: { false }
+        )
+        let onService = makeService(
+            teardownCoordinator: onTeardownCoordinator, counts: onCounts,
+            resolver: instrumentedResolver(for: onCounts), diagnosticsEnabled: { true }
+        )
+
+        await offService.debugSetResolutionPathObserver { path in
+            switch path {
+            case .candidateOnly:
+                offCounts.candidateOnlyResolutionCalls += 1
+            case .structuredOutcome:
+                offCounts.structuredOutcomeResolutionCalls += 1
+            }
+        }
+        await onService.debugSetResolutionPathObserver { path in
+            switch path {
+            case .candidateOnly:
+                onCounts.candidateOnlyResolutionCalls += 1
+            case .structuredOutcome:
+                onCounts.structuredOutcomeResolutionCalls += 1
+            }
+        }
+
+        await offService.submit(makeRequest(
+            lifetimeID: offLifetimeID, mirror: offMirror, coordinator: offMailboxCoordinator,
+            surface: offSurface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
+        )).value
+        await onService.submit(makeRequest(
+            lifetimeID: onLifetimeID, mirror: onMirror, coordinator: onMailboxCoordinator,
+            surface: onSurface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
+        )).value
+
+        #expect(offCounts.candidateOnlyResolutionCalls == 1)
+        #expect(offCounts.structuredOutcomeResolutionCalls == 0)
+        #expect(onCounts.candidateOnlyResolutionCalls == 0)
+        #expect(onCounts.structuredOutcomeResolutionCalls == 1)
+        #expect(offCounts.windowPreparationCalls == 1, "gate OFF must prepare one evaluation window")
+        #expect(offCounts.evaluatorCalls == 1, "gate OFF must evaluate once")
+        #expect(onCounts.windowPreparationCalls == 1, "structured outcome must prepare one evaluation window")
+        #expect(onCounts.evaluatorCalls == 1, "structured outcome must evaluate once")
+        #expect(offCounts.setterCalls == onCounts.setterCalls, "gate choice must preserve acceptance")
+        #expect(offCounts.lastSetterText == onCounts.lastSetterText, "gate choice must preserve candidate text")
+        #expect(offCounts.lastSetterRanges == onCounts.lastSetterRanges, "gate choice must preserve cell ranges")
+    }
+#endif
+
     /// Review round2 B4 — completion condition #5: with the injected gate
     /// ON, `resolveFully`'s `stage=read` line must appear via the REAL
     /// `DebugEventLog` sink carrying the exact `newlineCount`/
@@ -1881,6 +1979,71 @@ import CmuxTerminalCore
         await service.submit(request).value
 
         #expect(counts.reads == 1, "the read itself must still happen — only the resolved candidate is rejected")
+        #expect(counts.setterCalls == 0)
+    }
+
+    @Test func nonFullWindowResolveLogIncludesGeometryAndEvaluatorReason() async throws {
+        let teardownCoordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let counts = CallCounts()
+        let cwd = "/tmp"
+        let lifetimeID = Self.makeLifetime()
+        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+        let mirror = HoverCallbackMirror()
+        mirror.publish(.init(lifetimeID: lifetimeID, hoverEventID: 8810, eligible: true, visible: true))
+        let mailboxCoordinator = Self.makeCoordinator()
+        let service = ExternalHoverWorkService(
+            teardownCoordinator: teardownCoordinator,
+            resolver: TerminalPathResolver(fileExists: { $0 == "/tmp/re/search/docs/report.md" }),
+            readPhysicalRows: { _, topRow, rowCount, expectedColumns, expectedViewportRows in
+                counts.reads += 1
+                return ExternalHoverWorkService.coherentPhysicalRowsSnapshot(
+                    rawText: Self.fourRowFixtureRawText(topRow: topRow, rowCount: rowCount),
+                    topRow: topRow, expectedRowCount: rowCount, expectedColumns: expectedColumns,
+                    expectedViewportRows: expectedViewportRows,
+                    metricsBefore: (columns: expectedColumns, rows: expectedViewportRows),
+                    metricsAfter: (columns: expectedColumns, rows: expectedViewportRows)
+                )
+            },
+            callSetter: { _, _, _, _, _, _ in
+                counts.setterCalls += 1
+                return HoverActivationTokenValue(bits: (1, 1, 1, 1))
+            },
+            callClear: { _, _ in counts.clearCalls += 1 },
+            drainDiagnostics: { _, _ in (entries: [], droppedCountCumulative: 0) },
+            diagnosticsEnabled: { true }
+        )
+
+        let startSentinel = "cmux-test-start-" + UUID().uuidString
+        let endSentinel = "cmux-test-end-" + UUID().uuidString
+        logDebugEvent(startSentinel)
+        await service.submit(ExternalHoverWorkRequest(
+            lifetimeID: lifetimeID,
+            surface: surface,
+            requestGeneration: 8810,
+            cell: ExternalHoverGridCell(row: 5, column: 0),
+            viewportRowCount: 10,
+            gridColumns: 80,
+            cwd: cwd,
+            mirror: mirror,
+            coordinator: mailboxCoordinator,
+            surfaceSerial: 8810
+        )).value
+        logDebugEvent(endSentinel)
+
+        let contents = try await Self.waitForLogSentinel(endSentinel)
+        let window = contents[contents.range(of: startSentinel)!.upperBound..<contents.range(of: endSentinel)!.lowerBound]
+        guard let resolveLine = window.components(separatedBy: "\n").first(where: {
+            $0.contains("stage=resolve") && $0.contains("event=8810") && $0.contains("outcome=rejected")
+        }) else {
+            Issue.record("expected a rejected stage=resolve line for the non-full fixture")
+            return
+        }
+        #expect(resolveLine.contains("gridColumns=80"))
+        #expect(resolveLine.contains("clickedLastCol=5"))
+        #expect(resolveLine.contains("prevLastCol=5"))
+        #expect(resolveLine.contains("nextLastCol=5"))
+        #expect(resolveLine.contains("evaluatorReason=fullnessGuardRejected"))
         #expect(counts.setterCalls == 0)
     }
 }

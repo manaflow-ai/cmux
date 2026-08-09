@@ -1639,6 +1639,16 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(resolver.wrappedPathSeed(in: existingFile, column: 2, cwd: "/tmp") == nil)
     }
 
+    @Test func classifiesNonFullRowLocalHitWithMirrorSeamMargin() {
+        let existingFile = "/tmp/row-local.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([existingFile]))
+        #expect(
+            resolver.diagnoseSeedAbsence(in: existingFile, column: 2, cwd: "/tmp", columns: 80)
+                == "rowLocalHitMirrorSeamNotFull gridColumns=80 clickedLastCol=16 fullnessMargin=63"
+        )
+        #expect(resolver.wrappedPathSeed(in: existingFile, column: 2, cwd: "/tmp", columns: 80) == nil)
+    }
+
     // The narrow exception itself must NOT be classified as an absence —
     // `wrappedPathSeed` returns a real (provisional) seed for this shape,
     // so `diagnoseSeedAbsence` is never even called for it in practice;
@@ -1740,6 +1750,25 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(previousDiagnostic.candidateIsPathShaped == nil)
         #expect(previousDiagnostic.fragmentAloneExists == nil)
         #expect(previousDiagnostic.candidateExists == nil)
+    }
+
+    @Test func geometryOutcomePreservesFullnessRejectionForDiagnostics() throws {
+        let cwd = "/tmp"
+        let previousRow = "/tmp/prefix/"
+        let clickedRow = "file.txt"
+        let resolver = TerminalPathResolver(fileExists: existsIn([previousRow + clickedRow]))
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
+
+        let outcome = try #require(
+            resolver.evaluateWrappedCandidateOutcome(
+                seed: seed,
+                rows: [previousRow, clickedRow],
+                clickedIndex: 1,
+                columns: 80,
+                cwd: cwd
+            )
+        )
+        #expect(outcome == .rejected(.fullnessGuardRejected))
     }
 }
 
