@@ -288,11 +288,15 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
         let corruptExistence = inspectionsByPath[corruptStateDBPath]?
             .existence(of: normalizedCorruptSessionID) ?? .unavailable
         if corruptExistence == .exists {
+            // A completed turn marks the durable conversation idle even though
+            // Hermes's TUI transport is still running. The missing transient
+            // sibling is the process-liveness record for this legacy pairing;
+            // requiring the durable row to stay running disarms the next launch.
             let transientCandidates = candidates.filter { candidate in
                 candidate.stateDBPath == corruptStateDBPath
                     && inspectionsByPath[corruptStateDBPath]?
                         .existence(of: candidate.sessionID) == .missing
-                    && recordsReportRunningLifecycle(corruptRecord, candidate.record)
+                    && recordReportsRunningLifecycle(candidate.record)
                     && recordsMatchWorkingDirectory(corruptRecord, candidate.record)
             }
             if transientCandidates.count == 1, let transientCandidate = transientCandidates.first {
@@ -385,14 +389,9 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
             && record.pidStartMicroseconds == startMicroseconds
     }
 
-    private func recordsReportRunningLifecycle(
-        _ durable: HookRecord,
-        _ transient: HookRecord
-    ) -> Bool {
-        [durable, transient].allSatisfy { record in
-            normalized(record.runtimeStatus)?.lowercased() == "running"
-                && normalized(record.agentLifecycle)?.lowercased() == "running"
-        }
+    private func recordReportsRunningLifecycle(_ record: HookRecord) -> Bool {
+        normalized(record.runtimeStatus)?.lowercased() == "running"
+            && normalized(record.agentLifecycle)?.lowercased() == "running"
     }
 
     private func recordsMatchWorkingDirectory(
