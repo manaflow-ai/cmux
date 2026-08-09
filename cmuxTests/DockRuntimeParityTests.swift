@@ -310,6 +310,89 @@ struct DockRuntimeParityTests {
         }
     }
 
+    @Test("Clearing workspace manual unread preserves window Dock pane unread")
+    func clearingWorkspaceManualUnreadPreservesWindowDockPaneUnread() {
+        let notificationStore = TerminalNotificationStore.shared
+        let ownerID = UUID()
+        let firstSurfaceID = UUID()
+        let secondSurfaceID = UUID()
+        defer { notificationStore.markRead(forTabId: ownerID) }
+
+        notificationStore.markUnread(forTabId: ownerID)
+        notificationStore.markUnread(forTabId: ownerID, surfaceId: firstSurfaceID)
+        notificationStore.markUnread(forTabId: ownerID, surfaceId: secondSurfaceID)
+
+        #expect(notificationStore.clearManualUnread(forTabId: ownerID))
+        #expect(!notificationStore.hasManualUnread(forTabId: ownerID))
+        #expect(notificationStore.hasManualUnread(
+            forTabId: ownerID,
+            surfaceId: firstSurfaceID
+        ))
+        #expect(notificationStore.hasManualUnread(
+            forTabId: ownerID,
+            surfaceId: secondSurfaceID
+        ))
+    }
+
+    @Test("Whole-owner mark read clears every window Dock pane unread")
+    func wholeOwnerMarkReadClearsEveryWindowDockPaneUnread() {
+        let notificationStore = TerminalNotificationStore.shared
+        let ownerID = UUID()
+        let firstSurfaceID = UUID()
+        let secondSurfaceID = UUID()
+        defer { notificationStore.markRead(forTabId: ownerID) }
+
+        notificationStore.markUnread(forTabId: ownerID)
+        notificationStore.markUnread(forTabId: ownerID, surfaceId: firstSurfaceID)
+        notificationStore.markUnread(forTabId: ownerID, surfaceId: secondSurfaceID)
+
+        notificationStore.markRead(forTabId: ownerID)
+
+        #expect(!notificationStore.hasManualUnread(forTabId: ownerID))
+        #expect(!notificationStore.hasManualUnread(
+            forTabId: ownerID,
+            surfaceId: firstSurfaceID
+        ))
+        #expect(!notificationStore.hasManualUnread(
+            forTabId: ownerID,
+            surfaceId: secondSurfaceID
+        ))
+    }
+
+    @Test("Jump to unread focuses the exact window Dock pane")
+    func jumpToUnreadFocusesExactWindowDockPane() async throws {
+        try await withAppContext { appDelegate, _, _, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            notificationStore.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = notificationStore
+            defer {
+                notificationStore.markRead(forTabId: windowID)
+                notificationStore.replaceNotificationsForTesting([])
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let initiallyFocusedPanel = DockRuntimeParityPanel(title: "Initially focused")
+            let unreadPanel = DockRuntimeParityPanel(title: "Unread")
+            try dock.seedRuntimeParityPanel(initiallyFocusedPanel)
+            try dock.seedRuntimeParityPanel(unreadPanel)
+            dock.focusPanel(initiallyFocusedPanel.id)
+            notificationStore.markUnread(
+                forTabId: windowID,
+                surfaceId: unreadPanel.id
+            )
+
+            _ = appDelegate.jumpToLatestUnread()
+
+            #expect(dock.focusedPanelId == unreadPanel.id)
+            #expect(notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: unreadPanel.id
+            ) == false)
+        }
+    }
+
     @Test("Terminal bell attention projects unread state for both Dock scopes")
     func terminalBellAttentionProjectsUnreadStateForBothDockScopes() async throws {
         try await withAppContext { appDelegate, manager, workspace, windowID in
