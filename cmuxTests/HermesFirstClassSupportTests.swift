@@ -34,7 +34,7 @@ struct HermesFirstClassSupportTests {
         }
     }
 
-    @Test("Automatic restore repairs a transient Hermes TUI transport ID before launch policy")
+    @Test("Automatic restore repairs a transient Hermes TUI transport ID and retires a missing checkpoint")
     func automaticRestoreRepairsTransientHermesTUIIdentity() throws {
         let workspaceID = UUID()
         let surfaceID = UUID()
@@ -132,6 +132,22 @@ struct HermesFirstClassSupportTests {
             compatibleAgent.resumeStartupInput()
                 == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore hermes-agent \(recoveredSessionID)\n"
         )
+
+        let missing = Workspace.repairedLegacyHermesSessionPanelSnapshot(
+            panel,
+            workspaceId: workspaceID,
+            recover: { requestedWorkspaceID, requestedSurfaceID, requestedSessionID in
+                #expect(requestedWorkspaceID == workspaceID)
+                #expect(requestedSurfaceID == surfaceID)
+                #expect(requestedSessionID == corruptSessionID)
+                return nil
+            }
+        )
+        let missingTerminal = try #require(missing.terminal)
+        #expect(missingTerminal.agent == nil)
+        #expect(missingTerminal.resumeBinding == nil)
+        #expect(missingTerminal.managedAgentResumeBinding == nil)
+        #expect(missingTerminal.wasAgentRunning == false)
     }
 
     @Test("A bare Hermes process does not claim an uncorrelated active state.db session")
@@ -348,6 +364,56 @@ struct HermesFirstClassSupportTests {
         #expect(entry.snapshot.sessionId == "hook-session")
         #expect(entry.processLiveness == .running)
         #expect(entry.agentProcessIDs == [processID])
+    }
+
+    @Test("Hook indexing replaces a transient Hermes transport ID with its durable process-generation sibling")
+    func hookIndexCanonicalizesTransientHermesIdentity() throws {
+        let transientSessionID = "96dd0dcc"
+        let durableSessionID = "20260807_192611_076701"
+        let fixture = try makeFixture {
+            [StateRow(durableSessionID, cwd: $0.path, source: "tui")]
+        }
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let processID = 9_533
+        let identity = AgentPIDProcessIdentity(
+            pid: pid_t(processID),
+            startSeconds: 900,
+            startMicroseconds: 1_000
+        )
+        try writeHermesHookStore(
+            fixture: fixture,
+            sessions: [
+                (sessionID: transientSessionID, updatedAt: 50),
+                (sessionID: durableSessionID, updatedAt: 40),
+            ],
+            processID: processID,
+            identity: identity,
+            executablePath: fixture.hermesExecutable,
+            arguments: [fixture.hermesExecutable, "--tui"]
+        )
+        let liveProcess = CmuxTopProcessArguments(
+            arguments: [fixture.hermesExecutable, "--tui"],
+            environment: hermesEnvironment(fixture).merging([
+                "CMUX_WORKSPACE_ID": fixture.workspaceID.uuidString,
+                "CMUX_SURFACE_ID": fixture.panelID.uuidString,
+            ]) { _, incoming in incoming }
+        )
+
+        let index = try loadHookBackedHermesIndex(
+            fixture: fixture,
+            processID: processID,
+            identity: identity,
+            liveProcess: liveProcess
+        )
+        let entry = try #require(
+            index.entry(
+                workspaceId: fixture.workspaceID,
+                panelId: fixture.panelID
+            )
+        )
+
+        #expect(entry.snapshot.sessionId == durableSessionID)
+        #expect(entry.processLiveness == .running)
     }
 
     @Test("Quit-time save revalidates a cached Hermes process against the current snapshot")
@@ -1049,33 +1115,54 @@ struct HermesFirstClassSupportTests {
         executablePath: String,
         arguments: [String]
     ) throws {
+        try writeHermesHookStore(
+            fixture: fixture,
+            sessions: [(sessionID: sessionID, updatedAt: 42)],
+            processID: processID,
+            identity: identity,
+            executablePath: executablePath,
+            arguments: arguments
+        )
+    }
+
+    private func writeHermesHookStore(
+        fixture: Fixture,
+        sessions: [(sessionID: String, updatedAt: Double)],
+        processID: Int,
+        identity: AgentPIDProcessIdentity,
+        executablePath: String,
+        arguments: [String]
+    ) throws {
         let stateDirectory = fixture.root.appendingPathComponent(".cmuxterm", isDirectory: true)
         try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        var sessionObjects: [String: Any] = [:]
+        for session in sessions {
+            sessionObjects[session.sessionID] = [
+                "sessionId": session.sessionID,
+                "workspaceId": fixture.workspaceID.uuidString,
+                "surfaceId": fixture.panelID.uuidString,
+                "cwd": fixture.repo.path,
+                "pid": processID,
+                "pidStartSeconds": identity.startSeconds,
+                "pidStartMicroseconds": identity.startMicroseconds,
+                "isRestorable": true,
+                "startedAt": 10,
+                "updatedAt": session.updatedAt,
+                "launchCommand": [
+                    "launcher": "hermes-agent",
+                    "executablePath": executablePath,
+                    "arguments": arguments,
+                    "workingDirectory": fixture.repo.path,
+                    "environment": ["HERMES_HOME": fixture.hermesHome.path],
+                    "capturedAt": session.updatedAt,
+                    "source": "environment",
+                ],
+            ]
+        }
         let data = try JSONSerialization.data(
             withJSONObject: [
                 "version": 1,
-                "sessions": [
-                    sessionID: [
-                        "sessionId": sessionID,
-                        "workspaceId": fixture.workspaceID.uuidString,
-                        "surfaceId": fixture.panelID.uuidString,
-                        "cwd": fixture.repo.path,
-                        "pid": processID,
-                        "pidStartSeconds": identity.startSeconds,
-                        "pidStartMicroseconds": identity.startMicroseconds,
-                        "isRestorable": true,
-                        "updatedAt": 42,
-                        "launchCommand": [
-                            "launcher": "hermes-agent",
-                            "executablePath": executablePath,
-                            "arguments": arguments,
-                            "workingDirectory": fixture.repo.path,
-                            "environment": ["HERMES_HOME": fixture.hermesHome.path],
-                            "capturedAt": 42,
-                            "source": "environment",
-                        ],
-                    ],
-                ],
+                "sessions": sessionObjects,
             ],
             options: [.prettyPrinted, .sortedKeys]
         )

@@ -15,6 +15,27 @@ import Testing
         #expect(launch.portableWrapperShellCommand(posixCommand: "wrapper --resume").hasPrefix("/bin/sh -c "))
     }
 
+    @Test func hermesProviderOwnsWrapperConfiguration() throws {
+        let launch = try #require(
+            AgentRestoreLaunch(kind: " HERMES-Agent ", sessionID: "hermes-session-123")
+        )
+
+        #expect(launch.executableName == "hermes")
+        #expect(
+            launch.wrapperShellExecutableToken.contains(
+                "CMUX_HERMES_AGENT_WRAPPER_SHIM"
+            )
+        )
+        #expect(
+            launch.customExecutablePathEnvironmentKey
+                == "CMUX_CUSTOM_HERMES_AGENT_PATH"
+        )
+        #expect(
+            launch.portableWrapperShellCommand(posixCommand: "wrapper --resume")
+                .hasPrefix("/bin/sh -c ")
+        )
+    }
+
     @Test func invalidOwnershipCannotCreateRestoreLaunch() {
         #expect(AgentRestoreLaunch(kind: "gemini", sessionID: sessionID) == nil)
         #expect(AgentRestoreLaunch(kind: "codex", sessionID: "not-a-session-id") == nil)
@@ -284,18 +305,24 @@ import Testing
             observedPermissionMode: nil
         )
         let invocation = try #require(AgentRestorePlanner(
-            executableFileResolver: AgentRestoreExecutableFileResolver()
+            isExecutableFile: { $0 == "/shim/hermes" || $0 == executable }
         ).invocation(
             for: request,
             ambientEnvironment: [
                 "HOME": "/Users/example",
                 "PATH": "/usr/bin:/bin",
+                "CMUX_HERMES_AGENT_WRAPPER_SHIM": "/shim/hermes",
             ]
         ))
 
-        #expect(invocation.arguments.first == executable)
-        #expect(Array(invocation.arguments.prefix(3)) == [executable, "--profile", "default"])
+        #expect(invocation.arguments.first == "/shim/hermes")
+        #expect(Array(invocation.arguments.prefix(3)) == ["/shim/hermes", "--profile", "default"])
         #expect(invocation.environment["HERMES_HOME"] == "/Users/example/.hermes")
+        #expect(invocation.environment["CMUX_CUSTOM_HERMES_AGENT_PATH"] == executable)
+        #expect(
+            invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"]
+                == "hermes-agent:hermes-session-123"
+        )
         #expect(invocation.arguments.contains("--resume"))
         #expect(invocation.arguments.contains("hermes-session-123"))
         #expect(invocation.arguments.contains("openai-codex") == false)
@@ -303,7 +330,7 @@ import Testing
         #expect(invocation.preflightInvocations.count >= 3)
         #expect(invocation.preflightInvocations.allSatisfy {
             Array($0.arguments.prefix(5))
-                == [executable, "--profile", "default", "config", "set"]
+                == ["/shim/hermes", "--profile", "default", "config", "set"]
         })
         #expect(invocation.preflightInvocations.flatMap(\.arguments).contains("model.provider"))
         #expect(invocation.preflightInvocations.flatMap(\.arguments).contains("model.base_url"))
