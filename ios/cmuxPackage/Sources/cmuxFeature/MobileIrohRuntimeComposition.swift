@@ -2510,8 +2510,12 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         let snapshot = await irohSettingsSnapshot()
         let diagnostics = await irohDiagnosticReport()
         let relayReachability: CmxIrohConnectionCheckReport.RelayReachability
-        if let profile = await relayPolicyService?.effectivePolicy()?.endpointRelayProfile,
-           !profile.allowedRelayURLs.isEmpty {
+        if transportVerificationMode == .directOnly {
+            // Relays are administratively excluded by the transport mode; a
+            // failed relay probe here must not send users to corporate IT.
+            relayReachability = .notConfigured
+        } else if let profile = await relayPolicyService?.effectivePolicy()?.endpointRelayProfile,
+                  !profile.allowedRelayURLs.isEmpty {
             if let isReachable = await runtime?.hasReachableRelay(in: profile.allowedRelayURLs) {
                 relayReachability = isReachable ? .reachable : .unreachable
             } else {

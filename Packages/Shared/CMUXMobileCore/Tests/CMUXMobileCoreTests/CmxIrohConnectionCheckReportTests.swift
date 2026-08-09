@@ -100,6 +100,26 @@ struct CmxIrohConnectionCheckReportTests {
     }
 
     @Test
+    func administrativelyDisabledRelayFailsSessionWithRetryNotITAdvice() {
+        // Direct Only transport mode maps to a not-configured relay at the
+        // call sites: the relay stage reads Not Needed, and a dead direct
+        // path recommends retrying instead of contacting corporate IT.
+        let report = CmxIrohConnectionCheckReport(
+            role: .mobileClient,
+            snapshot: snapshot(runtimeStatus: .active, hasMac: true),
+            diagnostics: .empty,
+            relayReachability: .notConfigured,
+            macDiscovery: .found
+        )
+
+        #expect(
+            report.stages.first { $0.kind == .relayReachability }?.status == .notApplicable
+        )
+        #expect(report.stages.first { $0.kind == .secureSession }?.status == .failed)
+        #expect(report.recommendation == .retry)
+    }
+
+    @Test
     func unavailableProbeNeverAdvisesCorporateAllowlisting() {
         // An unavailable probe means the runtime was inactive or its path
         // hints were unreadable, not that a relay was probed and blocked.
