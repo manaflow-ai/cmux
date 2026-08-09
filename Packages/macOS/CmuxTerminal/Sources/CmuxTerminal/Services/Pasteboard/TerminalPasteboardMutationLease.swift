@@ -8,6 +8,11 @@ import os
 /// SAFETY: the unfair lock protects the complete lease state machine; no
 /// mutable state is accessed outside it, and callbacks run after unlocking.
 public final class TerminalPasteboardMutationLease: @unchecked Sendable {
+    enum AppliedResultDisposition: Equatable {
+        case ownerOwnsRestoration
+        case laneMustRestore
+    }
+
     private enum State {
         case waiting(CheckedContinuation<TerminalPasteboardMutationResult?, Never>?)
         case applied(TerminalPasteboardMutationResult)
@@ -94,24 +99,31 @@ public final class TerminalPasteboardMutationLease: @unchecked Sendable {
         return outcome.appliedResult
     }
 
-    func signalApplied(_ result: TerminalPasteboardMutationResult) {
-        let continuation = state.withLock {
-            state -> CheckedContinuation<
-                TerminalPasteboardMutationResult?,
-                Never
-            >? in
+    /// Records the result and assigns restoration ownership by signal order.
+    func signalApplied(
+        _ result: TerminalPasteboardMutationResult
+    ) -> AppliedResultDisposition {
+        let outcome = state.withLock {
+            state -> (
+                continuation: CheckedContinuation<
+                    TerminalPasteboardMutationResult?,
+                    Never
+                >?,
+                disposition: AppliedResultDisposition
+            ) in
             switch state {
             case .waiting(let continuation):
                 state = .applied(result)
-                return continuation
+                return (continuation, .ownerOwnsRestoration)
             case .finished(nil):
                 state = .finished(result)
-                return nil
+                return (nil, .laneMustRestore)
             case .applied, .finished:
-                return nil
+                return (nil, .ownerOwnsRestoration)
             }
         }
-        continuation?.resume(returning: result)
+        outcome.continuation?.resume(returning: result)
+        return outcome.disposition
     }
 
     deinit {

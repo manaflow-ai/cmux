@@ -502,11 +502,12 @@ final class TerminalPasteboardTransactionLane: @unchecked Sendable {
         lease: TerminalPasteboardMutationLease?,
         isRestoration: Bool
     ) -> Bool {
-        let cancellationWonDuringApplication = state.withLock { state in
-            state.activeMutation?.id == id
-                && state.activeMutation?.finishRequested == true
-        }
-        if cancellationWonDuringApplication,
+        // The lease state is the atomic handoff: if finish() won before this
+        // signal, its caller received nil and the lane retains restoration
+        // ownership. If the signal won, finish() returns the applied result.
+        let laneMustRestore = lease?.signalApplied(result)
+            == .laneMustRestore
+        if laneMustRestore,
            result.didWrite,
            let previousContents = result.previousContents,
            let publishedChangeCount = result.publishedChangeCount {
@@ -520,16 +521,14 @@ final class TerminalPasteboardTransactionLane: @unchecked Sendable {
             )
         }
 
-        // Publish the result before the lane becomes finishable. A concurrent
-        // cancellation then receives the applied result from `finish()` and
-        // cannot misreport a completed clipboard write as cancelled.
-        lease?.signalApplied(result)
         let shouldKeepLease = state.withLock { state -> Bool in
             guard let active = state.activeMutation,
                   active.id == id else {
                 return false
             }
-            if lease != nil, !active.finishRequested {
+            if lease != nil,
+               !laneMustRestore,
+               !active.finishRequested {
                 state.activeMutation?.isApplying = false
                 return true
             }
