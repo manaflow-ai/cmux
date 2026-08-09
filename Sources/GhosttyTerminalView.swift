@@ -6583,113 +6583,210 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let column: Int
     }
 
-    /// Maps a view-local point to a (row, column) grid cell, or `nil` when
-    /// the point falls outside the rendered grid.
-    private func gridCell(at point: NSPoint) -> TerminalGridCell? {
+    /// Fetches `ghostty_surface_grid_metrics` once, validated. Callers that
+    /// need both a point-to-cell mapping and a physical-row text snapshot
+    /// for the same gesture should share one of these rather than each
+    /// fetching their own: passing the same value to `gridCell(at:metrics:)`
+    /// and `readPhysicalViewportSnapshot(expectedMetrics:)` anchors both to
+    /// the identical resize/reflow generation instead of two independent
+    /// (and possibly inconsistent) fetches a few instructions apart.
+    private func currentGridMetrics() -> ghostty_surface_grid_metrics_s? {
         guard let surface else { return nil }
-        let size = ghostty_surface_size(surface)
-        let rows = max(Int(size.rows), 1)
-        let cols = max(Int(size.columns), 1)
-        let resolvedCellWidth = cellSize.width > 0 ? cellSize.width : CGFloat(size.cell_width_px)
-        let resolvedCellHeight = cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
-        guard resolvedCellWidth > 0, resolvedCellHeight > 0 else { return nil }
+        var metrics = ghostty_surface_grid_metrics_s()
+        guard ghostty_surface_grid_metrics(surface, &metrics),
+              metrics.cell_width.isFinite, metrics.cell_width > 0,
+              metrics.cell_height.isFinite, metrics.cell_height > 0,
+              metrics.padding_left.isFinite, metrics.padding_left >= 0,
+              metrics.padding_top.isFinite, metrics.padding_top >= 0 else { return nil }
+        return metrics
+    }
 
-        let xInset = max(0, (bounds.width - (CGFloat(cols) * resolvedCellWidth)) / 2)
-        let yInset = max(0, (bounds.height - (CGFloat(rows) * resolvedCellHeight)) / 2)
+    /// Maps a view-local point to a (row, column) grid cell using
+    /// `metrics`, or `nil` when the point falls outside the rendered grid.
+    ///
+    /// `metrics` is in the embedder's own logical (point) coordinate
+    /// space — the same authority `keyboardCopyModeGridMetrics` already
+    /// uses for its cursor overlay. A prior version hand-rolled this from
+    /// `cellSize`/`ghostty_surface_size` (`cell_width_px`/`cell_height_px`,
+    /// *device* pixels — unrelated to this view's *point*-space
+    /// `bounds`/`point`) plus a hand-guessed "leftover space is centered"
+    /// padding, instead of Ghostty's actual padding. On a Retina display
+    /// that silently divided point-space distances by a cell size roughly
+    /// `backingScaleFactor` times too large, so the computed row/column
+    /// undershot the true click position by roughly that same factor —
+    /// growing with distance from the origin, since it's a scale error, not
+    /// a fixed offset. Ghostty's own click handling doesn't have this bug:
+    /// the embedder mouse-position API documents its input as "screen
+    /// coordinates" and internally multiplies by content scale before
+    /// touching pixel-space cell size (`cursorPosToPixels` in
+    /// `apprt/embedded.zig`); this view's own mouse handling already
+    /// relies on exactly that (`ghostty_surface_mouse_pos` is called with
+    /// raw, unscaled view points throughout this file), so asking Ghostty
+    /// for already-point-scaled geometry instead of replicating its
+    /// pixel-space internals is what keeps this cell lookup consistent
+    /// with it.
+    private func gridCell(at point: NSPoint, metrics: ghostty_surface_grid_metrics_s) -> TerminalGridCell? {
+        let rows = max(Int(metrics.rows), 1)
+        let cols = max(Int(metrics.columns), 1)
+        let cellWidth = CGFloat(metrics.cell_width)
+        let cellHeight = CGFloat(metrics.cell_height)
+        let xInset = CGFloat(metrics.padding_left)
+        let yInset = CGFloat(metrics.padding_top)
 
         let yFromTop = bounds.height - point.y
         guard yFromTop >= yInset, point.x >= xInset else { return nil }
 
-        let row = Int((yFromTop - yInset) / resolvedCellHeight)
-        let column = Int((point.x - xInset) / resolvedCellWidth)
+        let row = Int((yFromTop - yInset) / cellHeight)
+        let column = Int((point.x - xInset) / cellWidth)
         guard row >= 0, row < rows, column >= 0, column < cols else { return nil }
         return TerminalGridCell(row: row, column: column)
     }
 
-    /// Reads exactly one physical row's text via a single-row selection.
+    /// One physical row of visible viewport text per array entry, from a
+    /// single coherent `ghostty_surface_read_text_physical_rows` capture.
+    private struct TerminalPhysicalViewportSnapshot {
+        let lines: [String]
+    }
+
+    /// Reads the entire visible viewport as one physical-row-preserving
+    /// text capture, scoped to this gesture only — never threaded into
+    /// `TerminalController`'s general base64/snapshot paths, which all want
+    /// the historical unwrap=true (logical-line) behavior.
     ///
-    /// Ghostty's `selectionString` unwraps soft-wrapped lines by default,
-    /// so a selection spanning more than one row can silently join rows
-    /// together; bounding both pins to the same `y` keeps this to one
-    /// physical row regardless.
-    private func readSingleRow(_ row: Int) -> String? {
-        guard let surface, row >= 0 else { return nil }
-        let size = ghostty_surface_size(surface)
-        guard row < Int(size.rows) else { return nil }
-        let cols = max(Int(size.columns), 1)
+    /// `expectedMetrics` anchors the read: the caller fetches grid metrics
+    /// once (also used for its own point-to-cell mapping) and this
+    /// re-checks them after the read completes. Any mismatch — a
+    /// resize/reflow racing the click — fails closed rather than risk
+    /// indexing into text that no longer matches the grid the caller mapped
+    /// its click against. The single `ghostty_surface_read_text_physical_rows`
+    /// call itself is coherent (Ghostty takes its renderer mutex for the
+    /// whole capture); this before/after metrics check only guards the
+    /// window around that call, not within it.
+    private func readPhysicalViewportSnapshot(
+        expectedMetrics: ghostty_surface_grid_metrics_s
+    ) -> TerminalPhysicalViewportSnapshot? {
+        guard let surface else { return nil }
+        let rows = Int(expectedMetrics.rows)
+        let columns = Int(expectedMetrics.columns)
+        guard rows > 0, columns > 0 else { return nil }
 
         let topLeft = ghostty_point_s(
             tag: GHOSTTY_POINT_VIEWPORT,
             coord: GHOSTTY_POINT_COORD_EXACT,
             x: 0,
-            y: UInt32(row)
+            y: 0
         )
         let bottomRight = ghostty_point_s(
             tag: GHOSTTY_POINT_VIEWPORT,
             coord: GHOSTTY_POINT_COORD_EXACT,
-            x: UInt32(cols - 1),
-            y: UInt32(row)
+            x: UInt32(columns - 1),
+            y: UInt32(rows - 1)
         )
         let selection = ghostty_selection_s(top_left: topLeft, bottom_right: bottomRight, rectangle: false)
 
         var text = ghostty_text_s()
-        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        guard ghostty_surface_read_text_physical_rows(surface, selection, &text) else { return nil }
         defer { ghostty_surface_free_text(surface, &text) }
-        guard let ptr = text.text, text.text_len > 0 else { return "" }
-        return String(decoding: Data(bytes: ptr, count: Int(text.text_len)), as: UTF8.self)
+        let raw: String
+        if let ptr = text.text, text.text_len > 0 {
+            raw = String(decoding: Data(bytes: ptr, count: Int(text.text_len)), as: UTF8.self)
+        } else {
+            raw = ""
+        }
+
+        guard let after = currentGridMetrics(),
+              after.rows == expectedMetrics.rows,
+              after.columns == expectedMetrics.columns,
+              after.cell_width == expectedMetrics.cell_width,
+              after.cell_height == expectedMetrics.cell_height,
+              after.padding_left == expectedMetrics.padding_left,
+              after.padding_top == expectedMetrics.padding_top else {
+            return nil
+        }
+
+        guard let lines = raw.splitPhysicalViewportRows(expectedRows: rows) else { return nil }
+        return TerminalPhysicalViewportSnapshot(lines: lines)
     }
 
     /// Prepares a hard-wrapped-path command-click candidate, run just
     /// before Ghostty's release call (see `performCommandClickRelease`).
     ///
-    /// At most three row reads: the clicked row, the one adjacent row named
-    /// by the resolver's wrap direction, and a re-read of the clicked row
-    /// to catch it changing between the two (A-B-A). This reduces, but
-    /// doesn't eliminate, the TOCTOU window between this check and
-    /// Ghostty's release; the absolute-path requirement, single-candidate
-    /// result, and file-existence probe in
-    /// `TerminalPathResolver.resolveWrappedCandidate` bound the residual
-    /// risk.
+    /// One coherent physical-viewport snapshot backs the whole gesture:
+    /// `currentGridMetrics()` anchors both the point-to-cell mapping and
+    /// `readPhysicalViewportSnapshot(expectedMetrics:)`'s own before/after
+    /// stability check, replacing a prior version's separate per-row
+    /// `readSingleRow` calls (clicked, adjacent, and a re-read of the
+    /// clicked row to catch it changing between the two — an A-B-A check
+    /// that only ever covered the clicked row, not the adjacent one). A
+    /// resize/reflow racing the click now fails the whole snapshot closed
+    /// instead of silently mixing rows from two different grid layouts.
+    /// `commitWrappedCandidate` re-checks file existence once more after
+    /// this returns, at release time, bounding the remaining TOCTOU window.
     private func prepareCommandClickContext(
         at point: NSPoint,
         modifierFlags: NSEvent.ModifierFlags
     ) -> CommandClickContextState? {
-        guard !pendingLeftMouseDidDrag else { return nil }
-        guard modifierFlags.contains(.command) else { return nil }
-        guard !shouldSuppressCommandPathHover(for: modifierFlags) else { return nil }
+        func abort(_ reason: String) -> CommandClickContextState? {
+            #if DEBUG
+            cmuxDebugLog("link.wrappedPath.prepare abort reason=\(reason)")
+            #endif
+            return nil
+        }
+
+        guard !pendingLeftMouseDidDrag else { return abort("didDrag") }
+        guard modifierFlags.contains(.command) else { return abort("noCommand") }
+        guard !shouldSuppressCommandPathHover(for: modifierFlags) else { return abort("activeSelection") }
         guard let termSurface = terminalSurface,
               let workspace = termSurface.owningWorkspace(),
               workspace.canResolveTerminalPathsAgainstLocalFilesystem(
                   surfaceID: termSurface.id
-              ) else { return nil }
+              ) else { return abort("remoteOrMissingWorkspace") }
         guard let cwd = resolvedWordPathWorkingDirectory(workspace: workspace, terminalSurface: termSurface) else {
-            return nil
+            return abort("noCwd")
         }
-        guard let cell = gridCell(at: point) else { return nil }
-
-        guard let clickedRow = readSingleRow(cell.row) else { return nil }
+        guard let metrics = currentGridMetrics() else { return abort("noMetrics") }
+        guard let cell = gridCell(at: point, metrics: metrics) else { return abort("noGridCell") }
+        guard let snapshot = readPhysicalViewportSnapshot(expectedMetrics: metrics) else {
+            return abort("noSnapshot")
+        }
+        guard cell.row >= 0, cell.row < snapshot.lines.count else {
+            return abort("rowOutOfRange row=\(cell.row)")
+        }
+        let clickedRow = snapshot.lines[cell.row]
 
         guard let seed = TerminalPathResolver().wrappedPathSeed(
             in: clickedRow,
             column: cell.column,
             cwd: cwd
         ) else {
-            return nil
+            return abort("noSeed row=\(cell.row) column=\(cell.column)")
         }
 
-        let adjacentIndex = seed.direction == .next ? cell.row + 1 : cell.row - 1
-        guard let adjacentRow = readSingleRow(adjacentIndex) else { return nil }
+        let previousRow: String? = seed.directions.contains(.previous) && cell.row > 0
+            ? snapshot.lines[cell.row - 1]
+            : nil
+        let nextRow: String? = seed.directions.contains(.next) && cell.row + 1 < snapshot.lines.count
+            ? snapshot.lines[cell.row + 1]
+            : nil
+        guard previousRow != nil || nextRow != nil else {
+            return abort("noAdjacentRow directions=\(seed.directions)")
+        }
 
-        guard readSingleRow(cell.row) == clickedRow else { return nil }
-
-        guard let candidate = TerminalPathResolver().resolveWrappedCandidate(
+        let resolver = TerminalPathResolver()
+        guard let candidate = resolver.resolveWrappedCandidate(
             seed: seed,
-            adjacentRow: adjacentRow,
+            previousRow: previousRow,
+            nextRow: nextRow,
             cwd: cwd
         ) else {
-            return nil
+            return abort("noCandidate directions=\(seed.directions)")
         }
 
+        #if DEBUG
+        cmuxDebugLog(
+            "link.wrappedPath.prepare succeeded matchKeyCount=\(candidate.nativeMatchKeys.count)"
+        )
+        #endif
         return .prepared(candidate)
     }
 
@@ -6698,7 +6795,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// once under the same policy as the existing word-under-cursor
     /// fallback: prefer routing inside cmux, then the user's preferred
     /// editor.
-    private func openWrappedCandidate(_ candidate: TerminalWrappedPathResolution) {
+    ///
+    /// Re-checks file existence here, at release time, rather than trusting
+    /// `prepareCommandClickContext`'s earlier probe: terminal output between
+    /// prepare and this call (including Ghostty's own release-time
+    /// processing) can still race a delete/rename. This is the minimum bar
+    /// the design calls for; it does not re-fetch a fresh viewport snapshot
+    /// and re-resolve the candidate from scratch.
+    private func commitWrappedCandidate(_ candidate: TerminalWrappedPathResolution) {
+        guard FileManager.default.fileExists(atPath: candidate.path) else {
+            #if DEBUG
+            cmuxDebugLog("link.wrappedPath commit abort reason=fileGoneAtRelease")
+            #endif
+            return
+        }
         #if DEBUG
         cmuxDebugLog("link.wrappedPath resolved=\(candidate.path)")
         #endif
@@ -6721,24 +6831,39 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// surface, deciding whether it belongs to Ghostty's own native link
     /// handling or to a wrapped-path candidate prepared for this gesture.
     ///
+    /// Pure arbitration only: no text read, `stat`, or open happens in this
+    /// function. Ghostty holds its renderer mutex for the whole
+    /// `processLinks -> openUrl -> performAction` sequence this callback
+    /// runs inside, so anything that reaches back into the surface here
+    /// (another `ghostty_surface_read_text*` call, in particular) would
+    /// deadlock.
+    ///
     /// Any explicit scheme (including `file:`) always passes through to
     /// `TerminalLinkOpenCoordinator` first: a wrapped-path candidate is
     /// always a bare absolute path, so it never competes with a
-    /// scheme-qualified link. Otherwise, an exact match against a prepared
-    /// candidate's `nativeMatchKey` claims the callback (returning `true`
-    /// to suppress Ghostty's own `internal_os.open`) and defers the actual
-    /// open to the shared release-time helper; everything else passes
-    /// through.
+    /// scheme-qualified link. Otherwise, an exact match against one of a
+    /// prepared candidate's finite `nativeMatchKeys` claims the callback
+    /// (returning `true` to suppress Ghostty's own `internal_os.open`) and
+    /// defers the actual open to the shared release-time helper; everything
+    /// else passes through.
     @MainActor
     func handleCommandClickOpenURLCallback(
         urlString: String,
         request: TerminalLinkOpenRequest
     ) -> Bool {
+        let hasScheme = Self.hasExplicitScheme(urlString)
+        let matchKey = Self.normalizedCommandClickMatchKey(for: urlString)
         let result = TerminalCommandClickArbitrator.openURLCallbackResult(
             currentState: pendingCommandClickContext,
-            hasExplicitScheme: Self.hasExplicitScheme(urlString),
-            matchKey: Self.normalizedCommandClickMatchKey(for: urlString)
+            hasExplicitScheme: hasScheme,
+            matchKey: matchKey
         )
+        #if DEBUG
+        cmuxDebugLog(
+            "link.wrappedPath.openURLCallback hasExplicitScheme=\(hasScheme) " +
+            "priorState=\(Self.debugStateName(pendingCommandClickContext)) shouldClaim=\(result.shouldClaim)"
+        )
+        #endif
         pendingCommandClickContext = result.nextState
         if result.shouldClaim {
             return true
@@ -6751,11 +6876,32 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return URL(string: trimmed)?.scheme != nil
     }
 
+    #if DEBUG
+    /// The state's case name only — never the wrapped candidate's path or
+    /// match keys, which a dogfood report would otherwise need to redact by
+    /// hand to relay this log line.
+    private static func debugStateName(_ state: CommandClickContextState?) -> String {
+        switch state {
+        case nil: return "nil"
+        case .nativePassthrough: return "nativePassthrough"
+        case .prepared: return "prepared"
+        case .overridePending: return "overridePending"
+        }
+    }
+    #endif
+
     /// Normalizes a native `open_url` callback's raw URL string the same
-    /// way `TerminalWrappedPathResolution.nativeMatchKey` is derived, so
-    /// the two can be compared exactly.
+    /// way each of `TerminalWrappedPathResolution.nativeMatchKeys` is
+    /// derived, so the two can be compared exactly.
+    ///
+    /// Also strips a trailing NUL: Ghostty's hard-wrap link-matching buffer
+    /// can carry a match-only NUL sentinel near a row boundary
+    /// (`link_wrap.zig`'s `terminate_joined` option), which
+    /// `.whitespacesAndNewlines` does not remove.
     private static func normalizedCommandClickMatchKey(for rawValue: String) -> String {
-        rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\0"))
     }
 
     /// Attempt to open the word under the mouse cursor as a file path, resolved
@@ -7113,11 +7259,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .nativePassthrough:
             return nil
         case .overridePending(let candidate):
-            openWrappedCandidate(candidate)
+            commitWrappedCandidate(candidate)
             return nil
         case .prepared(let candidate):
             if !ghosttyConsumed {
-                openWrappedCandidate(candidate)
+                commitWrappedCandidate(candidate)
             }
             return nil
         case nil:
@@ -7384,7 +7530,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// text used elsewhere in this file (which joins soft-wrapped rows back
     /// into one logical line).
     func debugReadPhysicalRow(_ row: Int) -> String? {
-        readSingleRow(row)
+        guard let metrics = currentGridMetrics(),
+              let snapshot = readPhysicalViewportSnapshot(expectedMetrics: metrics),
+              row >= 0, row < snapshot.lines.count else { return nil }
+        return snapshot.lines[row]
     }
 
     func debugSimulateStationaryCommandClick(at point: NSPoint) -> [String: Any] {

@@ -12,6 +12,51 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Physical-row text read API (in progress, not yet pushed)
+
+- Local branch `cmux/physical-row-read` off `abcf5697d` (the commit still
+  pinned by the parent repo's submodule pointer as of this writing — this
+  branch has not been pushed to `manaflow-ai/ghostty`, has no PR, and the
+  parent submodule pointer has deliberately not been advanced to it).
+- New C API: `ghostty_surface_read_text_physical_rows(surface, selection,
+  result)`. Same shape as `ghostty_surface_read_text`, but does not unwrap
+  soft-wrapped row boundaries into one logical line — every physical screen
+  row keeps its own line break. The contract is deliberately "doesn't unwrap
+  soft-wrapped boundaries," not "exactly one line per physical row": a
+  caller needing a fixed row count still validates the split itself (see
+  cmux consumer below).
+- Implementation: `Screen.SelectionString` grew an `unwrap: bool = true`
+  field, threaded through `Surface.dumpTextLocked` and the embedded apprt's
+  `readTextLocked`. Every existing call site
+  (`ghostty_surface_read_text`, `ghostty_surface_read_selection`, the
+  inspector's word-selection read) passes `true` explicitly and is
+  behaviorally unchanged — **the clipboard default stays unwrap=true**.
+  Only the one new `ghostty_surface_read_text_physical_rows` export passes
+  `false`.
+- cmux consumer: `GhosttyNSView.readPhysicalViewportSnapshot(expectedMetrics:)`
+  in `Sources/GhosttyTerminalView.swift`, scoped to the Cmd-click
+  hard-wrapped-path resolver only — never threaded into
+  `TerminalController`'s general base64/snapshot paths, which all want the
+  historical unwrap=true behavior. It reads the whole visible viewport in
+  one call, re-checks `ghostty_surface_grid_metrics` before/after to fail
+  closed on a resize/reflow race, and splits the result into exactly
+  `rows` lines (leading/inner empty rows preserved via
+  `split(omittingEmptySubsequences: false)`, a lone trailing-newline
+  sentinel stripped, short results padded at the end only, anything else
+  failing closed rather than silently truncating).
+- Upstream conflict note: touches `Surface.dumpTextLocked`,
+  `apprt/embedded.zig`'s `readTextLocked`, and
+  `Screen.SelectionString`/`selectionString` — all files that change
+  frequently upstream (see "Merge conflict notes" below for the general
+  caution). The added parameter is purely additive with a default-preserving
+  call at every existing site, so a future upstream rebase should only need
+  to re-thread `unwrap:` through any *new* upstream caller of these
+  functions, not reconcile conflicting logic.
+- Ghostty-side tests: `Screen.zig`'s `selectionString soft wrap` test grew
+  an `unwrap = false` case, plus new tests for hard newlines/blank rows,
+  a wide character at the wrap boundary, and a combining mark at the wrap
+  boundary (`zig build test -Dtest-filter="Screen:"`, all green).
+
 The submodule pinned by this branch is `36a46414a`, the fork-main merge of
 https://github.com/manaflow-ai/ghostty/pull/172. It combines the hidden-renderer
 reclamation and retry-deadline line through `4d6f0014f` with the resolved

@@ -46,8 +46,10 @@ enum TerminalCommandClickArbitrator {
     /// An explicit scheme (including `file:`) always passes through first,
     /// since a wrapped-path candidate is a bare absolute path and never
     /// needs to compete with a scheme-qualified link. Otherwise, an exact
-    /// match against a `.prepared` candidate's `nativeMatchKey` claims the
-    /// URL; everything else passes through.
+    /// match against any of a `.prepared` candidate's finite
+    /// `nativeMatchKeys` claims the URL; everything else passes through.
+    /// Substring, prefix/suffix, and case-folded matches never claim —
+    /// mismatch is never speculatively upgraded to a match.
     ///
     /// - Parameters:
     ///   - currentState: The state captured by `prepareCommandClickContext`
@@ -55,7 +57,7 @@ enum TerminalCommandClickArbitrator {
     ///   - hasExplicitScheme: Whether the callback's raw URL string parses
     ///     with a scheme.
     ///   - matchKey: The callback's raw URL string, normalized the same way
-    ///     as `TerminalWrappedPathResolution.nativeMatchKey`.
+    ///     as each of `TerminalWrappedPathResolution.nativeMatchKeys`.
     /// - Returns: The next state to hold, and whether the callback should
     ///   claim the URL (return `true`, suppressing Ghostty's own
     ///   `internal_os.open`) instead of passing through to
@@ -68,7 +70,7 @@ enum TerminalCommandClickArbitrator {
         if hasExplicitScheme {
             return (.nativePassthrough, false)
         }
-        if case .prepared(let candidate) = currentState, candidate.nativeMatchKey == matchKey {
+        if case .prepared(let candidate) = currentState, candidate.nativeMatchKeys.contains(matchKey) {
             return (.overridePending(candidate), true)
         }
         return (.nativePassthrough, false)

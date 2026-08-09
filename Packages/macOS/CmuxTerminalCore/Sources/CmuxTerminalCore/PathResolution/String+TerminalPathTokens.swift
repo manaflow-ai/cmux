@@ -237,52 +237,76 @@ extension String {
 }
 
 extension String {
-    /// The token touching `column` on a hard-wrapped row, plus the
-    /// direction of the row that would complete it.
+    /// Whether the receiver starts with an explicit root or relative marker
+    /// (`/`, `./`, `../`, `~/`) rather than being a bare relative token.
+    fileprivate var hasExplicitTerminalRelativeMarker: Bool {
+        hasPrefix("/") || hasPrefix("./") || hasPrefix("../") || hasPrefix("~/")
+    }
+
+    /// The token touching `column` on a hard-wrapped row, plus which
+    /// adjacent row(s) could complete it.
     ///
-    /// A token starting with `/` needs its continuation from the row
-    /// below and must touch the row's trailing boundary (nothing but
-    /// whitespace after it — the logical line end, not necessarily the
-    /// physical grid width). Any other token needs its continuation from
-    /// the row above and must touch the row's leading boundary: nothing
-    /// but `maxIndentation` or fewer ASCII spaces before it.
+    /// A token with an explicit root/relative marker (`/`, `./`, `../`,
+    /// `~/`) only ever tries `.next` (continuation below), and only when it
+    /// touches the row's trailing boundary — it never tries both
+    /// directions, since a real wrap after `/` is indistinguishable from an
+    /// independent absolute path on the next row (see
+    /// `resolveWrappedCandidate`'s doc comment).
+    ///
+    /// A bare-relative token (no explicit marker) tries whichever
+    /// boundaries it touches: leading only → `.previous`; trailing only →
+    /// `.next`; both → `.previous` **and** `.next` (ambiguous; the caller
+    /// resolves both and keeps the result only if exactly one succeeds);
+    /// neither → `nil`. The trailing boundary is nothing but whitespace
+    /// after the token (the logical line end, not necessarily the physical
+    /// grid width); the leading boundary is nothing but `maxIndentation` or
+    /// fewer ASCII spaces before it.
     ///
     /// Returns `nil` for non-ASCII rows (fail-closed: `column` is a
     /// terminal-cell index, which only lines up with `String` character
-    /// indices when every character occupies exactly one cell), when the
-    /// clicked cell is itself a delimiter, or when the required boundary
-    /// isn't touched.
+    /// indices when every character occupies exactly one cell), or when the
+    /// clicked cell is itself a delimiter.
     func wrapContinuationToken(
         atColumn column: Int,
         maxIndentation: Int
-    ) -> (token: String, direction: TerminalWrapDirection)? {
+    ) -> (token: String, directions: [TerminalWrapDirection])? {
         guard unicodeScalars.allSatisfy(\.isASCII) else { return nil }
         let characters = Array(self)
         guard !characters.isEmpty, column >= 0, column < characters.count else { return nil }
-        guard !characters.isHardPathDelimiter(at: column) else { return nil }
+        guard !characters.isWrapTokenBoundary(at: column) else { return nil }
 
         var start = column
-        while start > 0, !characters.isHardPathDelimiter(at: start - 1) {
+        while start > 0, !characters.isWrapTokenBoundary(at: start - 1) {
             start -= 1
         }
         var end = column
-        while (end + 1) < characters.count, !characters.isHardPathDelimiter(at: end + 1) {
+        while (end + 1) < characters.count, !characters.isWrapTokenBoundary(at: end + 1) {
             end += 1
         }
 
         let token = String(characters[start...end])
         guard !token.isEmpty else { return nil }
 
-        if token.hasPrefix("/") {
-            guard characters[(end + 1)...].allSatisfy(\.isWhitespace) else { return nil }
-            return (token, .next)
+        let touchesTrailingBoundary = characters[(end + 1)...].allSatisfy(\.isWhitespace)
+        let leadingRun = characters[..<start]
+        let touchesLeadingBoundary = leadingRun.count <= maxIndentation &&
+            leadingRun.allSatisfy { $0 == " " }
+
+        if token.hasExplicitTerminalRelativeMarker {
+            guard touchesTrailingBoundary else { return nil }
+            return (token, [.next])
         }
 
-        let leadingRun = characters[..<start]
-        guard leadingRun.count <= maxIndentation, leadingRun.allSatisfy({ $0 == " " }) else {
+        switch (touchesLeadingBoundary, touchesTrailingBoundary) {
+        case (true, true):
+            return (token, [.previous, .next])
+        case (true, false):
+            return (token, [.previous])
+        case (false, true):
+            return (token, [.next])
+        case (false, false):
             return nil
         }
-        return (token, .previous)
     }
 
     /// The first token on a continuation row, provided it starts within
@@ -300,12 +324,12 @@ extension String {
         }
         guard index <= maxIndentation,
               index < characters.count,
-              !characters.isHardPathDelimiter(at: index) else {
+              !characters.isWrapTokenBoundary(at: index) else {
             return nil
         }
 
         var end = index
-        while (end + 1) < characters.count, !characters.isHardPathDelimiter(at: end + 1) {
+        while (end + 1) < characters.count, !characters.isWrapTokenBoundary(at: end + 1) {
             end += 1
         }
         let fragment = String(characters[index...end])
@@ -327,10 +351,10 @@ extension String {
         while end >= 0, characters[end] == " " {
             end -= 1
         }
-        guard end >= 0, !characters.isHardPathDelimiter(at: end) else { return nil }
+        guard end >= 0, !characters.isWrapTokenBoundary(at: end) else { return nil }
 
         var start = end
-        while start > 0, !characters.isHardPathDelimiter(at: start - 1) {
+        while start > 0, !characters.isWrapTokenBoundary(at: start - 1) {
             start -= 1
         }
         let fragment = String(characters[start...end])
@@ -341,6 +365,35 @@ extension String {
     /// against a native Ghostty `open_url` callback for the same click.
     func normalizedTerminalWrapMatchKey() -> String {
         trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Whether a joined wrapped-path candidate is shaped like a real path
+    /// rather than an incidental concatenation of two unrelated tokens.
+    ///
+    /// Absolute paths always qualify. A relative candidate qualifies only
+    /// with an explicit relative marker (`./`, `../`, `~/`), or by both
+    /// containing `/` and having a dotted leaf — mirroring the shape
+    /// Ghostty's own `bare_relative_path_branch` accepts
+    /// (`ghostty/src/config/url.zig`), so this never treats something
+    /// Ghostty's own matcher wouldn't as path-shaped.
+    var isWrappedPathCandidateShaped: Bool {
+        if hasExplicitTerminalRelativeMarker { return true }
+        guard contains("/") else { return false }
+        return contains(".")
+    }
+
+    /// Whether the receiver alone is shaped like a path *prefix*: an
+    /// explicit relative marker, or (for a bare relative piece) at least
+    /// one `/`. Unlike ``isWrappedPathCandidateShaped``, this doesn't
+    /// require a dotted leaf — it's applied to whichever fragment leads a
+    /// joined bidirectional candidate (the clicked token for `.next`, the
+    /// adjacent row's fragment for `.previous`) to require that piece look
+    /// like a real path prefix on its own, not just the concatenation as a
+    /// whole. Without this, two unrelated bare words that happen to
+    /// concatenate into an existing relative path (e.g. adjacent row `foo`,
+    /// clicked token `bar`, with `cwd/foobar` existing) would false-positive.
+    var isWrappedPathPrefixShaped: Bool {
+        hasExplicitTerminalRelativeMarker || contains("/")
     }
 }
 
@@ -376,5 +429,25 @@ extension [Character] {
         let previousIsWhitespace = index > 0 && self[index - 1].isWhitespace
         let nextIsWhitespace = (index + 1) < count && self[index + 1].isWhitespace
         return previousIsWhitespace || nextIsWhitespace
+    }
+
+    /// Whether the character at `index` delimits a hard-wrap continuation
+    /// token or fragment: any whitespace at all, not just doubled runs.
+    ///
+    /// Unlike ``isHardPathDelimiter(at:)`` (used for row-local resolution,
+    /// where a single space must stay tolerable so multi-word filenames
+    /// like "My File.txt" can be clicked directly), the wrap-continuation
+    /// extractors (`wrapContinuationToken`, `leadingContinuationFragment`,
+    /// `trailingContinuationFragment`) mirror Ghostty's own
+    /// `bare_relative_path_branch`, whose `path_chars` class excludes space
+    /// entirely (`ghostty/src/config/url.zig`). Tolerating single spaces
+    /// here let arbitrary same-row prose ahead of a real path (list markers,
+    /// labels — e.g. `- html: /Users/.../file.html`) get swallowed into the
+    /// fragment, producing a garbage-prefixed candidate that can never
+    /// resolve even though the real path underneath exists (issue #8810,
+    /// dogfood repro where `noCandidate` fired for both directions despite
+    /// correct rows and an existing joined path).
+    fileprivate func isWrapTokenBoundary(at index: Int) -> Bool {
+        self[index].isWhitespace
     }
 }

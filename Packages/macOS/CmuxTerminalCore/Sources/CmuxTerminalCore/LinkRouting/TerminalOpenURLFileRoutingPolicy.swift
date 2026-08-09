@@ -24,6 +24,42 @@ public struct TerminalOpenURLFileRoutingPolicy: Sendable {
         return isLocalFileURL(target.url)
     }
 
+    /// Returns whether the raw terminal open-URL payload looks like it was
+    /// meant as a local filesystem path rather than a URL — even if this
+    /// process ends up unable to resolve it to an existing file.
+    ///
+    /// Ghostty reports configured path-regex matches through the same
+    /// `open_url` callback as URLs. If a relative path was printed before a
+    /// file move/rename (or the terminal's cwd has since changed), treating
+    /// something like `research/docs/report.md` as a bare host would
+    /// incorrectly navigate to `https://research` — mismatched
+    /// scheme-less wrapped-path fragments hit exactly this shape. Callers
+    /// use this to consume (mark handled, open nothing) an unresolved local
+    /// path intent instead of falling through to that misinterpretation.
+    /// Domain-like first components, `localhost`, and any explicit scheme
+    /// remain eligible for normal URL routing.
+    public func isLikelyLocalPathReference(_ rawValue: String) -> Bool {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        guard URL(string: trimmed)?.scheme == nil else { return false }
+
+        if (trimmed as NSString).isAbsolutePath ||
+            trimmed.hasPrefix("./") ||
+            trimmed.hasPrefix("../") ||
+            trimmed.hasPrefix("~/") {
+            return true
+        }
+
+        guard let slash = trimmed.firstIndex(of: "/") else { return false }
+        let firstComponent = String(trimmed[..<slash]).lowercased()
+        guard !firstComponent.isEmpty else { return false }
+        guard firstComponent != "localhost" else { return false }
+        guard !firstComponent.contains(".") else { return false }
+        guard !firstComponent.contains(":") else { return false }
+        guard !firstComponent.contains("@") else { return false }
+        return true
+    }
+
     private func hasExplicitURLScheme(_ rawValue: String) -> Bool {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let scheme = URL(string: trimmed)?.scheme else { return false }

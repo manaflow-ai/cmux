@@ -3067,21 +3067,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // rows directly (never the unwrapped viewport snapshot, which joins
         // soft-wrapped rows back into one logical line) and matching the
         // exact split of `expectedPath` at the surface's live column count.
+        //
+        // Builds the click point from `ghostty_surface_grid_metrics` — the
+        // same embedder-logical-coordinate authority `gridCell(at:)` decodes
+        // clicks with. A prior version built this point from `debugCellSize`
+        // (device pixels) and a hand-guessed centered inset — the *same*
+        // wrong formula `gridCell(at:)` used to decode it, so the two sides
+        // canceled out and this harness could never have caught that bug:
+        // a click point built and decoded with the same wrong cell size
+        // always lands back on the intended row/column regardless of how
+        // wrong that cell size is. Deriving this point from Ghostty's own
+        // authoritative geometry instead of duplicating `gridCell`'s (or
+        // any) formula is what makes this test load-bearing against either
+        // side regressing independently.
         func wrappedTokenGridPoints(expectedPath: String, in terminalPanel: TerminalPanel) -> (top: NSPoint, bottom: NSPoint)? {
             guard let surface = terminalPanel.surface.surface else { return nil }
             let bounds = terminalPanel.hostedView.bounds
             guard bounds.width > 0, bounds.height > 0 else { return nil }
 
-            let size = ghostty_surface_size(surface)
-            let rows = max(Int(size.rows), 1)
-            let cols = max(Int(size.columns), 1)
-            let debugCellSize = terminalPanel.hostedView.debugCellSize
-            let cellWidth = debugCellSize.width > 0 ? debugCellSize.width : CGFloat(size.cell_width_px)
-            let cellHeight = debugCellSize.height > 0 ? debugCellSize.height : CGFloat(size.cell_height_px)
-            guard cellWidth > 0, cellHeight > 0, expectedPath.count > cols else { return nil }
+            var metrics = ghostty_surface_grid_metrics_s()
+            guard ghostty_surface_grid_metrics(surface, &metrics),
+                  metrics.cell_width.isFinite, metrics.cell_width > 0,
+                  metrics.cell_height.isFinite, metrics.cell_height > 0,
+                  metrics.padding_left.isFinite, metrics.padding_left >= 0,
+                  metrics.padding_top.isFinite, metrics.padding_top >= 0 else { return nil }
+            let rows = max(Int(metrics.rows), 1)
+            let cols = max(Int(metrics.columns), 1)
+            let cellWidth = CGFloat(metrics.cell_width)
+            let cellHeight = CGFloat(metrics.cell_height)
+            guard expectedPath.count > cols else { return nil }
 
-            let xInset = max(0, (bounds.width - (CGFloat(cols) * cellWidth)) / 2)
-            let yInset = max(0, (bounds.height - (CGFloat(rows) * cellHeight)) / 2)
+            let xInset = CGFloat(metrics.padding_left)
+            let yInset = CGFloat(metrics.padding_top)
             let pointClampX: (CGFloat) -> CGFloat = { x in min(bounds.width - 4, max(4, x)) }
             let pointClampY: (CGFloat) -> CGFloat = { y in min(bounds.height - 4, max(4, y)) }
 

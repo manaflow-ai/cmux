@@ -1,7 +1,7 @@
 public import Foundation
 
 /// Which physical row completes a hard-wrapped path continuation.
-public enum TerminalWrapDirection: Sendable {
+public enum TerminalWrapDirection: Sendable, Hashable {
     /// The clicked token starts with `/`; its continuation, if any, is on
     /// the row below (the token is the start of an absolute path that ran
     /// out of columns).
@@ -12,14 +12,46 @@ public enum TerminalWrapDirection: Sendable {
     case previous
 }
 
-/// A hard-wrapped path token detected on the clicked row, awaiting the
-/// adjacent row before it can resolve to an existing file.
+/// Why one direction of a wrapped-path join succeeded or failed, for
+/// diagnostics. See
+/// ``TerminalPathResolver/diagnoseWrappedCandidate(seed:previousRow:nextRow:cwd:)``.
+public enum TerminalWrappedCandidateDirectionOutcome: Sendable, Equatable {
+    /// This direction produced the resolved candidate.
+    case succeeded(TerminalWrappedPathResolution)
+    /// The adjacent row had no token at its leading/trailing edge to extract.
+    case noFragment
+    /// The extracted fragment alone exceeds the per-fragment length cap.
+    case fragmentTooLong
+    /// The token and fragment lengths sum past the joined-candidate cap.
+    case candidateTooLong
+    /// The piece leading this direction's join (the clicked token for
+    /// `.next`, the adjacent fragment for `.previous`) isn't itself
+    /// shaped like a path prefix.
+    case leadingPieceNotPathPrefixShaped
+    /// The adjacent fragment already resolves to an existing path by
+    /// itself, so joining it would be coincidental, not a continuation.
+    case fragmentAloneExists
+    /// The joined candidate isn't shaped like a real path (mirroring
+    /// Ghostty's `bare_relative_path_branch`).
+    case candidateNotPathShaped
+    /// The joined, cwd-resolved candidate doesn't exist on disk.
+    case candidateDoesNotExist
+}
+
+/// A hard-wrapped path token detected on the clicked row, awaiting one or
+/// both adjacent rows before it can resolve to an existing file.
 ///
 /// Returned by ``TerminalPathResolver/wrappedPathSeed(in:column:cwd:)``.
-/// Callers only branch on ``direction`` to pick which adjacent row to read;
-/// every other tokenization detail stays private to the package.
+/// Callers read whichever adjacent row(s) ``directions`` names — one row
+/// for a single direction, both rows when it names two (ambiguous
+/// bare-relative token) — and pass whatever they read to
+/// ``TerminalPathResolver/resolveWrappedCandidate(seed:previousRow:nextRow:cwd:)``.
+/// Every other tokenization detail stays private to the package.
 public struct TerminalWrappedPathSeed: Sendable {
-    public let direction: TerminalWrapDirection
+    /// The adjacent row(s) that could complete this token: one entry for an
+    /// unambiguous token, two (`[.previous, .next]`) for a bare-relative
+    /// token touching both boundaries.
+    public let directions: [TerminalWrapDirection]
     let token: String
 }
 
@@ -27,18 +59,40 @@ public struct TerminalWrappedPathSeed: Sendable {
 /// be opened.
 ///
 /// Returned by
-/// ``TerminalPathResolver/resolveWrappedCandidate(seed:adjacentRow:cwd:)``.
+/// ``TerminalPathResolver/resolveWrappedCandidate(seed:previousRow:nextRow:cwd:)``.
 public struct TerminalWrappedPathResolution: Sendable, Equatable {
     /// The existing standardized file-system path to open.
     public let path: String
-    /// The exact-match key for correlating this candidate against a native
-    /// Ghostty `open_url` callback for the same click. Comparisons must be
-    /// exact; substring matching can misattribute an unrelated native link.
-    public let nativeMatchKey: String
+    /// Ordered, deduplicated, at most 3 exact-match keys for correlating
+    /// this candidate against a native Ghostty `open_url` callback for the
+    /// same click:
+    ///
+    /// 1. The raw, fully joined candidate text (clicked token and adjacent
+    ///    fragment concatenated in the order used to build ``path``).
+    /// 2. The clicked row's raw fragment (the token alone).
+    /// 3. The winning direction's adjacent row's raw fragment alone.
+    ///
+    /// Only the *winning* direction's constituents are ever included —
+    /// never a rejected direction's fragment, which would widen the set of
+    /// native text this candidate can claim beyond what this click actually
+    /// resolved. Empty entries are dropped and duplicates collapsed, so the
+    /// array can have fewer than 3 entries.
+    ///
+    /// "Raw" means the terminal-visible representation Ghostty's own
+    /// callback reports — not a filesystem-oriented path (no quote
+    /// removal, tilde expansion, or cwd resolution); only whitespace and a
+    /// trailing NUL are normalized, matching the callback side. Ghostty's
+    /// own hard-wrap link continuation (`link_wrap.zig`) can report either
+    /// the whole joined match text or just a same-row independent link
+    /// depending on how it parses the row, so a single fixed key can't
+    /// reliably equal every real callback shape for the same click.
+    /// Comparisons must be exact; substring matching can misattribute an
+    /// unrelated native link.
+    public let nativeMatchKeys: [String]
 
-    public init(path: String, nativeMatchKey: String) {
+    public init(path: String, nativeMatchKeys: [String]) {
         self.path = path
-        self.nativeMatchKey = nativeMatchKey
+        self.nativeMatchKeys = nativeMatchKeys
     }
 }
 
@@ -187,58 +241,179 @@ public struct TerminalPathResolver: Sendable {
         ), match.token.count <= Self.maxWrappedFragmentLength else {
             return nil
         }
-        return TerminalWrappedPathSeed(direction: match.direction, token: match.token)
+        return TerminalWrappedPathSeed(directions: match.directions, token: match.token)
     }
 
-    /// Resolves a ``TerminalWrappedPathSeed`` against the adjacent row it
-    /// named, returning the single existing path candidate, if any.
+    /// Resolves a ``TerminalWrappedPathSeed`` against the adjacent row(s)
+    /// its `directions` named, returning the single existing path
+    /// candidate, if any.
     ///
-    /// Guards against coincidental adjacency: if the adjacent row's own
-    /// fragment already resolves to an existing path by itself, this
-    /// returns `nil` rather than joining it to the clicked token. Only
-    /// absolute-path candidates (`/`-prefixed) are considered.
+    /// Pass whichever row(s) the caller read for `seed.directions`: only
+    /// `previousRow` for a `.previous`-only seed, only `nextRow` for a
+    /// `.next`-only seed, or both for an ambiguous bare-relative seed. Each
+    /// named direction is resolved fully independently (its own fragment
+    /// extraction, prefix-shape guard, existence probes); this returns the
+    /// result only when **exactly one** direction succeeds. Zero
+    /// successes means no candidate; two successes means the click is
+    /// ambiguous between two equally-valid joins (even if they'd standardize
+    /// to the same path) and this deliberately still returns `nil` rather
+    /// than guess.
+    ///
+    /// Guards against coincidental adjacency per direction: if that
+    /// direction's own adjacent fragment already resolves to an existing
+    /// path by itself, that direction doesn't count as a success.
+    ///
+    /// Absolute candidates (`/`-prefixed) are always considered. A relative
+    /// candidate is considered only when the whole joined candidate is
+    /// path-shaped (an explicit relative marker, or both containing `/`
+    /// and having a dotted leaf — mirroring Ghostty's own
+    /// `bare_relative_path_branch` shape, `ghostty/src/config/url.zig`)
+    /// *and* the fragment leading that direction's join (the clicked token
+    /// for `.next`, the adjacent row's fragment for `.previous`) is itself
+    /// shaped like a path prefix (an explicit marker, or contains `/`).
+    /// Without the second check, two unrelated bare words that happen to
+    /// concatenate into an existing relative path (e.g. adjacent row
+    /// `foo`, clicked token `bar`, with `cwd/foobar` existing) would
+    /// false-positive: none of the other guards (per-fragment existence,
+    /// ASCII, single-candidate, A-B-A) reason about whether the join is a
+    /// real path shape.
+    ///
+    /// This never over-probes the filesystem: at most one existence probe
+    /// for the adjacent fragment alone and one for the joined candidate,
+    /// per direction actually attempted (so at most 4 total when both
+    /// directions are ambiguous) — never `resolveQuicklookPath`'s
+    /// multi-variant probing.
+    ///
+    /// A relative candidate resolves against `cwd` (matching
+    /// ``resolveQuicklookPath(_:cwd:)``'s own expansion) before the
+    /// existence probe, and ``TerminalWrappedPathResolution/path`` is
+    /// always that resolved, standardized absolute path — never the raw
+    /// relative string — so a caller reopening it later can't have it
+    /// reinterpreted against a different working directory.
     ///
     /// - Parameters:
     ///   - seed: The seed returned by ``wrappedPathSeed(in:column:cwd:)``.
-    ///   - adjacentRow: The full text of the row named by `seed.direction`.
+    ///   - previousRow: The row above the clicked row, if `seed.directions`
+    ///     names `.previous`; otherwise ignored.
+    ///   - nextRow: The row below the clicked row, if `seed.directions`
+    ///     names `.next`; otherwise ignored.
     ///   - cwd: The surface's working directory.
-    /// - Returns: The resolved candidate, or `nil` when no existing
-    ///   absolute path joins the seed token to the adjacent row.
+    /// - Returns: The resolved candidate when exactly one direction
+    ///   succeeds; `nil` when zero or both do.
     public func resolveWrappedCandidate(
         seed: TerminalWrappedPathSeed,
-        adjacentRow: String,
+        previousRow: String?,
+        nextRow: String?,
         cwd: String
     ) -> TerminalWrappedPathResolution? {
+        let outcomes = diagnoseWrappedCandidate(seed: seed, previousRow: previousRow, nextRow: nextRow, cwd: cwd)
+        let successes = outcomes.values.compactMap { outcome -> TerminalWrappedPathResolution? in
+            if case .succeeded(let resolution) = outcome { return resolution }
+            return nil
+        }
+        guard successes.count == 1 else { return nil }
+        return successes[0]
+    }
+
+    /// Runs the same independent-per-direction resolution as
+    /// ``resolveWrappedCandidate(seed:previousRow:nextRow:cwd:)`` but
+    /// returns *why* each named direction succeeded or failed, instead of
+    /// collapsing straight to a single optional result.
+    ///
+    /// Exists for diagnostics: `noCandidate` alone doesn't say which of the
+    /// five independent guards (fragment extraction, length, leading-piece
+    /// prefix shape, fragment-alone existence, candidate shape, candidate
+    /// existence) rejected an otherwise-correct read. Callers doing the
+    /// real open should keep using
+    /// ``resolveWrappedCandidate(seed:previousRow:nextRow:cwd:)`` — this
+    /// makes the same decision, just with its reasoning kept instead of
+    /// discarded, so it costs no extra filesystem probes.
+    ///
+    /// - Returns: An entry only for each direction `seed.directions` names
+    ///   *and* a corresponding row was supplied; a direction named by the
+    ///   seed with no row passed is simply absent (never attempted).
+    public func diagnoseWrappedCandidate(
+        seed: TerminalWrappedPathSeed,
+        previousRow: String?,
+        nextRow: String?,
+        cwd: String
+    ) -> [TerminalWrapDirection: TerminalWrappedCandidateDirectionOutcome] {
+        var outcomes: [TerminalWrapDirection: TerminalWrappedCandidateDirectionOutcome] = [:]
+
+        if seed.directions.contains(.previous), let previousRow {
+            outcomes[.previous] = resolveSingleDirection(.previous, token: seed.token, adjacentRow: previousRow, cwd: cwd)
+        }
+        if seed.directions.contains(.next), let nextRow {
+            outcomes[.next] = resolveSingleDirection(.next, token: seed.token, adjacentRow: nextRow, cwd: cwd)
+        }
+
+        return outcomes
+    }
+
+    private func resolveSingleDirection(
+        _ direction: TerminalWrapDirection,
+        token: String,
+        adjacentRow: String,
+        cwd: String
+    ) -> TerminalWrappedCandidateDirectionOutcome {
         let fragment: String?
-        switch seed.direction {
+        switch direction {
         case .next:
             fragment = adjacentRow.leadingContinuationFragment(maxIndentation: Self.maxContinuationIndentation)
         case .previous:
             fragment = adjacentRow.trailingContinuationFragment()
         }
+        guard let fragment else { return .noFragment }
+        guard fragment.count <= Self.maxWrappedFragmentLength else { return .fragmentTooLong }
 
-        guard let fragment, fragment.count <= Self.maxWrappedFragmentLength else { return nil }
-        guard resolveQuicklookPath(fragment, cwd: cwd) == nil else { return nil }
+        // The fragment sum is checked before building the joined string so
+        // the length guard can't be bypassed by a pathological concatenation.
+        guard token.count + fragment.count <= Self.maxWrappedFragmentLength * 2 else { return .candidateTooLong }
 
-        let candidate: String
-        switch seed.direction {
+        let leadingPiece = direction == .next ? token : fragment
+        guard leadingPiece.isWrappedPathPrefixShaped else { return .leadingPieceNotPathPrefixShaped }
+
+        guard probeExists(fragment, cwd: cwd) == nil else { return .fragmentAloneExists }
+
+        let candidateRaw: String
+        switch direction {
         case .next:
-            candidate = seed.token + fragment
+            candidateRaw = token + fragment
         case .previous:
-            candidate = fragment + seed.token
+            candidateRaw = fragment + token
         }
+        guard candidateRaw.isWrappedPathCandidateShaped else { return .candidateNotPathShaped }
 
-        guard candidate.hasPrefix("/"),
-              candidate.count <= Self.maxWrappedFragmentLength * 2 else {
-            return nil
+        guard let standardizedPath = probeExists(candidateRaw, cwd: cwd) else { return .candidateDoesNotExist }
+
+        var matchKeys: [String] = []
+        for raw in [candidateRaw, token, fragment] {
+            let key = raw.normalizedTerminalWrapMatchKey()
+            guard !key.isEmpty, !matchKeys.contains(key) else { continue }
+            matchKeys.append(key)
         }
-
-        let standardizedPath = (candidate as NSString).standardizingPath
-        guard fileExists(standardizedPath) else { return nil }
-
-        return TerminalWrappedPathResolution(
+        return .succeeded(TerminalWrappedPathResolution(
             path: standardizedPath,
-            nativeMatchKey: seed.token.normalizedTerminalWrapMatchKey()
-        )
+            nativeMatchKeys: matchKeys
+        ))
+    }
+
+    /// A single, exact-candidate existence probe: expands `~`, resolves
+    /// against `cwd` when relative, standardizes, and checks existence
+    /// once. Deliberately not ``resolveQuicklookPath(_:cwd:)``, which tries
+    /// multiple punctuation-trimmed variants — that would silently multiply
+    /// the wrapped-candidate I/O budget past its documented per-direction
+    /// probe count.
+    private func probeExists(_ raw: String, cwd: String) -> String? {
+        let expanded = (raw as NSString).expandingTildeInPath
+        let candidatePath: String
+        if expanded.hasPrefix("/") {
+            candidatePath = expanded
+        } else {
+            guard !cwd.isEmpty else { return nil }
+            candidatePath = (cwd as NSString).appendingPathComponent(expanded)
+        }
+        let standardized = (candidatePath as NSString).standardizingPath
+        return fileExists(standardized) ? standardized : nil
     }
 }
