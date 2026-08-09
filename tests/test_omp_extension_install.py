@@ -199,10 +199,8 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
     hook_env.pop("PI_CODING_AGENT_DIR", None)
     hook_env.pop("CMUX_SOCKET_CAPABILITY", None)
     hook_env.pop("CMUX_SOCKET_PASSWORD", None)
-    resume_path = "/nix/store/omp/bin:/usr/bin:/bin"
     hook_env.update(
         {
-            "PATH": resume_path,
             "PWD": str(workspace),
             "CMUX_SOCKET_PATH": str(socket_path),
             "CMUX_WORKSPACE_ID": workspace_id,
