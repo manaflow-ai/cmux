@@ -48,15 +48,34 @@ struct LabColor: Equatable {
         )
     }
 
-    /// Mirrors `WorkspaceTabColorSettings.brightenedForDarkAppearance`.
+    // MARK: - Dark appearance brightening
+
+    /// The dark-appearance brightening rule, shared with
+    /// `WorkspaceTabColorSettings.brightenedForDarkAppearance`.
+    ///
+    /// The constants live in this file, rather than beside the `NSColor`
+    /// implementation that renders with them, because this is the AppKit-free
+    /// side and allocation has to compare colors the way they will actually be
+    /// drawn. A constant that drifted between the two would leave allocation
+    /// spacing out colors nobody ever sees.
+    static let darkBrightnessFloor = 0.62
+    static let darkBrightnessLift = 0.28
+    /// Saturation at or below this is left untouched, so neutral grays do not
+    /// pick up a hue when brightened.
+    static let neutralSaturationCeiling = 0.08
+    static let darkSaturationLift = 0.12
+
     private static func brightenedForDarkAppearance(
         _ rgb: (Double, Double, Double)
     ) -> (Double, Double, Double) {
         let (hue, saturation, brightness) = hsv(from: rgb)
-        let boostedBrightness = min(1, max(brightness, 0.62) + ((1 - brightness) * 0.28))
-        let boostedSaturation = saturation <= 0.08
+        let boostedBrightness = min(
+            1,
+            max(brightness, darkBrightnessFloor) + ((1 - brightness) * darkBrightnessLift)
+        )
+        let boostedSaturation = saturation <= neutralSaturationCeiling
             ? saturation
-            : min(1, saturation + ((1 - saturation) * 0.12))
+            : min(1, saturation + ((1 - saturation) * darkSaturationLift))
         return self.rgb(hue: hue, saturation: boostedSaturation, brightness: boostedBrightness)
     }
 

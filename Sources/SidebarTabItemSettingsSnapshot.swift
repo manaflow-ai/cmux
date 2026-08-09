@@ -89,7 +89,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         )
         activeTabIndicatorStyle = settings.value(for: workspaceColors.indicatorStyle)
         autoAssignedColorHexes = activeTabIndicatorStyle.automaticallyAssignsWorkspaceColors
-            ? WorkspaceAutoColorAssignmentStore.assignments(defaults: defaults)
+            ? WorkspaceAutoColorAssignmentStore(defaults: defaults).assignments()
             : [:]
         loadingSpinnerPosition = settings.value(for: sidebar.loadingSpinnerPosition)
         notificationBadgePosition = settings.value(for: sidebar.notificationBadgePosition)

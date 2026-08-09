@@ -39,12 +39,11 @@ import Testing
         manualColorHexes: [String] = []
     ) -> [UUID: String] {
         let ids = ids ?? (0..<count).map { _ in UUID() }
-        return WorkspaceAutoColorAssignmentStore.reconcile(
+        return WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: ids,
             liveIds: Set(ids),
             manualColorHexes: manualColorHexes,
-            palette: palette,
-            defaults: defaults
+            palette: palette
         ).reduce(into: [UUID: String]()) { out, pair in
             if let id = UUID(uuidString: pair.key) { out[id] = pair.value }
         }
@@ -106,6 +105,30 @@ import Testing
         #expect(hex == "#1565C0")
     }
 
+    /// Repeated used colors are deduplicated before the Lab conversion, which
+    /// is what keeps allocation from doing quadratic work as workspaces are
+    /// added. Deduplicating must not change the answer: distance folds with
+    /// `min`, so a color counted twice is no further away than once.
+    ///
+    /// The repeats here are a manual color outside the palette, so they cannot
+    /// move the use counts — the whole palette stays tied and the choice is
+    /// decided purely by the deduplicated Lab comparison.
+    @Test
+    func repeatedUsedColorsDoNotChangeTheChoice() {
+        let saturated = ["#C0392B", "#196F3D", "#1565C0"]
+        let once = WorkspaceAutoTabColorAssignment.nextColorHex(
+            palette: Self.palette,
+            usedHexes: saturated + ["#FF00FF"]
+        )
+        let repeated = WorkspaceAutoTabColorAssignment.nextColorHex(
+            palette: Self.palette,
+            usedHexes: saturated + ["#FF00FF", "#FF00FF", "#ff00ff"]
+        )
+
+        #expect(once != nil)
+        #expect(repeated == once)
+    }
+
     // MARK: - Stability
 
     /// The reason assignments are persisted rather than recomputed.
@@ -116,12 +139,11 @@ import Testing
         let before = Self.assign(count: 3, defaults: defaults, ids: ids)
 
         let survivors = Array(ids.dropFirst())
-        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+        let after = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: survivors,
             liveIds: Set(survivors),
             manualColorHexes: [],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
 
         for id in survivors {
@@ -136,12 +158,11 @@ import Testing
         let before = Self.assign(count: 3, defaults: defaults, ids: ids)
 
         let reversed = Array(ids.reversed())
-        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+        let after = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: reversed,
             liveIds: Set(reversed),
             manualColorHexes: [],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
 
         for id in ids {
@@ -157,12 +178,11 @@ import Testing
 
         let newId = UUID()
         let all = ids + [newId]
-        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+        let after = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: all,
             liveIds: Set(all),
             manualColorHexes: [],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
 
         for id in ids { #expect(after[id.uuidString] == before[id]) }
@@ -180,12 +200,11 @@ import Testing
         let survivor = ids[0]
         let newId = UUID()
         let live = [survivor, newId]
-        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+        let after = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: live,
             liveIds: Set(live),
             manualColorHexes: [],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
 
         #expect(after[survivor.uuidString] == before[survivor])
@@ -202,12 +221,11 @@ import Testing
         let before = Self.assign(count: 3, defaults: defaults, ids: ids)
 
         let visible = [ids[0]]
-        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+        let after = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: visible,
             liveIds: Set(visible),
             manualColorHexes: [],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
 
         #expect(after.count == 3)
@@ -228,12 +246,11 @@ import Testing
             forKey: WorkspaceAutoColorAssignmentStore.defaultsKey
         )
 
-        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+        let after = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: ids,
             liveIds: Set(ids),
             manualColorHexes: [],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
 
         #expect(after[ids[0].uuidString] == clashing)
@@ -254,12 +271,11 @@ import Testing
             forKey: WorkspaceAutoColorAssignmentStore.defaultsKey
         )
 
-        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+        let after = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: [live],
             liveIds: [live],
             manualColorHexes: [],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
 
         #expect(after[live.uuidString] == shared)
@@ -277,12 +293,11 @@ import Testing
             forKey: WorkspaceAutoColorAssignmentStore.defaultsKey
         )
 
-        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+        let after = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: [id],
             liveIds: [id],
             manualColorHexes: [manual],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
 
         #expect(after[id.uuidString] == manual)
@@ -295,19 +310,17 @@ import Testing
         let defaults = Self.suite()
         let ids = (0..<(Self.palette.count + 4)).map { _ in UUID() }
 
-        let first = WorkspaceAutoColorAssignmentStore.reconcile(
+        let first = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: ids,
             liveIds: Set(ids),
             manualColorHexes: [],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
-        let second = WorkspaceAutoColorAssignmentStore.reconcile(
+        let second = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: ids,
             liveIds: Set(ids),
             manualColorHexes: [],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
 
         #expect(first == second)
@@ -327,12 +340,11 @@ import Testing
         let deleted = try #require(ids.first(where: { before[$0] == uniqueColor }))
         let survivors = ids.filter { $0 != deleted }
 
-        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+        let after = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: survivors,
             liveIds: Set(survivors),
             manualColorHexes: [],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
 
         for id in survivors {
@@ -357,12 +369,11 @@ import Testing
             forKey: WorkspaceAutoColorAssignmentStore.defaultsKey
         )
 
-        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+        let after = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: ids,
             liveIds: Set(ids),
             manualColorHexes: [],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
         var counts: [String: Int] = [:]
         for id in ids {
@@ -390,12 +401,11 @@ import Testing
         ]
         defaults.set(existing, forKey: WorkspaceAutoColorAssignmentStore.defaultsKey)
 
-        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+        let after = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: ids,
             liveIds: Set(ids),
             manualColorHexes: [],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
         var counts: [String: Int] = [:]
         for id in ids {
@@ -410,12 +420,11 @@ import Testing
             #expect(after[id.uuidString] == existing[id.uuidString])
         }
 
-        let settled = WorkspaceAutoColorAssignmentStore.reconcile(
+        let settled = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: ids,
             liveIds: Set(ids),
             manualColorHexes: [],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
         #expect(settled == after)
     }
@@ -427,12 +436,11 @@ import Testing
         Self.assign(count: 1, defaults: defaults, palette: [Self.palette[0]], ids: ids)
 
         let replacement = [WorkspaceTabColorEntry(name: "Teal", hex: "#006B6B")]
-        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+        let after = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: ids,
             liveIds: Set(ids),
             manualColorHexes: [],
-            palette: replacement,
-            defaults: defaults
+            palette: replacement
         )
 
         #expect(after[ids[0].uuidString] == "#006B6B")
@@ -499,12 +507,11 @@ import Testing
 
         // Workspace 0 gets a manual color, so it drops out of `needingAssignment`.
         let stillAuto = Array(ids.dropFirst())
-        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+        let after = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: stillAuto,
             liveIds: Set(ids),
             manualColorHexes: ["#ABCDEF"],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
 
         for id in stillAuto {
@@ -520,19 +527,17 @@ import Testing
         let ids = (0..<2).map { _ in UUID() }
         let before = Self.assign(count: 2, defaults: defaults, ids: ids)
 
-        WorkspaceAutoColorAssignmentStore.reconcile(
+        WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: [ids[1]],
             liveIds: Set(ids),
             manualColorHexes: ["#ABCDEF"],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
-        let restored = WorkspaceAutoColorAssignmentStore.reconcile(
+        let restored = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: ids,
             liveIds: Set(ids),
             manualColorHexes: [],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
 
         #expect(restored[ids[0].uuidString] == before[ids[0]])
@@ -558,23 +563,21 @@ import Testing
             forKey: WorkspaceAutoColorAssignmentStore.defaultsKey
         )
 
-        let whileOverridden = WorkspaceAutoColorAssignmentStore.reconcile(
+        let whileOverridden = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: [newWorkspace],
             liveIds: [overridden, newWorkspace],
             manualColorHexes: [manualColor],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
         let newWorkspaceColor = try #require(whileOverridden[newWorkspace.uuidString])
 
         #expect(newWorkspaceColor != reservedColor)
 
-        let afterClearing = WorkspaceAutoColorAssignmentStore.reconcile(
+        let afterClearing = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: [overridden, newWorkspace],
             liveIds: [overridden, newWorkspace],
             manualColorHexes: [],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
 
         #expect(afterClearing[overridden.uuidString] == reservedColor)
@@ -600,7 +603,7 @@ import Testing
 
         Self.assign(count: 1, defaults: defaults, ids: [overridden])
         let reservedColor = try #require(
-            WorkspaceAutoColorAssignmentStore.assignedColorHex(for: overridden, defaults: defaults)
+            WorkspaceAutoColorAssignmentStore(defaults: defaults).assignedColorHex(for: overridden)
         )
         // Every remaining palette color goes to a manual override, so all of
         // them — including the reserved one — are spoken for exactly once.
@@ -610,24 +613,22 @@ import Testing
         }
         let overriddenManualColor = try #require(manualColors.first)
 
-        let whileOverridden = WorkspaceAutoColorAssignmentStore.reconcile(
+        let whileOverridden = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: [newWorkspace],
             liveIds: [overridden, otherManual, newWorkspace],
             manualColorHexes: manualColors,
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
 
         #expect(whileOverridden[newWorkspace.uuidString] != reservedColor)
 
         // Only the reserved workspace reverts; the other manual color stays, so
         // the two auto workspaces still have distinct colors available.
-        let afterClearing = WorkspaceAutoColorAssignmentStore.reconcile(
+        let afterClearing = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: [overridden, newWorkspace],
             liveIds: [overridden, otherManual, newWorkspace],
             manualColorHexes: manualColors.filter { $0 != overriddenManualColor },
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
 
         #expect(afterClearing[overridden.uuidString] == reservedColor)
@@ -643,12 +644,11 @@ import Testing
         let ids = (0..<3).map { _ in UUID() }
         let before = Self.assign(count: 3, defaults: defaults, ids: ids)
 
-        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+        let after = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: [],
             liveIds: [],
             manualColorHexes: [],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
 
         for id in ids {
@@ -664,12 +664,11 @@ import Testing
         Self.assign(count: ids.count, defaults: defaults, ids: ids)
 
         let survivor = [ids[0]]
-        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+        let after = WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: survivor,
             liveIds: Set(survivor),
             manualColorHexes: [],
-            palette: Self.palette,
-            defaults: defaults
+            palette: Self.palette
         )
 
         #expect(after.count == 1)
@@ -782,6 +781,32 @@ import Testing
         ) == nil)
     }
 
+    /// The allocator treats an empty manual color as uncolored and hands the
+    /// workspace an auto color, so the resolver and the renderer must agree —
+    /// otherwise a workspace gets a color assigned and then no rail drawn.
+    @Test
+    func anEmptyManualColorStillShowsTheAutoRail() {
+        #expect(WorkspaceAutoTabColorAssignment.railColorHex(
+            indicatorStyle: .leftRailAuto,
+            customColorHex: "",
+            assignedColorHex: "#1565C0"
+        ) == "#1565C0")
+
+        let rendered = sidebarWorkspaceRowExplicitRailNSColor(
+            activeTabIndicatorStyle: .leftRailAuto,
+            customColorHex: "",
+            autoRailColorHex: "#1565C0",
+            colorScheme: .dark
+        )
+        let expected = WorkspaceTabColorSettings.displayNSColor(
+            hex: "#1565C0",
+            colorScheme: .dark,
+            forceBright: true
+        )
+
+        #expect(rendered == expected)
+    }
+
     /// Regression guard for the selection affordance: the selected row keeps
     /// the selection background, and an unselected auto-colored row keeps a
     /// clear background, so exactly one row reads as selected.
@@ -847,9 +872,8 @@ import Testing
             for: WorkspaceColorsCatalogSection().indicatorStyle
         )
 
-        #expect(WorkspaceAutoColorAssignmentStore.assignedColorHex(
-            for: ids[0],
-            defaults: defaults
+        #expect(WorkspaceAutoColorAssignmentStore(defaults: defaults).assignedColorHex(
+            for: ids[0]
         ) == before[ids[0]])
     }
 
@@ -871,89 +895,97 @@ import Testing
         )
         let first = try #require(manager.selectedWorkspace)
 
-        // Let the initial workspace's disabled reconcile finish, then exercise
-        // the same defaults notification that the Settings model emits.
-        await Task.yield()
+        // Exercise the same defaults notification that the Settings model emits.
         settings.set(.leftRailAuto, for: key)
         NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
-        await Task.yield()
-
-        let oneWorkspaceSettings = SidebarTabItemSettingsSnapshot(defaults: defaults)
-        let firstEnabledSnapshot = SidebarWorkspaceSnapshotFactory(
-            workspace: first,
-            settings: oneWorkspaceSettings,
-            showsAgentActivity: false
-        ).makeSnapshot()
-        #expect(firstEnabledSnapshot.autoRailColorHex != nil)
+        #expect(await Self.waitUntil { Self.railColor(for: first, defaults: defaults) != nil })
 
         settings.set(.leftRail, for: key)
         NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
-        await Task.yield()
-        let oneWorkspaceDisabledSettings = SidebarTabItemSettingsSnapshot(defaults: defaults)
-        #expect(
-            SidebarWorkspaceSnapshotFactory(
-                workspace: first,
-                settings: oneWorkspaceDisabledSettings,
-                showsAgentActivity: false
-            ).makeSnapshot().autoRailColorHex == nil
-        )
+        #expect(await Self.waitUntil { Self.railColor(for: first, defaults: defaults) == nil })
 
         let second = manager.addWorkspace(
             eagerLoadTerminal: false,
             autoWelcomeIfNeeded: false,
             autoRefreshMetadata: false
         )
-        await Task.yield()
 
         settings.set(.leftRailAuto, for: key)
         NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
-        await Task.yield()
-
-        let allEnabledSettings = SidebarTabItemSettingsSnapshot(defaults: defaults)
-        let enabledColors = [first, second].compactMap { workspace in
-            SidebarWorkspaceSnapshotFactory(
-                workspace: workspace,
-                settings: allEnabledSettings,
-                showsAgentActivity: false
-            ).makeSnapshot().autoRailColorHex
-        }
-        #expect(enabledColors.count == 2)
-        #expect(Set(enabledColors).count == 2)
+        #expect(await Self.waitUntil {
+            Self.distinctRailColors(for: [first, second], defaults: defaults) == 2
+        })
 
         let third = manager.addWorkspace(
             eagerLoadTerminal: false,
             autoWelcomeIfNeeded: false,
             autoRefreshMetadata: false
         )
-        await Task.yield()
-        let afterCreationSettings = SidebarTabItemSettingsSnapshot(defaults: defaults)
-        let colorsAfterCreation = [first, second, third].compactMap { workspace in
-            SidebarWorkspaceSnapshotFactory(
-                workspace: workspace,
-                settings: afterCreationSettings,
-                showsAgentActivity: false
-            ).makeSnapshot().autoRailColorHex
-        }
-        #expect(colorsAfterCreation.count == 3)
-        #expect(Set(colorsAfterCreation).count == 3)
+        // No settings change here: a workspace created while the feature is on
+        // must be colored by the reconcile its own creation scheduled.
+        #expect(await Self.waitUntil {
+            Self.distinctRailColors(for: [first, second, third], defaults: defaults) == 3
+        })
 
-        let storedBeforeDisable = WorkspaceAutoColorAssignmentStore.assignments(defaults: defaults)
+        let storedBeforeDisable = WorkspaceAutoColorAssignmentStore(defaults: defaults).assignments()
         settings.set(.leftRail, for: key)
         NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
-        await Task.yield()
+        #expect(await Self.waitUntil {
+            [first, second, third].allSatisfy { Self.railColor(for: $0, defaults: defaults) == nil }
+        })
 
-        let disabledSettings = SidebarTabItemSettingsSnapshot(defaults: defaults)
-        for workspace in [first, second, third] {
-            let snapshot = SidebarWorkspaceSnapshotFactory(
-                workspace: workspace,
-                settings: disabledSettings,
-                showsAgentActivity: false
-            ).makeSnapshot()
-            #expect(snapshot.autoRailColorHex == nil)
-        }
+        // Only meaningful once the disable above is known to have been
+        // processed, which the wait guarantees; otherwise this would compare
+        // the map against itself.
         #expect(
-            WorkspaceAutoColorAssignmentStore.assignments(defaults: defaults)
+            WorkspaceAutoColorAssignmentStore(defaults: defaults).assignments()
                 == storedBeforeDisable
         )
+    }
+
+    /// Polls `condition` until it holds or the deadline passes.
+    ///
+    /// Reconciling hops through `Task { @MainActor }`, so a single
+    /// `Task.yield()` only usually lets it run. Waiting on the real predicate
+    /// makes each assertion prove the reconcile happened instead of racing it,
+    /// and turns a genuine regression into a deterministic failure rather than
+    /// an intermittent one.
+    @MainActor
+    private static func waitUntil(
+        timeout: Duration = .seconds(5),
+        _ condition: () -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if condition() { return true }
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(2))
+        }
+        return condition()
+    }
+
+    /// The rail color the sidebar would draw right now, read through the same
+    /// settings snapshot the real sidebar builds.
+    @MainActor
+    private static func railColor(for workspace: Workspace, defaults: UserDefaults) -> String? {
+        SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+            showsAgentActivity: false
+        ).makeSnapshot().autoRailColorHex
+    }
+
+    /// Counts distinct rail colors, so a partially finished reconcile — where
+    /// some workspaces are colored and some are not — is never mistaken for the
+    /// settled state.
+    @MainActor
+    private static func distinctRailColors(
+        for workspaces: [Workspace],
+        defaults: UserDefaults
+    ) -> Int {
+        let colors = workspaces.compactMap { railColor(for: $0, defaults: defaults) }
+        guard colors.count == workspaces.count else { return -1 }
+        return Set(colors).count
     }
 }

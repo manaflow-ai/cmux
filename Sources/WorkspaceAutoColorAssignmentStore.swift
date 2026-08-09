@@ -13,7 +13,7 @@ import Foundation
 /// snapshot: those record *user* intent, and an auto color is not something the
 /// user chose. Keeping them separate also means disabling the feature leaves no
 /// residue in workspace state.
-enum WorkspaceAutoColorAssignmentStore {
+struct WorkspaceAutoColorAssignmentStore {
     /// `[stableId.uuidString: paletteHex]`.
     static let defaultsKey = "workspaceTabColor.autoAssignments"
 
@@ -21,15 +21,18 @@ enum WorkspaceAutoColorAssignmentStore {
     /// real workspace count, so ordinary use never risks a destructive prune.
     static let pruneThreshold = 512
 
-    static func assignments(defaults: UserDefaults = .standard) -> [String: String] {
-        defaults.dictionary(forKey: defaultsKey) as? [String: String] ?? [:]
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
     }
 
-    static func assignedColorHex(
-        for stableId: UUID,
-        defaults: UserDefaults = .standard
-    ) -> String? {
-        assignments(defaults: defaults)[stableId.uuidString]
+    func assignments() -> [String: String] {
+        defaults.dictionary(forKey: Self.defaultsKey) as? [String: String] ?? [:]
+    }
+
+    func assignedColorHex(for stableId: UUID) -> String? {
+        assignments()[stableId.uuidString]
     }
 
     /// Brings stored assignments in line with the current workspaces.
@@ -38,6 +41,15 @@ enum WorkspaceAutoColorAssignmentStore {
     /// one yet. Existing assignments are preserved unless their palette color
     /// disappeared, which keeps colors stable across creation, reorder,
     /// deletion, and temporary manual overrides.
+    ///
+    /// Preserved explicitly includes preserved *duplicates*: if two live
+    /// workspaces already share a color, this leaves them sharing it rather
+    /// than recoloring one. That is deliberate. Healing a duplicate means
+    /// changing a color the user is currently looking at, and the only way to
+    /// know a duplicate is unnecessary is to know a color came free — which
+    /// happens on every deletion. Recoloring survivors when a workspace is
+    /// deleted is the reshuffling this feature exists to avoid, so duplicates
+    /// are prevented at allocation time instead of repaired afterwards.
     ///
     /// `liveIds` decides which stored colors count as *in use* for allocation,
     /// but does not by itself delete anything. A caller can only see the
@@ -58,14 +70,13 @@ enum WorkspaceAutoColorAssignmentStore {
     ///     allocated auto color avoids duplicating them.
     /// - Returns: The reconciled assignment map.
     @discardableResult
-    static func reconcile(
+    func reconcile(
         needingAssignment: [UUID],
         liveIds: Set<UUID>,
         manualColorHexes: [String],
-        palette: [WorkspaceTabColorEntry],
-        defaults: UserDefaults = .standard
+        palette: [WorkspaceTabColorEntry]
     ) -> [String: String] {
-        var stored = assignments(defaults: defaults)
+        var stored = assignments()
         let before = stored
         let liveKeys = Set(liveIds.map(\.uuidString))
 
@@ -76,7 +87,7 @@ enum WorkspaceAutoColorAssignmentStore {
             paletteKeys.contains(WorkspaceAutoTabColorAssignment.normalized($0.value))
         }
 
-        if stored.count > pruneThreshold {
+        if stored.count > Self.pruneThreshold {
             stored = stored.filter { liveKeys.contains($0.key) }
         }
 
@@ -123,15 +134,15 @@ enum WorkspaceAutoColorAssignmentStore {
 
         if stored != before {
             if stored.isEmpty {
-                defaults.removeObject(forKey: defaultsKey)
+                defaults.removeObject(forKey: Self.defaultsKey)
             } else {
-                defaults.set(stored, forKey: defaultsKey)
+                defaults.set(stored, forKey: Self.defaultsKey)
             }
         }
         return stored
     }
 
-    static func reset(defaults: UserDefaults = .standard) {
-        defaults.removeObject(forKey: defaultsKey)
+    func reset() {
+        defaults.removeObject(forKey: Self.defaultsKey)
     }
 }

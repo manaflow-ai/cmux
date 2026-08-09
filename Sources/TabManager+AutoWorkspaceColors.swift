@@ -58,12 +58,11 @@ extension TabManager {
             }
         }
 
-        WorkspaceAutoColorAssignmentStore.reconcile(
+        WorkspaceAutoColorAssignmentStore(defaults: defaults).reconcile(
             needingAssignment: needingAssignment,
             liveIds: liveIds,
             manualColorHexes: manualColorHexes,
-            palette: WorkspaceTabColorSettings.palette(defaults: defaults),
-            defaults: defaults
+            palette: WorkspaceTabColorSettings.palette(defaults: defaults)
         )
     }
 

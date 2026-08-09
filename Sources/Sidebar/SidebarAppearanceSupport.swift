@@ -292,7 +292,9 @@ func sidebarWorkspaceRowExplicitRailNSColor(
     case .leftRail:
         railHex = customColorHex
     case .leftRailAuto:
-        railHex = customColorHex ?? autoRailColorHex
+        // An empty manual color counts as no manual color, matching
+        // `WorkspaceAutoTabColorAssignment`, so the assigned rail still shows.
+        railHex = customColorHex?.nilIfEmpty ?? autoRailColorHex
     }
     guard let railHex else {
         return nil

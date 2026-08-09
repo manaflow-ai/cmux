@@ -216,6 +216,14 @@ final class SettingsWorkspaceColorsBehaviorUITests: SettingsUITestCase {
         )
         for candidate in candidates where candidate.exists {
             candidate.click()
+            // Clicking only dismisses the menu; the selection lands afterwards.
+            // Without waiting for it the caller's layout assertion can run
+            // against the previous style and pass without testing anything.
+            XCTAssertTrue(
+                poll(timeout: 4) { (picker.value as? String) == title },
+                "Workspace indicator picker did not settle on \(title); "
+                    + "value was \(String(describing: picker.value))"
+            )
             return
         }
         XCTFail("Workspace indicator menu item \(title) disappeared before selection")

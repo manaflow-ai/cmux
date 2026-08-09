@@ -76,7 +76,18 @@ enum WorkspaceAutoTabColorAssignment {
         //
         // Manual colors repel too, even when they are not palette entries, so
         // an auto color does not land next to a color the user chose.
-        let inUse = usedHexes.compactMap { LabColor(hex: $0) }
+        //
+        // Deduplicated first: distance folds with `min`, so a color that
+        // appears twice says nothing new. `reconcile` calls this once per
+        // pending workspace and appends each result to `usedHexes`, so without
+        // this the sRGB → Lab conversions grow quadratically with the number of
+        // workspaces being assigned. Deduplicated, the work per call is bounded
+        // by the palette plus the distinct manual colors.
+        var seenInUse: Set<String> = []
+        let inUse = usedHexes.compactMap { hex -> LabColor? in
+            guard seenInUse.insert(normalized(hex)).inserted else { return nil }
+            return LabColor(hex: hex)
+        }
         guard !inUse.isEmpty else { return candidates.first?.hex }
 
         var best: WorkspaceTabColorEntry?
@@ -99,13 +110,18 @@ enum WorkspaceAutoTabColorAssignment {
     /// Returns `nil` — leaving the rail hidden exactly as today — whenever the
     /// indicator style is not `leftRailAuto`, the workspace already carries a
     /// manual color, or no color has been assigned.
+    ///
+    /// An empty `customColorHex` counts as no manual color, matching the
+    /// allocator, which also treats it as uncolored and hands the workspace an
+    /// auto color. Disagreeing here would assign a color and then refuse to
+    /// draw it.
     static func railColorHex(
         indicatorStyle: WorkspaceIndicatorStyle,
         customColorHex: String?,
         assignedColorHex: String?
     ) -> String? {
         guard indicatorStyle.automaticallyAssignsWorkspaceColors,
-              customColorHex == nil else {
+              customColorHex?.isEmpty != false else {
             return nil
         }
         return assignedColorHex
