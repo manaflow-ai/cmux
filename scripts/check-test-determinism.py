@@ -3393,6 +3393,20 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/python_command_network.sh",
+            (
+                "python3 -c 'requests.get(\"https://api.openai.com/v1/items\")'\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/node_command_network.sh",
+            (
+                "node -e 'fetch(\"https://api.openai.com/v1/items\")'\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/timeout_curl.sh",
             "timeout 10 curl -fsSL https://api.openai.com/v1/items\n",
             {RULE_LIVE_NETWORK_HOST},
