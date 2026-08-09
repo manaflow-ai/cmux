@@ -152,8 +152,10 @@ gitlinks (`cd1f8e012` and `80d7fb35a`).
   - Keeps `ghostty_surface_free` as the final synchronization and ownership
     boundary for renderer, IO, callback userdata, and native allocation release.
 - Artifact:
-  - Publication for `90ba327fc6e0ea614e59a25f3ee5133b91d459da`
-    is pending; pin its validated archive checksum before merging this branch.
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-90ba327fc6e0ea614e59a25f3ee5133b91d459da-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `98e0db46112be10781a593d8eb052a4e395bf78823e29e4bb22e2619c49a7060`
+    is pinned in `scripts/ghosttykit-checksums.txt`; the downloaded archive
+    passed `scripts/validate-xcframework-archive.py`.
 - Conflict note:
   - Preserve the two-phase contract during future embedded-surface or termio
     merges: the pre-free request must prevent new app-action retains, remain
