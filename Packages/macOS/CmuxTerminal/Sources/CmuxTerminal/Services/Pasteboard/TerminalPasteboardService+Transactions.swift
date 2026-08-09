@@ -136,7 +136,8 @@ extension TerminalPasteboardService {
             pasteboard: pasteboard,
             maximumQueuedOperations: 1,
             maximumQueuedWriteBytes: TerminalPasteboardItemSnapshot
-                .retainedByteCount(of: mutation.contents)
+                .retainedByteCount(of: mutation.contents),
+            previousContentsCapture: { _ in nil }
         )
         return lane.applyUnmanagedMutation(mutation)
     }

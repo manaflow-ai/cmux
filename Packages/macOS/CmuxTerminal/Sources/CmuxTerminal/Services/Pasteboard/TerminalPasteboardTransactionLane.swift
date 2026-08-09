@@ -122,14 +122,16 @@ final class TerminalPasteboardTransactionLane: @unchecked Sendable {
     }
 
     func reserveRead() -> TerminalPasteboardReadLease? {
-        var shouldDrain = false
-        let lease = state.withLock {
-            state -> TerminalPasteboardReadLease? in
+        let admission = state.withLock {
+            state -> (
+                lease: TerminalPasteboardReadLease?,
+                shouldDrain: Bool
+            ) in
             let retainedOperationCount = state.entries.count
                 + (state.activeReadID == nil ? 0 : 1)
                 + (state.activeMutation == nil ? 0 : 1)
             guard retainedOperationCount < maximumQueuedOperations else {
-                return nil
+                return (nil, false)
             }
             let id = state.nextID
             state.nextID &+= 1
@@ -140,15 +142,15 @@ final class TerminalPasteboardTransactionLane: @unchecked Sendable {
                 }
             )
             state.entries.append(.read(lease))
-            shouldDrain = state.activeReadID == nil
+            let shouldDrain = state.activeReadID == nil
                 && state.activeMutation == nil
                 && state.entries.count == 1
-            return lease
+            return (lease, shouldDrain)
         }
-        if shouldDrain {
+        if admission.shouldDrain {
             drain()
         }
-        return lease
+        return admission.lease
     }
 
     @discardableResult
@@ -176,14 +178,16 @@ final class TerminalPasteboardTransactionLane: @unchecked Sendable {
     ) -> TerminalPasteboardMutationLease? {
         let retainedBytes = TerminalPasteboardItemSnapshot
             .retainedByteCount(of: mutation.contents)
-        var shouldDrain = false
-        let lease = state.withLock {
-            state -> TerminalPasteboardMutationLease? in
+        let admission = state.withLock {
+            state -> (
+                lease: TerminalPasteboardMutationLease?,
+                shouldDrain: Bool
+            ) in
             let retainedOperationCount = state.entries.count
                 + (state.activeReadID == nil ? 0 : 1)
                 + (state.activeMutation == nil ? 0 : 1)
             guard retainedOperationCount < maximumQueuedOperations else {
-                return nil
+                return (nil, false)
             }
             let isIdle = state.activeReadID == nil
                 && state.activeMutation == nil
@@ -192,7 +196,7 @@ final class TerminalPasteboardTransactionLane: @unchecked Sendable {
                     || (retainedBytes <= maximumQueuedWriteBytes
                         && state.retainedMutationBytes
                             <= maximumQueuedWriteBytes - retainedBytes) else {
-                return nil
+                return (nil, false)
             }
             let id = state.nextID
             state.nextID &+= 1
@@ -211,11 +215,10 @@ final class TerminalPasteboardTransactionLane: @unchecked Sendable {
                 isRestoration: false
             ))
             state.retainedMutationBytes += retainedBytes
-            shouldDrain = isIdle
-            return lease
+            return (lease, isIdle)
         }
-        if shouldDrain { drain() }
-        return lease
+        if admission.shouldDrain { drain() }
+        return admission.lease
     }
 
     private func admitMutation(
@@ -288,15 +291,15 @@ final class TerminalPasteboardTransactionLane: @unchecked Sendable {
     func enqueueRestoration(_ mutation: Mutation) -> Bool {
         let retainedBytes = TerminalPasteboardItemSnapshot
             .retainedByteCount(of: mutation.contents)
-        var shouldDrain = false
-        let admitted = state.withLock { state -> Bool in
+        let admission = state.withLock {
+            state -> (admitted: Bool, shouldDrain: Bool) in
             guard state.restorationOperationCount == 0,
                   retainedBytes <= maximumQueuedWriteBytes else {
-                return false
+                return (false, false)
             }
             let id = state.nextID
             state.nextID &+= 1
-            shouldDrain = state.activeReadID == nil
+            let shouldDrain = state.activeReadID == nil
                 && state.activeMutation == nil
                 && state.entries.isEmpty
             state.entries.append(.mutation(
@@ -309,10 +312,10 @@ final class TerminalPasteboardTransactionLane: @unchecked Sendable {
             ))
             state.retainedMutationBytes += retainedBytes
             state.restorationOperationCount += 1
-            return true
+            return (true, shouldDrain)
         }
-        if shouldDrain { drain() }
-        return admitted
+        if admission.shouldDrain { drain() }
+        return admission.admitted
     }
 
     private func finishRead(id: UInt64) {
