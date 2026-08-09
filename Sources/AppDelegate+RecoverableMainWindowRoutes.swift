@@ -117,7 +117,8 @@ extension AppDelegate {
     private func freezeWindowlessRecoverableMainWindowRoutes(
         _ routes: [RecoverableMainWindowRoute],
         windowsByWindowId: [UUID: NSWindow],
-        restorableAgentIndex: RestorableAgentSessionIndex?
+        restorableAgentIndex: RestorableAgentSessionIndex?,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
     ) -> [RecoverableMainWindowRoute] {
         var updatedRoutes: [RecoverableMainWindowRoute] = []
         for route in routes {
@@ -136,7 +137,8 @@ extension AppDelegate {
             }
             if let replacement = freezeWindowlessRecoverableMainWindowRoute(
                 route,
-                restorableAgentIndex: restorableAgentIndex
+                restorableAgentIndex: restorableAgentIndex,
+                surfaceResumeBindingIndex: surfaceResumeBindingIndex
             ) {
                 updatedRoutes.append(replacement)
             }
@@ -150,7 +152,8 @@ extension AppDelegate {
     @discardableResult
     private func freezeWindowlessRecoverableMainWindowRoute(
         _ route: RecoverableMainWindowRoute,
-        restorableAgentIndex: RestorableAgentSessionIndex
+        restorableAgentIndex: RestorableAgentSessionIndex,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
     ) -> RecoverableMainWindowRoute? {
         guard route.frozenWindowSnapshot == nil else { return route }
         guard route.window == nil,
@@ -166,7 +169,9 @@ extension AppDelegate {
             for: liveRoute,
             includeScrollback: true,
             restorableAgentIndex: restorableAgentIndex,
-            downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: true
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+            downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable:
+                surfaceResumeBindingIndex == nil
         )
         let replacement = RecoverableMainWindowRoute(
             windowId: route.windowId,
@@ -212,8 +217,8 @@ extension AppDelegate {
                   self.windowForMainWindowId(route.windowId) == nil else {
                 return
             }
-            guard let restorableAgentIndex = await SharedLiveAgentIndex.shared.indexRefreshingNow(),
-                  self.mainWindowLifecycleCoordinator.orphanedRoute(
+            let resumeIndexes = await ProcessDetectedResumeIndexes.load()
+            guard self.mainWindowLifecycleCoordinator.orphanedRoute(
                       windowId: route.windowId
                   ) === route,
                   route.window == nil,
@@ -222,7 +227,8 @@ extension AppDelegate {
             }
             self.freezeWindowlessRecoverableMainWindowRoute(
                 route,
-                restorableAgentIndex: restorableAgentIndex
+                restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+                surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
             )
         }
     }
@@ -329,14 +335,16 @@ extension AppDelegate {
     /// live orphan intact until the asynchronous refresh or snapshot builder
     /// supplies that index.
     private func mainWindowPersistenceRouteSnapshots(
-        restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex?
+        restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex?,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
     ) -> [MainWindowPersistenceRouteSnapshot] {
         let windowsByWindowId = currentMainWindowsByWindowId()
         let orphanedRoutes = freezeWindowlessRecoverableMainWindowRoutes(
             mainWindowLifecycleCoordinator.orphanedRoutes(),
             windowsByWindowId: windowsByWindowId,
             restorableAgentIndex: suppliedRestorableAgentIndex
-                ?? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+                ?? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh(),
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex
         )
         var seenWindowIds: Set<UUID> = []
         var snapshots: [MainWindowPersistenceRouteSnapshot] = []
@@ -364,10 +372,12 @@ extension AppDelegate {
     /// bounded session snapshot construction after removing routes that cannot
     /// produce a restorable window.
     func orderedSessionRouteSnapshots(
-        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> [MainWindowPersistenceRouteSnapshot] {
         mainWindowPersistenceRouteSnapshots(
-            restorableAgentIndex: restorableAgentIndex
+            restorableAgentIndex: restorableAgentIndex,
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex
         )
             .filter(\.isEligibleForSessionPersistence)
             .sorted { lhs, rhs in
