@@ -14,21 +14,21 @@ extension Workspace {
                   ownedTerminal === terminalPanel else {
                 return
             }
-            let ownsActiveFocus = self.ownerWindowHasActiveFocus
-                && self.owningTabManager?.selectedTabId == self.id
-                && self.isFocusedTerminalInputSurface(target.surfaceID)
+            let ownerWindow = self.owningTabManager?.window
+            let ownsActiveFocus = AppFocusState.isAppFocused()
+                && ownerWindow?.isKeyWindow == true
+                && AppDelegate.shared?.ownsMainPanelKeyboardFocus(
+                    workspaceId: self.id,
+                    containerPanelId: target.containerPanelID,
+                    surfaceId: target.surfaceID,
+                    in: ownerWindow
+                ) == true
             if !ownsActiveFocus,
                !self.manualUnreadPanelIds.contains(target.containerPanelID) {
                 self.markPanelUnread(target.containerPanelID)
             }
             ownedTerminal.triggerFlash(reason: .notificationArrival)
         }
-    }
-
-    /// Whether this workspace's owning main window currently owns app focus.
-    private var ownerWindowHasActiveFocus: Bool {
-        AppFocusState.isAppFocused()
-            && owningTabManager?.window?.isKeyWindow == true
     }
 
     func triggerFocusFlash(panelId: UUID) {

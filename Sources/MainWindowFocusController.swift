@@ -184,6 +184,33 @@ final class MainWindowFocusController {
         }
     }
 
+    /// Whether the exact main-area terminal target owns this window's current
+    /// input focus. A pending right-sidebar intent wins over a stale terminal
+    /// first responder; otherwise the live responder is authoritative.
+    func ownsMainPanelInputFocus(
+        workspaceId: UUID,
+        containerPanelId: UUID,
+        surfaceId: UUID
+    ) -> Bool {
+        if case .rightSidebar = intent {
+            return false
+        }
+        guard let responder = window?.firstResponder else { return false }
+
+        if let terminal = terminalFocusRequest(for: responder) {
+            return terminal.workspaceId == workspaceId
+                && (terminal.panelId == surfaceId || terminal.panelId == containerPanelId)
+        }
+        if rightSidebarModeOwning(responder) != nil {
+            return false
+        }
+        guard let mainPanel = selectedFocusedPanelRequest(owning: responder) else {
+            return false
+        }
+        return mainPanel.workspaceId == workspaceId
+            && (mainPanel.panelId == containerPanelId || mainPanel.panelId == surfaceId)
+    }
+
     func allowsBonsplitTabShortcutHints(workspaceId: UUID) -> Bool {
         guard ShortcutHintDebugSettings().modifierHoldHintsEnabled else { return false }
         guard tabManager?.selectedTabId == workspaceId else { return false }

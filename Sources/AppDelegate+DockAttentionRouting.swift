@@ -3,6 +3,11 @@ import Foundation
 
 @MainActor
 extension AppDelegate {
+    enum NotificationSurfaceContainer {
+        case workspace
+        case windowDock(DockSplitStore)
+    }
+
     /// Resolves the current notification owner for a surface across every
     /// container. Dock IDs are stable notification namespaces (`workspaceId`
     /// is the workspace ID for a workspace Dock and the window ID for a global
@@ -10,19 +15,24 @@ extension AppDelegate {
     func notificationSurfaceOwner(
         surfaceID: UUID,
         preferredTabID: UUID? = nil
-    ) -> (tabID: UUID, surfaceID: UUID, tabManager: TabManager)? {
+    ) -> (
+        tabID: UUID,
+        surfaceID: UUID,
+        tabManager: TabManager,
+        container: NotificationSurfaceContainer
+    )? {
         if let preferredTabID,
            let manager = tabManagerFor(tabId: preferredTabID),
            let workspace = manager.workspacesById[preferredTabID],
            let target = workspace.surfaceOwnershipTarget(for: surfaceID) {
-            return (preferredTabID, target.surfaceID, manager)
+            return (preferredTabID, target.surfaceID, manager, .workspace)
         }
         if let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(surfaceID) }) {
             let manager = dock.scope == .global
                 ? tabManagerFor(windowId: dock.workspaceId)
                 : tabManagerFor(tabId: dock.workspaceId)
             guard let manager else { return nil }
-            return (dock.workspaceId, surfaceID, manager)
+            return (dock.workspaceId, surfaceID, manager, .windowDock(dock))
         }
         guard let owner = workspaceContainingPanel(
             panelId: surfaceID,
@@ -38,7 +48,7 @@ extension AppDelegate {
                       let target = workspace.surfaceOwnershipTarget(for: surfaceID) else {
                     continue
                 }
-                return (workspace.id, target.surfaceID, manager)
+                return (workspace.id, target.surfaceID, manager, .workspace)
             }
             if let manager = tabManager,
                seenManagers.insert(ObjectIdentifier(manager)).inserted,
@@ -46,14 +56,14 @@ extension AppDelegate {
                    $0.surfaceOwnershipTarget(for: surfaceID) != nil
                }),
                let target = workspace.surfaceOwnershipTarget(for: surfaceID) {
-                return (workspace.id, target.surfaceID, manager)
+                return (workspace.id, target.surfaceID, manager, .workspace)
             }
             return nil
         }
         guard let target = owner.workspace.surfaceOwnershipTarget(for: surfaceID) else {
             return nil
         }
-        return (owner.workspace.id, target.surfaceID, owner.tabManager)
+        return (owner.workspace.id, target.surfaceID, owner.tabManager, .workspace)
     }
 
     /// Shared notification-attention route for every surface container. Dock
