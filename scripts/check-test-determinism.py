@@ -2816,6 +2816,61 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/httpx_stored_client_explicit_public_target.py",
+            (
+                "client = httpx.Client()\n"
+                'client.get("https://api.openai.com/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/httpx_context_client_get.py",
+            (
+                'with httpx.Client(base_url="https://api.openai.com") as client:\n'
+                '    client.get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/httpx_instance_client_get.py",
+            (
+                "class LiveClientTest:\n"
+                "    def setUp(self):\n"
+                '        self.client = httpx.Client(base_url="https://api.openai.com")\n'
+                "\n"
+                "    def test_items(self):\n"
+                '        self.client.get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/httpx_instance_client_source_order.py",
+            (
+                "class LiveClientTest:\n"
+                "    def test_items(self):\n"
+                '        self.client.get("/v1/items")\n'
+                "\n"
+                "    def setUp(self):\n"
+                '        self.client = httpx.Client(base_url="https://api.openai.com")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/httpx_instance_client_teardown.py",
+            (
+                "class LiveClientTest:\n"
+                "    def setUp(self):\n"
+                '        self.client = httpx.Client(base_url="https://api.openai.com")\n'
+                "\n"
+                "    def tearDown(self):\n"
+                "        self.client = None\n"
+                "\n"
+                "    def test_items(self):\n"
+                '        self.client.get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/axios_client_get.ts",
             'axios.create().get("https://api.openai.com/v1/items")\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -2823,6 +2878,15 @@ def _self_test() -> int:
         (
             "web/tests/axios_options.ts",
             'axios.options("https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_request_base_url.ts",
+            (
+                'await axios.get("/v1/items", {\n'
+                '  baseURL: "https://api.openai.com",\n'
+                "});\n"
+            ),
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
@@ -2842,10 +2906,42 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/axios_client_request_base_override.ts",
+            (
+                'axios.create({ baseURL: "http://127.0.0.1:4321" })'
+                '.get("/v1/items", { baseURL: "https://api.openai.com" })\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/axios_stored_client_get.ts",
             (
                 'const client = axios.create({ baseURL: "https://api.openai.com" });\n'
                 'await client.get("/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_stored_client_public_base_override.ts",
+            (
+                'const client = axios.create({ baseURL: "http://127.0.0.1:4321" });\n'
+                'await client.get("/v1/items", '
+                '{ baseURL: "https://api.openai.com" });\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_instance_client_get.ts",
+            (
+                "class LiveClientTest {\n"
+                "  beforeEach() {\n"
+                '    this.client = axios.create({ baseURL: "https://api.openai.com" });\n'
+                "  }\n"
+                "\n"
+                "  async testItems() {\n"
+                '    await this.client.get("/v1/items");\n'
+                "  }\n"
+                "}\n"
             ),
             {RULE_LIVE_NETWORK_HOST},
         ),
@@ -3344,12 +3440,47 @@ def _self_test() -> int:
                 'client.get("/v1/items")\n'
             ),
         ),
+        (
+            "tests/n18y_httpx_instance_reassigned_in_setup.py",
+            (
+                "class LocalClientTest:\n"
+                "    def setUp(self):\n"
+                '        self.client = httpx.Client(base_url="https://api.openai.com")\n'
+                "        self.client = FakeClient()\n"
+                "\n"
+                "    def test_items(self):\n"
+                '        self.client.get("/v1/items")\n'
+            ),
+        ),
         # An explicit absolute request target overrides a stored base URL.
         (
             "web/tests/n18z_axios_loopback_override.ts",
             (
                 'const client = axios.create({ baseURL: "https://api.openai.com" });\n'
                 'await client.get("http://127.0.0.1:4321/health");\n'
+            ),
+        ),
+        (
+            "web/tests/n18z_axios_request_loopback_base.ts",
+            (
+                'await axios.get("/health", {\n'
+                '  baseURL: "http://127.0.0.1:4321",\n'
+                '  headers: { Referer: "https://cmux.com" },\n'
+                "});\n"
+            ),
+        ),
+        (
+            "web/tests/n18z_axios_stored_loopback_base_override.ts",
+            (
+                'const client = axios.create({ baseURL: "https://api.openai.com" });\n'
+                'await client.get("/health", { baseURL: "http://127.0.0.1:4321" });\n'
+            ),
+        ),
+        (
+            "web/tests/n18z_axios_chained_loopback_base_override.ts",
+            (
+                'await axios.create({ baseURL: "https://api.openai.com" })'
+                '.get("/health", { baseURL: "http://127.0.0.1:4321" });\n'
             ),
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
