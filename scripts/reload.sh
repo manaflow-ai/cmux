@@ -768,7 +768,7 @@ fi
 # xcodebuild invocations can trample that daemon, so cap reload.sh builds at
 # five per user while still allowing useful parallel tagged builds.
 XCODEBUILD_STARTED=1
-python3 -c '
+uv run python3 -c '
 import array
 import fcntl
 import os
