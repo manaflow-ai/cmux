@@ -109,7 +109,7 @@ import Testing
     @Test func contextMenuClearingAManualColorRevealsTheAutoRailAndDefersNoisyFields() {
         let current = Self.snapshot(
             customColorHex: "#C0392B",
-            autoRailColorHex: "#1565C0",
+            autoRailColorHex: nil,
             remoteConnectionStatusText: "Connected",
             latestConversationMessage: "old message",
             listeningPorts: [3000]
