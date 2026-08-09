@@ -221,3 +221,104 @@ public enum DiagnosticRuntimeRole: Int, Sendable, Codable, CaseIterable {
     /// Source-level spelling used by the current Apple mobile composition.
     public static let iosClient = DiagnosticRuntimeRole.mobileClient
 }
+
+/// High-level lifecycle state for one phone-controlled Simulator stream.
+///
+/// Values intentionally omit panel UUIDs, device names, workspace titles, and
+/// frame contents. The associated ``DiagnosticEvent`` carries only a
+/// process-local surface handle and bounded counters.
+public enum DiagnosticSimulatorStreamLifecycle: Int, Sendable, Codable, CaseIterable {
+    case startRequested = 1
+    case started = 2
+    case locked = 3
+    case startFailed = 4
+    case stopRequested = 5
+    case stopped = 6
+    case closed = 7
+    case restartRequested = 8
+    case pausedForBackground = 9
+    case descriptorApplied = 10
+    /// The client's staleness watchdog saw a full silent interval (no frame
+    /// or keepalive) for an active stream and is re-requesting it.
+    case stalled = 11
+}
+
+/// Frame-pipeline state for the Simulator video stream.
+public enum DiagnosticSimulatorFrameLifecycle: Int, Sendable, Codable, CaseIterable {
+    case readerAttached = 1
+    case readerMissing = 2
+    case copied = 3
+    case encodeFailed = 4
+    case sent = 5
+    case refused = 6
+    case cachedSent = 7
+    case subscriptionReasserted = 8
+    case received = 9
+    case staleIgnored = 10
+    case decodeFailed = 11
+    case imageDecoded = 12
+    case imageDecodeFailed = 13
+    case unknownPanel = 14
+}
+
+/// Input delivery state for phone-originated Simulator actions.
+public enum DiagnosticSimulatorInputLifecycle: Int, Sendable, Codable, CaseIterable {
+    case queued = 1
+    case sent = 2
+    case accepted = 3
+    case failed = 4
+    case rejectedLocked = 5
+    case unavailable = 6
+    case invalidParameters = 7
+    case panelMissing = 8
+    case featureDisabled = 9
+    case blockedViewOnly = 10
+}
+
+/// Phone-originated Simulator input category.
+public enum DiagnosticSimulatorInputKind: Int, Sendable, Codable, CaseIterable {
+    case pointer = 1
+    case text = 2
+    case hardwareButton = 3
+}
+
+/// Hardware button category for phone-originated Simulator actions.
+public enum DiagnosticSimulatorHardwareButtonKind: Int, Sendable, Codable, CaseIterable {
+    case unknown = 0
+    case home = 1
+    case swipeHome = 2
+    case appSwitcher = 3
+    case lock = 4
+    case siri = 5
+    case sideButton = 6
+    case power = 7
+    case volumeUp = 8
+    case volumeDown = 9
+    case action = 10
+    case watchSideButton = 11
+}
+
+/// Pointer phase for phone-originated Simulator touch events.
+public enum DiagnosticSimulatorPointerPhase: Int, Sendable, Codable, CaseIterable {
+    case began = 1
+    case moved = 2
+    case ended = 3
+    case tap = 4
+}
+
+/// Privacy-safe ownership state for a Simulator pane's active controller.
+public enum DiagnosticSimulatorOwnershipState: Int, Sendable, Codable, CaseIterable {
+    case unowned = 0
+    case currentConnection = 1
+    case otherConnection = 2
+    case pendingHandshake = 3
+    case unknown = 4
+}
+
+/// Coordinate mapping state for a phone gesture before it leaves the device.
+public enum DiagnosticSimulatorCoordinateState: Int, Sendable, Codable, CaseIterable {
+    case mapped = 1
+    case outsideImage = 2
+    case viewOnlyBlocked = 3
+    case zeroImage = 4
+}
