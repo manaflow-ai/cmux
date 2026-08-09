@@ -7338,6 +7338,28 @@ mod unix {
         }
 
         #[test]
+        fn detach_fence_queues_prior_source_output_and_removes_the_client() {
+            let host = test_host_shared();
+            let (target_socket, _target_peer) = UnixStream::pair().unwrap();
+            let (target_tx, target_rx) = mpsc_channel();
+            let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
+            host.smart.taps.lock().unwrap().insert(7, target.clone());
+
+            let before = host.smart.publish(Frame::new(MessageKind::Output, b"before".to_vec()));
+            assert!(host.fence_client_detach(7, 42, &target));
+            host.smart.publish(Frame::new(MessageKind::Output, b"after".to_vec()));
+
+            let output = target_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(output.kind, MessageKind::Output);
+            assert_eq!(output.sequence, before);
+            assert_eq!(output.payload, b"before");
+            let receipt = target_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(receipt.kind, MessageKind::DetachAck);
+            assert_eq!(receipt.request_id, 42);
+            assert!(target_rx.try_recv().is_err());
+        }
+
+        #[test]
         fn cell_pixel_commit_is_broadcast_to_live_renderer_taps_before_ack() {
             let host = test_host_shared();
             let (renderer_socket, _renderer_peer) = UnixStream::pair().unwrap();

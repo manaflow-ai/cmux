@@ -854,6 +854,8 @@ mod tests {
     fn terminate_receipt_has_a_stable_additive_message_kind() {
         assert_eq!(MessageKind::TerminateAck as u16, 21);
         assert_eq!(MessageKind::try_from(21).unwrap(), MessageKind::TerminateAck);
+        assert_eq!(MessageKind::DetachAck as u16, 22);
+        assert_eq!(MessageKind::try_from(22).unwrap(), MessageKind::DetachAck);
         assert_eq!(MessageKind::Terminate as u16, 104);
         assert_eq!(MessageKind::try_from(104).unwrap(), MessageKind::Terminate);
     }
@@ -924,6 +926,8 @@ mod tests {
     fn launch_activation_has_a_stable_additive_message_kind() {
         assert_eq!(MessageKind::Activate as u16, 110);
         assert_eq!(MessageKind::try_from(110).unwrap(), MessageKind::Activate);
+        assert_eq!(MessageKind::Detach as u16, 111);
+        assert_eq!(MessageKind::try_from(111).unwrap(), MessageKind::Detach);
     }
 
     #[test]

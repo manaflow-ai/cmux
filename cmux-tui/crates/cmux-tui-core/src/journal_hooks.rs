@@ -1160,6 +1160,13 @@ mod tests {
         const HELPER: &str = "CMUX_TEST_DETACHED_JOURNAL_HOOK";
         const PID_PATH: &str = "CMUX_TEST_DETACHED_JOURNAL_HOOK_PID";
         if std::env::var_os(HELPER).is_some() {
+            // A normal daemon closes inherited descriptors before it creates a
+            // new session. Scope ownership must not depend on an open marker FD.
+            for fd in 3..1024 {
+                unsafe {
+                    libc::close(fd);
+                }
+            }
             let session = unsafe { libc::setsid() };
             assert!(session > 0, "detached hook helper could not create a session");
             std::fs::write(std::env::var_os(PID_PATH).unwrap(), std::process::id().to_string())
