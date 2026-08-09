@@ -510,11 +510,12 @@ struct PortalHitTestingPerformanceTests {
             to: nil
         )
         let dividerEvent = makeMouseEvent(type: .mouseMoved, at: dividerPointInWindow, window: window)
-        let firstHost = try #require(hosts.first)
-        #expect(firstHost.performHitTest(
-            at: firstHost.convert(dividerPointInWindow, from: nil),
-            currentEvent: dividerEvent
-        ) == nil)
+        for host in hosts {
+            #expect(host.performHitTest(
+                at: host.convert(dividerPointInWindow, from: nil),
+                currentEvent: dividerEvent
+            ) == nil)
+        }
         withExtendedLifetime(controlSubtree.splitDelegate) {}
         withExtendedLifetime(insertedSubtree.splitDelegate) {}
     }
