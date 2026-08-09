@@ -14,7 +14,7 @@ import WebKit
 @Suite(.serialized)
 struct DiffViewerPickerCommandRunnerTests {
     @Test(.timeLimit(.minutes(1)))
-    func boundsConcurrentPickerCommands() async throws {
+    func rejectsPickerCommandsBeyondConcurrencyLimitAndReusesCapacity() async throws {
         let commands = ControllablePickerCommands()
         let runner = DiffViewerPickerCommandRunner(
             commandRunner: commands,
@@ -24,24 +24,27 @@ struct DiffViewerPickerCommandRunnerTests {
         var starts = commands.starts.makeAsyncIterator()
 
         let first = Task { await runner.run(arguments: ["first"]) }
-        let second = Task { await runner.run(arguments: ["second"]) }
-        let third = Task { await runner.run(arguments: ["third"]) }
-
         let firstStarted = try #require(await starts.next())
+        let second = Task { await runner.run(arguments: ["second"]) }
         let secondStarted = try #require(await starts.next())
-        await commands.complete(firstStarted)
-        let thirdStarted = try #require(await starts.next())
-        await commands.complete(secondStarted)
-        await commands.complete(thirdStarted)
 
-        let outputs = await [first.value, second.value, third.value]
+        #expect(await runner.run(arguments: ["rejected"]) == nil)
+        #expect(await commands.startedIDs == ["first", "second"])
+
+        await commands.complete(firstStarted)
+        await commands.complete(secondStarted)
+        let outputs = await [first.value, second.value]
         #expect(outputs.allSatisfy { $0 != nil })
         #expect(await commands.maximumActiveCount == 2)
-        #expect(Set([firstStarted, secondStarted, thirdStarted]) == Set(["first", "second", "third"]))
+
+        let subsequent = Task { await runner.run(arguments: ["subsequent"]) }
+        let subsequentStarted = try #require(await starts.next())
+        await commands.complete(subsequentStarted)
+        #expect(await subsequent.value == "subsequent")
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func cancellingQueuedPickerCommandPreventsLaunch() async throws {
+    func cancellingActivePickerCommandReleasesCapacity() async throws {
         let commands = ControllablePickerCommands()
         let runner = DiffViewerPickerCommandRunner(
             commandRunner: commands,
@@ -49,16 +52,14 @@ struct DiffViewerPickerCommandRunnerTests {
             concurrencyLimit: 1
         )
         var starts = commands.starts.makeAsyncIterator()
+        var cancellations = commands.cancellations.makeAsyncIterator()
 
         let active = Task { await runner.run(arguments: ["active"]) }
         let activeID = try #require(await starts.next())
-        let queued = Task { await runner.run(arguments: ["queued"]) }
-        await Task.yield()
-        queued.cancel()
+        active.cancel()
 
-        await commands.complete(activeID)
-        _ = await active.value
-        #expect(await queued.value == nil)
+        #expect(await cancellations.next() == activeID)
+        #expect(await active.value == nil)
         #expect(await commands.startedIDs == ["active"])
 
         let subsequent = Task { await runner.run(arguments: ["subsequent"]) }

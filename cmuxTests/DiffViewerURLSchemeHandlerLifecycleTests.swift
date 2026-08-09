@@ -11,6 +11,49 @@ import WebKit
 @MainActor
 @Suite(.serialized)
 struct DiffViewerURLSchemeHandlerLifecycleTests {
+    @Test(.timeLimit(.minutes(1)))
+    func sidecarMaximumManifestRemainsRestorable() throws {
+        let token = UUID().uuidString.lowercased()
+        let rootURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
+        let fixtureURL = rootURL.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let entryURL = fixtureURL.appendingPathComponent("index.html", isDirectory: false)
+        let manifestURL = rootURL.appendingPathComponent(".manifest-\(token).json", isDirectory: false)
+        let leaseURL = rootURL.appendingPathComponent(".session-lease-\(token).lock", isDirectory: false)
+        try FileManager.default.createDirectory(at: fixtureURL, withIntermediateDirectories: true)
+        try "<!doctype html><title>restorable</title>"
+            .write(to: entryURL, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: leaseURL)
+            try? FileManager.default.removeItem(at: manifestURL)
+            try? FileManager.default.removeItem(at: fixtureURL)
+        }
+
+        let files: [[String: String]] = (0..<CmuxDiffViewerURLSchemeHandler.maxRegisteredFiles).map { index in
+            [
+                "request_path": index == 0 ? "/index.html" : "/asset-\(index).html",
+                "file_path": entryURL.path,
+                "mime_type": "text/html",
+            ]
+        }
+        let manifest: [String: Any] = ["token": token, "files": files]
+        try JSONSerialization.data(withJSONObject: manifest).write(to: manifestURL, options: .atomic)
+
+        let handler = CmuxDiffViewerURLSchemeHandler()
+        #expect(handler.diffViewerRestorable(token: token, requestPath: "/index.html"))
+        #expect(handler.registerFromManifest(token: token))
+
+        let oversizedFiles = files + [[
+            "request_path": "/oversized.html",
+            "file_path": entryURL.path,
+            "mime_type": "text/html",
+        ]]
+        let oversizedManifest: [String: Any] = ["token": token, "files": oversizedFiles]
+        try JSONSerialization.data(withJSONObject: oversizedManifest)
+            .write(to: manifestURL, options: .atomic)
+        #expect(!handler.diffViewerRestorable(token: token, requestPath: "/index.html"))
+    }
+
     @Test
     func oversizedAllowlistIsRejectedAtRegistrationBoundary() {
         let handler = CmuxDiffViewerURLSchemeHandler()

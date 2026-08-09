@@ -2,20 +2,15 @@ import CmuxFoundation
 import Foundation
 
 /// Owns bounded subprocess admission for restored diff-viewer picker routes.
-/// Cancelling the caller removes a queued command or propagates into
-/// ``CommandRunner``, which terminates an already-running child process.
+/// Overload is rejected instead of queued, so stale WebKit requests can never
+/// accumulate behind the active commands. Cancelling an admitted caller
+/// propagates into ``CommandRunner``, which terminates its child process.
 actor DiffViewerPickerCommandRunner {
-    private struct Waiter {
-        let id: UUID
-        let continuation: CheckedContinuation<Bool, Never>
-    }
-
     private let commandRunner: any CommandRunning
     private let executablePath: String?
     private let timeout: TimeInterval
     private let concurrencyLimit: Int
     private var activeCount = 0
-    private var waiters: [Waiter] = []
 
     init() {
         commandRunner = CommandRunner()
@@ -39,10 +34,13 @@ actor DiffViewerPickerCommandRunner {
     /// Runs one bundled CLI picker command after acquiring a bounded permit.
     /// Returns standard output only for a successful, uncancelled invocation.
     func run(arguments: [String]) async -> String? {
-        guard let executablePath else { return nil }
-
-        guard await acquirePermit() else { return nil }
-        defer { releasePermit() }
+        guard let executablePath,
+              !Task.isCancelled,
+              activeCount < concurrencyLimit else {
+            return nil
+        }
+        activeCount += 1
+        defer { activeCount -= 1 }
 
         guard !Task.isCancelled else { return nil }
         let result = await commandRunner.run(
@@ -58,43 +56,6 @@ actor DiffViewerPickerCommandRunner {
             return nil
         }
         return result.stdout
-    }
-
-    private func acquirePermit() async -> Bool {
-        guard !Task.isCancelled else { return false }
-        if activeCount < concurrencyLimit {
-            activeCount += 1
-            return true
-        }
-
-        let id = UUID()
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                if Task.isCancelled {
-                    continuation.resume(returning: false)
-                } else {
-                    waiters.append(Waiter(id: id, continuation: continuation))
-                }
-            }
-        } onCancel: {
-            Task {
-                await self.cancelWaiter(id: id)
-            }
-        }
-    }
-
-    private func releasePermit() {
-        guard activeCount > 0 else { return }
-        if waiters.isEmpty {
-            activeCount -= 1
-            return
-        }
-        waiters.removeFirst().continuation.resume(returning: true)
-    }
-
-    private func cancelWaiter(id: UUID) {
-        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
-        waiters.remove(at: index).continuation.resume(returning: false)
     }
 
     private static func bundledCLIPath() -> String? {

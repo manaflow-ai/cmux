@@ -9,7 +9,8 @@ import WebKit
 final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "cmux-diff-viewer"
     static let shared = CmuxDiffViewerURLSchemeHandler()
-    static let maxRegisteredFiles = 1024
+    // Keep this aligned with Native/DiffSidecar's manifest validation limit.
+    static let maxRegisteredFiles = 4096
 
     typealias RegisteredFile = CmuxDiffViewerRegisteredFile
     private typealias Session = (
@@ -393,7 +394,8 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         guard let data = try? Data(contentsOf: manifestURL),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let fileObjects = object["files"] as? [[String: Any]],
-              !fileObjects.isEmpty else {
+              !fileObjects.isEmpty,
+              fileObjects.count <= Self.maxRegisteredFiles else {
             return nil
         }
         var files: [RegisteredFile] = []
