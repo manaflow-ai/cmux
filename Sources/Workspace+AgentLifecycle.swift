@@ -29,6 +29,11 @@ extension Workspace {
         workspaceId: UUID?
     ) -> SessionPanelSnapshot {
         let environment = legacyHermesRecoveryEnvironment(for: snapshot)
+        let terminal = snapshot.terminal
+        let sourceBinding = terminal?.resumeBinding ?? terminal?.managedAgentResumeBinding
+        let expectedWorkingDirectory = terminal?.agent?.workingDirectory
+            ?? sourceBinding?.cwd
+            ?? terminal?.workingDirectory
         return repairedLegacyHermesSessionPanelSnapshot(
             snapshot,
             workspaceId: workspaceId,
@@ -37,6 +42,7 @@ extension Workspace {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     corruptSessionId: corruptSessionId,
+                    expectedWorkingDirectory: expectedWorkingDirectory,
                     environment: environment
                 )
             }
@@ -186,6 +192,7 @@ extension Workspace {
         workspaceId: UUID?,
         surfaceId: UUID,
         corruptSessionId: String,
+        expectedWorkingDirectory: String?,
         environment: [String: String]
     ) -> LegacyHermesSessionResolution {
         let hookStateFileURL = RestorableAgentKind.hermesAgent.hookStoreFileURL(
@@ -196,6 +203,7 @@ extension Workspace {
             surfaceID: surfaceId,
             corruptSessionID: corruptSessionId,
             expectedWorkspaceID: workspaceId,
+            expectedWorkingDirectory: expectedWorkingDirectory,
             hookStateFileURL: hookStateFileURL,
             environment: environment
         ) {

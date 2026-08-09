@@ -84,6 +84,7 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
     ///   - surfaceID: The cmux surface that owns the transient checkpoint.
     ///   - corruptSessionID: The persisted checkpoint that Hermes cannot resume.
     ///   - expectedWorkspaceID: The workspace that must own the hook record, when known.
+    ///   - expectedWorkingDirectory: The saved pane directory used to reject a transport from another launch.
     ///   - hookStateFileURL: The Hermes hook-session store to inspect.
     ///   - environment: The launch environment used to resolve the Hermes state database.
     /// - Returns: The authoritative conversation and launch command, or `nil` when the evidence is incomplete.
@@ -91,6 +92,7 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
         surfaceID: UUID,
         corruptSessionID: String,
         expectedWorkspaceID: UUID? = nil,
+        expectedWorkingDirectory: String? = nil,
         hookStateFileURL: URL,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Result? {
@@ -98,6 +100,7 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
             surfaceID: surfaceID,
             corruptSessionID: corruptSessionID,
             expectedWorkspaceID: expectedWorkspaceID,
+            expectedWorkingDirectory: expectedWorkingDirectory,
             hookStateFileURL: hookStateFileURL,
             environment: environment,
             databaseInspector: { sessionIDs, cwd, startedAt, upperBound, stateDBPath in
@@ -120,6 +123,7 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
         surfaceID: UUID,
         corruptSessionID: String,
         expectedWorkspaceID: UUID? = nil,
+        expectedWorkingDirectory: String? = nil,
         hookStateFileURL: URL,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Resolution {
@@ -127,6 +131,7 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
             surfaceID: surfaceID,
             corruptSessionID: corruptSessionID,
             expectedWorkspaceID: expectedWorkspaceID,
+            expectedWorkingDirectory: expectedWorkingDirectory,
             hookStateFileURL: hookStateFileURL,
             environment: environment,
             databaseInspector: { sessionIDs, cwd, startedAt, upperBound, stateDBPath in
@@ -145,6 +150,7 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
         surfaceID: UUID,
         corruptSessionID: String,
         expectedWorkspaceID: UUID? = nil,
+        expectedWorkingDirectory: String? = nil,
         hookStateFileURL: URL,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         databaseInspector: RecoveryDatabaseInspector
@@ -153,6 +159,7 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
             surfaceID: surfaceID,
             corruptSessionID: corruptSessionID,
             expectedWorkspaceID: expectedWorkspaceID,
+            expectedWorkingDirectory: expectedWorkingDirectory,
             hookStateFileURL: hookStateFileURL,
             environment: environment,
             databaseInspector: databaseInspector
@@ -166,6 +173,7 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
         surfaceID: UUID,
         corruptSessionID: String,
         expectedWorkspaceID: UUID? = nil,
+        expectedWorkingDirectory: String? = nil,
         hookStateFileURL: URL,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         databaseInspector: RecoveryDatabaseInspector
@@ -174,23 +182,31 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
         guard let normalizedCorruptSessionID else { return .missing }
 
         guard let data = try? Data(contentsOf: hookStateFileURL),
-              let state = try? JSONDecoder().decode(HookStore.self, from: data),
-              let corruptRecord = state.sessions[normalizedCorruptSessionID]
-                ?? state.sessions.values.first(where: {
-                    $0.sessionId.caseInsensitiveCompare(normalizedCorruptSessionID) == .orderedSame
-                }) else {
+              let state = try? JSONDecoder().decode(HookStore.self, from: data) else {
             return exactResolution(
                 sessionID: normalizedCorruptSessionID,
                 environment: environment,
                 databaseInspector: databaseInspector
             )
         }
-        guard corruptRecord.surfaceId.caseInsensitiveCompare(surfaceID.uuidString) == .orderedSame,
-              expectedWorkspaceID.map({
-                  corruptRecord.workspaceId.caseInsensitiveCompare($0.uuidString) == .orderedSame
-              }) ?? true else {
-            return exactResolution(
-                sessionID: normalizedCorruptSessionID,
+
+        let corruptRecord = state.sessions[normalizedCorruptSessionID]
+            ?? state.sessions.values.first(where: {
+                $0.sessionId.caseInsensitiveCompare(normalizedCorruptSessionID) == .orderedSame
+            })
+        guard let corruptRecord,
+              record(
+                  corruptRecord,
+                  belongsTo: surfaceID,
+                  expectedWorkspaceID: expectedWorkspaceID
+              ) else {
+            return detachedDurableResolution(
+                state: state,
+                requestedSessionID: normalizedCorruptSessionID,
+                surfaceID: surfaceID,
+                expectedWorkspaceID: expectedWorkspaceID,
+                expectedWorkingDirectory: expectedWorkingDirectory,
+                displacedRecord: corruptRecord,
                 environment: environment,
                 databaseInspector: databaseInspector
             )
@@ -347,6 +363,87 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
         ))
     }
 
+    /// Re-arms a valid durable checkpoint after its single keyed hook row has
+    /// been reused by a later resume of the same conversation in another pane.
+    ///
+    /// Legacy Hermes approval callbacks also persisted the old pane's surface
+    /// UUID as a running transport identity. That surface-scoped record remains
+    /// available after the durable session row moves, so it can prove that the
+    /// retired binding came from a failed legacy restore. The durable ID itself
+    /// still has to exist in the same state database, while the surface UUID
+    /// must not.
+    private func detachedDurableResolution(
+        state: HookStore,
+        requestedSessionID: String,
+        surfaceID: UUID,
+        expectedWorkspaceID: UUID?,
+        expectedWorkingDirectory: String?,
+        displacedRecord: HookRecord?,
+        environment: [String: String],
+        databaseInspector: RecoveryDatabaseInspector
+    ) -> Resolution {
+        let stateDBPath = normalizedStateDBPath(
+            HermesAgentSessionResolver.stateDBPath(env: environment)
+        )
+        let workingDirectory = normalized(expectedWorkingDirectory)
+            .map { ($0 as NSString).standardizingPath }
+            ?? displacedRecord.flatMap(normalizedWorkingDirectory)
+        guard let workingDirectory else {
+            return exactResolution(
+                sessionID: requestedSessionID,
+                environment: environment,
+                databaseInspector: databaseInspector
+            )
+        }
+
+        let surfaceTransportID = surfaceID.uuidString
+        let candidates = state.sessions.values.filter { candidate in
+            guard candidate.sessionId.caseInsensitiveCompare(requestedSessionID) != .orderedSame,
+                  candidate.sessionId.caseInsensitiveCompare(surfaceTransportID) == .orderedSame,
+                  record(
+                      candidate,
+                      belongsTo: surfaceID,
+                      expectedWorkspaceID: expectedWorkspaceID
+                  ),
+                  recordReportsRunningLifecycle(candidate),
+                  recordHasProcessGeneration(candidate),
+                  recordMatchesWorkingDirectory(candidate, workingDirectory),
+                  normalizedStateDBPath(HermesAgentSessionResolver.stateDBPath(
+                      env: stateEnvironment(base: environment, launchCommand: candidate.launchCommand)
+                  )) == stateDBPath else {
+                return false
+            }
+            return true
+        }
+        guard candidates.count == 1, let candidate = candidates.first else {
+            return exactResolution(
+                sessionID: requestedSessionID,
+                environment: environment,
+                databaseInspector: databaseInspector
+            )
+        }
+
+        guard let inspection = databaseInspector(
+            [requestedSessionID, candidate.sessionId],
+            nil,
+            nil,
+            nil,
+            stateDBPath
+        ) else {
+            return .unavailable
+        }
+        guard inspection.existence(of: requestedSessionID) == .exists else {
+            return .missing
+        }
+        guard inspection.existence(of: candidate.sessionId) == .missing else {
+            return .valid
+        }
+        return .legacyRestore(Result(
+            sessionID: requestedSessionID,
+            launchCommand: candidate.launchCommand
+        ))
+    }
+
     private func exactResolution(
         sessionID: String,
         environment: [String: String],
@@ -389,6 +486,30 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
             && record.pidStartMicroseconds == startMicroseconds
     }
 
+    private func record(
+        _ record: HookRecord,
+        belongsTo surfaceID: UUID,
+        expectedWorkspaceID: UUID?
+    ) -> Bool {
+        record.surfaceId.caseInsensitiveCompare(surfaceID.uuidString) == .orderedSame
+            && (expectedWorkspaceID.map {
+                record.workspaceId.caseInsensitiveCompare($0.uuidString) == .orderedSame
+            } ?? true)
+    }
+
+    private func recordHasProcessGeneration(_ record: HookRecord) -> Bool {
+        guard let pid = record.pid,
+              pid > 0,
+              let seconds = record.pidStartSeconds,
+              seconds >= 0,
+              let microseconds = record.pidStartMicroseconds,
+              microseconds >= 0,
+              microseconds < 1_000_000 else {
+            return false
+        }
+        return true
+    }
+
     private func recordReportsRunningLifecycle(_ record: HookRecord) -> Bool {
         normalized(record.runtimeStatus)?.lowercased() == "running"
             && normalized(record.agentLifecycle)?.lowercased() == "running"
@@ -403,6 +524,13 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
             return false
         }
         return lhs == rhs
+    }
+
+    private func recordMatchesWorkingDirectory(
+        _ record: HookRecord,
+        _ expectedWorkingDirectory: String
+    ) -> Bool {
+        normalizedWorkingDirectory(record) == expectedWorkingDirectory
     }
 
     private func normalizedWorkingDirectory(_ record: HookRecord) -> String? {

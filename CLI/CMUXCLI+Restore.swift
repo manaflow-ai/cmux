@@ -220,6 +220,8 @@ extension CMUXCLI {
         switch HermesLegacySessionIdentityRecovery().resolve(
             surfaceID: surfaceUUID,
             corruptSessionID: checkpointID,
+            expectedWorkingDirectory: record.workingDirectory
+                ?? record.launchCommand?.workingDirectory,
             hookStateFileURL: URL(fileURLWithPath: hookStatePath),
             environment: recoveryEnvironment
         ) {

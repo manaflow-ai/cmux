@@ -313,6 +313,49 @@ struct HermesAgentIndexTests {
         }
         #expect(recovered.sessionID == durableID)
         #expect(inspectedSessionIDs == [Set([durableID, transientID])])
+
+        let mismatchedDirectory = HermesLegacySessionIdentityRecovery().resolve(
+            surfaceID: originalSurfaceID,
+            corruptSessionID: durableID,
+            expectedWorkspaceID: originalWorkspaceID,
+            expectedWorkingDirectory: root.appendingPathComponent("other-repo").path,
+            hookStateFileURL: hookStoreURL,
+            environment: ["HOME": root.path],
+            databaseInspector: { _, _, _, _, _ in
+                HermesAgentIndex.RecoveryInspection(
+                    existingSessionIDs: [durableID],
+                    evidence: []
+                )
+            }
+        )
+        #expect(mismatchedDirectory == .valid)
+
+        let unavailable = HermesLegacySessionIdentityRecovery().resolve(
+            surfaceID: originalSurfaceID,
+            corruptSessionID: durableID,
+            expectedWorkspaceID: originalWorkspaceID,
+            expectedWorkingDirectory: root.path,
+            hookStateFileURL: hookStoreURL,
+            environment: ["HOME": root.path],
+            databaseInspector: { _, _, _, _, _ in nil }
+        )
+        #expect(unavailable == .unavailable)
+
+        let durableSurfaceIdentity = HermesLegacySessionIdentityRecovery().resolve(
+            surfaceID: originalSurfaceID,
+            corruptSessionID: durableID,
+            expectedWorkspaceID: originalWorkspaceID,
+            expectedWorkingDirectory: root.path,
+            hookStateFileURL: hookStoreURL,
+            environment: ["HOME": root.path],
+            databaseInspector: { _, _, _, _, _ in
+                HermesAgentIndex.RecoveryInspection(
+                    existingSessionIDs: [durableID, transientID],
+                    evidence: []
+                )
+            }
+        )
+        #expect(durableSurfaceIdentity == .valid)
     }
 
     @Test("Searches messages and scopes sessions by directory")
