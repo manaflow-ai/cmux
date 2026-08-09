@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { stripeSubscriptions } from "../db/schema";
@@ -75,7 +75,7 @@ describe("localized pricing page", () => {
     proUser.update.mockClear();
   });
 
-  afterAll(() => {
+  afterEach(() => {
     if (originalVaultEnabled === undefined) {
       delete process.env.CMUX_VAULT_ENABLED;
     } else {
