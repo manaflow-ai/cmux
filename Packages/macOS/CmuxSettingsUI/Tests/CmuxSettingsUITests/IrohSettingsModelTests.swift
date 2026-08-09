@@ -189,6 +189,23 @@ struct IrohSettingsModelTests {
         #expect(!model.showsSaveError)
     }
 
+    @Test func relayOnlyRestartNeverGatesTheControls() async {
+        let controller = IrohSettingsControllerDouble(snapshot: .unavailable)
+        controller.holdsPathPreferenceMutations = true
+        let model = IrohSettingsModel(controller: controller)
+
+        model.setPathPreference(.relayOnly)
+        await waitUntil { controller.pendingPathPreferenceRequestIDs == [0] }
+        // The Iroh restart is still in flight; the controls must stay usable.
+        #expect(!model.isMutating)
+        #expect(controller.pathPreferenceMutations == [.relayOnly])
+
+        controller.resumePathPreferenceRequest(0)
+        await waitUntil { controller.pendingPathPreferenceRequestIDs.isEmpty }
+        #expect(!model.showsSaveError)
+        #expect(!model.isMutating)
+    }
+
     @Test func laterTransitionIntoDiagnosedDegradedRunsConnectionCheckOnce() async {
         let controller = IrohSettingsControllerDouble(
             snapshot: snapshot(sequence: 1, selectedRelayIDs: ["use1"])
@@ -357,6 +374,11 @@ private final class IrohSettingsControllerDouble:
     var snapshot: CmxIrohSettingsSnapshot
     var preferenceMutations: [CmxIrohRelayPreferenceDraft] = []
     var pathPreferenceMutations: [CmxIrohPathPreference] = []
+    var holdsPathPreferenceMutations = false
+    private(set) var nextPathPreferenceRequestID = 0
+    private var pendingPathPreferenceMutations: [
+        Int: CheckedContinuation<Void, Never>
+    ] = [:]
     var customRelayMutations: [CustomRelayMutation] = []
     var customRelayError: Error?
     var snapshotAfterCustomRelayError: CmxIrohSettingsSnapshot?
@@ -402,6 +424,22 @@ private final class IrohSettingsControllerDouble:
 
     func setIrohPathPreference(_ preference: CmxIrohPathPreference) async throws {
         pathPreferenceMutations.append(preference)
+        if holdsPathPreferenceMutations {
+            let requestID = nextPathPreferenceRequestID
+            nextPathPreferenceRequestID += 1
+            await withCheckedContinuation {
+                (continuation: CheckedContinuation<Void, Never>) in
+                pendingPathPreferenceMutations[requestID] = continuation
+            }
+        }
+    }
+
+    var pendingPathPreferenceRequestIDs: [Int] {
+        pendingPathPreferenceMutations.keys.sorted()
+    }
+
+    func resumePathPreferenceRequest(_ id: Int) {
+        pendingPathPreferenceMutations.removeValue(forKey: id)?.resume()
     }
 
     func upsertIrohCustomRelay(

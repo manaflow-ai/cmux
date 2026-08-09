@@ -73,14 +73,14 @@ final class MobileIrohSettingsModel {
     }
 
     func setPathPreference(_ preference: CmxIrohPathPreference) {
-        mutate { try await self.controller.setIrohPathPreference(preference) }
+        runRestartMutation { try await self.controller.setIrohPathPreference(preference) }
     }
 
     #if DEBUG
     func setDebugTransportVerificationMode(
         _ mode: CmxIrohTransportVerificationMode
     ) {
-        mutate {
+        runRestartMutation {
             guard let debugController = self.controller
                 as? any CmxIrohDebugSettingsControlling else { return }
             try await debugController.setIrohDebugTransportVerificationMode(mode)
@@ -145,6 +145,25 @@ final class MobileIrohSettingsModel {
 
     private func mutate(_ operation: @escaping @MainActor () async throws -> Void) {
         Task { _ = await mutateAndWait(operation) }
+    }
+
+    /// Runs a mutation whose controller call persists the preference and
+    /// publishes the new snapshot immediately, then restarts Iroh before
+    /// returning. The restart can take tens of seconds, so it must not hold
+    /// `isMutating` (which disables the whole sheet); the settings update
+    /// stream reconciles the UI while the restart runs.
+    private func runRestartMutation(
+        _ operation: @escaping @MainActor () async throws -> Void
+    ) {
+        Task {
+            do {
+                try await operation()
+                snapshot = await controller.irohSettingsSnapshot()
+            } catch {
+                snapshot = await controller.irohSettingsSnapshot()
+                showsSaveError = true
+            }
+        }
     }
 
     private func mutateAndWait(_ operation: @MainActor () async throws -> Void) async -> Bool {

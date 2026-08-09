@@ -61,8 +61,20 @@ final class IrohSettingsModel {
     }
 
     func setPathPreference(_ preference: CmxIrohPathPreference) {
-        mutate { controller in
-            try await controller.setIrohPathPreference(preference)
+        // The controller persists the preference and publishes the new
+        // snapshot immediately, then restarts Iroh before returning. The
+        // restart can take tens of seconds, so it must not hold `isMutating`
+        // (which disables the Networking controls); the settings update
+        // stream reconciles the UI while the restart runs.
+        guard let controller else { return }
+        Task {
+            do {
+                try await controller.setIrohPathPreference(preference)
+                snapshot = await controller.irohSettingsSnapshot()
+            } catch {
+                snapshot = await controller.irohSettingsSnapshot()
+                showsSaveError = true
+            }
         }
     }
 
