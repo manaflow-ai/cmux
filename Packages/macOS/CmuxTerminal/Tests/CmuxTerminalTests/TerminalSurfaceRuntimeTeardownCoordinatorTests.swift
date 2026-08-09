@@ -292,7 +292,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         defer { surface.deallocate() }
         #expect(context.bindRuntimeClipboardSurface(surface, generation: 7))
 
-        #expect(context.registerRuntimeClipboardRequest(
+        let didRegisterClipboardRequest = context.registerRuntimeClipboardRequest(
             id: 29,
             onInvalidation: { _, completesNativeRequest, _, disposition in
                 if case .discard = disposition {
@@ -304,7 +304,8 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
                     "clipboard.invalidate.\(completesNativeRequest)"
                 )
             }
-        ))
+        )
+        #expect(didRegisterClipboardRequest)
         #expect(context.commitRuntimeClipboardRequest(29))
 
         coordinator.enqueueRuntimeTeardown(

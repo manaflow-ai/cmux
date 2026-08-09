@@ -6,7 +6,7 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct TerminalSurfaceExplicitInputTests {
-    private enum ProgrammaticInput: CaseIterable, Equatable, Sendable {
+    enum ProgrammaticInput: CaseIterable, Equatable, Sendable {
         case pasteText
         case keyText
         case namedKey

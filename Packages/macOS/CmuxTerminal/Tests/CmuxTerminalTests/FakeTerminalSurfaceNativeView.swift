@@ -1,5 +1,6 @@
 import AppKit
 import CmuxTerminalCore
+import GhosttyKit
 @testable import CmuxTerminal
 
 final class FakeTerminalSurfaceNativeView: NSView {
