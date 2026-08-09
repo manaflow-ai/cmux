@@ -107,6 +107,8 @@ class FakeCmuxSocket:
         self.frames: list[dict] = []
         self.frames_with_connection: list[tuple[int, dict]] = []
         self._frame_condition = threading.Condition()
+        self._raw_response_gate_lock = threading.Lock()
+        self._raw_response_gate_pending = raw_response_gate is not None
         self._next_connection_id = 0
         self._ready = threading.Event()
         self.feed_frame_received = threading.Event()
@@ -180,7 +182,12 @@ class FakeCmuxSocket:
                             self._frame_condition.notify_all()
                         if self.raw_response_delay > 0:
                             time.sleep(self.raw_response_delay)
-                        if self.raw_response_gate is not None:
+                        gated_response = False
+                        with self._raw_response_gate_lock:
+                            if self._raw_response_gate_pending:
+                                self._raw_response_gate_pending = False
+                                gated_response = True
+                        if gated_response and self.raw_response_gate is not None:
                             self.raw_response_gate.wait(timeout=5)
                         reply(b"OK\n")
                         continue
@@ -1107,18 +1114,17 @@ def test_codex_deferred_settlement_has_single_live_replay_claim(
 
             second_start = len(fake.frames)
             second_process = start_stop_hook()
-            second_outcome = fake.wait_for_frame(
-                lambda frame: "raw" in frame
-                or is_feed_event(frame, "SubagentStop"),
-                start_index=second_start,
-                timeout=3,
+            assert_success(second_process, "overlapping SubagentStop")
+            second_process = None
+            duplicate_replay = next(
+                (
+                    frame
+                    for frame in fake.frames[second_start:]
+                    if "raw" in frame
+                ),
+                None,
             )
-            if second_outcome is None:
-                raise AssertionError(
-                    "The overlapping SubagentStop neither skipped the live "
-                    "claim nor exposed a duplicate replay"
-                )
-            if "raw" in second_outcome:
+            if duplicate_replay is not None:
                 raise AssertionError(
                     "Two overlapping SubagentStop hooks replayed the same "
                     f"durable settlement: {fake.frames[first_start:]!r}"
