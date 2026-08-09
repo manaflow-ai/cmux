@@ -48,7 +48,7 @@ extension RemoteTmuxControlConnection {
             }
             if case let .rawQuery(token) = kind {
                 rawQueryTimeoutTasks.removeValue(forKey: token)?.cancel()
-                rawQueryCompletions.removeValue(forKey: token)?(nil)
+                rawQueryCompletions.removeValue(forKey: token)?(.error(lines))
             }
             // A rejected per-window size normally means the server predates
             // the '@id:WxH' form: degrade to session-wide sizing, visibly.
@@ -331,7 +331,7 @@ extension RemoteTmuxControlConnection {
             classifyAndEmitReflow(paneId: paneId, rawValue: lines.first ?? "", source: "oneshot")
         case let .rawQuery(token):
             rawQueryTimeoutTasks.removeValue(forKey: token)?.cancel()
-            rawQueryCompletions.removeValue(forKey: token)?(lines)
+            rawQueryCompletions.removeValue(forKey: token)?(.lines(lines))
         case let .activityQuery(token):
             guard let completion = activityQueryCompletions.removeValue(forKey: token) else { break }
             var states: [Int: PaneForegroundState] = [:]
