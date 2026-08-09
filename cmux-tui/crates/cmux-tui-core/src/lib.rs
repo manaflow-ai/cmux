@@ -55,6 +55,7 @@ pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 pub use short_id::assign_short_ids;
+pub use surface::apply_terminal_color_overrides;
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
     BrowserFrameStream, BrowserFrameUpdate, BrowserSource, BrowserStatus,
@@ -66,8 +67,10 @@ pub use surface::{
     TerminalPointerSnapshot,
 };
 pub use workspace_registry::{
-    FrontendProjection, ProjectionCommit, RegistryCommit, RegistryEvent, RegistrySnapshot,
-    RegistryWorkspace, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
+    FrontendProjection, PersistentSessionStateReset, PersistentSessionStateResetPreview,
+    PersistentSessionStateResetter, ProjectionCommit, RegistryCommit, RegistryEvent,
+    RegistrySnapshot, RegistryWorkspace, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation,
+    WorkspaceRegistry,
 };
 
 pub use cmux_remote_protocol::REMOTE_SESSION_MESSAGE_MAX_BYTES;

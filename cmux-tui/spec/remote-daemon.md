@@ -101,6 +101,6 @@ Local bare `cmux-tui` retains tmux behavior and attaches to the local session wh
 
 ## Compatibility and exclusions
 
-The existing protocol-10 Unix JSON-lines and opt-in WebSocket text endpoints remain supported while clients migrate. They are compatibility transports and do not define the new provider abstraction.
+The protocol-11 Unix JSON-lines and opt-in WebSocket text endpoints remain supported while clients migrate. They are compatibility transports and do not define the new provider abstraction.
 
 This protocol does not create, destroy, snapshot, or authorize VMs. A daemon may run inside a VM supplied by another component, but VM lifecycle remains outside cmux-tui.
