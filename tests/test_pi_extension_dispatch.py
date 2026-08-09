@@ -161,6 +161,431 @@ await Promise.all([first, second]);
     return 0
 
 
+def check_ui_lifecycle_handlers_return_immediately(
+    bun: str,
+    root: Path,
+    extension_path: Path,
+) -> int:
+    lifecycle_log = root / "ui-lifecycle-latency.log"
+    lifecycle_release = root / "ui-lifecycle-release"
+    lifecycle_cmux = root / "ui-lifecycle-latency-cmux"
+    make_executable(
+        lifecycle_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+payload="$(cat)"
+printf 'start %s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_UI_LATENCY_LOG"
+for _ in {1..250}; do
+  if [ -f "$CMUX_TEST_PI_UI_RELEASE" ]; then break; fi
+  sleep 0.02
+done
+if [ ! -f "$CMUX_TEST_PI_UI_RELEASE" ]; then
+  printf 'blocked %s\n' "$*" >> "$CMUX_TEST_PI_UI_LATENCY_LOG"
+  exit 88
+fi
+printf 'end %s\n' "$*" >> "$CMUX_TEST_PI_UI_LATENCY_LOG"
+printf '{"workspace_id":"00000000-0000-0000-0000-000000008673","surface_id":"00000000-0000-0000-0000-000000008672","resume_binding":{"kind":"pi","checkpoint_id":"pi-ui-latency-session"}}\n'
+""",
+    )
+    lifecycle_source = """
+import { writeFileSync } from "node:fs";
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-ui-latency-project",
+  isIdle() { return true; },
+  sessionManager: { getSessionId() { return "pi-ui-latency-session"; } }
+};
+await Promise.resolve(handlers.get("session_start")({}, ctx));
+await Promise.resolve(handlers.get("before_agent_start")({ prompt: "hello" }, ctx));
+await Promise.resolve(handlers.get("tool_execution_end")({
+  toolCallId: "ui-lifecycle-tool",
+  toolName: "bash",
+  result: { content: [{ type: "text", text: "done" }] },
+  isError: false
+}, ctx));
+await Promise.resolve(handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "done" }],
+  stopReason: "completed"
+}, ctx));
+console.log("lifecycle_handlers_returned");
+writeFileSync(process.env.CMUX_TEST_PI_UI_RELEASE, "ready");
+
+const logPath = process.env.CMUX_TEST_PI_UI_LATENCY_LOG;
+const deadline = performance.now() + 5000;
+while (performance.now() < deadline) {
+  let text = "";
+  try {
+    text = await Bun.file(logPath).text();
+  } catch (_) {}
+  const completed = text.split("\\n").filter((line) => line.startsWith("end ")).length;
+  if (completed >= 7) break;
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=lifecycle_cmux,
+        source=lifecycle_source,
+        extra_env={
+            "CMUX_TEST_PI_UI_LATENCY_LOG": str(lifecycle_log),
+            "CMUX_TEST_PI_UI_RELEASE": str(lifecycle_release),
+        },
+    )
+    if result.returncode != 0:
+        print("FAIL: Pi UI lifecycle handler awaited cmux subprocess work")
+        print(f"exit={result.returncode}")
+        print(f"stdout={result.stdout.strip()}")
+        print(f"stderr={result.stderr.strip()}")
+        return 1
+
+    if "lifecycle_handlers_returned" not in result.stdout:
+        print(f"FAIL: Pi UI lifecycle handlers did not return before release: {result.stdout!r}")
+        return 1
+
+    calls = lifecycle_log.read_text(encoding="utf-8").splitlines()
+    completed = [line for line in calls if line.startswith("end ")]
+    expected = (
+        "hooks pi session-start",
+        "--json surface resume set",
+        "--json surface resume get",
+        "hooks pi prompt-submit",
+        "hooks feed --source pi --event PostToolUse",
+        "hooks pi notification",
+        "hooks pi stop",
+    )
+    indexes = {
+        command: [index for index, line in enumerate(completed) if command in line]
+        for command in expected
+    }
+    orderedIndexes = [indexes[command][0] for command in expected if indexes[command]]
+    commandPhases = [line.split(" ", 1)[0] for line in calls if line.startswith(("start ", "end "))]
+    if (
+        len(completed) != len(expected)
+        or any(len(found) != 1 for found in indexes.values())
+        or orderedIndexes != sorted(orderedIndexes)
+        or commandPhases != [phase for _ in expected for phase in ("start", "end")]
+    ):
+        print(f"FAIL: detached Pi lifecycle work lost command ordering: {calls!r}")
+        return 1
+    return 0
+
+
+def check_hot_path_defers_projection_and_reuses_launch_probes(
+    bun: str,
+    root: Path,
+    extension_path: Path,
+) -> int:
+    fake_cmux = root / "hot-path-cmux"
+    make_executable(
+        fake_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+cat >/dev/null
+printf '{}\n'
+""",
+    )
+
+    projection_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-hot-path-project",
+  sessionManager: { getSessionId() { return "pi-hot-path-session"; } }
+};
+let handlerReturned = false;
+let projectedSynchronously = false;
+let projectionCount = 0;
+const guardedToolInput = new Proxy(
+  { command: "printf hot-path" },
+  {
+    ownKeys(target) {
+      projectionCount += 1;
+      if (!handlerReturned) projectedSynchronously = true;
+      return Reflect.ownKeys(target);
+    },
+    getOwnPropertyDescriptor(target, property) {
+      return Reflect.getOwnPropertyDescriptor(target, property);
+    },
+    get(target, property, receiver) {
+      return Reflect.get(target, property, receiver);
+    }
+  }
+);
+handlers.get("tool_execution_start")({
+  toolCallId: "hot-path-tool",
+  toolName: "bash",
+  args: guardedToolInput
+}, ctx);
+handlerReturned = true;
+await handlers.get("session_shutdown")({ reason: "hot path test complete" }, ctx);
+if (projectedSynchronously) {
+  throw new Error("tool payload was traversed before the Pi event handler returned");
+}
+if (projectionCount !== 1) {
+  throw new Error(`expected one deferred payload projection, got ${projectionCount}`);
+}
+"""
+    projection = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=fake_cmux,
+        source=projection_source,
+        extra_env={},
+    )
+    if projection.returncode != 0:
+        print("FAIL: Pi tool-event hot path performed synchronous payload work")
+        print(f"exit={projection.returncode}")
+        print(f"stdout={projection.stdout.strip()}")
+        print(f"stderr={projection.stderr.strip()}")
+        return 1
+
+    package_root = (
+        root
+        / "hot-path-node-modules"
+        / "@earendil-works"
+        / "pi-coding-agent"
+    )
+    package_cli = package_root / "dist" / "cli.js"
+    package_cli.parent.mkdir(parents=True)
+    make_executable(package_cli, "#!/usr/bin/env node\n")
+    package_json = package_root / "package.json"
+    package_json.write_text(
+        json.dumps({"name": "@earendil-works/pi-coding-agent", "version": "0.83.0"}),
+        encoding="utf-8",
+    )
+    probe_bin = root / "hot-path-bin"
+    probe_bin.mkdir()
+    probe_pi = probe_bin / "pi"
+    probe_pi.symlink_to(package_cli)
+    inspectable_extension = root / "hot-path-cmux-session.ts"
+    inspectable_extension.write_text(
+        extension_path.read_text(encoding="utf-8")
+        + "\nexport { normalizedLaunchArgv, supportsAgentSettled };\n",
+        encoding="utf-8",
+    )
+    launch_probe_source = """
+import { unlinkSync } from "node:fs";
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+process.argv.splice(
+  0,
+  process.argv.length,
+  "/usr/bin/node",
+  process.env.CMUX_TEST_PI_PACKAGE_CLI
+);
+const firstArgv = mod.normalizedLaunchArgv();
+const firstSettled = mod.supportsAgentSettled();
+unlinkSync(process.env.CMUX_TEST_PI_BIN);
+unlinkSync(process.env.CMUX_TEST_PI_PACKAGE_JSON);
+const secondArgv = mod.normalizedLaunchArgv();
+const secondSettled = mod.supportsAgentSettled();
+if (
+  JSON.stringify(firstArgv) !== JSON.stringify(secondArgv)
+  || firstSettled !== true
+  || secondSettled !== true
+) {
+  throw new Error(JSON.stringify({ firstArgv, secondArgv, firstSettled, secondSettled }));
+}
+"""
+    launch_probe = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=inspectable_extension,
+        fake_cmux=fake_cmux,
+        source=launch_probe_source,
+        extra_env={
+            "PATH": str(probe_bin),
+            "CMUX_TEST_PI_BIN": str(probe_pi),
+            "CMUX_TEST_PI_PACKAGE_CLI": str(package_cli),
+            "CMUX_TEST_PI_PACKAGE_JSON": str(package_json),
+        },
+    )
+    if launch_probe.returncode != 0:
+        print("FAIL: Pi extension repeated synchronous launch filesystem probes")
+        print(f"exit={launch_probe.returncode}")
+        print(f"stdout={launch_probe.stdout.strip()}")
+        print(f"stderr={launch_probe.stderr.strip()}")
+        return 1
+    return 0
+
+
+def check_completion_precedes_next_prompt(bun: str, root: Path, extension_path: Path) -> int:
+    transition_log = root / "turn-transition.log"
+    transition_cmux = root / "turn-transition-cmux"
+    make_executable(
+        transition_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+payload="$(cat)"
+printf '%s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_TRANSITION_LOG"
+printf '{}\n'
+""",
+    )
+    transition_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-turn-transition",
+  sessionManager: { getSessionId() { return "pi-turn-transition-session"; } }
+};
+handlers.get("before_agent_start")({ prompt: "first" }, ctx);
+handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "first done" }],
+  stopReason: "completed"
+}, ctx);
+handlers.get("before_agent_start")({ prompt: "second" }, ctx);
+await handlers.get("session_shutdown")({ reason: "test complete" }, ctx);
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=transition_cmux,
+        source=transition_source,
+        extra_env={"CMUX_TEST_PI_TRANSITION_LOG": str(transition_log)},
+    )
+    if result.returncode != 0:
+        print(f"FAIL: Pi turn-transition harness failed: {result.stderr!r}")
+        return 1
+    calls = transition_log.read_text(encoding="utf-8").splitlines()
+    first_stop = next(
+        (
+            index
+            for index, line in enumerate(calls)
+            if "hooks pi stop" in line
+            and '"turn_id":"pi-turn-transition-session:turn-1"' in line
+        ),
+        None,
+    )
+    second_prompt = next(
+        (
+            index
+            for index, line in enumerate(calls)
+            if "hooks pi prompt-submit" in line
+            and '"turn_id":"pi-turn-transition-session:turn-2"' in line
+        ),
+        None,
+    )
+    if first_stop is None or second_prompt is None or first_stop > second_prompt:
+        print(f"FAIL: previous Pi completion raced the next prompt: {calls!r}")
+        return 1
+    return 0
+
+
+def check_cross_session_lifecycle_isolation(
+    bun: str,
+    root: Path,
+    extension_path: Path,
+) -> int:
+    lifecycle_log = root / "cross-session-lifecycle.log"
+    lifecycle_release = root / "cross-session-lifecycle-release"
+    lifecycle_cmux = root / "cross-session-lifecycle-cmux"
+    make_executable(
+        lifecycle_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+payload="$(cat)"
+printf 'start %s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_CROSS_LIFECYCLE_LOG"
+if [[ "$payload" == *'"session_id":"pi-slow-session"'* ]] && [[ "$*" == *"prompt-submit"* ]]; then
+  for _ in {1..250}; do
+    if [ -f "$CMUX_TEST_PI_CROSS_LIFECYCLE_RELEASE" ]; then break; fi
+    sleep 0.02
+  done
+  if [ ! -f "$CMUX_TEST_PI_CROSS_LIFECYCLE_RELEASE" ]; then
+    printf 'blocked %s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_CROSS_LIFECYCLE_LOG"
+    exit 88
+  fi
+fi
+printf 'end %s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_CROSS_LIFECYCLE_LOG"
+printf '{}\n'
+""",
+    )
+    lifecycle_source = """
+import { writeFileSync } from "node:fs";
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const context = (sessionId) => ({
+  cwd: "/tmp/pi-cross-session-lifecycle",
+  sessionManager: { getSessionId() { return sessionId; } }
+});
+const slow = context("pi-slow-session");
+const healthy = context("pi-healthy-session");
+handlers.get("before_agent_start")({ prompt: "block session A" }, slow);
+const logPath = process.env.CMUX_TEST_PI_CROSS_LIFECYCLE_LOG;
+const slowStartDeadline = performance.now() + 5000;
+let sawSlowStart = false;
+while (performance.now() < slowStartDeadline) {
+  try {
+    if ((await Bun.file(logPath).text()).includes("pi-slow-session")) {
+      sawSlowStart = true;
+      break;
+    }
+  } catch (_) {}
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+if (!sawSlowStart) throw new Error("slow session never entered cmux dispatch");
+await handlers.get("session_shutdown")({ reason: "session B complete" }, healthy);
+writeFileSync(process.env.CMUX_TEST_PI_CROSS_LIFECYCLE_RELEASE, "ready");
+await handlers.get("session_shutdown")({ reason: "session A complete" }, slow);
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=lifecycle_cmux,
+        source=lifecycle_source,
+        extra_env={
+            "CMUX_TEST_PI_CROSS_LIFECYCLE_LOG": str(lifecycle_log),
+            "CMUX_TEST_PI_CROSS_LIFECYCLE_RELEASE": str(lifecycle_release),
+        },
+    )
+    if result.returncode != 0:
+        print(f"FAIL: cross-session lifecycle harness failed: {result.stderr!r}")
+        return 1
+    calls = lifecycle_log.read_text(encoding="utf-8").splitlines()
+    slow_prompt_end = next(
+        (
+            index
+            for index, line in enumerate(calls)
+            if line.startswith("end ")
+            and "prompt-submit" in line
+            and '"session_id":"pi-slow-session"' in line
+        ),
+        None,
+    )
+    healthy_stop = next(
+        (
+            index
+            for index, line in enumerate(calls)
+            if line.startswith("end ")
+            and "hooks pi stop" in line
+            and '"session_id":"pi-healthy-session"' in line
+        ),
+        None,
+    )
+    if (
+        any(line.startswith("blocked ") for line in calls)
+        or healthy_stop is None
+        or slow_prompt_end is None
+        or healthy_stop > slow_prompt_end
+    ):
+        print(f"FAIL: slow Pi session delayed another session's shutdown: {calls!r}")
+        return 1
+    return 0
+
+
 def check_panel_only_target_fails_closed(bun: str, root: Path, extension_path: Path) -> int:
     marker = root / "panel-only-cmux-called"
     fake_cmux = root / "panel-only-cmux"
@@ -1114,7 +1539,14 @@ for (let index = 0; index < 4; index += 1) {
   }, ctx);
 }
 const logPath = process.env.CMUX_TEST_PI_CANCELLATION_LOG;
-while (!(await Bun.file(logPath).text()).includes("hooks feed")) {
+async function readLog() {
+  try {
+    return await Bun.file(logPath).text();
+  } catch (_) {
+    return "";
+  }
+}
+while (!(await readLog()).includes("hooks feed")) {
   await new Promise((resolve) => setTimeout(resolve, 10));
 }
 for (const index of [3, 1, 2, 0]) {
@@ -1134,7 +1566,11 @@ handlers.get("tool_execution_end")({
   toolName: "bash",
   result: { content: [{ type: "text", text: "late" }] }
 }, ctx);
-await new Promise((resolve) => setTimeout(resolve, 250));
+const completionDeadline = performance.now() + 5000;
+while (performance.now() < completionDeadline) {
+  if ((await readLog()).includes("hooks pi stop")) break;
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
 """
     completion = run_extension(
         bun=bun,
@@ -1402,6 +1838,11 @@ await handlers.get("agent_end")({
   messages: [{ role: "assistant", content: "done" }],
   stopReason: "completed"
 }, ctx);
+const completionDeadline = performance.now() + 5000;
+while (performance.now() < completionDeadline) {
+  if ((await Bun.file(logPath).text()).includes("hooks pi stop")) break;
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
 console.log(`ordered_completion_ms=${performance.now() - startedAt}`);
 """
     ordered = run_extension(
@@ -1508,6 +1949,11 @@ await handlers.get("agent_end")({
   messages: [{ role: "assistant", content: "done" }],
   stopReason: "completed"
 }, ctx);
+const completionDeadline = performance.now() + 6000;
+while (performance.now() < completionDeadline) {
+  if ((await Bun.file(logPath).text()).includes("hooks pi stop")) break;
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
 console.log(`completion_ms=${performance.now() - startedAt}`);
 """
     deadline = run_extension(
@@ -1650,12 +2096,25 @@ const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
 const mod = await import(extensionPath);
 const handlers = new Map();
 mod.default({ on(name, handler) { handlers.set(name, handler); } });
+let notificationCount = 0;
 const ctx = {
   cwd: "/tmp/pi-ambiguous-error-project",
+  ui: { notify() { notificationCount += 1; } },
   sessionManager: { getSessionId() { return "pi-ambiguous-error-session"; } }
 };
 await handlers.get("before_agent_start")({ prompt: "first" }, ctx);
 await handlers.get("before_agent_start")({ prompt: "second" }, ctx);
+const logPath = process.env.CMUX_TEST_PI_AMBIGUOUS_LOG;
+const deadline = performance.now() + 5000;
+while (performance.now() < deadline) {
+  try {
+    if ((await Bun.file(logPath).text()).trim().split("\\n").length >= 2) break;
+  } catch (_) {}
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+if (notificationCount !== 0) {
+  throw new Error(`routine cmux failure showed ${notificationCount} Pi warning toast(s)`);
+}
 """
     ambiguous = run_extension(
         bun=bun,
@@ -1961,6 +2420,16 @@ await healthyHandlers.get("before_agent_start")(
   { prompt: "healthy runtime" },
   context("pi-runtime-healthy")
 );
+await Promise.all([
+  staleHandlers.get("session_shutdown")(
+    { reason: "runtime isolation test" },
+    context("pi-runtime-stale"),
+  ),
+  healthyHandlers.get("session_shutdown")(
+    { reason: "runtime isolation test" },
+    context("pi-runtime-healthy"),
+  ),
+]);
 """
     runtime = run_extension(
         bun=bun,
@@ -1974,7 +2443,13 @@ await healthyHandlers.get("before_agent_start")(
         print(f"FAIL: runtime-isolation harness failed: {runtime.stderr!r}")
         return 1
     runtime_calls = runtime_log.read_text(encoding="utf-8").splitlines()
-    if len(runtime_calls) != 2 or "pi-runtime-healthy" not in runtime_calls[-1]:
+    prompt_calls = [line for line in runtime_calls if "hooks pi prompt-submit" in line]
+    prompt_sessions = {
+        session_id
+        for session_id in ("pi-runtime-stale", "pi-runtime-healthy")
+        if any(session_id in line for line in prompt_calls)
+    }
+    if len(prompt_calls) != 2 or prompt_sessions != {"pi-runtime-stale", "pi-runtime-healthy"}:
         print(f"FAIL: stale surface leaked across Pi extension runtimes: {runtime_calls!r}")
         return 1
 
@@ -2006,18 +2481,22 @@ const context = (sessionId) => ({
   cwd: "/tmp/pi-session-isolation-project",
   sessionManager: { getSessionId() { return sessionId; } },
 });
+const staleContext = context("pi-session-stale");
+const healthyContext = context("pi-session-healthy");
 await handlers.get("before_agent_start")(
   { prompt: "stale session" },
-  context("pi-session-stale"),
+  staleContext,
 );
 await handlers.get("before_agent_start")(
   { prompt: "stale session retry" },
-  context("pi-session-stale"),
+  staleContext,
 );
 await handlers.get("before_agent_start")(
   { prompt: "healthy session" },
-  context("pi-session-healthy"),
+  healthyContext,
 );
+await handlers.get("session_shutdown")({ reason: "session isolation test" }, staleContext);
+await handlers.get("session_shutdown")({ reason: "session isolation test" }, healthyContext);
 """
     result = run_extension(
         bun=bun,
@@ -2031,7 +2510,12 @@ await handlers.get("before_agent_start")(
         print(f"FAIL: same-runtime session isolation harness failed: {result.stderr!r}")
         return 1
     calls = session_log.read_text(encoding="utf-8").splitlines()
-    if len(calls) != 2 or "pi-session-healthy" not in calls[-1]:
+    prompt_calls = [line for line in calls if "hooks pi prompt-submit" in line]
+    if (
+        len(prompt_calls) != 2
+        or sum("pi-session-stale" in line for line in prompt_calls) != 1
+        or sum("pi-session-healthy" in line for line in prompt_calls) != 1
+    ):
         print(f"FAIL: stale surface disabled another Pi session in the same runtime: {calls!r}")
         return 1
     return 0
@@ -2103,6 +2587,10 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
 def run_checks(bun: str, root: Path, extension_path: Path) -> int:
     checks = (
         check_responsiveness,
+        check_ui_lifecycle_handlers_return_immediately,
+        check_hot_path_defers_projection_and_reuses_launch_probes,
+        check_completion_precedes_next_prompt,
+        check_cross_session_lifecycle_isolation,
         check_panel_only_target_fails_closed,
         check_feed_backlog,
         check_terminal_feed_compaction,

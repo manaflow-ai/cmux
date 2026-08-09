@@ -1,5 +1,6 @@
 import {
   CmuxAbortError,
+  CmuxAuthenticationRejectedError,
   CmuxConnectionError,
   CmuxProtocolError,
   CmuxTimeoutError,
@@ -25,7 +26,7 @@ import {
   isValidIdempotencyKey,
 } from "./internal/text.js";
 
-const PROTOCOL = "cmux.protocol/1";
+const PROTOCOL = "cmux.protocol/2";
 const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const STREAM_OPEN_CLEANUP_TIMEOUT_MS = 1_000;
@@ -44,8 +45,11 @@ interface Pending {
   resolve(value: unknown): void;
   reject(error: unknown): void;
   onResourceError?: () => void;
+  validateAbandonedResult?: (value: unknown) => unknown;
   timer?: ReturnType<typeof setTimeout>;
+  readonly dispatchDeadline?: number;
   removeAbort?: () => void;
+  cancelUndispatched?: Unsubscribe;
   abandonment?: RequestAbandonment;
 }
 
@@ -61,8 +65,9 @@ interface RequestAbandonment {
 }
 
 interface TerminalWaitLease {
-  readonly expiresAt: number;
-  readonly timer: ReturnType<typeof setTimeout>;
+  readonly durationMs: number;
+  expiresAt?: number;
+  timer?: ReturnType<typeof setTimeout>;
 }
 
 interface StreamCancellationConfirmation {
@@ -99,6 +104,7 @@ interface StreamState<Value> {
   openSendError?: unknown;
   cleanupStarted: boolean;
   cancellation?: StreamCancellationConfirmation;
+  abortCleanup?: () => void;
   end?: StreamEnd;
 }
 
@@ -166,6 +172,7 @@ export class ResourceProtocol {
     operation: Operation,
     params: Readonly<Record<string, unknown>>,
     options: RequestOptions & MutationOptions = {},
+    validateAbandonedResult?: (value: unknown) => unknown,
   ): Promise<OperationResponse> {
     if (operation.class === "local") {
       if (!this.localExecutor) {
@@ -188,6 +195,7 @@ export class ResourceProtocol {
       throw new TypeError(`${operation.name} does not accept an idempotency key`);
     }
     let value: unknown;
+    let dispatchStarted = false;
     try {
       value = await this.sendRequest(
         operation.name,
@@ -195,14 +203,23 @@ export class ResourceProtocol {
         idempotencyKey,
         options.signal,
         options.timeoutMs,
+        undefined,
+        undefined,
+        undefined,
+        validateAbandonedResult,
+        () => {
+          dispatchStarted = true;
+        },
       );
     } catch (error) {
       if (
         operation.class === "mutation"
         && idempotencyKey !== undefined
         && !(error instanceof ResourceError)
+        && !(error instanceof CmuxAuthenticationRejectedError)
         && !(error instanceof CmuxProtocolError)
         && !(error instanceof TypeError)
+        && dispatchStarted
       ) {
         throw new MutationTransportUncertainError(
           operation.name,
@@ -377,6 +394,8 @@ export class ResourceProtocol {
     onDispatched?: () => void,
     onSendError?: (error: unknown) => void,
     onResourceError?: () => void,
+    validateAbandonedResult?: (value: unknown) => unknown,
+    onDispatchStarted?: () => void,
   ): Promise<unknown> {
     if (this.requestCleanups.size === 0) {
       return this.sendRequestNow(
@@ -388,6 +407,8 @@ export class ResourceProtocol {
         onDispatched,
         onSendError,
         onResourceError,
+        validateAbandonedResult,
+        onDispatchStarted,
       );
     }
     return this.sendRequestAfterCleanup(
@@ -399,6 +420,8 @@ export class ResourceProtocol {
       onDispatched,
       onSendError,
       onResourceError,
+      validateAbandonedResult,
+      onDispatchStarted,
     );
   }
 
@@ -411,6 +434,8 @@ export class ResourceProtocol {
     onDispatched?: () => void,
     onSendError?: (error: unknown) => void,
     onResourceError?: () => void,
+    validateAbandonedResult?: (value: unknown) => unknown,
+    onDispatchStarted?: () => void,
   ): Promise<unknown> {
     if (this.closed) {
       throw this.failure ?? new CmuxConnectionError("closed");
@@ -444,6 +469,8 @@ export class ResourceProtocol {
       onDispatched,
       onSendError,
       onResourceError,
+      validateAbandonedResult,
+      onDispatchStarted,
     );
   }
 
@@ -456,6 +483,8 @@ export class ResourceProtocol {
     onDispatched?: () => void,
     onSendError?: (error: unknown) => void,
     onResourceError?: () => void,
+    validateAbandonedResult?: (value: unknown) => unknown,
+    onDispatchStarted?: () => void,
   ): Promise<unknown> {
     if (this.closed) return Promise.reject(this.failure ?? new CmuxConnectionError("closed"));
     if (signal?.aborted) return Promise.reject(abortError());
@@ -513,7 +542,15 @@ export class ResourceProtocol {
       );
     }
     return new Promise<unknown>((resolve, reject) => {
-      const pending: Pending = { resolve, reject, onResourceError };
+      const pending: Pending = {
+        resolve,
+        reject,
+        onResourceError,
+        validateAbandonedResult,
+        ...(effectiveTimeout > 0
+          ? { dispatchDeadline: monotonicNow() + effectiveTimeout }
+          : {}),
+      };
       let dispatchStarted = false;
       let dispatchComplete = false;
       const abandon = (
@@ -553,12 +590,56 @@ export class ResourceProtocol {
         return;
       }
       try {
-        dispatchStarted = true;
         this.activeTransportSends += 1;
         try {
-          this.transport.send(json);
+          if (
+            this.transport.supportsDispatchGuard === true
+            && this.transport.sendCancellable
+          ) {
+            const cancelUndispatched = this.transport.sendCancellable(
+              json,
+              () => {
+                if (dispatchStarted) return;
+                dispatchStarted = true;
+                this.startTerminalWaitLease(requestId);
+                const release = pending.cancelUndispatched;
+                pending.cancelUndispatched = undefined;
+                release?.();
+                onDispatchStarted?.();
+                onDispatched?.();
+              },
+              () => {
+                if (this.pending.get(requestId) !== pending) return false;
+                if (signal?.aborted) {
+                  abandon(abortError());
+                  return false;
+                }
+                if (
+                  pending.dispatchDeadline !== undefined
+                  && monotonicNow() >= pending.dispatchDeadline
+                ) {
+                  abandon(new CmuxTimeoutError(`${operation} timed out`));
+                  return false;
+                }
+                return true;
+              },
+            );
+            if (
+              !dispatchStarted
+              && this.pending.get(requestId) === pending
+            ) {
+              pending.cancelUndispatched = cancelUndispatched;
+            } else {
+              cancelUndispatched();
+            }
+          } else {
+            dispatchStarted = true;
+            this.startTerminalWaitLease(requestId);
+            onDispatchStarted?.();
+            this.transport.send(json);
+            onDispatched?.();
+          }
           dispatchComplete = true;
-          onDispatched?.();
         } finally {
           this.activeTransportSends -= 1;
         }
@@ -626,7 +707,17 @@ export class ResourceProtocol {
       this.finishPending(pending);
       if (pending.abandonment) {
         pending.abandonment.targetResponseObserved = true;
-        pending.abandonment.resolveTargetResponse(undefined);
+        let validationError: Error | undefined;
+        if (decoded.ok && pending.validateAbandonedResult) {
+          try {
+            pending.validateAbandonedResult(decoded.result);
+          } catch (error) {
+            validationError = error instanceof Error
+              ? error
+              : new CmuxProtocolError(String(error));
+          }
+        }
+        pending.abandonment.resolveTargetResponse(validationError);
         return;
       }
       if (decoded.ok) pending.resolve(decoded.result);
@@ -736,6 +827,8 @@ export class ResourceProtocol {
     end: StreamEnd,
     purge = false,
   ): void {
+    state.abortCleanup?.();
+    state.abortCleanup = undefined;
     if (state.end) {
       if (purge) {
         state.values.length = 0;
@@ -975,28 +1068,39 @@ export class ResourceProtocol {
   private finishPending(pending: Pending): void {
     if (pending.timer) clearTimeout(pending.timer);
     pending.removeAbort?.();
+    pending.cancelUndispatched?.();
+    pending.cancelUndispatched = undefined;
   }
 
   private reserveTerminalWait(requestId: string, timeoutMs: number): boolean {
     const now = Date.now();
     for (const [id, lease] of this.terminalWaitLeases) {
-      if (lease.expiresAt <= now) this.releaseTerminalWait(id);
+      if (lease.expiresAt !== undefined && lease.expiresAt <= now) {
+        this.releaseTerminalWait(id);
+      }
     }
     if (this.terminalWaitLeases.size >= TERMINAL_WAIT_CAPACITY) return false;
-    const leaseMs = timeoutMs + TERMINAL_WAIT_RELEASE_GRACE_MS;
-    const timer = setTimeout(() => this.releaseTerminalWait(requestId), leaseMs);
     this.terminalWaitLeases.set(requestId, {
-      expiresAt: now + leaseMs,
-      timer,
+      durationMs: timeoutMs + TERMINAL_WAIT_RELEASE_GRACE_MS,
     });
     return true;
+  }
+
+  private startTerminalWaitLease(requestId: string): void {
+    const lease = this.terminalWaitLeases.get(requestId);
+    if (!lease || lease.timer !== undefined) return;
+    lease.expiresAt = Date.now() + lease.durationMs;
+    lease.timer = setTimeout(
+      () => this.releaseTerminalWait(requestId),
+      lease.durationMs,
+    );
   }
 
   private releaseTerminalWait(requestId: string): void {
     const lease = this.terminalWaitLeases.get(requestId);
     if (!lease) return;
     this.terminalWaitLeases.delete(requestId);
-    clearTimeout(lease.timer);
+    if (lease.timer !== undefined) clearTimeout(lease.timer);
   }
 
   private fail(error: Error, attemptCleanup = true): void {
@@ -1041,7 +1145,9 @@ export class ResourceProtocol {
         }
       }
       this.pending.clear();
-      for (const lease of this.terminalWaitLeases.values()) clearTimeout(lease.timer);
+      for (const lease of this.terminalWaitLeases.values()) {
+        if (lease.timer !== undefined) clearTimeout(lease.timer);
+      }
       this.terminalWaitLeases.clear();
       for (const state of streams) {
         this.rejectStreamCancellation(state, error);
@@ -1121,9 +1227,12 @@ function remainingTime(deadline: number, message: string): number {
   return remaining;
 }
 
+function monotonicNow(): number {
+  return performance.now();
+}
+
 export class ResourceStream<Value>
 implements AsyncIterable<StreamItem<Value>>, AsyncIterator<StreamItem<Value>> {
-  private abortCleanup: (() => void) | undefined;
   private canceling: Promise<void> | undefined;
 
   constructor(
@@ -1212,10 +1321,7 @@ implements AsyncIterable<StreamItem<Value>>, AsyncIterator<StreamItem<Value>> {
     if (this.canceling) return this.canceling;
     if (this.state.end) return;
     if (signal?.aborted) throw abortError();
-    this.canceling = this.protocol.cancelStream(this.id, signal).finally(() => {
-      this.abortCleanup?.();
-      this.abortCleanup = undefined;
-    });
+    this.canceling = this.protocol.cancelStream(this.id, signal);
     await this.canceling;
   }
 
@@ -1225,7 +1331,8 @@ implements AsyncIterable<StreamItem<Value>>, AsyncIterator<StreamItem<Value>> {
   }
 
   setAbortCleanup(cleanup: () => void): void {
-    this.abortCleanup = cleanup;
+    if (this.state.end) cleanup();
+    else this.state.abortCleanup = cleanup;
   }
 }
 

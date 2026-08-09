@@ -109,7 +109,6 @@ export async function claimCliAuthTokens(
     refreshToken: tokens.refreshToken,
   };
 }
-
 export async function pendingCliAuthClientForUserCode(
   userCode: string,
   now: Date,

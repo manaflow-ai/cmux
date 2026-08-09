@@ -698,7 +698,6 @@ impl WorkspaceRegistry {
                 deltas_json,
             ],
         )?;
-        prune_resource_events(&tx)?;
         let changed = tx.execute(
             "UPDATE resource_creation_receipts
              SET state = 'created', created_path_json = ?2, generation = ?3,
@@ -707,6 +706,9 @@ impl WorkspaceRegistry {
             params![correlation_key, created_path_json, generation, sqlite_revision],
         )?;
         anyhow::ensure!(changed == 1, "resource creation receipt changed during commit");
+        // Once the receipt is terminal, this mutation belongs to the ordinary
+        // replay window and must count toward a boundary compaction.
+        prune_resource_events(&tx)?;
         tx.commit()?;
         Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
     }

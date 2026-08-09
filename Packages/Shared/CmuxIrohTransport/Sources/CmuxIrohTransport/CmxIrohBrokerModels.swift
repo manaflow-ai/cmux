@@ -298,6 +298,16 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
 
 /// Registration response. Relay bootstrap failure never rolls back the binding.
 public struct CmxIrohRegistrationResponse: Decodable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case revision
+        case binding
+        case relay
+        case discovery
+        case discoveryComplete = "discovery_complete"
+        case discoveryScope = "discovery_scope"
+        case discoveryScopeComplete = "discovery_scope_complete"
+    }
+
     /// Monotonic account route revision after this registration commit.
     public let revision: UInt64?
     public let binding: CmxIrohBrokerBinding
@@ -305,18 +315,39 @@ public struct CmxIrohRegistrationResponse: Decodable, Equatable, Sendable {
     /// The authoritative post-registration account snapshot when supplied by
     /// connectivity v2. Older brokers omit it and retain the separate sync.
     public let discovery: CmxIrohDiscoveryResponse?
+    /// True only when the embedded snapshot covers every active binding.
+    /// Older brokers omit this proof, so clients must fetch paginated discovery.
+    public let discoveryComplete: Bool?
+    /// The exact bounded projection represented by embedded discovery.
+    public let discoveryScope: CmxConnectivityDiscoveryScope?
+    /// True only when embedded discovery covers every binding in its scope.
+    public let discoveryScopeComplete: Bool?
+
+    /// Whether the embedded discovery is proven complete globally or for its
+    /// validated scoped-registration request.
+    public var embeddedDiscoveryComplete: Bool {
+        discovery != nil
+            && (discoveryComplete == true
+                || (discoveryScope != nil && discoveryScopeComplete == true))
+    }
 
     /// Creates a registration response for alternate brokers and tests.
     public init(
         revision: UInt64? = nil,
         binding: CmxIrohBrokerBinding,
         relay: CmxIrohRegistrationRelay,
-        discovery: CmxIrohDiscoveryResponse? = nil
+        discovery: CmxIrohDiscoveryResponse? = nil,
+        discoveryComplete: Bool? = nil,
+        discoveryScope: CmxConnectivityDiscoveryScope? = nil,
+        discoveryScopeComplete: Bool? = nil
     ) {
         self.revision = revision
         self.binding = binding
         self.relay = relay
         self.discovery = discovery
+        self.discoveryComplete = discoveryComplete
+        self.discoveryScope = discoveryScope
+        self.discoveryScopeComplete = discoveryScopeComplete
     }
 }
 

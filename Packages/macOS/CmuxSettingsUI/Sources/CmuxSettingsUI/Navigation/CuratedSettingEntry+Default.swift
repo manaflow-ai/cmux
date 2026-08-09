@@ -203,7 +203,60 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "right-max-width", title: "Dock Max Width", synonyms: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
 
             // Mobile
-            .init(section: .mobile, id: "pairDevice", title: "Pair a Device", synonyms: "pair pairing add device qr qr code scan iphone ipad ios mobile tailscale connect onboarding sign in"),
+            .init(
+                section: .mobile,
+                id: "pairDevice",
+                title: String(localized: "settings.mobile.pairDevice", defaultValue: "Tailscale Pairing"),
+                synonyms: """
+                pair pairing add device qr qr code scan iphone ipad ios mobile \
+                tailscale connect onboarding sign in
+                """
+            ),
+            .init(
+                section: .mobile,
+                id: "phone-push-forwarding",
+                title: String(
+                    localized: "settings.mobile.phonePush.forwarding",
+                    defaultValue: "Forward Notifications to iPhone"
+                ),
+                detailText: [
+                    String(
+                        localized: "settings.mobile.phonePush.forwarding.subtitleOn",
+                        defaultValue: "Sends local agent alerts from this Mac to cmux on your iPhone and iPad."
+                    ),
+                    String(
+                        localized: "settings.mobile.phonePush.forwarding.subtitleOff",
+                        defaultValue: "Stops this Mac from sending local agent alerts to mobile devices."
+                    ),
+                ].joined(separator: " "),
+                synonyms: "push notifications iphone ipad mobile forwarding agent alerts forwardNotificationsToPhone"
+            ),
+            .init(
+                section: .mobile,
+                id: "phone-push-mode",
+                title: String(
+                    localized: "settings.mobile.phonePush.mode",
+                    defaultValue: "When to Send"
+                ),
+                detailText: String(
+                    localized: "settings.mobile.phonePush.mode.subtitle",
+                    defaultValue: "Always sends every local agent alert. Away mode waits until this Mac is locked, asleep, or idle."
+                ),
+                synonyms: "push notification forwarding always only when away locked asleep idle forwardNotificationsToPhoneMode"
+            ),
+            .init(
+                section: .mobile,
+                id: "phone-push-hide-content",
+                title: String(
+                    localized: "settings.mobile.phonePush.hideContent",
+                    defaultValue: "Hide Notification Content"
+                ),
+                detailText: String(
+                    localized: "settings.mobile.phonePush.hideContent.subtitle",
+                    defaultValue: "Sends a generic message instead of agent and terminal text."
+                ),
+                synonyms: "push notification privacy hide content generic message terminal text forwardNotificationsHideContent"
+            ),
             .init(section: .mobile, id: "iOSPairingHost", title: "iOS Pairing", synonyms: "ios iphone ipad mobile pairing local network permission sync"),
             .init(section: .mobile, id: "iOSPairingPort", title: String(localized: "settings.mobile.port", defaultValue: "Pairing Port"), synonyms: "mobile.iOSPairingHost.port ios iphone mobile pairing port tcp listener firewall conflict"),
             .init(section: .mobile, id: "iOSPairingDisplayName", title: String(localized: "settings.mobile.displayName", defaultValue: "Display Name"), synonyms: "mobile.iOSPairingHost.displayName ios iphone mobile pairing display name mac hostname device label"),
@@ -321,6 +374,14 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .workspaceColors, id: "indicator", title: "Workspace Color Indicator", synonyms: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
             .init(section: .workspaceColors, id: "selection", title: "Selection Highlight", synonyms: "workspaceColors.selectionColor selected workspace color highlight background active tab"),
             .init(section: .workspaceColors, id: "badge", title: "Notification Badge", synonyms: "workspaceColors.notificationBadgeColor unread notification badge color dot count"),
+            .init(
+                section: .workspaceColors,
+                id: "pane-flash-color",
+                title: String(localized: "settings.workspaceColors.paneFlashColor", defaultValue: "Pane Flash"),
+                detailText: String(localized: "settings.workspaceColors.paneFlashColor.subtitle", defaultValue: "Color of the attention ring and pane flash when a pane needs input."),
+                paths: ["notifications.paneFlashColor"],
+                synonyms: "notifications.paneFlashColor attention ring pane flash color unread needs input"
+            ),
             .init(section: .workspaceColors, id: "palette", title: "Reset Palette", synonyms: "reset palette named colors restore built-in custom remove default"),
 
             // cmux.json

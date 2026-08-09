@@ -321,7 +321,10 @@ public actor CmxIrohHostRuntime {
                 await handleBinding(registration, discovery, publishedPolicy.attestation)
                 try requireCurrent(revision)
                 if let routeRevision = discovery.revision {
-                    await connectivityEngine.didInstallRouteRevision(routeRevision)
+                    await connectivityEngine.didInstallRouteRevision(
+                        routeRevision,
+                        routes: discovery
+                    )
                 }
                 scheduleRegistrationRenewal(
                     binding: registration.binding,
@@ -416,7 +419,7 @@ public actor CmxIrohHostRuntime {
         connection: any CmxIrohConnection,
         runtimeGeneration: UInt64,
         lifecycleRevision revision: UInt64,
-        markAdmitted: @escaping CmxIrohEndpointServer.AdmissionMarker
+        markAdmitted: CmxIrohEndpointServer.AdmissionMarker
     ) async throws {
         try requireCurrent(revision)
         guard let admissionController,
@@ -482,7 +485,13 @@ public actor CmxIrohHostRuntime {
             publishSelectedPathChange()
         }
         await handleTransport(
-            CmxIrohAdmittedServerSession(peer: peer, session: session),
+            CmxIrohAdmittedServerSession(
+                peer: peer,
+                session: session,
+                promoteUsableSession: {
+                    await markAdmitted.markUsable()
+                }
+            ),
             isCurrent
         )
     }

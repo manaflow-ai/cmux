@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// Computes bounded exponential retry delays with a server-provided floor.
@@ -59,5 +60,18 @@ public struct CmxIrohRetrySchedule: Equatable, Sendable {
         let available = max(0, maximumDelay - floor)
         let jitterWindow = min(available, floor * jitterFraction)
         return floor + jitterWindow * jitter
+    }
+
+    /// Shared relay-policy retry cadence for both app platforms.
+    ///
+    /// A broker authorization failure already survived exactly-once
+    /// credential recovery and should re-check on auth-store timescales.
+    /// Availability failures keep the ordinary network backoff.
+    public static func relayPolicy(
+        for failureKind: DiagnosticFailureKind
+    ) -> Self {
+        failureKind == .authorizationFailed
+            ? Self(initialDelay: 2, maximumDelay: 120)
+            : Self()
     }
 }

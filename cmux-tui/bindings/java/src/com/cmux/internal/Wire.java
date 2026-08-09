@@ -15,7 +15,7 @@ import java.util.Map;
 
 /** Centralized protocol fields and dependency-free value conversion. */
 public final class Wire {
-    public static final String PROTOCOL = "cmux.protocol/1";
+    public static final String PROTOCOL = "cmux.protocol/2";
     public static final String SELECTOR = "selector";
     public static final String MACHINE = "machine";
     public static final String SESSION = "session";

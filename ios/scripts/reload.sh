@@ -348,6 +348,7 @@ if [[ -n "$SIMULATOR_ID" ]]; then
   DESTINATION="platform=iOS Simulator,id=$SIMULATOR_ID"
 fi
 MOBILE_DEV_LAUNCH="$IOS_DIR/../scripts/mobile-dev-launch.sh"
+DEVICE_PROCESS_HELPER="$IOS_DIR/../scripts/ios-device-process.sh"
 GHOSTTYKIT_ENSURE="$IOS_DIR/../scripts/ensure-ghosttykit.sh"
 
 # Keep the linked xcframework synchronized with the checked-out Ghostty
@@ -911,6 +912,13 @@ reload_device() {
   fi
 
   echo "==> Installing physical device app"
+  if [[ ! -x "$DEVICE_PROCESS_HELPER" ]]; then
+    echo "error: $DEVICE_PROCESS_HELPER not found or not executable" >&2
+    exit 1
+  fi
+  "$DEVICE_PROCESS_HELPER" terminate-installed \
+    --device-id "$selected_device_install_id" \
+    --bundle-id "$BUNDLE_ID"
   xcrun devicectl device install app --device "$selected_device_install_id" "$device_app_path"
 
   if [[ "$LAUNCH" -eq 1 ]]; then

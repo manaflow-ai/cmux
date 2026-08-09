@@ -2,7 +2,7 @@
 name = "cmux-sidebar"
 version = "1.0.0"
 edition.workspace = true
-rust-version.workspace = true
+rust-version = "1.88"
 license.workspace = true
 description = "Opt-in Ratatui wrapper for cmux sidebar views"
 repository = "https://github.com/manaflow-ai/cmux"
@@ -12,7 +12,7 @@ publish = true
 workspace = true
 
 [dependencies]
-cmux-client = { path = "../rust", version = "1.0.0" }
+cmux-sdk = { path = "../rust", version = "=1.0.0" }
 crossterm = { workspace = true }
 ratatui = { workspace = true }
 serde_json = { workspace = true }

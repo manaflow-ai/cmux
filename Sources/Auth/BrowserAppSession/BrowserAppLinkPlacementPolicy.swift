@@ -23,15 +23,28 @@ final class BrowserAppLinkPlacementPolicy {
         _ navigation: BrowserAppSessionNavigation,
         openInPreferredPane: RequestPlacement,
         openHorizontalSplit: RequestPlacement,
-        openInSourcePane: RequestPlacement
+        openInSourcePane: RequestPlacement,
+        isBrowserAvailable: () -> Bool
     ) -> Bool {
-        openInPreferredPane(
+        // The handoff coordinator owns the one-shot recovery path. Returning
+        // false here makes it recover the destination once; opening it here
+        // would duplicate that fallback when availability changes mid-placement.
+        guard isBrowserAvailable() else { return false }
+        if openInPreferredPane(
             navigation.request,
             navigation.websiteDataStore
-        ) || openHorizontalSplit(
+        ) {
+            return true
+        }
+        guard isBrowserAvailable() else { return false }
+        if openHorizontalSplit(
             navigation.request,
             navigation.websiteDataStore
-        ) || openInSourcePane(
+        ) {
+            return true
+        }
+        guard isBrowserAvailable() else { return false }
+        return openInSourcePane(
             navigation.request,
             navigation.websiteDataStore
         )
@@ -41,16 +54,32 @@ final class BrowserAppLinkPlacementPolicy {
         _ destinationURL: URL,
         openInPreferredPane: URLPlacement,
         openHorizontalSplit: URLPlacement,
-        openInSourcePane: URLPlacement
+        openInSourcePane: URLPlacement,
+        isBrowserAvailable: () -> Bool
     ) -> Bool {
         let websiteDataStore = WKWebsiteDataStore.nonPersistent()
-        return openInPreferredPane(
+        guard isBrowserAvailable() else {
+            return openInSystemBrowser(destinationURL)
+        }
+        if openInPreferredPane(
             destinationURL,
             websiteDataStore
-        ) || openHorizontalSplit(
+        ) {
+            return true
+        }
+        guard isBrowserAvailable() else {
+            return openInSystemBrowser(destinationURL)
+        }
+        if openHorizontalSplit(
             destinationURL,
             websiteDataStore
-        ) || openInSourcePane(
+        ) {
+            return true
+        }
+        guard isBrowserAvailable() else {
+            return openInSystemBrowser(destinationURL)
+        }
+        return openInSourcePane(
             destinationURL,
             websiteDataStore
         ) || openInSystemBrowser(destinationURL)

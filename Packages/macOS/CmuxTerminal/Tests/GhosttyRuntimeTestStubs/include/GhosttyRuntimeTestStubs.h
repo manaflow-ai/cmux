@@ -98,6 +98,7 @@ bool cmux_test_ghostty_surface_free_blocking_did_start(void);
 bool cmux_test_ghostty_surface_free_blocking_is_active(void);
 void cmux_test_ghostty_surface_free_release(void);
 void cmux_test_ghostty_surface_free_blocking_reset(void);
+uint32_t cmux_test_ghostty_tty_name_call_count(void);
 void cmux_test_ghostty_renderer_realized_begin(void *surface);
 void cmux_test_ghostty_renderer_realized_reset(void);
 uint32_t cmux_test_ghostty_renderer_realized_call_count(void);

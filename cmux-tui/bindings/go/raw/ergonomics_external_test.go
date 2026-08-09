@@ -88,6 +88,7 @@ func TestPublicReadScrollbackTailUsesTwoBoundedSnapshots(t *testing.T) {
 			return
 		}
 		if err := externalWriteSuccess(conn, probe["id"], map[string]any{
+			"epoch": 1,
 			"rows":  []any{},
 			"start": 0,
 			"total": 10,
@@ -111,6 +112,7 @@ func TestPublicReadScrollbackTailUsesTwoBoundedSnapshots(t *testing.T) {
 			return
 		}
 		serverDone <- externalWriteSuccess(conn, page["id"], map[string]any{
+			"epoch": 1,
 			"rows": []any{
 				externalRenderRow(7, "eight"),
 				externalRenderRow(8, "nine"),

@@ -87,7 +87,7 @@ extension AgentNotificationRegressionTests {
     func localTTYBindingsExcludeRemoteDeviceNamespaces() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
-        workspace.surfaceTTYNames[panelId] = "/dev/null"
+        workspace.registerReportedSurfaceTTYName("/dev/null", panelId: panelId)
         #expect(workspace.localAgentDeliveryTTYDevices.map(\.surfaceId) == [panelId])
 
         workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
@@ -105,6 +105,45 @@ extension AgentNotificationRegressionTests {
         #expect(workspace.localAgentDeliveryTTYDevices.isEmpty)
     }
 
+    @Test("Restored TTY metadata requires a fresh runtime registration")
+    func restoredTTYMetadataRequiresFreshRuntimeRegistration() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let snapshot = SessionPanelSnapshot(
+            id: panelId,
+            type: .terminal,
+            title: "Restored terminal",
+            customTitle: nil,
+            directory: nil,
+            isPinned: false,
+            isManuallyUnread: false,
+            listeningPorts: [],
+            ttyName: "/dev/null",
+            terminal: SessionTerminalPanelSnapshot(),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil
+        )
+
+        workspace.applySessionPanelMetadata(snapshot, toPanelId: panelId)
+
+        #expect(workspace.surfaceTTYNames[panelId] == "/dev/null")
+        #expect(
+            workspace.localAgentDeliveryTTYDevices.isEmpty,
+            "Persisted TTY metadata is not evidence from the current terminal runtime"
+        )
+
+        workspace.pruneSurfaceMetadata(validSurfaceIds: [panelId])
+        #expect(
+            workspace.localAgentDeliveryTTYDevices.isEmpty,
+            "Metadata pruning must not promote a persisted TTY into live evidence"
+        )
+
+        workspace.registerReportedSurfaceTTYName("/dev/null", panelId: panelId)
+        #expect(workspace.localAgentDeliveryTTYDevices.map(\.surfaceId) == [panelId])
+    }
+
     @Test("Live PID routing and runtime mutations include a Dock-owned terminal")
     func liveTTYBindingsAndRuntimeMutationsIncludeDockOwnedTerminal() throws {
         let fixture = try makeFixture()
@@ -116,7 +155,7 @@ extension AgentNotificationRegressionTests {
         }
         let dockOwnerId = UUID()
         let dock = DockSplitStore(workspaceId: dockOwnerId, baseDirectoryProvider: { nil })
-        fixture.source.surfaceTTYNames[fixture.panelId] = "/dev/null"
+        fixture.source.registerReportedSurfaceTTYName("/dev/null", panelId: fixture.panelId)
         fixture.source.setAgentLifecycle(
             key: "manual:workspace-loader",
             panelId: fixture.panelId,

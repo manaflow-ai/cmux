@@ -88,7 +88,10 @@ extension CmxIrohClientRuntime {
                 try requireCurrent(revision)
                 guard published else { return .failed(.superseded) }
                 if let routeRevision = discovery.revision {
-                    await connectivityEngine.didInstallRouteRevision(routeRevision)
+                    await connectivityEngine.didInstallRouteRevision(
+                        routeRevision,
+                        routes: discovery
+                    )
                 }
                 liveDiscoveryGeneration &+= 1
                 return .refreshed

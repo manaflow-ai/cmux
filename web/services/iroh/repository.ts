@@ -30,6 +30,7 @@ import {
   type IrohPathHint,
   type IrohRegistrationPayload,
 } from "./model";
+import type { IrohDiscoveryScope } from "./discoveryScope";
 
 export const IROH_RETENTION_BATCH_SIZE = 500;
 export const IROH_RETENTION_MAX_ROWS = 10_000;
@@ -107,6 +108,15 @@ export type IrohRepositoryShape = {
     readonly lanDiscoveryGeneration: number;
     readonly accountRevision: number;
     readonly nextCursor: IrohDiscoveryCursor | null;
+  }, RepositoryError>;
+  readonly discoverySnapshot: (input: {
+    readonly userId: string;
+    readonly now: Date;
+    readonly scope?: IrohDiscoveryScope;
+  }) => Effect.Effect<{
+    readonly bindings: IrohBindingRecord[];
+    readonly lanDiscoveryGeneration: number;
+    readonly accountRevision: number;
   }, RepositoryError>;
   readonly findActiveBindings: (
     userId: string,
@@ -520,6 +530,92 @@ function makeLiveRepository(): IrohRepositoryShape {
               afterBindingId: last.id,
             }
             : null,
+        };
+      });
+    }),
+
+    discoverySnapshot: (input) => repositoryEffect("discovery_snapshot", async () => {
+      return await cloudDb().transaction(async (tx) => {
+        await assertIrohUserMutationAllowed(tx, input.userId);
+        // Registration, revocation, pruning, and this read share one account
+        // lock. The complete connectivity snapshot therefore observes one
+        // committed binding set and revision, even when public discovery spans
+        // several pages.
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
+        const [existingState] = await tx
+          .select({
+            generation: irohAccountSecurityStates.lanDiscoveryGeneration,
+            revision: irohAccountSecurityStates.routeRevision,
+          })
+          .from(irohAccountSecurityStates)
+          .where(eq(irohAccountSecurityStates.userId, input.userId))
+          .limit(1);
+        const [insertedState] = existingState
+          ? []
+          : await tx
+            .insert(irohAccountSecurityStates)
+            .values({
+              userId: input.userId,
+              lanDiscoveryGeneration: 1,
+              routeRevision: 0,
+              createdAt: input.now,
+              updatedAt: input.now,
+            })
+            .returning({
+              generation: irohAccountSecurityStates.lanDiscoveryGeneration,
+              revision: irohAccountSecurityStates.routeRevision,
+            });
+        const state = existingState ?? insertedState;
+        if (!state) throw new Error("account security state returned no row");
+        const bindings = await tx
+          .select()
+          .from(irohEndpointBindings)
+          .where(and(
+            eq(irohEndpointBindings.userId, input.userId),
+            isNull(irohEndpointBindings.revokedAt),
+            input.scope
+              ? or(
+                and(
+                  eq(
+                    irohEndpointBindings.deviceUuid,
+                    input.scope.localBinding.deviceId,
+                  ),
+                  eq(
+                    irohEndpointBindings.appInstanceId,
+                    input.scope.localBinding.appInstanceId,
+                  ),
+                  eq(irohEndpointBindings.tag, input.scope.localBinding.tag),
+                  eq(
+                    irohEndpointBindings.platform,
+                    input.scope.localBinding.platform,
+                  ),
+                ),
+                and(
+                  eq(
+                    irohEndpointBindings.platform,
+                    input.scope.peerBindings.platform,
+                  ),
+                  input.scope.peerBindings.tags
+                    ? inArray(
+                      sql<string>`lower(${irohEndpointBindings.tag})`,
+                      [...input.scope.peerBindings.tags],
+                    )
+                    : undefined,
+                  input.scope.peerBindings.pairingEnabled === undefined
+                    ? undefined
+                    : eq(
+                      irohEndpointBindings.pairingEnabled,
+                      input.scope.peerBindings.pairingEnabled,
+                    ),
+                ),
+              )
+              : undefined,
+          ))
+          .orderBy(asc(irohEndpointBindings.id));
+        return {
+          bindings,
+          lanDiscoveryGeneration: state.generation,
+          accountRevision: state.revision,
         };
       });
     }),

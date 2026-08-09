@@ -112,6 +112,12 @@ extension WorkspaceListView {
             dropIntoGroup: enablesReorder && grouped ? { workspaceID, groupID in
                 joinGroupAtEnd(workspaceID: workspaceID, groupID: groupID)
             } : nil,
+            groupMoveMenu: enablesReorder && grouped ? { workspaceID in
+                groupMoveMenu(for: workspaceID)
+            } : nil,
+            moveToGroup: enablesReorder && grouped ? { workspaceID, groupID in
+                joinGroupAtEnd(workspaceID: workspaceID, groupID: groupID)
+            } : nil,
             selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
             closeWorkspace: closeWorkspace,
             setUnread: setUnread,
@@ -120,9 +126,12 @@ extension WorkspaceListView {
             customizeRequest: requestWorkspaceCustomization,
             createWorkspaceInGroup: canCreateWorkspaceInGroups ? createWorkspaceInGroup : nil,
             renameWorkspaceGroup: renameWorkspaceGroup,
+            renameWorkspaceGroupRequest: requestWorkspaceGroupRename,
             setGroupPinned: setGroupPinned,
             ungroupWorkspaceGroup: ungroupWorkspaceGroup,
+            ungroupWorkspaceGroupRequest: requestWorkspaceGroupUngroup,
             deleteWorkspaceGroup: deleteWorkspaceGroup,
+            deleteWorkspaceGroupRequest: requestWorkspaceGroupDelete,
             toggleGroupCollapsed: toggleGroupCollapsed,
             showAll: {
                 filter = .all

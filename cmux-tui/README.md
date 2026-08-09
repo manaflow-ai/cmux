@@ -1,11 +1,13 @@
 # cmux-tui
 
-`cmux-tui` is the Rust TUI multiplexer in this repository. It keeps a tree of machines, sessions, workspaces, screens, panes, tabs, terminals, and browsers. Its public CLI and SDKs expose those resources through `cmux.protocol/1`.
+`cmux-tui` is the Rust TUI multiplexer in this repository. It keeps a tree of machines, sessions, workspaces, screens, panes, tabs, terminals, and browsers. Its public CLI and SDKs expose those resources through `cmux.protocol/2`.
 
 ## Documentation
 
 - [Docs index](docs/README.md)
 - [Getting started](docs/getting-started.md)
+- [Remote daemon and clients](docs/remote.md)
+- [Remote workspace RPC contract](spec/remote-rpc.md)
 - [Concepts](docs/concepts.md)
 - [Keyboard](docs/keyboard.md)
 - [Mouse](docs/mouse.md)
@@ -13,7 +15,7 @@
 - [Machines and remote sessions](docs/machines.md)
 - [Public CLI](spec/cli.md)
 - [SDK contract](spec/bindings.md)
-- [Public resource protocol](spec/resource-api-v1.md)
+- [Public resource protocol](spec/resource-api-v2.md)
 - [Raw control protocol](docs/protocol.md)
 - [Browser panes](docs/browser-panes.md)
 

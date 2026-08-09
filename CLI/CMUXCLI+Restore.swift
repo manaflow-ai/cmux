@@ -1,7 +1,15 @@
 import CMUXAgentLaunch
+import Darwin
 import Foundation
 
 extension CMUXCLI {
+    var restoreCommandUsageLine: String {
+        String(
+            localized: "cli.help.restore",
+            defaultValue: "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]"
+        )
+    }
+
     func controlAgentLaunchCommandPayload(
         _ command: AgentLaunchCommand
     ) -> [String: Any] {
@@ -53,23 +61,13 @@ extension CMUXCLI {
             }
             params["surface_id"] = surfaceID
         } else if selector.usesCurrentSurface,
-                  let surfaceID = processEnvironment["CMUX_SURFACE_ID"],
-                  !surfaceID.isEmpty {
-            params["surface_id"] = surfaceID
-        } else if selector.usesCurrentSurface,
-                  let ttyName = resolveCallerTTYName(),
-                  let caller = resolveTerminalBinding(
-                      ttyName: ttyName,
-                      client: client
+                  let surfaceID = try currentRestoreSurfaceID(
+                      client: client,
+                      processEnvironment: processEnvironment
                   ) {
-            params["surface_id"] = caller.surfaceId
+            params["surface_id"] = surfaceID
         } else {
-            throw CLIError(
-                message: String(
-                    localized: "cli.restore.error.currentSurfaceUnknown",
-                    defaultValue: "restore: the current cmux surface could not be identified. Retry from this terminal or pass --surface <id|ref>."
-                )
-            )
+            throw currentRestoreSurfaceUnknownError()
         }
 
         let payload = try client.sendV2(method: "surface.resume.get", params: params)
@@ -190,42 +188,201 @@ extension CMUXCLI {
         )
     }
 
-    private func restoreSelector(_ arguments: [String]) throws -> RestoreSelector {
-        if arguments.first == "--surface" {
-            if arguments.count == 1 {
-                return RestoreSelector(
-                    surface: nil,
-                    usesCurrentSurface: true,
-                    kind: nil,
-                    checkpointID: nil
+    private func currentRestoreSurfaceID(
+        client: SocketClient,
+        processEnvironment: [String: String]
+    ) throws -> String? {
+        // The remote relay and the local CLI do not share a PID namespace.
+        if client.isRelayBacked {
+            return try relayRestoreSurfaceID(
+                client: client,
+                processEnvironment: processEnvironment
+            )
+        }
+
+        do {
+            let payload = try implicitCallerIdentifyResponse(
+                client: client,
+                processEnvironment: processEnvironment
+            )
+            guard let surfaceID = identifiedCallerSurfaceID(in: payload) else {
+                throw currentRestoreSurfaceUnknownError()
+            }
+            return surfaceID
+        } catch let error as CLIError {
+            switch error.v2Code {
+            case "not_found":
+                client.close()
+                throw currentRestoreSurfaceUnknownError()
+            case "method_not_found", "unrecognized_method":
+                // These protocol replies were consumed in full, so the socket
+                // remains synchronized for the legacy discovery request.
+                return legacyRestoreSurfaceID(
+                    client: client,
+                    workspaceID: nil
+                )
+            default:
+                client.close()
+                throw error
+            }
+        } catch {
+            client.close()
+            throw error
+        }
+    }
+
+    private func relayRestoreSurfaceID(
+        client: SocketClient,
+        processEnvironment: [String: String]
+    ) throws -> String? {
+        let ttyName = resolveCallerDescriptorTTYName()
+            ?? resolveCallerTTYName(includeAmbientTTY: false)
+        guard let ttyName else { return nil }
+
+        let resolution = AgentTTYBindingResolution.reportedTTY.rawValue
+        let workspaceID = normalizedHandleValue(processEnvironment["CMUX_WORKSPACE_ID"])
+        var params: [String: Any] = [
+            "tty_name": ttyName,
+            "tty_resolution": resolution,
+        ]
+        if let workspaceID {
+            // Lets an older app identify this probe as an unsupported
+            // workspace-only resolution. The authenticated relay rewrites
+            // aliases and separately stamps its authoritative owner id.
+            params["workspace_id"] = workspaceID
+        }
+
+        do {
+            let payload = try client.sendV2(
+                method: "agent.resolve_delivery_target",
+                params: params
+            )
+            if payload["source"] as? String == "workspace",
+               payload["surface_id"] == nil || payload["surface_id"] is NSNull,
+               let resolvedWorkspaceID = normalizedHandleValue(payload["workspace_id"] as? String),
+               isUUID(resolvedWorkspaceID) {
+                // Previous app versions ignore the TTY probe and resolve
+                // only workspace_id. Use their alias-rewritten result to
+                // scope the legacy terminal list, not the stale remote
+                // shell environment value that produced the request.
+                return legacyRestoreSurfaceID(
+                    client: client,
+                    workspaceID: resolvedWorkspaceID
                 )
             }
-            guard arguments.count == 2, !arguments[1].isEmpty else {
+            guard payload["source"] as? String == "tty",
+                  payload["tty_resolution"] as? String == resolution,
+                  let resolvedWorkspaceID = normalizedHandleValue(payload["workspace_id"] as? String),
+                  isUUID(resolvedWorkspaceID),
+                  let surfaceID = normalizedHandleValue(payload["surface_id"] as? String),
+                  isUUID(surfaceID) else {
+                throw currentRestoreSurfaceUnknownError()
+            }
+            return surfaceID
+        } catch let error as CLIError {
+            switch error.v2Code {
+            case "not_found":
+                client.close()
+                throw currentRestoreSurfaceUnknownError()
+            case "method_not_found", "unrecognized_method":
+                guard let workspaceID, isUUID(workspaceID) else { return nil }
+                return legacyRestoreSurfaceID(
+                    client: client,
+                    workspaceID: workspaceID
+                )
+            default:
+                client.close()
+                throw error
+            }
+        } catch {
+            client.close()
+            throw error
+        }
+    }
+
+    private func legacyRestoreSurfaceID(
+        client: SocketClient,
+        workspaceID: String?
+    ) -> String? {
+        // Prefer the live descriptors. Generic TTY variables can be inherited
+        // across nested shells, so only dedicated cmux hints are a fallback.
+        let ttyName = resolveCallerDescriptorTTYName()
+            ?? resolveCallerTTYName(includeAmbientTTY: false)
+        guard let ttyName,
+              let binding = uniqueCallerTerminalBindingByTTY(
+                  ttyName: ttyName,
+                  client: client,
+                  workspaceId: workspaceID
+              ) else {
+            return nil
+        }
+        return binding.surfaceId
+    }
+
+    private func currentRestoreSurfaceUnknownError() -> CLIError {
+        CLIError(
+            message: String(
+                localized: "cli.restore.error.currentSurfaceUnknown",
+                defaultValue: "restore: the current cmux surface could not be identified. Retry from this terminal or pass --surface <id|ref>."
+            )
+        )
+    }
+
+    private func restoreSelector(_ arguments: [String]) throws -> RestoreSelector {
+        if arguments == ["--surface"] {
+            return RestoreSelector(
+                surface: nil,
+                usesCurrentSurface: true,
+                kind: nil,
+                checkpointID: nil
+            )
+        }
+
+        let surfaceOptionCount = arguments.filter { argument in
+            argument == "--surface" || argument.hasPrefix("--surface=")
+        }.count
+        guard surfaceOptionCount <= 1 else {
+            throw CLIError(message: String(
+                localized: "cli.restore.usage.surface",
+                defaultValue: "Usage: cmux restore --surface [id|ref]"
+            ))
+        }
+        let (surface, positionalArguments) = parseOption(arguments, name: "--surface")
+        if surfaceOptionCount == 1 {
+            guard let surface,
+                  !surface.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw CLIError(message: String(
                     localized: "cli.restore.usage.surface",
                     defaultValue: "Usage: cmux restore --surface [id|ref]"
                 ))
             }
-            return RestoreSelector(
-                surface: arguments[1],
-                usesCurrentSurface: false,
-                kind: nil,
-                checkpointID: nil
-            )
+            if positionalArguments.isEmpty {
+                return RestoreSelector(
+                    surface: surface,
+                    usesCurrentSurface: false,
+                    kind: nil,
+                    checkpointID: nil
+                )
+            }
         }
-        guard arguments.count == 2,
-              !arguments[0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !arguments[1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+
+        guard positionalArguments.count == 2,
+              !positionalArguments[0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !positionalArguments[1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw CLIError(message: String(
                 localized: "cli.restore.usage.positional",
-                defaultValue: "Usage: cmux restore <kind> <checkpoint-id>"
+                defaultValue: """
+                Usage: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>
+                       cmux restore <kind> <checkpoint-id> --surface <id|ref>
+                       cmux restore --surface=<id|ref> <kind> <checkpoint-id>
+                """
             ))
         }
         return RestoreSelector(
-            surface: nil,
-            usesCurrentSurface: true,
-            kind: arguments[0],
-            checkpointID: arguments[1]
+            surface: surface,
+            usesCurrentSurface: surface == nil,
+            kind: positionalArguments[0],
+            checkpointID: positionalArguments[1]
         )
     }
 

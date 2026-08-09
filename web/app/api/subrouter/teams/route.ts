@@ -27,9 +27,7 @@ export async function GET(request: Request): Promise<Response> {
       let selectedTeamId: string | null = null;
       const teams = [];
       for (const team of authorized) {
-        if (team.teamId === preferredTeamId) {
-          selectedTeamId = preferredTeamId;
-        }
+        if (team.teamId === preferredTeamId) selectedTeamId = preferredTeamId;
         teams.push({
           id: team.teamId,
           name: team.teamName,
@@ -40,11 +38,7 @@ export async function GET(request: Request): Promise<Response> {
           },
         });
       }
-
-      return jsonResponse({
-        selectedTeamId,
-        teams,
-      });
+      return jsonResponse({ selectedTeamId, teams });
     });
   } catch (error) {
     if (isSubrouterAuthorizationError(error)) {

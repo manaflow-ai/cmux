@@ -568,9 +568,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ConnectivityInvalidationSubscriberCoordinator()
 
     private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
-        // On some macOS/Xcode setups, the app-under-test process doesn't get
-        // `XCTestConfigurationFilePath`. Use a broader set of signals so UI tests
-        // can reliably skip heavyweight startup work and bring up a window.
+        // The CI wrapper uses xcodebuild's TEST_RUNNER_ forwarding so its marker
+        // exists before XCTest connects. Standard XCTest keys cover other paths.
         MacSentryStartupPolicy.isRunningUnderXCTest(environment: env)
     }
 
@@ -706,7 +705,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     lazy var notificationDeliverySeams = NotificationDeliverySeamAdapter(owner: self)
 
     lazy var notificationDelivery = NotificationDeliveryCoordinator(
-        center: UNUserNotificationCenter.current(),
+        center: TerminalNotificationStore.shared.userNotificationCenter,
         terminalNavigation: notificationNavigation,
         feedReplying: notificationDeliverySeams,
         applicationActivation: notificationDeliverySeams,
@@ -862,7 +861,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var debugFocusedTerminalKeyRepairObserverForTesting: ((NSWindow, NSEvent, NSResponder?) -> Void)?
     #endif
     private lazy var updateController = UpdateController(log: updateLog)
-    private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(updateLog: updateLog, settingsRuntime: settingsRuntime)
+    private let titlebarControlsLayoutModel = TitlebarControlsLayoutModel()
+    private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(
+        updateLog: updateLog,
+        settingsRuntime: settingsRuntime,
+        layoutModel: titlebarControlsLayoutModel
+    )
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
     private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
@@ -1233,6 +1237,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(self)
     }
 
+    /// Shared native auth callback entrypoint for LaunchServices and embedded
+    /// browser handoffs. The returned value reflects completed sign-in.
+    @MainActor
+    func handleAuthCallbackURLInProcess(_ url: URL) async -> Bool {
+        let callbackRouter = auth?.callbackRouter ?? AuthCallbackRouter()
+        guard callbackRouter.isAuthCallbackURL(url) else {
+            AuthDebugLog().log("auth.callback rejected: URL is not an accepted callback")
+            return false
+        }
+        guard let accountFlow = auth?.accountFlow else {
+            AuthDebugLog().log("auth.callback dropped: auth graph not configured yet")
+            return false
+        }
+
+        let signedIn = await accountFlow.handleCallbackURL(url)
+        guard signedIn else {
+            AuthDebugLog().log("auth.callback did not complete sign-in")
+            return false
+        }
+        await NativePricingPlanRefresh.refreshForProWelcomeChecklist()
+        return true
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
         #if DEBUG
         AuthDebugLog().log("auth.openURLs.received count=\(urls.count) summaries=\(urls.map(Self.authURLDebugSummary).joined(separator: "|"))")
@@ -1251,17 +1278,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #if DEBUG
         AuthDebugLog().log("auth.openURLs.authCallbacks count=\(authCallbacks.count)")
         #endif
-        if let accountFlow = auth?.accountFlow {
-            for url in authCallbacks {
-                Task { @MainActor in
-                    let signedIn = await accountFlow.handleCallbackURL(url)
-                    if signedIn { await NativePricingPlanRefresh.refreshForProWelcomeChecklist() } else {
-                        AuthDebugLog().log("auth.callback did not complete sign-in")
-                    }
-                }
+        for url in authCallbacks {
+            Task { @MainActor in
+                _ = await handleAuthCallbackURLInProcess(url)
             }
-        } else if !authCallbacks.isEmpty {
-            AuthDebugLog().log("auth.callback dropped: auth graph not configured yet")
         }
 
         let externalFileURLs = externalOpenFileURLs(from: urls)
@@ -4707,8 +4727,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func ensureMobileWorkspaceListObserver(for tabManager: TabManager) {
         let id = ObjectIdentifier(tabManager)
-        if mobileWorkspaceListObservers[id] == nil {
-            mobileWorkspaceListObservers[id] = MobileWorkspaceListObserver(tabManager: tabManager, notificationStore: notificationStore)
+        let configStore = mainWindowContext(for: tabManager)?.cmuxConfigStore
+        if let observer = mobileWorkspaceListObservers[id] {
+            observer.updateConfigStore(configStore)
+        } else {
+            mobileWorkspaceListObservers[id] = MobileWorkspaceListObserver(
+                tabManager: tabManager,
+                notificationStore: notificationStore,
+                configStore: configStore
+            )
         }
     }
 
@@ -7477,14 +7504,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return createdWorkspace
     }
 
-    /// Opens the iPhone pairing flow as a dedicated workspace, reusing the
+    /// Opens the Tailscale pairing flow as a dedicated workspace, reusing the
     /// existing pairing workspace in the target window when one is open.
     ///
     /// - Parameters:
     ///   - preferredTabManager: The target window's workspace manager.
     ///   - preferredWindow: The target main window, when known.
     ///   - focusWorkspace: Whether to select and focus the pairing workspace.
-    ///   - enforceFeatureFlag: Whether the Mobile Connect button flag gates the action.
+    ///   - enforceFeatureFlag: Whether the Tailscale Pairing button flag gates the action.
     ///   - bringWindowForward: Whether to activate the resolved main window.
     ///   - debugSource: The entrypoint name used in debug diagnostics.
     /// - Returns: The reused or newly created pairing workspace, or `nil` when unavailable.
@@ -7525,7 +7552,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return workspace
         }
 
-        let title = String(localized: "mobile.pairing.window.title", defaultValue: "Pair iPhone")
+        let title = String(localized: "mobile.pairing.window.title", defaultValue: "Tailscale Pairing")
         let workspace = manager.addWorkspace(
             title: title,
             select: focusWorkspace,
@@ -8984,10 +9011,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
-        let root = ContentView(updateViewModel: updateViewModel, windowId: windowId)
+        let root = ContentView(
+            updateViewModel: updateViewModel,
+            windowId: windowId,
+            titlebarControlsLayoutModel: titlebarControlsLayoutModel
+        )
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
-            .environmentObject(notificationStore.sidebarUnread)
             .environmentObject(sidebarState)
             .environmentObject(sidebarSelectionState)
             .environmentObject(fileExplorerState)
@@ -9106,18 +9136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
         controller.shouldClose = { [weak self] in
-            let shouldClose = self?.handleMainTerminalWindowShouldClose() ?? true
-            if !shouldClose {
-                self?.closedWindowHistorySuppressedWindowIds.remove(windowId)
-                // Close CANCELLED (a genuine veto, not a confirmed quit): clear any
-                // kill-on-close marker so a later window/quit close detaches. A
-                // CONFIRMED quit of the last tab keeps the marker set so
-                // applicationWillTerminate kills the session before exit.
-                if self?.isTerminatingApp != true {
-                    self?.remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId)
-                }
-            }
-            return shouldClose
+            self?.handleMainTerminalWindowCloseRequest(windowId: windowId, onCancel: nil) ?? true
         }
         window.delegate = controller
         mainWindowControllers.append(controller)
@@ -10906,6 +10925,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard tabManager != nil else { return }
         let startWithHiddenSidebar = env["CMUX_UI_TEST_BONSPLIT_START_WITH_HIDDEN_SIDEBAR"] == "1"
         let showRightSidebar = env["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] == "1"
+        let fourTabSetup = env["CMUX_UI_TEST_BONSPLIT_FOUR_TAB_SETUP"] == "1"
 
         let deadline = Date().addingTimeInterval(20.0)
         func mainWindowContextForUITest() -> (window: NSWindow, context: MainWindowContext)? {
@@ -10970,6 +10990,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let workspaceTitle = "UITest Workspace"
             let alphaTitle = "UITest Alpha"
             let betaTitle = "UITest Beta"
+            let gammaTitle = "UITest Gamma"
+            let deltaTitle = "UITest Delta"
             tabManager.setCustomTitle(tabId: workspace.id, title: workspaceTitle)
             workspace.setPanelCustomTitle(panelId: alphaPanelId, title: alphaTitle)
             tabManager.newSurface()
@@ -10980,6 +11002,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             workspace.setPanelCustomTitle(panelId: betaPanelId, title: betaTitle)
+            var gammaPanelId: UUID?
+            var deltaPanelId: UUID?
+            if fourTabSetup {
+                tabManager.newSurface()
+                guard let createdGammaPanelId = workspace.focusedPanelId,
+                      createdGammaPanelId != alphaPanelId,
+                      createdGammaPanelId != betaPanelId else {
+                    self.writeBonsplitTabDragUITestData(["setupError": "Failed to create third surface"])
+                    return
+                }
+                gammaPanelId = createdGammaPanelId
+                workspace.setPanelCustomTitle(panelId: createdGammaPanelId, title: gammaTitle)
+
+                tabManager.newSurface()
+                guard let createdDeltaPanelId = workspace.focusedPanelId,
+                      createdDeltaPanelId != alphaPanelId,
+                      createdDeltaPanelId != betaPanelId,
+                      createdDeltaPanelId != createdGammaPanelId else {
+                    self.writeBonsplitTabDragUITestData(["setupError": "Failed to create fourth surface"])
+                    return
+                }
+                deltaPanelId = createdDeltaPanelId
+                workspace.setPanelCustomTitle(panelId: createdDeltaPanelId, title: deltaTitle)
+            }
             if let rawActionButtonCount = env["CMUX_UI_TEST_BONSPLIT_ACTION_BUTTON_COUNT"],
                let requestedActionButtonCount = Int(rawActionButtonCount),
                requestedActionButtonCount > 0 {
@@ -11030,8 +11076,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "workspaceTitle": workspaceTitle,
                 "alphaTitle": alphaTitle,
                 "betaTitle": betaTitle,
+                "gammaTitle": fourTabSetup ? gammaTitle : "",
+                "deltaTitle": fourTabSetup ? deltaTitle : "",
                 "alphaPanelId": alphaPanelId.uuidString,
                 "betaPanelId": betaPanelId.uuidString,
+                "gammaPanelId": gammaPanelId?.uuidString ?? "",
+                "deltaPanelId": deltaPanelId?.uuidString ?? "",
             ])
             self.startBonsplitTabDragUITestRecorder(
                 workspaceId: workspace.id,
@@ -13063,9 +13113,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func handleQuitShortcutWarning() -> Bool {
-        guard activeQuitConfirmationAlertPresenter == nil else { return true }
-        if !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
+    private func handleQuitShortcutWarning(
+        onCancel: (() -> Void)? = nil,
+        forceConfirmation: Bool = false
+    ) -> Bool {
+        if let activeQuitConfirmationAlertPresenter {
+            if let onCancel {
+                activeQuitConfirmationAlertPresenter.joinCancellationAction(onCancel)
+            }
+            return true
+        }
+        if !forceConfirmation && !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
             isQuitWarningConfirmed: false,
             hasDirtyWorkspaces: hasQuitConfirmationDirtyWorkspaces(),
             isDevBuild: BuildFlavor.current == .dev
@@ -13084,6 +13142,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // second alert when NSApp.terminate re-enters the delegate callback.
                 self?.isQuitWarningConfirmed = true
                 NSApp.terminate(nil)
+            } else {
+                onCancel?()
             }
         }
         return true
@@ -13602,6 +13662,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }
         if handleSimulatorShortcutRouting(event) { return true }
         if matchConfiguredShortcut(event: event, action: .find) {
+            if performFocusedDockShortcut(
+                .startFind,
+                action: .find,
+                event: event
+            ) {
+                return true
+            }
             let shortcutWindow = resolvedShortcutEventWindow(event)
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? shortcutRoutingKeyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow)
         }
@@ -13888,7 +13955,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Flash the currently focused panel so the user can visually confirm focus.
         if matchConfiguredShortcut(event: event, action: .triggerFlash) {
-            if performFocusedDockShortcut(.triggerFlash, event: event) { return true }
+            if performFocusedDockShortcut(
+                .triggerFlash,
+                action: .triggerFlash,
+                event: event
+            ) {
+                return true
+            }
             let targetManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             targetManager?.triggerFocusFlash()
             return true
@@ -13897,6 +13970,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if handleAdjacentNavigationShortcut(event: event) { return true }
 
         if matchConfiguredShortcut(event: event, action: .toggleTerminalCopyMode) {
+            if performFocusedDockShortcut(
+                .toggleTerminalCopyMode,
+                action: .toggleTerminalCopyMode,
+                event: event
+            ) {
+                return true
+            }
             let handled = tabManager?.toggleFocusedTerminalCopyMode() ?? false
 #if DEBUG
             cmuxDebugLog(
@@ -13910,18 +13990,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .focusTextBoxInput) {
+            if performFocusedDockShortcut(
+                .focusTextBoxInput,
+                action: .focusTextBoxInput,
+                event: event
+            ) {
+                return true
+            }
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             let handled = routedManager?.focusFocusedTerminalTextBoxInputOrTerminal() ?? false
             return handled
         }
 
         if matchConfiguredShortcut(event: event, action: .attachTextBoxFile) {
+            if performFocusedDockShortcut(
+                .attachTextBoxFile,
+                action: .attachTextBoxFile,
+                event: event
+            ) {
+                return true
+            }
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             let handled = routedManager?.attachFileToFocusedTerminalTextBoxInput() ?? false
             return handled
         }
 
         if matchConfiguredShortcut(event: event, action: .sendCtrlFToTerminal) {
+            if performFocusedDockShortcut(
+                .sendCtrlFToTerminal,
+                action: .sendCtrlFToTerminal,
+                event: event
+            ) {
+                return true
+            }
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             let handled = routedManager?.sendCtrlFToFocusedTerminal() ?? false
 #if DEBUG
@@ -13935,6 +14036,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .clearScreenKeepScrollback) {
+            if performFocusedDockShortcut(
+                .clearScreenKeepScrollback,
+                action: .clearScreenKeepScrollback,
+                event: event
+            ) {
+                return true
+            }
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             let handled = routedManager?.clearFocusedTerminalKeepingScrollback() ?? false
 #if DEBUG
@@ -14029,6 +14137,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let targetWindow = event.window ?? shortcutRoutingActiveWindow,
                targetWindow.identifier?.rawValue == "cmux.settings" {
                 targetWindow.performClose(nil)
+            } else if performFocusedDockShortcut(
+                .closeOtherTabsInPane,
+                action: .closeOtherTabsInPane,
+                event: event
+            ) {
+                return true
             } else {
                 let targetWindow = event.window ?? shortcutRoutingActiveWindow
                 if let terminalContext = focusedTerminalShortcutContext(preferredWindow: targetWindow) {
@@ -14096,6 +14210,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .renameTab) {
+            if performFocusedDockShortcut(
+                .renameSurface(
+                    presentingWindow:
+                        event.window ?? shortcutRoutingActiveWindow
+                ),
+                action: .renameTab,
+                event: event
+            ) {
+                return true
+            }
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
             requestCommandPaletteRenameTab(preferredWindow: targetWindow, source: "shortcut.renameTab")
             return true
@@ -14119,7 +14243,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Numeric shortcuts for surfaces: focused pane in split layout,
         // workspace Canvas order in Canvas layout (9 = last).
         if let digit = routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
-            if performFocusedDockShortcut(.selectSurface(number: digit), event: event) { return true }
+            if performFocusedDockShortcut(
+                .selectSurface(number: digit),
+                action: .selectSurfaceByNumber,
+                event: event
+            ) {
+                return true
+            }
             let manager = tabManagerForNumberedShortcut(event: event)
             if digit == 9 {
                 manager?.selectLastSurface()
@@ -14136,7 +14266,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             arrowGlyph: "←",
             arrowKeyCode: 123
         ) || matchesGhosttyGotoSplitFallback(event: event, route: .direction(.left)) {
-            if performFocusedDockShortcut(.focusPane(.left), event: event) { return true }
+            if performFocusedDockShortcut(
+                .focusPane(.left),
+                action: .focusLeft,
+                event: event
+            ) {
+                return true
+            }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
             routedTabs?.movePaneFocus(direction: .left)
@@ -14151,7 +14287,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             arrowGlyph: "→",
             arrowKeyCode: 124
         ) || matchesGhosttyGotoSplitFallback(event: event, route: .direction(.right)) {
-            if performFocusedDockShortcut(.focusPane(.right), event: event) { return true }
+            if performFocusedDockShortcut(
+                .focusPane(.right),
+                action: .focusRight,
+                event: event
+            ) {
+                return true
+            }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
             routedTabs?.movePaneFocus(direction: .right)
@@ -14166,7 +14308,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             arrowGlyph: "↑",
             arrowKeyCode: 126
         ) || matchesGhosttyGotoSplitFallback(event: event, route: .direction(.up)) {
-            if performFocusedDockShortcut(.focusPane(.up), event: event) { return true }
+            if performFocusedDockShortcut(
+                .focusPane(.up),
+                action: .focusUp,
+                event: event
+            ) {
+                return true
+            }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
             routedTabs?.movePaneFocus(direction: .up)
@@ -14181,7 +14329,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             arrowGlyph: "↓",
             arrowKeyCode: 125
         ) || matchesGhosttyGotoSplitFallback(event: event, route: .direction(.down)) {
-            if performFocusedDockShortcut(.focusPane(.down), event: event) { return true }
+            if performFocusedDockShortcut(
+                .focusPane(.down),
+                action: .focusDown,
+                event: event
+            ) {
+                return true
+            }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
             routedTabs?.movePaneFocus(direction: .down)
@@ -14191,7 +14345,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchesGhosttyGotoSplitFallback(event: event, route: .previous) {
+        // Pane focus cycling. `focusPreviousPane` / `focusNextPane` are the
+        // cmux-owned rebindable entries (default unbound). Ghostty's imported
+        // goto_split:previous/next triggers (⌘[ / ⌘] in Ghostty's macOS
+        // defaults) remain compatibility fallbacks that yield to any live
+        // configured shortcut (matchesGhosttyGotoSplitFallback), so a bound
+        // Focus Back/Forward keeps ⌘[ / ⌘] on global focus history.
+        if matchConfiguredShortcut(event: event, action: .focusPreviousPane) ||
+            matchesGhosttyGotoSplitFallback(event: event, route: .previous) {
+            if performFocusedDockShortcut(
+                .cyclePaneFocus(forward: false),
+                action: .focusPreviousPane,
+                event: event
+            ) {
+                return true
+            }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
             let moved = routedTabs?.cyclePaneFocus(forward: false) ?? false
@@ -14207,7 +14375,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchesGhosttyGotoSplitFallback(event: event, route: .next) {
+        if matchConfiguredShortcut(event: event, action: .focusNextPane) ||
+            matchesGhosttyGotoSplitFallback(event: event, route: .next) {
+            if performFocusedDockShortcut(
+                .cyclePaneFocus(forward: true),
+                action: .focusNextPane,
+                event: event
+            ) {
+                return true
+            }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
             let moved = routedTabs?.cyclePaneFocus(forward: true) ?? false
@@ -14224,7 +14400,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .toggleSplitZoom) {
-            if performFocusedDockShortcut(.togglePaneZoom, event: event) { return true }
+            if performFocusedDockShortcut(
+                .togglePaneZoom,
+                action: .toggleSplitZoom,
+                event: event
+            ) {
+                return true
+            }
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             performToggleSplitZoomShortcut(tabManager: routedManager)
 #if DEBUG
@@ -14284,6 +14466,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         if equalizeSplitsMatches && !matchingExplicitActionShouldPreemptEqualizeDefault {
+            if performFocusedDockShortcut(
+                .equalizeSplits,
+                action: .equalizeSplits,
+                event: event
+            ) {
+                return true
+            }
             performEqualizeSplitsShortcut()
             return true
         }
@@ -14307,7 +14496,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // When the Dock owns keyboard focus, split the focused Dock pane
             // instead of the main area (checked before the transient-focus
             // suppression, which only guards main-terminal states).
-            if routeSplitToFocusedDock(kind: .terminal, direction: .right, preferredWindow: event.window) {
+            if routeSplitToFocusedDock(
+                kind: .terminal,
+                direction: .right,
+                action: .splitRight,
+                preferredWindow: event.window
+            ) {
                 return true
             }
             if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .right) {
@@ -14324,7 +14518,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=splitDown \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            if routeSplitToFocusedDock(kind: .terminal, direction: .down, preferredWindow: event.window) {
+            if routeSplitToFocusedDock(
+                kind: .terminal,
+                direction: .down,
+                action: .splitDown,
+                preferredWindow: event.window
+            ) {
                 return true
             }
             if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .down) {
@@ -14341,7 +14540,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=splitBrowserRight \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            if routeSplitToFocusedDock(kind: .browser, direction: .right, preferredWindow: event.window) {
+            if routeSplitToFocusedDock(
+                kind: .browser,
+                direction: .right,
+                action: .splitBrowserRight,
+                preferredWindow: event.window
+            ) {
                 return true
             }
             _ = performBrowserSplitShortcut(direction: .right)
@@ -14352,28 +14556,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=splitBrowserDown \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            if routeSplitToFocusedDock(kind: .browser, direction: .down, preferredWindow: event.window) {
+            if routeSplitToFocusedDock(
+                kind: .browser,
+                direction: .down,
+                action: .splitBrowserDown,
+                preferredWindow: event.window
+            ) {
                 return true
             }
             _ = performBrowserSplitShortcut(direction: .down)
             return true
         }
 
-        // Surface navigation (legacy Ctrl+Tab support)
+        // Legacy Ctrl+Tab has no configurable action of its own. It
+        // intentionally reuses nextSurface/prevSurface for Dock ownership so
+        // both strokes follow the same routing classification.
         if matchesLegacyNextSurfaceShortcut(event: event) {
-            if performFocusedDockShortcut(.selectNextSurface, event: event) { return true }
+            if performFocusedDockShortcut(
+                .selectNextSurface,
+                action: .nextSurface,
+                event: event
+            ) {
+                return true
+            }
             (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectNextSurface()
             return true
         }
         if matchesLegacyPreviousSurfaceShortcut(event: event) {
-            if performFocusedDockShortcut(.selectPreviousSurface, event: event) { return true }
+            if performFocusedDockShortcut(
+                .selectPreviousSurface,
+                action: .prevSurface,
+                event: event
+            ) {
+                return true
+            }
             (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectPreviousSurface()
             return true
         }
 
         // New surface: Cmd+T
         if matchConfiguredShortcut(event: event, action: .newSurface) {
-            if routeCreateToFocusedDock(.terminal, focusAddressBar: false, preferredWindow: event.window) != nil {
+            if routeCreateToFocusedDock(
+                .terminal,
+                focusAddressBar: false,
+                action: .newSurface,
+                preferredWindow: event.window
+            ) != nil {
                 return true
             }
             tabManager?.newSurface()
@@ -14382,7 +14610,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Open browser: Cmd+Shift+L
         if matchConfiguredShortcut(event: event, action: .openBrowser) {
-            if routeCreateToFocusedDock(.browser, focusAddressBar: true, preferredWindow: event.window) != nil {
+            if routeCreateToFocusedDock(
+                .browser,
+                focusAddressBar: true,
+                action: .openBrowser,
+                preferredWindow: event.window
+            ) != nil {
                 return true
             }
             _ = openBrowserAndFocusAddressBar(insertAtEnd: true)
@@ -14390,6 +14623,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .focusBrowserAddressBar) {
+            if let dock = focusedDockStoreForShortcut(
+                action: .focusBrowserAddressBar,
+                preferredWindow: event.window
+            ),
+            let focusedPanelId = dock.focusedPanelId,
+            let focusedBrowser = dock.browserPanel(
+                for: focusedPanelId
+            ) {
+                focusBrowserAddressBar(in: focusedBrowser)
+                return true
+            }
             if let focusedPanel = tabManager?.focusedBrowserPanel {
                 focusBrowserAddressBar(in: focusedPanel)
                 return true
@@ -14406,7 +14650,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .focusHistoryBack) {
-            if performFocusedDockShortcut(.focusHistoryBack, event: event) { return true }
+            if performFocusedDockShortcut(
+                .focusHistoryBack,
+                action: .focusHistoryBack,
+                event: event
+            ) {
+                return true
+            }
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             if routedManager?.navigateBack() != true {
                 NSSound.beep()
@@ -14415,7 +14665,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .focusHistoryForward) {
-            if performFocusedDockShortcut(.focusHistoryForward, event: event) { return true }
+            if performFocusedDockShortcut(
+                .focusHistoryForward,
+                action: .focusHistoryForward,
+                event: event
+            ) {
+                return true
+            }
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             if routedManager?.navigateForward() != true {
                 NSSound.beep()
@@ -14501,6 +14757,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .toggleReactGrab) {
+            if performFocusedDockShortcut(
+                .toggleReactGrab,
+                action: .toggleReactGrab,
+                event: event
+            ) {
+                return true
+            }
             let didHandle = tabManager?.toggleReactGrabFromCurrentFocus() ?? false
             if !didHandle { NSSound.beep() }
             return true
@@ -14532,6 +14795,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard !shouldLetFocusedBrowserOwnFindShortcut(event) else {
                 return false
             }
+            if performFocusedDockShortcut(
+                .findNext,
+                action: .findNext,
+                event: event
+            ) {
+                return true
+            }
             restoreFocusedMainPanelFocusForShortcut(event: event)
             tabManager?.findNext()
             return true
@@ -14540,6 +14810,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if matchConfiguredShortcut(event: event, action: .findPrevious) {
             guard !shouldLetFocusedBrowserOwnFindShortcut(event) else {
                 return false
+            }
+            if performFocusedDockShortcut(
+                .findPrevious,
+                action: .findPrevious,
+                event: event
+            ) {
+                return true
             }
             restoreFocusedMainPanelFocusForShortcut(event: event)
             tabManager?.findPrevious()
@@ -14550,12 +14827,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard !shouldLetFocusedBrowserOwnFindShortcut(event) else {
                 return false
             }
+            if performFocusedDockShortcut(
+                .hideFind,
+                action: .hideFind,
+                event: event
+            ) {
+                return true
+            }
             restoreFocusedMainPanelFocusForShortcut(event: event)
             tabManager?.hideFind()
             return true
         }
 
         if matchConfiguredShortcut(event: event, action: .useSelectionForFind) {
+            if performFocusedDockShortcut(
+                .useSelectionForFind,
+                action: .useSelectionForFind,
+                event: event
+            ) {
+                return true
+            }
             restoreFocusedMainPanelFocusForShortcut(event: event)
             tabManager?.searchSelection()
             return true
@@ -14575,6 +14866,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .reopenClosedBrowserPanel) {
+            if performFocusedDockShortcut(
+                .reopenClosedPanel,
+                action: .reopenClosedBrowserPanel,
+                event: event
+            ) {
+                return true
+            }
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             _ = reopenMostRecentlyClosedItem(preferredTabManager: routedManager)
             return true
@@ -15310,6 +15608,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func handleBrowserSurfaceKeyEquivalentBeforeMainMenu(_ event: NSEvent) -> Bool {
         if matchConfiguredShortcut(event: event, action: .find) {
+            if performFocusedDockShortcut(
+                .startFind,
+                action: .find,
+                event: event
+            ) {
+                return true
+            }
             let shortcutWindow = resolvedShortcutEventWindow(event)
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? shortcutRoutingKeyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow)
         }
@@ -16674,13 +16979,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-    private func handleMainTerminalWindowShouldClose() -> Bool {
+    private func handleMainTerminalWindowShouldClose(onCancel: (() -> Void)?) -> Bool {
         // XCTest has no UI for the warn-before-quit dialog and would either block
         // on runModal or have NSApp.terminate kill the test process.
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return true }
+        if isRunningUnderXCTest(ProcessInfo.processInfo.environment) { return true }
         guard !isTerminatingApp, mainWindowContexts.count <= 1 else { return true }
-        _ = handleQuitShortcutWarning()
+        // The "Don't warn again for Cmd+Q" preference does not apply here:
+        // Ctrl+D has already exited the sole shell, so this decision must offer
+        // Cancel as the only way to recover a terminal instead of quitting cmux.
+        _ = handleQuitShortcutWarning(
+            onCancel: onCancel,
+            forceConfirmation: onCancel != nil
+        )
         return false
+    }
+
+    private func handleMainTerminalWindowCloseRequest(
+        windowId: UUID,
+        onCancel: (() -> Void)?
+    ) -> Bool {
+        let cancellationAction: (() -> Void)? = onCancel.map { action in
+            { [weak self] in
+                self?.handleCancelledMainTerminalWindowClose(windowId: windowId)
+                action()
+            }
+        }
+        let shouldClose = handleMainTerminalWindowShouldClose(onCancel: cancellationAction)
+        if !shouldClose, onCancel == nil {
+            handleCancelledMainTerminalWindowClose(windowId: windowId)
+        }
+        return shouldClose
+    }
+
+    private func handleCancelledMainTerminalWindowClose(windowId: UUID) {
+        closedWindowHistorySuppressedWindowIds.remove(windowId)
+        // A cancelled close must not leave an explicit kill-on-close marker for
+        // a later window or app close. A confirmed quit keeps the marker so
+        // applicationWillTerminate kills the remote session before exit.
+        if !isTerminatingApp {
+            remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId)
+        }
     }
 
     private func unregisterMainWindow(_ window: NSWindow) {
@@ -16830,7 +17168,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         workspaceForMainActor(tabId: tabId)
     }
 
-    func closeMainWindowContainingTabId(_ tabId: UUID, recordHistory: Bool = true) {
+    func closeMainWindowContainingTabId(
+        _ tabId: UUID,
+        recordHistory: Bool = true,
+        onCancelled: (() -> Void)? = nil
+    ) {
 #if DEBUG
         closeMainWindowContainingTabIdObserverForTesting?(tabId, recordHistory)
 #endif
@@ -16844,6 +17186,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if !recordHistory {
                 closedWindowHistorySuppressedWindowIds.remove(context.windowId)
             }
+            return
+        }
+        if let onCancelled,
+           !handleMainTerminalWindowCloseRequest(windowId: context.windowId, onCancel: onCancelled) {
             return
         }
         window.performClose(nil)

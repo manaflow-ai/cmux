@@ -5,11 +5,10 @@ import Foundation
 import Observation
 
 /// Drives the in-app iOS pairing window. Gates pairing on the Mac being signed
-/// in (authorization is a Stack same-account check), then turns on the
-/// pairing host, mints an identity-only Iroh attach ticket, and exposes an
-/// optional Tailscale compatibility code for released iOS clients. The
-/// displayed code never expires and is never regenerated on a timer; Refresh
-/// Code re-mints on demand.
+/// in (authorization is a Stack same-account check), then turns on the pairing
+/// host and mints a Tailscale pairing code. Automatic Iroh discovery needs no
+/// QR. The displayed Tailscale code never expires and is never regenerated on
+/// a timer; Refresh Code re-mints on demand.
 ///
 /// Reads auth state from the app's shared ``CmuxAuthRuntime/AuthCoordinator``
 /// (via `AppDelegate`); sign-in routes through the shared ``HostAccountFlow``
@@ -30,8 +29,7 @@ final class MobilePairingModel {
         /// A phone has attached to the listener; show a paired/success state
         /// instead of the QR + spinner.
         case connected(Ready)
-        /// Neither an authenticated Iroh identity nor a released-client
-        /// Tailscale compatibility route is available yet.
+        /// No phone-reachable Tailscale route is available yet.
         case needsReachableTransport
         /// The listener could not be started or no ticket could be minted.
         case failed(String)
@@ -39,22 +37,9 @@ final class MobilePairingModel {
 
     /// A minted ticket ready for display.
     struct Ready: Equatable {
-        enum PrimaryTransport: Equatable, Sendable {
-            case iroh
-            case tailscaleCompatibility
-        }
-
         /// The `cmux-ios://attach?...` URL encoded into the QR code.
         let attachURL: String
-        /// A released-client-compatible Tailscale QR. Present only when Iroh is
-        /// the primary code and the Mac also has a non-loopback tailnet route.
-        let legacyAttachURL: String?
-        /// The transport represented by ``attachURL``.
-        let primaryTransport: PrimaryTransport
-        /// The Mac's display name, shown above the code.
-        let macName: String
-        /// Reachable Tailscale `host:port` compatibility routes. Empty when
-        /// Iroh is the only available transport.
+        /// Reachable Tailscale `host:port` routes represented by the code.
         let tailscaleLines: [String]
         /// The best route for manual phone entry, behind the "Copy IP" and
         /// "Copy Port" buttons. `nil` when no phone-dialable route exists.
@@ -62,39 +47,18 @@ final class MobilePairingModel {
 
         /// Whether at least one Tailscale route resolved.
         var reachableViaTailscale: Bool { !tailscaleLines.isEmpty }
-        /// Whether the default QR authenticates and connects through Iroh.
-        var reachableViaIroh: Bool { primaryTransport == .iroh }
     }
 
     struct PairingRoutePlan: Equatable, Sendable {
-        let primaryDisclosureMode: CmxPairingRouteDisclosureMode
-        let primaryTransport: Ready.PrimaryTransport
-        let offersLegacyCode: Bool
+        let disclosureMode: CmxPairingRouteDisclosureMode
 
         static func make(routes: [CmxAttachRoute]) -> PairingRoutePlan? {
-            let hasIroh = routes.contains { route in
-                guard route.kind == .iroh,
-                      case .peer = route.endpoint else { return false }
-                return true
-            }
-            let hasLegacyTailscale = routes.contains(
-                where: MobilePairingModel.isPhoneReachableLegacyRoute
+            guard routes.contains(
+                where: MobilePairingModel.isPhoneReachableTailscaleRoute
+            ) else { return nil }
+            return PairingRoutePlan(
+                disclosureMode: .legacyPrivateNetworkCompatibility
             )
-            if hasIroh {
-                return PairingRoutePlan(
-                    primaryDisclosureMode: .irohIdentityOnly,
-                    primaryTransport: .iroh,
-                    offersLegacyCode: hasLegacyTailscale
-                )
-            }
-            if hasLegacyTailscale {
-                return PairingRoutePlan(
-                    primaryDisclosureMode: .legacyPrivateNetworkCompatibility,
-                    primaryTransport: .tailscaleCompatibility,
-                    offersLegacyCode: false
-                )
-            }
-            return nil
         }
     }
 
@@ -105,8 +69,7 @@ final class MobilePairingModel {
 
     private let host: MobileHostService
     private let ticketTTL: TimeInterval
-    /// Observes host status while a code is shown. It upgrades an early
-    /// compatibility code when Iroh publishes and tracks new connections.
+    /// Observes host status while a code is shown and tracks new connections.
     /// Cancelled on each refresh.
     private var connectionObservationTask: Task<Void, Never>?
     /// Bumped on each ``refresh()`` so a slower in-flight run (the UI fires
@@ -123,8 +86,8 @@ final class MobilePairingModel {
     ///     `MobileHostService.shared` is main-actor isolated.)
     ///   - ticketTTL: Lifetime of the minted attach token in seconds. Defaults
     ///     to 600. Covers only the RPC/v1 fallback token the mint produces as a
-    ///     side effect; displayed Iroh and compatibility QRs carry no token and
-    ///     never expire.
+    ///     side effect; the displayed Tailscale QR carries no token and never
+    ///     expires.
     init(host: MobileHostService? = nil, ticketTTL: TimeInterval = 600) {
         self.host = host ?? .shared
         self.ticketTTL = ticketTTL
@@ -182,7 +145,7 @@ final class MobilePairingModel {
                 workspaceID: "",
                 terminalID: nil,
                 ttl: ticketTTL,
-                routeDisclosureMode: routePlan.primaryDisclosureMode
+                routeDisclosureMode: routePlan.disclosureMode
             )
             guard generation == refreshGeneration else { return }
             guard let attachURL = payload["attach_url"] as? String, !attachURL.isEmpty else {
@@ -194,24 +157,9 @@ final class MobilePairingModel {
                 )
                 return
             }
-            let legacyAttachURL: String?
-            if routePlan.offersLegacyCode,
-               let legacyPayload = try? await host.createAttachTicket(
-                   workspaceID: "",
-                   terminalID: nil,
-                   ttl: ticketTTL,
-                   routeDisclosureMode: .legacyPrivateNetworkCompatibility
-               ) {
-                legacyAttachURL = legacyPayload["attach_url"] as? String
-            } else {
-                legacyAttachURL = nil
-            }
             state = .ready(
                 Ready(
                     attachURL: attachURL,
-                    legacyAttachURL: legacyAttachURL,
-                    primaryTransport: routePlan.primaryTransport,
-                    macName: Self.macDisplayName,
                     tailscaleLines: Self.tailscaleLines(status.routes),
                     manualEntry: CmxManualPairingEntry.best(in: status.routes)
                 )
@@ -236,8 +184,8 @@ final class MobilePairingModel {
     ///
     /// There is deliberately no timer to cancel: the displayed code never
     /// expires and is never regenerated behind the user's back. If a
-    /// endpoint or private-network address changes while the window sits open,
-    /// the Refresh Code button re-mints on demand.
+    /// Tailscale address changes while the window sits open, the Refresh Code
+    /// button re-mints on demand.
     func stopObserving() {
         connectionObservationTask?.cancel()
         connectionObservationTask = nil
@@ -263,17 +211,6 @@ final class MobilePairingModel {
             for await status in self.host.statusUpdates() {
                 if Task.isCancelled { return }
                 guard generation == self.refreshGeneration else { return }
-                if Self.shouldUpgradePrimaryTransport(
-                    from: self.state,
-                    routes: status.routes
-                ) {
-                    Task { @MainActor [weak self] in
-                        guard let self,
-                              generation == self.refreshGeneration else { return }
-                        await self.refresh()
-                    }
-                    return
-                }
                 self.state = Self.connectionTransition(
                     from: self.state,
                     activeConnectionCount: status.activeConnectionCount,
@@ -283,29 +220,8 @@ final class MobilePairingModel {
         }
     }
 
-    /// Returns whether a displayed legacy compatibility code should be
-    /// replaced now that an authenticated Iroh identity is available.
-    static func shouldUpgradePrimaryTransport(
-        from current: State,
-        routes: [CmxAttachRoute]
-    ) -> Bool {
-        let ready: Ready
-        switch current {
-        case let .ready(value), let .connected(value):
-            ready = value
-        default:
-            return false
-        }
-        guard ready.primaryTransport == .tailscaleCompatibility else {
-            return false
-        }
-        return PairingRoutePlan.make(routes: routes)?.primaryTransport == .iroh
-    }
-
-    /// Automatically replaces the temporary no-route state when asynchronous
-    /// Iroh registration or a Tailscale route appears. This is event-driven by
-    /// the host status cache, so opening the pairing window never races a fast
-    /// legacy listener against the usually-slightly-slower broker registration.
+    /// Automatically replaces the temporary no-route state when a Tailscale
+    /// route appears. This is event-driven by the host status cache.
     private func observeRouteAvailability() {
         connectionObservationTask?.cancel()
         let generation = refreshGeneration
@@ -352,14 +268,9 @@ final class MobilePairingModel {
         UserDefaults.standard.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
     }
 
-    private static var macDisplayName: String {
-        Host.current().localizedName ?? ProcessInfo.processInfo.hostName
-    }
-
-    /// Whether `route` can serve released iOS clients: a Tailscale route that
-    /// does not point back at this Mac. Iroh-capable clients use an identity-only
-    /// route and never receive this private address in their default QR.
-    private nonisolated static func isPhoneReachableLegacyRoute(
+    /// Whether `route` can serve a physical iPhone: a Tailscale route that does
+    /// not point back at this Mac.
+    private nonisolated static func isPhoneReachableTailscaleRoute(
         _ route: CmxAttachRoute
     ) -> Bool {
         route.kind == .tailscale && !CmxLoopbackHost().matches(route)

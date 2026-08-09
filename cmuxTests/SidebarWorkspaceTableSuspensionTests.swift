@@ -182,6 +182,94 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
+    func visibleRowClickWhileRevealApplyIsPendingRequestsAuthoritativeApply() async throws {
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let initiallySelectedWorkspace = try #require(tabManager.selectedWorkspace)
+        let clickedWorkspace = tabManager.addWorkspace(
+            select: false,
+            autoWelcomeIfNeeded: false,
+            autoRefreshMetadata: false
+        )
+        let model = SidebarWorkspaceRowSuspensionTests.makeModel(
+            workspaceId: clickedWorkspace.id
+        )
+        let row = SidebarWorkspaceTableRowConfiguration(
+            workspaceRowModel: model,
+            actions: SidebarWorkspaceRowSuspensionTests.makeActions(
+                model: model,
+                workspace: clickedWorkspace,
+                tabManager: tabManager
+            ),
+            groupId: nil,
+            isPinned: false,
+            environment: SidebarWorkspaceTableEnvironmentSnapshot(
+                colorScheme: .light,
+                globalFontMagnificationPercent: 100,
+                lazyContractProbe: SidebarLazyContractProbe()
+            )
+        )
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        var applyRequests = 0
+        controller.onDeferredRowClickAwaitingApply = { applyRequests += 1 }
+
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [clickedWorkspace.id],
+            selectedWorkspaceId: initiallySelectedWorkspace.id,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        controller.setPresentationActive(false, workspaceIds: [clickedWorkspace.id])
+        controller.setPresentationActive(true, workspaceIds: [clickedWorkspace.id])
+
+        let table = container.tableView
+        let action = try #require(table.action)
+        let target = try #require(table.target)
+        table.setValue(0, forKey: "clickedRow")
+        defer { table.setValue(-1, forKey: "clickedRow") }
+        #expect(table.sendAction(action, to: target))
+
+        #expect(
+            applyRequests == 1,
+            """
+            A click parked on a reveal-time row must request an authoritative \
+            apply: the park mutates no SwiftUI-tracked state, so nothing else \
+            re-evaluates the Equatable-gated sidebar and the click stays \
+            parked until unrelated invalidation (issue #9690: taps only \
+            landed after an app focus cycle).
+            """
+        )
+
+        // Respond to the request the way production SwiftUI does — with a
+        // fresh authoritative apply — and confirm the parked click lands.
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [clickedWorkspace.id],
+            selectedWorkspaceId: initiallySelectedWorkspace.id,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        #expect(tabManager.selectedTabId == clickedWorkspace.id)
+    }
+
+    @Test
     func hidingRetiresNativeReorderSession() async {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
@@ -276,8 +364,8 @@ struct SidebarWorkspaceTableSuspensionTests {
             container.tableView.view(atColumn: 0, row: 1, makeIfNecessary: false)
                 as? SidebarWorkspaceRowTableCellView
         )
-        cell.isEditing = true
-        cell.renameField.stringValue = "Atomic reload rename"
+        cell.beginInlineRename()
+        try Self.setInlineRenameText(in: cell, to: "Atomic reload rename")
 
         let resizedFirstRow = makeRowConfiguration(
             workspaceId: firstId,
@@ -303,8 +391,8 @@ struct SidebarWorkspaceTableSuspensionTests {
             container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
                 as? SidebarWorkspaceRowTableCellView
         )
-        reloadedCell.isEditing = true
-        reloadedCell.renameField.stringValue = "Detached rename"
+        reloadedCell.beginInlineRename()
+        try Self.setInlineRenameText(in: reloadedCell, to: "Detached rename")
 
         controller.dismantleContainerView(container)
 
@@ -364,10 +452,11 @@ struct SidebarWorkspaceTableSuspensionTests {
         replacementRoot.addSubview(firstRoot)
 
         cell.beginInlineRename()
-        let field = try #require(
-            Self.descendants(of: cell).compactMap { $0 as? SidebarRowInlineRenameField }.first
+        try Self.setInlineRenameText(in: cell, to: "Reparented rename")
+        let editor = try #require(
+            Self.inlineRenameField(in: cell).currentEditor() as? NSTextView
         )
-        field.onCommit?("Reparented rename")
+        editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
         #expect(
             committedTitle == "Reparented rename",
             "A transient content-view reparent must not detach live row actions."
@@ -586,6 +675,35 @@ struct SidebarWorkspaceTableSuspensionTests {
 
     private static func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
+    }
+
+    /// The active inline-rename field hosted in `cell`.
+    private static func inlineRenameField(
+        in cell: SidebarWorkspaceRowTableCellView,
+        _ sourceLocation: SourceLocation = #_sourceLocation
+    ) throws -> SidebarInlineRenameTextField {
+        try #require(
+            descendants(of: cell)
+                .compactMap { $0 as? SidebarInlineRenameTextField }.first,
+            "An inline-rename session must be hosting its field",
+            sourceLocation: sourceLocation
+        )
+    }
+
+    /// Types `text` into the cell's active rename session through the live
+    /// field editor when one is attached (window-hosted cells), falling back
+    /// to the field value for windowless cells.
+    private static func setInlineRenameText(
+        in cell: SidebarWorkspaceRowTableCellView,
+        to text: String,
+        _ sourceLocation: SourceLocation = #_sourceLocation
+    ) throws {
+        let field = try inlineRenameField(in: cell, sourceLocation)
+        if let editor = field.currentEditor() {
+            editor.string = text
+        } else {
+            field.stringValue = text
+        }
     }
 
     private struct TestRowContent: View, Equatable {

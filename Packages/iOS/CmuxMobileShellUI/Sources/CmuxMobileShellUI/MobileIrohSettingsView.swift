@@ -367,6 +367,8 @@ private extension MobileIrohSettingsView {
             L10n.string("mobile.iroh.diagnostics.failure.unsupportedRoute", defaultValue: "Unsupported Route")
         case .some(.noRoute):
             L10n.string("mobile.iroh.diagnostics.failure.noRoute", defaultValue: "No Route Available")
+        case .some(.routeGated):
+            L10n.string("mobile.iroh.diagnostics.failure.routeGated", defaultValue: "Route Gated")
         case .some(.credentialUnavailable):
             L10n.string(
                 "mobile.iroh.diagnostics.failure.credentialUnavailable",
@@ -415,6 +417,8 @@ private extension MobileIrohSettingsView {
                 "mobile.iroh.diagnostics.failure.sendQueueOverflow",
                 defaultValue: "Send Queue Overflow"
             )
+        case .some(.routeGated):
+            L10n.string("mobile.iroh.diagnostics.failure.routeGated", defaultValue: "Route Gated")
         case .some(.superseded):
             L10n.string(
                 "mobile.iroh.diagnostics.failure.superseded",

@@ -61,6 +61,10 @@ final class RemoteTmuxControlConnection {
     /// Aggregate bytes retained by every in-flight pane seed on this connection.
     var pendingPaneSeedByteCount = 0
     let pendingPaneSeedByteLimit: Int
+    /// Panes whose budget overflow recovery is waiting to start an authoritative seed.
+    var deferredPaneSeedBudgetRecoveryPaneIDs: Set<Int> = []
+    /// Coalesces pane budget recovery onto one future main-actor turn.
+    var paneSeedBudgetRecoveryTaskScheduled = false
     /// The one queued or in-flight visible repaint seed allowed per pane.
     var pendingPaneVisibleRepaintSeedIDs: [Int: UUID] = [:]
     /// Panes that grew while a visible repaint seed was already in flight. One
@@ -830,6 +834,9 @@ final class RemoteTmuxControlConnection {
             applySessionNameChange(sessionId: id, name: renameName, event: "session-renamed", refetchWindows: false)
         case .sessionsChanged:
             record("sessions-changed")
+        case .clientDetached:
+            record("client-detached")
+            replayRecordedSizeClaims()
         case let .windowAdd(id):
             record("window-add @\(id)")
             requestWindows()

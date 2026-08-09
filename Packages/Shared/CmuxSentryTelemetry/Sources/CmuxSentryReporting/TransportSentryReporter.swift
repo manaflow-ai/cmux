@@ -17,9 +17,7 @@ internal import os
 ///    with `enableLogs`), searchable without waiting for an error.
 /// 3. When it crosses ``CMUXMobileCore/TransportIncidentPolicy``'s capture
 ///    gates, a Sentry **event** fingerprinted by the failure signature and
-///    carrying the compact diagnostic ring export as an attachment — the same
-///    `cmuxdiag v1` blob that previously had to be pulled off the device by
-///    hand.
+///    carrying the plain-language diagnostic timeline as an attachment.
 ///
 /// Privacy: everything sent derives from the fixed integer diagnostic
 /// taxonomy, so no free text, peer identity, address, account, or terminal
@@ -90,8 +88,8 @@ public final class TransportSentryReporter: Sendable {
         var logBudget: TransportTelemetryLogBudget
     }
 
-    private let role: DiagnosticRuntimeRole
-    private let roleName: String
+    private let roleCode: String
+    private let roleDisplayName: String
     private let exportRing: @Sendable () async -> Data
     private let delivery: Delivery
     // lint:allow lock - ingest is synchronous on the diagnostic drain task; the
@@ -103,7 +101,7 @@ public final class TransportSentryReporter: Sendable {
     /// - Parameters:
     ///   - role: The producing runtime (`mobileClient` on iOS, `macHost` on
     ///     macOS); rides as a tag and fingerprint component.
-    ///   - exportRing: Snapshot of the diagnostic ring's compact export,
+    ///   - exportRing: Snapshot of the diagnostic ring's plain-language report,
     ///     attached to captured incidents. Pass the owning log's `export`.
     ///   - incidentConfiguration: Capture-gate thresholds.
     ///   - logsPerHour: Sliding-hour budget for structured log lines.
@@ -115,8 +113,8 @@ public final class TransportSentryReporter: Sendable {
         logsPerHour: Int = 300,
         delivery: Delivery = .sentry()
     ) {
-        self.role = role
-        self.roleName = DiagnosticEventPresentation.name(role)
+        self.roleCode = DiagnosticEventPresentation().name(role)
+        self.roleDisplayName = DiagnosticEventPresentation().displayName(role)
         self.exportRing = exportRing
         self.delivery = delivery
         self.state = OSAllocatedUnfairLock(initialState: MutableState(
@@ -130,16 +128,21 @@ public final class TransportSentryReporter: Sendable {
     public func ingest(_ event: DiagnosticEvent) {
         guard delivery.isEnabled() else { return }
 
-        let described = DiagnosticEventPresentation.describe(event)
+        let described = DiagnosticEventPresentation().describe(event)
         let isFailure = TransportIncidentPolicy.failureCodes.contains(event.code)
 
         let (incident, logDropCount) = state.withLock { state in
             (state.policy.decide(event), state.logBudget.admit(tNanos: event.tNanos))
         }
 
-        deliverBreadcrumb(described, isFailure: isFailure)
+        deliverBreadcrumb(event, described: described, isFailure: isFailure)
         if let logDropCount {
-            deliverLog(described, isFailure: isFailure, droppedBeforeThis: logDropCount)
+            deliverLog(
+                event,
+                described: described,
+                isFailure: isFailure,
+                droppedBeforeThis: logDropCount
+            )
         }
         if let incident {
             captureIncident(incident)
@@ -147,35 +150,46 @@ public final class TransportSentryReporter: Sendable {
     }
 
     private func deliverBreadcrumb(
-        _ described: DiagnosticEventPresentation.DescribedEvent,
+        _ event: DiagnosticEvent,
+        described: DiagnosticEventPresentation.DescribedEvent,
         isFailure: Bool
     ) {
         let crumb = Breadcrumb(level: isFailure ? .warning : .info, category: "transport")
         crumb.type = isFailure ? "error" : "default"
-        crumb.message = described.name
-        if !described.fields.isEmpty {
-            var data: [String: Any] = [:]
-            for field in described.fields {
-                data[field.key] = field.value
-            }
-            crumb.data = data
+        crumb.message = DiagnosticEventPresentation().summary(described)
+        var data: [String: Any] = [
+            "event_code": DiagnosticEventPresentation().name(event.code),
+            "role": roleDisplayName,
+        ]
+        for field in described.fields {
+            data[field.key] = field.value
         }
+        crumb.data = data
         delivery.addBreadcrumb(crumb)
     }
 
     private func deliverLog(
-        _ described: DiagnosticEventPresentation.DescribedEvent,
+        _ event: DiagnosticEvent,
+        described: DiagnosticEventPresentation.DescribedEvent,
         isFailure: Bool,
         droppedBeforeThis: Int
     ) {
-        var attributes: [String: Any] = ["transport.role": roleName]
+        var attributes: [String: Any] = [
+            "transport.event_code": DiagnosticEventPresentation().name(event.code),
+            "transport.role": roleDisplayName,
+            "transport.role_code": roleCode,
+        ]
         for field in described.fields {
             attributes["transport.\(field.key)"] = field.value
         }
         if droppedBeforeThis > 0 {
             attributes["transport.log_dropped_before_this"] = droppedBeforeThis
         }
-        delivery.log(isFailure ? .warning : .info, "transport.\(described.name)", attributes)
+        delivery.log(
+            isFailure ? .warning : .info,
+            DiagnosticEventPresentation().summary(described),
+            attributes
+        )
     }
 
     private func captureIncident(_ incident: TransportIncidentPolicy.Incident) {
@@ -197,19 +211,19 @@ public final class TransportSentryReporter: Sendable {
         let event = Event(level: incident.severity == .error ? .error : .warning)
         event.message = SentryMessage(formatted: incident.title)
         event.logger = "cmux.transport"
-        event.fingerprint = ["cmux-transport", roleName, incident.signature]
+        event.fingerprint = ["cmux-transport", roleCode, incident.signature]
 
         var tags: [String: String] = [
-            "transport.event": DiagnosticEventPresentation.name(incident.event.code),
+            "transport.event": DiagnosticEventPresentation().name(incident.event.code),
             "transport.signature": incident.signature,
-            "transport.role": roleName,
+            "transport.role": roleCode,
             "transport.incident": incident.kind == .outage ? "outage" : "failure",
         ]
         if let failure = incident.failure {
-            tags["transport.failure"] = DiagnosticEventPresentation.name(failure)
+            tags["transport.failure"] = DiagnosticEventPresentation().name(failure)
         }
         if let transport = incident.transport {
-            tags["transport.kind"] = DiagnosticEventPresentation.name(transport)
+            tags["transport.kind"] = DiagnosticEventPresentation().name(transport)
         }
         event.tags = tags
 
@@ -228,9 +242,10 @@ public final class TransportSentryReporter: Sendable {
             context["reachable"] = reachable
         }
         if let phase = incident.appPhase {
-            context["app_phase"] = DiagnosticEventPresentation.name(phase)
+            context["app_phase"] = DiagnosticEventPresentation().displayName(phase)
+            context["app_phase_code"] = DiagnosticEventPresentation().name(phase)
         }
-        let described = DiagnosticEventPresentation.describe(incident.event)
+        let described = DiagnosticEventPresentation().describe(incident.event)
         for field in described.fields {
             context["event_\(field.key)"] = field.value
         }

@@ -35,6 +35,7 @@ extension MobileWorkspaceGroupPreview {
             name: remote.name,
             isCollapsed: remote.isCollapsed,
             isPinned: remote.isPinned,
+            iconSymbol: remote.iconSymbol,
             anchorWorkspaceID: MobileWorkspacePreview.ID(rawValue: remote.anchorWorkspaceID)
         )
     }

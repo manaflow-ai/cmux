@@ -94,6 +94,35 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(payload["type"] == .string("terminal"))
     }
 
+    @Test func paneBreakRejectsExplicitNullSurfaceID() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "pane.break",
+            params: ["surface_id": .null]
+        ))
+
+        #expect(result == .err(code: "not_found", message: "Surface not found", data: nil))
+    }
+
+    @Test func paneJoinRejectsExplicitNullSurfaceID() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "pane.join",
+            params: [
+                "target_pane_id": .string(UUID().uuidString),
+                "surface_id": .null,
+            ]
+        ))
+
+        #expect(result == .err(code: "not_found", message: "Surface not found", data: nil))
+    }
+
     @Test func surfaceCreateRemotePayloadIdentifiesTmuxNewWindow() throws {
         let workspaceID = UUID()
         let (coordinator, context) = coordinator(createResolution: .routedToRemote(
@@ -143,6 +172,82 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(code == "invalid_params")
         #expect(message == "Dock placement supports only terminal and browser surfaces")
         #expect(data == .object(["type": .string("agentSession")]))
+    }
+
+    @Test func surfaceCloseRejectsUnresolvedExplicitSurfaceRef() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.close",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .string("surface:99999"),
+            ]
+        ))
+
+        #expect(result == .err(code: "not_found", message: "Surface not found", data: nil))
+    }
+
+    @Test func surfaceCloseRejectsExplicitNullSurfaceID() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.close",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .null,
+            ]
+        ))
+
+        #expect(result == .err(code: "not_found", message: "Surface not found", data: nil))
+    }
+
+    @Test func surfaceRespawnRejectsUnresolvedExplicitSurfaceRef() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.respawn",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .string("surface:99999"),
+                "command": .string("echo nope"),
+            ]
+        ))
+
+        guard case .err(let code, _, let data) = result else {
+            Issue.record("expected not_found error")
+            return
+        }
+        #expect(code == "not_found")
+        #expect(data == nil)
+    }
+
+    @Test func surfaceRespawnRejectsExplicitNullSurfaceID() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.respawn",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .null,
+                "command": .string("echo nope"),
+            ]
+        ))
+
+        guard case .err(let code, _, let data) = result else {
+            Issue.record("expected not_found error")
+            return
+        }
+        #expect(code == "not_found")
+        #expect(data == nil)
     }
 
     @Test func surfaceListIncludesLiveSimulatorIdentity() throws {

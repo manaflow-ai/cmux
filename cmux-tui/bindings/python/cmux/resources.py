@@ -760,6 +760,27 @@ def _tab_snapshot(value: Any) -> TabSnapshot:
 
 def _terminal_snapshot(value: Any) -> TerminalSnapshot:
     payload = _unwrap_resource(value, ("terminal",))
+    if "tab_id" not in payload:
+        raise ProtocolError("resource result omitted required nullable tab_id")
+    raw_tab_id = payload["tab_id"]
+    tab_id = (
+        None
+        if raw_tab_id is None
+        else _required_id(payload, ("tab_id",), TabId)
+    )
+    if "tab_ids" not in payload:
+        # Protocol 1 servers predating terminal projection expose only the
+        # nullable compatibility alias.
+        tab_ids = () if tab_id is None else (tab_id,)
+    else:
+        raw_tab_ids = payload["tab_ids"]
+        if not isinstance(raw_tab_ids, list):
+            raise ProtocolError("terminal tab_ids must be an array")
+        tab_ids = tuple(
+            _required_id({"id": item}, ("id",), TabId) for item in raw_tab_ids
+        )
+    if tab_id != (tab_ids[0] if tab_ids else None):
+        raise ProtocolError("terminal tab_id must be the first tab_ids item")
     lifecycle = _required_enum(
         payload,
         "lifecycle",
@@ -785,6 +806,7 @@ def _terminal_snapshot(value: Any) -> TerminalSnapshot:
             TerminalId,
             (
                 "tab_id",
+                "tab_ids",
                 "title",
                 "cwd",
                 "cols",
@@ -794,7 +816,8 @@ def _terminal_snapshot(value: Any) -> TerminalSnapshot:
                 "exit",
             ),
         ),
-        tab_id=_required_id(payload, ("tab_id",), TabId),
+        tab_id=tab_id,
+        tab_ids=tab_ids,
         title=_required_string(payload, "title"),
         cwd=_optional_present_string(payload, "cwd"),
         cols=_required_positive_uint16(payload, "cols"),
@@ -2114,10 +2137,20 @@ class Client:
             if item.snapshot is not None and item.snapshot.name == name
         ]
 
-    def _read(self, operation: Operation, params: Mapping[str, Any]) -> Any:
+    def _read(
+        self,
+        operation: Operation,
+        params: Mapping[str, Any],
+        *,
+        _abandoned_result_decoder: Optional[Callable[[Any], Any]] = None,
+    ) -> Any:
         if operation.operation_class not in {"read", "connection_control"}:
             raise ValueError(f"{operation.wire_name} is not a read/control operation")
-        return self._request(operation, params)
+        return self._request(
+            operation,
+            params,
+            _abandoned_result_decoder=_abandoned_result_decoder,
+        )
 
     def _request(
         self,
@@ -2125,6 +2158,7 @@ class Client:
         params: Mapping[str, Any],
         *,
         idempotency_key: Optional[str] = None,
+        _abandoned_result_decoder: Optional[Callable[[Any], Any]] = None,
     ) -> Any:
         context: Optional[_RequestContext] = getattr(
             self._request_context,
@@ -2137,6 +2171,7 @@ class Client:
             idempotency_key=idempotency_key,
             timeout=context.options.timeout if context is not None else None,
             cancel_event=context.cancel_event if context is not None else None,
+            _abandoned_result_decoder=_abandoned_result_decoder,
         )
 
     def _invoke_with_request_options(
@@ -3842,6 +3877,7 @@ class Terminal(_Handle[TerminalId, TerminalSnapshot]):
             self._client._read(
                 Operations.TERMINAL_WAIT,
                 params,
+                _abandoned_result_decoder=_terminal_wait_result,
             )
         )
 
@@ -3859,6 +3895,7 @@ class Terminal(_Handle[TerminalId, TerminalSnapshot]):
             self._client._read(
                 Operations.TERMINAL_WAIT_EXIT,
                 params,
+                _abandoned_result_decoder=_terminal_wait_exit_result,
             )
         )
 
@@ -3946,6 +3983,53 @@ class Terminal(_Handle[TerminalId, TerminalSnapshot]):
                 self._client,
                 Selector.by_id(snapshot.id),
                 self._scope,
+                snapshot,
+            ),
+        )
+
+    def project(
+        self,
+        *,
+        destination_workspace: SelectorInput[WorkspaceId],
+        destination_screen: SelectorInput[ScreenId],
+        destination_pane: SelectorInput[PaneId],
+        index: int,
+        name: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+        expected_revision: Optional[str] = None,
+    ) -> MutationResult["Tab"]:
+        encoded_workspace = encode_selector(destination_workspace, WorkspaceId)
+        encoded_screen = encode_selector(destination_screen, ScreenId)
+        encoded_pane = encode_selector(destination_pane, PaneId)
+        params: Dict[str, Any] = {
+            **self._params(),
+            "destination_workspace": encoded_workspace,
+            "destination_screen": encoded_screen,
+            "destination_pane": encoded_pane,
+            "index": index,
+        }
+        if name is not None:
+            params["name"] = name
+        tab_scope = {
+            key: value
+            for key, value in self._scope.items()
+            if key not in ("workspace", "screen", "pane", "tab")
+        }
+        tab_scope.update(
+            workspace=encoded_workspace,
+            screen=encoded_screen,
+            pane=encoded_pane,
+        )
+        return self._client._mutation_handle(
+            Operations.TERMINAL_PROJECT,
+            params,
+            idempotency_key,
+            expected_revision,
+            _tab_snapshot,
+            lambda snapshot: Tab(
+                self._client,
+                Selector.by_id(snapshot.id),
+                tab_scope,
                 snapshot,
             ),
         )
