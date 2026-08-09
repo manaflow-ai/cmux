@@ -54,6 +54,14 @@ struct BrowserWindowPortalRegistryNotificationTests {
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
     }
 
+    private func waitForNextMainTurn() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
+    }
+
     private func hasOmnibarSuggestionsOverlay(in view: NSView) -> Bool {
         view.subviews.contains {
             String(describing: type(of: $0)).contains("OmnibarSuggestionsHostingView")
@@ -193,7 +201,7 @@ struct BrowserWindowPortalRegistryNotificationTests {
         )
     }
 
-    @Test func portalRefreshDefersWebKitLayoutUntilOuterLayoutCompletes() throws {
+    @Test func portalRefreshDefersWebKitLayoutUntilOuterLayoutCompletes() async throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
             styleMask: [.titled, .closable],
@@ -244,14 +252,15 @@ struct BrowserWindowPortalRegistryNotificationTests {
             "Restored browser geometry must not synchronously lay out WebKit while AppKit is already laying out the anchor"
         )
 
-        advanceAnimations()
+        await waitForNextMainTurn()
+        await waitForNextMainTurn()
         #expect(
             forcedWebKitLayoutCount > 0,
             "The deferred portal refresh must still lay out WebKit after the anchor callback returns"
         )
     }
 
-    @Test func renderingStateReattachReappliesStoredHostedInspectorDivider() throws {
+    @Test func renderingStateReattachReappliesStoredHostedInspectorDivider() async throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
             styleMask: [.titled, .closable],
@@ -330,7 +339,8 @@ struct BrowserWindowPortalRegistryNotificationTests {
             webView: webView,
             reason: "unitTestInspectorLayoutReset"
         )
-        advanceAnimations()
+        await waitForNextMainTurn()
+        await waitForNextMainTurn()
 
         #expect(
             webView.enterInWindowCount > 0,
