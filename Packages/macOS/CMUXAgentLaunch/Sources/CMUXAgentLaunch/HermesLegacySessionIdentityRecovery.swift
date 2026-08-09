@@ -33,6 +33,8 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
     public enum Resolution: Equatable, Sendable {
         /// The requested identifier already exists in Hermes's durable database.
         case valid
+        /// A durable identifier is valid but must be re-armed after a legacy launch failure.
+        case legacyRestore(Result)
         /// A unique durable identifier replaces the requested transient identifier.
         case recovered(Result)
         /// The database was readable and contains no safe checkpoint to launch.
@@ -54,6 +56,8 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
         let pidStartSeconds: Int64?
         let pidStartMicroseconds: Int64?
         let launchCommand: AgentLaunchCommand?
+        let runtimeStatus: String?
+        let agentLifecycle: String?
         let startedAt: TimeInterval
         let updatedAt: TimeInterval
     }
@@ -283,7 +287,23 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
 
         let corruptExistence = inspectionsByPath[corruptStateDBPath]?
             .existence(of: normalizedCorruptSessionID) ?? .unavailable
-        if corruptExistence == .exists { return .valid }
+        if corruptExistence == .exists {
+            let transientCandidates = candidates.filter { candidate in
+                candidate.stateDBPath == corruptStateDBPath
+                    && inspectionsByPath[corruptStateDBPath]?
+                        .existence(of: candidate.sessionID) == .missing
+                    && recordsReportRunningLifecycle(corruptRecord, candidate.record)
+                    && recordsMatchWorkingDirectory(corruptRecord, candidate.record)
+            }
+            if transientCandidates.count == 1, let transientCandidate = transientCandidates.first {
+                return .legacyRestore(Result(
+                    sessionID: normalizedCorruptSessionID,
+                    launchCommand: corruptRecord.launchCommand
+                        ?? transientCandidate.record.launchCommand
+                ))
+            }
+            return .valid
+        }
         guard corruptExistence == .missing else { return .unavailable }
         guard requestedSessionIDsByPath.keys.allSatisfy({ inspectionsByPath[$0] != nil }) else {
             return .unavailable
@@ -363,6 +383,35 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
         record.pid == pid
             && record.pidStartSeconds == startSeconds
             && record.pidStartMicroseconds == startMicroseconds
+    }
+
+    private func recordsReportRunningLifecycle(
+        _ durable: HookRecord,
+        _ transient: HookRecord
+    ) -> Bool {
+        [durable, transient].allSatisfy { record in
+            normalized(record.runtimeStatus)?.lowercased() == "running"
+                && normalized(record.agentLifecycle)?.lowercased() == "running"
+        }
+    }
+
+    private func recordsMatchWorkingDirectory(
+        _ lhs: HookRecord,
+        _ rhs: HookRecord
+    ) -> Bool {
+        guard let lhs = normalizedWorkingDirectory(lhs),
+              let rhs = normalizedWorkingDirectory(rhs) else {
+            return false
+        }
+        return lhs == rhs
+    }
+
+    private func normalizedWorkingDirectory(_ record: HookRecord) -> String? {
+        guard let workingDirectory = normalized(record.cwd)
+            ?? normalized(record.launchCommand?.workingDirectory) else {
+            return nil
+        }
+        return (workingDirectory as NSString).standardizingPath
     }
 
     private func normalizedStateDBPath(_ value: String) -> String {

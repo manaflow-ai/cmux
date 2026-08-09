@@ -223,7 +223,7 @@ extension CMUXCLI {
             hookStateFileURL: URL(fileURLWithPath: hookStatePath),
             environment: recoveryEnvironment
         ) {
-        case .valid, .unavailable:
+        case .valid, .legacyRestore, .unavailable:
             return record
         case .missing:
             throw loggedRestoreError(
