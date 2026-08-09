@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 @MainActor
@@ -13,9 +14,7 @@ extension Workspace {
                   ownedTerminal === terminalPanel else {
                 return
             }
-            let ownsActiveFocus = AppFocusState.isOwnerWindowFocused(
-                self.owningTabManager?.window
-            )
+            let ownsActiveFocus = self.ownerWindowHasActiveFocus
                 && self.owningTabManager?.selectedTabId == self.id
                 && self.isFocusedTerminalInputSurface(target.surfaceID)
             if !ownsActiveFocus,
@@ -24,6 +23,12 @@ extension Workspace {
             }
             ownedTerminal.triggerFlash(reason: .notificationArrival)
         }
+    }
+
+    /// Whether this workspace's owning main window currently owns app focus.
+    private var ownerWindowHasActiveFocus: Bool {
+        AppFocusState.isAppFocused()
+            && owningTabManager?.window?.isKeyWindow == true
     }
 
     func triggerFocusFlash(panelId: UUID) {

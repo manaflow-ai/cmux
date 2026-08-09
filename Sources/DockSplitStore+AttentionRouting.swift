@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 @MainActor
@@ -52,9 +53,7 @@ extension DockSplitStore {
                   mountedTerminal === terminal else {
                 return
             }
-            let ownsActiveFocus = AppFocusState.isOwnerWindowFocused(
-                terminal.surface.uiWindow
-            )
+            let ownsActiveFocus = self.ownerWindowHasActiveFocus(for: terminal)
                 && self.panelIsActiveInVisibleDockPane(terminal.id)
                 && AppDelegate.shared?.focusedDockStoreForShortcut(
                     preferredWindow: terminal.surface.uiWindow
@@ -72,5 +71,11 @@ extension DockSplitStore {
             }
             mountedTerminal.triggerFlash(reason: .notificationArrival)
         }
+    }
+
+    /// Whether this Dock terminal's owning main window currently owns app focus.
+    private func ownerWindowHasActiveFocus(for terminal: TerminalPanel) -> Bool {
+        AppFocusState.isAppFocused()
+            && terminal.surface.uiWindow?.isKeyWindow == true
     }
 }

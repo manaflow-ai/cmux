@@ -95,15 +95,6 @@ enum AppFocusState {
         return false
     }
 
-    /// Returns true only when the supplied main-window owner is the app's key window.
-    static func isOwnerWindowFocused(_ ownerWindow: NSWindow?) -> Bool {
-        guard isAppFocused(),
-              let ownerWindow,
-              let keyWindow = NSApp.keyWindow else {
-            return false
-        }
-        return ownerWindow === keyWindow
-    }
 }
 
 enum NotificationAuthorizationState: Equatable, Sendable {
@@ -387,8 +378,8 @@ final class TerminalNotificationStore: ObservableObject {
     /// owner index and the published sidebar projection in lockstep so BEL
     /// handling stays constant-time and refreshes once per logical mutation.
     private var manualUnreadSurfaceIdsByOwnerId: [UUID: Set<UUID>] = [:]
-    private var manualUnreadSurfaceSequenceByKey: [SidebarSurfaceUnreadKey: UInt64] = [:]
-    private var latestManualUnreadSurfaceSequence: UInt64 = 0
+    private var manualUnreadSurfaceKeys: Set<SidebarSurfaceUnreadKey> = []
+    private var manualUnreadSurfaceTargetsByRecency: [WindowDockUnreadTarget] = []
     @Published private(set) var panelDerivedUnreadWorkspaceIds: Set<UUID> = [] {
         didSet { refreshUnreadPresentation() }
     }
@@ -546,21 +537,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     var windowDockUnreadTargets: [WindowDockUnreadTarget] {
-        manualUnreadSurfaceSequenceByKey.sorted { lhs, rhs in
-            if lhs.value != rhs.value {
-                return lhs.value > rhs.value
-            }
-            if lhs.key.workspaceId != rhs.key.workspaceId {
-                return lhs.key.workspaceId.uuidString < rhs.key.workspaceId.uuidString
-            }
-            return (lhs.key.surfaceId?.uuidString ?? "") < (rhs.key.surfaceId?.uuidString ?? "")
-        }.compactMap { key, _ in
-            guard let surfaceId = key.surfaceId else { return nil }
-            return WindowDockUnreadTarget(
-                windowId: key.workspaceId,
-                surfaceId: surfaceId
-            )
-        }
+        Array(manualUnreadSurfaceTargetsByRecency.reversed())
     }
 
     private func refreshUnreadPresentation() {
@@ -576,7 +553,7 @@ final class TerminalNotificationStore: ObservableObject {
             summaries: buildSidebarUnreadSummaries(),
             unreadSurfaceKeys: Set(indexes.unreadByTabSurface.map {
                 SidebarSurfaceUnreadKey(workspaceId: $0.tabId, surfaceId: $0.surfaceId)
-            }).union(manualUnreadSurfaceSequenceByKey.keys),
+            }).union(manualUnreadSurfaceKeys),
             focusedReadIndicatorByWorkspaceId: focusedReadIndicatorByTabId,
             manualUnreadWorkspaceIds: manualUnreadWorkspaceIds
         )
@@ -781,14 +758,13 @@ final class TerminalNotificationStore: ObservableObject {
             manualUnreadSurfaceIdsByOwnerId[tabId] = surfaceIds
         }
         let key = SidebarSurfaceUnreadKey(workspaceId: tabId, surfaceId: surfaceId)
+        let target = WindowDockUnreadTarget(windowId: tabId, surfaceId: surfaceId)
         if isUnread {
-            latestManualUnreadSurfaceSequence &+= 1
-            manualUnreadSurfaceSequenceByKey[key] = latestManualUnreadSurfaceSequence
+            manualUnreadSurfaceKeys.insert(key)
+            manualUnreadSurfaceTargetsByRecency.append(target)
         } else {
-            manualUnreadSurfaceSequenceByKey.removeValue(forKey: key)
-            if manualUnreadSurfaceSequenceByKey.isEmpty {
-                latestManualUnreadSurfaceSequence = 0
-            }
+            manualUnreadSurfaceKeys.remove(key)
+            manualUnreadSurfaceTargetsByRecency.removeAll { $0 == target }
         }
         return true
     }
@@ -815,8 +791,8 @@ final class TerminalNotificationStore: ObservableObject {
     private func clearSurfaceManualUnread() {
         guard !manualUnreadSurfaceIdsByOwnerId.isEmpty else { return }
         manualUnreadSurfaceIdsByOwnerId.removeAll()
-        manualUnreadSurfaceSequenceByKey.removeAll()
-        latestManualUnreadSurfaceSequence = 0
+        manualUnreadSurfaceKeys.removeAll()
+        manualUnreadSurfaceTargetsByRecency.removeAll()
         refreshUnreadPresentation()
     }
 
@@ -828,14 +804,12 @@ final class TerminalNotificationStore: ObservableObject {
             return false
         }
         for surfaceId in surfaceIds {
-            manualUnreadSurfaceSequenceByKey.removeValue(forKey: SidebarSurfaceUnreadKey(
+            manualUnreadSurfaceKeys.remove(SidebarSurfaceUnreadKey(
                 workspaceId: tabId,
                 surfaceId: surfaceId
             ))
         }
-        if manualUnreadSurfaceSequenceByKey.isEmpty {
-            latestManualUnreadSurfaceSequence = 0
-        }
+        manualUnreadSurfaceTargetsByRecency.removeAll { $0.windowId == tabId }
         refreshUnreadPresentation()
         return true
     }
