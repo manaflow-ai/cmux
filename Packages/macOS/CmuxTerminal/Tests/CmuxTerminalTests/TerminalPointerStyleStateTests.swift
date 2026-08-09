@@ -11,6 +11,7 @@ struct TerminalPointerStyleStateTests {
     func appliesGhosttyPointerShape() {
         var state = TerminalPointerStyleState()
 
+        state.apply(.runtimeActivated)
         state.apply(.focusChanged(true))
         state.apply(.ghosttyShape(GHOSTTY_MOUSE_SHAPE_POINTER))
 
@@ -101,6 +102,7 @@ struct TerminalPointerStyleStateTests {
 
         for (shape, expected) in mappings {
             var state = TerminalPointerStyleState()
+            state.apply(.runtimeActivated)
             state.apply(.focusChanged(true))
             state.apply(.ghosttyShape(shape))
 
@@ -130,6 +132,7 @@ struct TerminalPointerStyleStateTests {
 
         for shape in shapes {
             var state = TerminalPointerStyleState()
+            state.apply(.runtimeActivated)
             state.apply(.focusChanged(true))
             state.apply(.ghosttyShape(GHOSTTY_MOUSE_SHAPE_CROSSHAIR))
 
@@ -143,6 +146,7 @@ struct TerminalPointerStyleStateTests {
     @Test("focus loss temporarily restores the terminal default")
     func focusLossRestoresDefaultWithoutDiscardingSurfaceState() {
         var state = TerminalPointerStyleState()
+        state.apply(.runtimeActivated)
         state.apply(.focusChanged(true))
         state.apply(.ghosttyShape(GHOSTTY_MOUSE_SHAPE_POINTER))
 
@@ -153,13 +157,14 @@ struct TerminalPointerStyleStateTests {
         #expect(state.effectiveCursor == NSCursor.pointingHand)
     }
 
-    @Test("terminal lifecycle reset discards a stale OSC 22 pointer")
-    func lifecycleResetRestoresDefault() {
+    @Test("terminal runtime end discards a stale OSC 22 pointer")
+    func runtimeEndRestoresDefault() {
         var state = TerminalPointerStyleState()
+        state.apply(.runtimeActivated)
         state.apply(.focusChanged(true))
         state.apply(.ghosttyShape(GHOSTTY_MOUSE_SHAPE_GRABBING))
 
-        state.apply(.reset)
+        state.apply(.runtimeEnded)
 
         #expect(state.effectiveCursor == NSCursor.iBeam)
     }
@@ -167,11 +172,12 @@ struct TerminalPointerStyleStateTests {
     @Test("exited runtime ignores a retained native pointer shape")
     func exitedRuntimeIgnoresRetainedNativePointerShape() {
         var state = TerminalPointerStyleState()
+        state.apply(.runtimeActivated)
         state.apply(.focusChanged(true))
         state.apply(.ghosttyShape(GHOSTTY_MOUSE_SHAPE_CROSSHAIR))
         state.apply(.ghosttyShape(GHOSTTY_MOUSE_SHAPE_POINTER))
 
-        state.apply(.reset)
+        state.apply(.runtimeEnded)
         state.apply(.ghosttyShape(GHOSTTY_MOUSE_SHAPE_CROSSHAIR))
 
         #expect(state.effectiveCursor == NSCursor.iBeam)
@@ -180,6 +186,7 @@ struct TerminalPointerStyleStateTests {
     @Test("cmux link hover overrides OSC 22 and clears on focus loss")
     func linkHoverPrecedence() {
         var state = TerminalPointerStyleState()
+        state.apply(.runtimeActivated)
         state.apply(.focusChanged(true))
         state.apply(.ghosttyShape(GHOSTTY_MOUSE_SHAPE_CROSSHAIR))
 

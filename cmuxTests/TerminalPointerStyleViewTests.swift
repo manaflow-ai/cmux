@@ -16,6 +16,8 @@ struct TerminalPointerStyleViewTests {
         let firstView = GhosttyNSView(frame: .zero)
         let secondView = GhosttyNSView(frame: .zero)
 
+        firstView.prepareForRuntimeSurfaceCreation()
+        secondView.prepareForRuntimeSurfaceCreation()
         firstView.applyTerminalPointerStyle(.focusChanged(true))
         secondView.applyTerminalPointerStyle(.focusChanged(true))
         firstView.applyTerminalPointerStyle(
@@ -26,17 +28,28 @@ struct TerminalPointerStyleViewTests {
         #expect(secondView.effectiveTerminalPointerCursor == NSCursor.iBeam)
     }
 
-    @Test("new native runtime resets pointer intent on the retained view")
-    func runtimeRecreationResetsPointerIntentOnSameView() {
+    @Test("native runtime lifecycle gates pointer intent on the retained view")
+    func runtimeLifecycleGatesPointerIntentOnSameView() {
         let view = GhosttyNSView(frame: .zero)
+        view.prepareForRuntimeSurfaceCreation()
         view.applyTerminalPointerStyle(.focusChanged(true))
         view.applyTerminalPointerStyle(
             .ghosttyShape(GHOSTTY_MOUSE_SHAPE_POINTER)
         )
         #expect(view.effectiveTerminalPointerCursor == NSCursor.pointingHand)
 
+        view.runtimeSurfaceDidEnd()
+        view.applyTerminalPointerStyle(
+            .ghosttyShape(GHOSTTY_MOUSE_SHAPE_POINTER)
+        )
+        #expect(view.effectiveTerminalPointerCursor == NSCursor.iBeam)
+
+        view.prepareForRuntimeSurfaceCreation()
+        view.applyTerminalPointerStyle(
+            .ghosttyShape(GHOSTTY_MOUSE_SHAPE_CROSSHAIR)
+        )
         view.runtimeSurfaceDidBecomeReady()
 
-        #expect(view.effectiveTerminalPointerCursor == NSCursor.iBeam)
+        #expect(view.effectiveTerminalPointerCursor == NSCursor.crosshair)
     }
 }

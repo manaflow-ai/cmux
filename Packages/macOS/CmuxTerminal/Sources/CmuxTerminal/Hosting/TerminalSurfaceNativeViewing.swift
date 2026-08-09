@@ -39,6 +39,14 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
     @discardableResult
     func forceRefreshSurface() -> Bool
 
+    /// Resets view-owned state and accepts callbacks for the native surface
+    /// lifetime that is about to be created.
+    func prepareForRuntimeSurfaceCreation()
+
+    /// Resets view-owned state and rejects callbacks from an ended native
+    /// surface lifetime.
+    func runtimeSurfaceDidEnd()
+
     /// Reconciles view-owned state after a new native Ghostty surface lifetime
     /// is installed.
     func runtimeSurfaceDidBecomeReady()
