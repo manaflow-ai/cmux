@@ -285,7 +285,7 @@ struct NestedTopologyConstraintValidator: Sendable {
         }
     }
 
-    private func validateCapability(_ capability: NestedProviderCapability) throws {
+    func validateCapability(_ capability: NestedProviderCapability) throws {
         try validateRequiredField(
             capability.rawValue,
             name: "provider.capability",

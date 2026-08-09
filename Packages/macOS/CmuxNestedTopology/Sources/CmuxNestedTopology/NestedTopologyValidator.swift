@@ -256,6 +256,18 @@ struct NestedTopologyValidator: Sendable {
         try constraints.validateLimits()
     }
 
+    func validateProvider(_ provider: NestedProviderIdentity) throws {
+        try constraints.validateProvider(provider)
+    }
+
+    func validateCapabilities(_ capabilities: NestedProviderCapabilities) throws {
+        try constraints.validateCapabilities(capabilities)
+    }
+
+    func validateCapability(_ capability: NestedProviderCapability) throws {
+        try constraints.validateCapability(capability)
+    }
+
     func validateCounts(
         workspaces: Int,
         tabs: Int,
