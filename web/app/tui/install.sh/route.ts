@@ -1,6 +1,5 @@
 import { captureInstallEvent } from "../../../services/analytics/install";
 
-export const dynamic = "force-dynamic";
 
 export function GET(request: Request): Response {
   captureInstallEvent({

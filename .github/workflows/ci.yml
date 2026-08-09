@@ -342,6 +342,12 @@ jobs:
       - name: Web tests
         run: bun run test
 
+      - name: Install browser for instant navigation tests
+        run: bunx playwright install --with-deps chromium
+
+      - name: Instant navigation tests
+        run: bun run test:instant
+
   # Checks for in-app React webviews (currently the diff viewer; more cmux React
   # surfaces will live alongside it).
   react-apps-check:
@@ -688,6 +694,27 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/GhosttySurfaceOverlayTests/testFiveTabRendererFootprintReturnsToOneRendererTargetAcrossHideRevealCycles \
+            test
+
+      - name: Run PTY spawn starvation regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The tolerant full-suite step can accept ordinary assertion
+          # failures. Keep the issue #9769 coverage — background-prime work
+          # must exclude never-startable surfaces, and `cmux send` must
+          # surface queued delivery — on a non-tolerant focused invocation.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/BackgroundPrimeStartableSurfaceTests \
+            -only-testing:cmuxTests/CLISendQueuedOutputTests \
             test
 
       - name: Run notification routing regressions
@@ -1109,7 +1136,9 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_dispatch.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_compacted_feed.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_codex_permission_prompt_notification.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_subagent_lifecycle.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_campfire_extension_install.py
 
       - name: Clean up isolated app-host home
