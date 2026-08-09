@@ -273,6 +273,7 @@ final class PhonePushClient {
                 localized: "push.test.body",
                 defaultValue: "Your Mac sent a test alert to cmux."
             ),
+            replyShape: "",
             workspaceId: nil,
             surfaceId: nil,
             retargetsToLiveSurfaceOwner: false,
@@ -352,6 +353,7 @@ final class PhonePushClient {
                 title: "",
                 subtitle: "",
                 body: "",
+                replyShape: "",
                 workspaceId: nil,
                 surfaceId: nil,
                 retargetsToLiveSurfaceOwner: false,
@@ -715,13 +717,21 @@ final class PhonePushClient {
             guard await auth.isAuthenticatedSessionCurrent(sessionSnapshot)
             else { return (.staleSession, nil) }
             guard let http = response as? HTTPURLResponse else {
+                phonePushLog.error("delivery attempt got a non-HTTP response")
                 return (.invalidResponse, nil)
             }
+            let decoded = PhonePushHTTPResult.decode(
+                statusCode: http.statusCode,
+                data: data
+            )
+            // Status/host/byte-count only — never response content. This is
+            // the one place the queue can attribute an outcome to what the
+            // server actually said, so keep it at info alongside outcomes.
+            phonePushLog.info(
+                "delivery attempt host=\(url.host ?? "-", privacy: .public) status=\(http.statusCode, privacy: .public) bytes=\(data.count, privacy: .public) outcome=\(Self.logValue(decoded), privacy: .public)"
+            )
             return (
-                PhonePushHTTPResult.decode(
-                    statusCode: http.statusCode,
-                    data: data
-                ),
+                decoded,
                 PhonePushHTTPResult.retryAfterSeconds(
                     response: http,
                     data: data
@@ -729,15 +739,20 @@ final class PhonePushClient {
             )
         } catch {
             if redirectDelegate.refusedRedirect {
+                phonePushLog.error("delivery attempt refused a redirect")
                 return (.invalidResponse, nil)
             }
+            let urlErrorCode = (error as? URLError)?.code.rawValue ?? 0
+            phonePushLog.info(
+                "delivery attempt host=\(url.host ?? "-", privacy: .public) transport error code=\(urlErrorCode, privacy: .public)"
+            )
             return (PhonePushHTTPResult.classifyTransportError(error), nil)
         }
     }
 
     nonisolated private static func pushURL() -> URL? {
         guard var components = URLComponents(
-            url: AuthEnvironment.vmAPIBaseURL,
+            url: AuthEnvironment.pushAPIBaseURL,
             resolvingAgainstBaseURL: false
         ), let scheme = components.scheme?.lowercased(),
         ["http", "https"].contains(scheme),
@@ -763,7 +778,7 @@ final class PhonePushClient {
         )
     }
 
-    private static func logValue(_ result: PhonePushHTTPResult) -> String {
+    nonisolated private static func logValue(_ result: PhonePushHTTPResult) -> String {
         switch result {
         case .accepted: "accepted"
         case .partial: "partial"
