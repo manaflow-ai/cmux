@@ -1027,9 +1027,12 @@ struct HermesFirstClassSupportTests {
         #expect(entry.cwd == fixture.repo.path)
         let expectedCWD = TerminalStartupShellQuoting.singleQuoted(fixture.repo.path)
         let expectedHome = SessionEntry.shellQuote(fixture.hermesHome.path)
+        let expectedResume = AgentResumeArgv.portableHermesResumeShellCommand(
+            posixCommand: "env HERMES_HOME=\(expectedHome) \(AgentResumeArgv.hermesWrapperShellExecutableToken) --profile default --resume indexed-session --model test-model"
+        )
         #expect(
             entry.resumeCommand
-                == "cd -- \(expectedCWD) 2>/dev/null || [ ! -d \(expectedCWD) ] && env HERMES_HOME=\(expectedHome) hermes --profile default --resume indexed-session --model test-model"
+                == "cd -- \(expectedCWD) 2>/dev/null || [ ! -d \(expectedCWD) ] && \(expectedResume)"
         )
     }
 
@@ -1183,10 +1186,10 @@ struct HermesFirstClassSupportTests {
             )
         )
 
-        #expect(
-            entry.resumeCommand
-                == "env HERMES_HOME=/tmp/hermes/profiles/coder hermes --tui --resume indexed-session"
+        let expectedResume = AgentResumeArgv.portableHermesResumeShellCommand(
+            posixCommand: "env HERMES_HOME=/tmp/hermes/profiles/coder \(AgentResumeArgv.hermesWrapperShellExecutableToken) --tui --resume indexed-session"
         )
+        #expect(entry.resumeCommand == expectedResume)
     }
 
     @MainActor

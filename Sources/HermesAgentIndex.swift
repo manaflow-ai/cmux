@@ -69,7 +69,12 @@ extension SessionIndexStore {
 
 extension SessionEntry {
     static func hermesResumeCommand(sessionId: String, source: String?, model: String?, hermesHome: String?) -> String {
-        var parts = ["hermes"]
+        // Route Vault resumes through the managed per-surface wrapper so the
+        // indexed Hermes profile and cmux hooks belong to the resumed process,
+        // even when another Hermes installation appears earlier on PATH. The
+        // wrapper token is POSIX-only, so keep it inside a portable /bin/sh
+        // command before the cwd guard is added by resumeCommandWithCwd.
+        var parts = [AgentResumeArgv.hermesWrapperShellExecutableToken]
         let profilePin = HermesAgentResumeProfilePin(
             hermesHome: hermesHome,
             homeDirectory: NSHomeDirectory()
@@ -85,6 +90,8 @@ extension SessionEntry {
             parts.append("--model \(Self.shellQuote(model))")
         }
         let command = parts.joined(separator: " ")
-        return "env HERMES_HOME=\(Self.shellQuote(profilePin.hermesHome)) \(command)"
+        return AgentResumeArgv.portableHermesResumeShellCommand(
+            posixCommand: "env HERMES_HOME=\(Self.shellQuote(profilePin.hermesHome)) \(command)"
+        )
     }
 }
