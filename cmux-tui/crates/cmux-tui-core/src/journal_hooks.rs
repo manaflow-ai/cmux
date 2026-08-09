@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Write;
+#[cfg(windows)]
+use std::mem::size_of;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 #[cfg(unix)]
@@ -61,9 +63,8 @@ impl WindowsHookJob {
         let job = Self { handle };
         let mut information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        let information_size =
-            u32::try_from(std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
-                .expect("Windows job information fits in u32");
+        let information_size = u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
+            .expect("Windows job information fits in u32");
         if unsafe {
             SetInformationJobObject(
                 job.handle,
@@ -112,7 +113,7 @@ fn resume_suspended_hook_child(child: &std::process::Child) -> std::io::Result<(
     }
     let result = (|| {
         let mut thread_entry = THREADENTRY32 {
-            dwSize: u32::try_from(std::mem::size_of::<THREADENTRY32>())
+            dwSize: u32::try_from(size_of::<THREADENTRY32>())
                 .expect("Windows thread entry size fits in u32"),
             ..THREADENTRY32::default()
         };

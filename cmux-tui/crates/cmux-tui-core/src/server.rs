@@ -12734,7 +12734,7 @@ mod tests {
 
             let directory = loop {
                 let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
-                let candidate = PathBuf::from("/tmp")
+                let candidate = std::env::temp_dir()
                     .join(format!("cmux-tui-test-{}-{sequence}", std::process::id()));
                 match std::fs::create_dir(&candidate) {
                     Ok(()) => break candidate,
@@ -12749,6 +12749,7 @@ mod tests {
                     .expect("secure private test socket directory");
             }
             let path = directory.join(format!("{label}.sock"));
+            #[cfg(unix)]
             assert!(unix_socket_path_fits(&path));
             Self { directory, path }
         }
