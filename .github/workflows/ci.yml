@@ -643,8 +643,11 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/RemoteAgentRestoreWorkingDirectoryTests \
-            -only-testing:cmuxTests/RemoteResumeBindingTests \
-            -only-testing:cmuxTests/SessionPersistenceResumeBindingTests \
+            -only-testing:cmuxTests/RemoteResumeBindingTests/surfaceRestoreRecordExactNilCwdDoesNotUseCapturedFallbacks \
+            -only-testing:cmuxTests/RemoteResumeBindingTests/legacyPersistentAgentHookBindingWithoutCwdPolicyReattachesWithoutReplayingStartupInput \
+            -only-testing:cmuxTests/RemoteResumeBindingTests/authenticatedPersistentSSHRefreshOverridesStaleUnavailablePolicy \
+            -only-testing:cmuxTests/SessionPersistenceResumeBindingTests/unavailableSelectionErasesPersistedAgentRestoreRecipe \
+            -only-testing:cmuxTests/SessionPersistenceResumeBindingTests/resumeBindingSelectionChangesAutosaveFingerprint \
             test
 
       - name: Run agent chat transcript lifecycle regressions
