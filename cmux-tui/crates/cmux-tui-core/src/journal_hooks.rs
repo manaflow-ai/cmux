@@ -1,4 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
+#[cfg(test)]
+use std::io::Read;
 use std::io::Write;
 #[cfg(windows)]
 use std::mem::size_of;
@@ -772,7 +774,11 @@ fn execute_delivery(
         Err(error) => return (None, Some(format!("start hook executable: {error}"))),
     };
     #[cfg(unix)]
-    tree.bind(child.id());
+    if let Err(error) = tree.bind(child.id()) {
+        terminate_hook_child(&mut child);
+        tree.terminate();
+        return (None, Some(format!("track hook process scope: {error}")));
+    }
     #[cfg(windows)]
     let job = match WindowsHookJob::assign(&child) {
         Ok(job) => job,
@@ -1158,9 +1164,9 @@ mod tests {
     #[test]
     fn unix_hook_tree_kills_a_descendant_that_created_a_new_session() {
         const HELPER: &str = "CMUX_TEST_DETACHED_JOURNAL_HOOK";
-        const PID_PATH: &str = "CMUX_TEST_DETACHED_JOURNAL_HOOK_PID";
+        const SIGNAL_PATH: &str = "CMUX_TEST_DETACHED_JOURNAL_HOOK_SIGNAL";
         if let Some(mode) = std::env::var_os(HELPER) {
-            let pid_path = std::env::var_os(PID_PATH).unwrap();
+            let signal_path = std::env::var_os(SIGNAL_PATH).unwrap();
             match mode.to_str().unwrap() {
                 "close-fds" => {
                     // A normal daemon closes inherited descriptors before it
@@ -1180,14 +1186,16 @@ mod tests {
             }
             let session = unsafe { libc::setsid() };
             assert!(session > 0, "detached hook helper could not create a session");
-            std::fs::write(pid_path, std::process::id().to_string()).unwrap();
-            std::thread::sleep(Duration::from_secs(30));
+            let mut signal = std::os::unix::net::UnixStream::connect(signal_path).unwrap();
+            signal.write_all(&std::process::id().to_ne_bytes()).unwrap();
+            let mut release = [0_u8; 1];
+            let _ = signal.read_exact(&mut release);
             return;
         }
 
         for mode in ["close-fds", "clear-environment"] {
             let root = std::env::temp_dir().join(format!(
-                "cmux-detached-journal-hook-{}-{mode}-{}",
+                "cmux-jh-{}-{:x}",
                 std::process::id(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -1195,7 +1203,12 @@ mod tests {
                     .as_nanos()
             ));
             std::fs::create_dir_all(&root).unwrap();
-            let pid_path = root.join("detached.pid");
+            let signal_path = root.join("detached.sock");
+            let listener = std::os::unix::net::UnixListener::bind(&signal_path).unwrap();
+            let (accepted, accepted_receiver) = mpsc::sync_channel(1);
+            let acceptor = std::thread::spawn(move || {
+                accepted.send(listener.accept().map(|(signal, _)| signal)).unwrap();
+            });
             let executable = std::env::current_exe().unwrap();
             let test_name = "journal_hooks::tests::unix_hook_tree_kills_a_descendant_that_created_a_new_session";
             let mut command = Command::new("/bin/sh");
@@ -1204,7 +1217,7 @@ mod tests {
                 .arg(&executable)
                 .arg(test_name)
                 .env(HELPER, mode)
-                .env(PID_PATH, &pid_path)
+                .env(SIGNAL_PATH, &signal_path)
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
@@ -1212,31 +1225,31 @@ mod tests {
             let mut tree = UnixProcessScope::prepare().unwrap();
             tree.configure(&mut command);
             let mut child = command.spawn().unwrap();
-            tree.bind(child.id());
-            let deadline = Instant::now() + Duration::from_secs(5);
-            let detached = loop {
-                if let Ok(pid) = std::fs::read_to_string(&pid_path)
-                    && let Ok(pid) = pid.trim().parse::<libc::pid_t>()
-                {
-                    break pid;
-                }
-                assert!(Instant::now() < deadline, "detached hook did not publish its pid");
-                std::thread::sleep(Duration::from_millis(10));
-            };
+            tree.bind(child.id()).unwrap();
+            let mut signal = accepted_receiver
+                .recv_timeout(Duration::from_secs(5))
+                .expect("detached hook did not connect its lifecycle signal")
+                .unwrap();
+            acceptor.join().unwrap();
+            let mut detached = [0_u8; std::mem::size_of::<u32>()];
+            signal.read_exact(&mut detached).unwrap();
+            let detached = u32::from_ne_bytes(detached);
+            assert!(
+                tree.wait_until_tracked_for_test(detached, Instant::now() + Duration::from_secs(5)),
+                "detached hook {detached} did not enter the process scope"
+            );
 
             tree.terminate();
             let _ = child.kill();
             let _ = child.wait();
-            let deadline = Instant::now() + Duration::from_secs(5);
-            while unsafe { libc::kill(detached, 0) } == 0 && Instant::now() < deadline {
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            let _ = std::fs::remove_dir_all(root);
-            assert_ne!(
-                unsafe { libc::kill(detached, 0) },
+            signal.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut trailing = [0_u8; 1];
+            assert_eq!(
+                signal.read(&mut trailing).unwrap(),
                 0,
-                "detached hook survived {mode} cleanup"
+                "detached hook {detached} sent unexpected lifecycle data"
             );
+            let _ = std::fs::remove_dir_all(root);
         }
     }
 
@@ -1251,7 +1264,6 @@ mod tests {
             .stderr(Stdio::null())
             .creation_flags(CREATE_SUSPENDED);
         let mut child = command.spawn().unwrap();
-        std::thread::sleep(Duration::from_millis(100));
         assert_eq!(child.try_wait().unwrap(), None);
         let process_group = child.id();
         let job = WindowsHookJob::assign(&child).unwrap();

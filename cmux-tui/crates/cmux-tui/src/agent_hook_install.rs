@@ -706,7 +706,11 @@ fn run_hermes_command_with_timeout(
     tree.configure(&mut command);
     let mut child = command.spawn().with_context(|| format!("run {}", binary.display()))?;
     #[cfg(unix)]
-    tree.bind(child.id());
+    if let Err(error) = tree.bind(child.id()) {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error).context("track Hermes process scope");
+    }
     #[cfg(windows)]
     let job = match HermesWindowsJob::assign_and_resume(&child) {
         Ok(job) => job,
@@ -734,15 +738,24 @@ fn run_hermes_command_with_timeout(
     tree.terminate_until(deadline);
     #[cfg(windows)]
     job.terminate();
-    if status.is_none() {
+    let timed_out = status.is_none();
+    if timed_out {
         let _ = child.kill();
-        let _ = child.wait();
+        // Reaping must not extend the command's absolute deadline. The
+        // process scope or Windows job has already issued exact termination;
+        // a detached reaper owns the blocking wait.
+        let _ = std::thread::Builder::new()
+            .name("hermes-command-reaper".into())
+            .spawn(move || {
+                let _ = child.wait();
+            });
     }
     let stdout = stdout.join().map_err(|_| anyhow::anyhow!("Hermes stdout reader panicked"))?;
     let stderr = stderr.join().map_err(|_| anyhow::anyhow!("Hermes stderr reader panicked"))?;
-    let Some(status) = status else {
+    if timed_out {
         anyhow::bail!("Hermes command timed out after {} ms", timeout.as_millis());
-    };
+    }
+    let status = status.expect("timed-out Hermes command returned above");
     let stdout = stdout?;
     let stderr = stderr?;
     anyhow::ensure!(Instant::now() <= deadline, "Hermes command output timed out");

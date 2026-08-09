@@ -302,6 +302,10 @@ struct JournalIngressState {
     commit_admission: Mutex<()>,
     queue_space_epoch: Mutex<u64>,
     queue_space_changed: Condvar,
+    #[cfg(test)]
+    failure_notifier: Mutex<Option<SyncSender<String>>>,
+    #[cfg(test)]
+    nonretryable_failure_hook: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
 }
 
 impl JournalIngressState {
@@ -315,6 +319,22 @@ impl JournalIngressState {
         drop(stored_failure);
         self.publish_queue_space();
         failure
+    }
+
+    #[cfg(test)]
+    fn notify_failure_for_test(&self, failure: &str) {
+        if let Some(notifier) = self.failure_notifier.lock().unwrap().take() {
+            let _ = notifier.send(failure.to_string());
+        }
+    }
+
+    #[cfg(test)]
+    fn pause_nonretryable_failure_for_test(&self) -> bool {
+        let hook = self.nonretryable_failure_hook.lock().unwrap().take();
+        let Some((entered, release)) = hook else { return false };
+        entered.send(()).expect("nonretryable journal failure observer closed");
+        release.recv().expect("nonretryable journal failure release closed");
+        true
     }
 
     fn queue_space_epoch(&self) -> u64 {
@@ -529,6 +549,20 @@ impl JournalIngressSender {
         self.terminal_sender.is_some()
     }
 
+    #[cfg(test)]
+    pub(crate) fn install_failure_notifier_for_test(&self, notifier: SyncSender<String>) {
+        *self.state.failure_notifier.lock().unwrap() = Some(notifier);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_nonretryable_failure_hook_for_test(
+        &self,
+        entered: SyncSender<()>,
+        release: Receiver<()>,
+    ) {
+        *self.state.nonretryable_failure_hook.lock().unwrap() = Some((entered, release));
+    }
+
     fn enqueue(
         &self,
         sender: &SyncSender<QueuedJournalEvent>,
@@ -720,6 +754,10 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                                 < JOURNAL_TERMINAL_FAILURE_RETRY_ATTEMPTS
                         {
                             uncompleted_nonretryable_failures += 1;
+                            #[cfg(test)]
+                            if receivers.state.pause_nonretryable_failure_for_test() {
+                                continue;
+                            }
                             let epoch = mux.journal_event_epoch();
                             mux.wait_for_journal_event(epoch, delay);
                             delay = (delay * 2).min(Duration::from_secs(1));
@@ -729,6 +767,8 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                                 "session journal writer failed permanently: {summary}"
                             ));
                             mux.request_daemon_shutdown();
+                            #[cfg(test)]
+                            receivers.state.notify_failure_for_test(&failure);
                             complete_batch_error(&batch, failure.clone());
                             for pending_batch in pending {
                                 complete_batch_error(&pending_batch, failure.clone());
@@ -776,6 +816,8 @@ fn stop_writer_after_retry_deadline(
         JOURNAL_DURABLE_WAIT.as_millis()
     ));
     mux.request_daemon_shutdown();
+    #[cfg(test)]
+    receivers.state.notify_failure_for_test(&failure);
     complete_batch_error(batch, failure.clone());
     for pending_batch in pending {
         complete_batch_error(&pending_batch, failure.clone());
@@ -1189,6 +1231,8 @@ mod tests {
             }),
         )
         .unwrap();
+        let (failed, failed_receiver) = sync_channel(1);
+        mux.install_journal_failure_notifier_for_test(failed);
 
         let started = Instant::now();
         let error = mux
@@ -1200,10 +1244,7 @@ mod tests {
             started.elapsed() < JOURNAL_DURABLE_WAIT + Duration::from_secs(2),
             "a producer receipt must not wait without a limit"
         );
-        let shutdown_deadline = Instant::now() + Duration::from_secs(1);
-        while !mux.daemon_shutdown_requested() && Instant::now() < shutdown_deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        failed_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(
             mux.daemon_shutdown_requested(),
             "a producer database lock beyond the deadline must stop the daemon"
@@ -1247,6 +1288,8 @@ mod tests {
             }),
         )
         .unwrap();
+        let (failed, failed_receiver) = sync_channel(1);
+        mux.install_journal_failure_notifier_for_test(failed);
 
         let started = Instant::now();
         let error = mux
@@ -1258,10 +1301,7 @@ mod tests {
             started.elapsed() < JOURNAL_DURABLE_WAIT + Duration::from_secs(2),
             "registry mutex admission must not outlive the producer deadline"
         );
-        let shutdown_deadline = Instant::now() + Duration::from_secs(1);
-        while !mux.daemon_shutdown_requested() && Instant::now() < shutdown_deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        failed_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(mux.daemon_shutdown_requested());
         release.send(()).unwrap();
         blocker.join().unwrap();
@@ -1293,6 +1333,8 @@ mod tests {
         let (entered, entered_receiver) = sync_channel(1);
         let (release, release_receiver) = sync_channel(1);
         mux.install_journal_before_commit_for_test(entered, release_receiver);
+        let (failed, failed_receiver) = sync_channel(1);
+        mux.install_journal_failure_notifier_for_test(failed);
         let ingress = crate::agent_hook_journal_ingress(
             "codex",
             "SubagentStop",
@@ -1326,10 +1368,7 @@ mod tests {
         assert!(error.to_string().contains("timed out"));
         release.send(()).unwrap();
         producer.join().unwrap();
-        let shutdown_deadline = Instant::now() + Duration::from_secs(1);
-        while !mux.daemon_shutdown_requested() && Instant::now() < shutdown_deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        failed_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(mux.daemon_shutdown_requested());
         let records = mux.session_journal_after(0, 1024).unwrap().records;
         assert!(
@@ -1463,23 +1502,21 @@ mod tests {
                     .saturating_add(Duration::from_secs(1)),
             "an admitted commit result must remain bounded"
         );
+        let durable_epoch = mux.journal_event_epoch();
         release.send(()).unwrap();
         producer.join().unwrap();
-        let durable_deadline = Instant::now() + Duration::from_secs(1);
-        loop {
-            let records = mux.session_journal_after(0, 1024).unwrap().records;
-            if records
+        assert_ne!(
+            mux.wait_for_journal_event(durable_epoch, Duration::from_secs(1)),
+            durable_epoch,
+            "an indeterminate admitted commit did not publish its durable result"
+        );
+        let records = mux.session_journal_after(0, 1024).unwrap().records;
+        assert!(
+            records
                 .iter()
-                .any(|record| record.payload.to_string().contains("indeterminate-commit-marker"))
-            {
-                break;
-            }
-            assert!(
-                Instant::now() < durable_deadline,
-                "an indeterminate result must not claim that the admitted commit failed"
-            );
-            std::thread::sleep(Duration::from_millis(10));
-        }
+                .any(|record| record.payload.to_string().contains("indeterminate-commit-marker")),
+            "an indeterminate result must not claim that the admitted commit failed"
+        );
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -1665,7 +1702,7 @@ mod tests {
                 command: Some(vec![
                     "/bin/sh".into(),
                     "-c".into(),
-                    "sleep 30 & echo $! > \"$1\"; exit 0".into(),
+                    "stty -echo; printf input-ready; read ready; sleep 30 & echo $! > \"$1\"; printf detached-ready; exit 0".into(),
                     "cmux-shutdown-test".into(),
                     descendant_pid_path.to_string_lossy().into_owned(),
                 ]),
@@ -1676,10 +1713,29 @@ mod tests {
         .unwrap();
         mux.insert_surface_runtime_for_test(surface.clone());
 
-        let pid_deadline = Instant::now() + Duration::from_secs(5);
-        while !descendant_pid_path.is_file() && Instant::now() < pid_deadline {
-            std::thread::sleep(Duration::from_millis(10));
+        let ready_deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let observed = surface.terminal_stream_revision().unwrap();
+            if surface
+                .with_terminal(|term| term.viewport_text().unwrap().contains("input-ready"))
+                .unwrap()
+            {
+                break;
+            }
+            assert!(
+                surface
+                    .wait_for_terminal_stream_change(observed, Some(ready_deadline))
+                    .unwrap()
+                    .is_some(),
+                "descendant fixture did not become ready"
+            );
         }
+        let detached_ready = surface.subscribe_terminal_stream_change().unwrap();
+        surface.write_bytes(b"ready\n").unwrap();
+        assert!(
+            detached_ready.wait_until(Some(ready_deadline)),
+            "descendant fixture did not publish its pid"
+        );
         let descendant_pid = std::fs::read_to_string(&descendant_pid_path)
             .unwrap()
             .trim()
@@ -1694,10 +1750,10 @@ mod tests {
         );
 
         assert_eq!(unsafe { libc::kill(descendant_pid, libc::SIGKILL) }, 0);
-        let reader_deadline = Instant::now() + Duration::from_secs(5);
-        while !surface.is_dead() && Instant::now() < reader_deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        assert!(
+            surface.wait_for_terminal_reader_for_test(Instant::now() + Duration::from_secs(5)),
+            "terminal reader did not signal descendant cleanup"
+        );
         assert!(surface.is_dead(), "terminal reader did not stop after descendant cleanup");
         drop(surface);
         drop(mux);
@@ -1735,14 +1791,21 @@ mod tests {
             )
             .unwrap();
 
+        let (failure_observed, failure_observed_receiver) = sync_channel(1);
+        let (retry, retry_receiver) = sync_channel(1);
+        mux.install_journal_nonretryable_failure_hook_for_test(
+            failure_observed,
+            retry_receiver,
+        );
         let terminal_id = Arc::new(public_id("term", 11, TerminalPublicId::parse));
         mux.journal_terminal_output(
             terminal_id.clone(),
             Arc::from("writer-retry-generation"),
             b"must survive retry".to_vec(),
         );
-        std::thread::sleep(Duration::from_millis(500));
+        failure_observed_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
         injector.execute_batch("DROP TRIGGER reject_test_terminal_output;").unwrap();
+        retry.send(()).unwrap();
         mux.flush_terminal_journal().unwrap();
 
         let records = mux.session_journal_after(0, 1024).unwrap().records;

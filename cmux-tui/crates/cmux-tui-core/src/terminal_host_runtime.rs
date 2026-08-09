@@ -1470,6 +1470,10 @@ mod unix {
             Ok(())
         }
 
+        pub(crate) fn supports_journal_detach_fence(&self) -> bool {
+            self.record.record_version >= HOST_RECORD_VERSION
+        }
+
         /// Commit the launch ownership handoff after every fallible Surface
         /// setup step succeeds. Until then, dropping this attachment exact-
         /// kills and waits the child process through SpawnedHostProcess.

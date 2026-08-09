@@ -279,7 +279,7 @@ test("journal records must match their envelope cursor", async () => {
     if (request.operation !== "session.journal.subscribe") return;
     streamId = (request.params as Envelope).stream_id as string;
     current.ok(request, { stream_id: streamId });
-    setTimeout(() => current.emit({
+    queueMicrotask(() => current.emit({
       protocol: "cmux.protocol/2",
       type: "stream_item",
       stream_id: streamId,
@@ -305,7 +305,7 @@ test("journal records must match their envelope cursor", async () => {
         resource_revision: null,
         previous_resource_revision: null,
       },
-    }), 0);
+    }));
   });
   const client = new Client({ transport });
   const stream = await client.session(SESSION).journal();

@@ -7,6 +7,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
+use wait_timeout::ChildExt;
 
 const WORKSPACE_ID: &str = "ws_11111111111111111111111111111111";
 const OTHER_WORKSPACE_ID: &str = "ws_12121212121212121212121212121212";
@@ -1051,18 +1052,14 @@ fn journal_subscription_sigint_exits_immediately_and_cleanly() {
     let started = Instant::now();
     let pid = libc::pid_t::try_from(child.id()).unwrap();
     assert_eq!(unsafe { libc::kill(pid, libc::SIGINT) }, 0);
-    let deadline = started + Duration::from_millis(100);
-    let status = loop {
-        if let Some(status) = child.try_wait().unwrap() {
-            break status;
-        }
-        if Instant::now() >= deadline {
+    let status = child
+        .wait_timeout(Duration::from_millis(100))
+        .unwrap()
+        .unwrap_or_else(|| {
             let _ = child.kill();
             let _ = child.wait();
             panic!("journal subscriber did not exit within 100 ms of SIGINT");
-        }
-        std::thread::sleep(Duration::from_millis(1));
-    };
+        });
     let elapsed = started.elapsed();
     let mut stderr = String::new();
     child.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();

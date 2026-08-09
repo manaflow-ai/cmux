@@ -1444,6 +1444,7 @@ struct ResourceWorkerAdmission {
     per_client_capacity: usize,
     server_capacity: usize,
     state: Mutex<ResourceWorkerAdmissionState>,
+    changed: Condvar,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1473,6 +1474,7 @@ impl Drop for ResourceWorkerPermitLease {
         if remove_client {
             state.active_by_client.remove(&self.client);
         }
+        self.admission.changed.notify_all();
     }
 }
 
@@ -1482,6 +1484,7 @@ impl ResourceWorkerAdmission {
             per_client_capacity,
             server_capacity,
             state: Mutex::new(ResourceWorkerAdmissionState::default()),
+            changed: Condvar::new(),
         })
     }
 
@@ -1508,6 +1511,22 @@ impl ResourceWorkerAdmission {
     #[cfg(test)]
     fn active(&self) -> usize {
         self.state.lock().unwrap().active
+    }
+
+    #[cfg(test)]
+    fn wait_until_idle(&self, deadline: Instant) -> bool {
+        let mut state = self.state.lock().unwrap();
+        while state.active != 0 {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && state.active != 0 {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -14715,14 +14734,12 @@ mod tests {
             drop(worker_permit);
         }
         assert!(disconnect_client(&mux, client, false));
-        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
-        while mux.control_clients.resource_stream_admission.active() != 0 {
-            assert!(
-                Instant::now() < cleanup_deadline,
-                "ended streams retained server worker capacity"
-            );
-            std::thread::sleep(Duration::from_millis(2));
-        }
+        assert!(
+            mux.control_clients
+                .resource_stream_admission
+                .wait_until_idle(Instant::now() + Duration::from_secs(2)),
+            "ended streams retained server worker capacity"
+        );
     }
 
     #[test]
@@ -14865,7 +14882,12 @@ mod tests {
         assert_eq!(response["type"], "response");
         assert_eq!(response["id"], "events-cancel");
         assert_eq!(response["ok"], true);
-        std::thread::sleep(Duration::from_millis(10));
+        assert!(
+            mux.control_clients
+                .resource_stream_admission
+                .wait_until_idle(Instant::now() + Duration::from_secs(2)),
+            "canceled event stream retained server worker capacity"
+        );
         assert!(outbound.try_pop().is_none(), "an item followed stream_end");
         disconnect_client(&mux, client, false);
     }

@@ -2695,6 +2695,11 @@ impl Surface {
             );
         }
         let initial_defaults = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+        anyhow::ensure!(
+            !mux.upgrade().is_some_and(|mux| mux.terminal_journal_enabled())
+                || attachment.supports_journal_detach_fence(),
+            "legacy terminal host cannot provide journal-safe daemon shutdown"
+        );
         attachment.send_default_colors(initial_defaults)?;
         let mut reader = attachment.take_reader()?;
         if let Ok(delay_ms) = std::env::var("CMUX_TUI_TEST_HOSTED_SPAWN_FAIL_AFTER_CONNECT")
@@ -4128,6 +4133,12 @@ impl Surface {
         });
         let previous = pty.reader_thread.lock().unwrap().replace(reader);
         assert!(previous.is_none(), "test PTY already owns a reader thread");
+    }
+
+    #[cfg(test)]
+    pub(crate) fn wait_for_terminal_reader_for_test(&self, deadline: Instant) -> bool {
+        self.as_pty()
+            .is_some_and(|pty| pty.reader_completion.wait_until(deadline))
     }
 
     #[cfg(test)]
