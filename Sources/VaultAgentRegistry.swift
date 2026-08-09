@@ -218,9 +218,11 @@ struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
     var alternateProcessNames: [String]
     var alternateArgvContains: [String]
     var alternateArgvContainsAny: [String]
+    var alternateArgvBasenamesAny: [String]
 
     private enum CodingKeys: String, CodingKey {
         case processName, processNames, argvContains, alternateProcessNames, alternateArgvContains, alternateArgvContainsAny
+        case alternateArgvBasenamesAny
     }
 
     init(
@@ -229,7 +231,8 @@ struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
         argvContains: [String] = [],
         alternateProcessNames: [String] = [],
         alternateArgvContains: [String] = [],
-        alternateArgvContainsAny: [String] = []
+        alternateArgvContainsAny: [String] = [],
+        alternateArgvBasenamesAny: [String] = []
     ) {
         let name = processName?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.processName = name?.isEmpty == true ? nil : name
@@ -248,6 +251,9 @@ struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
         self.alternateArgvContainsAny = alternateArgvContainsAny
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+        self.alternateArgvBasenamesAny = alternateArgvBasenamesAny
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     init(from decoder: Decoder) throws {
@@ -260,6 +266,10 @@ struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
         alternateProcessNames = try Self.decodeOneOrManyStrings(forKey: .alternateProcessNames, in: container)
         alternateArgvContains = try Self.decodeOneOrManyStrings(forKey: .alternateArgvContains, in: container)
         alternateArgvContainsAny = try Self.decodeOneOrManyStrings(forKey: .alternateArgvContainsAny, in: container)
+        alternateArgvBasenamesAny = try Self.decodeOneOrManyStrings(
+            forKey: .alternateArgvBasenamesAny,
+            in: container
+        )
     }
 
     private static func decodeOneOrManyStrings(

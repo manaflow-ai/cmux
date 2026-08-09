@@ -17,7 +17,9 @@ extension CmuxVaultAgentDetectRule {
     func matches(_ process: VaultObservedAgentProcess) -> Bool {
         let expectedNames = primaryProcessNames
         let hasPrimaryCriteria = !expectedNames.isEmpty || !argvContains.isEmpty
-        let hasAlternateCriteria = !alternateArgvContains.isEmpty || !alternateArgvContainsAny.isEmpty
+        let hasAlternateCriteria = !alternateArgvContains.isEmpty
+            || !alternateArgvContainsAny.isEmpty
+            || !alternateArgvBasenamesAny.isEmpty
         guard hasPrimaryCriteria || hasAlternateCriteria else { return false }
         let primary = hasPrimaryCriteria && primaryMatches(process, expectedNames: expectedNames)
         return primary || alternateMatches(process)
@@ -68,13 +70,28 @@ extension CmuxVaultAgentDetectRule {
         let anyNeedleMatches = !alternateArgvContainsAny.isEmpty
             && alternateProcessNameMatch
             && process.argumentsContainAny(alternateArgvContainsAny)
-        return allNeedlesMatch || anyNeedleMatches
+        let anyBasenameMatches = !alternateArgvBasenamesAny.isEmpty
+            && alternateProcessNameMatch
+            && process.arguments.contains { argument in
+                self.argument(argument, hasBasenameIn: alternateArgvBasenamesAny)
+            }
+        return allNeedlesMatch || anyNeedleMatches || anyBasenameMatches
     }
 
     private func alternateEntrypointIndex(in arguments: [String]) -> Int? {
         let needles = alternateArgvContains + alternateArgvContainsAny
         return arguments.indices.first { index in
-            needles.contains { argument(arguments[index], containsNeedle: $0) }
+            argument(arguments[index], hasBasenameIn: alternateArgvBasenamesAny)
+                || needles.contains { argument(arguments[index], containsNeedle: $0) }
+        }
+    }
+
+    private func argument(_ argument: String, hasBasenameIn expectedBasenames: [String]) -> Bool {
+        guard !expectedBasenames.isEmpty else { return false }
+        let normalizedArgument = argument.replacingOccurrences(of: "\\", with: "/")
+        let basename = (normalizedArgument as NSString).lastPathComponent
+        return expectedBasenames.contains { expected in
+            basename.compare(expected, options: [.caseInsensitive, .literal]) == .orderedSame
         }
     }
 

@@ -135,9 +135,16 @@ struct VaultObservedAgentProcess: Sendable {
     }
 
     private static func argumentLooksLikeHermesAgentEntrypoint(_ argument: String) -> Bool {
-        argument
-            .replacingOccurrences(of: "\\", with: "/")
-            .range(of: "hermes-agent/hermes", options: [.caseInsensitive, .literal]) != nil
+        let normalized = argument.replacingOccurrences(of: "\\", with: "/")
+        let basename = (normalized as NSString).lastPathComponent
+        if basename.compare("hermes", options: [.caseInsensitive, .literal]) == .orderedSame
+            || basename.compare("hermes-agent", options: [.caseInsensitive, .literal]) == .orderedSame {
+            return true
+        }
+        return normalized.range(
+            of: "hermes-agent/hermes",
+            options: [.caseInsensitive, .literal]
+        ) != nil
     }
 
     private static func hermesTopLevelOptionConsumesValue(_ option: String) -> Bool {
