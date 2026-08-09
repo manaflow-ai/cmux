@@ -151,6 +151,71 @@ struct WindowDockRoutingSocketTests {
 #endif
     }
 
+    @Test("Window Dock focus never falls back to a different live window")
+    @MainActor
+    func dockFocusDoesNotFallBackWhenOwnerWindowIsUnavailable() async throws {
+#if DEBUG
+        try await withDockEnabled {
+            try await AppContextSerialGate.withExclusiveAppContext {
+                let previousAppDelegate = AppDelegate.shared
+                let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+                let appDelegate = AppDelegate()
+                let fallbackManager = TabManager(autoWelcomeIfNeeded: false)
+                let ownerManager = TabManager(autoWelcomeIfNeeded: false)
+                let fallbackSidebarState = FileExplorerState()
+
+                AppDelegate.shared = appDelegate
+                appDelegate.tabManager = fallbackManager
+                TerminalController.shared.setActiveTabManager(fallbackManager)
+                let fallbackWindowId = appDelegate.registerMainWindowContextForTesting(
+                    tabManager: fallbackManager,
+                    fileExplorerState: fallbackSidebarState
+                )
+                let ownerWindowId = appDelegate.registerMainWindowContextForTesting(
+                    tabManager: ownerManager,
+                    fileExplorerState: nil
+                )
+                defer {
+                    TerminalController.shared.setActiveTabManager(previousManager)
+                    appDelegate.unregisterMainWindowContextForTesting(windowId: ownerWindowId)
+                    appDelegate.unregisterMainWindowContextForTesting(windowId: fallbackWindowId)
+                    fallbackManager.tabs.forEach { $0.teardownAllPanels() }
+                    ownerManager.tabs.forEach { $0.teardownAllPanels() }
+                    AppDelegate.shared = previousAppDelegate
+                }
+
+                let ownerDock = appDelegate.windowDock(forWindowId: ownerWindowId)
+                let pane = try #require(ownerDock.bonsplitController.allPaneIds.first)
+                let originalSurfaceId = try #require(ownerDock.newSurface(
+                    kind: .terminal,
+                    inPane: pane,
+                    focus: true
+                ))
+                let requestedSurfaceId = try #require(ownerDock.newSurface(
+                    kind: .terminal,
+                    inPane: pane,
+                    focus: false
+                ))
+                ownerDock.focusPanel(originalSurfaceId)
+                #expect(!fallbackSidebarState.isVisible)
+
+                let envelope = try v2Envelope(method: "surface.focus", params: [
+                    "surface_id": requestedSurfaceId.uuidString,
+                ])
+
+                #expect(envelope["ok"] as? Bool == false)
+                let error = try #require(envelope["error"] as? [String: Any])
+                #expect(error["code"] as? String == "unavailable")
+                #expect(ownerDock.focusedPanelId == originalSurfaceId)
+                #expect(!fallbackSidebarState.isVisible)
+                #expect(
+                    TerminalController.shared.activeTabManagerForCallerNotification() === fallbackManager
+                )
+            }
+        }
+#endif
+    }
+
     @Test("Legacy global Dock alias workspace_id routes to the caller window's Dock")
     @MainActor
     func legacyDockAliasRoutesToCallerWindowDock() throws {
