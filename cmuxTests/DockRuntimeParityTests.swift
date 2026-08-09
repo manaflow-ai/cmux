@@ -500,6 +500,68 @@ struct DockRuntimeParityTests {
         }
     }
 
+    @Test("Terminal bell in a non-key cmux window marks its Dock pane unread")
+    func terminalBellInNonKeyCmuxWindowMarksDockPaneUnread() async throws {
+        try await withAppContext { appDelegate, _, _, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let previousFocusOverride = AppFocusState.overrideIsFocused
+            let ownerWindow = try #require(
+                appDelegate.windowForMainWindowId(windowID)
+            )
+            let keyWindow = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 240, height: 180),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            keyWindow.isReleasedWhenClosed = false
+            keyWindow.identifier = NSUserInterfaceItemIdentifier(
+                "cmux.main.bell-key"
+            )
+            appDelegate.notificationStore = notificationStore
+            AppFocusState.overrideIsFocused = true
+            defer {
+                notificationStore.markRead(forTabId: windowID)
+                appDelegate.notificationStore = previousNotificationStore
+                AppFocusState.overrideIsFocused = previousFocusOverride
+                keyWindow.orderOut(nil)
+                keyWindow.close()
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let terminal = TerminalPanel(
+                workspaceId: windowID,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            try dock.seedRuntimeParityPanel(terminal)
+            dock.setVisibleInUI(true)
+            defer { dock.setVisibleInUI(false) }
+            dock.focusPanel(terminal.id)
+            appDelegate.keyboardFocusCoordinator(for: ownerWindow)?
+                .noteRightSidebarInteraction(mode: .dock)
+            ownerWindow.contentView?.addSubview(terminal.hostedView)
+
+            #expect(terminal.surface.uiWindow === ownerWindow)
+            #expect(
+                appDelegate.focusedDockStoreForShortcut(
+                    preferredWindow: ownerWindow
+                ) === dock
+            )
+            keyWindow.makeKeyAndOrderFront(nil)
+            #expect(NSApp.keyWindow === keyWindow)
+
+            let visualBell = try #require(terminal.surface.onVisualBell)
+            visualBell()
+
+            #expect(notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: terminal.id
+            ))
+            #expect(NSApp.keyWindow === keyWindow)
+        }
+    }
+
     @Test("Window Dock unread follows a surface transfer exactly once")
     func windowDockUnreadFollowsSurfaceTransferExactlyOnce() async throws {
         try await withAppContext { appDelegate, _, _, sourceWindowID in
@@ -548,7 +610,27 @@ struct DockRuntimeParityTests {
                 surfaceId: panel.id
             ))
 
-            #expect(destinationDock.closePanel(panel.id, force: true))
+            #expect(notificationStore.clearWindowDockSurfaceUnread(
+                windowId: destinationWindowID,
+                surfaceId: panel.id
+            ))
+            let detachedAfterClear = try #require(
+                destinationDock.detachSurface(panelId: panel.id)
+            )
+            #expect(!detachedAfterClear.manuallyUnread)
+            let sourcePane = try #require(
+                sourceDock.bonsplitController.allPaneIds.first
+            )
+            #expect(sourceDock.attachDetachedSurface(
+                detachedAfterClear,
+                inPane: sourcePane,
+                focus: false
+            ) == panel.id)
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: sourceWindowID,
+                surfaceId: panel.id
+            ))
+            #expect(sourceDock.closePanel(panel.id, force: true))
             #expect(!notificationStore.hasManualUnread(
                 forTabId: destinationWindowID,
                 surfaceId: panel.id

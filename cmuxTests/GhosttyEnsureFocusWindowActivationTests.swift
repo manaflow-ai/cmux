@@ -156,4 +156,48 @@ struct GhosttyEnsureFocusWindowActivationTests {
         #expect(targetWorkspace.manualUnreadPanelIds == Set([targetPanelID]))
         #expect(tabManager.selectedTabId == selectedWorkspace.id)
     }
+
+    @Test
+    func terminalBellInNonKeyCmuxWindowMarksPaneUnread() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let previousFocusOverride = AppFocusState.overrideIsFocused
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let ownerWindow = NSWindow()
+        let keyWindow = NSWindow()
+        ownerWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.bell-owner")
+        keyWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.bell-key")
+        tabManager.window = ownerWindow
+        appDelegate.tabManager = tabManager
+        AppDelegate.shared = appDelegate
+        AppFocusState.overrideIsFocused = true
+
+        let workspace = tabManager.addWorkspace(select: true)
+        let terminal = try #require(workspace.focusedTerminalPanel)
+        let panelID = try #require(workspace.focusedPanelId)
+        defer {
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            keyWindow.orderOut(nil)
+            keyWindow.close()
+            ownerWindow.orderOut(nil)
+            ownerWindow.close()
+            tabManager.window = nil
+            appDelegate.tabManager = nil
+            AppFocusState.overrideIsFocused = previousFocusOverride
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        keyWindow.makeKeyAndOrderFront(nil)
+        #expect(NSApp.keyWindow === keyWindow)
+        #expect(workspace.manualUnreadPanelIds.isEmpty)
+
+        let visualBell = try #require(terminal.surface.onVisualBell)
+        visualBell()
+
+        #expect(workspace.manualUnreadPanelIds == Set([panelID]))
+        #expect(tabManager.selectedTabId == workspace.id)
+        #expect(NSApp.keyWindow === keyWindow)
+    }
 }
