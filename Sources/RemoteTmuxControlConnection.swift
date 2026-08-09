@@ -36,6 +36,10 @@ enum RemoteTmuxDebugTimers {
     /// Override for the reconnect backoff cap, `reconnectMaxDelaySeconds` (default 10).
     static let reconnectMaxSeconds = secondsFromEnvironment(
         "CMUX_REMOTE_TMUX_RECONNECT_MAX_SECONDS")
+    /// Override for how long an attach must hold to count as working,
+    /// ``RemoteTmuxControlConnection/workingConnectionSeconds`` (default 30).
+    static let workingConnectionSeconds = secondsFromEnvironment(
+        "CMUX_REMOTE_TMUX_WORKING_CONNECTION_SECONDS")
 
     private static func secondsFromEnvironment(_ name: String) -> Double? {
         guard let raw = ProcessInfo.processInfo.environment[name]?
@@ -77,6 +81,10 @@ final class RemoteTmuxControlConnection {
 
     private(set) var started = false
     private(set) var enterReceived = false
+    /// Whether any spawn on this connection has reached control mode. Unlike
+    /// ``enterReceived`` it survives a respawn, which is what lets a retry tell "the
+    /// session I was in went away" from "I never got in at all".
+    private(set) var everReachedControlMode = false
     /// The connection's lifecycle phase. Drives reconnect-on-transport-loss and the
     /// disconnected UI; `exited` is derived from it.
     private(set) var connectionState: ConnectionState = .connecting {
@@ -200,6 +208,28 @@ final class RemoteTmuxControlConnection {
     private var transportDeathReattachCount = 0
     /// Past this many consecutive transport-death reattaches, believe the `%exit`.
     static let maxTransportDeathReattempts = 3
+    /// When the current spawn reached control mode, or nil if it never has.
+    private var controlModeEnteredAt: ContinuousClock.Instant?
+    /// How long an attach has to hold before it counts as having worked.
+    ///
+    /// A tunnel that dies a second after every attach still publishes windows on each one, so
+    /// "the mirror recovered" cannot be read off the attach alone. Both the reattach budget and
+    /// the reconnect backoff reset on this instead: a connection that lasted is a recovery, and a
+    /// flap is not.
+    ///
+    /// DEBUG builds honor `CMUX_REMOTE_TMUX_WORKING_CONNECTION_SECONDS`, so a test can drive both
+    /// sides of the rule without holding a fake connection open for half a minute.
+    static let workingConnectionSeconds: Double = {
+        #if DEBUG
+        if let override = RemoteTmuxDebugTimers.workingConnectionSeconds { return override }
+        #endif
+        return 30
+    }()
+    /// Whether the attach now ending held long enough to count as a recovery.
+    private var connectionHeldLongEnough: Bool {
+        guard let enteredAt = controlModeEnteredAt else { return false }
+        return enteredAt.duration(to: .now) >= .seconds(Self.workingConnectionSeconds)
+    }
     /// Whether a `%exit` from a persistent-remote transport is answered with a reattach.
     ///
     /// Always true in the product. It exists as a constant so the behaviour can be built out for a
@@ -212,7 +242,16 @@ final class RemoteTmuxControlConnection {
     static let reattachOnPossibleTransportDeath = true
     #endif
 
-    /// Called from the publication path once an attach has produced windows.
+    #if DEBUG
+    /// Test seam: moves the current attach's control-mode entry back in time, so a case can drive
+    /// both sides of ``workingConnectionSeconds`` without holding a fake connection open for it.
+    func backdateControlModeEntryForTesting(bySeconds seconds: Double) {
+        guard let enteredAt = controlModeEnteredAt else { return }
+        controlModeEnteredAt = enteredAt.advanced(by: .seconds(-seconds))
+    }
+    #endif
+
+    /// Called when an attach that lasted ends, so the cap counts consecutive failures.
     func clearTransportDeathReattachBudget() {
         guard transportDeathReattachCount > 0 else { return }
         record("transport-death-reattach-recovered after=\(transportDeathReattachCount)")
@@ -321,12 +360,18 @@ final class RemoteTmuxControlConnection {
     }
 
     /// Latches the observation while the bytes that carry it are still in the region.
+    ///
+    /// A prompt is also the moment to offer the login. The transport asking for a
+    /// passcode does not fail and does not exit — it prints the prompt and waits — so
+    /// nothing else is coming, and leaving it to the attach deadline means the user
+    /// stares at a frozen mirror for the length of the timeout and then gets an error
+    /// about the host instead of the login that would have worked.
     private func noteCredentialPromptIfSeen() {
         guard !enterReceived, !sawUnansweredCredentialPrompt else { return }
-        if RemoteTmuxSSHTransport.indicatesUnansweredCredentialPrompt(
-            preControlOutputBuffer + parser.unterminatedTail) {
-            sawUnansweredCredentialPrompt = true
-        }
+        guard RemoteTmuxSSHTransport.indicatesUnansweredCredentialPrompt(
+            preControlOutputBuffer + parser.unterminatedTail) else { return }
+        sawUnansweredCredentialPrompt = true
+        parkForInteractiveAuth(reason: "credential-prompt")
     }
     /// Last client size applied via ``setClientSize(columns:rows:)``, re-applied
     /// after a reconnect so the resumed session keeps the mirror's grid instead of
@@ -622,6 +667,7 @@ final class RemoteTmuxControlConnection {
         preControlOutputBuffer = ""
         sawUnansweredCredentialPrompt = false
         enterReceived = false
+        controlModeEnteredAt = nil
 
         // The remote command has to fit one canonical line, and this is the only place every
         // caller passes through.
@@ -1080,6 +1126,26 @@ final class RemoteTmuxControlConnection {
                 observers.notifyExit()
                 return
             }
+            // A first attach that never reached control mode gets the same reading a
+            // reconnect attempt gets. This is the only classification the multiplexed
+            // path has: it opens no probe connection, so if the stream itself does not
+            // say "this host wants a login", nothing does, and a host that asks for a
+            // passcode reports as an unexplained failure instead of offering one.
+            if !enterReceived {
+                await stderrTask?.value
+                guard generation == processGeneration,
+                      connectionState == .connecting || connectionState == .connected
+                else { return }
+                let disposition = RemoteTmuxReconnectDisposition.classify(
+                    stderr: stderrBuffer,
+                    preControlOutput: preControlOutputBuffer,
+                    decoding: decoding
+                )
+                if disposition == .authRequired {
+                    parkForInteractiveAuth(reason: "attach")
+                    return
+                }
+            }
             switch RemoteTmuxStreamEndDisposition.forStreamEnd(hasReachedControlMode: enterReceived) {
             case .reconnect:
                 // Keep the mirror frozen and reconnect.
@@ -1126,24 +1192,7 @@ final class RemoteTmuxControlConnection {
                 reconnectTask = nil
                 observers.notifyExit()
             } else if disposition == .authRequired {
-                // Stop the pointless retry loop and hand the user a login. The state
-                // stays `.reconnecting` (the mirror is frozen, not dead) so the
-                // session and every mirrored workspace survive the outage; a consumer
-                // runs the argv under a tty and calls `resumeAfterInteractiveAuth()`.
-                record("reconnect-auth-required")
-                reconnectTask?.cancel()
-                reconnectTask = nil
-                awaitingInteractiveAuth = true
-                let handled = observers.notifyAuthRequired(sshArgv: host.interactiveAuthInvocation())
-                if !handled {
-                    // Nobody is listening, so no login can arrive. Falling back to the
-                    // backoff loop is strictly better than freezing forever: the host
-                    // may become reachable without auth (a warm ControlMaster opened
-                    // elsewhere), and the retry keeps that recovery possible.
-                    record("reconnect-auth-required-unhandled")
-                    awaitingInteractiveAuth = false
-                    scheduleReconnectAttempt()
-                }
+                parkForInteractiveAuth(reason: "reconnect")
             } else {
                 scheduleReconnectAttempt()
             }
@@ -1151,6 +1200,33 @@ final class RemoteTmuxControlConnection {
     }
 
     // MARK: - Reconnect
+
+    /// Stops the pointless retry loop and hands the user a login.
+    ///
+    /// The state becomes `.reconnecting` — the mirror is frozen, not dead — so the
+    /// session and every mirrored workspace survive the outage; a consumer runs the
+    /// argv under a tty and calls ``resumeAfterInteractiveAuth()``. A first attach
+    /// parks the same way, and its retry re-runs the mode it was asked for rather
+    /// than a plain attach, because there is no session it was thrown out of.
+    private func parkForInteractiveAuth(reason: String) {
+        guard connectionState != .ended, !awaitingInteractiveAuth else { return }
+        record("\(reason)-auth-required")
+        teardownProcessHandles()
+        connectionState = .reconnecting
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        awaitingInteractiveAuth = true
+        let handled = observers.notifyAuthRequired(sshArgv: host.interactiveAuthInvocation())
+        if !handled {
+            // Nobody is listening, so no login can arrive. Falling back to the
+            // backoff loop is strictly better than freezing forever: the host
+            // may become reachable without auth (a warm ControlMaster opened
+            // elsewhere), and the retry keeps that recovery possible.
+            record("\(reason)-auth-required-unhandled")
+            awaitingInteractiveAuth = false
+            scheduleReconnectAttempt()
+        }
+    }
 
     /// Starts the stall monitor for a transport that owns its own reconnection.
     ///
@@ -1200,7 +1276,12 @@ final class RemoteTmuxControlConnection {
         sessionDigestSubscribed = false
         pendingPostAttachAction = nil
         teardownProcessHandles()
-        if !preservingBackoff { reconnectAttemptCount = 0 }
+        // An attach that held is a working connection, whatever took it down, so the next retry
+        // chain starts fresh. One that died young keeps the count even when the caller did not ask
+        // to: a flapping tunnel reaches control mode on every attempt, and clearing there let it
+        // reattach at the base delay indefinitely. (The transport-death budget follows the same
+        // rule, cleared by the `%exit` handler that reads it.)
+        if !preservingBackoff || connectionHeldLongEnough { reconnectAttemptCount = 0 }
         awaitingInteractiveAuth = false
         connectionState = .reconnecting
         scheduleReconnectAttempt()
@@ -1247,16 +1328,19 @@ final class RemoteTmuxControlConnection {
         }
     }
 
-    /// Re-spawns the ssh control client for a reconnect attempt. Always `.attach` so a
-    /// session killed during the outage fails the re-attach (→ classified `.ended`)
-    /// instead of being silently recreated empty — including for the hidden view
-    /// session, whose initial attach may have created it.
+    /// Re-spawns the ssh control client for a reconnect attempt. `.attach` once this
+    /// connection has been in control mode, so a session killed during the outage fails
+    /// the re-attach (→ classified `.ended`) instead of being silently recreated empty —
+    /// including for the hidden view session, whose initial attach may have created it.
+    /// A connection that never got in has no session to have lost, so it retries in the
+    /// mode it was asked for: the multiplexed view's session is created by its own
+    /// attach, and `.attach` would fail forever against a host it never reached.
     /// A spawn failure (e.g. control-socket dir) backs off and retries; the spawn's
     /// success/failure is observed via `.enter` (connected) or `handleStreamEnd`.
     private func attemptReconnectSpawn() {
         record("reconnect-attempt")
         do {
-            try spawnProcess(mode: .attach)
+            try spawnProcess(mode: everReachedControlMode ? .attach : attachMode)
         } catch {
             scheduleReconnectAttempt()
         }
@@ -1272,6 +1356,8 @@ final class RemoteTmuxControlConnection {
         switch message {
         case .enter:
             enterReceived = true
+            everReachedControlMode = true
+            controlModeEnteredAt = .now
             record("enter")
             // First connect, or a reconnect attempt that reached control mode.
             if connectionState != .connected {
@@ -1284,7 +1370,11 @@ final class RemoteTmuxControlConnection {
                 // would shrink the local primary grid, move its first visible row
                 // into scrollback, then paint that row again on restore.
                 pendingAttachRedrawKick = !wasReconnecting
-                reconnectAttemptCount = 0
+                // The attempt count is NOT cleared here. Reaching control mode is not yet
+                // evidence the connection works — a flapping tunnel reaches it every time and
+                // drops a second later, and zeroing the backoff on each one made those retries
+                // run at the base delay indefinitely. `beginReconnecting` clears it once the
+                // attach has actually held (see `workingConnectionSeconds`).
                 reconnectTask?.cancel()
                 reconnectTask = nil
                 // Do not send here: `.enter` precedes the attach result block, so a
@@ -1313,9 +1403,10 @@ final class RemoteTmuxControlConnection {
             // the attach report whether the session is really gone. A reconnect never creates one
             // (see `spawnProcess`), so a genuinely dead session cannot come back as an empty one.
             //
-            // Bounded, because a tunnel that always dies would otherwise reattach forever:
-            // `beginReconnecting` resets the backoff counter, so without a cap here repeated
-            // transport deaths would retry at the base delay indefinitely.
+            // Bounded, because a tunnel that always dies would otherwise reattach forever. The
+            // budget counts consecutive failures, so an attach that held clears it first —
+            // `beginReconnecting` would clear it too, but the cap is read here, before that call.
+            if connectionHeldLongEnough { clearTransportDeathReattachBudget() }
             if Self.reattachOnPossibleTransportDeath,
                transportProfile.remoteHalfSurvivesLocalExit,
                enterReceived,

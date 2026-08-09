@@ -1270,14 +1270,14 @@ import Testing
     // MARK: - a %exit that is really the transport dying
 
     /// The bound has to exist and be small. A tunnel that dies on every attach reaches control mode
-    /// every time, so without a cap the reattach would repeat at the base backoff forever — and
-    /// `beginReconnecting` resets that backoff, so the cap is the only thing holding it.
+    /// every time, so without a cap the reattach would repeat forever against a host that cannot
+    /// hold a connection.
     @Test func theTransportDeathReattachBudgetIsSmallAndFinite() {
         #expect(RemoteTmuxControlConnection.maxTransportDeathReattempts >= 1)
         #expect(RemoteTmuxControlConnection.maxTransportDeathReattempts <= 5)
     }
 
-    /// Clearing the budget is only meaningful once an attach has published windows, and it must be a
+    /// Clearing the budget is only meaningful once an attach has held, and it must be a
     /// no-op otherwise so a stream that never carried anything cannot silently extend its own budget.
     @MainActor
     @Test func clearingTheReattachBudgetIsANoOpWhenNothingWasSpent() {
@@ -1759,12 +1759,16 @@ private struct SplitMix64 {
     }
 
     /// The `%exit`-driven reattach chain is capped at `maxTransportDeathReattempts`, and the budget
-    /// resets on a `list-windows` reply that carries windows — so it counts CONSECUTIVE failures.
+    /// resets only for an attach that HELD — so it counts consecutive failures, and a flap is a
+    /// failure however healthy each short attach looked.
     ///
-    /// Two arms, again in one case. Neither "always resets" nor "never resets" can pass both: arm A
-    /// recovers four times over, arm B ends on the fourth incident. Deleting the reset at
-    /// `RemoteTmuxControlConnection+CommandResults.swift:183` fails arm A; removing the cap fails
-    /// arm B.
+    /// The two arms differ in one variable: how long the attach lasted. Both reach control mode and
+    /// both answer `list-windows` with windows. Arm A's attach is backdated past
+    /// `workingConnectionSeconds`, so every incident starts from a clean budget and the chain never
+    /// ends. Arm B's dies young, so its failures are consecutive and the cap stops them. Resetting
+    /// on the windows-bearing reply instead — which is what the code did while a flapping tunnel
+    /// reattached at the base delay forever — fails arm B; removing the cap fails arm B too;
+    /// removing the reset fails arm A.
     ///
     /// Each incident is checked to have actually happened rather than merely been logged. A `%exit`
     /// that arrives while the connection is already `.reconnecting` still increments the counter and
@@ -1774,11 +1778,14 @@ private struct SplitMix64 {
     /// `.connected`, and a `list-windows` on the wire for that attempt.
     @MainActor
     @Test(arguments: seeds)
-    func theReattachBudgetIsCappedAndResetsOnAWindowsBearingReply(seed: UInt64) {
+    func theReattachBudgetIsCappedAndResetsOnlyForAnAttachThatHeld(seed: UInt64) {
         var rng = SplitMix64(seed: seed)
         let cap = RemoteTmuxControlConnection.maxTransportDeathReattempts
 
-        // Arm A: every reattach lists windows, so every incident starts from a clean budget.
+        // Long enough that the attach counts as having worked, without the case waiting for it.
+        let heldFor = RemoteTmuxControlConnection.workingConnectionSeconds + 1
+
+        // Arm A: every attach holds before it dies, so every incident starts from a clean budget.
         let recovering = FuzzPeer(seed: seed, label: "budget-resets", shape: .persistentRemote, rng: &rng)
         let recoveringContext = recovering.context()
         recovering.installStream()
@@ -1789,6 +1796,7 @@ private struct SplitMix64 {
         for incident in 1...(cap + 1) {
             let before = recovering.eventCount(prefix: "exit-may-be-transport-death")
             let reconnectsBefore = recovering.eventCount(prefix: "reconnecting preserving-backoff")
+            recovering.connection.backdateControlModeEntryForTesting(bySeconds: heldFor)
             recovering.deliverExit()
             let context = "\(recoveringContext) incident=\(incident)"
             #expect(
@@ -1799,6 +1807,10 @@ private struct SplitMix64 {
                 recovering.lastEvent(prefix: "exit-may-be-transport-death")
                     == "exit-may-be-transport-death reattach=1",
                 "\(context) the budget did not reset — events=\(recovering.events.suffix(12))"
+            )
+            #expect(
+                recovering.eventCount(prefix: "transport-death-reattach-recovered") == incident - 1,
+                "\(context) an attach that held did not clear the budget as it died"
             )
             #expect(
                 recovering.eventCount(prefix: "reconnecting preserving-backoff") == reconnectsBefore + 1,
@@ -1828,8 +1840,8 @@ private struct SplitMix64 {
             let answered = recovering.drainFarEnd()
             #expect(answered < FuzzPeer.answerLimit, "\(context) the far end answered \(answered) commands")
             #expect(
-                recovering.eventCount(prefix: "transport-death-reattach-recovered") == incident,
-                "\(context) a windows-bearing reply did not clear the budget"
+                recovering.eventCount(prefix: "transport-death-reattach-recovered") == incident - 1,
+                "\(context) a windows-bearing reply cleared the budget on its own"
             )
         }
         #expect(
@@ -1842,8 +1854,8 @@ private struct SplitMix64 {
         )
         #expect(recovering.ringIsIntact, "\(recoveringContext) ring overflowed, counts unreadable")
 
-        // Arm B: the reattach reaches control mode but can never list a window, so the failures are
-        // consecutive and the cap has to stop them.
+        // Arm B: the same healthy-looking reattach, windows and all, but it dies young every time.
+        // The failures are consecutive and the cap has to stop them.
         let failing = FuzzPeer(seed: seed, label: "budget-exhausts", shape: .persistentRemote, rng: &rng)
         let failingContext = failing.context()
         failing.installStream()
@@ -1857,7 +1869,7 @@ private struct SplitMix64 {
             #expect(
                 failing.lastEvent(prefix: "exit-may-be-transport-death")
                     == "exit-may-be-transport-death reattach=\(incident)",
-                "\(context) the budget reset without a windows-bearing reply — events=\(failing.events.suffix(12))"
+                "\(context) the budget reset for an attach that died young — events=\(failing.events.suffix(12))"
             )
             #expect(
                 failing.connection.connectionState == .reconnecting,
@@ -1867,10 +1879,10 @@ private struct SplitMix64 {
             failing.installStream()
             failing.deliverControlModeEntry()
             failing.requestWindowsAsTheAttachDrainWould()
-            _ = failing.drainFarEnd(windows: [])
+            _ = failing.drainFarEnd()
             #expect(
                 failing.eventCount(prefix: "transport-death-reattach-recovered") == 0,
-                "\(context) a windowless reply cleared the budget"
+                "\(context) an attach that died young cleared the budget"
             )
         }
         // The next %exit is past the cap: believe it.
@@ -1929,7 +1941,7 @@ private struct SplitMix64 {
         let recoveredA = recovering.eventCount(prefix: "transport-death-reattach-recovered")
         let recoveredB = failing.eventCount(prefix: "transport-death-reattach-recovered")
         #expect(
-            recoveredA == cap + 1 && recoveredB == 0
+            recoveredA == cap && recoveredB == 0
                 && recovering.exitNotifications == 0 && failing.exitNotifications == 1,
             "seed=\(String(seed, radix: 16)) the arms behaved alike, so neither measured the reset: recovered A=\(recoveredA) B=\(recoveredB) exits A=\(recovering.exitNotifications) B=\(failing.exitNotifications)"
         )
