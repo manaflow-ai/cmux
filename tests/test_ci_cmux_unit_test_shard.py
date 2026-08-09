@@ -54,6 +54,141 @@ final class {name}: XCTestCase {{
         )
 
 
+def check_parameterized_swift_testing_counts() -> int:
+    """Parameterized cases and stacked attributes must count as real executions."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        test_root = tmp_root / "cmuxTests"
+        test_root.mkdir()
+        (test_root / "ParameterizedCountingTests.swift").write_text(
+            """
+import Testing
+
+@Suite struct ParameterizedCountingTests {
+    private static let seeds: [UInt64] = [
+        1, 2, 3, 4,
+        5, 6, 7, 8,
+    ]
+
+    @Test(arguments: seeds)
+    func seededCase(seed: UInt64) {}
+
+    @MainActor @Test(arguments: ["alpha", "beta", "gamma"])
+    func mainActorCase(name: String) {}
+
+    @Test func ordinaryCase() {}
+}
+""".lstrip(),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(HELPER),
+                "--root",
+                str(tmp_root),
+                "--validate",
+                "--timings",
+                str(tmp_root / "no-manifest.json"),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    if result.returncode != 0:
+        print(result.stdout, end="")
+        print(result.stderr, end="", file=sys.stderr)
+        print(f"FAIL: parameterized discovery exited {result.returncode}")
+        return 1
+    if "representing 12 tests" not in result.stdout:
+        print(result.stdout, end="")
+        print(
+            "FAIL: parameterized Swift Testing cases or stacked attributes "
+            "were not counted"
+        )
+        return 1
+
+    print("PASS: parameterized Swift Testing cases count as app-host executions")
+    return 0
+
+
+def check_runtime_parameterized_tests_are_isolated() -> int:
+    """A runtime-expanded parameter collection must not share an app host."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        test_root = tmp_root / "cmuxTests"
+        test_root.mkdir()
+        (test_root / "RuntimeParameterizedTests.swift").write_text(
+            """
+import Testing
+
+@Suite struct RuntimeParameterizedTests {
+    private static var runtimeCases: [Int] { Array(0..<4) }
+
+    @Test(arguments: runtimeCases)
+    func runtimeExpandedCase(value: Int) {}
+
+    @Test func ordinaryCase() {}
+}
+
+@Suite struct PeerTests {
+    @Test func peerCase() {}
+}
+""".lstrip(),
+            encoding="utf-8",
+        )
+        output_directory = tmp_root / "batches"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(HELPER),
+                "--root",
+                str(tmp_root),
+                "--shard-index",
+                "1",
+                "--shard-total",
+                "1",
+                "--batch-selector-limit",
+                "24",
+                "--batch-test-limit",
+                "80",
+                "--batch-output-directory",
+                str(output_directory),
+                "--timings",
+                str(tmp_root / "no-manifest.json"),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            print(result.stdout, end="")
+            print(result.stderr, end="", file=sys.stderr)
+            print(f"FAIL: runtime-parameterized batching exited {result.returncode}")
+            return 1
+        batches = [
+            path.read_text(encoding="utf-8").splitlines()
+            for path in sorted(output_directory.glob("batch-*.args"))
+        ]
+
+    parameterized_selector = (
+        "-only-testing:cmuxTests/RuntimeParameterizedTests/runtimeExpandedCase"
+    )
+    containing_batches = [
+        batch for batch in batches if parameterized_selector in batch
+    ]
+    if containing_batches != [[parameterized_selector]]:
+        print(
+            "FAIL: runtime-expanded parameterized test must have a fresh app host: "
+            f"{batches}"
+        )
+        return 1
+
+    print("PASS: runtime-expanded parameterized tests get a fresh app host")
+    return 0
+
+
 def check_bounded_process_batches() -> int:
     """Process batches must bound represented work and cover every selector once."""
     import json
@@ -453,6 +588,12 @@ final class {name}: XCTestCase {{
 
 def main() -> int:
     if (rc := check_bounded_process_batches()) != 0:
+        return rc
+
+    if (rc := check_parameterized_swift_testing_counts()) != 0:
+        return rc
+
+    if (rc := check_runtime_parameterized_tests_are_isolated()) != 0:
         return rc
 
     with tempfile.TemporaryDirectory() as tmp:
