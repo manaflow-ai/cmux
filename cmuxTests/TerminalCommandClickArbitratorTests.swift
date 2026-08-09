@@ -12,12 +12,16 @@ import Testing
 struct TerminalCommandClickArbitratorTests {
     private static let candidate = TerminalWrappedPathResolution(
         path: "/Users/dev/project/TMLlaboratory",
-        nativeMatchKey: "/Users/dev/project/TMLlaborator"
+        nativeMatchKeys: [
+            "/Users/dev/project/TMLlaborator" + "y",
+            "/Users/dev/project/TMLlaborator",
+            "y",
+        ]
     )
 
     private static let otherCandidate = TerminalWrappedPathResolution(
         path: "/Users/dev/project/other",
-        nativeMatchKey: "/Users/dev/project/other-token"
+        nativeMatchKeys: ["/Users/dev/project/other-token"]
     )
 
     // MARK: openURLCallbackResult
@@ -27,7 +31,7 @@ struct TerminalCommandClickArbitratorTests {
         let result = TerminalCommandClickArbitrator.openURLCallbackResult(
             currentState: .prepared(Self.candidate),
             hasExplicitScheme: true,
-            matchKey: Self.candidate.nativeMatchKey
+            matchKey: Self.candidate.nativeMatchKeys[0]
         )
         #expect(result.nextState == .nativePassthrough)
         #expect(result.shouldClaim == false)
@@ -44,12 +48,17 @@ struct TerminalCommandClickArbitratorTests {
         #expect(result.shouldClaim == false)
     }
 
-    @Test("An exact match against a prepared candidate claims the URL")
-    func exactMatchAgainstPreparedCandidateClaims() {
+    // Any of the finite `nativeMatchKeys` claims — not just the first
+    // (full-candidate) entry. Ghostty's own hard-wrap link continuation can
+    // report either the whole joined match or just one row's independent
+    // fragment for the same click, and both are legitimate native shapes
+    // for the winning direction.
+    @Test("An exact match against any of a prepared candidate's finite keys claims the URL", arguments: [0, 1, 2])
+    func exactMatchAgainstAnyPreparedKeyClaims(keyIndex: Int) {
         let result = TerminalCommandClickArbitrator.openURLCallbackResult(
             currentState: .prepared(Self.candidate),
             hasExplicitScheme: false,
-            matchKey: Self.candidate.nativeMatchKey
+            matchKey: Self.candidate.nativeMatchKeys[keyIndex]
         )
         #expect(result.nextState == .overridePending(Self.candidate))
         #expect(result.shouldClaim == true)
@@ -60,7 +69,29 @@ struct TerminalCommandClickArbitratorTests {
         let result = TerminalCommandClickArbitrator.openURLCallbackResult(
             currentState: .prepared(Self.candidate),
             hasExplicitScheme: false,
-            matchKey: Self.otherCandidate.nativeMatchKey
+            matchKey: Self.otherCandidate.nativeMatchKeys[0]
+        )
+        #expect(result.nextState == .nativePassthrough)
+        #expect(result.shouldClaim == false)
+    }
+
+    // A fourth, unrelated target and any partial (substring/suffix) variant
+    // of a real key must never claim — only an exact match against one of
+    // the finite keys does.
+    @Test(
+        "Unknown or partial targets never claim",
+        arguments: [
+            "/Users/dev/project/unrelated-fourth-target",
+            // A genuine suffix of key[0] that isn't itself equal to any key.
+            String("/Users/dev/project/TMLlaboratory".dropFirst(5)),
+        ]
+    )
+    func unknownOrPartialTargetsNeverClaim(matchKey: String) {
+        #expect(!Self.candidate.nativeMatchKeys.contains(matchKey))
+        let result = TerminalCommandClickArbitrator.openURLCallbackResult(
+            currentState: .prepared(Self.candidate),
+            hasExplicitScheme: false,
+            matchKey: matchKey
         )
         #expect(result.nextState == .nativePassthrough)
         #expect(result.shouldClaim == false)
@@ -82,7 +113,7 @@ struct TerminalCommandClickArbitratorTests {
         let result = TerminalCommandClickArbitrator.openURLCallbackResult(
             currentState: .nativePassthrough,
             hasExplicitScheme: false,
-            matchKey: Self.candidate.nativeMatchKey
+            matchKey: Self.candidate.nativeMatchKeys[0]
         )
         #expect(result.nextState == .nativePassthrough)
         #expect(result.shouldClaim == false)

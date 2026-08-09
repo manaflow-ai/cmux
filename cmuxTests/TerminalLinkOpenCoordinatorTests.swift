@@ -185,6 +185,52 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(externallyOpened.isEmpty)
     }
 
+    // Ghostty reports configured path-regex matches through the same
+    // `open_url` callback as URLs. A scheme-less, unresolved local-path-like
+    // fragment (e.g. a hard-wrapped path whose match key didn't line up, or
+    // a stale relative path from before a rename) must be consumed here —
+    // not fall through into bare-host routing, where
+    // `research/docs/report.md` would open as `https://research`.
+    @Test("Unresolved local-path-like fragment is consumed, not opened as a bare host")
+    @MainActor
+    func unresolvedLocalPathFragmentIsConsumedNotBrowserRouted() throws {
+        let defaults = makeDefaults()
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let terminalPanelId = try #require(
+            store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
+        )
+        var externallyOpened: [URL] = []
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, panelId in
+                panelId == terminalPanelId ? store : nil
+            },
+            externalOpen: { openedURL in
+                externallyOpened.append(openedURL)
+                return true
+            },
+            deferOperation: { operation in operation() }
+        )
+
+        let handled = coordinator.open(TerminalLinkOpenRequest(
+            rawValue: "research/docs/notes/report-that-does-not-exist.md",
+            sourceWorkspaceId: nil,
+            sourcePanelId: terminalPanelId,
+            workingDirectory: nil
+        ))
+
+        #expect(handled)
+        #expect(externallyOpened.isEmpty)
+        #expect(store.bonsplitController.allTabIds.compactMap { store.panel(for: $0) as? BrowserPanel }.isEmpty)
+    }
+
     private func makeHTMLFixture(pathExtension: String) throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-html-click-\(UUID().uuidString)", isDirectory: true)
