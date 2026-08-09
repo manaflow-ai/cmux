@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstring>
 #include <filesystem>
+#include <future>
 #include <string>
 #include <thread>
 
@@ -54,18 +55,29 @@ struct UnixServer {
 
 TEST("Unix transport assembles partial JSON-lines frames") {
     UnixServer server;
+    std::promise<void> first_part_written;
+    std::promise<void> write_second_part;
+    auto first_part_ready = first_part_written.get_future();
+    auto second_part_ready = write_second_part.get_future();
     std::thread peer([&] {
         const int fd = ::accept(server.listener, nullptr, nullptr);
         CHECK(fd >= 0);
         const std::string first = "{\"ok\":";
         const std::string second = "true}\n{\"next\":1}\n";
         CHECK(::write(fd, first.data(), first.size()) == static_cast<ssize_t>(first.size()));
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        first_part_written.set_value();
+        second_part_ready.wait();
         CHECK(::write(fd, second.data(), second.size()) == static_cast<ssize_t>(second.size()));
         ::close(fd);
     });
     auto transport = cmux::UnixTransport::connect(server.path, std::chrono::seconds(1));
     CHECK(transport);
+    const auto first_part_status = first_part_ready.wait_for(std::chrono::seconds(2));
+    auto partial = transport.value()->receive(std::chrono::milliseconds(20));
+    write_second_part.set_value();
+    CHECK(first_part_status == std::future_status::ready);
+    CHECK(!partial);
+    CHECK_EQ(partial.error().code, cmux::ErrorCode::timeout);
     auto first = transport.value()->receive(std::chrono::seconds(1));
     auto second = transport.value()->receive(std::chrono::seconds(1));
     CHECK(first);
@@ -92,8 +104,13 @@ TEST("Unix transport times out and close unblocks receive") {
 
     cmux::Result<std::string> read =
         cmux::make_error(cmux::ErrorCode::protocol, "not started");
-    std::thread reader([&] { read = transport->receive(std::chrono::seconds(30)); });
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    std::promise<void> reader_started;
+    auto reader_ready = reader_started.get_future();
+    std::thread reader([&] {
+        reader_started.set_value();
+        read = transport->receive(std::chrono::seconds(30));
+    });
+    CHECK(reader_ready.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
     transport->close();
     reader.join();
     peer.join();
@@ -110,7 +127,6 @@ TEST("Unix transport rejects oversized frames") {
         CHECK(fd >= 0);
         const std::string oversized = std::string(64, 'x') + "\n";
         (void)::write(fd, oversized.data(), oversized.size());
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         ::close(fd);
     });
     cmux::TransportLimits limits;

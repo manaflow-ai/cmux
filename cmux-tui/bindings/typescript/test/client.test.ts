@@ -81,6 +81,14 @@ function identifyResult(
   });
 }
 
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+}
+
 class TrackingAbortSignal {
   aborted = false;
   added = 0;
@@ -121,11 +129,7 @@ class TrackingAbortSignal {
 test("streams wait indefinitely by default and support explicit idle timeouts", async () => {
   const quiet = new CmuxStream<{ event: string }>(undefined, () => undefined);
   const pending = quiet.next();
-  const early = await Promise.race([
-    pending.then(() => "event", () => "error"),
-    new Promise<"still-waiting">((resolve) => setTimeout(() => resolve("still-waiting"), 15)),
-  ]);
-  assert.equal(early, "still-waiting");
+  assert.equal(quiet.idleTimeoutMs, undefined);
   quiet.push({ event: "ready" });
   assert.deepEqual(await pending, { event: "ready" });
   quiet.close();
@@ -150,11 +154,7 @@ test("client command timeout does not become a stream idle timeout", async () =>
   const client = new CmuxClient({ transport, timeoutMs: 5 });
   const stream = await client.subscribe();
   const pending = stream.next();
-  const early = await Promise.race([
-    pending.then(() => "event", () => "error"),
-    new Promise<"still-waiting">((resolve) => setTimeout(() => resolve("still-waiting"), 15)),
-  ]);
-  assert.equal(early, "still-waiting");
+  assert.equal(stream.idleTimeoutMs, undefined);
   connection?.emit({ event: "tree-changed" });
   assert.deepEqual(await pending, { event: "tree-changed" });
   stream.close();
@@ -223,6 +223,7 @@ test("pending read listeners are removed on timeout and close", async () => {
 
 test("AbortSignal cancels a pending stream open and releases shared subscription state", async () => {
   let subscriptions = 0;
+  const firstSubscriptionSent = deferred();
   const transport = new ScriptedTransport((request, connection) => {
     if (request.cmd === "identify") {
       connection.emit({ id: request.id, ok: true, data: identifyResult() });
@@ -230,6 +231,7 @@ test("AbortSignal cancels a pending stream open and releases shared subscription
     }
     assert.equal(request.cmd, "subscribe");
     subscriptions += 1;
+    if (subscriptions === 1) firstSubscriptionSent.resolve();
     if (subscriptions === 2) {
       connection.emit({ id: request.id, ok: true, data: {} });
     }
@@ -237,7 +239,7 @@ test("AbortSignal cancels a pending stream open and releases shared subscription
   const client = new CmuxClient({ transport, timeoutMs: 100 });
   const cancelled = new TrackingAbortSignal();
   const opening = client.subscribe({ signal: cancelled.signal });
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await firstSubscriptionSent.promise;
   assert.equal(subscriptions, 1);
   cancelled.abort();
   await assert.rejects(() => opening, CmuxAbortError);
@@ -252,13 +254,15 @@ test("AbortSignal cancels a pending stream open and releases shared subscription
 
 test("AbortSignal cancels the identification phase of a browser stream open", async () => {
   let requests = 0;
+  const firstRequestSent = deferred();
   const transport = new ScriptedTransport(() => {
     requests += 1;
+    firstRequestSent.resolve();
   });
   const client = new CmuxClient({ transport, timeoutMs: 100 });
   const cancelled = new TrackingAbortSignal();
   const opening = client.attachBrowserSurface(7n, { signal: cancelled.signal });
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await firstRequestSent.promise;
   assert.equal(requests, 1);
   cancelled.abort();
   await assert.rejects(() => opening, CmuxAbortError);

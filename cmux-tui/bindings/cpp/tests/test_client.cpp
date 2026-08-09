@@ -20,6 +20,7 @@ struct FakeState {
     std::condition_variable ready;
     std::deque<std::string> incoming;
     std::vector<std::string> outgoing;
+    std::size_t waiting_receivers = 0;
     bool closed = false;
 };
 
@@ -39,9 +40,14 @@ public:
 
     cmux::Result<std::string> receive(std::chrono::milliseconds timeout) override {
         std::unique_lock lock(state_->mutex);
-        if (!state_->ready.wait_for(lock, timeout, [this] {
-                return state_->closed || !state_->incoming.empty();
-            })) {
+        ++state_->waiting_receivers;
+        state_->ready.notify_all();
+        const bool ready = state_->ready.wait_for(lock, timeout, [this] {
+            return state_->closed || !state_->incoming.empty();
+        });
+        --state_->waiting_receivers;
+        state_->ready.notify_all();
+        if (!ready) {
             return cmux::make_error(cmux::ErrorCode::timeout, "fake timeout");
         }
         if (state_->closed) {
@@ -71,6 +77,13 @@ cmux::TransportFactory fake_factory(const std::shared_ptr<FakeState>& state) {
 void wait_for_send(const std::shared_ptr<FakeState>& state) {
     std::unique_lock lock(state->mutex);
     state->ready.wait(lock, [&] { return !state->outgoing.empty(); });
+}
+
+void wait_for_receive(const std::shared_ptr<FakeState>& state) {
+    std::unique_lock lock(state->mutex);
+    const bool waiting = state->ready.wait_for(
+        lock, std::chrono::seconds(2), [&] { return state->waiting_receivers > 0; });
+    CHECK(waiting);
 }
 
 std::string identify_response(
@@ -480,7 +493,7 @@ TEST("stream close unblocks a pending next") {
     cmux::Result<cmux::Json> next =
         cmux::make_error(cmux::ErrorCode::protocol, "not started");
     std::thread reader([&] { next = event_stream.next(std::chrono::seconds(30)); });
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    wait_for_receive(stream_state);
     event_stream.close();
     reader.join();
     CHECK(!next);

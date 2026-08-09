@@ -1,8 +1,8 @@
-use crate::CommandMetadata;
 use crate::codec::JsonLineConnection;
-use crate::generated::{Event, IdentifyResult, decode_event};
-use serde::Serialize;
+use crate::generated::{decode_event, Event, IdentifyResult};
+use crate::CommandMetadata;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 use serde_json::{Map, Value};
 use std::collections::VecDeque;
 use std::fmt;
@@ -11,8 +11,8 @@ use std::net::Shutdown;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 pub type Result<T> = std::result::Result<T, CmuxError>;
@@ -392,12 +392,10 @@ impl CmuxStream {
             return Ok(self.finish_if_terminal(event));
         }
         let control = Arc::clone(&self.control);
-        let value = self.connection.with_read_timeout(timeout, |connection| {
-            loop {
-                let value = connection.recv().map_err(|error| map_closed(error, &control))?;
-                if value.get("event").is_some() {
-                    return Ok(value);
-                }
+        let value = self.connection.with_read_timeout(timeout, |connection| loop {
+            let value = connection.recv().map_err(|error| map_closed(error, &control))?;
+            if value.get("event").is_some() {
+                return Ok(value);
             }
         })?;
         Ok(self.finish_if_terminal(decode_event(value)))
@@ -512,7 +510,11 @@ fn decode_response<Response: DeserializeOwned>(command: &str, response: Value) -
 }
 
 fn map_closed(error: CmuxError, control: &StreamControl) -> CmuxError {
-    if control.closed.load(Ordering::Acquire) { CmuxError::Closed } else { error }
+    if control.closed.load(Ordering::Acquire) {
+        CmuxError::Closed
+    } else {
+        error
+    }
 }
 
 pub fn env_socket_path() -> Option<PathBuf> {
@@ -560,6 +562,7 @@ mod tests {
     use super::*;
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixListener;
+    use std::sync::mpsc;
     use std::thread;
     use std::time::Instant;
 
@@ -587,12 +590,13 @@ mod tests {
 
     #[test]
     fn close_handle_unblocks_a_reader() {
-        let (path, server) = spawn_stream_server("close", |mut stream| {
+        let (release_server_tx, release_server_rx) = mpsc::channel();
+        let (path, server) = spawn_stream_server("close", move |mut stream| {
             let mut request = String::new();
             BufReader::new(stream.try_clone().unwrap()).read_line(&mut request).unwrap();
             let id = serde_json::from_str::<Value>(&request).unwrap()["id"].clone();
             writeln!(stream, "{}", serde_json::json!({"id": id, "ok": true, "data": {}})).unwrap();
-            thread::sleep(Duration::from_millis(100));
+            release_server_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         });
         let mut client = CmuxClient::connect(
             ClientConfig::from_socket_path(&path).with_timeout(Duration::from_secs(5)),
@@ -607,13 +611,16 @@ mod tests {
         }));
         let stream = client.execute_stream(metadata, &serde_json::json!({})).unwrap();
         let closer = stream.closer();
+        let (reader_started_tx, reader_started_rx) = mpsc::channel();
         let reader = thread::spawn(move || {
             let mut stream = stream;
+            reader_started_tx.send(()).unwrap();
             stream.recv()
         });
-        thread::sleep(Duration::from_millis(30));
+        reader_started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         closer.close();
         assert!(matches!(reader.join().unwrap(), Err(CmuxError::Closed)));
+        release_server_tx.send(()).unwrap();
         server.join().unwrap();
         let _ = std::fs::remove_file(path);
     }
