@@ -162,6 +162,7 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         )
         let temporaryDirectory = root.appending(path: "tmp", directoryHint: .isDirectory)
         let wrapperDirectory = root.appending(path: "bin", directoryHint: .isDirectory)
+        let shadowDirectory = root.appending(path: "shadow", directoryHint: .isDirectory)
         let aliasDirectory = root.appending(path: ".local/bin", directoryHint: .isDirectory)
         let hermesWrapper = wrapperDirectory.appending(
             path: "cmux-hermes-agent-wrapper",
@@ -169,16 +170,21 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         )
         let officialAlias = aliasDirectory.appending(path: "coder", directoryHint: .notDirectory)
         let unrelatedCommand = aliasDirectory.appending(path: "other", directoryHint: .notDirectory)
+        let shadowBash = shadowDirectory.appending(path: "bash", directoryHint: .notDirectory)
         let invocationLog = root.appending(path: "wrapper-args.log", directoryHint: .notDirectory)
         defer { try? fileManager.removeItem(at: root) }
 
-        for directory in [wrapperDirectory, aliasDirectory] {
+        for directory in [wrapperDirectory, shadowDirectory, aliasDirectory] {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         }
         try """
-        #!/usr/bin/env bash
+        #!/bin/bash
         printf '%s\\0' "$@" > "$CMUX_TEST_LOG"
         """.write(to: hermesWrapper, atomically: true, encoding: .utf8)
+        try """
+        #!/bin/sh
+        exit 97
+        """.write(to: shadowBash, atomically: true, encoding: .utf8)
         try """
         #!/bin/sh
         exec /opt/hermes/bin/hermes -p coder "$@"
@@ -187,7 +193,7 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         #!/bin/sh
         exec /opt/tools/other -p coder "$@"
         """.write(to: unrelatedCommand, atomically: true, encoding: .utf8)
-        for executable in [hermesWrapper, officialAlias, unrelatedCommand] {
+        for executable in [hermesWrapper, shadowBash, officialAlias, unrelatedCommand] {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
@@ -207,7 +213,7 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         process.executableURL = URL(fileURLWithPath: aliasShim.executablePath)
         process.arguments = ["--continue", "doctor"]
         process.environment = [
-            "PATH": "\(shims.directoryPath):/usr/bin:/bin",
+            "PATH": "\(shadowDirectory.path):\(shims.directoryPath):/usr/bin:/bin",
             "CMUX_TEST_LOG": invocationLog.path,
         ]
         try process.run()

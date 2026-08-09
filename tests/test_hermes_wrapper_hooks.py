@@ -113,6 +113,7 @@ def run_wrapper(
     tui_gateway_turns: int = 0,
     tui_gateway_compute_host: bool = False,
     stale_tui_python_wrapper: bool = False,
+    shadow_path_bash: bool = False,
     expected_cmux_call_count: int | None = None,
 ) -> WrapperResult:
     with tempfile.TemporaryDirectory(prefix="cmux-hermes-wrapper-test-") as td:
@@ -120,12 +121,25 @@ def run_wrapper(
         wrapper_dir = tmp / "wrapper-bin"
         shim_dir = tmp / "cmux-cli-shims" / "surface-test"
         real_dir = tmp / "real-bin"
+        shadow_dir = tmp / "shadow-bin"
         bundled_dir = tmp / "bundled cli"
         user_home = tmp / "user home"
         hermes_home = tmp / "hermes home"
         original_tmpdir = tmp / "original tmp"
-        for directory in (wrapper_dir, shim_dir, real_dir, bundled_dir, user_home, hermes_home, original_tmpdir):
+        for directory in (
+            wrapper_dir,
+            shim_dir,
+            real_dir,
+            shadow_dir,
+            bundled_dir,
+            user_home,
+            hermes_home,
+            original_tmpdir,
+        ):
             directory.mkdir(parents=True)
+
+        if shadow_path_bash:
+            make_executable(shadow_dir / "bash", "#!/bin/sh\nexit 97\n")
 
         profile_homes = {
             name: hermes_home / "profiles" / name
@@ -229,9 +243,11 @@ def run_wrapper(
             )
 
         real_hermes = real_dir / "hermes"
+        real_hermes_shebang = "#!/bin/bash" if shadow_path_bash else "#!/usr/bin/env bash"
         make_executable(
             real_hermes,
-            """#!/usr/bin/env bash
+            real_hermes_shebang
+            + """
 set -euo pipefail
 : > "$FAKE_REAL_ARGS_LOG"
 printf '%s\\0' "$@" >> "$FAKE_REAL_ARGS_LOG"
@@ -332,7 +348,9 @@ exit 0
 
         socket_path = str(tmp / "cmux.sock")
         env = os.environ.copy()
-        env["PATH"] = f"{shim_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
+        env["PATH"] = (
+            f"{shadow_dir}:{shim_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
+        )
         env["HOME"] = str(user_home)
         env["HERMES_HOME"] = str(hermes_home)
         env["TMPDIR"] = str(original_tmpdir)
@@ -703,6 +721,32 @@ def test_tui_gateway_rejects_retired_cmux_python_wrapper(failures: list[str]) ->
         )
 
 
+def test_bundled_wrappers_ignore_path_bash_shadow(failures: list[str]) -> None:
+    result = run_wrapper(
+        ["--tui"],
+        tui_gateway_turns=2,
+        shadow_path_bash=True,
+    )
+    expected_events = [
+        f"gateway:{event}:{turn}"
+        for turn in (1, 2)
+        for event in ("prompt-submit", "agent-response", "session-end")
+    ]
+
+    expect(
+        result.returncode == 0,
+        "TUI PATH bash shadow: a non-native PATH bash blocked Hermes startup: "
+        f"{result.returncode}: {result.stderr}",
+        failures,
+    )
+    expect(
+        result.tui_gateway_events == expected_events,
+        "TUI PATH bash shadow: managed wrappers did not retain gateway hooks: "
+        f"{result.tui_gateway_events}",
+        failures,
+    )
+
+
 def test_explicit_classic_cli_skips_tui_watcher(failures: list[str]) -> None:
     result = run_wrapper(["--cli"])
     expect(
@@ -879,6 +923,7 @@ def main() -> int:
         test_tui_bridge_fails_closed_on_untrusted_session_files(failures)
         test_tui_gateway_registers_hooks_for_every_turn(failures)
         test_tui_gateway_rejects_retired_cmux_python_wrapper(failures)
+        test_bundled_wrappers_ignore_path_bash_shadow(failures)
         test_explicit_classic_cli_skips_tui_watcher(failures)
         test_profile_scoped_hook_install(failures)
         test_administrative_entrypoints_bypass_install(failures)
