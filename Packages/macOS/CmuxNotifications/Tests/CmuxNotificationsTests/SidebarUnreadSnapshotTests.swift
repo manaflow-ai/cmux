@@ -118,6 +118,30 @@ struct SidebarUnreadSnapshotTests {
 
     @Test
     @MainActor
+    func releasingObservationSynchronouslyStopsDelivery() {
+        let model = SidebarUnreadModel()
+        let recorder = SidebarUnreadValueRecorder<SidebarUnreadSnapshot>()
+        var observation: SidebarUnreadObservation? = model.observeChanges(
+            owner: recorder
+        ) { recorder, snapshot in
+            recorder.values.append(snapshot)
+        }
+        #expect(observation != nil)
+
+        observation = nil
+        model.apply(
+            totalUnreadCount: 1,
+            summaries: [:],
+            unreadSurfaceKeys: [],
+            focusedReadIndicatorByWorkspaceId: [:],
+            manualUnreadWorkspaceIds: []
+        )
+
+        #expect(recorder.values.isEmpty)
+    }
+
+    @Test
+    @MainActor
     func surfaceUnreadProjectionMutatesOnlyItsKeyAndOwnerCount() {
         let existingWorkspaceID = UUID()
         let existingSurfaceID = UUID()
