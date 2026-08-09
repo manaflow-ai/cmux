@@ -143,6 +143,14 @@ class _InterpreterSourceSpec:
     options_with_values: frozenset[str]
 
 
+@dataclass(frozen=True)
+class _FluentClientBinding:
+    name: str
+    kind: str
+    constructor_end: int
+    scope_end: int
+
+
 # ---------------------------------------------------------------------------
 # Detector regexes
 # ---------------------------------------------------------------------------
@@ -311,6 +319,19 @@ _FLUENT_TERMINAL_CALLS = {
     "axios": re.compile(rf"\s*\.\s*{_AXIOS_METHOD_PATTERN}\s*\("),
     "httpx": re.compile(rf"\s*\.\s*{_HTTPX_METHOD_PATTERN}\s*\("),
 }
+_FLUENT_CLIENT_ASSIGNMENT = re.compile(
+    r"""(?mx)
+    (?:^|[;\n{])
+    (?P<indent>[ \t]*)
+    (?:(?:const|let|var)\s+)?
+    (?P<binding>
+        [A-Za-z_$][A-Za-z0-9_$]*
+        (?:\s*\.\s*[A-Za-z_$][A-Za-z0-9_$]*)*
+    )
+    (?:\s*:\s*[^=\n;]+)?
+    \s*=\s*\Z
+    """
+)
 
 # Shell-string launchers evaluate their first argument as source.
 _SHELL_CALL_LAUNCHER = re.compile(
@@ -1069,10 +1090,37 @@ def _argv_literal_tokens(
 
 
 _SHELL_ASSIGNMENT_WORD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_SHELL_REDIRECTION_PREFIX = re.compile(
+    r"^(?:\d+|\{[A-Za-z_][A-Za-z0-9_]*\})?"
+    r"(?:<<<|<<-|<<|<>|&>>|&>|>>|>\||<&|>&|<|>)"
+)
 _SHELL_COMMAND_WRAPPERS = frozenset({"builtin", "command", "exec", "nohup", "time"})
 _SHELL_CONTROL_FLOW_PREFIXES = frozenset(
     {"!", "do", "elif", "else", "if", "then", "until", "while", "{"}
 )
+
+
+def _is_shell_command_separator(
+    line: str,
+    index: int,
+    executable: bytes,
+) -> bool:
+    """Return whether an executable shell metacharacter splits commands."""
+    character = line[index]
+    if character not in ";|&\n":
+        return False
+    if character in ";\n":
+        return True
+
+    previous = line[index - 1] if index > 0 and executable[index - 1] else ""
+    following = (
+        line[index + 1]
+        if index + 1 < len(line) and executable[index + 1]
+        else ""
+    )
+    if character == "&" and (previous in "<>" or following == ">"):
+        return False
+    return not (character == "|" and previous == ">")
 
 
 def _shell_command_region_bounds(
@@ -1106,7 +1154,7 @@ def _shell_command_region_bounds(
             else:
                 contexts.append("backtick")
                 starts.append(index + 1)
-        elif character in ";|&\n":
+        elif _is_shell_command_separator(line, index, executable):
             starts[-1] = index + 1
 
     start = starts[-1]
@@ -1129,9 +1177,32 @@ def _shell_command_region_bounds(
                 contexts.pop()
             else:
                 contexts.append("backtick")
-        elif character in ";|&\n" and len(contexts) == base_depth:
+        elif (
+            _is_shell_command_separator(line, index, executable)
+            and len(contexts) == base_depth
+        ):
             return start, index
     return start, len(line)
+
+
+def _shell_redirection_next_index(
+    line: str,
+    words: list[tuple[int, int]],
+    index: int,
+) -> Optional[int]:
+    """Return the word after a shell redirection and its optional operand."""
+    start, end = words[index]
+    raw = line[start:end]
+    match = _SHELL_REDIRECTION_PREFIX.match(raw)
+    if match is None:
+        return None
+
+    executable = _executable_code_positions(line, ".sh")
+    if not all(executable[start + offset] for offset in range(match.end())):
+        return None
+    if match.end() < len(raw):
+        return index + 1
+    return min(len(words), index + 2)
 
 
 def _shell_command_word_bounds(
@@ -1143,6 +1214,9 @@ def _shell_command_word_bounds(
     words = _shell_word_bounds(line, start, end)
     index = 0
     while index < len(words):
+        if (next_index := _shell_redirection_next_index(line, words, index)) is not None:
+            index = next_index
+            continue
         raw = line[words[index][0] : words[index][1]]
         is_unquoted = raw[:1] not in ("'", '"')
         if is_unquoted and _SHELL_ASSIGNMENT_WORD.match(raw):
@@ -1156,6 +1230,9 @@ def _shell_command_word_bounds(
         if command_name == "env":
             index += 1
             while index < len(words):
+                if (next_index := _shell_redirection_next_index(line, words, index)) is not None:
+                    index = next_index
+                    continue
                 argument, _ = _shell_word_value_and_bounds(line, words[index])
                 if argument == "--":
                     index += 1
@@ -1171,6 +1248,9 @@ def _shell_command_word_bounds(
         if command_name in _SHELL_COMMAND_WRAPPERS:
             index += 1
             while index < len(words):
+                if (next_index := _shell_redirection_next_index(line, words, index)) is not None:
+                    index = next_index
+                    continue
                 argument, _ = _shell_word_value_and_bounds(line, words[index])
                 if argument == "--":
                     index += 1
@@ -1186,7 +1266,7 @@ def _shell_command_word_bounds(
 def _shell_statement_end(line: str, start: int) -> int:
     executable = _executable_code_positions(line, ".sh")
     for index in range(start, len(line)):
-        if executable[index] and line[index] in ";|&\n":
+        if executable[index] and _is_shell_command_separator(line, index, executable):
             return index
     return len(line)
 
@@ -1214,7 +1294,10 @@ def _shell_word_bounds(
                 index += 2
                 continue
             break
-        if index >= end or (executable[index] and line[index] in ";|&\n"):
+        if index >= end or (
+            executable[index]
+            and _is_shell_command_separator(line, index, executable)
+        ):
             break
         word_start = index
         while index < end:
@@ -1227,7 +1310,8 @@ def _shell_word_bounds(
                 index += 2
                 continue
             if executable[index] and (
-                line[index].isspace() or line[index] in ";|&\n"
+                line[index].isspace()
+                or _is_shell_command_separator(line, index, executable)
             ):
                 break
             index += 1
@@ -1623,21 +1707,281 @@ def _fluent_base_target_ranges(
     if _URL.search(line[target_start:target_end]):
         return []
 
-    constructor_arguments = _call_arguments(
+    base_target = _fluent_constructor_base_target(
         line,
+        constructor_opening_paren,
+        path_suffix,
+    )
+    return [base_target.value_bounds] if base_target is not None else []
+
+
+def _fluent_constructor_base_target(
+    source: str,
+    constructor_opening_paren: int,
+    path_suffix: str,
+) -> Optional[_CallArgument]:
+    """Return a fluent constructor's explicit base-URL argument."""
+    constructor_arguments = _call_arguments(
+        source,
         constructor_opening_paren,
         path_suffix,
     )
     candidates = list(constructor_arguments)
     for argument in constructor_arguments:
         candidates.extend(
-            _object_properties(line, argument.value_bounds, path_suffix)
+            _object_properties(source, argument.value_bounds, path_suffix)
         )
-    base_target = _select_labeled_argument(
+    return _select_labeled_argument(
         candidates,
         _NETWORK_BASE_TARGET_LABELS,
     )
-    return [base_target.value_bounds] if base_target is not None else []
+
+
+def _fluent_assignment_binding(
+    source: str,
+    constructor_start: int,
+) -> Optional[tuple[str, str]]:
+    """Return a simple assignment target and its indentation."""
+    window_floor = max(0, constructor_start - 512)
+    window_start = source.rfind("\n", 0, window_floor) + 1
+    match = _FLUENT_CLIENT_ASSIGNMENT.search(
+        source[window_start:constructor_start]
+    )
+    if match is None:
+        return None
+    binding = re.sub(r"\s*\.\s*", ".", match.group("binding"))
+    return binding, match.group("indent")
+
+
+def _python_binding_scope_end(
+    source: str,
+    constructor_end: int,
+    binding_indent: str,
+) -> int:
+    """Bound a local Python binding to its indentation scope."""
+    if not binding_indent:
+        return len(source)
+    line_start = source.find("\n", constructor_end)
+    if line_start == -1:
+        return len(source)
+    line_start += 1
+    while line_start < len(source):
+        line_end = source.find("\n", line_start)
+        if line_end == -1:
+            line_end = len(source)
+        physical_line = source[line_start:line_end]
+        if physical_line.strip():
+            indent = re.match(r"[ \t]*", physical_line)
+            if indent is not None and len(indent.group(0)) < len(binding_indent):
+                return line_start
+        line_start = line_end + 1
+    return len(source)
+
+
+def _javascript_binding_scope_end(
+    source: str,
+    constructor_start: int,
+    constructor_end: int,
+    path_suffix: str,
+) -> int:
+    """Bound a JavaScript binding to its enclosing brace scope."""
+    executable = _executable_code_positions(source, path_suffix)
+    brace_depth = 0
+    for index in range(constructor_start):
+        if not executable[index]:
+            continue
+        if source[index] == "{":
+            brace_depth += 1
+        elif source[index] == "}":
+            brace_depth = max(0, brace_depth - 1)
+
+    binding_depth = brace_depth
+    for index in range(constructor_end + 1, len(source)):
+        if not executable[index]:
+            continue
+        if source[index] == "{":
+            brace_depth += 1
+        elif source[index] == "}":
+            brace_depth -= 1
+            if brace_depth < binding_depth:
+                return index
+    return len(source)
+
+
+def _fluent_binding_scope_end(
+    source: str,
+    constructor_start: int,
+    constructor_end: int,
+    binding_indent: str,
+    path_suffix: str,
+) -> int:
+    if path_suffix == ".py":
+        return _python_binding_scope_end(
+            source,
+            constructor_end,
+            binding_indent,
+        )
+    return _javascript_binding_scope_end(
+        source,
+        constructor_start,
+        constructor_end,
+        path_suffix,
+    )
+
+
+def _stored_fluent_client_bindings(
+    source: str,
+    path_suffix: str,
+) -> list[_FluentClientBinding]:
+    """Find stored clients whose hardcoded base URL is public."""
+    if path_suffix != ".py" and path_suffix not in _JAVASCRIPT_SUFFIXES:
+        return []
+    executable = _executable_code_positions(source, path_suffix)
+    bindings: list[_FluentClientBinding] = []
+    for constructor in _NETWORK_VERB.finditer(source):
+        kind = _fluent_client_kind(constructor.group(0))
+        if kind is None or not executable[constructor.start()]:
+            continue
+        opening_paren = source.rfind(
+            "(",
+            constructor.start(),
+            constructor.end(),
+        )
+        if opening_paren == -1:
+            continue
+        base_target = _fluent_constructor_base_target(
+            source,
+            opening_paren,
+            path_suffix,
+        )
+        if base_target is None:
+            continue
+        base_start, base_end = base_target.value_bounds
+        if not _contains_public_network_url(source[base_start:base_end]):
+            continue
+        assignment = _fluent_assignment_binding(source, constructor.start())
+        if assignment is None:
+            continue
+        name, binding_indent = assignment
+        constructor_end = _call_end(source, opening_paren, path_suffix)
+        bindings.append(
+            _FluentClientBinding(
+                name=name,
+                kind=kind,
+                constructor_end=constructor_end,
+                scope_end=_fluent_binding_scope_end(
+                    source,
+                    constructor.start(),
+                    constructor_end,
+                    binding_indent,
+                    path_suffix,
+                ),
+            )
+        )
+    return bindings
+
+
+def _binding_expression_pattern(binding: str) -> str:
+    return r"\s*\.\s*".join(
+        re.escape(component)
+        for component in binding.split(".")
+    )
+
+
+def _fluent_method_target(
+    source: str,
+    opening_paren: int,
+    client_kind: str,
+    method: str,
+    path_suffix: str,
+) -> Optional[_CallArgument]:
+    arguments = _call_arguments(source, opening_paren, path_suffix)
+    candidates = list(arguments)
+    if client_kind == "axios" and method == "request":
+        for argument in arguments:
+            candidates.extend(
+                _object_properties(source, argument.value_bounds, path_suffix)
+            )
+    positional_index = (
+        1
+        if client_kind == "httpx" and method in ("request", "stream")
+        else 0
+    )
+    return _select_call_argument(
+        candidates,
+        _NETWORK_TARGET_LABELS,
+        positional_index,
+    )
+
+
+def _has_executable_match(
+    pattern: re.Pattern[str],
+    source: str,
+    start: int,
+    end: int,
+    executable: bytes,
+) -> bool:
+    return any(
+        executable[match.start()]
+        for match in pattern.finditer(source, start, end)
+    )
+
+
+def _stored_fluent_client_verb_offsets(
+    source: str,
+    path_suffix: str,
+) -> list[int]:
+    """Return request offsets for stored clients with a public base URL."""
+    executable = _executable_code_positions(source, path_suffix)
+    offsets: set[int] = set()
+    for binding in _stored_fluent_client_bindings(source, path_suffix):
+        expression = _binding_expression_pattern(binding.name)
+        method_names = (
+            _AXIOS_METHOD_NAMES
+            if binding.kind == "axios"
+            else _HTTPX_METHOD_NAMES
+        )
+        method_pattern = re.compile(
+            rf"(?<![A-Za-z0-9_$]){expression}"
+            rf"\s*\.\s*(?P<method>{'|'.join(method_names)})\s*\("
+        )
+        reassignment_pattern = re.compile(
+            rf"(?<![A-Za-z0-9_$]){expression}"
+            r"\s*(?:\:\s*[^=\n;]+)?\s*=(?!=|>)"
+        )
+        search_start = binding.constructor_end + 1
+        for call in method_pattern.finditer(
+            source,
+            search_start,
+            binding.scope_end,
+        ):
+            if _has_executable_match(
+                reassignment_pattern,
+                source,
+                search_start,
+                call.start(),
+                executable,
+            ):
+                break
+            if not executable[call.start()]:
+                continue
+            target = _fluent_method_target(
+                source,
+                call.end() - 1,
+                binding.kind,
+                call.group("method"),
+                path_suffix,
+            )
+            if target is None:
+                continue
+            target_start, target_end = target.value_bounds
+            target_source = source[target_start:target_end]
+            if _URL.search(target_source) and not _contains_public_network_url(
+                target_source
+            ):
+                continue
+            offsets.add(call.start())
+    return sorted(offsets)
 
 
 def _direct_network_target_ranges(
@@ -2003,6 +2347,13 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
             for start_line, chunk in _logical_network_chunks(network_source, suffix)
             for offset in _live_network_verb_offsets(chunk, suffix)
         }
+        live_network_lines.update(
+            1 + network_source.count("\n", 0, offset)
+            for offset in _stored_fluent_client_verb_offsets(
+                network_source,
+                suffix,
+            )
+        )
     else:
         live_network_lines = set()
 
@@ -2139,6 +2490,16 @@ def _self_test() -> int:
         (
             "tests/curl.sh",
             "curl -fsSL https://cmux.com/install.sh | sh\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_leading_attached_redirection.sh",
+            ">/tmp/out curl -fsSL https://api.openai.com/v1/items\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_leading_separate_redirection.sh",
+            "2> /tmp/error curl -fsSL https://api.openai.com/v1/items\n",
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
@@ -2447,6 +2808,14 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/httpx_stored_client_get.py",
+            (
+                'client = httpx.Client(base_url="https://api.openai.com")\n'
+                'client.get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/axios_client_get.ts",
             'axios.create().get("https://api.openai.com/v1/items")\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -2469,6 +2838,14 @@ def _self_test() -> int:
             (
                 'axios.create({ baseURL: "https://api.openai.com" })'
                 '.get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_stored_client_get.ts",
+            (
+                'const client = axios.create({ baseURL: "https://api.openai.com" });\n'
+                'await client.get("/v1/items");\n'
             ),
             {RULE_LIVE_NETWORK_HOST},
         ),
@@ -2774,6 +3151,11 @@ def _self_test() -> int:
             "tests/n18i_shell_argument.sh",
             "printf curl https://api.openai.com/v1/items\n",
         ),
+        # Redirections do not promote later argv data into command position.
+        (
+            "tests/n18i_shell_redirected_argument.sh",
+            "printf >/tmp/out curl https://api.openai.com/v1/items\n",
+        ),
         # Merely passing eval and curl as arguments does not execute either one.
         (
             "tests/n18i_shell_eval_argument.sh",
@@ -2943,6 +3325,31 @@ def _self_test() -> int:
                 '  "script.js",\n'
                 '  "fetch(\\\'https://api.openai.com/v1/items\\\')",\n'
                 "]);\n"
+            ),
+        ),
+        # A configured public base URL is inert until the stored client drives
+        # a request, and a later reassignment invalidates that client binding.
+        (
+            "tests/n18x_httpx_stored_without_request.py",
+            (
+                'client = httpx.Client(base_url="https://api.openai.com")\n'
+                "assert client is not None\n"
+            ),
+        ),
+        (
+            "tests/n18y_httpx_reassigned.py",
+            (
+                'client = httpx.Client(base_url="https://api.openai.com")\n'
+                "client = FakeClient()\n"
+                'client.get("/v1/items")\n'
+            ),
+        ),
+        # An explicit absolute request target overrides a stored base URL.
+        (
+            "web/tests/n18z_axios_loopback_override.ts",
+            (
+                'const client = axios.create({ baseURL: "https://api.openai.com" });\n'
+                'await client.get("http://127.0.0.1:4321/health");\n'
             ),
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
