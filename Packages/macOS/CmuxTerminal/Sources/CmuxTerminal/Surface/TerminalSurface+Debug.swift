@@ -180,6 +180,10 @@ extension TerminalSurface {
     @MainActor
     public func releaseSurfaceForTesting() {
         let callbackContext = surfaceCallbackContext
+        surfaceView.runtimeSurfaceDidEnd(
+            runtimeLifetimeId: callbackContext?
+                .takeUnretainedValue().runtimeLifetimeId
+        )
         invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surface != nil)
         surfaceCallbackContext = nil
 
@@ -203,6 +207,10 @@ extension TerminalSurface {
         guard !runtimeSurfaceFreedOutOfBandForTesting else { return }
 
         let callbackContext = surfaceCallbackContext
+        surfaceView.runtimeSurfaceDidEnd(
+            runtimeLifetimeId: callbackContext?
+                .takeUnretainedValue().runtimeLifetimeId
+        )
         invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surface != nil)
         surfaceCallbackContext = nil
 
@@ -248,6 +256,10 @@ extension TerminalSurface {
                 )
             surfaceCallbackContext = callbackContext
         }
+        surfaceView.prepareForRuntimeSurfaceCreation(
+            runtimeLifetimeId: callbackContext
+                .takeUnretainedValue().runtimeLifetimeId
+        )
         surface = runtimeSurface
         portalLifecycleState = .live
         runtimeSurfaceFreedOutOfBandForTesting = false

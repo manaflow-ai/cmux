@@ -72,6 +72,9 @@ public final class GhosttySurfaceCallbackContext {
     /// The immutable title that overrides runtime OSC title updates, if any.
     public let titleOverride: String?
 
+    /// The unique native runtime lifetime represented by this callback context.
+    public let runtimeLifetimeId: UUID
+
     /// Runs after renderer activity consumes an armed presentation repair.
     private let rendererMailboxDidDrainHandler: @Sendable (UUID) -> Void
 
@@ -95,6 +98,8 @@ public final class GhosttySurfaceCallbackContext {
     ///     native runtime surface.
     ///   - titleOverride: An immutable title derived from the runtime's launch
     ///     metadata, or `nil` to use Ghostty's OSC title updates.
+
+    ///   - runtimeLifetimeId: A unique identity for this native runtime.
     ///   - rendererMailboxDidDrain: Called with only the stable surface id after
     ///     an armed repair observes renderer activity following a mailbox drain.
     ///   - maximumRuntimeClipboardRequests: Maximum simultaneous native
@@ -102,8 +107,9 @@ public final class GhosttySurfaceCallbackContext {
     public init(
         surfaceHost: any TerminalSurfaceHosting,
         surfaceController: any TerminalSurfaceControlling,
-        terminalLifecycleID: UUID,
+        terminalLifecycleID: UUID = UUID(),
         titleOverride: String? = nil,
+        runtimeLifetimeId: UUID = UUID(),
         rendererMailboxDidDrain: @escaping @Sendable (UUID) -> Void = { _ in },
         maximumRuntimeClipboardRequests: Int = 32
     ) {
@@ -113,6 +119,7 @@ public final class GhosttySurfaceCallbackContext {
         self.sourceSurfaceIdentifier = ObjectIdentifier(surfaceController)
         self.terminalLifecycleID = terminalLifecycleID
         self.titleOverride = titleOverride
+        self.runtimeLifetimeId = runtimeLifetimeId
         self.rendererMailboxDidDrainHandler = rendererMailboxDidDrain
         self.maximumRuntimeClipboardRequests = max(
             0,

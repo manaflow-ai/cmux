@@ -11,9 +11,12 @@ struct TerminalPointerStyleStateTests {
     func appliesGhosttyPointerShape() {
         var state = TerminalPointerStyleState()
 
-        state.apply(.runtimeActivated)
+        let runtimeLifetimeId = activate(&state)
         state.apply(.focusChanged(true))
-        state.apply(.ghosttyShape(GHOSTTY_MOUSE_SHAPE_POINTER))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_POINTER,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
 
         #expect(state.effectiveCursor == NSCursor.pointingHand)
     }
@@ -102,9 +105,12 @@ struct TerminalPointerStyleStateTests {
 
         for (shape, expected) in mappings {
             var state = TerminalPointerStyleState()
-            state.apply(.runtimeActivated)
+            let runtimeLifetimeId = activate(&state)
             state.apply(.focusChanged(true))
-            state.apply(.ghosttyShape(shape))
+            state.apply(.ghosttyShape(
+                shape,
+                runtimeLifetimeId: runtimeLifetimeId
+            ))
 
             #expect(state.effectiveCursor.isEqual(expected))
         }
@@ -132,11 +138,17 @@ struct TerminalPointerStyleStateTests {
 
         for shape in shapes {
             var state = TerminalPointerStyleState()
-            state.apply(.runtimeActivated)
+            let runtimeLifetimeId = activate(&state)
             state.apply(.focusChanged(true))
-            state.apply(.ghosttyShape(GHOSTTY_MOUSE_SHAPE_CROSSHAIR))
+            state.apply(.ghosttyShape(
+                GHOSTTY_MOUSE_SHAPE_CROSSHAIR,
+                runtimeLifetimeId: runtimeLifetimeId
+            ))
 
-            let changed = state.apply(.ghosttyShape(shape))
+            let changed = state.apply(.ghosttyShape(
+                shape,
+                runtimeLifetimeId: runtimeLifetimeId
+            ))
 
             #expect(!changed)
             #expect(state.effectiveCursor == NSCursor.crosshair)
@@ -146,9 +158,12 @@ struct TerminalPointerStyleStateTests {
     @Test("focus loss temporarily restores the terminal default")
     func focusLossRestoresDefaultWithoutDiscardingSurfaceState() {
         var state = TerminalPointerStyleState()
-        state.apply(.runtimeActivated)
+        let runtimeLifetimeId = activate(&state)
         state.apply(.focusChanged(true))
-        state.apply(.ghosttyShape(GHOSTTY_MOUSE_SHAPE_POINTER))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_POINTER,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
 
         state.apply(.focusChanged(false))
         #expect(state.effectiveCursor == NSCursor.iBeam)
@@ -160,11 +175,14 @@ struct TerminalPointerStyleStateTests {
     @Test("terminal runtime end discards a stale OSC 22 pointer")
     func runtimeEndRestoresDefault() {
         var state = TerminalPointerStyleState()
-        state.apply(.runtimeActivated)
+        let runtimeLifetimeId = activate(&state)
         state.apply(.focusChanged(true))
-        state.apply(.ghosttyShape(GHOSTTY_MOUSE_SHAPE_GRABBING))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_GRABBING,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
 
-        state.apply(.runtimeEnded)
+        state.apply(.runtimeEnded(runtimeLifetimeId))
 
         #expect(state.effectiveCursor == NSCursor.iBeam)
     }
@@ -172,23 +190,61 @@ struct TerminalPointerStyleStateTests {
     @Test("exited runtime ignores a retained native pointer shape")
     func exitedRuntimeIgnoresRetainedNativePointerShape() {
         var state = TerminalPointerStyleState()
-        state.apply(.runtimeActivated)
+        let runtimeLifetimeId = activate(&state)
         state.apply(.focusChanged(true))
-        state.apply(.ghosttyShape(GHOSTTY_MOUSE_SHAPE_CROSSHAIR))
-        state.apply(.ghosttyShape(GHOSTTY_MOUSE_SHAPE_POINTER))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_CROSSHAIR,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_POINTER,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
 
-        state.apply(.runtimeEnded)
-        state.apply(.ghosttyShape(GHOSTTY_MOUSE_SHAPE_CROSSHAIR))
+        state.apply(.runtimeEnded(runtimeLifetimeId))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_CROSSHAIR,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
 
         #expect(state.effectiveCursor == NSCursor.iBeam)
+    }
+
+    @Test("stale runtime callbacks cannot mutate a replacement lifetime")
+    func staleRuntimeCallbacksCannotMutateReplacementLifetime() {
+        var state = TerminalPointerStyleState()
+        let oldRuntimeLifetimeId = activate(&state)
+        state.apply(.focusChanged(true))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_CROSSHAIR,
+            runtimeLifetimeId: oldRuntimeLifetimeId
+        ))
+
+        let newRuntimeLifetimeId = activate(&state)
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_POINTER,
+            runtimeLifetimeId: oldRuntimeLifetimeId
+        ))
+        state.apply(.runtimeEnded(oldRuntimeLifetimeId))
+
+        #expect(state.effectiveCursor == NSCursor.iBeam)
+
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_COPY,
+            runtimeLifetimeId: newRuntimeLifetimeId
+        ))
+        #expect(state.effectiveCursor == NSCursor.dragCopy)
     }
 
     @Test("cmux link hover overrides OSC 22 and clears on focus loss")
     func linkHoverPrecedence() {
         var state = TerminalPointerStyleState()
-        state.apply(.runtimeActivated)
+        let runtimeLifetimeId = activate(&state)
         state.apply(.focusChanged(true))
-        state.apply(.ghosttyShape(GHOSTTY_MOUSE_SHAPE_CROSSHAIR))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_CROSSHAIR,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
 
         state.apply(.cmuxLinkHoverChanged(true))
         #expect(state.effectiveCursor == NSCursor.pointingHand)
@@ -200,5 +256,11 @@ struct TerminalPointerStyleStateTests {
         state.apply(.focusChanged(false))
         state.apply(.focusChanged(true))
         #expect(state.effectiveCursor == NSCursor.crosshair)
+    }
+
+    private func activate(_ state: inout TerminalPointerStyleState) -> UUID {
+        let runtimeLifetimeId = UUID()
+        state.apply(.runtimeActivated(runtimeLifetimeId))
+        return runtimeLifetimeId
     }
 }

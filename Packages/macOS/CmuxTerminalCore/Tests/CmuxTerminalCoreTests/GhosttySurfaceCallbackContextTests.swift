@@ -48,6 +48,21 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         #expect(context.tabId == controller.owningTabId)
     }
 
+    @Test func runtimeLifetimeIdentityIsUniquePerContext() {
+        let controller = FakeSurfaceController()
+        let host = FakeSurfaceHost()
+        let first = GhosttySurfaceCallbackContext(
+            surfaceHost: host,
+            surfaceController: controller
+        )
+        let second = GhosttySurfaceCallbackContext(
+            surfaceHost: host,
+            surfaceController: controller
+        )
+
+        #expect(first.runtimeLifetimeId != second.runtimeLifetimeId)
+    }
+
     @Test func tabIdFallsBackToHostWhenControllerReleased() {
         let hostTabId = UUID()
         let host = FakeSurfaceHost(hostedTabId: hostTabId)
