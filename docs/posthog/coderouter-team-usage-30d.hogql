@@ -4,13 +4,13 @@
 -- execution fail and permits endpoint materialization.
 SELECT
   toString(toDate(timestamp)) AS day,
-  sum(toUInt64(coalesce(properties.$ai_input_tokens, 0))) AS input_tokens,
-  sum(toUInt64(coalesce(properties.$ai_cache_read_input_tokens, 0))) AS cached_input_tokens,
-  sum(toUInt64(coalesce(properties.$ai_output_tokens, 0))) AS output_tokens,
-  sum(toUInt64(coalesce(properties.coderouter_total_tokens, 0))) AS total_tokens,
-  sum(toFloat64(coalesce(properties.$ai_total_cost_usd, 0))) AS api_equivalent_usd,
-  sum(toUInt64(coalesce(properties.coderouter_priced_tokens, 0))) AS priced_tokens,
-  sum(toUInt64(coalesce(properties.coderouter_unpriced_tokens, 0))) AS unpriced_tokens
+  sum(toInt(coalesce(properties.$ai_input_tokens, 0))) AS input_tokens,
+  sum(toInt(coalesce(properties.$ai_cache_read_input_tokens, 0))) AS cached_input_tokens,
+  sum(toInt(coalesce(properties.$ai_output_tokens, 0))) AS output_tokens,
+  sum(toInt(coalesce(properties.coderouter_total_tokens, 0))) AS total_tokens,
+  sum(toFloat(coalesce(properties.$ai_total_cost_usd, 0))) AS api_equivalent_usd,
+  sum(toInt(coalesce(properties.coderouter_priced_tokens, 0))) AS priced_tokens,
+  sum(toInt(coalesce(properties.coderouter_unpriced_tokens, 0))) AS unpriced_tokens
 FROM events
 WHERE event = '$ai_generation'
   AND timestamp >= now() - INTERVAL 30 DAY

@@ -86,7 +86,7 @@ async function queryCoderouterTeamMetrics(
   if (!config) return { kind: "unavailable" };
   try {
     const response = await dependencies.fetch(
-      `${config.apiHost}/api/environments/${
+      `${config.apiHost}/api/projects/${
         encodeURIComponent(config.environmentId)
       }/endpoints/${encodeURIComponent(config.endpointName)}/run`,
       {

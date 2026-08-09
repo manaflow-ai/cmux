@@ -21,7 +21,7 @@ describe("CodeRouter team metrics", () => {
     const posthogFetch = mock(async (...args: unknown[]) => {
       const [url, init] = args;
       expect(String(url)).toBe(
-        "https://us.posthog.test/api/environments/244066/endpoints/coderouter-team-usage-30d/run",
+        "https://us.posthog.test/api/projects/244066/endpoints/coderouter-team-usage-30d/run",
       );
       expect(
         new Headers((init as RequestInit | undefined)?.headers).get(
