@@ -25,6 +25,22 @@ import Testing
         WorkspaceTabColorEntry(name: "Blue", hex: "#1565C0"),
     ]
 
+    /// Allocates exactly one color from a fresh allocator, which is what a
+    /// caller assigning a single workspace does. Kept here rather than in
+    /// production so there is only one allocation entry point shipping.
+    private static func firstColor(
+        palette: [WorkspaceTabColorEntry],
+        usedHexes: [String],
+        reservedHexes: [String] = []
+    ) -> String? {
+        var allocator = WorkspaceAutoTabColorAllocator(
+            palette: palette,
+            usedHexes: usedHexes,
+            reservedHexes: reservedHexes
+        )
+        return allocator.next()
+    }
+
     private static func suite() -> UserDefaults {
         UserDefaults(suiteName: UUID().uuidString)!
     }
@@ -92,12 +108,12 @@ import Testing
 
     @Test
     func returnsNilForAnEmptyPalette() {
-        #expect(WorkspaceAutoTabColorAssignment.nextColorHex(palette: [], usedHexes: []) == nil)
+        #expect(Self.firstColor(palette: [], usedHexes: []) == nil)
     }
 
     @Test
     func allocationIsCaseInsensitiveAboutHexes() {
-        let hex = WorkspaceAutoTabColorAssignment.nextColorHex(
+        let hex = Self.firstColor(
             palette: Self.palette,
             usedHexes: ["#c0392b", "#196f3d"]
         )
@@ -116,11 +132,11 @@ import Testing
     @Test
     func repeatedUsedColorsDoNotChangeTheChoice() {
         let saturated = ["#C0392B", "#196F3D", "#1565C0"]
-        let once = WorkspaceAutoTabColorAssignment.nextColorHex(
+        let once = Self.firstColor(
             palette: Self.palette,
             usedHexes: saturated + ["#FF00FF"]
         )
-        let repeated = WorkspaceAutoTabColorAssignment.nextColorHex(
+        let repeated = Self.firstColor(
             palette: Self.palette,
             usedHexes: saturated + ["#FF00FF", "#FF00FF", "#ff00ff"]
         )
@@ -450,8 +466,7 @@ import Testing
 
     @Test
     func railColorIsNilForManualLeftRail() {
-        #expect(WorkspaceAutoTabColorAssignment.railColorHex(
-            indicatorStyle: .leftRail,
+        #expect(WorkspaceIndicatorStyle.leftRail.railColorHex(
             customColorHex: nil,
             assignedColorHex: "#1565C0"
         ) == nil)
@@ -461,8 +476,7 @@ import Testing
     /// row's background.
     @Test
     func railColorIsNilUnderSolidFill() {
-        #expect(WorkspaceAutoTabColorAssignment.railColorHex(
-            indicatorStyle: .solidFill,
+        #expect(WorkspaceIndicatorStyle.solidFill.railColorHex(
             customColorHex: nil,
             assignedColorHex: "#1565C0"
         ) == nil)
@@ -470,8 +484,7 @@ import Testing
 
     @Test
     func manualColorWinsOverTheAutoAssignedColor() {
-        #expect(WorkspaceAutoTabColorAssignment.railColorHex(
-            indicatorStyle: .leftRailAuto,
+        #expect(WorkspaceIndicatorStyle.leftRailAuto.railColorHex(
             customColorHex: "#ABCDEF",
             assignedColorHex: "#1565C0"
         ) == nil)
@@ -479,8 +492,7 @@ import Testing
 
     @Test
     func railColorResolvesForLeftRailAutoWithoutAManualColor() {
-        #expect(WorkspaceAutoTabColorAssignment.railColorHex(
-            indicatorStyle: .leftRailAuto,
+        #expect(WorkspaceIndicatorStyle.leftRailAuto.railColorHex(
             customColorHex: nil,
             assignedColorHex: "#1565C0"
         ) == "#1565C0")
@@ -488,8 +500,7 @@ import Testing
 
     @Test
     func railColorIsNilWithoutAnAssignment() {
-        #expect(WorkspaceAutoTabColorAssignment.railColorHex(
-            indicatorStyle: .leftRailAuto,
+        #expect(WorkspaceIndicatorStyle.leftRailAuto.railColorHex(
             customColorHex: nil,
             assignedColorHex: nil
         ) == nil)
@@ -553,7 +564,7 @@ import Testing
         let newWorkspace = UUID()
         let manualColor = "#ABCDEF"
         let reservedColor = try #require(
-            WorkspaceAutoTabColorAssignment.nextColorHex(
+            Self.firstColor(
                 palette: Self.palette,
                 usedHexes: [manualColor]
             )
@@ -608,8 +619,8 @@ import Testing
         // Every remaining palette color goes to a manual override, so all of
         // them — including the reserved one — are spoken for exactly once.
         let manualColors = Self.palette.map(\.hex).filter {
-            WorkspaceAutoTabColorAssignment.normalized($0)
-                != WorkspaceAutoTabColorAssignment.normalized(reservedColor)
+            $0.workspaceColorKey
+                != reservedColor.workspaceColorKey
         }
         let overriddenManualColor = try #require(manualColors.first)
 
@@ -751,7 +762,7 @@ import Testing
         var used = manual
         var oneAtATime: [String] = []
         for _ in 0..<7 {
-            guard let hex = WorkspaceAutoTabColorAssignment.nextColorHex(
+            guard let hex = Self.firstColor(
                 palette: Self.palette,
                 usedHexes: used
             ) else { break }
@@ -785,7 +796,7 @@ import Testing
         #expect(allocator.next() == "#196F3D")
 
         #expect(
-            WorkspaceAutoTabColorAssignment.nextColorHex(palette: palette, usedHexes: []) == "#196F3D"
+            Self.firstColor(palette: palette, usedHexes: []) == "#196F3D"
         )
 
         // With nothing drawable left there is no honest answer, so allocation
@@ -855,8 +866,7 @@ import Testing
     /// otherwise a workspace gets a color assigned and then no rail drawn.
     @Test
     func anEmptyManualColorStillShowsTheAutoRail() {
-        #expect(WorkspaceAutoTabColorAssignment.railColorHex(
-            indicatorStyle: .leftRailAuto,
+        #expect(WorkspaceIndicatorStyle.leftRailAuto.railColorHex(
             customColorHex: "",
             assignedColorHex: "#1565C0"
         ) == "#1565C0")

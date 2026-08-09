@@ -275,7 +275,7 @@ struct SidebarWorkspaceRowBackgroundStyle: Equatable, Hashable {
 /// Rail color for a workspace row, or `nil` when no rail should be drawn.
 ///
 /// `autoRailColorHex` is the persisted palette fallback used when the
-/// workspace has no manual color (see `WorkspaceAutoTabColorAssignment`). It
+/// workspace has no manual color (see `WorkspaceAutoTabColorAllocator`). It
 /// is applied here rather than folded into `customColorHex` upstream so it can
 /// never leak into `sidebarWorkspaceRowBackgroundStyle`, where a row-filling
 /// color would compete with the selected-row highlight.
@@ -293,7 +293,7 @@ func sidebarWorkspaceRowExplicitRailNSColor(
         railHex = customColorHex
     case .leftRailAuto:
         // An empty manual color counts as no manual color, matching
-        // `WorkspaceAutoTabColorAssignment`, so the assigned rail still shows.
+        // `WorkspaceAutoTabColorAllocator`, so the assigned rail still shows.
         railHex = customColorHex?.nilIfEmpty ?? autoRailColorHex
     }
     guard let railHex else {

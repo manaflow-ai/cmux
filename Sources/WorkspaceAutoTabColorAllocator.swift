@@ -1,13 +1,25 @@
 import CmuxSettings
 import Foundation
 
-/// Hands out palette colors for a run of workspaces, carrying its bookkeeping
-/// from one pick to the next.
+/// Hands out palette colors to workspaces that have no explicit color,
+/// carrying its bookkeeping from one pick to the next.
 ///
-/// The rule is the one described on `WorkspaceAutoTabColorAssignment`: the
-/// least-used color wins, ties go to whichever color looks furthest from the
-/// colors already on screen, and a color reserved for a manually overridden
-/// workspace is only spent when nothing else is equally cheap.
+/// Every palette color is handed out once before any color repeats, so a user
+/// with a normal number of workspaces sees a fully distinct set of rails. Among
+/// equally-used colors the one that looks furthest from the colors already on
+/// screen wins, so the first few workspaces get obviously different rails
+/// instead of four shades of red. Once the palette is exhausted the next
+/// workspace recycles the least-used color, which keeps repeats spread evenly
+/// instead of clumping. A color reserved for a manually overridden workspace is
+/// only spent when nothing else is equally cheap.
+///
+/// Allocation is deliberately *not* a hash of workspace identity. Independent
+/// hashing double-books some colors while leaving others unused — with the
+/// 16-color default palette and 8 workspaces there is an ~88% chance of a
+/// duplicate rail, which defeats the point of the feature. Expanding the
+/// palette does not fix this: the default colors already sit near the limit of
+/// what stays distinguishable on a 3pt rail, so extra colors would only turn
+/// "identical" into "looks identical".
 ///
 /// Reconciling assigns every uncolored workspace in one pass, so the state
 /// lives here rather than being rebuilt per workspace. Recomputing use counts
@@ -16,8 +28,13 @@ import Foundation
 /// each entry's distance to its nearest on-screen color across picks makes each
 /// `next()` cost the palette rather than the whole history.
 ///
+/// Assignments are persisted by `WorkspaceAutoColorAssignmentStore`, so a
+/// workspace keeps its color when other workspaces are created, reordered, or
+/// deleted.
+///
 /// Deliberately free of AppKit/SwiftUI so the allocation rules stay
-/// unit-testable.
+/// unit-testable; callers render the returned hex through
+/// `WorkspaceTabColorSettings.displayNSColor(hex:colorScheme:forceBright:)`.
 struct WorkspaceAutoTabColorAllocator {
     private let palette: [WorkspaceTabColorEntry]
     /// Normalized palette keys and Lab colors, parallel to `palette`, converted
@@ -56,12 +73,12 @@ struct WorkspaceAutoTabColorAllocator {
         reservedHexes: [String] = []
     ) {
         self.palette = palette
-        paletteKeys = palette.map { WorkspaceAutoTabColorAssignment.normalized($0.hex) }
+        paletteKeys = palette.map { $0.hex.workspaceColorKey }
         let labs = palette.map { LabColor(hex: $0.hex) }
         paletteLabs = labs
         paletteKeySet = Set(paletteKeys)
         renderableIndices = palette.indices.filter { labs[$0] != nil }
-        reservedKeys = Set(reservedHexes.map { WorkspaceAutoTabColorAssignment.normalized($0) })
+        reservedKeys = Set(reservedHexes.map { $0.workspaceColorKey })
 
         counts = [:]
         nearest = Array(repeating: .greatestFiniteMagnitude, count: palette.count)
@@ -121,7 +138,7 @@ struct WorkspaceAutoTabColorAllocator {
     }
 
     private mutating func record(_ hex: String) {
-        let key = WorkspaceAutoTabColorAssignment.normalized(hex)
+        let key = hex.workspaceColorKey
         // A manual color outside the palette cannot use up a palette slot, but
         // it still repels, so it is skipped for counting and kept for distance.
         if paletteKeySet.contains(key) {
@@ -132,5 +149,13 @@ struct WorkspaceAutoTabColorAllocator {
             guard let entryLab = paletteLabs[index] else { continue }
             nearest[index] = min(nearest[index], entryLab.distance(to: lab))
         }
+    }
+}
+
+extension String {
+    /// Case- and whitespace-insensitive key for comparing workspace palette
+    /// hexes, so `#c0392b ` and `#C0392B` count as the same color.
+    var workspaceColorKey: String {
+        trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
     }
 }

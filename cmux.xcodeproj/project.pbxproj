@@ -2665,7 +2665,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5F0C0010000000000000002 /* WorkspaceAttentionFlashRingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F0C0010000000000000001 /* WorkspaceAttentionFlashRingView.swift */; };
 		E3B7A4000000000000000105 /* WorkspaceAutoColorAssignmentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000106 /* WorkspaceAutoColorAssignmentStore.swift */; };
 		E3B7A400000000000000010B /* WorkspaceAutoTabColorAllocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000010C /* WorkspaceAutoTabColorAllocator.swift */; };
-		E3B7A4000000000000000103 /* WorkspaceAutoTabColorAssignment.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000104 /* WorkspaceAutoTabColorAssignment.swift */; };
 		B804C0030000000000000103 /* WorkspaceAutoTabColorAssignmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804D0030000000000000103 /* WorkspaceAutoTabColorAssignmentTests.swift */; };
 		CA52B0160000000000000000 /* WorkspaceCanvasHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0160000000000000000 /* WorkspaceCanvasHostView.swift */; };
 		B2929B53F4CC4C9D972771EC /* WorkspaceChecklistAttachmentQuickLookController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3981070E40BA4F53B8406CE4 /* WorkspaceChecklistAttachmentQuickLookController.swift */; };
@@ -5437,7 +5436,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5F0C0010000000000000001 /* WorkspaceAttentionFlashRingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WorkspaceAttentionFlashRingView.swift; sourceTree = "<group>"; };
 		E3B7A4000000000000000106 /* WorkspaceAutoColorAssignmentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAutoColorAssignmentStore.swift; sourceTree = "<group>"; };
 		E3B7A400000000000000010C /* WorkspaceAutoTabColorAllocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAutoTabColorAllocator.swift; sourceTree = "<group>"; };
-		E3B7A4000000000000000104 /* WorkspaceAutoTabColorAssignment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAutoTabColorAssignment.swift; sourceTree = "<group>"; };
 		B804D0030000000000000103 /* WorkspaceAutoTabColorAssignmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAutoTabColorAssignmentTests.swift; sourceTree = "<group>"; };
 		CA52C0160000000000000000 /* WorkspaceCanvasHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceCanvasHostView.swift"; sourceTree = "<group>"; };
 		3981070E40BA4F53B8406CE4 /* WorkspaceChecklistAttachmentQuickLookController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceChecklistAttachmentQuickLookController.swift; sourceTree = "<group>"; };
@@ -6431,7 +6429,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E30750000000000000000001 /* WorkspaceTabColorResolution.swift */,
 				E3B7A4000000000000000002 /* WorkspaceTabColorSettings.swift */,
 				E3B7A4000000000000000004 /* WorkspaceTabColorEntry.swift */,
-				E3B7A4000000000000000104 /* WorkspaceAutoTabColorAssignment.swift */,
 				E3B7A4000000000000000108 /* TabManager+AutoWorkspaceColors.swift */,
 				E3B7A4000000000000000106 /* WorkspaceAutoColorAssignmentStore.swift */,
 				E3B7A400000000000000010A /* LabColor.swift */,
@@ -10685,7 +10682,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5F0C0010000000000000002 /* WorkspaceAttentionFlashRingView.swift in Sources */,
 				E3B7A4000000000000000105 /* WorkspaceAutoColorAssignmentStore.swift in Sources */,
 				E3B7A400000000000000010B /* WorkspaceAutoTabColorAllocator.swift in Sources */,
-				E3B7A4000000000000000103 /* WorkspaceAutoTabColorAssignment.swift in Sources */,
 				CA52B0160000000000000000 /* WorkspaceCanvasHostView.swift in Sources */,
 				B2929B53F4CC4C9D972771EC /* WorkspaceChecklistAttachmentQuickLookController.swift in Sources */,
 				D7AB3605C10DEF0000000003 /* WorkspaceCloseTabsBatching.swift in Sources */,

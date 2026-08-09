@@ -80,11 +80,11 @@ struct WorkspaceAutoColorAssignmentStore {
         let before = stored
         let liveKeys = Set(liveIds.map(\.uuidString))
 
-        let paletteKeys = Set(palette.map { WorkspaceAutoTabColorAssignment.normalized($0.hex) })
+        let paletteKeys = Set(palette.map { $0.hex.workspaceColorKey })
         // Drop assignments whose color left the palette so the workspace can be
         // reallocated a color that still exists.
         stored = stored.filter {
-            paletteKeys.contains(WorkspaceAutoTabColorAssignment.normalized($0.value))
+            paletteKeys.contains($0.value.workspaceColorKey)
         }
 
         if stored.count > Self.pruneThreshold {
