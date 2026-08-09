@@ -22,7 +22,15 @@ struct RecoverableMainWindowLifecycleTests {
         let window = makeMainWindow(id: windowId)
         var manager: TabManager? = TabManager()
         weak var releasedManager = manager
+        let notificationStore = TerminalNotificationStore.shared
+        let previousNotificationStore = app.notificationStore
+        let previousNotifications = notificationStore.notifications
+        let unrelatedNotificationTabId = UUID()
+        app.notificationStore = notificationStore
         defer {
+            notificationStore.replaceNotificationsForTesting(previousNotifications)
+            app.notificationStore = previousNotificationStore
+            app.commandPaletteWindowStore.removeWindow(unrelatedNotificationTabId)
             app.forgetRecoverableMainWindowRoute(windowId: windowId)
             window.orderOut(nil)
             TerminalController.shared.setActiveTabManager(nil)
@@ -47,6 +55,25 @@ struct RecoverableMainWindowLifecycleTests {
             workspaceId = workspace.id
             let workspacePanel = try #require(workspace.focusedTerminalPanel)
             workspacePanelId = workspacePanel.id
+            app.commandPaletteWindowStore.markOpenRequested(windowId, now: 10)
+            app.commandPaletteWindowStore.registerWindow(unrelatedNotificationTabId)
+            app.commandPaletteWindowStore.markOpenRequested(
+                unrelatedNotificationTabId,
+                now: 10
+            )
+            notificationStore.replaceNotificationsForTesting([
+                terminalNotification(tabId: windowId, surfaceId: nil, title: "Window"),
+                terminalNotification(
+                    tabId: workspaceId,
+                    surfaceId: workspacePanelId,
+                    title: "Workspace"
+                ),
+                terminalNotification(
+                    tabId: unrelatedNotificationTabId,
+                    surfaceId: nil,
+                    title: "Unrelated"
+                ),
+            ])
             workspace.surfaceResumeBindingsByPanelId[workspacePanelId] =
                 unverifiedProcessDetectedResumeBinding()
 
@@ -95,6 +122,11 @@ struct RecoverableMainWindowLifecycleTests {
             #expect(!app.recoverableMainWindowRoutes().contains { $0.windowId == windowId })
             #expect(app.tabManagerFor(windowId: windowId) == nil)
             #expect(liveManager.tabs.allSatisfy { $0.panels.isEmpty })
+            #expect(!app.commandPaletteWindowStore.isPendingOpenRaw(windowId))
+            #expect(
+                app.commandPaletteWindowStore.isPendingOpenRaw(unrelatedNotificationTabId)
+            )
+            #expect(notificationStore.notifications.map(\.tabId) == [unrelatedNotificationTabId])
         }
 
         manager = nil
@@ -493,6 +525,23 @@ struct RecoverableMainWindowLifecycleTests {
             approvalPolicy: .auto,
             approvalRecordId: "previously-approved",
             updatedAt: 1_999_999_999
+        )
+    }
+
+    private func terminalNotification(
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String
+    ) -> TerminalNotification {
+        TerminalNotification(
+            id: UUID(),
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: title,
+            subtitle: "Recovery lifecycle",
+            body: "Body",
+            createdAt: Date(timeIntervalSince1970: 1_999_999_999),
+            isRead: false
         )
     }
 
