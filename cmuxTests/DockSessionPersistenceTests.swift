@@ -436,6 +436,52 @@ struct DockSessionPersistenceTests {
         #expect(panelSnapshot.terminal?.scrollback == fallbackScrollback)
     }
 
+    @Test("Tokenless queued shell report stays bound to its admitted lifecycle")
+    @MainActor
+    func tokenlessQueuedShellReportRejectsLifecycleReplacement() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let controller = TerminalController.shared
+        let previousManager = controller
+            .activeTabManagerForCallerNotification()
+        controller.setActiveTabManager(manager)
+        let mutationBus = TerminalMutationBus.shared
+        mutationBus.setDrainsSuspendedForTesting(true)
+        defer {
+            mutationBus.drainForTesting()
+            mutationBus.setDrainsSuspendedForTesting(false)
+            controller.setActiveTabManager(previousManager)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminal = try #require(workspace.focusedTerminalPanel)
+        let panelID = terminal.id
+        let originalState = terminal.shellActivity.state
+        let originalLifecycleID = terminal.surface.terminalLifecycleId
+        controller.socketFastPathState.removeShellActivity(panelIds: [panelID])
+        defer {
+            controller.socketFastPathState.removeShellActivity(panelIds: [panelID])
+        }
+
+        #expect(controller.controlScheduleScopedShellActivityState(
+            scope: ControlSidebarPanelScope(
+                workspaceID: workspace.id,
+                panelID: panelID,
+                terminalLifecycleID: nil
+            ),
+            stateRawValue: PanelShellActivityState.commandRunning.rawValue
+        ))
+
+        #expect(terminal.surface.suspendRuntimeSurfaceForAgentHibernation(
+            reason: "test.tokenlessQueuedShellReport"
+        ))
+        #expect(terminal.surface.terminalLifecycleId != originalLifecycleID)
+
+        mutationBus.drainForTesting()
+
+        #expect(terminal.shellActivity.state == originalState)
+    }
+
     @Test("Reopened Dock terminal accepts the replacement shell's initial prompt")
     @MainActor
     func reopenedTerminalAcceptsReplacementShellInitialPrompt() throws {

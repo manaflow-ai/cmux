@@ -118,6 +118,72 @@ struct TabManagerTitleUpdateStalenessTests {
     }
 
     @Test
+    func delayedGhosttyTitleIgnoredAfterSourceLifecycleAdvances() async throws {
+        let suiteName = "TabManagerTitleDispatcherHibernation.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
+        settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
+        settings.set(500, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
+
+        let panelScheduler = ManualCoalescerScheduler()
+        let manager = TabManager(
+            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
+                schedule: panelScheduler.schedule(delay:action:)
+            ),
+            settings: settings
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let terminal = try #require(workspace.terminalPanel(for: panelId))
+        let retainedSurface = terminal.surface
+        let callbackLifecycleID = retainedSurface.terminalLifecycleId
+        let staleTitle = "Delayed Retired Runtime Title - codex"
+        let center = NotificationCenter.default
+        let dispatcher = GhosttyTitleUpdateDispatcher(
+            schedule: { _, _ in {} }
+        ) { updates in
+            for update in updates {
+                var userInfo = GhosttyTitleChange(
+                    tabId: update.tabId,
+                    surfaceId: update.surfaceId,
+                    title: update.title,
+                    sourceSurfaceIdentifier: update.sourceSurfaceIdentifier
+                ).userInfo
+                // Model the lifecycle captured with the native callback. The
+                // typed title payload must preserve this value at delivery.
+                userInfo["ghostty.terminalLifecycleId"] = callbackLifecycleID
+                center.post(
+                    name: .ghosttyDidSetTitle,
+                    object: nil,
+                    userInfo: userInfo
+                )
+            }
+        }
+
+        await dispatcher.receive(GhosttyTitleUpdate(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            title: staleTitle,
+            sourceSurfaceIdentifier: ObjectIdentifier(retainedSurface)
+        ))
+
+        #expect(retainedSurface.suspendRuntimeSurfaceForAgentHibernation(
+            reason: "test.delayedGhosttyTitle"
+        ))
+        #expect(retainedSurface.terminalLifecycleId != callbackLifecycleID)
+
+        await dispatcher.flushNow()
+
+        #expect(panelScheduler.delays.isEmpty)
+        #expect(workspace.panelTitles[panelId] != staleTitle)
+        #expect(workspace.title != staleTitle)
+    }
+
+    @Test
     func queuedTitleNotificationIgnoredAfterTerminalRespawnReusesPanelId() async throws {
         let suiteName = "TabManagerTitleQueuedRespawnReuse.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
