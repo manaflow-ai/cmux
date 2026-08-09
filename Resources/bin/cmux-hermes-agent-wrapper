@@ -364,6 +364,20 @@ should_watch_hermes_tui() {
     [[ -t 0 && -t 1 ]]
 }
 
+hermes_tui_python_bridge_value_is_wrapper() {
+    [[ "${1##*/}" == "cmux-hermes-python-wrapper" ]]
+}
+
+sanitize_hermes_tui_python_bridge_environment() {
+    local variable value
+    for variable in HERMES_PYTHON CMUX_HERMES_TUI_REAL_PYTHON; do
+        value="${!variable:-}"
+        if [[ -n "$value" ]] && hermes_tui_python_bridge_value_is_wrapper "$value"; then
+            unset "$variable"
+        fi
+    done
+}
+
 configure_hermes_tui_python_bridge() {
     local self_dir python_wrapper sitecustomize configured resolved
     self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 0
@@ -385,7 +399,7 @@ configure_hermes_tui_python_bridge() {
         # wedge gateway startup. Let the fresh wrapper recover the interpreter
         # from the live launcher process instead.
         if [[ -n "$resolved" && -f "$resolved" && -x "$resolved" ]] &&
-           [[ "${resolved##*/}" != "cmux-hermes-python-wrapper" ]] &&
+           ! hermes_tui_python_bridge_value_is_wrapper "$resolved" &&
            ! [[ "$resolved" -ef "$python_wrapper" ]]; then
             export CMUX_HERMES_TUI_REAL_PYTHON="$resolved"
         fi
@@ -723,9 +737,14 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
 unset CMUX_AGENT_RESTORE_LAUNCH
 unset CMUX_AGENT_RESUME_LAUNCH
 
-if should_watch_hermes_tui "$@" &&
-   CMUX_HERMES_TUI_CLI="$(resolve_cmux_cli)"; then
-    start_hermes_tui_watcher "$CMUX_HERMES_TUI_CLI"
+if should_watch_hermes_tui "$@"; then
+    # A retired bridge must never prevent Hermes itself from launching. Clean
+    # it before the best-effort watcher setup because setup can be unavailable
+    # or fail before configure_hermes_tui_python_bridge gets a chance to run.
+    sanitize_hermes_tui_python_bridge_environment
+    if CMUX_HERMES_TUI_CLI="$(resolve_cmux_cli)"; then
+        start_hermes_tui_watcher "$CMUX_HERMES_TUI_CLI"
+    fi
 fi
 unset CMUX_HERMES_TUI_CLI
 

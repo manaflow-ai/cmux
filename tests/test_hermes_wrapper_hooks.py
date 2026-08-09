@@ -676,10 +676,12 @@ def test_tui_gateway_rejects_retired_cmux_python_wrapper(failures: list[str]) ->
         for event in ("prompt-submit", "agent-response", "session-end")
     ]
     cases = (
-        ("watcher available", {}),
-        ("watcher unavailable", {"cli_available": False}),
+        ("watcher available", {}, expected_events),
+        # Without a cmux CLI there is no gateway bootstrap to register hooks,
+        # but Hermes must still launch through its own interpreter.
+        ("watcher unavailable", {"cli_available": False}, []),
     )
-    for label, kwargs in cases:
+    for label, kwargs, expected_gateway_events in cases:
         result = run_wrapper(
             ["--tui"],
             tui_gateway_turns=2,
@@ -694,7 +696,7 @@ def test_tui_gateway_rejects_retired_cmux_python_wrapper(failures: list[str]) ->
             failures,
         )
         expect(
-            result.tui_gateway_events == expected_events,
+            result.tui_gateway_events == expected_gateway_events,
             f"TUI stale Python wrapper ({label}): gateway did not fall back to "
             f"Hermes's real interpreter: {result.tui_gateway_events}",
             failures,
