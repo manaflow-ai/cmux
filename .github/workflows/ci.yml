@@ -948,14 +948,15 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           SHARD_BATCH_DIRECTORY="$(mktemp -d "$RUNNER_TEMP/cmux-unit-shard-${{ matrix.shard }}-batches.XXXXXX")"
-          # A full shard currently contains about 590 selectors and has crossed
+          # A full shard currently represents about 2,100 tests and has crossed
           # AppKit's 100-live-window warning before cascading across unrelated
-          # suites. Keep each app-host lifetime comfortably below that boundary;
-          # timing-aware packing preserves balance between the fresh processes.
+          # suites. Bound both selector arguments and represented tests so suite
+          # selectors cannot silently defeat the fresh-process lifetime limit.
           python3 scripts/ci/cmux_unit_test_shard.py \
             --shard-index "${{ matrix.shard }}" \
             --shard-total 4 \
-            --batch-size "${CMUX_UNIT_TEST_PROCESS_BATCH_SIZE:-24}" \
+            --batch-selector-limit "${CMUX_UNIT_TEST_PROCESS_SELECTOR_LIMIT:-24}" \
+            --batch-test-limit "${CMUX_UNIT_TEST_PROCESS_TEST_LIMIT:-80}" \
             --batch-output-directory "$SHARD_BATCH_DIRECTORY"
           ONLY_TESTING_ARGS=()
           run_unit_tests() {

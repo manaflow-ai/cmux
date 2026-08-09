@@ -169,6 +169,27 @@ final class {name}: XCTestCase {{
             print("FAIL: zero represented-test limit must be rejected")
             return 1
 
+        unsafe_test_limit_command = [*batch_command]
+        unsafe_test_limit_command[
+            unsafe_test_limit_command.index("--batch-test-limit") + 1
+        ] = "81"
+        unsafe_test_limit = subprocess.run(
+            unsafe_test_limit_command,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if (
+            unsafe_test_limit.returncode == 0
+            or "--batch-test-limit must be <= 80" not in unsafe_test_limit.stderr
+        ):
+            print(unsafe_test_limit.stdout, end="")
+            print(unsafe_test_limit.stderr, end="", file=sys.stderr)
+            print(
+                "FAIL: a process test limit above the safety boundary must be rejected"
+            )
+            return 1
+
         undersized_test_limit_command = [*batch_command]
         undersized_test_limit_command[
             undersized_test_limit_command.index("--batch-test-limit") + 1
@@ -198,7 +219,10 @@ final class {name}: XCTestCase {{
             capture_output=True,
             check=False,
         )
-        if rerun.returncode == 0 or "already contains process batches" not in rerun.stderr:
+        if (
+            rerun.returncode == 0
+            or "already contains process batches" not in rerun.stderr
+        ):
             print(rerun.stdout, end="")
             print(rerun.stderr, end="", file=sys.stderr)
             print("FAIL: reused batch output directory must be rejected")
@@ -231,7 +255,9 @@ final class {name}: XCTestCase {{
     heavy_selector = "-only-testing:cmuxTests/HeavyTests"
     heavy_batch = next(batch for batch in batches if heavy_selector in batch)
     if heavy_batch != [heavy_selector]:
-        print(f"FAIL: timing-balanced batches should isolate the dominant suite: {heavy_batch}")
+        print(
+            f"FAIL: timing-balanced batches should isolate the dominant suite: {heavy_batch}"
+        )
         return 1
 
     isolated_suites = (
@@ -243,7 +269,9 @@ final class {name}: XCTestCase {{
         selector = f"-only-testing:cmuxTests/{suite}"
         batch = next(batch for batch in batches if selector in batch)
         if batch != [selector]:
-            print(f"FAIL: resource-lifecycle suite must run in a fresh process: {batch}")
+            print(
+                f"FAIL: resource-lifecycle suite must run in a fresh process: {batch}"
+            )
             return 1
 
     print("PASS: process batches bound app-host work without losing selectors")

@@ -8,10 +8,11 @@ Suites and methods missing from the manifest fall back to a per-test estimate,
 so new or renamed tests never break sharding — they just pack less precisely
 until the manifest is refreshed.
 
-Each machine shard can additionally be split into bounded process batches.
-Every batch is a separate xcodebuild invocation and therefore a fresh app host,
-preventing one long-lived XCTest process from retaining unbounded AppKit/WebKit
-state while preserving the existing cross-machine shard balance.
+Each machine shard can additionally be split into selector- and test-bounded
+process batches. Every batch is a separate xcodebuild invocation and therefore
+a fresh app host, preventing one long-lived XCTest process from retaining
+unbounded AppKit/WebKit state while preserving the existing cross-machine shard
+balance.
 """
 
 from __future__ import annotations
@@ -40,12 +41,25 @@ XCTEST_METHOD_RE = re.compile(
 LARGE_SUITE_METHOD_THRESHOLD = 40
 DEFAULT_TIMINGS_PATH = Path(__file__).resolve().parent / "cmux-unit-test-timings.json"
 FALLBACK_TEST_MS = 200
+# Stay below AppKit's observed 100-live-window warning even if CI overrides the
+# workflow default; known multi-window lifecycle suites are isolated below.
+MAX_PROCESS_TEST_LIMIT = 80
 FOCUSED_GATE_SELECTORS = {
     "cmuxTests/BrowserSystemProxyMirrorTests",
     "cmuxTests/CLISSHSessionAttachAnchorTests",
     "cmuxTests/GhosttyOptionAsAltModsTests",
     "cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
 }
+# These suites repeatedly exercise window-portal lifecycle cleanup. They remain
+# isolated even below the generic represented-test limit so retained AppKit or
+# WebKit state from one lifecycle suite cannot cascade into another.
+PROCESS_ISOLATED_SUITES = frozenset(
+    {
+        "cmuxTests/BrowserWindowPortalLifecycleTests",
+        "cmuxTests/TerminalOffscreenStartupTests",
+        "cmuxTests/TerminalWindowPortalLifecycleTests",
+    }
+)
 # BrowserDeveloperToolsVisibilityPersistenceTests reliably crash-restarts the
 # app host on CI runners (its detached-inspector tests kill the host mid-run;
 # see the "Restarting after unexpected exit" storms in app-host shard logs on
@@ -71,6 +85,7 @@ class TestSelector:
     path: str
     line: int
     weight: int
+    test_count: int
 
 
 @dataclass(frozen=True)
@@ -91,6 +106,7 @@ def xctest_methods(
             path=relative_path,
             line=start_line + offset,
             weight=1,
+            test_count=1,
         )
         for offset, body_line in enumerate(body)
         if (match := XCTEST_METHOD_RE.match(body_line))
@@ -182,6 +198,7 @@ def discover_selectors(root: Path) -> list[TestSelector]:
                 path=declaration.path,
                 line=declaration.line,
                 weight=weight,
+                test_count=weight,
             )
         )
 
@@ -316,34 +333,114 @@ def shard_selectors(
 
 
 def process_batches(
-    selectors: list[TestSelector], maximum_selectors: int
+    selectors: list[TestSelector], maximum_selectors: int, maximum_tests: int
 ) -> list[list[TestSelector]]:
-    """Pack one machine shard into timing-balanced, size-bounded processes."""
+    """Pack one shard into timing-balanced processes with hard work limits."""
     if maximum_selectors < 1:
-        raise SystemExit("--batch-size must be >= 1")
+        raise SystemExit("--batch-selector-limit must be >= 1")
+    if maximum_tests < 1:
+        raise SystemExit("--batch-test-limit must be >= 1")
+    if maximum_tests > MAX_PROCESS_TEST_LIMIT:
+        raise SystemExit(f"--batch-test-limit must be <= {MAX_PROCESS_TEST_LIMIT}")
 
-    batch_count = (len(selectors) + maximum_selectors - 1) // maximum_selectors
-    batches: list[list[TestSelector]] = [[] for _ in range(batch_count)]
-    available_batches = [(0, index) for index in range(batch_count)]
-    heapq.heapify(available_batches)
+    oversized = [
+        selector for selector in selectors if selector.test_count > maximum_tests
+    ]
+    if oversized:
+        selector = min(oversized, key=lambda item: item.identifier)
+        raise SystemExit(
+            f"Selector {selector.identifier} represents {selector.test_count} tests, "
+            f"exceeding --batch-test-limit {maximum_tests}; split the suite selector"
+        )
+
+    resource_isolated = [
+        selector
+        for selector in selectors
+        if "/".join(selector.identifier.split("/")[:2]) in PROCESS_ISOLATED_SUITES
+    ]
+    resource_isolated_identifiers = {
+        selector.identifier for selector in resource_isolated
+    }
+    packable = [
+        selector
+        for selector in selectors
+        if selector.identifier not in resource_isolated_identifiers
+    ]
+
+    def required_batch_count(items: list[TestSelector]) -> int:
+        if not items:
+            return 0
+        return max(
+            (len(items) + maximum_selectors - 1) // maximum_selectors,
+            (sum(selector.test_count for selector in items) + maximum_tests - 1)
+            // maximum_tests,
+        )
+
+    provisional_batch_count = required_batch_count(packable)
+    total_packable_weight = sum(selector.weight for selector in packable)
+    dominant = [
+        selector
+        for selector in packable
+        if selector.weight * provisional_batch_count > total_packable_weight
+    ]
+    dominant_identifiers = {selector.identifier for selector in dominant}
+    isolated = [*resource_isolated, *dominant]
+    shared = [
+        selector
+        for selector in packable
+        if selector.identifier not in dominant_identifiers
+    ]
+    shared_batch_count = required_batch_count(shared)
+
+    batches: list[list[TestSelector]] = [
+        *([selector] for selector in isolated),
+        *([] for _ in range(shared_batch_count)),
+    ]
+    first_shared_index = len(isolated)
+    batch_remaining_tests = [0 for _ in isolated] + [
+        maximum_tests for _ in range(shared_batch_count)
+    ]
+    eligible_batches = [(0, index) for index in range(first_shared_index, len(batches))]
+    heapq.heapify(eligible_batches)
+    parked_batches: list[tuple[int, int, int]] = []
     ordered = sorted(
-        selectors,
+        shared,
         key=lambda selector: (
+            -selector.test_count,
             -selector.weight,
             hashlib.sha256(selector.identifier.encode("utf-8")).hexdigest(),
             selector.identifier,
         ),
     )
     for selector in ordered:
-        batch_weight, batch_index = heapq.heappop(available_batches)
+        while parked_batches and -parked_batches[0][0] >= selector.test_count:
+            _, batch_weight, batch_index = heapq.heappop(parked_batches)
+            heapq.heappush(eligible_batches, (batch_weight, batch_index))
+
+        if not eligible_batches:
+            batch_index = len(batches)
+            batches.append([])
+            batch_remaining_tests.append(maximum_tests)
+            heapq.heappush(eligible_batches, (0, batch_index))
+
+        batch_weight, batch_index = heapq.heappop(eligible_batches)
         batches[batch_index].append(selector)
         batch_weight += selector.weight
-        if len(batches[batch_index]) < maximum_selectors:
-            heapq.heappush(available_batches, (batch_weight, batch_index))
+        batch_remaining_tests[batch_index] -= selector.test_count
+        if (
+            len(batches[batch_index]) < maximum_selectors
+            and batch_remaining_tests[batch_index] > 0
+        ):
+            if batch_remaining_tests[batch_index] >= selector.test_count:
+                heapq.heappush(eligible_batches, (batch_weight, batch_index))
+            else:
+                heapq.heappush(
+                    parked_batches,
+                    (-batch_remaining_tests[batch_index], batch_weight, batch_index),
+                )
 
     return [
-        sorted(batch, key=lambda selector: selector.identifier)
-        for batch in batches
+        sorted(batch, key=lambda selector: selector.identifier) for batch in batches
     ]
 
 
@@ -361,7 +458,13 @@ def main() -> int:
     parser.add_argument("--shard-index", type=int)
     parser.add_argument("--shard-total", type=int)
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--batch-size", type=int)
+    parser.add_argument(
+        "--batch-size",
+        "--batch-selector-limit",
+        dest="batch_selector_limit",
+        type=int,
+    )
+    parser.add_argument("--batch-test-limit", type=int)
     parser.add_argument("--batch-output-directory", type=Path)
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--validate", action="store_true")
@@ -375,10 +478,12 @@ def main() -> int:
     if args.validate:
         suite_selectors = sum(1 for selector in selectors if selector.identifier.count("/") == 1)
         method_selectors = len(selectors) - suite_selectors
+        represented_tests = sum(selector.test_count for selector in selectors)
         source = args.timings if timings else "none (count-based fallback)"
         print(
             f"Discovered {len(selectors)} cmuxTests selectors "
-            f"({suite_selectors} suites, {method_selectors} methods); "
+            f"({suite_selectors} suites, {method_selectors} methods) "
+            f"representing {represented_tests} tests; "
             f"timings: {source}, {measured}/{len(selectors)} measured"
         )
         return 0
@@ -394,18 +499,33 @@ def main() -> int:
         parser.error("--output and --batch-output-directory are mutually exclusive")
     if args.batch_output_directory is None and args.output is None:
         parser.error("--output or --batch-output-directory is required")
-    if args.batch_output_directory is not None and args.batch_size is None:
-        parser.error("--batch-size is required with --batch-output-directory")
-    if args.batch_output_directory is None and args.batch_size is not None:
-        parser.error("--batch-size requires --batch-output-directory")
+    if args.batch_output_directory is not None and (
+        args.batch_selector_limit is None or args.batch_test_limit is None
+    ):
+        parser.error(
+            "--batch-selector-limit and --batch-test-limit are required with "
+            "--batch-output-directory"
+        )
+    if args.batch_output_directory is None and (
+        args.batch_selector_limit is not None or args.batch_test_limit is not None
+    ):
+        parser.error(
+            "--batch-selector-limit and --batch-test-limit require "
+            "--batch-output-directory"
+        )
 
     selected = shard_selectors(selectors, args.shard_index, args.shard_total)
     if not selected:
         raise SystemExit(f"Shard {args.shard_index}/{args.shard_total} is empty")
 
     total_weight = sum(selector.weight for selector in selected)
+    total_tests = sum(selector.test_count for selector in selected)
     if args.batch_output_directory is not None:
-        batches = process_batches(selected, args.batch_size)
+        batches = process_batches(
+            selected,
+            args.batch_selector_limit,
+            args.batch_test_limit,
+        )
         args.batch_output_directory.mkdir(parents=True, exist_ok=True)
         existing_batch = next(args.batch_output_directory.glob("batch-*.args"), None)
         if existing_batch is not None:
@@ -417,13 +537,16 @@ def main() -> int:
             batch_path = args.batch_output_directory / f"batch-{batch_index:03d}.args"
             write_output(batch_path, batch)
             batch_weight = sum(selector.weight for selector in batch)
+            batch_tests = sum(selector.test_count for selector in batch)
             print(
-                f"  Batch {batch_index}/{len(batches)}: {len(batch)} selectors, "
+                f"  Batch {batch_index}/{len(batches)}: {len(batch)} selectors / "
+                f"{batch_tests} tests, "
                 f"est {batch_weight / 60000:.1f} min serial, args {batch_path}"
             )
         print(
             f"Shard {args.shard_index}/{args.shard_total}: "
-            f"{len(selected)} selectors in {len(batches)} process batches, "
+            f"{len(selected)} selectors / {total_tests} tests in "
+            f"{len(batches)} process batches, "
             f"est {total_weight / 60000:.1f} min serial"
         )
         return 0
@@ -431,7 +554,8 @@ def main() -> int:
     write_output(args.output, selected)
     print(
         f"Shard {args.shard_index}/{args.shard_total}: "
-        f"{len(selected)} selectors, est {total_weight / 60000:.1f} min serial, args {args.output}"
+        f"{len(selected)} selectors / {total_tests} tests, "
+        f"est {total_weight / 60000:.1f} min serial, args {args.output}"
     )
     for selector in selected:
         print(f"  {selector.identifier} ({selector.weight}) {selector.path}:{selector.line}")
