@@ -379,7 +379,13 @@ configure_hermes_tui_python_bridge() {
         if [[ "$resolved" != */* ]]; then
             resolved="$(command -v "$resolved" 2>/dev/null || true)"
         fi
+        # A restored terminal can retain HERMES_PYTHON from an older tagged
+        # cmux build. That path is another bootstrap wrapper, not Hermes's real
+        # interpreter; chaining through it can recurse into a deleted build or
+        # wedge gateway startup. Let the fresh wrapper recover the interpreter
+        # from the live launcher process instead.
         if [[ -n "$resolved" && -f "$resolved" && -x "$resolved" ]] &&
+           [[ "${resolved##*/}" != "cmux-hermes-python-wrapper" ]] &&
            ! [[ "$resolved" -ef "$python_wrapper" ]]; then
             export CMUX_HERMES_TUI_REAL_PYTHON="$resolved"
         fi
