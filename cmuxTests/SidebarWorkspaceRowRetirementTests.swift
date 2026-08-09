@@ -254,19 +254,12 @@ struct SidebarWorkspaceRowRetirementTests {
 @MainActor
 private final class SidebarPopoverCloseWaiter: NSObject {
     private let window: NSWindow
-    private var closingPopover: NSPopover?
     private var didClose = false
     private var waitContinuation: CheckedContinuation<Void, Never>?
 
     init(window: NSWindow) {
         self.window = window
         super.init()
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(popoverWillClose(_:)),
-            name: NSPopover.willCloseNotification,
-            object: nil
-        )
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(popoverDidClose(_:)),
@@ -280,9 +273,13 @@ private final class SidebarPopoverCloseWaiter: NSObject {
     }
 
     func wait() async {
-        guard !didClose else { return }
+        guard window.isVisible, !didClose else {
+            finish()
+            return
+        }
         await withCheckedContinuation { continuation in
-            guard !didClose else {
+            guard window.isVisible, !didClose else {
+                finish()
                 continuation.resume()
                 return
             }
@@ -292,22 +289,16 @@ private final class SidebarPopoverCloseWaiter: NSObject {
     }
 
     @objc
-    private func popoverWillClose(_ notification: Notification) {
-        // Match while AppKit still exposes the popover's backing window, then
-        // wait for that exact popover's documented post-animation close event.
-        guard let popover = notification.object as? NSPopover,
-              popover.contentViewController?.view.window === window
-        else { return }
-        closingPopover = popover
+    private func popoverDidClose(_ notification: Notification) {
+        // `didClose` is the documented post-animation wake-up. The backing
+        // window's visibility is the stable identity and completion condition.
+        guard notification.object is NSPopover, !window.isVisible else { return }
+        finish()
     }
 
-    @objc
-    private func popoverDidClose(_ notification: Notification) {
-        guard let popover = notification.object as? NSPopover,
-              popover === closingPopover
-        else { return }
+    private func finish() {
+        guard !didClose else { return }
         didClose = true
-        closingPopover = nil
         NotificationCenter.default.removeObserver(self)
         waitContinuation?.resume()
         waitContinuation = nil
