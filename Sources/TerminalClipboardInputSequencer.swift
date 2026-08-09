@@ -221,6 +221,11 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
                 guard hasRequestInFlight(for: epoch) else { return false }
                 buffer = buffersByEpoch[epoch] ?? EpochBuffer()
                 guard hasCapacity(in: buffer, forEventCost: eventCost) else {
+                    // A cancellation handler that leaves its request active
+                    // cannot preserve both boundedness and deferred order.
+                    // Drop the retained prefix before failing open so it can
+                    // never replay behind the current event.
+                    buffersByEpoch.removeValue(forKey: epoch)
                     return false
                 }
             }
