@@ -78,7 +78,7 @@ final class MobileSimulatorStreamSession {
             NotificationCenter.default.removeObserver(subscriptionObserver)
             self.subscriptionObserver = nil
         }
-        reader?.setFramePublicationHandler(nil)
+        _ = reader?.setFramePublicationHandler(nil)
         reader = nil
         panel.setVisibleInUI(false, hostID: id)
         if sendClosed,
@@ -163,7 +163,7 @@ final class MobileSimulatorStreamSession {
     private func refreshReader() {
         let transportName = panel.coordinator.frameTransport?.sharedMemoryName
         guard transportName != observedFrameTransportName else { return }
-        reader?.setFramePublicationHandler(nil)
+        _ = reader?.setFramePublicationHandler(nil)
         reader = nil
         observedFrameTransportName = transportName
         guard transportName != nil else {
