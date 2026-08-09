@@ -36,6 +36,9 @@ final class TerminalScrollViewController: UIViewController {
         surfaceDelegate.didUpdateScrollBoundary = { [weak self] boundary in
             self?.scrollCoordinator?.updateBoundary(boundary)
         }
+        surfaceDelegate.didPresentLocalScrollbackViewportRow = { [weak self] row in
+            self?.scrollCoordinator?.updatePresentedViewport(row: row)
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {

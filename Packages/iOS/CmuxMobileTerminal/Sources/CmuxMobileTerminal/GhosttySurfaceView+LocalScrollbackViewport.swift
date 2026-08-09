@@ -16,17 +16,19 @@ extension GhosttySurfaceView {
     }
 
     private func pumpLocalScrollbackViewport() {
-        guard !localViewportApplyInFlight,
+        guard localViewportState.inFlight == nil,
               let row = pendingLocalViewportRow,
               let surface else {
             return
         }
         pendingLocalViewportRow = nil
-        localViewportApplyInFlight = true
+        let token = makeSurfaceOperationID()
+        localViewportState.inFlight = .init(token: token, row: row)
         let operation = LocalScrollbackViewportOperation(
             surface: surface,
             generation: surfaceGeneration,
-            row: row
+            row: row,
+            token: token
         )
         outputQueue.async { [weak self] in
             var before = ghostty_surface_scrollbar_s()
@@ -40,35 +42,85 @@ extension GhosttySurfaceView {
             )
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.localViewportApplyInFlight = false
                 guard self.surface == operation.surface,
-                      self.surfaceGeneration == operation.generation else {
+                      self.surfaceGeneration == operation.generation,
+                      self.localViewportState.inFlight?.token == operation.token else {
                     return
                 }
-                if applied {
-                    self.handleScrollBoundaryChange(
-                        TerminalScrollBoundary(
-                            totalRows: after.total,
-                            viewportOffsetRows: after.offset,
-                            visibleRows: after.len
-                        )
-                    )
-                    self.drawForWakeup()
-                    self.scheduleVisibleArtifactCountUpdate()
+                guard applied else {
+                    self.localViewportState.inFlight = nil
+                    self.pumpLocalScrollbackViewport()
+                    return
                 }
-                self.pumpLocalScrollbackViewport()
+                self.localViewportState.inFlight?.row = after.offset
+                self.handleScrollBoundaryChange(
+                    TerminalScrollBoundary(
+                        totalRows: after.total,
+                        viewportOffsetRows: after.offset,
+                        visibleRows: after.len
+                    )
+                )
+                self.renderLocalScrollbackViewport(operation)
             }
         }
+    }
+
+    private func renderLocalScrollbackViewport(_ operation: LocalScrollbackViewportOperation) {
+        outputQueue.async {
+            ghostty_surface_render_now_with_token(operation.surface, operation.token)
+        }
+    }
+
+    func handleRenderPresented(token: UInt64) {
+        if handleLocalScrollbackViewportPresented(token: token) {
+            return
+        }
+        handleVerifiedReplayRenderPresented(token: token)
+    }
+
+    private func handleLocalScrollbackViewportPresented(token: UInt64) -> Bool {
+        guard let inFlight = localViewportState.inFlight,
+              inFlight.token == token else {
+            return false
+        }
+        localViewportState.inFlight = nil
+        delegate?.ghosttySurfaceView(
+            self,
+            didPresentLocalScrollbackViewportRow: inFlight.row
+        )
+        scheduleVisibleArtifactCountUpdate()
+        pumpLocalScrollbackViewport()
+        return true
+    }
+
+    /// Moves only Ghostty's IOSurface renderer layer. UIKit chrome remains in
+    /// the stationary host view, and physical-pixel alignment avoids filtering
+    /// colored glyphs between pixel centers.
+    @discardableResult
+    public func applyLocalScrollbackPresentation(translationY: CGFloat) -> CGFloat {
+        let scale = max(window?.windowScene?.screen.scale ?? traitCollection.displayScale, 1)
+        let alignedTranslationY = (translationY * scale).rounded() / scale
+        localScrollbackPresentationTranslationY = alignedTranslationY
+        guard let rendererLayer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer) else {
+            return alignedTranslationY
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        rendererLayer.minificationFilter = .nearest
+        rendererLayer.magnificationFilter = .nearest
+        rendererLayer.allowsEdgeAntialiasing = false
+        rendererLayer.setAffineTransform(.identity)
+        rendererLayer.bounds.origin = CGPoint(
+            x: 0,
+            y: -localScrollbackPresentationTranslationY
+        )
+        CATransaction.commit()
+        return alignedTranslationY
     }
 
     var pendingLocalViewportRow: UInt64? {
         get { localViewportState.pendingRow }
         set { localViewportState.pendingRow = newValue }
-    }
-
-    var localViewportApplyInFlight: Bool {
-        get { localViewportState.applyInFlight }
-        set { localViewportState.applyInFlight = newValue }
     }
 }
 
@@ -76,5 +128,6 @@ private nonisolated struct LocalScrollbackViewportOperation: @unchecked Sendable
     let surface: ghostty_surface_t
     let generation: UInt64
     let row: UInt64
+    let token: UInt64
 }
 #endif

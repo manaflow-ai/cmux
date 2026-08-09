@@ -36,6 +36,13 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
         _ surfaceView: GhosttySurfaceView,
         didUpdateScrollBoundary boundary: TerminalScrollBoundary
     )
+    /// Reports that an exact locally requested scrollback row reached the
+    /// renderer layer. Hosts using fractional presentation must rebase on this
+    /// event instead of the earlier model mutation.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didPresentLocalScrollbackViewportRow row: UInt64
+    )
     /// Resolves immediate input ownership from a generation-stamped artifact cache.
     /// Hosts defer when the cache is missing, stale, or contains a candidate.
     func ghosttySurfaceView(
@@ -106,6 +113,11 @@ public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(
         _ surfaceView: GhosttySurfaceView,
         didUpdateScrollBoundary boundary: TerminalScrollBoundary
+    ) {}
+    /// Default no-op for hosts that do not present local fractional scrolling.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didPresentLocalScrollbackViewportRow row: UInt64
     ) {}
     /// Default to immediate input for hosts without artifact-path interception.
     func ghosttySurfaceView(

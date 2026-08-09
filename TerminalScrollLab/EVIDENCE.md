@@ -1,12 +1,12 @@
 # Terminal Scroll Lab verification
 
-Verified commit: `2d932da7fd`
+Verified source: `feat-ios-terminal-scroll-lab` working tree after the fixed-chrome regression test
 
 Ghostty: `11aa609d75dec882ef2f83171e2cbe887aeddbc5` (1.3.2 HEAD)
 
-Remote host: `aws-m4pro-5`
+Remote host: `cmux-aws-m4pro`
 
-Isolated simulator: `TerminalScrollLab-iscrol-88623` (`DE67ABEB-C970-4B92-B459-40A59F43488E`), deleted after verification.
+Isolated simulator: `TerminalScrollLab-iscrol-33144` (`36FD3FB5-A4C4-4639-B425-8FFAC914D70D`), deleted after verification.
 
 ## Automated verification
 
@@ -15,19 +15,21 @@ Four native scroll-state model tests passed. Both interaction tests passed:
 - `testBottomEdgeOverscrollReturnsToRest`
 - `testFastDragUsesContinuousNativeDeceleration`
 
-The bottom-edge test settled at `10629.3 / 10629.4 pt` with `0.0 pt` presentation translation. The fling test observed UIKit deceleration and asserted that Ghostty's rendered viewport row equaled the rounded UIScrollView target row.
+The bottom-edge test settled at `10629.3 / 10629.4 pt` with `0.0 pt` presentation translation. The fling test observed UIKit deceleration and asserted that Ghostty's presented viewport row equaled the rounded UIScrollView target row. Both interaction tests also assert that fixed terminal chrome remains stationary.
 
 ## Video evidence
 
-Recording: `cmux-assets/feat-ios-terminal-scroll-lab/final-absolute/native-scroll-tests.mov`
+Reported recording: `/Users/abdulazizalbahar/Downloads/ScreenRecording_08-08-2026 19-55-07_1.MP4`
 
-SHA-256: `df76d7b38d8135c1825697361d317dd31ee320137758a0e4332874c03588af41`
+Reported SHA-256: `027134813116438efb331db3b57cb6190b9cf43cfe344d3375e58a606de6abc8`
 
-The bounce slice contains 170 frames from 65.5 to 74.0 seconds at 20 fps. Inspected frames 90, 110, 120, 130, and 140 show bottom overscroll reaching 185.3 pt, native deceleration, and return to rest at zero translation. The fixed header remains stationary and the Ghostty surface remains clipped below it.
+Corrected recording: `/tmp/scroll-lab-after-bounds.mov`
 
-The fling slice contains 133 frames from 73.5 to 80.2 seconds at 20 fps. Inspected frames 70, 80, 90, 100, and 110 through 120 show continuous pixel movement slowing to rest. The final rendered viewport row is 685, equal to the rounded target row 685.
+Corrected SHA-256: `23f1d352b416b68d326850db6baa14667f664d8c6d819539162e9f77278f5b02`
 
-The first recording exposed a mismatch between UIScrollView position and Ghostty content because the local mouse-wheel path applied independent acceleration. The fix uses Ghostty's revision-checked absolute viewport API, leaving UIScrollView as the sole physics authority. Fractional presentation translation bridges the interval between integer terminal rows.
+The reported recording showed the entire terminal host shifting, including its accessory toolbar. Fractional transforms also placed colored glyphs between physical pixels. The corrected bounce slice contains 193 frames from 158.0 to 167.6 seconds at 20 fps. Inspected frames 75 through 140 show terminal rows following the native drag while the toolbar stays at the same vertical position. Template matching across frames 125 and 135 found the toolbar's best match at exactly 0 px vertical displacement.
+
+The fix keeps UIKit chrome stationary and moves only Ghostty's IOSurface contents. One renderer geometry path now owns both layout and the physical-pixel-aligned fractional offset, so layout cannot erase or duplicate scroll motion. Ghostty's tokened presentation callback rebases the fractional position only after the requested absolute row reaches the renderer.
 
 Computer Use verified the static standalone-app render. Desktop pointer drags did not map to simulator touch events, so the recorded gestures were injected through XCUITest on the isolated simulator.
 

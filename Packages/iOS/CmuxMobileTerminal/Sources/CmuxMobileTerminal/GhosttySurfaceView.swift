@@ -1833,9 +1833,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var localScrollApplyInFlight = false
     struct LocalViewportState {
         var pendingRow: UInt64?
-        var applyInFlight = false
+        var inFlight: InFlight?
+
+        struct InFlight {
+            let token: UInt64
+            var row: UInt64
+        }
     }
     var localViewportState = LocalViewportState()
+    /// Physical-pixel-aligned fractional position for the renderer contents.
+    /// The renderer frame and this offset share the geometry path below, so a
+    /// layout pass cannot erase local pixel scrolling.
+    var localScrollbackPresentationTranslationY: CGFloat = 0
 
     /// Drops scroll work tied to a surface generation that will no longer run.
     func resetScrollStateForSurfaceReplacement() {
@@ -1843,6 +1852,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pendingLocalScrollLines = 0
         localScrollApplyInFlight = false
         localViewportState = LocalViewportState()
+        localScrollbackPresentationTranslationY = 0
     }
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
@@ -3852,14 +3862,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         var geometryChanged = layer.contentsScale != scale
         layer.contentsScale = scale
         for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
+            sublayer.setAffineTransform(.identity)
             if sublayer.frame != renderRect {
                 geometryChanged = true
                 sublayer.frame = renderRect
             }
             if sublayer.bounds.size != renderRect.size {
                 geometryChanged = true
-                sublayer.bounds = CGRect(origin: .zero, size: renderRect.size)
+                sublayer.bounds.size = renderRect.size
             }
+            sublayer.bounds.origin = CGPoint(
+                x: 0,
+                y: -localScrollbackPresentationTranslationY
+            )
             if sublayer.contentsScale != scale {
                 geometryChanged = true
             }

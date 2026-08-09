@@ -14,6 +14,9 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
     private var isConfiguring = false
     private var lastRequestedViewportRow: UInt64?
     private var hasObservedDeceleration = false
+    private var hasRequestedLocalViewport = false
+    private var currentPresentationTranslationY: CGFloat = 0
+    private var presentedViewportRow: UInt64?
 
     init(
         terminalView: GhosttySurfaceView,
@@ -43,10 +46,17 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
         let authoritativeOffsetY = CGFloat(
             min(boundary.viewportOffsetRows, maximumRowOffset(for: boundary))
         ) * cellHeight
-        if state != nil {
+        if !hasRequestedLocalViewport {
+            presentedViewportRow = boundary.viewportOffsetRows
             state?.updateAuthoritativeOffsetY(authoritativeOffsetY)
         }
         configureScrollRange(preferredOffsetY: min(authoritativeOffsetY, maximumOffsetY))
+        reconcilePresentationWithCurrentOffset()
+    }
+
+    func updatePresentedViewport(row: UInt64) {
+        presentedViewportRow = row
+        state?.updateAuthoritativeOffsetY(CGFloat(row) * cellHeight)
         reconcilePresentationWithCurrentOffset()
     }
 
@@ -69,15 +79,15 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
 
         if sample.targetViewportRow != lastRequestedViewportRow {
             lastRequestedViewportRow = sample.targetViewportRow
+            hasRequestedLocalViewport = true
             terminalView.applyLocalScrollbackViewport(row: sample.targetViewportRow)
         }
-        terminalView.transform = CGAffineTransform(
-            translationX: 0,
-            y: sample.presentationTranslationY
+        currentPresentationTranslationY = terminalView.applyLocalScrollbackPresentation(
+            translationY: sample.presentationTranslationY
         )
         updateMetrics(
             rawOffsetY: scrollView.contentOffset.y,
-            translationY: sample.presentationTranslationY
+            translationY: currentPresentationTranslationY
         )
     }
 
@@ -85,7 +95,7 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
         hasObservedDeceleration = false
         updateMetrics(
             rawOffsetY: scrollView.contentOffset.y,
-            translationY: terminalView.transform.ty,
+            translationY: currentPresentationTranslationY,
             phaseOverride: String(localized: "scroll.phase.dragging", defaultValue: "DRAGGING")
         )
     }
@@ -98,7 +108,7 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
         guard !decelerate else { return }
         updateMetrics(
             rawOffsetY: scrollView.contentOffset.y,
-            translationY: terminalView.transform.ty,
+            translationY: currentPresentationTranslationY,
             phaseOverride: String(localized: "scroll.phase.idle", defaultValue: "IDLE")
         )
     }
@@ -106,7 +116,7 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         updateMetrics(
             rawOffsetY: scrollView.contentOffset.y,
-            translationY: terminalView.transform.ty,
+            translationY: currentPresentationTranslationY,
             phaseOverride: String(localized: "scroll.phase.idle", defaultValue: "IDLE")
         )
     }
@@ -125,7 +135,10 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
             state = NativeScrollState(initialOffsetY: initialOffsetY)
         }
         isConfiguring = false
-        updateMetrics(rawOffsetY: scrollView.contentOffset.y, translationY: terminalView.transform.ty)
+        updateMetrics(
+            rawOffsetY: scrollView.contentOffset.y,
+            translationY: currentPresentationTranslationY
+        )
     }
 
     private func maximumRowOffset(for boundary: TerminalScrollBoundary) -> UInt64 {
@@ -143,13 +156,12 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
             cellHeight: cellHeight
         )
         self.state = state
-        terminalView.transform = CGAffineTransform(
-            translationX: 0,
-            y: sample.presentationTranslationY
+        currentPresentationTranslationY = terminalView.applyLocalScrollbackPresentation(
+            translationY: sample.presentationTranslationY
         )
         updateMetrics(
             rawOffsetY: scrollView.contentOffset.y,
-            translationY: sample.presentationTranslationY
+            translationY: currentPresentationTranslationY
         )
     }
 
@@ -191,14 +203,18 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
         let targetRow = cellHeight > 0
             ? UInt64(max(0, (min(max(rawOffsetY, 0), maximumOffsetY) / cellHeight).rounded()))
             : 0
-        let renderedRow = boundary?.viewportOffsetRows ?? 0
+        let renderedRow = presentedViewportRow ?? boundary?.viewportOffsetRows ?? 0
         let auditFormat = String(
             localized: "scroll.audit.format",
-            defaultValue: "%@; target row %llu; rendered row %llu"
+            defaultValue: "%@; %@; target row %llu; rendered row %llu"
         )
+        let chromeStatus = terminalView.transform == .identity
+            ? String(localized: "scroll.chrome.stable", defaultValue: "Fixed chrome stable")
+            : String(localized: "scroll.chrome.moved", defaultValue: "Fixed chrome moved")
         metricsLabel.accessibilityValue = String(
             format: auditFormat,
             deceleration,
+            chromeStatus,
             targetRow,
             renderedRow
         )

@@ -6,6 +6,7 @@ import Foundation
 final class TerminalSurfaceDelegate: GhosttySurfaceViewDelegate {
     var didResize: ((TerminalGridSize) -> Void)?
     var didUpdateScrollBoundary: ((TerminalScrollBoundary) -> Void)?
+    var didPresentLocalScrollbackViewportRow: ((UInt64) -> Void)?
 
     func ghosttySurfaceView(
         _ surfaceView: GhosttySurfaceView,
@@ -25,5 +26,12 @@ final class TerminalSurfaceDelegate: GhosttySurfaceViewDelegate {
         didUpdateScrollBoundary boundary: TerminalScrollBoundary
     ) {
         didUpdateScrollBoundary?(boundary)
+    }
+
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didPresentLocalScrollbackViewportRow row: UInt64
+    ) {
+        didPresentLocalScrollbackViewportRow?(row)
     }
 }

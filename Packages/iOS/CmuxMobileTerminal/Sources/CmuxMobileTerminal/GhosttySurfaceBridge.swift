@@ -60,7 +60,7 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
 
     func handleRenderPresented(token: UInt64) {
         Task { @MainActor [weak self] in
-            self?.surfaceView?.handleVerifiedReplayRenderPresented(token: token)
+            self?.surfaceView?.handleRenderPresented(token: token)
         }
     }
 
