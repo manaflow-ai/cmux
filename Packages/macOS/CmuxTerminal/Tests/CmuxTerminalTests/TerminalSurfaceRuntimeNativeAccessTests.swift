@@ -276,6 +276,10 @@ import Testing
         cancelledGate.requestTeardown {
             teardownBegun.withLock { $0 += 1 }
         }
+        #expect(
+            teardownBegun.withLock { $0 } == 1,
+            "a read queued behind another surface deferred process teardown"
+        )
         cmux_test_ghostty_surface_read_release()
 
         _ = await firstRead.value
