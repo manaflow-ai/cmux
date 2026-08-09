@@ -938,10 +938,15 @@ struct WorkspaceShellView: View {
     }
 
     /// Opens a workspace tapped in the search results by pushing it onto the
-    /// search tab's own stack. No tab transition, no query commit: popping back
-    /// returns to the live search results, and the Workspaces tab is untouched.
+    /// search tab's own stack — no tab transition, so the push cannot land on
+    /// an off-window stack. Choosing a result also ends the search session
+    /// (committing the query, like every other search exit): left presented,
+    /// the field re-presents after popping anchored to the navigation bar at
+    /// the top instead of the search tab's bottom control. Popping back lands
+    /// on the still-filtered results with the bottom search control collapsed.
     private func selectWorkspaceFromSearch(_ id: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
+        primarySearchCoordinator.deactivateCurrentSearch()
         store.selectedWorkspaceID = id
         if workspaceSearchNavigationPath.last != id {
             workspaceSearchNavigationPath = [id]

@@ -591,6 +591,9 @@ public struct WorkspaceListLayoutPreviewView: View {
         selectedWorkspaceID = id
         if showsTabScaffold,
            selectedPrimaryTab == .search || primarySearchCoordinator.isPresented {
+            // Mirrors the shell: choosing a result ends the search session so
+            // the field re-collapses to the bottom control after popping back.
+            primarySearchCoordinator.deactivateCurrentSearch()
             if searchFixturePath.last != id {
                 searchFixturePath = [id]
             }
