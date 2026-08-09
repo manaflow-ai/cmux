@@ -20,6 +20,7 @@ public actor DiffViewerAssetReader {
     private var decodedOffset = 0
     private var fileHandle: FileHandle?
     private var waitingStreams: [WaitingStream] = []
+    private let waitingStreamDidEnqueue: (@Sendable (UUID) -> Void)?
 
     /// Creates a single-flight reader with a bounded FIFO waiting queue.
     ///
@@ -27,6 +28,16 @@ public actor DiffViewerAssetReader {
     ///   the active stream. `0` rejects every concurrent request immediately.
     public init(maximumWaitingStreams: Int = 64) {
         self.maximumWaitingStreams = max(0, maximumWaitingStreams)
+        waitingStreamDidEnqueue = nil
+    }
+
+    /// Creates a reader that reports when a concurrent stream joins the wait queue.
+    init(
+        maximumWaitingStreams: Int,
+        waitingStreamDidEnqueue: @escaping @Sendable (UUID) -> Void
+    ) {
+        self.maximumWaitingStreams = max(0, maximumWaitingStreams)
+        self.waitingStreamDidEnqueue = waitingStreamDidEnqueue
     }
 
     /// Reads the next chunk for a stream, waiting for bounded FIFO admission when necessary.
@@ -103,6 +114,7 @@ public actor DiffViewerAssetReader {
                     fileURL: fileURL,
                     continuation: continuation
                 ))
+                waitingStreamDidEnqueue?(streamID)
             }
         } onCancel: {
             Task {
@@ -138,19 +150,12 @@ public actor DiffViewerAssetReader {
             let compressed = try Self.readCompressedAsset(at: activeFileURL)
             decodedData = try Self.inflateZlib(compressed)
         } else {
-            let descriptor = Darwin.open(
-                activeFileURL.path,
-                O_RDONLY | O_CLOEXEC | O_NOFOLLOW
-            )
-            guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-            fileHandle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+            fileHandle = try Self.openRegularFile(at: activeFileURL)
         }
     }
 
     private static func readCompressedAsset(at fileURL: URL) throws -> Data {
-        let descriptor = Darwin.open(fileURL.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
-        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        let handle = try openRegularFile(at: fileURL)
         defer { try? handle.close() }
 
         var compressed = Data()
@@ -164,6 +169,29 @@ public actor DiffViewerAssetReader {
             throw CocoaError(.fileReadTooLarge)
         }
         return compressed
+    }
+
+    /// Opens without blocking on special files and rejects anything except a regular file.
+    private static func openRegularFile(at fileURL: URL) throws -> FileHandle {
+        let descriptor = Darwin.open(
+            fileURL.path,
+            O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
+        guard descriptor >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+
+        var info = stat()
+        guard fstat(descriptor, &info) == 0 else {
+            let errorCode = errno
+            Darwin.close(descriptor)
+            throw POSIXError(POSIXErrorCode(rawValue: errorCode) ?? .EIO)
+        }
+        guard (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else {
+            Darwin.close(descriptor)
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
     }
 
     private static func inflateZlib(_ compressed: Data) throws -> Data {

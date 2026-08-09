@@ -33,27 +33,59 @@ public enum CmuxDiffViewerSessionError: Int, Equatable, Error, LocalizedError, S
     public var errorDescription: String? {
         switch self {
         case .invalidToken:
-            "Invalid diff viewer token"
+            String(
+                localized: "diffViewer.error.invalidToken",
+                defaultValue: "Invalid diff viewer token",
+                bundle: .module
+            )
         case .emptyAllowlist:
-            "Diff viewer allowlist is empty"
+            String(
+                localized: "diffViewer.error.emptyAllowlist",
+                defaultValue: "Diff viewer allowlist is empty",
+                bundle: .module
+            )
         case .invalidEntry:
-            "Invalid diff viewer allowlist entry"
+            String(
+                localized: "diffViewer.error.invalidEntry",
+                defaultValue: "Invalid diff viewer allowlist entry",
+                bundle: .module
+            )
         case .unreadableFile:
-            "Diff viewer file is not readable"
+            String(
+                localized: "diffViewer.error.unreadableFile",
+                defaultValue: "Diff viewer file is not readable",
+                bundle: .module
+            )
         case .duplicateEntry:
-            "Duplicate diff viewer allowlist entry"
+            String(
+                localized: "diffViewer.error.duplicateEntry",
+                defaultValue: "Duplicate diff viewer allowlist entry",
+                bundle: .module
+            )
         case .allowlistTooLarge:
             String(
                 localized: "diffViewer.error.allowlistTooLarge",
                 defaultValue: "Diff viewer allowlist is too large",
-                bundle: .main
+                bundle: .module
             )
         case .invalidManifest:
-            "Invalid diff viewer manifest"
+            String(
+                localized: "diffViewer.error.invalidManifest",
+                defaultValue: "Invalid diff viewer manifest",
+                bundle: .module
+            )
         case .manifestTooLarge:
-            "Diff viewer manifest is too large"
+            String(
+                localized: "diffViewer.error.manifestTooLarge",
+                defaultValue: "Diff viewer manifest is too large",
+                bundle: .module
+            )
         case .unsafeTrustedRoot:
-            "Diff viewer trusted directory is unsafe"
+            String(
+                localized: "diffViewer.error.unsafeTrustedRoot",
+                defaultValue: "Diff viewer trusted directory is unsafe",
+                bundle: .module
+            )
         }
     }
 }

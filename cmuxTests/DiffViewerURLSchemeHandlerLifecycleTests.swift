@@ -244,11 +244,11 @@ struct DiffViewerURLSchemeHandlerLifecycleTests {
                 defaults.set(previousBrowserDisabled, forKey: browserDisabledKey)
             } else {
                 defaults.removeObject(forKey: browserDisabledKey)
-                NotificationCenter.default.post(
-                    name: BrowserAvailabilitySettings.didChangeNotification,
-                    object: nil
-                )
             }
+            NotificationCenter.default.post(
+                name: BrowserAvailabilitySettings.didChangeNotification,
+                object: nil
+            )
         }
 
         let workspace = try #require(manager.tabs.first)

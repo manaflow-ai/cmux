@@ -2325,7 +2325,7 @@ class TerminalController {
             // `browser.open_split` remains one main-actor UI action, but custom
             // diff-viewer registration performs its bounded manifest/file/lease
             // work here on the socket worker before the single main hop.
-            let diffViewerRegistration: DiffViewerSessionRegistrationPreparation
+            let diffViewerRegistration: DiffViewerSessionPreparation
             if method == "browser.open_split" {
                 diffViewerRegistration = v2PrepareDiffViewerRegistration(params: params)
             } else {
@@ -2365,7 +2365,7 @@ class TerminalController {
         id: Any?,
         method: String,
         params: [String: Any],
-        diffViewerRegistration: DiffViewerSessionRegistrationPreparation = .notNeeded
+        diffViewerRegistration: DiffViewerSessionPreparation = .notNeeded
     ) -> V2MainHopOutcome {
         v2RefreshKnownRefs()
 
@@ -2396,7 +2396,7 @@ class TerminalController {
         id: Any?,
         method: String,
         params: [String: Any],
-        diffViewerRegistration: DiffViewerSessionRegistrationPreparation
+        diffViewerRegistration: DiffViewerSessionPreparation
     ) -> String {
             switch method {
         case "system.ping":
@@ -6804,7 +6804,7 @@ class TerminalController {
 
     private func v2BrowserOpenSplit(
         params: [String: Any],
-        diffViewerRegistration: DiffViewerSessionRegistrationPreparation
+        diffViewerRegistration: DiffViewerSessionPreparation
     ) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -7058,6 +7058,7 @@ class TerminalController {
         guard let url = v2String(params, "url") else {
             return .err(code: "invalid_params", message: "Missing url", data: nil)
         }
+        let diffViewerNavigation = v2PrepareDiffViewerNavigation(params: params)
         var basePayload: [String: Any]?
         var resolutionError: V2CallResult?
         var navigationPanel: BrowserPanel?
@@ -7071,6 +7072,13 @@ class TerminalController {
             }
             guard let context = resolvedContext.context,
                   context.surfaceId == surfaceId else { return }
+            if let error = v2InstallDiffViewerNavigationPreparationIfNeeded(
+                rawURL: url,
+                preparation: diffViewerNavigation
+            ) {
+                resolutionError = error
+                return
+            }
             guard let navigation = context.browserPanel.beginAutomationNavigationFromCLI(
                 url,
                 expectedURL: v2String(params, "expected_url")

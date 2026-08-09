@@ -7,10 +7,10 @@ import WebKit
 /// retain or invoke a ``WKURLSchemeTask``.
 @MainActor
 final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
-    static let scheme = "cmux-diff-viewer"
+    nonisolated static let scheme = "cmux-diff-viewer"
     static let shared = CmuxDiffViewerURLSchemeHandler()
     // Keep this aligned with Native/DiffSidecar's manifest validation limit.
-    static let maxRegisteredFiles = CmuxDiffViewerSessionPreparer.defaultMaximumRegisteredFiles
+    nonisolated static let maxRegisteredFiles = CmuxDiffViewerSessionPreparer.defaultMaximumRegisteredFiles
 
     typealias RegisteredFile = CmuxDiffViewerRegisteredFile
     private typealias Session = CmuxDiffViewerPreparedSession

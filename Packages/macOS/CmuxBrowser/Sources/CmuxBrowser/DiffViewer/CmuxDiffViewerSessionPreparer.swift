@@ -183,9 +183,15 @@ public struct CmuxDiffViewerSessionPreparer: Sendable {
     /// - Parameter token: Candidate token to validate.
     /// - Returns: `true` when the token satisfies the length and character constraints.
     public static func isValidToken(_ token: String) -> Bool {
-        guard (16...80).contains(token.count) else { return false }
-        return token.unicodeScalars.allSatisfy { scalar in
-            CharacterSet.alphanumerics.contains(scalar) || scalar == "-"
+        let bytes = token.utf8
+        guard (16...80).contains(bytes.count) else { return false }
+        return bytes.allSatisfy { byte in
+            switch byte {
+            case 0x30...0x39, 0x41...0x5A, 0x61...0x7A, 0x2D:
+                true
+            default:
+                false
+            }
         }
     }
 
