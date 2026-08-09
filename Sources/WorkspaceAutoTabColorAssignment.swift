@@ -36,10 +36,17 @@ enum WorkspaceAutoTabColorAssignment {
     ///     assignments and manually chosen workspace colors. Manual colors are
     ///     included so an auto color does not duplicate a color the user picked
     ///     deliberately.
+    ///   - reservedHexes: Colors held for workspaces whose auto color is
+    ///     currently hidden behind a manual one. These are still in `usedHexes`
+    ///     — they count as used — but they are avoided while any other equally
+    ///     used color exists, because taking one is the single duplicate that
+    ///     can never be undone: the reservation comes back when the manual
+    ///     color is cleared, and assignments are never rewritten afterwards.
     /// - Returns: The least-used palette color, or `nil` for an empty palette.
     static func nextColorHex(
         palette: [WorkspaceTabColorEntry],
-        usedHexes: [String]
+        usedHexes: [String],
+        reservedHexes: [String] = []
     ) -> String? {
         guard !palette.isEmpty else { return nil }
 
@@ -53,7 +60,14 @@ enum WorkspaceAutoTabColorAssignment {
         }
 
         let minimumCount = palette.map { counts[normalized($0.hex)] ?? 0 }.min() ?? 0
-        let candidates = palette.filter { (counts[normalized($0.hex)] ?? 0) == minimumCount }
+        let tied = palette.filter { (counts[normalized($0.hex)] ?? 0) == minimumCount }
+
+        // Spend a reservation only when nothing else is equally cheap. Counts
+        // still lead, so recycling stays balanced once the palette is
+        // exhausted and a reservation is not hoarded past that point.
+        let reservedKeys = Set(reservedHexes.map { normalized($0) })
+        let unreserved = tied.filter { !reservedKeys.contains(normalized($0.hex)) }
+        let candidates = unreserved.isEmpty ? tied : unreserved
 
         // Among the least-used colors, take the one furthest from the colors
         // already on screen. Straight palette order would hand out Red then

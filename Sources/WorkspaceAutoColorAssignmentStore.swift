@@ -93,9 +93,11 @@ enum WorkspaceAutoColorAssignmentStore {
         // workspace's saved auto color. Reserve that hidden assignment so a
         // newly created workspace cannot take it and force a recolor when the
         // manual override is later cleared.
+        var reserved: [String] = []
         for key in liveKeys.subtracting(needingKeys) {
             guard let current = stored[key] else { continue }
             used.append(current)
+            reserved.append(current)
         }
 
         for id in needingAssignment {
@@ -110,7 +112,8 @@ enum WorkspaceAutoColorAssignmentStore {
         for key in pending {
             guard let hex = WorkspaceAutoTabColorAssignment.nextColorHex(
                 palette: palette,
-                usedHexes: used
+                usedHexes: used,
+                reservedHexes: reserved
             ) else {
                 continue
             }
