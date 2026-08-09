@@ -2001,7 +2001,7 @@ final class WindowBrowserPortal: NSObject {
         }
     }
 
-    private func synchronizeAllEntriesFromExternalGeometryChange() {
+    func synchronizeAllEntriesFromExternalGeometryChange() {
         guard ensureInstalled() else { return }
         // The reference hierarchy belongs to SwiftUI/AppKit. Consume its settled
         // geometry snapshots here; forcing its layout can re-enter NSHostingView.

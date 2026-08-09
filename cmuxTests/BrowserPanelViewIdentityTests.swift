@@ -14,7 +14,7 @@ import WebKit
 
 @MainActor
 @Suite struct BrowserPanelViewIdentityTests {
-    @Test func externalPortalGeometrySyncDoesNotDriveSwiftUILayout() async {
+    @Test func externalPortalGeometrySyncDoesNotDriveSwiftUILayout() {
         let referenceView = LayoutCountingBrowserReferenceView(rootView: EmptyView())
         referenceView.frame = NSRect(x: 0, y: 0, width: 640, height: 480)
         let window = NSWindow(
@@ -28,10 +28,11 @@ import WebKit
         let anchor = NSView(frame: NSRect(x: 40, y: 30, width: 320, height: 240))
         referenceView.addSubview(anchor)
         let webView = WKWebView(frame: anchor.bounds)
-        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        let portal = WindowBrowserPortal(window: window)
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
 
         defer {
-            BrowserWindowPortalRegistry.detach(webView: webView)
+            portal.tearDown()
             window.close()
         }
 
@@ -39,12 +40,7 @@ import WebKit
         referenceView.layoutPassCount = 0
         referenceView.needsLayout = true
 
-        BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
-        await withCheckedContinuation { continuation in
-            DispatchQueue.main.async {
-                continuation.resume()
-            }
-        }
+        portal.synchronizeAllEntriesFromExternalGeometryChange()
 
         #expect(
             referenceView.layoutPassCount == 0,
