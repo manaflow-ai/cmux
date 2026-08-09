@@ -11,8 +11,8 @@ internal import CMUXDebugLog
 extension TerminalSurface {
     @MainActor
     private func endAttachedViewRuntimeLifetime() {
-        let runtimeLifetimeId = surfaceCallbackContext?
-            .takeUnretainedValue().runtimeLifetimeId
+        guard let runtimeLifetimeId = surfaceCallbackContext?
+            .takeUnretainedValue().runtimeLifetimeId else { return }
         let view = attachedView ?? surfaceView
         view.runtimeSurfaceDidEnd(
             runtimeLifetimeId: runtimeLifetimeId
