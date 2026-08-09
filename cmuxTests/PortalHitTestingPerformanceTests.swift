@@ -600,6 +600,29 @@ struct PortalHitTestingPerformanceTests {
 
     @Test
     func arrangedSubviewMutationsInvalidateHierarchyRegistration() throws {
+        try expectArrangedSubviewMutationInvalidates { splitView, panes in
+            splitView.addArrangedSubview(panes[0])
+        }
+        try expectArrangedSubviewMutationInvalidates(
+            prepare: { splitView, panes in
+                splitView.addArrangedSubview(panes[0])
+            },
+            mutation: { splitView, panes in
+                splitView.removeArrangedSubview(panes[0])
+            }
+        )
+        try expectArrangedSubviewMutationInvalidates { splitView, panes in
+            splitView.insertArrangedSubview(panes[0], at: 0)
+        }
+        try expectArrangedSubviewMutationInvalidates { splitView, _ in
+            splitView.arrangesAllSubviews = true
+        }
+    }
+
+    private func expectArrangedSubviewMutationInvalidates(
+        prepare: (NSSplitView, [NSView]) -> Void = { _, _ in },
+        mutation: (NSSplitView, [NSView]) -> Void
+    ) throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
             styleMask: [.titled, .closable],
@@ -611,39 +634,35 @@ struct PortalHitTestingPerformanceTests {
         let rootView = try #require(window.contentView)
         let splitView = NSSplitView(frame: rootView.bounds)
         splitView.arrangesAllSubviews = false
-        let firstPane = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: rootView.bounds.height))
-        let secondPane = NSView(frame: NSRect(x: 201, y: 0, width: 119, height: rootView.bounds.height))
-        splitView.addSubview(firstPane)
-        splitView.addSubview(secondPane)
+        let panes = [
+            NSView(frame: NSRect(x: 0, y: 0, width: 200, height: rootView.bounds.height)),
+            NSView(frame: NSRect(x: 201, y: 0, width: 119, height: rootView.bounds.height)),
+        ]
+        splitView.addSubview(panes[0])
+        splitView.addSubview(panes[1])
         rootView.addSubview(splitView)
+        prepare(splitView, panes)
 
         let invalidator = PortalSplitDividerCacheInvalidator()
-        func observeCurrentHierarchy() {
-            let collected = PortalSplitDividerRegion.collect(in: rootView)
-            invalidator.observe(
-                rootView: rootView,
-                geometryViews: collected.geometryObservedViews,
-                hierarchyNodes: collected.hierarchyNodes
-            ) {}
-            #expect(invalidator.isHierarchyCurrent(for: rootView))
+        defer {
+            invalidator.invalidate()
+            splitView.arrangesAllSubviews = false
+            for arrangedSubview in splitView.arrangedSubviews {
+                splitView.removeArrangedSubview(arrangedSubview)
+            }
+            splitView.subviews = []
         }
 
-        observeCurrentHierarchy()
-        splitView.addArrangedSubview(firstPane)
-        #expect(!invalidator.isHierarchyCurrent(for: rootView))
+        let collected = PortalSplitDividerRegion.collect(in: rootView)
+        invalidator.observe(
+            rootView: rootView,
+            geometryViews: collected.geometryObservedViews,
+            hierarchyNodes: collected.hierarchyNodes
+        ) {}
+        #expect(invalidator.isHierarchyCurrent(for: rootView))
 
-        observeCurrentHierarchy()
-        splitView.removeArrangedSubview(firstPane)
+        mutation(splitView, panes)
         #expect(!invalidator.isHierarchyCurrent(for: rootView))
-
-        observeCurrentHierarchy()
-        splitView.insertArrangedSubview(firstPane, at: 0)
-        #expect(!invalidator.isHierarchyCurrent(for: rootView))
-
-        observeCurrentHierarchy()
-        splitView.arrangesAllSubviews = true
-        #expect(!invalidator.isHierarchyCurrent(for: rootView))
-        withExtendedLifetime(invalidator) {}
     }
 
     @Test
