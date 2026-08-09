@@ -29,6 +29,15 @@ struct BrowserWindowPortalRegistryNotificationTests {
         }
     }
 
+    private final class LayoutSubtreeCallbackWebView: WKWebView {
+        var onLayoutSubtreeIfNeeded: (() -> Void)?
+
+        override func layoutSubtreeIfNeeded() {
+            onLayoutSubtreeIfNeeded?()
+            super.layoutSubtreeIfNeeded()
+        }
+    }
+
     private final class InspectorLayoutResetWebView: WKWebView {
         var onEnterInWindow: (() -> Void)?
         private(set) var enterInWindowCount = 0
@@ -216,7 +225,10 @@ struct BrowserWindowPortalRegistryNotificationTests {
             frame: NSRect(x: 24, y: 24, width: 360, height: 220)
         )
         contentView.addSubview(anchor)
-        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = LayoutSubtreeCallbackWebView(
+            frame: .zero,
+            configuration: WKWebViewConfiguration()
+        )
         defer { BrowserWindowPortalRegistry.detach(webView: webView) }
 
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
@@ -225,16 +237,14 @@ struct BrowserWindowPortalRegistryNotificationTests {
 
         var isRefreshingFromAnchorLayout = false
         var anchorLayoutCount = 0
-        var forcedWebKitLayoutCount = 0
-        var forcedWebKitLayoutsDuringAnchorLayout = 0
-        browserPortalTestWillForceHostedWebKitLayout = { refreshedWebView in
-            guard refreshedWebView === webView else { return }
-            forcedWebKitLayoutCount += 1
+        var webKitLayoutFlushCount = 0
+        var webKitLayoutFlushesDuringAnchorLayout = 0
+        webView.onLayoutSubtreeIfNeeded = {
+            webKitLayoutFlushCount += 1
             if isRefreshingFromAnchorLayout {
-                forcedWebKitLayoutsDuringAnchorLayout += 1
+                webKitLayoutFlushesDuringAnchorLayout += 1
             }
         }
-        defer { browserPortalTestWillForceHostedWebKitLayout = nil }
         anchor.onLayout = {
             anchorLayoutCount += 1
             isRefreshingFromAnchorLayout = true
@@ -248,14 +258,14 @@ struct BrowserWindowPortalRegistryNotificationTests {
 
         #expect(anchorLayoutCount == 1, "The test must execute the refresh from the anchor's layout stack")
         #expect(
-            forcedWebKitLayoutsDuringAnchorLayout == 0,
+            webKitLayoutFlushesDuringAnchorLayout == 0,
             "Restored browser geometry must not synchronously lay out WebKit while AppKit is already laying out the anchor"
         )
 
         await waitForNextMainTurn()
         await waitForNextMainTurn()
         #expect(
-            forcedWebKitLayoutCount > 0,
+            webKitLayoutFlushCount > 0,
             "The deferred portal refresh must still lay out WebKit after the anchor callback returns"
         )
     }

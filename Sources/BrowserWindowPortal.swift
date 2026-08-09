@@ -2464,9 +2464,6 @@ final class WindowBrowserPortal: NSObject {
             webKitSubview.setNeedsDisplay(webKitSubview.bounds)
         }
 
-#if DEBUG
-        browserPortalTestWillForceHostedWebKitLayout?(webView)
-#endif
         containerView.layoutSubtreeIfNeeded()
         for webKitSubview in hostedWebKitSubviews {
             if let scrollView = webKitSubview.enclosingScrollView {
