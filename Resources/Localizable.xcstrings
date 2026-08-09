@@ -271734,8 +271734,8 @@
     "sudo.error.pam_tid_unavailable": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "sudo could not authenticate: pam_tid is not enabled (scripts/setup-pam-tid.sh)" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "sudo を認証できませんでした：pam_tid が有効ではありません（scripts/setup-pam-tid.sh）" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Touch ID for sudo is not configured. Run cmux sudo setup-touch-id (or scripts/setup-pam-tid.sh from a source checkout)." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo 用の Touch ID が設定されていません。cmux sudo setup-touch-id を実行してください（ソースチェックアウトでは scripts/setup-pam-tid.sh も使用できます）。" } }
       }
     },
     "sudo.error.approval_timeout": {
@@ -271804,8 +271804,8 @@
     "sudo.cli.usage": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)\n       cmux sudo pending" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)\n        cmux sudo pending" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)\n       cmux sudo pending\n       cmux sudo setup-touch-id" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)\n        cmux sudo pending\n        cmux sudo setup-touch-id" } }
       }
     },
     "sudo.cli.default_reason": {
@@ -271846,8 +271846,29 @@
     "sudo.cli.error.script_too_large": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "sudo: the script exceeds the 16 MiB limit" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "sudo: スクリプトが 16 MiB の上限を超えています" } }
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: the script exceeds the 256 KiB limit" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: スクリプトが 256 KiB の上限を超えています" } }
+      }
+    },
+    "sudo.cli.error.input_read_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: could not read the script from standard input" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: 標準入力からスクリプトを読み取れませんでした" } }
+      }
+    },
+    "sudo.cli.error.request_capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: too many approval requests are pending; resolve one in cmux and retry" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: 承認待ちのリクエストが多すぎます。cmux でいずれかを処理してから再試行してください" } }
+      }
+    },
+    "sudo.cli.error.touch_id_setup_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: could not start Touch ID setup; reinstall cmux and retry" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: Touch ID の設定を開始できませんでした。cmux を再インストールして再試行してください" } }
       }
     },
     "sudo.cli.error.app_launch_failed": {
@@ -271920,6 +271941,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "sudo: スクリプトが見つかりません：%@" } }
       }
     },
+    "sudo.cli.error.script_unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: script is not a readable regular file: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: スクリプトが読み取り可能な通常ファイルではありません：%@" } }
+      }
+    },
     "sudo.cli.queued": {
       "extractionState": "manual",
       "localizations": {
@@ -271974,6 +272002,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "sudo pending" } },
         "ja": { "stringUnit": { "state": "translated", "value": "sudo pending" } }
+      }
+    },
+    "sudo.cli.global_usage.setup_touch_id": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo setup-touch-id" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo setup-touch-id" } }
       }
     },
     "sudo.approval.heading": {

@@ -5,6 +5,75 @@ import Testing
 
 @Suite("Sudo process lifecycle")
 struct SudoProcessLifecycleTests {
+    @Test("Raw PTY receiver transfers exactly the reviewed bytes", .timeLimit(.minutes(1)))
+    func privilegedPTYReceiverIsByteExact() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        var masterDescriptor: Int32 = -1
+        var slaveDescriptor: Int32 = -1
+        #expect(openpty(&masterDescriptor, &slaveDescriptor, nil, nil, nil) == 0)
+        try #require(masterDescriptor >= 0 && slaveDescriptor >= 0)
+        defer {
+            Darwin.close(masterDescriptor)
+            Darwin.close(slaveDescriptor)
+        }
+        let reviewedBytes = Data([0, 1, 2, 3, 10, 13, 0xff])
+        let readinessMarker = SudoExecutionControlMarkers().inputReady
+        let writerDescriptor = masterDescriptor
+        Thread.detachNewThread {
+            var receivedMarker = Data(count: readinessMarker.count)
+            var markerOffset = 0
+            while markerOffset < receivedMarker.count {
+                let remainingMarkerCount = receivedMarker.count - markerOffset
+                let count = receivedMarker.withUnsafeMutableBytes { bytes in
+                    Darwin.read(
+                        writerDescriptor,
+                        bytes.baseAddress?.advanced(by: markerOffset),
+                        remainingMarkerCount
+                    )
+                }
+                if count > 0 {
+                    markerOffset += count
+                } else if count < 0, errno == EINTR {
+                    continue
+                } else {
+                    return
+                }
+            }
+            guard receivedMarker == readinessMarker else { return }
+            var scriptOffset = 0
+            while scriptOffset < reviewedBytes.count {
+                let count = reviewedBytes.withUnsafeBytes { bytes in
+                    Darwin.write(
+                        writerDescriptor,
+                        bytes.baseAddress?.advanced(by: scriptOffset),
+                        reviewedBytes.count - scriptOffset
+                    )
+                }
+                if count > 0 {
+                    scriptOffset += count
+                } else if count < 0, errno == EINTR {
+                    continue
+                } else {
+                    return
+                }
+            }
+        }
+        let receiver = SudoPrivilegedScriptReceiver(
+            inputDescriptor: slaveDescriptor,
+            outputDescriptor: slaveDescriptor,
+            temporaryDirectoryURL: fixture.root
+        )
+
+        let receivedBytes = try receiver.withReceivedDescriptor(
+            expectedByteCount: reviewedBytes.count
+        ) { descriptor in
+            try SudoReviewedScriptReader(descriptor: descriptor).read()
+        }
+
+        #expect(receivedBytes == reviewedBytes)
+    }
+
     @Test("Detached runner reaper collects its child", .timeLimit(.minutes(1)))
     func detachedRunnerReaperCollectsChild() async throws {
         let fixture = try SudoTestFixture()
@@ -147,45 +216,136 @@ struct SudoProcessLifecycleTests {
         #expect(outputSize.intValue <= 16 * 1_024 * 1_024)
     }
 
-    @Test("PTY transport executes reviewed bytes instead of the approved pathname", .timeLimit(.minutes(1)))
+    @Test("Privileged supervisor executes reviewed bytes instead of the approved pathname", .timeLimit(.minutes(2)))
     func reviewedScriptTransportIsImmutable() throws {
         let fixture = try SudoTestFixture()
         defer { fixture.remove() }
         let approvedScriptURL = fixture.paths.approved.appendingPathComponent("immutable.sh")
         try Data("printf 'replaced-path\\n'\n".utf8).write(to: approvedScriptURL)
-        let reviewedScript = Data("printf 'reviewed-bytes\\n'\n".utf8)
-        let transport = SudoReviewedScriptTransport(
-            reviewedScript: reviewedScript,
-            approvedScriptURL: approvedScriptURL,
-            secureTemporaryDirectoryURL: fixture.root
-        )
         let outputURL = fixture.paths.results.appendingPathComponent("immutable.out")
-        let inspector = SystemSudoProcessInspector()
-        let runner = SudoBoundedProcessRunner(
-            spawner: SudoPOSIXProcessSpawner(inspector: inspector),
-            inspector: inspector,
-            signaler: SystemSudoProcessSignaler()
+        let reviewedScript = Data(
+            "[ -w /dev/fd/1 ] || exit 91\nprintf 'reviewed-bytes\\n' > '\(outputURL.path)'\n".utf8
         )
-        let command = SudoExecutionCommand(
-            executableURL: URL(fileURLWithPath: "/usr/bin/script"),
-            arguments: ["/usr/bin/script", "-q", "/dev/null"] + transport.shellArguments,
-            currentDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
-            outputURL: outputURL,
-            standardInput: reviewedScript,
-            standardInputReadyMarker: Data(SudoReviewedScriptTransport.readinessMarker.utf8)
+        let capability = SudoReviewedScriptCapability(
+            bytes: reviewedScript,
+            temporaryDirectoryURL: fixture.root
         )
-
-        let process = try runner.spawn(command)
-        let outcome = runner.wait(
-            for: process,
-            deadline: Date.now.addingTimeInterval(10)
-        )
+        let outcome = try capability.withDescriptor { descriptor in
+            SudoPrivilegedProcessSupervisor().execute(
+                scriptDescriptor: descriptor,
+                displayName: approvedScriptURL.path,
+                deadline: Date.now.addingTimeInterval(60)
+            )
+        }
+        try #require(outcome == SudoPrivilegedProcessOutcome.exited(0))
         let output = String(decoding: try Data(contentsOf: outputURL), as: UTF8.self)
 
-        #expect(outcome == .exited(0))
         #expect(output.contains("reviewed-bytes"))
         #expect(!output.contains("replaced-path"))
-        #expect(!output.contains(SudoReviewedScriptTransport.readinessMarker))
+    }
+
+    @Test("Privileged deadline kills a TERM-resistant process group", .timeLimit(.minutes(1)))
+    func privilegedDeadlineKillsStubbornGroup() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let rootPIDURL = fixture.root.appendingPathComponent("root.pid")
+        let childPIDURL = fixture.root.appendingPathComponent("child.pid")
+        let startupFIFOURL = fixture.root.appendingPathComponent("started.fifo")
+        try startupFIFOURL.path.withCString { path in
+            guard mkfifo(path, mode_t(0o600)) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        }
+        let startupDescriptor = startupFIFOURL.path.withCString { path in
+            Darwin.open(path, O_RDONLY | O_NONBLOCK)
+        }
+        try #require(startupDescriptor >= 0)
+        defer { Darwin.close(startupDescriptor) }
+        let script = Data(
+            """
+            trap '' TERM
+            echo $$ > '\(rootPIDURL.path)'
+            /bin/sh -c 'trap "" TERM; echo $$ > "\(childPIDURL.path)"; while :; do /bin/sleep 30; done' &
+            printf x > '\(startupFIFOURL.path)'
+            wait
+            """.utf8
+        )
+        let capability = SudoReviewedScriptCapability(
+            bytes: script,
+            temporaryDirectoryURL: fixture.root
+        )
+        let deadline = Date.now.addingTimeInterval(60)
+        let supervisor = SudoPrivilegedProcessSupervisor(now: {
+            var state = pollfd(fd: startupDescriptor, events: Int16(POLLIN), revents: 0)
+            var pollResult: Int32
+            repeat {
+                pollResult = Darwin.poll(&state, 1, 30_000)
+            } while pollResult < 0 && errno == EINTR
+            if pollResult > 0 {
+                var byte: UInt8 = 0
+                _ = Darwin.read(startupDescriptor, &byte, 1)
+            }
+            return deadline.addingTimeInterval(1)
+        })
+
+        let outcome = try capability.withDescriptor { descriptor in
+            supervisor.execute(
+                scriptDescriptor: descriptor,
+                displayName: "stubborn.sh",
+                deadline: deadline
+            )
+        }
+        try #require(outcome == .timedOut)
+        let rootPID = Int32(
+            try String(contentsOf: rootPIDURL, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        let childPID = Int32(
+            try String(contentsOf: childPIDURL, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+
+        #expect(rootPID.map { kill($0, 0) != 0 && errno == ESRCH } == true)
+        #expect(childPID.map { kill($0, 0) != 0 && errno == ESRCH } == true)
+    }
+
+    @Test("Privileged completion kills residual root process group", .timeLimit(.minutes(1)))
+    func privilegedCompletionKillsResidualGroup() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let childPIDURL = fixture.root.appendingPathComponent("residual-child.pid")
+        let startupFIFOURL = fixture.root.appendingPathComponent("residual-started.fifo")
+        try startupFIFOURL.path.withCString { path in
+            guard mkfifo(path, mode_t(0o600)) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        }
+        let script = Data(
+            """
+            /bin/sh -c 'trap "" TERM; echo $$ > "\(childPIDURL.path)"; printf x > "\(startupFIFOURL.path)"; while :; do /bin/sleep 30; done' &
+            /bin/dd if='\(startupFIFOURL.path)' of=/dev/null bs=1 count=1 2>/dev/null
+            exit 7
+            """.utf8
+        )
+        let capability = SudoReviewedScriptCapability(
+            bytes: script,
+            temporaryDirectoryURL: fixture.root
+        )
+
+        let outcome = try capability.withDescriptor { descriptor in
+            SudoPrivilegedProcessSupervisor().execute(
+                scriptDescriptor: descriptor,
+                displayName: "residual.sh",
+                deadline: Date.now.addingTimeInterval(15)
+            )
+        }
+        try #require(outcome == .exited(7))
+        let childPID = Int32(
+            try String(contentsOf: childPIDURL, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+
+        #expect(childPID.map { kill($0, 0) != 0 && errno == ESRCH } == true)
     }
 
     @Test("System process inventory includes the calling process")
@@ -212,6 +372,7 @@ struct SudoProcessLifecycleTests {
         let runner = SudoExecutionRunner(
             paths: fixture.paths,
             expectedParentExecutableURL: URL(fileURLWithPath: "/not/the/test-parent"),
+            privilegedHelperExecutableURL: URL(fileURLWithPath: "/usr/bin/false"),
             messages: .testMessages,
             pamConfiguration: SudoPAMConfiguration(
                 fileURL: fixture.root.appendingPathComponent("missing-pam")

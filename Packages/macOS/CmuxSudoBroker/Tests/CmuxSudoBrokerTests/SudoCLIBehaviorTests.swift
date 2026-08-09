@@ -4,6 +4,83 @@ import Testing
 
 @Suite("Sudo CLI behavior")
 struct SudoCLIBehaviorTests {
+    @Test("Touch ID setup runs the helper bundled with the enclosing app")
+    func touchIDSetupUsesBundledHelper() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let output = TestCLIOutput()
+        let launcher = RecordingTouchIDSetupLauncher(exitCode: 17)
+        let helperURL = fixture.root.appendingPathComponent("setup-pam-tid.sh")
+        let command = SudoCLICommand(
+            store: fixture.store,
+            appBundleURL: URL(fileURLWithPath: "/Applications/cmux.app"),
+            currentDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
+            requesterIdentity: SudoProcessIdentity(
+                processIdentifier: 42,
+                startSeconds: 10,
+                startMicroseconds: 20
+            ),
+            requesterCommand: "test-agent",
+            launcher: TestAppLauncher(),
+            setupLauncher: launcher,
+            setupHelperURL: helperURL,
+            io: output.io,
+            failureMessages: .testMessages,
+            now: { Date(timeIntervalSince1970: 1) }
+        )
+
+        let exitCode = try command.run(arguments: ["setup-touch-id"])
+
+        #expect(exitCode == 17)
+        #expect(launcher.helperURLs == [helperURL])
+    }
+
+    @Test("Standard input is read through the script-size bound")
+    func standardInputIsBounded() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let output = TestCLIOutput()
+        output.standardInput = Data(repeating: 0x61, count: 256 * 1_024 + 1)
+        let command = Self.command(fixture: fixture, output: output)
+
+        #expect(throws: SudoCLICommandError.self) {
+            try command.run(arguments: ["run", "-"])
+        }
+        #expect(output.requestedStandardInputByteCounts == [256 * 1_024 + 1])
+        #expect(fixture.store.pendingRequests().isEmpty)
+    }
+
+    @Test("Non-regular script input fails without reading the device")
+    func nonRegularFileIsRejected() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let output = TestCLIOutput()
+        let command = Self.command(fixture: fixture, output: output)
+
+        #expect(throws: SudoCLICommandError.self) {
+            try command.run(arguments: ["run", "/dev/zero"])
+        }
+        #expect(fixture.store.pendingRequests().isEmpty)
+    }
+
+    @Test("Pending admission failures are reported as capacity errors")
+    func pendingAdmissionFailureIsSpecific() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        for index in 0..<8 {
+            _ = try fixture.enqueue(id: "cli-capacity-\(index)", createdAt: .now)
+        }
+        let output = TestCLIOutput()
+        let command = Self.command(fixture: fixture, output: output)
+
+        do {
+            _ = try command.run(arguments: ["run", "-c", "echo overflow"])
+            Issue.record("Expected pending admission to fail")
+        } catch let error as SudoCLICommandError {
+            #expect(error.message.contains("too many approval requests"))
+        }
+    }
+
     @Test("An unapproved CLI timeout settles the durable request")
     func pendingTimeoutSettlesRequest() throws {
         let fixture = try SudoTestFixture()
@@ -126,15 +203,55 @@ struct SudoCLIBehaviorTests {
 
         #expect(!FileManager.default.fileExists(atPath: outputURL.path))
     }
+
+    private static func command(
+        fixture: SudoTestFixture,
+        output: TestCLIOutput
+    ) -> SudoCLICommand {
+        SudoCLICommand(
+            store: fixture.store,
+            appBundleURL: URL(fileURLWithPath: "/Applications/cmux.app"),
+            currentDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
+            requesterIdentity: SudoProcessIdentity(
+                processIdentifier: 42,
+                startSeconds: 10,
+                startMicroseconds: 20
+            ),
+            requesterCommand: "test-agent",
+            launcher: TestAppLauncher(),
+            io: output.io,
+            failureMessages: .testMessages,
+            now: { Date(timeIntervalSince1970: 1) }
+        )
+    }
+}
+
+private final class RecordingTouchIDSetupLauncher: SudoTouchIDSetupLaunching {
+    private let exitCode: Int32
+    private(set) var helperURLs: [URL] = []
+
+    init(exitCode: Int32) {
+        self.exitCode = exitCode
+    }
+
+    func run(helperURL: URL) throws -> Int32 {
+        helperURLs.append(helperURL)
+        return exitCode
+    }
 }
 
 private final class TestCLIOutput {
     private(set) var standardOutput = Data()
     private(set) var standardError = ""
+    private(set) var requestedStandardInputByteCounts: [Int] = []
+    var standardInput = Data()
 
     var io: SudoCLIIO {
         SudoCLIIO(
-            readStandardInput: { Data() },
+            readStandardInput: { [weak self] maximumBytes in
+                self?.requestedStandardInputByteCounts.append(maximumBytes)
+                return Data((self?.standardInput ?? Data()).prefix(maximumBytes))
+            },
             writeStandardOutput: { [weak self] in self?.standardOutput.append($0) },
             writeStandardError: { [weak self] in self?.standardError += $0 + "\n" }
         )

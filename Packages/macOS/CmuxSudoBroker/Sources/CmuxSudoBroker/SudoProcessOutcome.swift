@@ -4,4 +4,7 @@ enum SudoProcessOutcome: Sendable, Equatable {
     case unavailable
     case authenticationFailed(cleanupSurvivors: [SudoProcessIdentity])
     case timedOut(cleanupSurvivors: [SudoProcessIdentity])
+    case privilegedTimedOut
+    case privilegedCleanupFailed
+    case privilegedTransportFailed
 }

@@ -44,6 +44,7 @@ extension CMUXCLI {
             let runner = SudoExecutionRunner(
                 paths: context.paths,
                 expectedParentExecutableURL: context.appExecutableURL,
+                privilegedHelperExecutableURL: context.cliExecutableURL,
                 messages: .localized
             )
             return runner.run(requestID: commandArgs[0])
@@ -56,6 +57,10 @@ extension CMUXCLI {
             )
             return 126
         }
+    }
+
+    func runHiddenSudoPrivilegedExecutor(commandArgs: [String]) -> Int32 {
+        SudoPrivilegedExecutor().run(arguments: commandArgs)
     }
 
     private func sudoCLIContext() throws -> SudoCLIContext {
@@ -80,7 +85,9 @@ extension CMUXCLI {
                 bundleIdentifier: bundleIdentifier
             ),
             appBundleURL: bundle.bundleURL,
-            appExecutableURL: appExecutableURL
+            appExecutableURL: appExecutableURL,
+            cliExecutableURL: URL(fileURLWithPath: CommandLine.arguments[0])
+                .standardizedFileURL
         )
     }
 
@@ -141,5 +148,6 @@ extension CMUXCLI {
         let paths: SudoBrokerPaths
         let appBundleURL: URL
         let appExecutableURL: URL
+        let cliExecutableURL: URL
     }
 }

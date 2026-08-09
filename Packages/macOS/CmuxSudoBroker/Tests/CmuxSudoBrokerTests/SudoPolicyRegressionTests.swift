@@ -123,6 +123,34 @@ struct SudoPolicyRegressionTests {
         #expect(output == Data("beforeafter".utf8))
     }
 
+    @Test("Privileged timeout markers are stripped and preserved as control state")
+    func privilegedTimeoutMarkerIsOutOfBand() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let outputURL = fixture.paths.results.appendingPathComponent("root-timeout.txt")
+        let outputDescriptor = Darwin.open(
+            outputURL.path,
+            O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC,
+            mode_t(0o600)
+        )
+        try #require(outputDescriptor >= 0)
+        defer { Darwin.close(outputDescriptor) }
+        var collector = SudoExecutionOutputCollector(
+            outputDescriptor: outputDescriptor,
+            readinessMarker: nil
+        )
+
+        try collector.consume(
+            Data("before".utf8)
+                + SudoExecutionControlMarkers().executionTimedOut
+                + Data("after".utf8)
+        )
+        try collector.finish()
+
+        #expect(collector.privilegedFailure == .privilegedTimedOut)
+        #expect(try Data(contentsOf: outputURL) == Data("beforeafter".utf8))
+    }
+
     @Test("Reviewed-script capability is anonymous and byte exact")
     func reviewedScriptCapability() throws {
         let fixture = try SudoTestFixture()
@@ -189,6 +217,20 @@ struct SudoPolicyRegressionTests {
         #expect(throws: (any Error).self) {
             _ = try fixture.enqueue(id: "bounded-pending-overflow", createdAt: createdAt)
         }
+    }
+
+    @Test("Bounded input stops reading an endless device at the caller limit")
+    func endlessInputIsBounded() throws {
+        let descriptor = Darwin.open("/dev/zero", O_RDONLY | O_CLOEXEC)
+        try #require(descriptor >= 0)
+        defer { Darwin.close(descriptor) }
+
+        let data = try SudoBoundedInputReader().read(
+            descriptor: descriptor,
+            maximumBytes: 4_097
+        )
+
+        #expect(data.count == 4_097)
     }
 
     @Test("Spool maintenance removes abandoned terminal artifacts")

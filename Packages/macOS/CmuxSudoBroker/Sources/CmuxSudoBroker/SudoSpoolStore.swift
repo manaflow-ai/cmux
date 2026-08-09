@@ -9,18 +9,19 @@ struct SudoSpoolStore {
     }
 
     let paths: SudoBrokerPaths
+    let resourcePolicy: SudoResourcePolicy
     private let fileManager: FileManager
     private let now: () -> Date
     private let maximumRequestBytes = 64 * 1_024
-    private let maximumScriptBytes = 16 * 1_024 * 1_024
-    private let outputRetentionSeconds: TimeInterval = 24 * 60 * 60
 
     init(
         paths: SudoBrokerPaths,
+        resourcePolicy: SudoResourcePolicy = .standard,
         fileManager: FileManager = .default,
         now: @escaping () -> Date = { .now }
     ) {
         self.paths = paths
+        self.resourcePolicy = resourcePolicy
         self.fileManager = fileManager
         self.now = now
     }
@@ -43,9 +44,7 @@ struct SudoSpoolStore {
             }
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         }
-        pruneStaleTerminalOutputs(
-            before: now().addingTimeInterval(-outputRetentionSeconds)
-        )
+        performMaintenance(at: now())
     }
 
     func enqueue(_ pending: SudoPendingRequest) throws {
@@ -53,37 +52,50 @@ struct SudoSpoolStore {
             throw SudoSpoolError.invalidRequestID
         }
         try ensureDirectories()
-        let id = pending.request.id
-        let scriptURL = paths.requests.appendingPathComponent("\(id).sh")
-        let requestURL = paths.requests.appendingPathComponent("\(id).json")
-        guard try writeAtomically(
-            Data(pending.script.utf8),
-            to: scriptURL,
-            permissions: 0o600,
-            exclusive: true
-        ) else {
-            throw SudoSpoolError.requestAlreadyExists
+        let scriptData = Data(pending.script.utf8)
+        guard scriptData.count <= resourcePolicy.maximumScriptBytes else {
+            throw SudoSpoolError.scriptTooLarge
         }
-        do {
-            try writeState(
-                SudoRequestState(
-                    id: id,
-                    phase: .pendingApproval,
-                    updatedAt: pending.request.createdAt
-                )
-            )
+        try withStoreLock(name: "admission") {
+            let usage = pendingUsage(at: now())
+            guard usage.requestCount < resourcePolicy.maximumPendingRequestCount,
+                  usage.scriptBytes + scriptData.count
+                    <= resourcePolicy.maximumPendingScriptBytes else {
+                throw SudoSpoolError.requestCapacityExceeded
+            }
+
+            let id = pending.request.id
+            let scriptURL = paths.requests.appendingPathComponent("\(id).sh")
+            let requestURL = paths.requests.appendingPathComponent("\(id).json")
             guard try writeAtomically(
-                try Self.encoder.encode(pending.request),
-                to: requestURL,
+                scriptData,
+                to: scriptURL,
                 permissions: 0o600,
                 exclusive: true
             ) else {
                 throw SudoSpoolError.requestAlreadyExists
             }
-        } catch {
-            try? fileManager.removeItem(at: scriptURL)
-            try? fileManager.removeItem(at: stateURL(id: id))
-            throw error
+            do {
+                try writeState(
+                    SudoRequestState(
+                        id: id,
+                        phase: .pendingApproval,
+                        updatedAt: pending.request.createdAt
+                    )
+                )
+                guard try writeAtomically(
+                    try Self.encoder.encode(pending.request),
+                    to: requestURL,
+                    permissions: 0o600,
+                    exclusive: true
+                ) else {
+                    throw SudoSpoolError.requestAlreadyExists
+                }
+            } catch {
+                try? fileManager.removeItem(at: scriptURL)
+                try? fileManager.removeItem(at: stateURL(id: id))
+                throw error
+            }
         }
     }
 
@@ -102,7 +114,7 @@ struct SudoSpoolStore {
                   request.id == id,
                   let scriptData = try? readData(
                     at: paths.requests.appendingPathComponent("\(id).sh"),
-                    maximumBytes: maximumScriptBytes
+                    maximumBytes: resourcePolicy.maximumScriptBytes
                   ),
                   let script = String(data: scriptData, encoding: .utf8) else {
                 return nil
@@ -381,10 +393,6 @@ struct SudoSpoolStore {
                     paths.executions.appendingPathComponent("\(id).json"),
                     paths.archive.appendingPathComponent("\(id).execution.json")
                 ),
-                (
-                    paths.approved.appendingPathComponent("\(id).sh"),
-                    paths.archive.appendingPathComponent("\(id).approved.sh")
-                ),
             ])
         }
         for (source, destination) in files {
@@ -395,11 +403,26 @@ struct SudoSpoolStore {
                 try? fileManager.moveItem(at: source, to: destination)
             }
         }
+        if !preserveExecutionEvidence {
+            try? fileManager.removeItem(
+                at: paths.approved.appendingPathComponent("\(id).sh")
+            )
+        }
     }
 
     func appendAudit(_ line: String) {
         let sanitized = line.replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\r", with: " ")
+        let maximumLineBytes = min(4 * 1_024, resourcePolicy.maximumAuditBytes)
+        let lineBytes = Data(sanitized.utf8).prefix(maximumLineBytes)
+        let data = Data(lineBytes) + Data("\n".utf8)
+        try? withStoreLock(name: "audit") {
+            trimAuditLog(forIncomingByteCount: data.count)
+            appendAuditData(data)
+        }
+    }
+
+    private func appendAuditData(_ data: Data) {
         let descriptor = Darwin.open(
             paths.auditLog.path,
             O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW | O_CLOEXEC,
@@ -407,7 +430,6 @@ struct SudoSpoolStore {
         )
         guard descriptor >= 0 else { return }
         defer { Darwin.close(descriptor) }
-        let data = Data((sanitized + "\n").utf8)
         var offset = 0
         while offset < data.count {
             let count = data.withUnsafeBytes { bytes in
@@ -429,6 +451,191 @@ struct SudoSpoolStore {
 
     private func stateURL(id: String) -> URL {
         paths.states.appendingPathComponent("\(id).json")
+    }
+
+    private func performMaintenance(at date: Date) {
+        let cutoff = date.addingTimeInterval(-resourcePolicy.artifactRetentionSeconds)
+        pruneRegularFiles(
+            in: paths.archive,
+            before: cutoff,
+            maximumTotalBytes: resourcePolicy.maximumArchiveBytes,
+            isEligible: { _ in true }
+        )
+        pruneStaleTerminalOutputs(before: cutoff)
+        pruneRegularFiles(
+            in: paths.results,
+            before: cutoff,
+            maximumTotalBytes: resourcePolicy.maximumResultBytes,
+            isEligible: { url in
+                guard url.pathExtension == "json" else { return false }
+                let id = url.deletingPathExtension().lastPathComponent
+                return Self.isValidRequestID(id) && !hasActiveEvidence(id: id)
+            }
+        )
+        pruneRegularFiles(
+            in: paths.locks,
+            before: cutoff,
+            maximumTotalBytes: .max,
+            isEligible: { url in
+                guard url.pathExtension == "lock" else { return false }
+                let id = url.deletingPathExtension().lastPathComponent
+                guard id != "admission", id != "audit" else { return false }
+                return Self.isValidRequestID(id) && !hasAnyEvidence(id: id)
+            }
+        )
+        try? withStoreLock(name: "audit") {
+            trimAuditLog(forIncomingByteCount: 0)
+        }
+    }
+
+    private func pendingUsage(at date: Date) -> (requestCount: Int, scriptBytes: Int) {
+        let names = (try? fileManager.contentsOfDirectory(atPath: paths.requests.path)) ?? []
+        var requestCount = 0
+        var scriptBytes = 0
+        for name in names where name.hasSuffix(".sh") {
+            let id = String(name.dropLast(3))
+            guard Self.isValidRequestID(id), result(id: id) == nil else { continue }
+            let requestURL = paths.requests.appendingPathComponent("\(id).json")
+            if let data = try? readData(at: requestURL, maximumBytes: maximumRequestBytes),
+               let request = try? Self.decoder.decode(SudoRequest.self, from: data),
+               request.approvalDeadline <= date {
+                continue
+            }
+            let scriptURL = paths.requests.appendingPathComponent(name)
+            guard let info = regularFileInfo(at: scriptURL) else { continue }
+            requestCount += 1
+            scriptBytes += info.size
+        }
+        return (requestCount, scriptBytes)
+    }
+
+    private func hasActiveEvidence(id: String) -> Bool {
+        fileManager.fileExists(
+            atPath: paths.requests.appendingPathComponent("\(id).json").path
+        ) || fileManager.fileExists(atPath: stateURL(id: id).path)
+            || fileManager.fileExists(
+                atPath: paths.executions.appendingPathComponent("\(id).json").path
+            )
+            || fileManager.fileExists(
+                atPath: paths.approved.appendingPathComponent("\(id).sh").path
+            )
+    }
+
+    private func hasAnyEvidence(id: String) -> Bool {
+        hasActiveEvidence(id: id)
+            || fileManager.fileExists(
+                atPath: paths.results.appendingPathComponent("\(id).json").path
+            )
+    }
+
+    private func pruneRegularFiles(
+        in directory: URL,
+        before cutoff: Date,
+        maximumTotalBytes: Int,
+        isEligible: (URL) -> Bool
+    ) {
+        let names = (try? fileManager.contentsOfDirectory(atPath: directory.path)) ?? []
+        var files = names.compactMap { name -> RetainedFile? in
+            let url = directory.appendingPathComponent(name)
+            guard isEligible(url), let info = regularFileInfo(at: url) else { return nil }
+            return RetainedFile(url: url, size: info.size, modifiedAt: info.modifiedAt)
+        }
+        files.sort {
+            ($0.modifiedAt, $0.url.lastPathComponent)
+                < ($1.modifiedAt, $1.url.lastPathComponent)
+        }
+        var totalBytes = files.reduce(0) { $0 + $1.size }
+        for file in files where file.modifiedAt <= cutoff || totalBytes > maximumTotalBytes {
+            guard unlink(file.url.path) == 0 else { continue }
+            totalBytes -= file.size
+        }
+    }
+
+    private func regularFileInfo(at url: URL) -> (size: Int, modifiedAt: Date)? {
+        var status = stat()
+        guard lstat(url.path, &status) == 0,
+              status.st_mode & S_IFMT == S_IFREG,
+              status.st_uid == geteuid(),
+              status.st_size >= 0,
+              let size = Int(exactly: status.st_size) else {
+            return nil
+        }
+        let modifiedAt = Date(
+            timeIntervalSince1970: TimeInterval(status.st_mtimespec.tv_sec)
+                + TimeInterval(status.st_mtimespec.tv_nsec) / 1_000_000_000
+        )
+        return (size, modifiedAt)
+    }
+
+    private func trimAuditLog(forIncomingByteCount incomingByteCount: Int) {
+        let maximumBytes = resourcePolicy.maximumAuditBytes
+        guard maximumBytes > 0 else {
+            _ = unlink(paths.auditLog.path)
+            return
+        }
+        let descriptor = Darwin.open(
+            paths.auditLog.path,
+            O_RDWR | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard descriptor >= 0 else { return }
+        defer { Darwin.close(descriptor) }
+
+        var status = stat()
+        guard fstat(descriptor, &status) == 0,
+              status.st_mode & S_IFMT == S_IFREG,
+              status.st_uid == geteuid(),
+              status.st_size >= 0,
+              let currentSize = Int(exactly: status.st_size) else {
+            return
+        }
+        let targetBytes = max(0, maximumBytes - incomingByteCount)
+        guard currentSize > targetBytes else { return }
+        let retainedBytes = min(resourcePolicy.retainedAuditBytes, targetBytes)
+        let start = max(0, status.st_size - off_t(retainedBytes))
+        guard lseek(descriptor, start, SEEK_SET) >= 0 else { return }
+        var tail = Data(count: Int(status.st_size - start))
+        var offset = 0
+        while offset < tail.count {
+            let remainingCount = tail.count - offset
+            let count = tail.withUnsafeMutableBytes { bytes in
+                Darwin.read(
+                    descriptor,
+                    bytes.baseAddress?.advanced(by: offset),
+                    remainingCount
+                )
+            }
+            if count > 0 {
+                offset += count
+            } else if count < 0, errno == EINTR {
+                continue
+            } else {
+                return
+            }
+        }
+        if start > 0, let newline = tail.firstIndex(of: UInt8(ascii: "\n")) {
+            tail.removeSubrange(...newline)
+        }
+        guard ftruncate(descriptor, 0) == 0,
+              lseek(descriptor, 0, SEEK_SET) == 0 else {
+            return
+        }
+        var writeOffset = 0
+        while writeOffset < tail.count {
+            let count = tail.withUnsafeBytes { bytes in
+                Darwin.write(
+                    descriptor,
+                    bytes.baseAddress?.advanced(by: writeOffset),
+                    tail.count - writeOffset
+                )
+            }
+            if count > 0 {
+                writeOffset += count
+            } else if count < 0, errno == EINTR {
+                continue
+            } else {
+                return
+            }
+        }
     }
 
     private func pruneStaleTerminalOutputs(before cutoff: Date) {
@@ -560,7 +767,15 @@ struct SudoSpoolStore {
         operation: () throws -> Value
     ) throws -> Value {
         guard Self.isValidRequestID(id) else { throw SudoSpoolError.invalidRequestID }
-        let lockURL = paths.locks.appendingPathComponent("\(id).lock")
+        return try withStoreLock(name: id, operation: operation)
+    }
+
+    private func withStoreLock<Value>(
+        name: String,
+        operation: () throws -> Value
+    ) throws -> Value {
+        guard Self.isValidRequestID(name) else { throw SudoSpoolError.invalidRequestID }
+        let lockURL = paths.locks.appendingPathComponent("\(name).lock")
         let descriptor = Darwin.open(
             lockURL.path,
             O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC,
@@ -573,6 +788,12 @@ struct SudoSpoolStore {
         }
         defer { _ = flock(descriptor, LOCK_UN) }
         return try operation()
+    }
+
+    private struct RetainedFile {
+        let url: URL
+        let size: Int
+        let modifiedAt: Date
     }
 
     private static func isValidRequestID(_ id: String) -> Bool {
@@ -596,9 +817,11 @@ struct SudoSpoolStore {
     }
 }
 
-private enum SudoSpoolError: Error {
+enum SudoSpoolError: Error {
     case invalidRequestID
     case requestAlreadyExists
+    case requestCapacityExceeded
+    case scriptTooLarge
     case approvedScriptAlreadyExists
     case executionAlreadyExists
     case unsafeDirectory(String)

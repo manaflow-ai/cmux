@@ -39,6 +39,15 @@ struct SudoBoundedProcessRunner: Sendable {
             )
         case .timedOut:
             return .timedOut(cleanupSurvivors: terminateAndReap(process))
+        case .privilegedTimedOut:
+            _ = reap(process.identity.processIdentifier)
+            return .privilegedTimedOut
+        case .privilegedCleanupFailed:
+            _ = reap(process.identity.processIdentifier)
+            return .privilegedCleanupFailed
+        case .privilegedTransportFailed:
+            _ = reap(process.identity.processIdentifier)
+            return .privilegedTransportFailed
         case .failed:
             let survivors = terminateAndReap(process)
             return survivors.isEmpty

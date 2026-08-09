@@ -10,7 +10,11 @@ public final class SudoApprovalCoordinator {
     @ObservationIgnored private let broker: any SudoBrokerServing
     @ObservationIgnored private let presenter: any SudoApprovalPresenting
     @ObservationIgnored private var eventTask: Task<Void, Never>?
+    @ObservationIgnored private var startupTask: Task<Void, Never>?
     @ObservationIgnored private var shutdownTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingStartFailureHandler:
+        (@MainActor @Sendable (any Error) -> Void)?
+    @ObservationIgnored private var isStopping = false
     @ObservationIgnored private var lifecycle = Lifecycle.idle
 
     /// Creates an approval coordinator with injected lifecycle and presentation seams.
@@ -24,6 +28,34 @@ public final class SudoApprovalCoordinator {
     ) {
         self.broker = broker
         self.presenter = presenter
+    }
+
+    /// Whether the app must join approval shutdown before terminating.
+    public var requiresShutdown: Bool {
+        lifecycle != .idle || startupTask != nil || shutdownTask != nil
+    }
+
+    /// Starts the approval lifecycle from a synchronous AppKit callback.
+    ///
+    /// - Parameter onFailure: A callback for a safe broker-startup failure.
+    public func start(
+        onFailure: @MainActor @Sendable @escaping (any Error) -> Void
+    ) {
+        if isStopping || shutdownTask != nil {
+            pendingStartFailureHandler = onFailure
+            return
+        }
+        guard startupTask == nil else { return }
+        startupTask = Task { [weak self] in
+            guard let self else { return }
+            defer { startupTask = nil }
+            do {
+                try await start()
+            } catch {
+                guard !Task.isCancelled, !isStopping else { return }
+                onFailure(error)
+            }
+        }
     }
 
     /// Starts event consumption, reconciles the durable spool, and presents requests.
@@ -58,9 +90,7 @@ public final class SudoApprovalCoordinator {
                 return
             }
             lifecycle = .running
-            for snapshot in snapshots {
-                present(snapshot)
-            }
+            reconcile(snapshots)
         } catch {
             eventTask?.cancel()
             eventTask = nil
@@ -80,6 +110,9 @@ public final class SudoApprovalCoordinator {
             await shutdownTask.value
             return
         }
+        isStopping = true
+        let activeStartupTask = startupTask
+        activeStartupTask?.cancel()
         lifecycle = .stopping
         eventTask?.cancel()
         eventTask = nil
@@ -89,8 +122,16 @@ public final class SudoApprovalCoordinator {
         let task = Task { await broker.stop() }
         shutdownTask = task
         await task.value
+        await activeStartupTask?.value
+        startupTask = nil
         shutdownTask = nil
         lifecycle = .idle
+        isStopping = false
+        let pendingStartFailureHandler = self.pendingStartFailureHandler
+        self.pendingStartFailureHandler = nil
+        if let pendingStartFailureHandler {
+            start(onFailure: pendingStartFailureHandler)
+        }
     }
 
     /// Applies the user's approval through the shared broker mutation path.
@@ -114,13 +155,22 @@ public final class SudoApprovalCoordinator {
     private func receive(_ event: SudoBrokerEvent) {
         guard lifecycle == .starting || lifecycle == .running else { return }
         switch event {
-        case .discovered(let snapshot):
+        case .snapshot(let snapshots):
+            reconcile(snapshots)
+        }
+    }
+
+    private func reconcile(_ snapshots: [SudoPendingRequest]) {
+        guard lifecycle == .starting || lifecycle == .running else { return }
+        let activeIDs = Set(snapshots.map(\.request.id))
+        for id in Array(presentations.keys) where !activeIDs.contains(id) {
+            presenter.dismiss(id: id)
+            presentations.removeValue(forKey: id)
+        }
+        for snapshot in snapshots.sorted(by: {
+            $0.request.id < $1.request.id
+        }) {
             present(snapshot)
-        case .phaseChanged(let id, let phase):
-            presentations[id]?.update(phase: phase)
-        case .settled(let result):
-            presenter.dismiss(id: result.id)
-            presentations.removeValue(forKey: result.id)
         }
     }
 
@@ -141,7 +191,12 @@ public final class SudoApprovalCoordinator {
         )
     }
 
-    func cancelForImmediateTermination() {
+    /// Cancels local UI work after AppKit has entered synchronous teardown.
+    public func cancelForImmediateTermination() {
+        isStopping = true
+        pendingStartFailureHandler = nil
+        startupTask?.cancel()
+        startupTask = nil
         lifecycle = .stopping
         eventTask?.cancel()
         eventTask = nil

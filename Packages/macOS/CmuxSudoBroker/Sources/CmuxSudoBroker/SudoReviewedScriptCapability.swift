@@ -3,7 +3,7 @@ import Foundation
 
 /// Materializes reviewed bytes as an anonymous file descriptor.
 struct SudoReviewedScriptCapability: Sendable {
-    static let maximumBytes = 16 * 1_024 * 1_024
+    static let maximumBytes = SudoResourcePolicy.standard.maximumScriptBytes
 
     let bytes: Data
     let temporaryDirectoryURL: URL

@@ -52,10 +52,9 @@ struct SudoExecutionRecovery: SudoInterruptedExecutionRecovering {
                 roots.append(survivor)
             }
 
-            var survivors: [SudoProcessIdentity] = []
-            for root in roots where inspector.isRunning(root) {
-                survivors.append(contentsOf: terminator.terminate(root: root))
-            }
+            let survivors = terminator.terminate(
+                roots: roots.filter(inspector.isRunning)
+            )
             dispositions[state.id] = survivors.isEmpty ? .recovered : .cleanupIncomplete
         }
         return dispositions

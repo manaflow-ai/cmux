@@ -37,7 +37,9 @@ struct SudoExecutionEventWaiter: Sendable {
         }
         if process.standardInput != nil, descriptors.input < 0 { return .failed }
         if collector.authenticationFailed { return .authenticationFailed }
-        guard inspector.isRunning(process.identity) else { return .exited }
+        guard inspector.isRunning(process.identity) else {
+            return collector.privilegedFailure ?? .exited
+        }
         guard timeout > 0 else { return .timedOut }
 
         let queue = kqueue()
@@ -109,7 +111,9 @@ struct SudoExecutionEventWaiter: Sendable {
                 } catch {
                     return .failed
                 }
-                return collector.authenticationFailed ? .authenticationFailed : .exited
+                return collector.authenticationFailed
+                    ? .authenticationFailed
+                    : collector.privilegedFailure ?? .exited
             }
 
             var triggeredEvent = kevent()
@@ -152,7 +156,8 @@ struct SudoExecutionEventWaiter: Sendable {
                     return .failed
                 }
                 if collector.authenticationFailed { return .authenticationFailed }
-                return inspector.isRunning(process.identity) ? .timedOut : .exited
+                if inspector.isRunning(process.identity) { return .timedOut }
+                return collector.privilegedFailure ?? .exited
             }
         }
     }

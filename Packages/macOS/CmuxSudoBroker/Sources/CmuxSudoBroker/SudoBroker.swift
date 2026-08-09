@@ -65,7 +65,7 @@ public actor SudoBroker {
         self.messages = messages
         let pair = AsyncStream.makeStream(
             of: SudoBrokerEvent.self,
-            bufferingPolicy: .bufferingNewest(256)
+            bufferingPolicy: .bufferingNewest(1)
         )
         eventStream = pair.stream
         eventContinuation = pair.continuation
@@ -113,7 +113,7 @@ public actor SudoBroker {
     public func refresh() async throws -> [SudoPendingRequest] {
         try Task.checkCancellation()
         let now = await dependencies.clock.now()
-        settleCompletedRecords()
+        settleCompletedRecords(publishChanges: false)
 
         for (id, record) in records {
             guard let phase = store.state(id: id)?.phase,
@@ -125,7 +125,6 @@ public actor SudoBroker {
                 script: record.script,
                 phase: phase
             )
-            eventContinuation.yield(.phaseChanged(id: id, phase: phase))
         }
 
         let snapshots = store.pendingRequests()
@@ -187,7 +186,6 @@ public actor SudoBroker {
                 )
                 records[id] = executing
                 discovered.append(executing)
-                eventContinuation.yield(.discovered(executing))
                 continue
             }
 
@@ -227,12 +225,12 @@ public actor SudoBroker {
             records[id] = pending
             if !wasKnown {
                 discovered.append(pending)
-                eventContinuation.yield(.discovered(pending))
             }
             if expiryTasks[id] == nil {
                 scheduleExpiry(for: pending)
             }
         }
+        publishSnapshot()
         return discovered
     }
 
@@ -324,7 +322,7 @@ public actor SudoBroker {
                 script: pending.script,
                 phase: .approved
             )
-            eventContinuation.yield(.phaseChanged(id: id, phase: .approved))
+            publishSnapshot()
             do {
                 let runner = try await dependencies.runner.launch(
                     requestID: id,
@@ -512,14 +510,16 @@ public actor SudoBroker {
         }
     }
 
-    private func settleCompletedRecords() {
+    private func settleCompletedRecords(publishChanges: Bool = true) {
+        var removedRecord = false
         for id in Array(records.keys) {
-            guard let result = store.result(id: id) else { continue }
+            guard store.result(id: id) != nil else { continue }
             cancelExpiry(id: id)
             cancelRunnerMonitor(id: id)
             records.removeValue(forKey: id)
-            eventContinuation.yield(.settled(result))
+            removedRecord = true
         }
+        if removedRecord, publishChanges { publishSnapshot() }
     }
 
     private func monitor(runner: SudoLaunchedRunner, requestID: String) {
@@ -575,7 +575,7 @@ public actor SudoBroker {
         store.appendAudit(
             "\(date.ISO8601Format()) \(result.id) \(auditStatus)"
         )
-        eventContinuation.yield(.settled(store.result(id: result.id) ?? result))
+        publishSnapshot()
     }
 
     private func cancelExpiry(id: String) {
@@ -584,5 +584,9 @@ public actor SudoBroker {
 
     private func cancelRunnerMonitor(id: String) {
         runnerMonitorTasks.removeValue(forKey: id)?.cancel()
+    }
+
+    private func publishSnapshot() {
+        eventContinuation.yield(.snapshot(pendingRequests()))
     }
 }
