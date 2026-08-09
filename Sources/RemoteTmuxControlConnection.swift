@@ -1210,6 +1210,20 @@ final class RemoteTmuxControlConnection {
     /// than a plain attach, because there is no session it was thrown out of.
     private func parkForInteractiveAuth(reason: String) {
         guard connectionState != .ended, !awaitingInteractiveAuth else { return }
+        // A transport that does not authenticate through cmux's ssh master gets no login offer:
+        // see `authenticationIsSSHShaped`. It keeps retrying instead of parking behind an edge
+        // that says nothing about it.
+        guard transportProfile.authenticationIsSSHShaped else {
+            record("\(reason)-auth-required-not-ssh-shaped")
+            // A first attach still has a live stream to tear down; a failed reconnect attempt has
+            // already been torn down by its caller and only needs the next attempt scheduled.
+            if connectionState == .connecting || connectionState == .connected {
+                beginReconnecting(preservingBackoff: true)
+            } else {
+                scheduleReconnectAttempt()
+            }
+            return
+        }
         record("\(reason)-auth-required")
         teardownProcessHandles()
         connectionState = .reconnecting

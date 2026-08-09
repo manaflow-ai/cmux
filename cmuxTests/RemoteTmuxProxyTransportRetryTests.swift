@@ -2368,6 +2368,13 @@ private struct FuzzTransportProfile: RemoteTmuxTransportProfile {
         }
     }
 
+    var authenticationIsSSHShaped: Bool {
+        switch shape {
+        case .persistentRemote: return et.authenticationIsSSHShaped
+        case .plainSSH: return ssh.authenticationIsSSHShaped
+        }
+    }
+
     func commandLengthOverrun(
         sessionName: String, mode: RemoteTmuxControlAttachMode
     ) -> (actual: Int, budget: Int)? {
