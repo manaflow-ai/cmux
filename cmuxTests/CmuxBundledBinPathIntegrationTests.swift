@@ -145,9 +145,10 @@ struct CmuxBundledBinPathIntegrationTests {
         case .fish:
             return [
                 "--no-config",
-                "--interactive",
                 "--command",
-                "source \"$argv[1]\"; command -s open",
+                // Sourcing the integration exercises the same PATH repair without
+                // keeping Fish's interactive event loop alive after the command.
+                "source \"$argv[1]\"; command -s open; exit",
                 integrationDirectory.appending(path: "fish/config.fish").path,
             ]
         case .zsh:
