@@ -16,6 +16,12 @@ final class VaultHistoryEventLog {
 
     private let store: any VaultHistoryEventStoring
     private var pendingRecordTask: Task<Void, Never>?
+    private var pendingRecordCount = 0
+
+    /// Whether accepted records are still queued or being persisted.
+    var hasPendingRecords: Bool {
+        pendingRecordCount > 0
+    }
 
     init(
         store: any VaultHistoryEventStoring,
@@ -33,14 +39,23 @@ final class VaultHistoryEventLog {
         guard phase == .active else { return }
         let store = store
         let previous = pendingRecordTask
+        pendingRecordCount += 1
         pendingRecordTask = Task(priority: .utility) { [weak self] in
             await previous?.value
-            guard !Task.isCancelled,
-                  await store.append(event),
-                  let self else {
-                return
+            let didAppend: Bool
+            if Task.isCancelled {
+                didAppend = false
+            } else {
+                didAppend = await store.append(event)
             }
-            self.revision &+= 1
+            guard let self else { return }
+            if didAppend {
+                self.revision &+= 1
+            }
+            self.pendingRecordCount -= 1
+            if self.pendingRecordCount == 0 {
+                self.pendingRecordTask = nil
+            }
         }
     }
 

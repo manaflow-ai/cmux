@@ -33,8 +33,10 @@ import Testing
         let acceptedLog = VaultHistoryEventLog(store: acceptedStore, phase: .active)
 
         acceptedLog.record(event(id: "accepted"))
+        #expect(acceptedLog.hasPendingRecords)
         #expect(acceptedLog.revision == 0)
         await acceptedLog.flushPendingRecords()
+        #expect(!acceptedLog.hasPendingRecords)
         #expect(acceptedLog.revision == 1)
         #expect(await acceptedLog.recentEvents().map(\.id) == ["accepted"])
 
@@ -43,8 +45,10 @@ import Testing
         )
         let rejectedLog = VaultHistoryEventLog(store: rejectedStore, phase: .active)
         rejectedLog.record(event(id: "rejected"))
+        #expect(rejectedLog.hasPendingRecords)
         await rejectedLog.flushPendingRecords()
 
+        #expect(!rejectedLog.hasPendingRecords)
         #expect(rejectedLog.revision == 0)
         #expect(await rejectedLog.recentEvents().isEmpty)
     }
