@@ -157,7 +157,7 @@ struct DockRuntimeParityTests {
     }
 
     private func withAppContext(
-        fileExplorerState: FileExplorerState? = nil,
+        fileExplorerState: FileExplorerState? = FileExplorerState(),
         _ body: @MainActor (AppDelegate, TabManager, Workspace, UUID) async throws -> Void
     ) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
@@ -210,7 +210,7 @@ struct DockRuntimeParityTests {
 
     @Test("Failed window Dock unread jump does not reveal its owner window")
     func failedWindowDockUnreadJumpDoesNotRevealOwnerWindow() async throws {
-        try await withAppContext { appDelegate, _, _, windowID in
+        try await withAppContext(fileExplorerState: nil) { appDelegate, _, _, windowID in
             let notificationStore = TerminalNotificationStore.shared
             let previousNotificationStore = appDelegate.notificationStore
             let window = try #require(appDelegate.windowForMainWindowId(windowID))
@@ -248,18 +248,61 @@ struct DockRuntimeParityTests {
             let window = try #require(appDelegate.windowForMainWindowId(windowID))
             let dock = appDelegate.windowDock(forWindowId: windowID)
             let panel = DockRuntimeParityPanel(title: "Focused Dock unread")
+            let otherPanel = DockRuntimeParityPanel(title: "Other Dock unread")
             try dock.seedRuntimeParityPanel(panel)
+            try dock.seedRuntimeParityPanel(otherPanel)
             notificationStore.markRead(forTabId: windowID)
+            notificationStore.replaceNotificationsForTesting([
+                TerminalNotification(
+                    id: UUID(),
+                    tabId: windowID,
+                    surfaceId: panel.id,
+                    title: "Focused Dock notification",
+                    subtitle: "",
+                    body: "Focused",
+                    createdAt: .now,
+                    isRead: false
+                ),
+                TerminalNotification(
+                    id: UUID(),
+                    tabId: windowID,
+                    surfaceId: otherPanel.id,
+                    title: "Other Dock notification",
+                    subtitle: "",
+                    body: "Other",
+                    createdAt: .now,
+                    isRead: false
+                ),
+            ])
             appDelegate.notificationStore = notificationStore
             dock.focusPanel(panel.id)
             appDelegate.keyboardFocusCoordinator(for: window)?
                 .noteRightSidebarInteraction(mode: .dock)
             defer {
+                notificationStore.replaceNotificationsForTesting([])
                 notificationStore.markRead(forTabId: windowID)
                 appDelegate.notificationStore = previousNotificationStore
             }
 
             #expect(workspace.manualUnreadPanelIds.isEmpty)
+            #expect(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
+            #expect(!notificationStore.hasUnreadNotification(
+                forTabId: windowID,
+                surfaceId: panel.id
+            ))
+            #expect(!notificationStore.hasVisibleNotificationIndicator(
+                forTabId: windowID,
+                surfaceId: panel.id
+            ))
+            #expect(notificationStore.hasUnreadNotification(
+                forTabId: windowID,
+                surfaceId: otherPanel.id
+            ))
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: panel.id
+            ))
+
             #expect(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
             #expect(notificationStore.hasManualUnread(
                 forTabId: windowID,
@@ -271,6 +314,10 @@ struct DockRuntimeParityTests {
             #expect(!notificationStore.hasManualUnread(
                 forTabId: windowID,
                 surfaceId: panel.id
+            ))
+            #expect(notificationStore.hasUnreadNotification(
+                forTabId: windowID,
+                surfaceId: otherPanel.id
             ))
             #expect(workspace.manualUnreadPanelIds.isEmpty)
         }
