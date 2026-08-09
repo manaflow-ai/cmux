@@ -23,12 +23,31 @@ struct SidebarRowPalette {
         sidebarSelectedWorkspaceForegroundNSColor(on: selectedBackground, opacity: opacity)
     }
 
-    var primaryText: NSColor {
-        model.isActive ? selectedForeground(1.0) : .labelColor
+    /// Resolves semantic AppKit colors against the row model's declared appearance.
+    func semantic(_ color: NSColor, opacity: CGFloat? = nil) -> NSColor {
+        let appearanceName: NSAppearance.Name = model.colorSchemeIsDark ? .darkAqua : .aqua
+        guard let appearance = NSAppearance(named: appearanceName) else {
+            return color
+        }
+        var resolved = color
+        appearance.performAsCurrentDrawingAppearance {
+            let candidate = opacity.map { color.withAlphaComponent($0) } ?? color
+            resolved = candidate.usingColorSpace(.sRGB) ?? candidate
+        }
+        return resolved
     }
 
-    func secondary(_ opacity: CGFloat = 0.75) -> NSColor {
-        model.isActive ? selectedForeground(opacity) : .secondaryLabelColor
+    var primaryText: NSColor {
+        model.isActive ? selectedForeground(1.0) : semantic(.labelColor)
+    }
+
+    func secondary(
+        _ selectedOpacity: CGFloat = 0.75,
+        inactiveOpacity: CGFloat? = nil
+    ) -> NSColor {
+        model.isActive
+            ? selectedForeground(selectedOpacity)
+            : semantic(.secondaryLabelColor, opacity: inactiveOpacity)
     }
 
     /// Link color for row-owned text. AppKit paints `.link` runs in
@@ -37,7 +56,7 @@ struct SidebarRowPalette {
     /// blue. Active rows therefore derive the link color from the selected
     /// foreground so a custom `sidebarSelectionColorHex` stays legible.
     var linkText: NSColor {
-        model.isActive ? selectedForeground(1.0) : .linkColor
+        model.isActive ? selectedForeground(1.0) : semantic(.linkColor)
     }
 
 }
@@ -352,7 +371,7 @@ final class SidebarRowIconTextLine: NSView {
             }
         } else {
             switch log.level {
-            case .info: color = .secondaryLabelColor
+            case .info: color = palette.secondary(0.5)
             case .progress: color = .systemBlue
             case .success: color = .systemGreen
             case .warning: color = .systemOrange
@@ -526,7 +545,7 @@ final class SidebarRowPullRequestLine: NSView {
         clickable: Bool,
         onOpen: @escaping () -> Void
     ) {
-        let color = model.isActive ? palette.secondary(0.75) : NSColor.secondaryLabelColor
+        let color = palette.secondary(0.75)
         let font = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
         iconView.configure(status: display.status, color: color, fontScale: model.fontScale)
         iconSize = SidebarRowPullRequestIconView.size(status: display.status, fontScale: model.fontScale)

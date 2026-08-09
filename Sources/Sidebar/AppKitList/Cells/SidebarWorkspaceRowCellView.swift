@@ -390,7 +390,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         applyBackgroundStyle(style)
         if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
             backgroundView.layer?.borderWidth = 1.5
-            backgroundView.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.5).cgColor
+            backgroundView.layer?.borderColor = palette.semantic(.labelColor, opacity: 0.5).cgColor
         } else {
             backgroundView.layer?.borderWidth = 0
         }
@@ -499,20 +499,19 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         descriptionView.isHidden = description == nil
         if let description {
             let display = description.sidebarBoundedDisplayString(maxDisplayedLines: 12, maxDisplayedCharacters: 4096)
+            let descriptionColor = palette.secondary(0.84, inactiveOpacity: 0.95)
             if let rendered = SidebarMarkdownRenderer(markdown: display).workspaceDescription {
                 descriptionView.configureAttributedText(
                     rendered,
                     font: .systemFont(ofSize: model.scaled(10.5)),
-                    color: model.isActive ? palette.secondary(0.84) : NSColor.secondaryLabelColor.withAlphaComponent(0.95),
+                    color: descriptionColor,
                     linkColor: palette.linkText
                 )
             } else {
                 descriptionView.configurePlainText(
                     display,
                     font: .systemFont(ofSize: model.scaled(10.5)),
-                    color: model.isActive
-                        ? palette.secondary(0.84)
-                        : NSColor.secondaryLabelColor.withAlphaComponent(0.95)
+                    color: descriptionColor
                 )
             }
         }
@@ -650,9 +649,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             trailingBadge.configure(count: model.unreadCount, fillColor: badgeFill, textColor: badgeText, font: badgeFont)
         }
 
-        let spinnerColor: NSColor = model.isActive
-            ? palette.selectedForeground(0.55)
-            : .secondaryLabelColor
+        let spinnerColor = palette.secondary(0.55)
         leadingSpinner = Self.updateSpinner(
             existing: leadingSpinner,
             visible: leadingSpinnerVisible,
@@ -746,7 +743,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     ? palette.selectedForeground(1.0)
                     : palette.secondary(0.95).withAlphaComponent(0.84)
             } else {
-                entryColor = explicitColor ?? .secondaryLabelColor
+                entryColor = explicitColor ?? palette.secondary()
             }
             metadataRows[index].configureMetadataEntry(
                 entry,
@@ -758,9 +755,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             }
         }
         let toggleFont = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
-        let toggleColor = model.isActive
-            ? palette.secondary(0.9)
-            : NSColor.secondaryLabelColor.withAlphaComponent(0.9)
+        let toggleColor = palette.secondary(0.9, inactiveOpacity: 0.9)
         metadataToggleButton.isHidden = allEntries.count <= 3
         if !metadataToggleButton.isHidden {
             metadataToggleButton.configure(
@@ -797,14 +792,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 view.configureAttributedText(
                     rendered,
                     font: .systemFont(ofSize: model.scaled(10)),
-                    color: model.isActive ? palette.secondary(0.8) : .secondaryLabelColor,
+                    color: palette.secondary(0.8),
                     linkColor: palette.linkText
                 )
             } else {
                 view.configurePlainText(
                     display,
                     font: .systemFont(ofSize: model.scaled(10)),
-                    color: model.isActive ? palette.secondary(0.8) : .secondaryLabelColor
+                    color: palette.secondary(0.8)
                 )
             }
         }
@@ -823,7 +818,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             progressView.configure(
                 fraction: CGFloat(progress.value),
                 barHeight: max(3, 3 * model.fontScale),
-                trackColor: model.isActive ? palette.selectedForeground(0.15) : NSColor.secondaryLabelColor.withAlphaComponent(0.2),
+                trackColor: palette.secondary(0.15, inactiveOpacity: 0.2),
                 fillColor: model.isActive ? palette.selectedForeground(0.8) : cmuxAccentNSColor(),
                 labelText: progress.label,
                 labelFont: labelFont,

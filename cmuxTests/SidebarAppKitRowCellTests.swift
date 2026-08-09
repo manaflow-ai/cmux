@@ -659,7 +659,10 @@ struct SidebarAppKitRowCellTests {
         let rendered = try #require(
             textView.attributedStringValue.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
         )
-        #expect(rendered == NSColor.linkColor)
+        let darkAppearance = try #require(NSAppearance(named: .darkAqua))
+        let expectedLink = try Self.resolvedColor(NSColor.linkColor, in: darkAppearance)
+        let renderedSRGB = try #require(rendered.usingColorSpace(.sRGB))
+        #expect(Self.distance(renderedSRGB, expectedLink) < 0.001)
         #expect(
             textView.attributedStringValue.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int
                 == NSUnderlineStyle.single.rawValue
@@ -723,17 +726,14 @@ struct SidebarAppKitRowCellTests {
             excluding: background
         )
 
-        var expectedProse: NSColor?
-        var expectedLink: NSColor?
-        darkAppearance.performAsCurrentDrawingAppearance {
-            expectedProse = cmuxCompositedNSColor(
+        let resolvedProse = cmuxCompositedNSColor(
+            try Self.resolvedColor(
                 NSColor.secondaryLabelColor.withAlphaComponent(0.95),
-                over: background
-            ).usingColorSpace(.sRGB)
-            expectedLink = NSColor.linkColor.usingColorSpace(.sRGB)
-        }
-        let resolvedProse = try #require(expectedProse)
-        let resolvedLink = try #require(expectedLink)
+                in: darkAppearance
+            ),
+            over: background
+        )
+        let resolvedLink = try Self.resolvedColor(NSColor.linkColor, in: darkAppearance)
 
         #expect(Self.distance(proseGlyph, resolvedProse) < 0.12)
         #expect(Self.distance(linkGlyph, resolvedLink) < 0.12)
@@ -1348,7 +1348,10 @@ struct SidebarAppKitRowCellTests {
             #expect(Self.distance(glyphColor, expected) < 0.05)
             #expect(Self.distance(glyphColor, systemLink) > 0.15)
         } else {
-            #expect(rendered == NSColor.linkColor)
+            let darkAppearance = try #require(NSAppearance(named: .darkAqua))
+            let expected = try Self.resolvedColor(NSColor.linkColor, in: darkAppearance)
+            let renderedSRGB = try #require(rendered.usingColorSpace(.sRGB))
+            #expect(Self.distance(renderedSRGB, expected) < 0.001)
         }
     }
 
@@ -1390,6 +1393,17 @@ struct SidebarAppKitRowCellTests {
         descendants(of: cell)
             .compactMap { $0 as? SidebarRowTextView }
             .first { !$0.isHidden && $0.stringValue == text }
+    }
+
+    private static func resolvedColor(
+        _ color: @autoclosure () -> NSColor,
+        in appearance: NSAppearance
+    ) throws -> NSColor {
+        var resolved: NSColor?
+        appearance.performAsCurrentDrawingAppearance {
+            resolved = color().usingColorSpace(.sRGB)
+        }
+        return try #require(resolved)
     }
 
     /// Composites the text field over `background` so glyph pixels can be
