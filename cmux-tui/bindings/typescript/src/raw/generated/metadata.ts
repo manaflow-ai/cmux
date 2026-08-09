@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 11, IR 53474226ce24d06e7248ba1f4ce31f1a5dcf7189ea291ed13994cce8dbc5237b. */
+/* cmux-tui mux protocol 11, IR 6c7f42663c8059b5e8c1cb0a1df201c1949665b925845653e46f5ef7f5742eb3. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 11 as const;
-export const SDK_IR_SHA256 = "53474226ce24d06e7248ba1f4ce31f1a5dcf7189ea291ed13994cce8dbc5237b" as const;
+export const SDK_IR_SHA256 = "6c7f42663c8059b5e8c1cb0a1df201c1949665b925845653e46f5ef7f5742eb3" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1070,6 +1070,7 @@ export const COMMAND_METADATA = {
     },
     "stream": {
       "event_names": [
+        "agent-changed",
         "bell",
         "client-attached",
         "client-changed",
