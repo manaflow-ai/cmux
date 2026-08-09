@@ -11,6 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "cmux_unit_test_shard.py"
+TIMING_GENERATOR = ROOT / "scripts" / "ci" / "generate_test_timings.py"
 
 
 def write_large_suite_fixture(test_root: Path) -> None:
@@ -246,6 +247,79 @@ import Testing
         return 1
 
     print("PASS: parameterized method fallback weight scales by case count")
+    return 0
+
+
+def check_batched_swift_timing_aggregation() -> int:
+    """Timing refreshes must sum distinct partial Swift Testing batches."""
+    import json
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        first_log = tmp_root / "shard-1.log"
+        first_log.write_text(
+            """
+Suite LargeSwiftTests passed after 20.0 seconds
+Suite LegacyOnlyTests passed after 5.0 seconds
+##[group]Run app-host process batch batch-001.args (3 selectors)
+Suite LargeSwiftTests passed after 2.0 seconds
+Suite SmallSwiftTests passed after 1.0 seconds
+##[endgroup]
+##[group]Run app-host process batch batch-002.args (2 selectors)
+Suite LargeSwiftTests passed after 3.0 seconds
+Suite LargeSwiftTests passed after 2.5 seconds
+##[endgroup]
+""".lstrip(),
+            encoding="utf-8",
+        )
+        second_log = tmp_root / "shard-2.log"
+        second_log.write_text(
+            """
+Suite LegacyOnlyTests passed after 6.0 seconds
+##[group]Run app-host process batch batch-001.args (4 selectors)
+Suite LargeSwiftTests passed after 4.0 seconds
+##[endgroup]
+""".lstrip(),
+            encoding="utf-8",
+        )
+        output = tmp_root / "timings.json"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(TIMING_GENERATOR),
+                "--run-id",
+                "fixture-run",
+                "--output",
+                str(output),
+                str(first_log),
+                str(second_log),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            print(result.stdout, end="")
+            print(result.stderr, end="", file=sys.stderr)
+            print(f"FAIL: timing generation exited {result.returncode}")
+            return 1
+        manifest = json.loads(output.read_text(encoding="utf-8"))
+
+    suites = manifest["suites"]
+    if suites.get("LargeSwiftTests") != 9_000:
+        print(
+            "FAIL: distinct partial Swift Testing batches must sum to 9000 ms, "
+            f"got {suites.get('LargeSwiftTests')}"
+        )
+        return 1
+    if suites.get("LegacyOnlyTests") != 6_000:
+        print(
+            "FAIL: legacy unbatched Swift Testing observations must retain the "
+            f"largest duration, got {suites.get('LegacyOnlyTests')}"
+        )
+        return 1
+
+    print("PASS: Swift Testing timing refresh aggregates distinct process batches")
     return 0
 
 
@@ -657,6 +731,9 @@ def main() -> int:
         return rc
 
     if (rc := check_parameterized_method_fallback_weight()) != 0:
+        return rc
+
+    if (rc := check_batched_swift_timing_aggregation()) != 0:
         return rc
 
     with tempfile.TemporaryDirectory() as tmp:
