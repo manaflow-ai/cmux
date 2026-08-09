@@ -29,6 +29,19 @@ struct BrowserWindowPortalRegistryNotificationTests {
         }
     }
 
+    private final class InspectorLayoutResetWebView: WKWebView {
+        var onEnterInWindow: (() -> Void)?
+        private(set) var enterInWindowCount = 0
+
+        @objc(_enterInWindow)
+        func unitTestEnterInWindow() {
+            enterInWindowCount += 1
+            onEnterInWindow?()
+        }
+    }
+
+    private final class WKInspectorLayoutProbeView: NSView {}
+
     private func realizeWindowLayout(_ window: NSWindow) {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -235,6 +248,101 @@ struct BrowserWindowPortalRegistryNotificationTests {
         #expect(
             forcedWebKitLayoutCount > 0,
             "The deferred portal refresh must still lay out WebKit after the anchor callback returns"
+        )
+    }
+
+    @Test func renderingStateReattachReappliesStoredHostedInspectorDivider() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let contentView = try #require(window.contentView)
+
+        let anchor = NSView(frame: NSRect(x: 24, y: 24, width: 360, height: 220))
+        contentView.addSubview(anchor)
+        let webView = InspectorLayoutResetWebView(
+            frame: .zero,
+            configuration: WKWebViewConfiguration()
+        )
+        defer { BrowserWindowPortalRegistry.detach(webView: webView) }
+
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        advanceAnimations()
+
+        let slot = try #require(
+            webView.cmuxBrowserViewportAttachmentSuperview as? WindowBrowserSlotView
+        )
+        let preferredInspectorWidth: CGFloat = 132
+        let lifecycleResetInspectorWidth: CGFloat = 76
+        let pageHeight = slot.bounds.height
+
+        webView.translatesAutoresizingMaskIntoConstraints = true
+        webView.autoresizingMask = [.height]
+        webView.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: slot.bounds.width - preferredInspectorWidth,
+            height: pageHeight
+        )
+        let inspectorContainer = NSView(
+            frame: NSRect(
+                x: webView.frame.maxX,
+                y: 0,
+                width: preferredInspectorWidth,
+                height: pageHeight
+            )
+        )
+        inspectorContainer.autoresizingMask = [.minXMargin, .height]
+        let inspectorView = WKInspectorLayoutProbeView(frame: inspectorContainer.bounds)
+        inspectorView.autoresizingMask = [.width, .height]
+        inspectorContainer.addSubview(inspectorView)
+        slot.addSubview(inspectorContainer)
+        slot.recordPreferredHostedInspectorWidth(
+            preferredInspectorWidth,
+            containerBounds: slot.bounds
+        )
+
+        webView.onEnterInWindow = { [weak webView, weak inspectorContainer] in
+            guard let webView, let inspectorContainer, let slot = webView.superview else { return }
+            webView.frame = NSRect(
+                x: 0,
+                y: 0,
+                width: slot.bounds.width - lifecycleResetInspectorWidth,
+                height: slot.bounds.height
+            )
+            inspectorContainer.frame = NSRect(
+                x: webView.frame.maxX,
+                y: 0,
+                width: lifecycleResetInspectorWidth,
+                height: slot.bounds.height
+            )
+        }
+
+        webView.browserPortalNotifyHidden(reason: "unitTestInspectorLayoutReset")
+        #expect(webView.browserPortalRequiresRenderingStateReattach)
+
+        BrowserWindowPortalRegistry.refresh(
+            webView: webView,
+            reason: "unitTestInspectorLayoutReset"
+        )
+        advanceAnimations()
+
+        #expect(
+            webView.enterInWindowCount > 0,
+            "The test must execute the WebKit lifecycle callback that resets the inspector split"
+        )
+        #expect(
+            abs(inspectorContainer.frame.width - preferredInspectorWidth) <= 0.5,
+            "The stored inspector width must win after WebKit's deferred lifecycle reattach"
+        )
+        #expect(
+            abs(webView.frame.width - (slot.bounds.width - preferredInspectorWidth)) <= 0.5,
+            "Reapplying the inspector width must restore the matching page width"
         )
     }
 
