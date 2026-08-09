@@ -325,7 +325,14 @@ extension RemoteTmuxController {
                 return first
             }
             guard !ready, let self else { return }
-            guard let workspaceId = self.sessionMirrors[key]?.mirroredWorkspaceId,
+            // The key is (host, session name), and 15 seconds is long enough for the mirror under
+            // it to have been replaced — the user detaches and attaches the same session again,
+            // and the new mirror is a different connection that may be perfectly healthy. Only the
+            // connection this wait was started for may be dropped, so the mirror is matched by
+            // identity rather than by key.
+            guard let current = self.sessionMirrors[key],
+                  (current.connection as? RemoteTmuxControlConnection) === connection,
+                  let workspaceId = current.mirroredWorkspaceId,
                   AppDelegate.shared?.windowId(for: manager) != nil
             else { return }
             #if DEBUG
