@@ -49,16 +49,21 @@ struct TerminalComposerView: View {
     let requestInputFocus: () -> Void
     /// Mirrors user-driven SwiftUI responder changes into that same owner.
     let inputFocusChanged: (Bool) -> Void
-    /// PhotosPicker lifecycle facts consumed by the surface input session.
+    /// The modal boundary fact recorded before the picker presentation begins.
     let photoPickerWillPresent: () -> Void
-    let photoPickerDidPresent: () -> Void
-    let photoPickerDidDismiss: () -> Void
-    @FocusState private var isFieldFocused: Bool
-    /// Photo-picker selection bound to the system `PhotosPicker`. Cleared after
-    /// each batch is encoded and staged so re-picking the same image fires again.
-    @State private var pickerSelection: [PhotosPickerItem] = []
-    /// Drives the photo picker's presentation from the attach button.
-    @State private var isPickerPresented = false
+    /// Asks the app-window anchor to present the Photos picker. This view is
+    /// hosted inside the keyboard dock accessory (the system keyboard's
+    /// window), where a locally attached `.photosPicker` presents from a
+    /// keyboard-window controller and never cleanly tears down — see
+    /// ``ComposerPhotoPickerBridge``.
+    let requestPhotoPicker: () -> Void
+    /// Selection handoff from the anchor-presented picker; staged here so the
+    /// attachment pipeline (encode, cap, thumbnails) stays composer-owned.
+    let photoPickerBridge: ComposerPhotoPickerBridge
+    /// Mirrors the UIKit field's first-responder fact (see
+    /// ``MobileComposerTextField``); the `onChange` side effects below are the
+    /// same ones the previous `@FocusState` drove.
+    @State private var isFieldFocused = false
     /// Small downsampled thumbnails keyed by attachment id, built ONCE when each
     /// attachment is staged. The chip row renders these instead of decoding the
     /// full multi-MB `Data` from inside the view body on every composer
@@ -84,8 +89,8 @@ struct TerminalComposerView: View {
         requestInputFocus: @escaping () -> Void,
         inputFocusChanged: @escaping (Bool) -> Void,
         photoPickerWillPresent: @escaping () -> Void,
-        photoPickerDidPresent: @escaping () -> Void,
-        photoPickerDidDismiss: @escaping () -> Void
+        requestPhotoPicker: @escaping () -> Void,
+        photoPickerBridge: ComposerPhotoPickerBridge
     ) {
         self.store = store
         self.terminalID = terminalID
@@ -93,8 +98,8 @@ struct TerminalComposerView: View {
         self.requestInputFocus = requestInputFocus
         self.inputFocusChanged = inputFocusChanged
         self.photoPickerWillPresent = photoPickerWillPresent
-        self.photoPickerDidPresent = photoPickerDidPresent
-        self.photoPickerDidDismiss = photoPickerDidDismiss
+        self.requestPhotoPicker = requestPhotoPicker
+        self.photoPickerBridge = photoPickerBridge
     }
 
     /// Single-line height of the round attach button beside the field. It stays
@@ -336,44 +341,32 @@ struct TerminalComposerView: View {
                 // rendered through the same support component as GUI chat. `.bottom`
                 // alignment pins the button to the field's last line as it grows.
                 MobileComposerFieldContainer(minHeight: composerFieldMinHeight) {
-                    TextField(
-                        L10n.string("mobile.composer.placeholder", defaultValue: "Message"),
+                    // UIKit-backed: the band lives inside the keyboard dock
+                    // accessory (system keyboard window), where a SwiftUI
+                    // TextField's focus cannot summon the keyboard at all. The
+                    // UIKit field takes first responder the Messages way and
+                    // the keyboard rises with the dock riding it. Growth (one
+                    // line up to 14), sentence autocap, autocorrect, and the
+                    // dictation lock (which resigns a focused field without
+                    // counting as the user moving on) carry over; each added
+                    // line grows this view, which the host reserves above the
+                    // always-visible toolbar.
+                    MobileComposerTextField(
                         text: $store.terminalInputText,
-                        axis: .vertical
+                        isFocused: $isFieldFocused,
+                        placeholder: L10n.string(
+                            "mobile.composer.placeholder",
+                            defaultValue: "Message"
+                        ),
+                        textColor: store.activeTerminalTheme.terminalForegroundColor,
+                        isLocked: dictation.locksComposerField,
+                        maxLines: composerLineLimit.upperBound,
+                        accessibilityIdentifier: "MobileComposerField"
                     )
-                    // Opens at a single line and grows up to 14 lines so a long message has
-                    // room. Each added line grows this view, which the host reserves above the
-                    // always-visible toolbar; the toolbar and keyboard never move.
-                    .lineLimit(composerLineLimit)
-                    // Natural-language to an agent, so normal iOS text assistance
-                    // is on (autocorrect, sentence-case, spell check). The raw
-                    // terminal input field keeps these OFF; only the composer
-                    // enables them.
-                    .textInputAutocapitalization(.sentences)
-                    .autocorrectionDisabled(false)
-                    .focused($isFieldFocused)
-                    .simultaneousGesture(
-                        TapGesture().onEnded {
-                            guard !dictation.locksComposerField else { return }
-                            requestInputFocus()
-                        }
-                    )
-                    // Lock the field while dictation owns the text (`.listening`
-                    // or `.stopping`). Every recognition callback rewrites the
-                    // field as base + transcript, so an edit the user made
-                    // mid-dictation would be silently discarded by the next
-                    // partial/final. Disabling input until dictation settles to
-                    // idle makes that edit impossible rather than letting it be
-                    // clobbered. The field stays visible showing the live
-                    // transcript; the mic toggle and send stay live (send
-                    // hard-cancels dictation -> idle, re-enabling the field).
-                    .disabled(dictation.locksComposerField)
-                    .foregroundStyle(store.activeTerminalTheme.terminalForegroundColor)
                     // 6pt container padding + 3pt here keeps the text's 9pt inset
                     // from the round-7 layout, and bottom-aligns the single-line text
                     // with the inline button's circle.
                     .padding(.vertical, 3)
-                    .accessibilityIdentifier("MobileComposerField")
 
                 } trailing: {
                     Button {
@@ -394,22 +387,11 @@ struct TerminalComposerView: View {
         // so the host's re-measure stays correct.
         .padding(.top, 2)
         .padding(.bottom, 8)
-        .photosPicker(
-            isPresented: $isPickerPresented,
-            selection: $pickerSelection,
-            maxSelectionCount: Self.maxAttachmentCount,
-            matching: .images
-        )
-        .onChange(of: pickerSelection) { _, items in
+        .onChange(of: photoPickerBridge.selection) { _, items in
+            // The picker itself is presented by the app-window anchor (see
+            // ``ComposerPhotoPickerBridge``); only the staging runs here.
             guard !items.isEmpty else { return }
             stagePickedItems(items)
-        }
-        .onChange(of: isPickerPresented) { _, isPresented in
-            if isPresented {
-                photoPickerDidPresent()
-            } else {
-                photoPickerDidDismiss()
-            }
         }
     }
 
@@ -501,12 +483,10 @@ struct TerminalComposerView: View {
         }
     }
 
-    /// Record the modal boundary before changing the PhotosPicker binding. The
-    /// surface input session synchronously resigns its actual terminal/composer
-    /// owner; SwiftUI then mirrors that responder change through `@FocusState`.
+    /// Record the modal boundary, then ask the app-window anchor to present.
     private func presentPhotoPicker() {
         photoPickerWillPresent()
-        isPickerPresented = true
+        requestPhotoPicker()
     }
 
     /// Toggle voice dictation. On start the current text is captured as the merge
@@ -650,7 +630,7 @@ struct TerminalComposerView: View {
                     thumbnailCache.set(thumbnail, for: id)
                 }
             }
-            pickerSelection = []
+            photoPickerBridge.selection = []
             // A new chip grows the band; ask the host to re-measure.
             requestHeightRemeasure()
         }

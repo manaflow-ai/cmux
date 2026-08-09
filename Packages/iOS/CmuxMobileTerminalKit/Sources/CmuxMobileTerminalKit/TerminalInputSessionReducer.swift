@@ -164,7 +164,11 @@ public struct TerminalInputSessionState: Equatable, Sendable {
         case .responderChanged(let owner, let isFirstResponder):
             if isFirstResponder {
                 actualOwner = owner
-                if canFocus {
+                if scenePhase == .active {
+                    // A responder observed under a system modal stays seated:
+                    // the composer band lives inside the keyboard dock
+                    // accessory, so resigning here unmounts the dock (and the
+                    // picker binding that must deliver the dismissal).
                     requestedOwner = owner
                     deferredTapID = nil
                 } else {
@@ -172,7 +176,10 @@ public struct TerminalInputSessionState: Equatable, Sendable {
                 }
             } else if actualOwner == owner {
                 actualOwner = nil
-                if requestedOwner == owner {
+                // A focus loss under a system modal is the presentation
+                // stealing the responder, not the user moving on; keep the
+                // request so didDismiss can restore the seat.
+                if requestedOwner == owner, modalPhase == .none {
                     requestedOwner = nil
                 }
             }
@@ -197,17 +204,18 @@ public struct TerminalInputSessionState: Equatable, Sendable {
 
         case .modalWillPresent:
             modalPhase = .willPresent
-            requestedOwner = nil
             deferredTapID = nil
-            if let actualOwner {
-                transition.commands.append(.resign(actualOwner))
-            }
+            // Do NOT resign the active owner, and keep the retained request.
+            // The composer band (and the picker binding that must deliver the
+            // dismissal) is hosted inside the keyboard dock accessory, so a
+            // resign here unmounts that very view: the dismissal never
+            // arrives, the phase wedges at `.presented`, and the dock stays
+            // gone. The presentation covers the keyboard; whether it stays up
+            // underneath is UIKit's call, and a responder the presentation
+            // strips is restored from the retained request at didDismiss.
 
         case .modalDidPresent:
             modalPhase = .presented
-            if let actualOwner {
-                transition.commands.append(.resign(actualOwner))
-            }
 
         case .modalDidDismiss:
             modalPhase = .none

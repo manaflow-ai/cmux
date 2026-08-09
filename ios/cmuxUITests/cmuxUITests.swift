@@ -4855,11 +4855,15 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchConnectedApp(port: UInt16, assertStatusRows: Bool = true) throws -> XCUIApplication {
+    private func launchConnectedApp(
+        port: UInt16,
+        assertStatusRows: Bool = true,
+        environment: [String: String] = [:]
+    ) throws -> XCUIApplication {
         let attachURL = try attachURL(port: port)
-        let app = launchApp(mockData: true, environment: [
-            "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
-        ])
+        var launchEnvironment = environment
+        launchEnvironment["CMUX_UITEST_ATTACH_URL"] = attachURL.absoluteString
+        let app = launchApp(mockData: true, environment: launchEnvironment)
         waitForWorkspaceShell(in: app)
         try openSelectedWorkspaceIfNeeded(app)
         if assertStatusRows {
@@ -6843,6 +6847,8 @@ final class cmuxUITests: XCTestCase {
         static let composeButton = "terminal.inputAccessory.composer"
         /// Toolbar HIDE button (`chevron.down.square`) — suppresses all bottom chrome.
         static let hideButton = "terminal.inputAccessory.hideChrome"
+        /// Keyboard toggle (`chevron.down.square`) — raises / lowers the keyboard.
+        static let keyboardButton = "terminal.inputAccessory.hideKeyboard"
         /// The growing message field inside the composer band.
         static let field = "MobileComposerField"
         /// The paperclip button that presents the system photo picker.
@@ -6913,6 +6919,40 @@ final class cmuxUITests: XCTestCase {
             line: line
         )
         return dock
+    }
+
+    /// Tap the production composer field and use the surface probe as the durable
+    /// focus oracle. SwiftUI may replace the field's accessibility element with its
+    /// backing text view as focus changes, so querying the original `XCUIElement`
+    /// after the tap can itself create a false test failure.
+    @MainActor
+    private func focusComposerField(in app: XCUIApplication) -> Bool {
+        for _ in 0..<4 {
+            let current = surfaceDock(in: app)
+            if current["fieldFocused"] == "1", current["inputActual"] == "composer" {
+                return true
+            }
+
+            let field = app.descendants(matching: .any)[Composer.field]
+            if let frame = waitForUsableFrame(of: field, timeout: 1) {
+                app.coordinate(withNormalizedOffset: .zero)
+                    .withOffset(CGVector(dx: frame.midX, dy: frame.midY))
+                    .tap()
+            } else if field.exists {
+                field.tap()
+            }
+
+            let deadline = Date().addingTimeInterval(1.5)
+            while Date() < deadline {
+                let dock = surfaceDock(in: app)
+                if dock["fieldFocused"] == "1", dock["inputActual"] == "composer" {
+                    return true
+                }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            }
+        }
+        let final = surfaceDock(in: app)
+        return final["fieldFocused"] == "1" && final["inputActual"] == "composer"
     }
 
     /// Assert the structural invariants that hold on the SIMULATOR (which has no
@@ -7050,18 +7090,178 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
-        XCTAssertEqual(
-            Double(surface.frame.minY) + guideTop,
-            Double(keyboard.frame.minY),
-            accuracy: 2,
-            "UIKeyboardLayoutGuide must resolve to the visible keyboard edge for "
-                + "\(context). keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
+        // The guide (and the dock riding it) tops out at the keyboard's FULL
+        // visual edge, which includes the QuickType/prediction strip; the
+        // XCUI key-plane element measures only the key area below that strip.
+        // Assert the dock bottom sits at-or-above the key plane (no keys
+        // occluded) and within one prediction-strip height of it, so the
+        // check pins the geometry without hardcoding the strip's presence.
+        let dockBottomInWindow = Double(surface.frame.minY) + guideTop
+        XCTAssertLessThanOrEqual(
+            dockBottomInWindow,
+            Double(keyboard.frame.minY) + 2,
+            "Dock must not occlude the key plane for \(context). "
+                + "keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
+            file: file,
+            line: line
+        )
+        XCTAssertGreaterThanOrEqual(
+            dockBottomInWindow,
+            Double(keyboard.frame.minY) - 60,
+            "UIKeyboardLayoutGuide must resolve to the visible keyboard edge "
+                + "(key plane, plus at most the prediction strip) for \(context). "
+                + "keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
             file: file,
             line: line
         )
         assertTerminalRenderBottomAttachedToViewport(
             dock,
             context: context,
+            file: file,
+            line: line
+        )
+    }
+
+    /// Drives twelve full software-keyboard up/down cycles through the production
+    /// composer field and accessory toggle. The opt-in surface recorder runs on the
+    /// terminal's existing display link and checks every keyboard-attached frame;
+    /// this test fails if any frame leaves the visible composer/toolbar edge more
+    /// than one point from the system-owned input-accessory bottom, or if a toggle
+    /// wedges before reaching its opposite state.
+    @MainActor
+    func testTerminalKeyboardDockRapidToggleIsPixelAttachedEveryFrame() throws {
+        // Geometry proof does not require a live transport. Use the existing
+        // deterministic connected-workspace fixture so the test still mounts
+        // the production workspace detail, terminal surface, composer field,
+        // and system input accessory without inheriting loopback pairing timing.
+        let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
+            "CMUX_UITEST_KEYBOARD_DOCK_FRAME_RECORDING": "1",
+        ])
+        defer { app.terminate() }
+
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+        let field = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(waitForHittable(field, timeout: 4))
+        let keyboardButton = app.buttons[Composer.keyboardButton]
+        XCTAssertTrue(keyboardButton.waitForExistence(timeout: 4))
+
+        var evidence: [String] = []
+        defer {
+            let report = evidence.joined(separator: "\n")
+            print("keyboard-dock-frame-evidence:\n\(report)")
+            let attachment = XCTAttachment(string: report)
+            attachment.name = "keyboard-dock-frame-evidence"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        let initial = surfaceDock(in: app)
+        let initialSamples = initial["dockFrameSamples"].flatMap(Int.init) ?? 0
+        let initialKeyboardSamples = initial["dockFrameKeyboardSamples"].flatMap(Int.init) ?? 0
+
+        for cycle in 1...12 {
+            XCTAssertTrue(
+                focusComposerField(in: app),
+                "cycle \(cycle): MobileComposerField must acquire keyboard focus"
+            )
+            let keyboardUp = waitForDock(
+                in: app,
+                timeout: cycle == 1 ? 10 : 4,
+                describe: "cycle \(cycle): composer owns raised software keyboard"
+            ) {
+                $0["keyboardUp"] == "1"
+                    && $0["fieldFocused"] == "1"
+                    && $0["inputActual"] == "composer"
+                    && ($0["dockFrameKeyboardSamples"].flatMap(Int.init) ?? 0) > initialKeyboardSamples
+            }
+            guard let softwareKeyboard = waitForSoftwareKeyboardKeyPlane(
+                in: app,
+                minimumOverlap: 120,
+                timeout: 4
+            ) else { return }
+            assertTerminalDockPinnedToSoftwareKeyboard(
+                keyboardUp,
+                surface: surface,
+                keyboard: softwareKeyboard,
+                context: "rapid-toggle cycle \(cycle) keyboard up"
+            )
+            appendDockFrameEvidence(keyboardUp, cycle: cycle, phase: "up", to: &evidence)
+            assertDockFrameRecorderClean(keyboardUp, cycle: cycle, phase: "up")
+
+            XCTAssertTrue(
+                keyboardButton.isHittable,
+                "cycle \(cycle): keyboard toggle must remain hittable before dismissal"
+            )
+            keyboardButton.tap()
+            XCTAssertTrue(
+                waitForKeyboardDismissal(in: app),
+                "cycle \(cycle): software keyboard wedged instead of dismissing"
+            )
+            let keyboardDown = waitForDock(
+                in: app,
+                timeout: 4,
+                describe: "cycle \(cycle): keyboard down without stale composer focus"
+            ) {
+                $0["keyboardUp"] == "0"
+                    && $0["fieldFocused"] == "0"
+                    && $0["inputActual"] == "none"
+            }
+            appendDockFrameEvidence(keyboardDown, cycle: cycle, phase: "down", to: &evidence)
+            assertDockFrameRecorderClean(keyboardDown, cycle: cycle, phase: "down")
+        }
+
+        let final = surfaceDock(in: app)
+        XCTAssertGreaterThanOrEqual(
+            (final["dockFrameSamples"].flatMap(Int.init) ?? 0) - initialSamples,
+            24,
+            "Recorder must inspect multiple display-link frames across 12 complete toggles. dock=\(final)"
+        )
+        XCTAssertGreaterThanOrEqual(
+            (final["dockFrameKeyboardSamples"].flatMap(Int.init) ?? 0) - initialKeyboardSamples,
+            12,
+            "Recorder must observe at least one keyboard-attached frame per rise. dock=\(final)"
+        )
+        XCTAssertEqual(app.state, .runningForeground, "App must remain live after rapid keyboard toggles")
+        XCTAssertTrue(surface.exists, "Terminal surface must remain mounted after rapid keyboard toggles")
+    }
+
+    private func appendDockFrameEvidence(
+        _ dock: [String: String],
+        cycle: Int,
+        phase: String,
+        to evidence: inout [String]
+    ) {
+        let keys = [
+            "keyboardUp", "composerMaxY", "toolbarMaxY", "boundsHeight",
+            "dockFrameSamples", "dockFrameKeyboardSamples", "dockFrameDetached",
+            "dockFrameMaxGap", "dockWorstKeyboardUp", "dockWorstComposerMaxY",
+            "dockWorstToolbarMaxY", "dockWorstBoundsHeight", "dockWorstAccessoryBottomY",
+        ]
+        evidence.append(
+            "cycle=\(cycle);phase=\(phase);"
+                + keys.map { "\($0)=\(dock[$0] ?? "missing")" }.joined(separator: ";")
+        )
+    }
+
+    private func assertDockFrameRecorderClean(
+        _ dock: [String: String],
+        cycle: Int,
+        phase: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(
+            dock["dockFrameDetached"],
+            "0",
+            "cycle \(cycle) \(phase): a display-link frame detached the bars from the keyboard. dock=\(dock)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            dock["dockFrameMaxGap"].flatMap(Double.init) ?? .infinity,
+            1,
+            "cycle \(cycle) \(phase): dock exceeded the one-point pixel-alignment budget. dock=\(dock)",
             file: file,
             line: line
         )
