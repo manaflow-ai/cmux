@@ -3711,6 +3711,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isApplyingSessionRestore = false
         if wasApplyingSessionRestore {
             SurfaceResumeRunPromptBatch.shared.endRestorePass()
+            (tabManager ?? mainWindowContexts.values.first?.tabManager)?
+                .scheduleAutoWorkspaceColorReconcile()
         }
         if isScreenChangeCaptureSuppressed {
             // A display change arrived mid-restore and its reconcile pass was

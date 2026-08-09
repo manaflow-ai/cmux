@@ -36,9 +36,8 @@ enum WorkspaceAutoColorAssignmentStore {
     ///
     /// Gives every workspace in `needingAssignment` a color if it does not have
     /// one yet. Existing assignments are preserved unless their palette color
-    /// disappeared or they conflict with a color reserved by another live
-    /// workspace, which keeps colors stable across creation, reorder, deletion,
-    /// and temporary manual overrides.
+    /// disappeared, which keeps colors stable across creation, reorder,
+    /// deletion, and temporary manual overrides.
     ///
     /// `liveIds` decides which stored colors count as *in use* for allocation,
     /// but does not by itself delete anything. A caller can only see the
@@ -81,18 +80,13 @@ enum WorkspaceAutoColorAssignmentStore {
             stored = stored.filter { liveKeys.contains($0.key) }
         }
 
-        // Two passes over the visible workspaces. The first decides which
-        // colors are already spoken for, the second fills the gaps. Splitting
-        // them matters: allocating inline lets a reassignment steal a color a
-        // later workspace already holds, which then has to move too.
-        //
-        // The healing half matters because a reconcile can run against a
-        // partial list — during restore, or from a window that does not own
-        // every workspace — and hand out a color that a workspace which was not
-        // visible yet already holds. Without this, that duplicate is permanent.
+        // Two passes over the visible workspaces. The first counts every
+        // existing assignment, including duplicates; the second fills only
+        // genuine gaps. Splitting them matters because newly created
+        // workspaces can sort ahead of older ones in the sidebar. Allocating
+        // inline would miss those later assignments and overuse a color.
         let needingKeys = Set(needingAssignment.map(\.uuidString))
         var used: [String] = manualColorHexes
-        var taken = Set(manualColorHexes.map(WorkspaceAutoTabColorAssignment.normalized))
         var pending: [String] = []
 
         // A manual color temporarily hides, but must not surrender, this
@@ -102,7 +96,6 @@ enum WorkspaceAutoColorAssignmentStore {
         for key in liveKeys.subtracting(needingKeys) {
             guard let current = stored[key] else { continue }
             used.append(current)
-            taken.insert(WorkspaceAutoTabColorAssignment.normalized(current))
         }
 
         for id in needingAssignment {
@@ -111,12 +104,6 @@ enum WorkspaceAutoColorAssignmentStore {
                 pending.append(key)
                 continue
             }
-            let normalized = WorkspaceAutoTabColorAssignment.normalized(current)
-            guard !taken.contains(normalized) else {
-                pending.append(key)
-                continue
-            }
-            taken.insert(normalized)
             used.append(current)
         }
 
@@ -127,20 +114,7 @@ enum WorkspaceAutoColorAssignmentStore {
             ) else {
                 continue
             }
-            // With the palette exhausted every candidate is a duplicate. Keep
-            // an existing assignment when the allocator selects that same
-            // color; otherwise move the duplicate to the newly least-used
-            // color. The latter matters when a brand-new workspace sorts
-            // before this one and consumes its old color first.
-            let normalized = WorkspaceAutoTabColorAssignment.normalized(hex)
-            if let current = stored[key],
-               WorkspaceAutoTabColorAssignment.normalized(current) == normalized,
-               taken.contains(normalized) {
-                used.append(current)
-                continue
-            }
             stored[key] = hex
-            taken.insert(normalized)
             used.append(hex)
         }
 

@@ -216,13 +216,10 @@ import Testing
         }
     }
 
-    /// The bug this guards against, seen live: a reconcile ran mid-restore
-    /// while only some workspaces were loaded, so a color another workspace
-    /// already held looked free and was handed out twice. Because assignments
-    /// are never rewritten, the duplicate survived every later reconcile and
-    /// two workspaces showed the same rail color forever.
+    /// Existing colors are durable user-facing identity, even if a legacy or
+    /// interrupted run left two workspaces with the same assignment.
     @Test
-    func healsTwoVisibleWorkspacesSharingAColor() {
+    func preservesTwoVisibleWorkspacesSharingAStoredColor() {
         let defaults = Self.suite()
         let ids = (0..<3).map { _ in UUID() }
         let clashing = Self.palette[0].hex
@@ -239,9 +236,8 @@ import Testing
             defaults: defaults
         )
 
-        let colors = ids.compactMap { after[$0.uuidString] }
-        #expect(Set(colors).count == 3)
         #expect(after[ids[0].uuidString] == clashing)
+        #expect(after[ids[1].uuidString] == clashing)
         #expect(after[ids[2].uuidString] == Self.palette[1].hex)
     }
 
@@ -269,10 +265,10 @@ import Testing
         #expect(after[live.uuidString] == shared)
     }
 
-    /// A workspace that clashes with a colour the user picked by hand moves,
-    /// because the manual colour is the one the user asked for.
+    /// A manual color affects future allocation but does not recolor another
+    /// existing workspace.
     @Test
-    func movesOffAColorTheUserPickedByHand() {
+    func manualColorDoesNotRecolorAnExistingAutoWorkspace() {
         let defaults = Self.suite()
         let id = UUID()
         let manual = Self.palette[0].hex
@@ -289,12 +285,7 @@ import Testing
             defaults: defaults
         )
 
-        let assigned = after[id.uuidString]
-        #expect(assigned != nil)
-        #expect(
-            WorkspaceAutoTabColorAssignment.normalized(assigned ?? "")
-                != WorkspaceAutoTabColorAssignment.normalized(manual)
-        )
+        #expect(after[id.uuidString] == manual)
     }
 
     /// With more workspaces than colors, duplicates are unavoidable, so the
@@ -384,23 +375,20 @@ import Testing
         #expect(counts.values.max()! - counts.values.min()! <= 1)
     }
 
-    /// New workspaces can sort ahead of older workspaces in the sidebar. If a
-    /// new gap is allocated before an existing duplicate is revisited, the
-    /// duplicate must move to the newly least-used color instead of preserving
-    /// an overused color and producing a 3/1/1 distribution.
+    /// New workspaces can sort ahead of older workspaces in the sidebar. The
+    /// allocator must count every existing assignment before filling that new
+    /// gap, or it can produce a 3/1/1 distribution.
     @Test
     func newWorkspaceBeforePreservedDuplicateStillBalancesRecycling() {
         let defaults = Self.suite()
         let ids = (0..<5).map { _ in UUID() }
-        defaults.set(
-            [
-                ids[1].uuidString: Self.palette[0].hex,
-                ids[2].uuidString: Self.palette[0].hex,
-                ids[3].uuidString: Self.palette[1].hex,
-                ids[4].uuidString: Self.palette[2].hex,
-            ],
-            forKey: WorkspaceAutoColorAssignmentStore.defaultsKey
-        )
+        let existing = [
+            ids[1].uuidString: Self.palette[0].hex,
+            ids[2].uuidString: Self.palette[0].hex,
+            ids[3].uuidString: Self.palette[1].hex,
+            ids[4].uuidString: Self.palette[2].hex,
+        ]
+        defaults.set(existing, forKey: WorkspaceAutoColorAssignmentStore.defaultsKey)
 
         let after = WorkspaceAutoColorAssignmentStore.reconcile(
             needingAssignment: ids,
@@ -418,6 +406,9 @@ import Testing
 
         #expect(counts.count == Self.palette.count)
         #expect(counts.values.max()! - counts.values.min()! <= 1)
+        for id in ids.dropFirst() {
+            #expect(after[id.uuidString] == existing[id.uuidString])
+        }
 
         let settled = WorkspaceAutoColorAssignmentStore.reconcile(
             needingAssignment: ids,

@@ -34,6 +34,12 @@ extension TabManager {
             // Auto restores the same colors instead of reshuffling them.
             return
         }
+        // A partially restored workspace list cannot safely allocate against
+        // persisted global assignments. AppDelegate schedules one complete
+        // reconcile after every window has finished restoring.
+        if AppDelegate.shared?.isApplyingSessionRestore == true {
+            return
+        }
 
         let workspaces = Self.autoColorReconcileWorkspaces(fallback: self)
         // Nothing to allocate, and no point writing defaults during teardown or
