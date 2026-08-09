@@ -48,7 +48,19 @@ if [[ -z "$simulator_udid" ]]; then
   echo "Failed to create isolated simulator" >&2
   exit 1
 fi
+xcrun simctl boot "$simulator_udid"
+xcrun simctl bootstatus "$simulator_udid" -b
+recording_pid=""
+if [[ -n "${EVIDENCE_VIDEO:-}" ]]; then
+  mkdir -p "$(dirname "$EVIDENCE_VIDEO")"
+  xcrun simctl io "$simulator_udid" recordVideo --force "$EVIDENCE_VIDEO" &
+  recording_pid="$!"
+fi
 cleanup() {
+  if [[ -n "$recording_pid" ]]; then
+    kill -INT "$recording_pid" >/dev/null 2>&1 || true
+    wait "$recording_pid" >/dev/null 2>&1 || true
+  fi
   xcrun simctl delete "$simulator_udid" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
