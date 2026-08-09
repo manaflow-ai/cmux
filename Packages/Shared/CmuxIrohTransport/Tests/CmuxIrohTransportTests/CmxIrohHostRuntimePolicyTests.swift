@@ -148,8 +148,7 @@ extension CmxIrohHostRuntimeTests {
         try await runtime.start()
         #expect(await runtime.connectivityEngine?.snapshot().routeRevision == 2)
 
-        await endpoint.emit(.networkChanged)
-        await broker.waitForRegistrationCount(2)
+        await runtime.requestRegistrationRefresh()
         for _ in 0..<1_000 {
             if await runtime.snapshot().state == .failed { break }
             await Task.yield()
@@ -188,7 +187,7 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
-    func networkChangeDuringActiveRefreshRequestsAnotherRegistration() async throws {
+    func networkChangeDuringActiveRefreshDoesNotRequestAnotherRegistration() async throws {
         let fixture = try HostRuntimeFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let gate = HostRuntimeRegistrationGate()
@@ -208,17 +207,18 @@ extension CmxIrohHostRuntimeTests {
         )
         try await runtime.start()
 
-        await endpoint.emit(.networkChanged)
+        let refresh = Task { await runtime.requestRegistrationRefresh() }
         await broker.waitForRegistrationCount(2)
         await endpoint.emit(.networkChanged)
-        #expect(await refreshes.waitForCount(2, timeout: .seconds(1)))
+        #expect(await refreshes.waitForCount(1, timeout: .seconds(1)))
         await gate.open()
+        await refresh.value
 
         let registeredAgain = await broker.waitForRegistrationCount(
             3,
-            timeout: .seconds(1)
+            timeout: .milliseconds(200)
         )
-        #expect(registeredAgain)
+        #expect(!registeredAgain)
         await runtime.stop()
     }
 
@@ -253,7 +253,7 @@ extension CmxIrohHostRuntimeTests {
             }
         )
         try await runtime.start()
-        await endpoint.emit(.networkChanged)
+        await runtime.requestRegistrationRefresh()
         await policies.waitForCount(2)
 
         #expect(await policies.contexts().map(\.rendezvous.generation) == [1, 2])
