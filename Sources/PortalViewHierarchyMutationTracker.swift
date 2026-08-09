@@ -64,15 +64,18 @@ final class PortalViewHierarchyMutationTracker: NSObject {
         insertedView: NSView,
         previousWindow: NSWindow?
     ) {
-        guard let window = parentView.window,
-              let tracker = tracker(for: window, createIfNeeded: false),
+        let parentWindow = parentView.window
+        guard let tracker = mutationTracker(
+            for: parentView,
+            parentWindow: parentWindow
+        ),
               tracker.hasActiveCaches else {
             return
         }
         tracker.recordInsertion(
             parentView: parentView,
             insertedView: insertedView,
-            cameFromSameWindow: previousWindow === window
+            cameFromSameWindow: parentWindow != nil && previousWindow === parentWindow
         )
     }
 
@@ -96,8 +99,10 @@ final class PortalViewHierarchyMutationTracker: NSObject {
         newViewPreviousWindow: NSWindow?,
         parentWindow: NSWindow?
     ) {
-        guard let window = parentWindow,
-              let tracker = tracker(for: window, createIfNeeded: false),
+        guard let tracker = mutationTracker(
+            for: parentView,
+            parentWindow: parentWindow
+        ),
               tracker.hasActiveCaches else {
             return
         }
@@ -105,7 +110,7 @@ final class PortalViewHierarchyMutationTracker: NSObject {
             parentView: parentView,
             oldView: oldView,
             newView: newView,
-            newViewCameFromSameWindow: newViewPreviousWindow === window
+            newViewCameFromSameWindow: parentWindow != nil && newViewPreviousWindow === parentWindow
         )
     }
 
@@ -113,15 +118,20 @@ final class PortalViewHierarchyMutationTracker: NSObject {
         parentView: NSView,
         newSubviews: [NSView]
     ) -> SubviewsBeforeReplacement? {
-        guard let window = parentView.window,
-              let tracker = tracker(for: window, createIfNeeded: false),
+        let parentWindow = parentView.window
+        guard let tracker = mutationTracker(
+            for: parentView,
+            parentWindow: parentWindow
+        ),
               tracker.hasActiveCaches else {
             return nil
         }
         return SubviewsBeforeReplacement(
             tracker: tracker,
             subviews: parentView.subviews,
-            newSubviewWasInTrackedWindow: newSubviews.map { $0.window === window }
+            newSubviewWasInTrackedWindow: newSubviews.map {
+                parentWindow != nil && $0.window === parentWindow
+            }
         )
     }
 
@@ -214,6 +224,19 @@ final class PortalViewHierarchyMutationTracker: NSObject {
         let tracker = PortalViewHierarchyMutationTracker(window: window)
         objc_setAssociatedObject(window, key, tracker, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         return tracker
+    }
+
+    /// An indexed subtree can keep its split-free proof while detached. Route
+    /// mutations through that proof's tracker even before the subtree rejoins
+    /// a window, so a fresh wrapper cannot conceal detached structural changes.
+    private static func mutationTracker(
+        for parentView: NSView,
+        parentWindow: NSWindow?
+    ) -> PortalViewHierarchyMutationTracker? {
+        if let parentWindow {
+            return tracker(for: parentWindow, createIfNeeded: false)
+        }
+        return associatedNodeState(for: parentView)?.tracker
     }
 
     func isCurrent(
@@ -397,15 +420,20 @@ final class PortalViewHierarchyMutationTracker: NSObject {
     }
 
     private func nodeState(for view: NSView, createIfNeeded: Bool) -> PortalViewHierarchyNodeState? {
-        let key = Unmanaged.passUnretained(Self.nodeStateAssociationKey).toOpaque()
-        if let state = objc_getAssociatedObject(view, key) as? PortalViewHierarchyNodeState {
+        if let state = Self.associatedNodeState(for: view) {
             return state
         }
         guard createIfNeeded else { return nil }
 
         let state = PortalViewHierarchyNodeState()
+        let key = Unmanaged.passUnretained(Self.nodeStateAssociationKey).toOpaque()
         objc_setAssociatedObject(view, key, state, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         return state
+    }
+
+    private static func associatedNodeState(for view: NSView) -> PortalViewHierarchyNodeState? {
+        let key = Unmanaged.passUnretained(nodeStateAssociationKey).toOpaque()
+        return objc_getAssociatedObject(view, key) as? PortalViewHierarchyNodeState
     }
 
     private func markDirty() {
