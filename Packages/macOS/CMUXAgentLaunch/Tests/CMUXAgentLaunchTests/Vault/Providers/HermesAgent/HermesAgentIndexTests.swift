@@ -227,7 +227,7 @@ struct HermesAgentIndexTests {
         try hookStore.write(to: hookStoreURL)
 
         var inspectionCount = 0
-        let recovered = HermesLegacySessionIdentityRecovery().recover(
+        let resolution = HermesLegacySessionIdentityRecovery().resolve(
             surfaceID: surfaceID,
             corruptSessionID: corruptID,
             expectedWorkspaceID: workspaceID,
@@ -239,7 +239,7 @@ struct HermesAgentIndexTests {
             }
         )
 
-        #expect(recovered == nil)
+        #expect(resolution == .unavailable)
         #expect(inspectionCount == 1)
     }
 

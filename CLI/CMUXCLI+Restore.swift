@@ -104,7 +104,7 @@ extension CMUXCLI {
         }
 
         if let surfaceID = params["surface_id"] as? String {
-            record = recoveredHermesRestoreRecord(
+            record = try recoveredHermesRestoreRecord(
                 record,
                 surfaceID: surfaceID,
                 processEnvironment: processEnvironment
@@ -202,28 +202,44 @@ extension CMUXCLI {
         _ record: RestoreRecord,
         surfaceID: String,
         processEnvironment: [String: String]
-    ) -> RestoreRecord {
+    ) throws -> RestoreRecord {
         guard record.kind == "hermes-agent",
               let checkpointID = record.checkpointID,
               let surfaceUUID = UUID(uuidString: surfaceID) else {
             return record
         }
+        var recoveryEnvironment = processEnvironment
+        recoveryEnvironment.merge(record.environment) { _, restored in restored }
+        if let captured = record.launchCommand?.environment {
+            recoveryEnvironment.merge(captured) { _, restored in restored }
+        }
         let hookStatePath = agentHookStatePath(
             sessionStoreSuffix: "hermes-agent",
             env: processEnvironment
         )
-        guard let candidate = HermesLegacySessionIdentityRecovery().recover(
+        switch HermesLegacySessionIdentityRecovery().resolve(
             surfaceID: surfaceUUID,
             corruptSessionID: checkpointID,
             hookStateFileURL: URL(fileURLWithPath: hookStatePath),
-            environment: processEnvironment
-        ) else {
+            environment: recoveryEnvironment
+        ) {
+        case .valid, .unavailable:
             return record
+        case .missing:
+            throw loggedRestoreError(
+                stage: "hermes.checkpoint.missing",
+                detail: checkpointID,
+                message: String(
+                    localized: "cli.restore.error.noRecord",
+                    defaultValue: "restore: this session has nothing to restore. Start the agent again in this terminal."
+                )
+            )
+        case .recovered(let candidate):
+            return record.repairingHermesCheckpoint(
+                candidate.sessionID,
+                fallbackLaunchCommand: candidate.launchCommand
+            )
         }
-        return record.repairingHermesCheckpoint(
-            candidate.sessionID,
-            fallbackLaunchCommand: candidate.launchCommand
-        )
     }
 
     private func currentRestoreSurfaceID(

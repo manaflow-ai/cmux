@@ -1223,7 +1223,13 @@ struct RestorableAgentSessionIndex: Sendable {
                 continue
             }
 
-            for record in state.sessions.values {
+            let hookRecords = kind == .hermesAgent
+                ? canonicalHermesHookRecords(
+                    state.sessions.values,
+                    homeDirectory: homeDirectory
+                )
+                : Array(state.sessions.values)
+            for record in hookRecords {
                 var effectiveRecord = kind == .claude
                     ? resolvedClaudeWorkflowRecord(
                         record,
@@ -1498,6 +1504,124 @@ struct RestorableAgentSessionIndex: Sendable {
                     )
             }
             .max { $0.updatedAt < $1.updatedAt }
+    }
+
+    /// Validates every Hermes hook identity in one database snapshot per Hermes home.
+    ///
+    /// Hermes can publish a short transport identity immediately before its durable
+    /// TUI row appears. A later hook from the same process generation carries the
+    /// durable identifier, but the short record can have the newer timestamp and win
+    /// normal hook selection. Canonicalize that record before any panel/session maps
+    /// are populated. A readable database is authoritative: missing or ambiguous
+    /// records are omitted. An unavailable database preserves the hook records so a
+    /// transient WAL/read failure cannot erase the last verified session.
+    private static func canonicalHermesHookRecords(
+        _ records: Dictionary<String, RestorableAgentHookSessionRecord>.Values,
+        homeDirectory: String
+    ) -> [RestorableAgentHookSessionRecord] {
+        struct LocatedRecord {
+            let record: RestorableAgentHookSessionRecord
+            let stateDBPath: String
+        }
+
+        let located = records.map { record -> LocatedRecord in
+            var environment = ProcessInfo.processInfo.environment
+            environment["HOME"] = homeDirectory
+            if let captured = record.launchCommand?.environment {
+                environment.merge(captured) { _, incoming in incoming }
+            }
+            return LocatedRecord(
+                record: record,
+                stateDBPath: (HermesAgentSessionResolver.stateDBPath(env: environment) as NSString)
+                    .standardizingPath
+            )
+        }
+
+        var existencesByPath: [String: [String: HermesAgentSessionExistence]] = [:]
+        var unavailablePaths: Set<String> = []
+        for group in Dictionary(grouping: located, by: \.stateDBPath) {
+            let sessionIDs = Set(group.value.map {
+                $0.record.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+            })
+            guard let existences = HermesAgentIndex.sessionExistences(
+                sessionIDs: sessionIDs,
+                stateDBPath: group.key
+            ) else {
+                unavailablePaths.insert(group.key)
+                continue
+            }
+            existencesByPath[group.key] = existences
+        }
+
+        return located.compactMap { locatedRecord in
+            let record = locatedRecord.record
+            let sessionID = record.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !sessionID.isEmpty else { return nil }
+            if unavailablePaths.contains(locatedRecord.stateDBPath) {
+                return record
+            }
+            guard let existences = existencesByPath[locatedRecord.stateDBPath] else {
+                return record
+            }
+            if existences[sessionID] == .exists {
+                return record
+            }
+
+            let durableSiblings = located.filter { candidate in
+                let candidateSessionID = candidate.record.sessionId
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return candidate.stateDBPath == locatedRecord.stateDBPath
+                    && candidateSessionID.caseInsensitiveCompare(sessionID) != .orderedSame
+                    && existences[candidateSessionID] == .exists
+                    && sameHermesProcessGeneration(record, candidate.record)
+                    && sameHermesHookScope(record, candidate.record)
+                    && normalizedHermesHookWorkingDirectory(record)
+                        == normalizedHermesHookWorkingDirectory(candidate.record)
+            }
+            let durableSessionIDs = Set(durableSiblings.map { $0.record.sessionId.lowercased() })
+            guard durableSessionIDs.count == 1,
+                  let sibling = durableSiblings.max(by: {
+                      $0.record.updatedAt < $1.record.updatedAt
+                  })?.record else {
+                return nil
+            }
+
+            var canonical = record
+            canonical.sessionId = sibling.sessionId
+            canonical.launchCommand = canonical.launchCommand ?? sibling.launchCommand
+            canonical.cwd = canonical.cwd ?? sibling.cwd
+            return canonical
+        }
+    }
+
+    private static func sameHermesProcessGeneration(
+        _ lhs: RestorableAgentHookSessionRecord,
+        _ rhs: RestorableAgentHookSessionRecord
+    ) -> Bool {
+        guard let lhsPID = lhs.pid,
+              lhsPID > 0,
+              let lhsStartSeconds = lhs.pidStartSeconds,
+              let lhsStartMicroseconds = lhs.pidStartMicroseconds else {
+            return false
+        }
+        return rhs.pid == lhsPID
+            && rhs.pidStartSeconds == lhsStartSeconds
+            && rhs.pidStartMicroseconds == lhsStartMicroseconds
+    }
+
+    private static func sameHermesHookScope(
+        _ lhs: RestorableAgentHookSessionRecord,
+        _ rhs: RestorableAgentHookSessionRecord
+    ) -> Bool {
+        lhs.workspaceId.caseInsensitiveCompare(rhs.workspaceId) == .orderedSame
+            && lhs.surfaceId.caseInsensitiveCompare(rhs.surfaceId) == .orderedSame
+    }
+
+    private static func normalizedHermesHookWorkingDirectory(
+        _ record: RestorableAgentHookSessionRecord
+    ) -> String? {
+        normalizedNonEmptyValue(record.cwd ?? record.launchCommand?.workingDirectory)
+            .map { ($0 as NSString).standardizingPath }
     }
 
     private static func processIdentities(

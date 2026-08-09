@@ -91,9 +91,14 @@ strip_cmux_hermes_shims_from_path() {
 
 resolve_cmux_cli() {
     local candidate="${CMUX_BUNDLED_CLI_PATH:-}"
-    if [[ -n "$candidate" && -f "$candidate" && -x "$candidate" ]]; then
-        printf '%s' "$candidate"
-        return 0
+    if [[ -n "$candidate" ]]; then
+        if [[ -f "$candidate" && -x "$candidate" ]]; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+        # A tagged app supplies its exact CLI. If that build disappeared, do
+        # not leak installation or lifecycle traffic to another cmux on PATH.
+        return 1
     fi
 
     local self_dir

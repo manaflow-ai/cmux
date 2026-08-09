@@ -74,6 +74,44 @@ cmux_hermes_install_sitecustomize() {
     fi
 }
 
+cmux_hermes_mark_tui_target_module() {
+    local argument
+    unset CMUX_HERMES_TUI_TARGET_MODULE
+
+    # Record the module before Python starts. Python 3.9 does not expose
+    # sys.orig_argv while sitecustomize is imported, so the bootstrap cannot
+    # otherwise distinguish Hermes's gateway from an unrelated interpreter.
+    while (( $# > 0 )); do
+        argument="$1"
+        shift
+        case "$argument" in
+            -m)
+                (( $# > 0 )) || return 0
+                case "$1" in
+                    tui_gateway.entry|tui_gateway.compute_host)
+                        export CMUX_HERMES_TUI_TARGET_MODULE="$1"
+                        ;;
+                esac
+                return 0
+                ;;
+            -c|--)
+                return 0
+                ;;
+            -W|-X|--check-hash-based-pycs)
+                (( $# > 0 )) || return 0
+                shift
+                ;;
+            -W?*|-X?*|--check-hash-based-pycs=*)
+                ;;
+            -*)
+                ;;
+            *)
+                return 0
+                ;;
+        esac
+    done
+}
+
 if ! cmux_hermes_resolve_real_python; then
     echo "cmux: unable to resolve Hermes's Python interpreter" >&2
     exit 127
@@ -81,4 +119,5 @@ fi
 CMUX_HERMES_REAL_PYTHON="$CMUX_HERMES_REAL_PYTHON_RESULT"
 unset CMUX_HERMES_TUI_REAL_PYTHON
 cmux_hermes_install_sitecustomize
+cmux_hermes_mark_tui_target_module "$@"
 exec "$CMUX_HERMES_REAL_PYTHON" "$@"

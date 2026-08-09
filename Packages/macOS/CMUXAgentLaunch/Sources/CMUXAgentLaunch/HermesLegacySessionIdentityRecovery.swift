@@ -29,6 +29,18 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
         }
     }
 
+    /// The authoritative disposition of one persisted Hermes checkpoint.
+    public enum Resolution: Equatable, Sendable {
+        /// The requested identifier already exists in Hermes's durable database.
+        case valid
+        /// A unique durable identifier replaces the requested transient identifier.
+        case recovered(Result)
+        /// The database was readable and contains no safe checkpoint to launch.
+        case missing
+        /// Hermes's database could not be inspected safely; preserve existing state.
+        case unavailable
+    }
+
     private struct HookStore: Decodable {
         let sessions: [String: HookRecord]
     }
@@ -78,7 +90,36 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
         hookStateFileURL: URL,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Result? {
-        recover(
+        guard case .recovered(let result) = resolve(
+            surfaceID: surfaceID,
+            corruptSessionID: corruptSessionID,
+            expectedWorkspaceID: expectedWorkspaceID,
+            hookStateFileURL: hookStateFileURL,
+            environment: environment,
+            databaseInspector: { sessionIDs, cwd, startedAt, upperBound, stateDBPath in
+                HermesAgentIndex.recoveryInspection(
+                    sessionIDs: sessionIDs,
+                    cwd: cwd,
+                    startedAt: startedAt,
+                    before: upperBound,
+                    stateDBPath: stateDBPath
+                )
+            }
+        ) else {
+            return nil
+        }
+        return result
+    }
+
+    /// Validates or recovers one persisted Hermes checkpoint.
+    public func resolve(
+        surfaceID: UUID,
+        corruptSessionID: String,
+        expectedWorkspaceID: UUID? = nil,
+        hookStateFileURL: URL,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Resolution {
+        resolve(
             surfaceID: surfaceID,
             corruptSessionID: corruptSessionID,
             expectedWorkspaceID: expectedWorkspaceID,
@@ -104,29 +145,68 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         databaseInspector: RecoveryDatabaseInspector
     ) -> Result? {
+        guard case .recovered(let result) = resolve(
+            surfaceID: surfaceID,
+            corruptSessionID: corruptSessionID,
+            expectedWorkspaceID: expectedWorkspaceID,
+            hookStateFileURL: hookStateFileURL,
+            environment: environment,
+            databaseInspector: databaseInspector
+        ) else {
+            return nil
+        }
+        return result
+    }
+
+    func resolve(
+        surfaceID: UUID,
+        corruptSessionID: String,
+        expectedWorkspaceID: UUID? = nil,
+        hookStateFileURL: URL,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        databaseInspector: RecoveryDatabaseInspector
+    ) -> Resolution {
         let normalizedCorruptSessionID = normalized(corruptSessionID)
-        guard let normalizedCorruptSessionID,
-              let data = try? Data(contentsOf: hookStateFileURL),
+        guard let normalizedCorruptSessionID else { return .missing }
+
+        guard let data = try? Data(contentsOf: hookStateFileURL),
               let state = try? JSONDecoder().decode(HookStore.self, from: data),
               let corruptRecord = state.sessions[normalizedCorruptSessionID]
                 ?? state.sessions.values.first(where: {
                     $0.sessionId.caseInsensitiveCompare(normalizedCorruptSessionID) == .orderedSame
-                }),
-              corruptRecord.surfaceId.caseInsensitiveCompare(surfaceID.uuidString) == .orderedSame,
+                }) else {
+            return exactResolution(
+                sessionID: normalizedCorruptSessionID,
+                environment: environment,
+                databaseInspector: databaseInspector
+            )
+        }
+        guard corruptRecord.surfaceId.caseInsensitiveCompare(surfaceID.uuidString) == .orderedSame,
               expectedWorkspaceID.map({
                   corruptRecord.workspaceId.caseInsensitiveCompare($0.uuidString) == .orderedSame
-              }) ?? true,
-              let corruptPID = corruptRecord.pid,
-              corruptPID > 0,
-              let corruptPIDStartSeconds = corruptRecord.pidStartSeconds,
-              let corruptPIDStartMicroseconds = corruptRecord.pidStartMicroseconds else {
-            return nil
+              }) ?? true else {
+            return exactResolution(
+                sessionID: normalizedCorruptSessionID,
+                environment: environment,
+                databaseInspector: databaseInspector
+            )
         }
 
         let corruptEnvironment = stateEnvironment(
             base: environment,
             launchCommand: corruptRecord.launchCommand
         )
+        guard let corruptPID = corruptRecord.pid,
+              corruptPID > 0,
+              let corruptPIDStartSeconds = corruptRecord.pidStartSeconds,
+              let corruptPIDStartMicroseconds = corruptRecord.pidStartMicroseconds else {
+            return exactResolution(
+                sessionID: normalizedCorruptSessionID,
+                environment: corruptEnvironment,
+                databaseInspector: databaseInspector
+            )
+        }
+
         let corruptStateDBPath = normalizedStateDBPath(
             HermesAgentSessionResolver.stateDBPath(env: corruptEnvironment)
         )
@@ -203,7 +283,11 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
 
         let corruptExistence = inspectionsByPath[corruptStateDBPath]?
             .existence(of: normalizedCorruptSessionID) ?? .unavailable
-        guard corruptExistence != .exists else { return nil }
+        if corruptExistence == .exists { return .valid }
+        guard corruptExistence == .missing else { return .unavailable }
+        guard requestedSessionIDsByPath.keys.allSatisfy({ inspectionsByPath[$0] != nil }) else {
+            return .unavailable
+        }
 
         let databaseBackedCandidates = candidates.filter { candidate in
             guard let inspection = inspectionsByPath[candidate.stateDBPath] else {
@@ -215,29 +299,48 @@ public struct HermesLegacySessionIdentityRecovery: Sendable {
         if databaseBackedCandidates.count == 1,
            let candidate = databaseBackedCandidates.first,
            candidate.sessionID.caseInsensitiveCompare(normalizedCorruptSessionID) != .orderedSame {
-            return Result(
+            return .recovered(Result(
                 sessionID: candidate.sessionID,
                 launchCommand: candidate.record.launchCommand
-            )
+            ))
         }
-        guard databaseBackedCandidates.isEmpty else { return nil }
+        guard databaseBackedCandidates.isEmpty else { return .missing }
 
-        guard corruptExistence == .missing,
-              cwd != nil,
+        guard cwd != nil,
               let corruptInspection = inspectionsByPath[corruptStateDBPath] else {
-            return nil
+            return .missing
         }
         let matches = corruptInspection.evidence.filter {
             $0.sessionID.caseInsensitiveCompare(normalizedCorruptSessionID) != .orderedSame
         }
-        guard matches.count == 1, let recovered = matches.first else { return nil }
+        guard matches.count == 1, let recovered = matches.first else { return .missing }
         let matchingHookRecord = state.sessions.values.first {
             $0.sessionId.caseInsensitiveCompare(recovered.sessionID) == .orderedSame
         }
-        return Result(
+        return .recovered(Result(
             sessionID: recovered.sessionID,
             launchCommand: matchingHookRecord?.launchCommand ?? corruptRecord.launchCommand
+        ))
+    }
+
+    private func exactResolution(
+        sessionID: String,
+        environment: [String: String],
+        databaseInspector: RecoveryDatabaseInspector
+    ) -> Resolution {
+        let stateDBPath = normalizedStateDBPath(
+            HermesAgentSessionResolver.stateDBPath(env: environment)
         )
+        guard let inspection = databaseInspector(
+            [sessionID],
+            nil,
+            nil,
+            nil,
+            stateDBPath
+        ) else {
+            return .unavailable
+        }
+        return inspection.existence(of: sessionID) == .exists ? .valid : .missing
     }
 
     private func stateEnvironment(

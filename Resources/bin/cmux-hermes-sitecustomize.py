@@ -14,6 +14,7 @@ from typing import Any
 
 
 _TARGET_MODULES = {"tui_gateway.entry", "tui_gateway.compute_host"}
+_TARGET_MODULE_ENV = "CMUX_HERMES_TUI_TARGET_MODULE"
 _WRAPPER_OWNED_LIFECYCLE = {
     "on_session_start": "session-start",
     "on_session_reset": "session-start",
@@ -22,6 +23,9 @@ _WRAPPER_OWNED_LIFECYCLE = {
 
 
 def _target_module() -> str | None:
+    marked_target = os.environ.get(_TARGET_MODULE_ENV)
+    if marked_target in _TARGET_MODULES:
+        return marked_target
     argv = getattr(sys, "orig_argv", ())
     for index, argument in enumerate(argv[:-1]):
         if argument == "-m" and argv[index + 1] in _TARGET_MODULES:
@@ -62,24 +66,30 @@ def _turn_hook_config(config: Any) -> Any:
 
 
 def _bootstrap() -> None:
-    if os.environ.get("CMUX_HERMES_TUI_HOOK_BOOTSTRAP") != "1":
-        return
-    if _target_module() is None:
-        return
+    target_module = _target_module()
+    try:
+        if os.environ.get("CMUX_HERMES_TUI_HOOK_BOOTSTRAP") != "1":
+            return
+        if target_module is None:
+            return
 
-    from agent.shell_hooks import register_from_config
-    from hermes_cli.config import load_config
+        from agent.shell_hooks import register_from_config
+        from hermes_cli.config import load_config
 
-    accept_hooks = os.environ.get("HERMES_ACCEPT_HOOKS", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    register_from_config(
-        _turn_hook_config(load_config()),
-        accept_hooks=accept_hooks,
-    )
+        accept_hooks = os.environ.get("HERMES_ACCEPT_HOOKS", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        register_from_config(
+            _turn_hook_config(load_config()),
+            accept_hooks=accept_hooks,
+        )
+    finally:
+        # Do not leak a gateway marker to unrelated Python subprocesses. A
+        # later compute host routed through the wrapper receives its own marker.
+        os.environ.pop(_TARGET_MODULE_ENV, None)
 
 
 try:

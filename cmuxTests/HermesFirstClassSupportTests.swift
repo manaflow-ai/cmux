@@ -666,10 +666,11 @@ struct HermesFirstClassSupportTests {
         #expect(outcome.errors.isEmpty)
         #expect(entry.sessionId == "indexed-session")
         #expect(entry.cwd == fixture.repo.path)
+        let expectedCWD = TerminalStartupShellQuoting.singleQuoted(fixture.repo.path)
         let expectedHome = SessionEntry.shellQuote(fixture.hermesHome.path)
         #expect(
             entry.resumeCommand
-                == "env HERMES_HOME=\(expectedHome) hermes --profile default --resume indexed-session"
+                == "cd -- \(expectedCWD) 2>/dev/null || [ ! -d \(expectedCWD) ] && env HERMES_HOME=\(expectedHome) hermes --profile default --resume indexed-session --model test-model"
         )
     }
 
@@ -715,9 +716,10 @@ struct HermesFirstClassSupportTests {
             specifics: .hermesAgent(source: "tui", model: nil, hermesHome: nil)
         )
         let expectedHome = HermesAgentSessionResolver.hermesHome(env: ["HOME": NSHomeDirectory()])
+        let resumeCommand = try #require(entry.resumeCommand)
         let result = try runProcess(
             executablePath: "/bin/sh",
-            arguments: ["-c", entry.resumeCommand],
+            arguments: ["-c", resumeCommand],
             environment: [
                 "HOME": NSHomeDirectory(),
                 "HERMES_HOME": root.appendingPathComponent("wrong-profile").path,

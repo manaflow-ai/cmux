@@ -44,6 +44,30 @@ extension HermesAgentIndex {
         return inspection.existence(of: sessionID)
     }
 
+    /// Determines the existence of several Hermes identifiers from one database snapshot.
+    ///
+    /// Callers that validate a hook store use this batched form so WAL snapshot work is
+    /// bounded by unique Hermes homes rather than by hook-record count.
+    public static func sessionExistences(
+        sessionIDs: Set<String>,
+        stateDBPath: String = Self.defaultStateDBPath()
+    ) -> [String: HermesAgentSessionExistence]? {
+        let normalizedSessionIDs = Set(sessionIDs.compactMap(normalized))
+        guard !normalizedSessionIDs.isEmpty else { return [:] }
+        guard let inspection = recoveryInspection(
+            sessionIDs: normalizedSessionIDs,
+            cwd: nil,
+            startedAt: nil,
+            before: nil,
+            stateDBPath: stateDBPath
+        ) else {
+            return nil
+        }
+        return Dictionary(uniqueKeysWithValues: normalizedSessionIDs.map { sessionID in
+            (sessionID, inspection.existence(of: sessionID))
+        })
+    }
+
     /// Reads all identity and lifecycle evidence needed for recovery from one
     /// private snapshot. Callers batch every candidate that resolves to the
     /// same database path so file I/O is bounded by databases, not hooks.
