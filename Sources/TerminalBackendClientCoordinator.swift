@@ -289,6 +289,7 @@ actor TerminalBackendClientCoordinator:
     private let readinessProvider: ReadinessProvider
     private let sessionFactory: SessionFactory
     private let reconnectPolicy: TerminalBackendReconnectPolicy
+    private let recoveryClock: any Clock<Duration>
     private let compatibilityReporter: CompatibilityReporter
     private let screenTextLimiter = TerminalBackendScreenTextLimiter()
 
@@ -406,6 +407,9 @@ actor TerminalBackendClientCoordinator:
     private var frontendRecoveryStartCount = 0
     private let rendererWorkerExitMonitor: any TerminalBackendRendererWorkerExitMonitoring
     private var rendererWorkerExitLedger = TerminalBackendRendererWorkerExitLedger()
+    private var rendererWorkerExitCountWaiters: [
+        UUID: (expectedCount: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = [:]
     private let monotonicNowNanoseconds: @Sendable () -> UInt64
 
     private static let terminalInputOwnerTTLMilliseconds: UInt64 = 30_000
@@ -417,6 +421,7 @@ actor TerminalBackendClientCoordinator:
         runtimePaths: BackendServiceRuntimePaths,
         registrationIdentity: BackendClientRegistrationIdentity,
         reconnectPolicy: TerminalBackendReconnectPolicy = .appStartup,
+        recoveryClock: any Clock<Duration> = ContinuousClock(),
         rendererWorkerExitMonitor: any TerminalBackendRendererWorkerExitMonitoring =
             TerminalBackendRendererWorkerExitMonitor(),
         compatibilityReporter: @escaping CompatibilityReporter = { _ in }
@@ -437,6 +442,7 @@ actor TerminalBackendClientCoordinator:
             )
         }
         self.reconnectPolicy = reconnectPolicy
+        self.recoveryClock = recoveryClock
         self.rendererWorkerExitMonitor = rendererWorkerExitMonitor
         self.compatibilityReporter = compatibilityReporter
         monotonicNowNanoseconds = { DispatchTime.now().uptimeNanoseconds }
@@ -446,6 +452,7 @@ actor TerminalBackendClientCoordinator:
         readinessProvider: @escaping ReadinessProvider,
         sessionFactory: @escaping SessionFactory,
         reconnectPolicy: TerminalBackendReconnectPolicy = .immediate,
+        recoveryClock: any Clock<Duration> = ContinuousClock(),
         rendererWorkerExitMonitor: any TerminalBackendRendererWorkerExitMonitoring =
             TerminalBackendRendererWorkerExitMonitor(),
         monotonicNowNanoseconds: @escaping @Sendable () -> UInt64 = {
@@ -456,6 +463,7 @@ actor TerminalBackendClientCoordinator:
         self.readinessProvider = readinessProvider
         self.sessionFactory = sessionFactory
         self.reconnectPolicy = reconnectPolicy
+        self.recoveryClock = recoveryClock
         self.rendererWorkerExitMonitor = rendererWorkerExitMonitor
         self.monotonicNowNanoseconds = monotonicNowNanoseconds
         self.compatibilityReporter = compatibilityReporter
@@ -2346,6 +2354,7 @@ actor TerminalBackendClientCoordinator:
                 return nil
             case .unverifiable:
                 rendererWorkerExitLedger.remove(identity)
+                resolveRendererWorkerExitCountWaiters()
                 throw BackendProtocolError.peerIdentityMismatch
             }
         case .existing:
@@ -2353,6 +2362,7 @@ actor TerminalBackendClientCoordinator:
         case .conflict:
             throw BackendProtocolError.peerIdentityMismatch
         }
+        resolveRendererWorkerExitCountWaiters()
         return rendererWorkerIsLive(identity) ? identity : nil
     }
 
@@ -2434,7 +2444,9 @@ actor TerminalBackendClientCoordinator:
     private func rendererWorkerDidExit(
         _ identity: TerminalBackendRendererWorkerProcessIdentity
     ) {
-        _ = rendererWorkerExitLedger.markExited(identity)
+        if rendererWorkerExitLedger.markExited(identity) {
+            resolveRendererWorkerExitCountWaiters()
+        }
     }
 
     private func rendererWorkerIsLive(
@@ -2455,6 +2467,27 @@ actor TerminalBackendClientCoordinator:
 
     var debugRendererWorkerExitWaiterCount: Int {
         rendererWorkerExitLedger.activeFenceCount
+    }
+
+    func debugWaitForRendererWorkerExitWaiterCount(_ expectedCount: Int) async {
+        guard rendererWorkerExitLedger.activeFenceCount != expectedCount else { return }
+        await withCheckedContinuation { continuation in
+            if rendererWorkerExitLedger.activeFenceCount == expectedCount {
+                continuation.resume()
+            } else {
+                rendererWorkerExitCountWaiters[UUID()] = (expectedCount, continuation)
+            }
+        }
+    }
+
+    private func resolveRendererWorkerExitCountWaiters() {
+        let currentCount = rendererWorkerExitLedger.activeFenceCount
+        let satisfied = rendererWorkerExitCountWaiters.filter {
+            $0.value.expectedCount == currentCount
+        }
+        for identifier in satisfied.keys {
+            rendererWorkerExitCountWaiters.removeValue(forKey: identifier)?.continuation.resume()
+        }
     }
 
     func debugRegisterRendererWorker(
@@ -3404,6 +3437,7 @@ actor TerminalBackendClientCoordinator:
         let supervisorID = UUID()
         connectionSupervisorID = supervisorID
         let recoveryCycleDelay = reconnectPolicy.recoveryCycleDelay
+        let recoveryClock = recoveryClock
         connectionSupervisorTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let step = await self?.beginConnectionSupervisorCycle(
@@ -3415,7 +3449,7 @@ actor TerminalBackendClientCoordinator:
                 case .retry:
                     do {
                         if recoveryCycleDelay > .zero {
-                            try await ContinuousClock().sleep(for: recoveryCycleDelay)
+                            try await recoveryClock.sleep(for: recoveryCycleDelay)
                         } else {
                             await Task.yield()
                         }
@@ -3665,11 +3699,13 @@ actor TerminalBackendClientCoordinator:
         let readinessProvider = readinessProvider
         let sessionFactory = sessionFactory
         let reconnectPolicy = reconnectPolicy
+        let recoveryClock = recoveryClock
         let task = Task {
             try await Self.connect(
                 readinessProvider: readinessProvider,
                 sessionFactory: sessionFactory,
-                reconnectPolicy: reconnectPolicy
+                reconnectPolicy: reconnectPolicy,
+                recoveryClock: recoveryClock
             )
         }
         connectionTask = task
@@ -4007,7 +4043,8 @@ actor TerminalBackendClientCoordinator:
     private static func connect(
         readinessProvider: ReadinessProvider,
         sessionFactory: SessionFactory,
-        reconnectPolicy: TerminalBackendReconnectPolicy
+        reconnectPolicy: TerminalBackendReconnectPolicy,
+        recoveryClock: any Clock<Duration>
     ) async throws -> TerminalBackendConnectedSession {
         var nextDelayIndex = 0
         while true {
@@ -4045,7 +4082,7 @@ actor TerminalBackendClientCoordinator:
                 nextDelayIndex += 1
                 if delay > .zero {
                     // This is the retry policy's bounded, cancellable backoff.
-                    try await ContinuousClock().sleep(for: delay)
+                    try await recoveryClock.sleep(for: delay)
                 }
             }
         }

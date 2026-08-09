@@ -2121,7 +2121,7 @@ struct TerminalClientCompositionTests {
         #expect(Darwin.kill(firstDaemonPID, SIGKILL) == 0)
         firstDaemonProcess.waitUntilExit()
         await firstSession.disconnectEventStream()
-        try await waitForEventSubscriptionCount(1, session: secondSession)
+        await waitForEventSubscriptionCount(1, session: secondSession)
 
         let staleMetadata = try TerminalRenderFrameMetadata(
             daemonInstanceID: firstAuthority.daemonInstanceID.rawValue,
@@ -2159,23 +2159,13 @@ struct TerminalClientCompositionTests {
                 from: binding
             )
         }
-        try await withReconnectTestTimeout(.seconds(5)) {
-            while await coordinator.debugRendererWorkerExitWaiterCount < 1 {
-                try Task.checkCancellation()
-                await Task.yield()
-            }
-        }
+        await coordinator.debugWaitForRendererWorkerExitWaiterCount(1)
         #expect(rendererProcess.isRunning)
         #expect(await coordinator.debugRendererWorkerExitWaiterCount == 1)
 
         #expect(Darwin.kill(rendererPID, SIGCONT) == 0)
         #expect(Darwin.kill(rendererPID, SIGTERM) == 0)
-        try await withReconnectTestTimeout(.seconds(5)) {
-            while await coordinator.debugRendererWorkerExitWaiterCount != 0 {
-                try Task.checkCancellation()
-                await Task.yield()
-            }
-        }
+        await coordinator.debugWaitForRendererWorkerExitWaiterCount(0)
         try await releaseTask.value
         try await detachTask.value
         rendererProcess.waitUntilExit()
@@ -2252,19 +2242,21 @@ struct TerminalClientCompositionTests {
                 revision: latestSnapshot.revision
             )),
         ])
+        let recoveryClock = TerminalBackendManualClock()
         let coordinator = TerminalBackendClientCoordinator(
             readinessProvider: { await readiness.next() },
             sessionFactory: { proof in
                 proof.processID == 41 ? firstSession : secondSession
             },
             reconnectPolicy: TerminalBackendReconnectPolicy(
-                delays: [.zero, .zero],
-                recoveryCycleDelay: .zero
-            )
+                delays: [.seconds(1), .seconds(2)],
+                recoveryCycleDelay: .seconds(3)
+            ),
+            recoveryClock: recoveryClock
         )
 
         let events = try await coordinator.canonicalTopologyEvents()
-        let recoveredRevision = try await withReconnectTestTimeout(.seconds(5)) {
+        let recoveredRevisionTask = Task { () throws -> UInt64 in
             for await event in events {
                 let revision: UInt64?
                 switch event {
@@ -2281,6 +2273,13 @@ struct TerminalClientCompositionTests {
             }
             throw ReconnectSupervisorTestError.streamEnded
         }
+        await recoveryClock.waitUntilSleepers()
+        recoveryClock.advance(by: .seconds(1))
+        await recoveryClock.waitUntilSleepers()
+        recoveryClock.advance(by: .seconds(2))
+        await recoveryClock.waitUntilSleepers()
+        recoveryClock.advance(by: .seconds(3))
+        let recoveredRevision = try await recoveredRevisionTask.value
 
         #expect(recoveredRevision == latestSnapshot.revision)
         #expect(await readiness.requestCount() >= 5)
@@ -2370,17 +2369,17 @@ struct TerminalClientCompositionTests {
         )
 
         await coordinator.start()
-        try await waitForCompatibilityReportCount(1, reports: reports)
-        try await waitForEventSubscriptionCount(1, session: firstSession)
+        await waitForCompatibilityReportCount(1, reports: reports)
+        await waitForEventSubscriptionCount(1, session: firstSession)
         #expect(await reports.recorded() == [readWrite])
 
         await firstSession.disconnectEventStream()
-        try await waitForCompatibilityReportCount(3, reports: reports)
-        try await waitForEventSubscriptionCount(1, session: secondSession)
+        await waitForCompatibilityReportCount(3, reports: reports)
+        await waitForEventSubscriptionCount(1, session: secondSession)
         #expect(await reports.recorded() == [readWrite, nil, readOnly])
 
         await coordinator.disconnectFrontend()
-        try await waitForCompatibilityReportCount(4, reports: reports)
+        await waitForCompatibilityReportCount(4, reports: reports)
         #expect(await reports.recorded() == [readWrite, nil, readOnly, nil])
         #expect(await firstSession.closeCount() == 1)
         #expect(await secondSession.closeCount() == 1)
@@ -2427,15 +2426,15 @@ struct TerminalClientCompositionTests {
         )
 
         await coordinator.start()
-        try await waitForCompatibilityReportCount(1, reports: reports)
-        try await waitForEventSubscriptionCount(1, session: session)
+        await waitForCompatibilityReportCount(1, reports: reports)
+        await waitForEventSubscriptionCount(1, session: session)
         #expect(await reports.recorded() == [readOnly])
         #expect(await session.connectCount() == 1)
         #expect(await session.closeCount() == 0)
         #expect(await lifecycle.activeIdentifiers() == ["diagnostic-only"])
 
         await coordinator.disconnectFrontend()
-        try await waitForCompatibilityReportCount(2, reports: reports)
+        await waitForCompatibilityReportCount(2, reports: reports)
         #expect(await reports.recorded() == [readOnly, nil])
         #expect(await session.closeCount() == 1)
         #expect(await lifecycle.activeIdentifiers().isEmpty)
@@ -2444,23 +2443,15 @@ struct TerminalClientCompositionTests {
     private func waitForCompatibilityReportCount(
         _ count: Int,
         reports: BackendCompatibilityReporterRecorder
-    ) async throws {
-        try await withReconnectTestTimeout(.seconds(5)) {
-            while await reports.count() < count {
-                await Task.yield()
-            }
-        }
+    ) async {
+        await reports.waitForCount(count)
     }
 
     private func waitForEventSubscriptionCount(
         _ count: Int,
         session: OverflowingBackendSession
-    ) async throws {
-        try await withReconnectTestTimeout(.seconds(5)) {
-            while await session.eventSubscriptionCount() < count {
-                await Task.yield()
-            }
-        }
+    ) async {
+        await session.waitForEventSubscriptionCount(count)
     }
 
     @MainActor
@@ -3546,27 +3537,108 @@ actor RecordingExternalTerminalService: TerminalBackendExternalTerminalServing,
     }
 }
 
-private enum ReconnectSupervisorTestError: Error {
-    case timedOut
-    case streamEnded
+private final class TerminalBackendManualClock: Clock, @unchecked Sendable {
+    struct Instant: InstantProtocol, Sendable {
+        var offset: Duration
+
+        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
+        func duration(to other: Instant) -> Duration { other.offset - offset }
+        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
+    }
+
+    private struct Sleeper {
+        let deadline: Instant
+        let continuation: CheckedContinuation<Void, any Error>
+    }
+
+    private let lock = NSLock()
+    private var currentInstant = Instant(offset: .zero)
+    private var sleepers: [UUID: Sleeper] = [:]
+    private var cancelledSleeperIDs: Set<UUID> = []
+    private var parkWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+
+    var now: Instant {
+        lock.lock()
+        defer { lock.unlock() }
+        return currentInstant
+    }
+
+    var minimumResolution: Duration { .zero }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        let identifier = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
+                lock.lock()
+                if cancelledSleeperIDs.remove(identifier) != nil {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                if deadline <= currentInstant {
+                    lock.unlock()
+                    continuation.resume()
+                    return
+                }
+                sleepers[identifier] = Sleeper(
+                    deadline: deadline,
+                    continuation: continuation
+                )
+                let waiters = takeSatisfiedParkWaitersLocked()
+                lock.unlock()
+                for waiter in waiters { waiter.resume() }
+            }
+        } onCancel: {
+            lock.lock()
+            let sleeper = sleepers.removeValue(forKey: identifier)
+            if sleeper == nil { cancelledSleeperIDs.insert(identifier) }
+            lock.unlock()
+            sleeper?.continuation.resume(throwing: CancellationError())
+        }
+    }
+
+    func waitUntilSleepers(count: Int = 1) async {
+        await withCheckedContinuation {
+            (continuation: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            if sleepers.count >= count {
+                lock.unlock()
+                continuation.resume()
+                return
+            }
+            parkWaiters.append((count, continuation))
+            lock.unlock()
+        }
+    }
+
+    func advance(by duration: Duration) {
+        lock.lock()
+        currentInstant = currentInstant.advanced(by: duration)
+        var due: [Sleeper] = []
+        for (identifier, sleeper) in sleepers where sleeper.deadline <= currentInstant {
+            sleepers[identifier] = nil
+            due.append(sleeper)
+        }
+        lock.unlock()
+        for sleeper in due.sorted(by: { $0.deadline < $1.deadline }) {
+            sleeper.continuation.resume()
+        }
+    }
+
+    private func takeSatisfiedParkWaitersLocked() -> [CheckedContinuation<Void, Never>] {
+        var satisfied: [CheckedContinuation<Void, Never>] = []
+        parkWaiters.removeAll { waiter in
+            guard sleepers.count >= waiter.0 else { return false }
+            satisfied.append(waiter.1)
+            return true
+        }
+        return satisfied
+    }
 }
 
-private func withReconnectTestTimeout<Value: Sendable>(
-    _ duration: Duration,
-    operation: @escaping @Sendable () async throws -> Value
-) async throws -> Value {
-    try await withThrowingTaskGroup(of: Value.self) { group in
-        group.addTask(operation: operation)
-        group.addTask {
-            try await ContinuousClock().sleep(for: duration)
-            throw ReconnectSupervisorTestError.timedOut
-        }
-        defer { group.cancelAll() }
-        guard let value = try await group.next() else {
-            throw ReconnectSupervisorTestError.streamEnded
-        }
-        return value
-    }
+private enum ReconnectSupervisorTestError: Error {
+    case streamEnded
 }
 
 private actor ScriptedBackendReadiness {
@@ -3610,14 +3682,23 @@ private actor BackendSessionLifecycleRecorder {
 
 private actor BackendCompatibilityReporterRecorder {
     private var reports: [BackendCompatibilityResult?] = []
+    private var countWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
 
     func record(_ compatibility: BackendCompatibilityResult?) {
         reports.append(compatibility)
+        let satisfied = countWaiters.filter { $0.0 <= reports.count }
+        countWaiters.removeAll { $0.0 <= reports.count }
+        for waiter in satisfied { waiter.1.resume() }
     }
 
     func count() -> Int { reports.count }
 
     func recorded() -> [BackendCompatibilityResult?] { reports }
+
+    func waitForCount(_ expectedCount: Int) async {
+        guard reports.count < expectedCount else { return }
+        await withCheckedContinuation { countWaiters.append((expectedCount, $0)) }
+    }
 }
 
 private actor RendererSerializationSessionHarness {
@@ -3810,6 +3891,7 @@ private actor OverflowingBackendSession: TerminalBackendSessionServing {
     private let rendererSerialization: RendererSerializationSessionHarness?
     private var stableContinuation: AsyncStream<BackendCanonicalSessionEvent>.Continuation?
     private var recordedEventSubscriptionCount = 0
+    private var eventSubscriptionCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private var recordedConnectCount = 0
     private var recordedCloseCount = 0
     private var isOpen = false
@@ -3837,6 +3919,13 @@ private actor OverflowingBackendSession: TerminalBackendSessionServing {
 
     func events() -> AsyncStream<BackendCanonicalSessionEvent> {
         recordedEventSubscriptionCount += 1
+        let satisfied = eventSubscriptionCountWaiters.filter {
+            $0.0 <= recordedEventSubscriptionCount
+        }
+        eventSubscriptionCountWaiters.removeAll {
+            $0.0 <= recordedEventSubscriptionCount
+        }
+        for waiter in satisfied { waiter.1.resume() }
         let pair = AsyncStream<BackendCanonicalSessionEvent>.makeStream(
             bufferingPolicy: .bufferingOldest(256)
         )
@@ -3870,6 +3959,13 @@ private actor OverflowingBackendSession: TerminalBackendSessionServing {
     }
 
     func eventSubscriptionCount() -> Int { recordedEventSubscriptionCount }
+
+    func waitForEventSubscriptionCount(_ expectedCount: Int) async {
+        guard recordedEventSubscriptionCount < expectedCount else { return }
+        await withCheckedContinuation {
+            eventSubscriptionCountWaiters.append((expectedCount, $0))
+        }
+    }
 
     func connect() async throws -> TopologySnapshot? {
         recordedConnectCount += 1

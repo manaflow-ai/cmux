@@ -268,16 +268,23 @@ struct BackendServiceReadinessProbeTests {
         #expect(await transport.isClosed())
     }
 
-    @Test("completion claimed before the deadline survives a blocked close")
+    @Test("completion claimed before the deadline survives a blocked close", .timeLimit(.minutes(1)))
     func completedHandshakeWinsWhileClosing() async throws {
         let transport = try makeTransport(blocksOnClose: true)
-        let probe = makeProbe(transport: transport, timeout: .milliseconds(50))
+        let clock = BackendReadinessManualClock()
+        let probe = makeProbe(
+            transport: transport,
+            timeout: .milliseconds(50),
+            clock: clock
+        )
         let readinessTask = Task {
             try await probe.checkReadiness()
         }
 
         await transport.waitUntilCloseStarts()
-        try await Task.sleep(for: .milliseconds(75))
+        await clock.waitUntilSleepers()
+        clock.advance(by: .milliseconds(75))
+        #expect(clock.now.offset == .milliseconds(75))
         await transport.releaseClose()
 
         let readiness = try await readinessTask.value
@@ -285,7 +292,7 @@ struct BackendServiceReadinessProbeTests {
         #expect(await transport.isClosed())
     }
 
-    @Test("a blocked trust verifier cannot extend deadlines or spawn followers")
+    @Test("a blocked trust verifier cannot extend deadlines or spawn followers", .timeLimit(.minutes(1)))
     func blockedTrustVerifierIsBounded() async throws {
         let firstTransport = try makeTransport()
         let secondTransport = try makeTransport()
@@ -293,38 +300,43 @@ struct BackendServiceReadinessProbeTests {
         let recoveredTransport = try makeTransport()
         let sequence = BackendServiceProbeTransportSequence([firstTransport, secondTransport])
         let trustVerifier = BlockingBackendPeerTrustVerifier()
+        let clock = BackendReadinessManualClock()
         let probe = makeProbe(
             transportFactory: { sequence.next() },
             timeout: .milliseconds(100),
-            trustVerifier: trustVerifier
+            trustVerifier: trustVerifier,
+            clock: clock
         )
         let separatelyScopedProbe = makeProbe(
             transport: queuedTransport,
             timeout: .milliseconds(100),
-            trustVerifier: trustVerifier
+            trustVerifier: trustVerifier,
+            clock: clock
         )
-        let failsafe = Task.detached {
-            try? await Task.sleep(for: .seconds(1))
-            trustVerifier.release()
-        }
         defer {
-            failsafe.cancel()
             trustVerifier.release()
         }
-        let clock = ContinuousClock()
-        let started = clock.now
 
+        let firstAttempt = Task { try await probe.checkReadiness() }
+        await clock.waitUntilSleepers()
+        clock.advance(by: .milliseconds(100))
         await #expect(throws: BackendServiceReadinessError.timedOut) {
-            _ = try await probe.checkReadiness()
+            _ = try await firstAttempt.value
         }
+        let secondAttempt = Task { try await probe.checkReadiness() }
+        await clock.waitUntilSleepers()
+        clock.advance(by: .milliseconds(100))
         await #expect(throws: BackendServiceReadinessError.timedOut) {
-            _ = try await probe.checkReadiness()
+            _ = try await secondAttempt.value
         }
+        let separatelyScopedAttempt = Task { try await separatelyScopedProbe.checkReadiness() }
+        await clock.waitUntilSleepers()
+        clock.advance(by: .milliseconds(100))
         await #expect(throws: BackendServiceReadinessError.timedOut) {
-            _ = try await separatelyScopedProbe.checkReadiness()
+            _ = try await separatelyScopedAttempt.value
         }
 
-        #expect(started.duration(to: clock.now) < .milliseconds(500))
+        #expect(clock.now.offset == .milliseconds(300))
         #expect(trustVerifier.invocationCount == 1)
         #expect(await firstTransport.isClosed())
         #expect(await secondTransport.isClosed())
@@ -359,7 +371,8 @@ struct BackendServiceReadinessProbeTests {
         transport: BackendServiceProbeTransport,
         timeout: Duration = .seconds(1),
         clientProcessID: UInt32 = 99,
-        trustVerifier: any BackendPeerTrustVerifying = FixedBackendPeerTrustVerifier()
+        trustVerifier: any BackendPeerTrustVerifying = FixedBackendPeerTrustVerifier(),
+        clock: any Clock<Duration> = ContinuousClock()
     ) -> BackendServiceReadinessProbe {
         let descriptor = BackendServiceDescriptor.production
         let paths = BackendServiceRuntimePaths(
@@ -374,7 +387,8 @@ struct BackendServiceReadinessProbeTests {
             expectedUserID: 501,
             clientProcessID: clientProcessID,
             trustVerifier: trustVerifier,
-            transportFactory: { transport }
+            transportFactory: { transport },
+            clock: clock
         )
     }
 
@@ -383,7 +397,8 @@ struct BackendServiceReadinessProbeTests {
         timeout: Duration = .seconds(1),
         retryPolicy: BackendServiceReadinessRetryPolicy = .launchdStartup,
         clientProcessID: UInt32 = 99,
-        trustVerifier: any BackendPeerTrustVerifying = FixedBackendPeerTrustVerifier()
+        trustVerifier: any BackendPeerTrustVerifying = FixedBackendPeerTrustVerifier(),
+        clock: any Clock<Duration> = ContinuousClock()
     ) -> BackendServiceReadinessProbe {
         let descriptor = BackendServiceDescriptor.production
         let paths = BackendServiceRuntimePaths(
@@ -399,7 +414,8 @@ struct BackendServiceReadinessProbeTests {
             expectedUserID: 501,
             clientProcessID: clientProcessID,
             trustVerifier: trustVerifier,
-            transportFactory: transportFactory
+            transportFactory: transportFactory,
+            clock: clock
         )
     }
 
@@ -467,6 +483,105 @@ struct BackendServiceReadinessProbeTests {
                 )
             )
         )
+    }
+}
+
+private final class BackendReadinessManualClock: Clock, @unchecked Sendable {
+    struct Instant: InstantProtocol, Sendable {
+        var offset: Duration
+
+        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
+        func duration(to other: Instant) -> Duration { other.offset - offset }
+        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
+    }
+
+    private struct Sleeper {
+        let deadline: Instant
+        let continuation: CheckedContinuation<Void, any Error>
+    }
+
+    private let lock = NSLock()
+    private var currentInstant = Instant(offset: .zero)
+    private var sleepers: [UUID: Sleeper] = [:]
+    private var cancelledSleeperIDs: Set<UUID> = []
+    private var parkWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+
+    var now: Instant {
+        lock.lock()
+        defer { lock.unlock() }
+        return currentInstant
+    }
+    var minimumResolution: Duration { .zero }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        let identifier = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
+                lock.lock()
+                if cancelledSleeperIDs.remove(identifier) != nil {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                if deadline <= currentInstant {
+                    lock.unlock()
+                    continuation.resume()
+                    return
+                }
+                sleepers[identifier] = Sleeper(
+                    deadline: deadline,
+                    continuation: continuation
+                )
+                let waiters = takeSatisfiedParkWaitersLocked()
+                lock.unlock()
+                for waiter in waiters { waiter.resume() }
+            }
+        } onCancel: {
+            lock.lock()
+            let sleeper = sleepers.removeValue(forKey: identifier)
+            if sleeper == nil { cancelledSleeperIDs.insert(identifier) }
+            lock.unlock()
+            sleeper?.continuation.resume(throwing: CancellationError())
+        }
+    }
+
+    func waitUntilSleepers(count: Int = 1) async {
+        await withCheckedContinuation {
+            (continuation: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            if sleepers.count >= count {
+                lock.unlock()
+                continuation.resume()
+                return
+            }
+            parkWaiters.append((count, continuation))
+            lock.unlock()
+        }
+    }
+
+    func advance(by duration: Duration) {
+        lock.lock()
+        currentInstant = currentInstant.advanced(by: duration)
+        var due: [Sleeper] = []
+        for (identifier, sleeper) in sleepers where sleeper.deadline <= currentInstant {
+            sleepers[identifier] = nil
+            due.append(sleeper)
+        }
+        lock.unlock()
+        for sleeper in due.sorted(by: { $0.deadline < $1.deadline }) {
+            sleeper.continuation.resume()
+        }
+    }
+
+    private func takeSatisfiedParkWaitersLocked() -> [CheckedContinuation<Void, Never>] {
+        var satisfied: [CheckedContinuation<Void, Never>] = []
+        parkWaiters.removeAll { waiter in
+            guard sleepers.count >= waiter.0 else { return false }
+            satisfied.append(waiter.1)
+            return true
+        }
+        return satisfied
     }
 }
 
