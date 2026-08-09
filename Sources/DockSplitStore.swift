@@ -18,6 +18,7 @@ final class DockSplitStore: BonsplitDelegate {
     private struct PendingTerminalTitleUpdate {
         let title: String
         weak var sourceSurface: TerminalSurface?
+        let sourceTerminalLifecycleId: UUID
     }
 
     let workspaceId: UUID
@@ -1005,7 +1006,8 @@ final class DockSplitStore: BonsplitDelegate {
     ) {
         pendingTerminalTitleUpdates[terminal.id] = PendingTerminalTitleUpdate(
             title: title,
-            sourceSurface: terminal.surface
+            sourceSurface: terminal.surface,
+            sourceTerminalLifecycleId: terminal.surface.terminalLifecycleId
         )
         terminalTitleUpdateCoalescer.signal(
             delay: PanelTitleUpdateCoalescingSettings.delay(settings: settings)
@@ -1029,7 +1031,8 @@ final class DockSplitStore: BonsplitDelegate {
     ) {
         guard let sourceSurface = update.sourceSurface,
               let terminal = panels[panelId] as? TerminalPanel,
-              terminal.surface === sourceSurface else {
+              terminal.surface === sourceSurface,
+              sourceSurface.terminalLifecycleId == update.sourceTerminalLifecycleId else {
             return
         }
         applyResolvedTerminalTitle(update.title, to: terminal)

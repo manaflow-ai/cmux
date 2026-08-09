@@ -379,7 +379,11 @@ class TabManager: ObservableObject {
         let tabId: UUID
         let panelId: UUID
     }
-    private struct PendingPanelTitleUpdate { let title: String; weak var sourceSurface: TerminalSurface? }
+    private struct PendingPanelTitleUpdate {
+        let title: String
+        weak var sourceSurface: TerminalSurface?
+        let sourceTerminalLifecycleId: UUID
+    }
     private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: PendingPanelTitleUpdate] = [:]
     private let panelTitleUpdateCoalescer: NotificationBurstCoalescer
 
@@ -3450,7 +3454,11 @@ class TabManager: ObservableObject {
         }
 #endif
         let key = PanelTitleUpdateKey(tabId: change.tabId, panelId: change.surfaceId)
-        pendingPanelTitleUpdates[key] = PendingPanelTitleUpdate(title: trimmed, sourceSurface: sourceSurface)
+        pendingPanelTitleUpdates[key] = PendingPanelTitleUpdate(
+            title: trimmed,
+            sourceSurface: sourceSurface,
+            sourceTerminalLifecycleId: sourceSurface.terminalLifecycleId
+        )
         panelTitleUpdateCoalescer.signal(
             delay: PanelTitleUpdateCoalescingSettings.delay(settings: settings)
         ) { [weak self] in
@@ -3467,7 +3475,10 @@ class TabManager: ObservableObject {
         }
 #endif
         for (key, update) in updates {
-            guard let sourceSurface = update.sourceSurface else { continue }
+            guard let sourceSurface = update.sourceSurface,
+                  sourceSurface.terminalLifecycleId == update.sourceTerminalLifecycleId else {
+                continue
+            }
             updatePanelTitle(tabId: key.tabId, panelId: key.panelId, title: update.title, sourceSurface: sourceSurface)
         }
     }
