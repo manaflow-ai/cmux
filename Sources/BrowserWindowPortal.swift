@@ -2419,20 +2419,34 @@ final class WindowBrowserPortal: NSObject {
         return created
     }
 
-    private func runHostedWebViewRefreshPass(
+    private enum HostedWebViewUpdateMode {
+        case invalidateGeometry
+        case refreshPresentation
+
+        var debugEvent: String {
+            switch self {
+            case .invalidateGeometry:
+                return "invalidate"
+            case .refreshPresentation:
+                return "refresh"
+            }
+        }
+    }
+
+    private func runHostedWebViewUpdatePass(
         _ webView: WKWebView,
         in containerView: WindowBrowserSlotView,
         reason: String,
         phase: String,
-        reattachRenderingState: Bool
+        mode: HostedWebViewUpdateMode
     ) {
         guard !containerView.isHidden else { return }
         guard !containerView.isHostedInspectorDividerDragActive else {
 #if DEBUG
             cmuxDebugLog(
-                "browser.portal.refresh.skip web=\(browserPortalDebugToken(webView)) " +
+                "browser.portal.\(mode.debugEvent).skip web=\(browserPortalDebugToken(webView)) " +
                 "container=\(browserPortalDebugToken(containerView)) reason=\(reason) phase=\(phase) " +
-                "drag=1 reattach=\(reattachRenderingState ? 1 : 0)"
+                "drag=1"
             )
 #endif
             return
@@ -2462,6 +2476,25 @@ final class WindowBrowserPortal: NSObject {
             webKitSubview.setNeedsDisplay(webKitSubview.bounds)
         }
 
+        switch mode {
+        case .invalidateGeometry:
+            // AppKit owns scheduling the next layout/display pass. A geometry
+            // notification can arrive while SwiftUI is rendering, so synchronously
+            // flushing portal content here could re-enter NSHostingView.
+#if DEBUG
+            cmuxDebugLog(
+                "browser.portal.invalidate web=\(browserPortalDebugToken(webView)) " +
+                "container=\(browserPortalDebugToken(containerView)) reason=\(reason) " +
+                "phase=\(phase) frame=\(browserPortalDebugFrame(containerView.frame))"
+            )
+#endif
+            return
+        case .refreshPresentation:
+            break
+        }
+
+        // Keep synchronous WebKit repair inside the portal-owned subtree. Calling
+        // displayIfNeeded() on the window would also flush SwiftUI-owned ancestors.
         containerView.layoutSubtreeIfNeeded()
         for webKitSubview in hostedWebKitSubviews {
             if let scrollView = webKitSubview.enclosingScrollView {
@@ -2470,9 +2503,7 @@ final class WindowBrowserPortal: NSObject {
                 scrollView.displayIfNeeded()
             }
             webKitSubview.layoutSubtreeIfNeeded()
-            if reattachRenderingState {
-                webKitSubview.browserPortalReattachRenderingState(reason: "\(reason):\(phase)")
-            }
+            webKitSubview.browserPortalReattachRenderingState(reason: "\(reason):\(phase)")
             if webKitSubview === webView {
                 webView.browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
                     reason: "\(reason):\(phase)",
@@ -2483,10 +2514,9 @@ final class WindowBrowserPortal: NSObject {
             webKitSubview.displayIfNeeded()
         }
         containerView.displayIfNeeded()
-        (containerView.window ?? webView.window ?? hostView.window)?.displayIfNeeded()
 #if DEBUG
         cmuxDebugLog(
-            "\(reattachRenderingState ? "browser.portal.refresh" : "browser.portal.invalidate") " +
+            "browser.portal.refresh " +
             "web=\(browserPortalDebugToken(webView)) " +
             "container=\(browserPortalDebugToken(containerView)) reason=\(reason) " +
             "phase=\(phase) frame=\(browserPortalDebugFrame(containerView.frame))"
@@ -2511,12 +2541,12 @@ final class WindowBrowserPortal: NSObject {
         in containerView: WindowBrowserSlotView,
         reason: String
     ) {
-        runHostedWebViewRefreshPass(
+        runHostedWebViewUpdatePass(
             webView,
             in: containerView,
             reason: reason,
             phase: "geometry",
-            reattachRenderingState: false
+            mode: .invalidateGeometry
         )
     }
 
@@ -2538,12 +2568,12 @@ final class WindowBrowserPortal: NSObject {
         pending.generation = generation
         pendingHostedWebViewRefreshes[webViewId] = pending
 
-        runHostedWebViewRefreshPass(
+        runHostedWebViewUpdatePass(
             webView,
             in: containerView,
             reason: reason,
             phase: "immediate",
-            reattachRenderingState: true
+            mode: .refreshPresentation
         )
 
         // AppKit layout/display calls above can synchronously re-enter this
@@ -2555,12 +2585,12 @@ final class WindowBrowserPortal: NSObject {
         pending.asyncScheduler.schedule { [weak self, weak webView, weak containerView] in
             guard let self, let webView, let containerView else { return }
             guard self.pendingHostedWebViewRefreshes[webViewId]?.generation == generation else { return }
-            self.runHostedWebViewRefreshPass(
+            self.runHostedWebViewUpdatePass(
                 webView,
                 in: containerView,
                 reason: reason,
                 phase: "async",
-                reattachRenderingState: true
+                mode: .refreshPresentation
             )
         }
 
@@ -2570,12 +2600,12 @@ final class WindowBrowserPortal: NSObject {
             guard let self else { return }
             guard let webView, let containerView else { return }
             guard self.pendingHostedWebViewRefreshes[webViewId]?.generation == generation else { return }
-            self.runHostedWebViewRefreshPass(
+            self.runHostedWebViewUpdatePass(
                 webView,
                 in: containerView,
                 reason: reason,
                 phase: "delayed",
-                reattachRenderingState: true
+                mode: .refreshPresentation
             )
         }
     }
