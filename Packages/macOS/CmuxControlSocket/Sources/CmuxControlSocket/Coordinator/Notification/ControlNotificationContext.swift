@@ -35,7 +35,8 @@ public protocol ControlNotificationContext: AnyObject {
         explicitSurfaceID: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        replyShapeWire: String?
     ) -> ControlNotificationCreateResolution
 
     /// Delivers a notification for `notification.create_for_surface`: resolves
@@ -56,7 +57,8 @@ public protocol ControlNotificationContext: AnyObject {
         surfaceID: UUID,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        replyShapeWire: String?
     ) -> ControlNotificationTargetedDeliveryResolution
 
     /// Delivers a notification for `notification.create_for_target`: resolves
@@ -80,7 +82,8 @@ public protocol ControlNotificationContext: AnyObject {
         surfaceID: UUID,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        replyShapeWire: String?
     ) -> ControlNotificationTargetedDeliveryResolution
 
     /// Snapshots every notification for `notification.list`, in store order,
