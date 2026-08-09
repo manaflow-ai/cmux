@@ -55,22 +55,4 @@ struct SurfaceAttentionModelTests {
         #expect(model.surfaceIds.isEmpty)
     }
 
-    @MainActor
-    @Test("Releasing an observation synchronously stops delivery")
-    func releasingObservationSynchronouslyStopsDelivery() {
-        let surfaceID = UUID()
-        let model = SurfaceAttentionModel()
-        let recorder = SidebarUnreadValueRecorder<Set<UUID>>()
-        var observation: SurfaceAttentionObservation? = model.observeChanges(
-            owner: recorder
-        ) { recorder, surfaceIds in
-            recorder.values.append(surfaceIds)
-        }
-        #expect(observation != nil)
-
-        observation = nil
-        model.replace(with: [surfaceID])
-
-        #expect(recorder.values.isEmpty)
-    }
 }

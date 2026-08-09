@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCanvasUI
+import CmuxTerminal
 import Testing
 
 #if canImport(cmux_DEV)
@@ -81,8 +82,8 @@ struct AppDelegateSurfaceShortcutRoutingTests {
         }
     }
 
-    @Test func rightSidebarModeShortcutDoesNotClearTerminalUnread() throws {
-        try withIsolatedShortcutSettings {
+    @Test func rightSidebarModeShortcutDoesNotClearTerminalUnread() async throws {
+        try await withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
@@ -103,6 +104,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             terminalPanel.hostedView.setVisibleInUI(true)
             terminalPanel.hostedView.setActive(true)
             #expect(window.makeFirstResponder(terminalPanel.hostedView.surfaceView))
+            await startAndWaitForLiveSurface(terminalPanel.surface)
             #expect(terminalPanel.hostedView.surfaceView.prepareSurfaceForPaste(
                 reason: "test.rightSidebarModeShortcut"
             ))
@@ -116,8 +118,8 @@ struct AppDelegateSurfaceShortcutRoutingTests {
         }
     }
 
-    @Test func keyboardCopyModeKeyClearsTerminalUnread() throws {
-        try withIsolatedShortcutSettings {
+    @Test func keyboardCopyModeKeyClearsTerminalUnread() async throws {
+        try await withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
@@ -140,6 +142,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             terminalPanel.hostedView.setVisibleInUI(true)
             terminalPanel.hostedView.setActive(true)
             #expect(window.makeFirstResponder(surfaceView))
+            await startAndWaitForLiveSurface(terminalPanel.surface)
             #expect(surfaceView.prepareSurfaceForPaste(
                 reason: "test.keyboardCopyModeKey"
             ))
@@ -156,6 +159,56 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             surfaceView.keyDown(with: event)
 
             #expect(!workspace.manualUnreadPanelIds.contains(panelId))
+        }
+    }
+
+    @Test func workspaceFontSizeShortcutPreservesBackgroundTerminalUnread() async throws {
+        try await withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let foregroundPanelId = try #require(workspace.focusedPanelId)
+            let backgroundPanel = try #require(workspace.newTerminalSplit(
+                from: foregroundPanelId,
+                orientation: .horizontal,
+                focus: false
+            ))
+            let event = try #require(makeKeyDownEvent(
+                key: "-",
+                modifiers: [.command, .control],
+                keyCode: 27,
+                windowNumber: window.windowNumber
+            ))
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            backgroundPanel.hostedView.setVisibleInUI(true)
+            backgroundPanel.hostedView.setActive(false)
+            await startAndWaitForLiveSurface(backgroundPanel.surface)
+            #expect(backgroundPanel.surface.hasLiveSurface)
+
+            workspace.focusPanel(foregroundPanelId)
+            workspace.markPanelUnread(backgroundPanel.id)
+            #expect(workspace.manualUnreadPanelIds.contains(backgroundPanel.id))
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            #expect(
+                backgroundPanel.surface.fontSizeLineageSnapshot()?.isExplicitOverride == true,
+                "The workspace-wide shortcut must reach the live background terminal"
+            )
+            #expect(
+                workspace.manualUnreadPanelIds.contains(backgroundPanel.id),
+                "Changing terminal configuration is not accepted terminal input"
+            )
         }
     }
 
@@ -549,6 +602,58 @@ struct AppDelegateSurfaceShortcutRoutingTests {
 #endif
         }
         try body()
+    }
+
+    private func withIsolatedShortcutSettings(
+        _ body: () async throws -> Void
+    ) async rethrows {
+        let actionsWithPersistedShortcut = Set(
+            KeyboardShortcutSettings.Action.allCases.filter {
+                UserDefaults.standard.object(forKey: $0.defaultsKey) != nil
+            }
+        )
+        let savedShortcutsByAction = Dictionary(
+            uniqueKeysWithValues: actionsWithPersistedShortcut.map { action in
+                (action, KeyboardShortcutSettings.shortcut(for: action))
+            }
+        )
+        let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
+            prefix: "cmux-surface-shortcut-routing"
+        )
+        KeyboardShortcutSettings.resetAll()
+#if DEBUG
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
+#endif
+        defer {
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            for action in KeyboardShortcutSettings.Action.allCases {
+                if actionsWithPersistedShortcut.contains(action),
+                   let savedShortcut = savedShortcutsByAction[action] {
+                    KeyboardShortcutSettings.setShortcut(savedShortcut, for: action)
+                } else {
+                    KeyboardShortcutSettings.resetShortcut(for: action)
+                }
+            }
+#if DEBUG
+            AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
+#endif
+        }
+        try await body()
+    }
+
+    private func startAndWaitForLiveSurface(_ surface: TerminalSurface) async {
+        guard !surface.hasLiveSurface else { return }
+        let previousOnRuntimeReady = surface.onRuntimeReady
+        defer { surface.onRuntimeReady = previousOnRuntimeReady }
+        let readiness = AsyncStream<Void> { continuation in
+            surface.onRuntimeReady = {
+                previousOnRuntimeReady?()
+                continuation.yield()
+                continuation.finish()
+            }
+        }
+        surface.requestInputDemandSurfaceStartIfNeeded()
+        for await _ in readiness { break }
     }
 
     private func mainWindow(for windowId: UUID) -> NSWindow? {
