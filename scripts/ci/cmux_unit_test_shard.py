@@ -30,9 +30,14 @@ from pathlib import Path
 SUITE_RE = re.compile(
     r"^(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*"
     r"(?:(?:final|private|fileprivate|internal|public)\s+)*"
-    r"(?:class|struct|actor)\s+([A-Za-z_][A-Za-z0-9_]*)\b"
+    r"(?:class|struct|actor|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\b"
 )
 EXTENSION_RE = re.compile(r"^extension\s+([A-Za-z_][A-Za-z0-9_]*)\b")
+TYPE_DECLARATION_RE = re.compile(
+    r"^\s*(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*"
+    r"(?:(?:final|private|fileprivate|internal|public)\s+)*"
+    r"(?:class|struct|actor|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\b"
+)
 SWIFT_TEST_ATTRIBUTE_RE = re.compile(r"(?<![A-Za-z0-9_])@Test\b")
 FUNCTION_DECLARATION_RE = re.compile(r"\bfunc\s+([A-Za-z_][A-Za-z0-9_]*)\b")
 XCTEST_METHOD_RE = re.compile(
@@ -40,6 +45,7 @@ XCTEST_METHOD_RE = re.compile(
     r"func\s+(test[A-Za-z0-9_]*)\s*\("
 )
 LARGE_SUITE_METHOD_THRESHOLD = 40
+TEST_SUITE_SUFFIXES = ("Tests", "UITests", "Suites")
 DEFAULT_TIMINGS_PATH = Path(__file__).resolve().parent / "cmux-unit-test-timings.json"
 FALLBACK_TEST_MS = 200
 # Stay below AppKit's observed 100-live-window warning even if CI overrides the
@@ -87,17 +93,24 @@ class TestSelector:
     line: int
     weight: int
     # None means Swift Testing expands this selector from a runtime expression.
-    # Such selectors are always isolated instead of being co-packed against a
-    # count that source inspection cannot prove.
+    # Bounded process-batch generation rejects such selectors because their
+    # represented work cannot be proven to fit the hard app-host lifetime cap.
     test_count: int | None
+
+
+@dataclass(frozen=True)
+class SuiteFragment:
+    path: str
+    line: int
+    methods: tuple[TestSelector, ...]
+    all_methods: tuple[TestSelector, ...]
+    contains_nested_suites: bool
 
 
 @dataclass(frozen=True)
 class SuiteDeclaration:
     name: str
-    path: str
-    line: int
-    methods: tuple[TestSelector, ...]
+    fragment: SuiteFragment
 
 
 def exact_test_count(selectors: list[TestSelector]) -> int | None:
@@ -319,21 +332,27 @@ def swift_test_case_count(
 
 
 def test_methods(
-    suite_identifier: str, relative_path: str, start_line: int, body: list[str]
+    suite_identifier: str,
+    relative_path: str,
+    start_line: int,
+    body: str,
+    *,
+    direct_only: bool,
 ) -> list[TestSelector]:
-    """Return directly declared XCTest and Swift Testing methods."""
+    """Return XCTest and Swift Testing methods from one suite fragment."""
     methods: list[TestSelector] = []
-    source = "\n".join(body)
+    source = body
     masked_source = mask_swift_noncode(source)
+    body_lines = source.split("\n")
     masked_lines = masked_source.split("\n")
     named_counts = member_collection_counts(masked_source)
     pending_swift_test = False
     pending_test_count: int | None = 1
     pending_line = 0
     absolute_offset = 0
-    for offset, (body_line, masked_line) in enumerate(zip(body, masked_lines)):
+    for offset, (body_line, masked_line) in enumerate(zip(body_lines, masked_lines)):
         indentation = len(body_line) - len(body_line.lstrip(" \t"))
-        if indentation > 4:
+        if direct_only and indentation > 4:
             absolute_offset += len(body_line) + 1
             continue
 
@@ -379,13 +398,25 @@ def test_methods(
     return methods
 
 
+def contains_nested_test_suite(body: str) -> bool:
+    """Return whether a suite fragment declares a recursively selected suite."""
+    for line in mask_swift_noncode(body).split("\n")[1:]:
+        declaration = TYPE_DECLARATION_RE.match(line)
+        if (
+            declaration is not None
+            and declaration.group(1).endswith(TEST_SUITE_SUFFIXES)
+        ):
+            return True
+    return False
+
+
 def discover_selectors(root: Path) -> list[TestSelector]:
     test_root = root / "cmuxTests"
     if not test_root.is_dir():
         raise SystemExit(f"cmuxTests directory not found under {root}")
 
     declarations: list[SuiteDeclaration] = []
-    extension_methods: dict[str, list[TestSelector]] = {}
+    extension_fragments: dict[str, list[SuiteFragment]] = {}
     for path in sorted(test_root.glob("**/*.swift")):
         relative = path.relative_to(root).as_posix()
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -394,14 +425,14 @@ def discover_selectors(root: Path) -> list[TestSelector]:
             match = SUITE_RE.match(line)
             if match:
                 name = match.group(1)
-                if name.endswith(("Tests", "UITests")):
+                if name.endswith(TEST_SUITE_SUFFIXES):
                     top_level_declarations.append((index, "suite", name))
                 continue
 
             match = EXTENSION_RE.match(line)
             if match:
                 name = match.group(1)
-                if name.endswith(("Tests", "UITests")):
+                if name.endswith(TEST_SUITE_SUFFIXES):
                     top_level_declarations.append((index, "extension", name))
 
         for position, (line_number, kind, name) in enumerate(top_level_declarations):
@@ -410,27 +441,51 @@ def discover_selectors(root: Path) -> list[TestSelector]:
                 if position + 1 < len(top_level_declarations)
                 else len(lines) + 1
             )
-            body = lines[line_number - 1 : next_line - 1]
+            body = "\n".join(lines[line_number - 1 : next_line - 1])
             suite_identifier = f"cmuxTests/{name}"
-            methods = test_methods(suite_identifier, relative, line_number, body)
+            methods = test_methods(
+                suite_identifier,
+                relative,
+                line_number,
+                body,
+                direct_only=True,
+            )
+            nested_suites = contains_nested_test_suite(body)
+            all_methods = (
+                test_methods(
+                    suite_identifier,
+                    relative,
+                    line_number,
+                    body,
+                    direct_only=False,
+                )
+                if nested_suites
+                else methods
+            )
+            fragment = SuiteFragment(
+                path=relative,
+                line=line_number,
+                methods=tuple(methods),
+                all_methods=tuple(all_methods),
+                contains_nested_suites=nested_suites,
+            )
             if kind == "extension":
-                extension_methods.setdefault(name, []).extend(methods)
+                extension_fragments.setdefault(name, []).append(fragment)
                 continue
 
             declarations.append(
                 SuiteDeclaration(
                     name=name,
-                    path=relative,
-                    line=line_number,
-                    methods=tuple(methods),
+                    fragment=fragment,
                 )
             )
 
     selectors: list[TestSelector] = []
     declared_suite_names = {declaration.name for declaration in declarations}
-    for extension_name in sorted(set(extension_methods) - declared_suite_names):
+    for extension_name in sorted(set(extension_fragments) - declared_suite_names):
         locations = ", ".join(
-            f"{method.path}:{method.line}" for method in extension_methods[extension_name]
+            f"{fragment.path}:{fragment.line}"
+            for fragment in extension_fragments[extension_name]
         )
         print(
             f"Extension declares tests for unknown suite cmuxTests/{extension_name}: {locations}",
@@ -440,18 +495,51 @@ def discover_selectors(root: Path) -> list[TestSelector]:
 
     for declaration in declarations:
         suite_identifier = f"cmuxTests/{declaration.name}"
-        extension_selectors = extension_methods.get(declaration.name, [])
-        methods = [*declaration.methods, *extension_selectors]
+        fragments = [
+            declaration.fragment,
+            *extension_fragments.get(declaration.name, []),
+        ]
+        has_nested_suites = any(
+            fragment.contains_nested_suites for fragment in fragments
+        )
+        methods = [
+            method
+            for fragment in fragments
+            for method in (
+                fragment.all_methods if has_nested_suites else fragment.methods
+            )
+        ]
         test_count = exact_test_count(methods)
 
         if suite_identifier in FOCUSED_GATE_SELECTORS:
             continue
 
+        # Selecting an umbrella suite recursively selects its nested suites and
+        # preserves suite-level traits such as `.serialized`. Never rewrite its
+        # descendants as methods on the outer type: those selectors do not
+        # exist and silently skip tests. The exact descendant count still
+        # participates in the process limit below.
+        if has_nested_suites:
+            selectors.append(
+                TestSelector(
+                    identifier=suite_identifier,
+                    path=declaration.fragment.path,
+                    line=declaration.fragment.line,
+                    weight=(
+                        test_count
+                        if test_count is not None
+                        else max(1, len(methods))
+                    ),
+                    test_count=test_count,
+                )
+            )
+            continue
+
         # Very large suites dominate a shard when selected as a whole. Split by
         # method when either declared methods or expanded cases cross the
-        # threshold. Runtime-expanded parameter collections also split so the
-        # indivisible parameterized method can get its own process without
-        # forcing unrelated methods from the suite into that app host.
+        # threshold. Runtime-expanded parameter collections also split so
+        # bounded batching can reject the precise selector instead of treating
+        # the entire suite as uncountable.
         if (
             len(methods) >= LARGE_SUITE_METHOD_THRESHOLD
             or test_count is None
@@ -463,8 +551,8 @@ def discover_selectors(root: Path) -> list[TestSelector]:
         selectors.append(
             TestSelector(
                 identifier=suite_identifier,
-                path=declaration.path,
-                line=declaration.line,
+                path=declaration.fragment.path,
+                line=declaration.fragment.line,
                 weight=test_count,
                 test_count=test_count,
             )
@@ -612,6 +700,17 @@ def process_batches(
     if maximum_tests > MAX_PROCESS_TEST_LIMIT:
         raise SystemExit(f"--batch-test-limit must be <= {MAX_PROCESS_TEST_LIMIT}")
 
+    runtime_expanded = [
+        selector for selector in selectors if selector.test_count is None
+    ]
+    if runtime_expanded:
+        selector = min(runtime_expanded, key=lambda item: item.identifier)
+        raise SystemExit(
+            f"Selector {selector.identifier} has a runtime-expanded test count; "
+            f"--batch-test-limit {maximum_tests} requires a statically countable "
+            "@Test(arguments:) collection"
+        )
+
     oversized = [
         selector
         for selector in selectors
@@ -627,8 +726,7 @@ def process_batches(
     resource_isolated = [
         selector
         for selector in selectors
-        if selector.test_count is None
-        or "/".join(selector.identifier.split("/")[:2]) in PROCESS_ISOLATED_SUITES
+        if "/".join(selector.identifier.split("/")[:2]) in PROCESS_ISOLATED_SUITES
     ]
     resource_isolated_identifiers = {
         selector.identifier for selector in resource_isolated
@@ -734,7 +832,7 @@ def write_output(path: Path, selectors: list[TestSelector]) -> None:
 
 
 def represented_test_summary(selectors: list[TestSelector]) -> str:
-    """Describe known executions and any runtime-expanded isolated selectors."""
+    """Describe known executions and any runtime-expanded selectors."""
     known_tests = sum(
         selector.test_count
         for selector in selectors
@@ -746,7 +844,7 @@ def represented_test_summary(selectors: list[TestSelector]) -> str:
     if runtime_expanded:
         return (
             f"{known_tests} known tests plus {runtime_expanded} "
-            "isolated runtime-expanded selectors"
+            "runtime-expanded selectors with unknown case counts"
         )
     return f"{known_tests} tests"
 
