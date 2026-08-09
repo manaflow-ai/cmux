@@ -77,6 +77,9 @@ import Testing
     @MainActor @Test(arguments: ["alpha", "beta", "gamma"])
     func mainActorCase(name: String) {}
 
+    @Test(arguments: [1, 2] as [Int], [10, 20, 30])
+    func castedCartesianCase(lhs: Int, rhs: Int) {}
+
     @Test func ordinaryCase() {}
 }
 """.lstrip(),
@@ -102,11 +105,11 @@ import Testing
         print(result.stderr, end="", file=sys.stderr)
         print(f"FAIL: parameterized discovery exited {result.returncode}")
         return 1
-    if "representing 12 tests" not in result.stdout:
+    if "representing 18 tests" not in result.stdout:
         print(result.stdout, end="")
         print(
-            "FAIL: parameterized Swift Testing cases or stacked attributes "
-            "were not counted"
+            "FAIL: parameterized Swift Testing cases, stacked attributes, or "
+            "Cartesian argument collections were not counted"
         )
         return 1
 
@@ -183,6 +186,12 @@ def check_nested_swift_testing_suites_keep_umbrella_selectors() -> int:
     nested_methods = "\n".join(
         f"    @Test func nestedCase{index:02d}() {{}}" for index in range(1, 42)
     )
+    non_suffixed_methods = "\n".join(
+        f"        @Test func case{index:02d}() {{}}" for index in range(1, 82)
+    )
+    multiline_attribute_methods = "\n".join(
+        f"        @Test func scenario{index:02d}() {{}}" for index in range(1, 4)
+    )
     with tempfile.TemporaryDirectory() as tmp:
         tmp_root = Path(tmp)
         test_root = tmp_root / "cmuxTests"
@@ -221,6 +230,31 @@ extension SharedStateSuites {
 """.lstrip(),
             encoding="utf-8",
         )
+        (test_root / "ExplicitlyAnnotatedUmbrellaTests.swift").write_text(
+            f"""
+import Testing
+
+@Suite(.serialized)
+struct ExplicitlyAnnotatedUmbrellaTests {{}}
+
+extension ExplicitlyAnnotatedUmbrellaTests {{
+    @Suite struct Cases {{
+{non_suffixed_methods}
+    }}
+}}
+
+@Suite(.serialized)
+struct MultilineAnnotatedUmbrellaTests {{}}
+
+extension MultilineAnnotatedUmbrellaTests {{
+    @Suite
+    struct Scenarios {{
+{multiline_attribute_methods}
+    }}
+}}
+""".lstrip(),
+            encoding="utf-8",
+        )
         result = subprocess.run(
             [
                 sys.executable,
@@ -228,6 +262,29 @@ extension SharedStateSuites {
                 "--root",
                 str(tmp_root),
                 "--list",
+                "--timings",
+                str(tmp_root / "no-manifest.json"),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        batch_result = subprocess.run(
+            [
+                sys.executable,
+                str(HELPER),
+                "--root",
+                str(tmp_root),
+                "--shard-index",
+                "1",
+                "--shard-total",
+                "1",
+                "--batch-selector-limit",
+                "24",
+                "--batch-test-limit",
+                "80",
+                "--batch-output-directory",
+                str(tmp_root / "batches"),
                 "--timings",
                 str(tmp_root / "no-manifest.json"),
             ],
@@ -249,6 +306,8 @@ extension SharedStateSuites {
     }
     expected = {
         "cmuxTests/BehaviorUmbrellaTests": 41 * 200,
+        "cmuxTests/ExplicitlyAnnotatedUmbrellaTests": 81 * 200,
+        "cmuxTests/MultilineAnnotatedUmbrellaTests": 3 * 200,
         "cmuxTests/SharedStateSuites": 2 * 200,
     }
     if selectors != expected:
@@ -256,6 +315,17 @@ extension SharedStateSuites {
         print(
             "FAIL: nested Swift Testing suites must stay under their recursively "
             f"selecting umbrella with exact counts, got {selectors}"
+        )
+        return 1
+    if (
+        batch_result.returncode == 0
+        or "cmuxTests/ExplicitlyAnnotatedUmbrellaTests" not in batch_result.stderr
+        or "represents 81 tests" not in batch_result.stderr
+    ):
+        print(batch_result.stdout, end="")
+        print(batch_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: a non-suffixed nested @Suite must not bypass the process cap"
         )
         return 1
 
