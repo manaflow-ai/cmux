@@ -15,12 +15,8 @@ import SwiftUI
 /// illustrated tiles.
 struct WorkspaceListViewOptionsPopover: View {
     let filter: MobileWorkspaceListFilter
-    let machines: [WorkspaceFilterMachine]
     /// `nil` hides the sort tiles (single-machine scope keeps the Mac's order).
     let sortMode: MobileWorkspaceSortMode?
-    /// The stored computer order; empty means Computer Order has never been
-    /// configured, so picking that tile auto-opens the editor.
-    var computerPriority: [String] = []
     /// Computers offered by the order editor, effective order first.
     var orderMachines: [WorkspaceFilterMachine] = []
     /// Persist a new computer order. `nil` hides the editor row.
@@ -28,10 +24,10 @@ struct WorkspaceListViewOptionsPopover: View {
     let actions: WorkspaceListFilterMenuActions
 
     /// The order editor presents from the popover itself: a parent-level sheet
-    /// cannot present while this popover owns the presentation slot.
+    /// cannot present while this popover owns the presentation slot. It opens
+    /// only from the explicit row below the tiles — selecting the Computer
+    /// Order tile just selects; no surprise navigation.
     @State private var showingOrderEditor = false
-
-    private var showsMachineSection: Bool { machines.count > 1 }
 
     var body: some View {
         ScrollView {
@@ -39,14 +35,6 @@ struct WorkspaceListViewOptionsPopover: View {
                 if let sortMode, let setSortMode = actions.setSortMode {
                     sortTiles(selected: sortMode) { picked in
                         setSortMode(picked)
-                        // First-time pick of Computer Order has no stored order
-                        // yet, so the mode alone changes nothing; open the
-                        // editor rather than leaving a silently inert choice.
-                        if picked == .computerPriority,
-                           computerPriority.isEmpty,
-                           saveComputerOrder != nil {
-                            showingOrderEditor = true
-                        }
                     }
                     if sortMode == .computerPriority, saveComputerOrder != nil {
                         Divider().padding(.horizontal, 14)
@@ -76,35 +64,6 @@ struct WorkspaceListViewOptionsPopover: View {
                     checked: filter.readState == .unread
                 ) {
                     actions.setReadState(.unread)
-                }
-
-                if showsMachineSection {
-                    sectionBreak
-                    Text(L10n.string("mobile.workspaces.filter.machines", defaultValue: "Machines"))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .padding(.bottom, 2)
-                    row(
-                        title: L10n.string(
-                            "mobile.workspaces.filter.allMachines",
-                            defaultValue: "All Machines"
-                        ),
-                        checked: filter.machines.isEmpty
-                    ) {
-                        actions.clearMachines()
-                    }
-                    ForEach(machines) { machine in
-                        row(
-                            title: machine.name,
-                            subtitle: machine.buildLabel,
-                            checked: filter.machines.contains(machine.id)
-                        ) {
-                            actions.toggleMachine(machine.id)
-                        }
-                        .accessibilityIdentifier("MobileWorkspaceFilterMachine-\(machine.id)")
-                    }
                 }
             }
             .padding(.vertical, 8)
@@ -159,7 +118,7 @@ struct WorkspaceListViewOptionsPopover: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: "checkmark")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.subheadline)
                     .opacity(checked ? 1 : 0)
                     .frame(width: 18)
                 VStack(alignment: .leading, spacing: 1) {
@@ -260,7 +219,8 @@ struct WorkspaceSortModeSchematic: View {
                 timedRow(tint: firstTint, width: 0.6)
             }
         }
-        .padding(8)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 

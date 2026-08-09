@@ -1,3 +1,4 @@
+import CmuxMobileSupport
 import SwiftUI
 
 extension WorkspaceListView {
@@ -12,10 +13,11 @@ extension WorkspaceListView {
 
     #if os(iOS)
     /// The sort + filter entry point: one toolbar button opening the Mail-style
-    /// view-options card (illustrated sort tiles + filter rows). The icon fills
-    /// while a narrowing filter is active, mirroring Mail.
+    /// view-options card (illustrated sort tiles + read-state rows; computer
+    /// selection stays in its dedicated title picker). The icon fills while a
+    /// narrowing filter is active, mirroring Mail.
     @ViewBuilder
-    func viewOptionsButton(filterMachines: [WorkspaceFilterMachine]) -> some View {
+    func viewOptionsButton() -> some View {
         Button {
             showingViewOptionsPopover = true
         } label: {
@@ -39,9 +41,7 @@ extension WorkspaceListView {
         .popover(isPresented: $showingViewOptionsPopover) {
             WorkspaceListViewOptionsPopover(
                 filter: filter,
-                machines: filterMachines,
                 sortMode: workspaceSortMenuMode,
-                computerPriority: workspaceComputerPriority,
                 orderMachines: computerOrderSheetMachines,
                 saveComputerOrder: setWorkspaceComputerPriority,
                 actions: workspaceListFilterMenuActions
@@ -82,7 +82,7 @@ extension WorkspaceListView {
                                     dismiss: dismissMacUpdateHint
                                 )
                             }
-                            viewOptionsButton(filterMachines: filterMachines)
+                            viewOptionsButton()
                             if canCreateWorkspace {
                                 newWorkspaceButton.equatable()
                             }
