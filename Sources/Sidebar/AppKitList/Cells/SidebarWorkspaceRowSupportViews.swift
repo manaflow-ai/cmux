@@ -4,8 +4,8 @@ import CmuxSidebar
 import CmuxWorkspaces
 import SwiftUI
 
-/// Resolved color helpers for one row render (parity with the SwiftUI
-/// active/inactive foreground rules in SidebarAppearanceSupport).
+/// Row-owned color helpers that preserve native semantic variants while
+/// deriving selected colors from the row model (parity with SwiftUI).
 @MainActor
 struct SidebarRowPalette {
     let model: SidebarWorkspaceRowModel
@@ -23,18 +23,17 @@ struct SidebarRowPalette {
         sidebarSelectedWorkspaceForegroundNSColor(on: selectedBackground, opacity: opacity)
     }
 
-    /// Resolves semantic AppKit colors against the row model's declared appearance.
+    /// Preserves semantic colors, applying opacity lazily in the drawing appearance.
     func semantic(_ color: NSColor, opacity: CGFloat? = nil) -> NSColor {
-        let appearanceName: NSAppearance.Name = model.colorSchemeIsDark ? .darkAqua : .aqua
-        guard let appearance = NSAppearance(named: appearanceName) else {
-            return color
+        guard let opacity else { return color }
+        return NSColor(name: nil) { appearance in
+            var resolved = color
+            appearance.performAsCurrentDrawingAppearance {
+                let candidate = color.withAlphaComponent(opacity)
+                resolved = candidate.usingColorSpace(.sRGB) ?? candidate
+            }
+            return resolved
         }
-        var resolved = color
-        appearance.performAsCurrentDrawingAppearance {
-            let candidate = opacity.map { color.withAlphaComponent($0) } ?? color
-            resolved = candidate.usingColorSpace(.sRGB) ?? candidate
-        }
-        return resolved
     }
 
     var primaryText: NSColor {

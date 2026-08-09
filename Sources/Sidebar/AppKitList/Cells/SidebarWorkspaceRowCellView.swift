@@ -390,7 +390,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         applyBackgroundStyle(style)
         if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
             backgroundView.layer?.borderWidth = 1.5
-            backgroundView.layer?.borderColor = palette.semantic(.labelColor, opacity: 0.5).cgColor
+            backgroundView.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.5).cgColor
         } else {
             backgroundView.layer?.borderWidth = 0
         }
@@ -818,7 +818,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             progressView.configure(
                 fraction: CGFloat(progress.value),
                 barHeight: max(3, 3 * model.fontScale),
-                trackColor: palette.secondary(0.15, inactiveOpacity: 0.2),
+                trackColor: model.isActive ? palette.selectedForeground(0.15) : NSColor.secondaryLabelColor.withAlphaComponent(0.2),
                 fillColor: model.isActive ? palette.selectedForeground(0.8) : cmuxAccentNSColor(),
                 labelText: progress.label,
                 labelFont: labelFont,

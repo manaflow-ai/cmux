@@ -661,7 +661,7 @@ struct SidebarAppKitRowCellTests {
         )
         let darkAppearance = try #require(NSAppearance(named: .darkAqua))
         let expectedLink = try Self.resolvedColor(NSColor.linkColor, in: darkAppearance)
-        let renderedSRGB = try #require(rendered.usingColorSpace(.sRGB))
+        let renderedSRGB = try Self.resolvedColor(rendered, in: darkAppearance)
         #expect(Self.distance(renderedSRGB, expectedLink) < 0.001)
         #expect(
             textView.attributedStringValue.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int
@@ -1375,7 +1375,7 @@ struct SidebarAppKitRowCellTests {
         } else {
             let darkAppearance = try #require(NSAppearance(named: .darkAqua))
             let expected = try Self.resolvedColor(NSColor.linkColor, in: darkAppearance)
-            let renderedSRGB = try #require(rendered.usingColorSpace(.sRGB))
+            let renderedSRGB = try Self.resolvedColor(rendered, in: darkAppearance)
             #expect(Self.distance(renderedSRGB, expected) < 0.001)
         }
     }
