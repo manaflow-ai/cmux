@@ -625,6 +625,7 @@ final class RemoteTmuxController {
         removeCachedConnection(forKey: key)?.stop()
         let hostHasOtherMirrors = sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash })
         if !hostHasOtherMirrors {
+            releaseLoginOfferIfHostHasNoMirrors(host: host)
             let hostHasOtherConnections = connectionsByHostSession.values
                 .contains { $0.host.connectionHash == host.connectionHash }
             if !hostHasOtherConnections {
@@ -771,6 +772,9 @@ final class RemoteTmuxController {
         mirror.detachObserver()
         detach(host: host, sessionName: sessionName)
         let isLastSession = !sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash })
+        if isLastSession {
+            releaseLoginOfferIfHostHasNoMirrors(host: host)
+        }
         let transport = transport(for: host)
         if isLastSession {
             // Drop the transport so a later re-attach builds a fresh one instead of
