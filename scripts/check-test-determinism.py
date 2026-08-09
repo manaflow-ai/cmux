@@ -444,8 +444,8 @@ _INTERPRETER_SOURCE_SPECS = (
     _NODE_SOURCE_SPEC,
 )
 
-# Locate a shell program; `_shell_command_source_bounds` owns option parsing and
-# identifies the exact word consumed by -c/-lc/--command.
+# Locate a shell program outside shell source; `_interpreter_command_source_bounds`
+# owns option parsing and identifies the exact word consumed by -c/-lc/--command.
 _SHELL_COMMAND_LAUNCHER = re.compile(
     r"""(?x)
     (?<![A-Za-z0-9_.-])
@@ -1722,13 +1722,14 @@ def _interpreter_source_spec(executable: str) -> Optional[_InterpreterSourceSpec
     )
 
 
-def _shell_command_source_bounds(
+def _interpreter_command_source_bounds(
     line: str,
-    launcher_end: int,
+    command_end: int,
+    spec: _InterpreterSourceSpec,
 ) -> Optional[tuple[int, int]]:
-    statement_end = _shell_statement_end(line, launcher_end)
-    words = _shell_word_bounds(line, launcher_end, statement_end)
-    return _evaluated_source_argument_bounds(line, words, _SHELL_SOURCE_SPEC)
+    statement_end = _shell_statement_end(line, command_end)
+    words = _shell_word_bounds(line, command_end, statement_end)
+    return _evaluated_source_argument_bounds(line, words, spec)
 
 
 def _shell_eval_target_ranges(
@@ -1955,23 +1956,45 @@ def _launcher_target_ranges(
         if ranges:
             return ranges
 
-    for launcher in _SHELL_COMMAND_LAUNCHER.finditer(line):
-        if launcher.start() >= verb_start:
-            break
-        launcher_end = launcher.end()
-        if path_suffix == ".sh":
-            command_word = _shell_command_word_bounds(line, launcher.start())
-            if command_word is None or not _bounds_contain_offset(
+    if path_suffix == ".sh":
+        command_word = _shell_command_word_bounds(line, verb_start)
+        if command_word is not None:
+            executable, _ = _shell_word_value_and_bounds(
+                line,
                 command_word,
+            )
+            spec = _interpreter_source_spec(executable)
+            if spec is not None:
+                bounds = _interpreter_command_source_bounds(
+                    line,
+                    command_word[1],
+                    spec,
+                )
+                if bounds is not None and _bounds_contain_offset(
+                    bounds,
+                    verb_start,
+                ):
+                    return [bounds]
+    else:
+        for launcher in _SHELL_COMMAND_LAUNCHER.finditer(line):
+            if launcher.start() >= verb_start:
+                break
+            if _is_inside_string_literal(
+                line,
                 launcher.start(),
+                path_suffix,
             ):
                 continue
-            launcher_end = command_word[1]
-        elif _is_inside_string_literal(line, launcher.start(), path_suffix):
-            continue
-        bounds = _shell_command_source_bounds(line, launcher_end)
-        if bounds is not None and _bounds_contain_offset(bounds, verb_start):
-            return [bounds]
+            bounds = _interpreter_command_source_bounds(
+                line,
+                launcher.end(),
+                _SHELL_SOURCE_SPEC,
+            )
+            if bounds is not None and _bounds_contain_offset(
+                bounds,
+                verb_start,
+            ):
+                return [bounds]
 
     if path_suffix == ".sh":
         for launcher in _SHELL_EVAL_LAUNCHER.finditer(line):
