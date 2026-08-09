@@ -310,6 +310,87 @@ struct DockRuntimeParityTests {
         }
     }
 
+    @Test("Terminal bell attention projects unread state for both Dock scopes")
+    func terminalBellAttentionProjectsUnreadStateForBothDockScopes() async throws {
+        try await withAppContext { appDelegate, manager, workspace, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let previousFocusOverride = AppFocusState.overrideIsFocused
+            notificationStore.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = notificationStore
+            AppFocusState.overrideIsFocused = false
+            defer {
+                AppFocusState.overrideIsFocused = previousFocusOverride
+                notificationStore.replaceNotificationsForTesting([])
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            let workspaceDock = workspace.dockSplit
+            let globalDock = appDelegate.windowDock(forWindowId: windowID)
+            let workspacePanel = DockRuntimeParityPanel(title: "Workspace Dock")
+            let globalPanel = DockRuntimeParityPanel(title: "Global Dock")
+            try workspaceDock.seedRuntimeParityPanel(workspacePanel)
+            try globalDock.seedRuntimeParityPanel(globalPanel)
+            let workspaceProjection = DockUnreadPanelProjection(
+                source: notificationStore.sidebarUnread,
+                workspaceID: workspaceDock.workspaceId,
+                panelIDs: [workspacePanel.id],
+                isActive: true
+            )
+            let globalProjection = DockUnreadPanelProjection(
+                source: notificationStore.sidebarUnread,
+                workspaceID: globalDock.workspaceId,
+                panelIDs: [globalPanel.id],
+                isActive: true
+            )
+
+            #expect(appDelegate.routeTerminalBellAttention(
+                preferredTabID: workspace.id,
+                surfaceID: workspacePanel.id
+            ))
+            #expect(appDelegate.routeTerminalBellAttention(
+                preferredTabID: workspace.id,
+                surfaceID: globalPanel.id
+            ))
+            #expect(workspaceProjection.unreadPanelIDs == [workspacePanel.id])
+            #expect(globalProjection.unreadPanelIDs == [globalPanel.id])
+            #expect(notificationStore.unreadCount == 2)
+            #expect(TerminalNotificationStore.dockBadgeLabel(
+                unreadCount: notificationStore.unreadCount,
+                isEnabled: true
+            ) == "2")
+
+            workspaceDock.focusPanel(workspacePanel.id)
+            #expect(manager.dismissNotificationOnTerminalInteraction(
+                tabId: workspaceDock.workspaceId,
+                surfaceId: workspacePanel.id
+            ))
+            #expect(workspaceProjection.unreadPanelIDs.isEmpty)
+            #expect(globalProjection.unreadPanelIDs == [globalPanel.id])
+            #expect(notificationStore.unreadCount == 1)
+
+            globalDock.focusPanel(globalPanel.id)
+            #expect(manager.dismissNotificationOnTerminalInteraction(
+                tabId: globalDock.workspaceId,
+                surfaceId: globalPanel.id
+            ))
+            #expect(globalProjection.unreadPanelIDs.isEmpty)
+            #expect(notificationStore.unreadCount == 0)
+            #expect(TerminalNotificationStore.dockBadgeLabel(
+                unreadCount: notificationStore.unreadCount,
+                isEnabled: true
+            ) == nil)
+            #expect(workspacePanel.flashReasons == [
+                .notificationArrival,
+                .unreadIndicatorDismiss,
+            ])
+            #expect(globalPanel.flashReasons == [
+                .notificationArrival,
+                .unreadIndicatorDismiss,
+            ])
+        }
+    }
+
     @Test("Explicit socket flashes route as user initiated in both Dock scopes")
     func explicitSocketFlashesRouteAsUserInitiatedInBothDockScopes() async throws {
         try await withAppContext { appDelegate, _, workspace, windowID in
