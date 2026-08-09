@@ -7141,6 +7141,74 @@
         }
       }
     },
+    "mobile.settings.diagnostics": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnostics"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "診断"
+          }
+        }
+      }
+    },
+    "mobile.settings.diagnostics.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The App Log records in-app activity; the Network Log records connection diagnostics. Terminal contents and credentials are never written."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリログはアプリ内のアクティビティを記録し、ネットワークログは接続診断を記録します。ターミナルの内容や認証情報が書き込まれることはありません。"
+          }
+        }
+      }
+    },
+    "mobile.settings.diagnostics.shareAppLog": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share App Log"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリログを共有"
+          }
+        }
+      }
+    },
+    "mobile.settings.diagnostics.shareNetworkLog": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share Network Log"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワークログを共有"
+          }
+        }
+      }
+    },
     "mobile.settings.display": {
       "extractionState": "manual",
       "localizations": {
@@ -17340,40 +17408,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "安全なレポートを共有"
-          }
-        }
-      }
-    },
-    "mobile.iroh.diagnostics.shareAppLog": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Share App Log"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アプリログを共有"
-          }
-        }
-      }
-    },
-    "mobile.iroh.diagnostics.shareNetworkLog": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Share Network Log"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ネットワークログを共有"
           }
         }
       }
