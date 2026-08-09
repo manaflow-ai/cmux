@@ -324,8 +324,9 @@ struct DockSessionPersistenceTests {
                 scope: .global,
                 baseDirectoryProvider: { nil }
             )
+            sourceDock.notificationStore = notificationStore
+            restoredDock.notificationStore = notificationStore
             AppDelegate.shared = appDelegate
-            appDelegate.notificationStore = notificationStore
             defer {
                 sourceDock.closeAllPanels()
                 restoredDock.closeAllPanels()

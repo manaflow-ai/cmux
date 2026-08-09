@@ -114,41 +114,43 @@ struct AppDelegateSurfaceShortcutRoutingTests {
     }
 
     @Test func keyboardCopyModeKeyClearsTerminalUnread() throws {
-        let appDelegate = try #require(AppDelegate.shared)
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
 
-        let window = try #require(mainWindow(for: windowId))
-        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-        let workspace = try #require(manager.selectedWorkspace)
-        let panelId = try #require(workspace.focusedPanelId)
-        let terminalPanel = try #require(workspace.terminalPanel(for: panelId))
-        let surfaceView = terminalPanel.hostedView.surfaceView
-        let event = try #require(makeKeyDownEvent(
-            key: "j",
-            modifiers: [],
-            keyCode: 38,
-            windowNumber: window.windowNumber
-        ))
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let panelId = try #require(workspace.focusedPanelId)
+            let terminalPanel = try #require(workspace.terminalPanel(for: panelId))
+            let surfaceView = terminalPanel.hostedView.surfaceView
+            let event = try #require(makeKeyDownEvent(
+                key: "j",
+                modifiers: [],
+                keyCode: 38,
+                windowNumber: window.windowNumber
+            ))
 
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        terminalPanel.hostedView.setVisibleInUI(true)
-        terminalPanel.hostedView.setActive(true)
-        #expect(window.makeFirstResponder(surfaceView))
-        #expect(terminalPanel.surface.toggleKeyboardCopyMode())
-        defer {
-            if terminalPanel.surface.keyboardCopyModeActive {
-                _ = terminalPanel.surface.toggleKeyboardCopyMode()
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            terminalPanel.hostedView.setVisibleInUI(true)
+            terminalPanel.hostedView.setActive(true)
+            #expect(window.makeFirstResponder(surfaceView))
+            #expect(terminalPanel.surface.toggleKeyboardCopyMode())
+            defer {
+                if terminalPanel.surface.keyboardCopyModeActive {
+                    _ = terminalPanel.surface.toggleKeyboardCopyMode()
+                }
             }
+
+            workspace.markPanelUnread(panelId)
+            #expect(workspace.manualUnreadPanelIds.contains(panelId))
+
+            surfaceView.keyDown(with: event)
+
+            #expect(!workspace.manualUnreadPanelIds.contains(panelId))
         }
-
-        workspace.markPanelUnread(panelId)
-        #expect(workspace.manualUnreadPanelIds.contains(panelId))
-
-        surfaceView.keyDown(with: event)
-
-        #expect(!workspace.manualUnreadPanelIds.contains(panelId))
     }
 
     @Test func rightSidebarModeShortcutsDoNotUseStaleIntentForUnrelatedResponder() throws {

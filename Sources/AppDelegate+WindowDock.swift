@@ -5,8 +5,13 @@ extension AppDelegate.MainWindowContext {
     /// The Dock for this window, created on first access and retained until the
     /// context is unregistered. Session restore wins; otherwise global config seeds it.
     func windowDockStore() -> DockSplitStore {
-        if let existing = windowDock { return existing }
+        let notificationStore = AppDelegate.shared?.notificationStore
+        if let existing = windowDock {
+            existing.notificationStore = notificationStore
+            return existing
+        }
         let store = tabManager.makeWindowDockStore(windowId: windowId)
+        store.notificationStore = notificationStore
         windowDock = store
         workspaceTerminalFontSizeCoordinator.attachWindowDock(store)
         return store

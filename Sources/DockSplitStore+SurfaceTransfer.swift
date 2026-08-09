@@ -77,7 +77,7 @@ extension DockSplitStore {
                 )
         }
         let preservedTransfer = removeDetachedSurfaceTransfer(forPanelID: panelId)
-        let notificationStore = AppDelegate.shared?.notificationStore
+        let notificationStore = resolvedNotificationStore()
         let wasManuallyUnread = scope == .global
             ? notificationStore?.hasManualUnread(
                 forTabId: workspaceId,
@@ -309,12 +309,7 @@ extension DockSplitStore {
             remotePTYSessionID: preservedTransfer?.remotePTYSessionID,
             remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration
         )
-        if scope == .global {
-            notificationStore?.clearWindowDockSurfaceUnread(
-                windowId: workspaceId,
-                surfaceId: panelId
-            )
-        }
+        applyWindowDockUnreadState(false, panelId: panelId)
         clearSessionRestoreState(panelId: panelId)
         return detached
     }
@@ -386,12 +381,10 @@ extension DockSplitStore {
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface"
         )
-        if scope == .global, detached.manuallyUnread {
-            AppDelegate.shared?.notificationStore?.markWindowDockSurfaceUnread(
-                windowId: workspaceId,
-                surfaceId: detached.panelId
-            )
-        }
+        applyWindowDockUnreadState(
+            detached.manuallyUnread,
+            panelId: detached.panelId
+        )
         if let terminalPanel = panel as? TerminalPanel {
             if let owningWorkspace =
                     terminalFontSizeOwningWorkspace {
@@ -487,12 +480,10 @@ extension DockSplitStore {
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface.split"
         )
-        if scope == .global, detached.manuallyUnread {
-            AppDelegate.shared?.notificationStore?.markWindowDockSurfaceUnread(
-                windowId: workspaceId,
-                surfaceId: detached.panelId
-            )
-        }
+        applyWindowDockUnreadState(
+            detached.manuallyUnread,
+            panelId: detached.panelId
+        )
         if let terminalPanel = panel as? TerminalPanel {
             if let owningWorkspace =
                     terminalFontSizeOwningWorkspace {

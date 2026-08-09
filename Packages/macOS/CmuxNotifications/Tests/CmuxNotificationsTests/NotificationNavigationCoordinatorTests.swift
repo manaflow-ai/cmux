@@ -203,8 +203,8 @@ struct NotificationNavigationCoordinatorTests {
         ])
     }
 
-    @Test("window Dock jump excludes only the exact focused surface")
-    func windowDockJumpExcludesOnlyExactSurface() {
+    @Test("workspace exclusion does not suppress a sibling window Dock surface")
+    func workspaceExclusionDoesNotSuppressSiblingWindowDockSurface() {
         let store = FakeStore()
         let openRouting = FakeOpenRouting()
         let windowID = UUID()
@@ -220,9 +220,49 @@ struct NotificationNavigationCoordinatorTests {
         let coordinator = makeCoordinator(store: store, openRouting: openRouting)
 
         _ = coordinator.jumpToLatestUnread(
+            excludingWorkspaceId: windowID,
             excludingWindowDockTarget: focusedTarget
         )
 
+        #expect(store.clearedWindowDockTargets == [siblingTarget])
+        #expect(openRouting.log == [
+            "windowDock(window=\(short(windowID)),surf=\(short(siblingTarget.surfaceId)))",
+        ])
+    }
+
+    @Test("mark-oldest skips both unread forms on the focused Dock surface")
+    func markOldestSkipsNotificationAndManualUnreadForFocusedDockSurface() {
+        let store = FakeStore()
+        let openRouting = FakeOpenRouting()
+        let focusedResolving = FakeFocusedResolving()
+        let windowID = UUID()
+        let focusedTarget = WindowDockUnreadTarget(
+            windowId: windowID,
+            surfaceId: UUID()
+        )
+        let siblingTarget = WindowDockUnreadTarget(
+            windowId: windowID,
+            surfaceId: UUID()
+        )
+        let focusedNotification = snapshot(
+            tabId: windowID,
+            surfaceId: focusedTarget.surfaceId
+        )
+        store.orderedNotifications = [focusedNotification]
+        store.windowDockUnreadTargets = [focusedTarget, siblingTarget]
+        focusedResolving.focusedTargetValue = .windowDock(focusedTarget)
+        focusedResolving.unreadWindowDockTargets = [focusedTarget]
+        focusedResolving.oldestUnreadIdByWindowDockTarget[focusedTarget] =
+            focusedNotification.id
+        let coordinator = makeCoordinator(
+            store: store,
+            openRouting: openRouting,
+            focusedResolving: focusedResolving
+        )
+
+        _ = coordinator.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread()
+
+        #expect(store.markedReadIds.isEmpty)
         #expect(store.clearedWindowDockTargets == [siblingTarget])
         #expect(openRouting.log == [
             "windowDock(window=\(short(windowID)),surf=\(short(siblingTarget.surfaceId)))",

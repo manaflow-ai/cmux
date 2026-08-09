@@ -17,6 +17,7 @@ extension DockSplitStore {
             return PIDPresence.current(pid: pid_t($0))
         }
     ) -> SessionSplitContainerSnapshot {
+        let notificationStore = resolvedNotificationStore()
         let layoutCodec = SessionSplitContainerLayoutCodec(controller: bonsplitController)
         let rawLayout = layoutCodec.snapshot(panelIdForTabId: { [self] in surfaceIdToPanelId[$0] })
         let orderedPanelIds = orderedSessionPanelIds()
@@ -59,6 +60,7 @@ extension DockSplitStore {
                     ),
                     terminalFontSizeSnapshotProjection:
                         terminalFontSizeSnapshotProjection,
+                    notificationStore: notificationStore,
                     currentAgentProcessIdentity: currentAgentProcessIdentity,
                     agentProcessPresence: agentProcessPresence
                 )
@@ -90,6 +92,7 @@ extension DockSplitStore {
     func sessionManualUnreadAutosaveFingerprint(
         notificationStore: TerminalNotificationStore?
     ) -> Int {
+        self.notificationStore = notificationStore
         var hasher = Hasher()
         let panelIds = Array(
             orderedSessionPanelIds()
@@ -147,6 +150,7 @@ extension DockSplitStore {
             detectedResumeBinding: nil,
             terminalFontSizeSnapshotProjection:
                 terminalFontSizeSnapshotProjection,
+            notificationStore: resolvedNotificationStore(),
             currentAgentProcessIdentity: {
                 guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
                 return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -185,6 +189,7 @@ extension DockSplitStore {
         detectedResumeBinding: SurfaceResumeBindingSnapshot?,
         terminalFontSizeSnapshotProjection:
             WorkspaceTerminalFontSizeSnapshotProjection?,
+        notificationStore: TerminalNotificationStore?,
         currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity?,
         agentProcessPresence: (Int) -> PIDPresence
     ) -> SessionPanelSnapshot? {
@@ -195,7 +200,7 @@ extension DockSplitStore {
         let customTitle = transfer?.customTitle ?? (tab?.hasCustomTitle == true ? tabTitle : nil)
         let directory = sessionWorkingDirectory(panel: panel, transfer: transfer)
         let isManuallyUnread = scope == .global
-            ? AppDelegate.shared?.notificationStore?.hasManualUnread(
+            ? notificationStore?.hasManualUnread(
                 forTabId: workspaceId,
                 surfaceId: panelId
             ) == true

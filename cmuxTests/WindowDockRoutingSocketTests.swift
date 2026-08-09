@@ -104,7 +104,6 @@ struct WindowDockRoutingSocketTests {
     @Test("Dock focus commands fail when the owning Dock cannot be revealed")
     @MainActor
     func dockFocusCommandsFailWhenRevealIsUnavailable() throws {
-#if DEBUG
         try withDockEnabled {
             try withSocketAppContext(fileExplorerState: nil) { _, _, windowId in
                 let appDelegate = try #require(AppDelegate.shared)
@@ -148,13 +147,11 @@ struct WindowDockRoutingSocketTests {
                 #expect(dock.bonsplitController.focusedPaneId == firstPane)
             }
         }
-#endif
     }
 
     @Test("Hidden workspace Dock surfaces cannot focus through the visible window Dock")
     @MainActor
     func hiddenWorkspaceDockSurfaceFocusFailsClosed() throws {
-#if DEBUG
         try withDockEnabled {
             let fileExplorerState = FileExplorerState()
             try withSocketAppContext(fileExplorerState: fileExplorerState) { _, workspace, _ in
@@ -186,13 +183,11 @@ struct WindowDockRoutingSocketTests {
                 #expect(!fileExplorerState.isVisible)
             }
         }
-#endif
     }
 
     @Test("Window Dock focus never falls back to a different live window")
     @MainActor
     func dockFocusDoesNotFallBackWhenOwnerWindowIsUnavailable() async throws {
-#if DEBUG
         try await withDockEnabled {
             try await AppContextSerialGate.withExclusiveAppContext {
                 let previousAppDelegate = AppDelegate.shared
@@ -281,7 +276,6 @@ struct WindowDockRoutingSocketTests {
                 )
             }
         }
-#endif
     }
 
     @Test("Legacy global Dock alias workspace_id routes to the caller window's Dock")

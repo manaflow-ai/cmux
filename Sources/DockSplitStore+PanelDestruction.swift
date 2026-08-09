@@ -19,7 +19,7 @@ extension DockSplitStore {
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         panelCancellables[panelId]?.cancel()
         panelCancellables.removeValue(forKey: panelId)
-        AppDelegate.shared?.notificationStore?.clearNotifications(
+        resolvedNotificationStore()?.clearNotifications(
             forTabId: workspaceId,
             surfaceId: panelId
         )

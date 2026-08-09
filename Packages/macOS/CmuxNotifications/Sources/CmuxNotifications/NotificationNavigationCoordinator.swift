@@ -128,10 +128,7 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
                 return notification.id
             }
         }
-        if openLatestWindowDockUnread(
-            excludingOwnerId: excludedWorkspaceId,
-            excludingTarget: excludedWindowDockTarget
-        ) {
+        if openLatestWindowDockUnread(excludingTarget: excludedWindowDockTarget) {
             return nil
         }
         _ = openLatestWorkspaceUnread(excludingWorkspaceId: excludedWorkspaceId)
@@ -139,11 +136,10 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     }
 
     private func openLatestWindowDockUnread(
-        excludingOwnerId excludedOwnerId: UUID?,
         excludingTarget excludedTarget: WindowDockUnreadTarget?
     ) -> Bool {
         for target in store.windowDockUnreadTargets
-        where target.windowId != excludedOwnerId && target != excludedTarget {
+        where target != excludedTarget {
             guard openRouting.openWindowDockUnread(target) else { continue }
             signalDidFocusForJumpUnread(
                 tabId: target.windowId,

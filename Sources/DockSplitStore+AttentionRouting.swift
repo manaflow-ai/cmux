@@ -3,6 +3,33 @@ import Foundation
 
 @MainActor
 extension DockSplitStore {
+    /// Resolves the notification authority injected by the owning window.
+    ///
+    /// Workspace-scoped Docks predate per-window ownership and retain the
+    /// late-bound fallback until their construction path can inject the store.
+    func resolvedNotificationStore() -> TerminalNotificationStore? {
+        notificationStore ?? AppDelegate.shared?.notificationStore
+    }
+
+    /// Applies exact unread state for a global-Dock surface through one policy.
+    func applyWindowDockUnreadState(_ isUnread: Bool, panelId: UUID) {
+        guard scope == .global,
+              let notificationStore = resolvedNotificationStore() else {
+            return
+        }
+        if isUnread {
+            notificationStore.markWindowDockSurfaceUnread(
+                windowId: workspaceId,
+                surfaceId: panelId
+            )
+        } else {
+            notificationStore.clearWindowDockSurfaceUnread(
+                windowId: workspaceId,
+                surfaceId: panelId
+            )
+        }
+    }
+
     /// Routes a panel attention request through the shared live-container
     /// registry. This is the Dock equivalent of Workspace's panel lookup and is
     /// intentionally container-agnostic: both workspace and global Docks
@@ -71,7 +98,7 @@ extension DockSplitStore {
                     preferredWindow: terminal.surface.uiWindow
                 ) === self
             if !ownsActiveFocus,
-               let notificationStore = AppDelegate.shared?.notificationStore,
+               let notificationStore = self.resolvedNotificationStore(),
                !notificationStore.hasManualUnread(
                     forTabId: self.workspaceId,
                     surfaceId: terminal.id

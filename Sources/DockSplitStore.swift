@@ -40,6 +40,7 @@ final class DockSplitStore: BonsplitDelegate {
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
+    @ObservationIgnored weak var notificationStore: TerminalNotificationStore?
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     private var lastTerminalFontSizeLineage: TerminalFontSizeLineage?

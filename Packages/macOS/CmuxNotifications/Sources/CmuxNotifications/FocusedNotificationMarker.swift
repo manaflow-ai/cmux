@@ -44,7 +44,10 @@ public final class FocusedNotificationMarker {
     /// The result of marking the focused notification oldest-unread, mirroring
     /// the app-target `FocusedNotificationMarkResult`.
     private enum MarkResult {
-        case deferredNotification(UUID)
+        case deferredNotification(
+            id: UUID,
+            windowDockTarget: WindowDockUnreadTarget?
+        )
         case markedWorkspaceWithoutNotification(UUID)
         case markedWindowDockWithoutNotification(WindowDockUnreadTarget)
     }
@@ -121,8 +124,8 @@ public final class FocusedNotificationMarker {
             return nil
         }
         switch result {
-        case .deferredNotification(let notificationId):
-            return jumpToLatestUnread(notificationId, nil, nil)
+        case .deferredNotification(let notificationId, let windowDockTarget):
+            return jumpToLatestUnread(notificationId, nil, windowDockTarget)
         case .markedWorkspaceWithoutNotification(let workspaceId):
             return jumpToLatestUnread(nil, workspaceId, nil)
         case .markedWindowDockWithoutNotification(let target):
@@ -146,7 +149,10 @@ public final class FocusedNotificationMarker {
 
     private func markFocusedWindowDockAsOldestUnread(_ target: WindowDockUnreadTarget) -> MarkResult {
         if let notificationId = resolver.markLatestWindowDockNotificationAsOldestUnread(target) {
-            return .deferredNotification(notificationId)
+            return .deferredNotification(
+                id: notificationId,
+                windowDockTarget: target
+            )
         }
         if !resolver.windowDockSurfaceIsUnread(target) {
             resolver.markWindowDockSurfaceUnread(target)
@@ -159,7 +165,10 @@ public final class FocusedNotificationMarker {
             forTabId: tabId,
             surfaceId: surfaceId
         ) {
-            return .deferredNotification(notificationId)
+            return .deferredNotification(
+                id: notificationId,
+                windowDockTarget: nil
+            )
         }
         if let panel = resolver.focusedPanel(forTabId: tabId, surfaceId: surfaceId) {
             let panelAlreadyUnread =

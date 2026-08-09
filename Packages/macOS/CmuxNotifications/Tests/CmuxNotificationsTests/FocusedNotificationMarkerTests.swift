@@ -175,12 +175,13 @@ struct FocusedNotificationMarkerTests {
         #expect(spy.calls.first?.2 == target)
     }
 
-    @Test("mark-oldest defers an exact Dock notification without excluding sibling surfaces")
-    func markOldestDefersWindowDockNotificationWithoutExcludingOwner() {
+    @Test("mark-oldest excludes both forms of unread on the focused Dock surface")
+    func markOldestDefersWindowDockNotificationAndExactUnreadTarget() {
         let target = WindowDockUnreadTarget(windowId: UUID(), surfaceId: UUID())
         let notificationID = UUID()
         let resolver = FakeFocusedResolving()
         resolver.focusedTargetValue = .windowDock(target)
+        resolver.unreadWindowDockTargets = [target]
         resolver.oldestUnreadIdByWindowDockTarget[target] = notificationID
         let (marker, spy) = makeMarker(resolver: resolver)
 
@@ -190,7 +191,7 @@ struct FocusedNotificationMarkerTests {
         #expect(spy.calls.count == 1)
         #expect(spy.calls.first?.0 == notificationID)
         #expect(spy.calls.first?.1 == nil)
-        #expect(spy.calls.first?.2 == nil)
+        #expect(spy.calls.first?.2 == target)
     }
 
     @Test("mark-oldest does not defer a notification from a sibling Dock surface")
