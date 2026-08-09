@@ -1,9 +1,16 @@
 import Foundation
 import Testing
 
+private let cmuxBundledBinFishExecutablePath = [
+    "/opt/homebrew/bin/fish",
+    "/usr/local/bin/fish",
+    "/usr/bin/fish",
+    "/bin/fish",
+].first { FileManager.default.isExecutableFile(atPath: $0) }
+
 @Suite(.serialized)
 struct CmuxBundledBinPathIntegrationTests {
-    enum Shell: String, CaseIterable, CustomTestStringConvertible, Sendable {
+    enum Shell: String, CustomTestStringConvertible, Sendable {
         case bash
         case fish
         case zsh
@@ -23,11 +30,19 @@ struct CmuxBundledBinPathIntegrationTests {
 
     /// Regression for #9471: cmux's bundled commands must not depend on
     /// Ghostty's optional helper environment to remain first on `PATH`.
-    @Test(arguments: Shell.allCases)
+    @Test(arguments: [Shell.bash, .zsh])
     func bundledOpenWinsWithoutGhosttyBinEnvironment(shell: Shell) throws {
+        try assertBundledOpenWinsWithoutGhosttyBinEnvironment(shell: shell)
+    }
+
+    @Test(.enabled(if: cmuxBundledBinFishExecutablePath != nil))
+    func bundledOpenWinsWithoutGhosttyBinEnvironmentInFish() throws {
+        try assertBundledOpenWinsWithoutGhosttyBinEnvironment(shell: .fish)
+    }
+
+    private func assertBundledOpenWinsWithoutGhosttyBinEnvironment(shell: Shell) throws {
         guard let executable = Self.executable(for: shell) else {
-            Issue.record("\(shell.rawValue) is not installed")
-            return
+            throw ResolutionError(description: "\(shell.rawValue) is not installed")
         }
 
         let fixture = try makeAppBundleFixture()
@@ -123,7 +138,7 @@ struct CmuxBundledBinPathIntegrationTests {
         case .bash:
             candidates = ["/bin/bash", "/usr/bin/bash"]
         case .fish:
-            candidates = ["/opt/homebrew/bin/fish", "/usr/local/bin/fish", "/usr/bin/fish", "/bin/fish"]
+            return cmuxBundledBinFishExecutablePath
         case .zsh:
             candidates = ["/bin/zsh", "/usr/bin/zsh"]
         }
