@@ -65,6 +65,59 @@ struct TabManagerTitleUpdateStalenessTests {
     }
 
     @Test
+    func pendingTitleUpdateIgnoredAfterHibernationRetainsTerminalSurface() async throws {
+        let suiteName = "TabManagerTitleHibernation.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
+        settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
+        settings.set(500, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
+
+        let scheduler = ManualCoalescerScheduler()
+        let manager = TabManager(
+            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
+                schedule: scheduler.schedule(delay:action:)
+            ),
+            settings: settings
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let terminal = try #require(workspace.terminalPanel(for: panelId))
+        let retainedSurface = terminal.surface
+        let originalLifecycleID = retainedSurface.terminalLifecycleId
+        let staleTitle = "Stale Hibernated Title - grok"
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: retainedSurface,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: panelId,
+                GhosttyNotificationKey.title: staleTitle,
+            ]
+        )
+
+        await drainMainQueue()
+        #expect(scheduler.delays == [0.5])
+        #expect(workspace.panelTitles[panelId] != staleTitle)
+
+        #expect(retainedSurface.suspendRuntimeSurfaceForAgentHibernation(
+            reason: "test.pendingWorkspaceTitle"
+        ))
+        #expect(terminal.surface === retainedSurface)
+        #expect(retainedSurface.terminalLifecycleId != originalLifecycleID)
+
+        scheduler.fire(at: 0)
+
+        #expect(workspace.terminalPanel(for: panelId)?.surface === retainedSurface)
+        #expect(workspace.panelTitles[panelId] != staleTitle)
+        #expect(workspace.title != staleTitle)
+    }
+
+    @Test
     func queuedTitleNotificationIgnoredAfterTerminalRespawnReusesPanelId() async throws {
         let suiteName = "TabManagerTitleQueuedRespawnReuse.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

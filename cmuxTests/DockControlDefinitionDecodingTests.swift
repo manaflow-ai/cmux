@@ -380,6 +380,61 @@ struct DockControlDefinitionDecodingTests {
         #expect(store.bonsplitController.tab(tabID)?.title == "codex · latest")
     }
 
+    @Test("Pending Dock title is rejected after the retained terminal advances lifecycle")
+    @MainActor
+    func pendingTerminalTitleIsRejectedAfterHibernationLifecycleAdvance() throws {
+        let defaultsName = "DockTitleHibernation.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defaults.removePersistentDomain(forName: defaultsName)
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
+        settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
+        settings.set(250, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
+        let scheduler = ManualTitleCoalescerScheduler()
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { "/tmp" },
+            terminalTitleUpdateCoalescer: NotificationBurstCoalescer(
+                schedule: scheduler.schedule(delay:action:)
+            ),
+            settings: settings
+        )
+        defer { store.closeAllPanels() }
+
+        let paneID = try #require(store.bonsplitController.allPaneIds.first)
+        let panelID = try #require(store.newSurface(
+            kind: .terminal,
+            inPane: paneID,
+            workingDirectory: "/tmp",
+            focus: false
+        ))
+        let tabID = try #require(store.surfaceId(forPanelId: panelID))
+        let terminal = try #require(store.panels[panelID] as? TerminalPanel)
+        let originalLifecycleID = terminal.surface.terminalLifecycleId
+        let staleTitle = "codex · retired child"
+
+        #expect(store.applyTerminalTitleChange(GhosttyTitleChange(
+            tabId: store.workspaceId,
+            surfaceId: panelID,
+            title: staleTitle,
+            sourceSurfaceIdentifier: ObjectIdentifier(terminal.surface)
+        )))
+        #expect(scheduler.delays == [0.25])
+        #expect(terminal.displayTitle != staleTitle)
+
+        #expect(terminal.surface.suspendRuntimeSurfaceForAgentHibernation(
+            reason: "test.pendingDockTitle"
+        ))
+        #expect(terminal.surface.terminalLifecycleId != originalLifecycleID)
+
+        scheduler.fire(at: 0)
+
+        #expect(terminal.displayTitle != staleTitle)
+        #expect(store.bonsplitController.tab(tabID)?.title != staleTitle)
+    }
+
     @Test(
         "Transferred custom Dock title survives later live terminal titles",
         arguments: [false, true]
