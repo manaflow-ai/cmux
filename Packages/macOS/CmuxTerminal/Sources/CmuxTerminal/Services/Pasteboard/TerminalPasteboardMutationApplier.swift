@@ -43,13 +43,29 @@ final class TerminalPasteboardMutationApplier {
               let publishedChangeCount = result.publishedChangeCount else {
             return
         }
-        _ = apply(
+        let publishedContents = TerminalPasteboardContentsSnapshot(
+            changeCount: publishedChangeCount,
+            contents: result.publishedContents
+        )
+        let restoration = applyWithRecovery(
             .init(
                 contents: previousContents,
                 condition: .changeCount(publishedChangeCount),
-                capturesPreviousContents: false
+                capturesPreviousContents: true
             ),
-            previousContents: nil
+            previousContents: publishedContents
+        )
+        guard restoration.result.status == .writeFailed,
+              let recoveredContents = restoration.recoveredContents else {
+            return
+        }
+        _ = applyWithRecovery(
+            .init(
+                contents: previousContents,
+                condition: .changeCount(recoveredContents.changeCount),
+                capturesPreviousContents: true
+            ),
+            previousContents: recoveredContents
         )
     }
 
