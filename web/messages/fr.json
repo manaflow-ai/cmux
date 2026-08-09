@@ -1470,7 +1470,7 @@
     },
     "dock": {
       "metaTitle": "Dock",
-      "metaDescription": "Ajoutez des contrôles TUI personnalisés à la barre latérale droite de cmux avec Dock JSON.",
+      "metaDescription": "Ajoutez des contrôles de terminal et de navigateur à la barre latérale droite de cmux avec Dock JSON pour les outils et tableaux de bord.",
       "title": "Dock",
       "intro": "Dock vous permet d'ajouter des contrôles de terminal et de navigateur à la barre latérale droite. Les contrôles de terminal exécutent des commandes dans des sections basées sur Ghostty, tandis que les contrôles de navigateur intègrent des pages web. Utilisez-le pour des flux, des logs, des files d'attente, l'état git, des serveurs de développement, des tableaux de bord ou des pages de référence que votre équipe veut garder près de chaque workspace.",
       "configTitle": "Configuration",

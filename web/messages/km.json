@@ -1468,7 +1468,7 @@
     },
     "dock": {
       "metaTitle": "Dock",
-      "metaDescription": "បន្ថែមការគ្រប់គ្រង TUI ផ្ទាល់ខ្លួនទៅរបារចំហៀងស្តាំរបស់ cmux ដោយប្រើ Dock JSON។",
+      "metaDescription": "បន្ថែមវត្ថុបញ្ជា terminal និង browser ទៅរបារចំហៀងស្តាំរបស់ cmux ដោយប្រើ Dock JSON សម្រាប់ dashboard និងទំព័រយោង។",
       "title": "Dock",
       "intro": "Dock អនុញ្ញាតឱ្យអ្នកបន្ថែមវត្ថុបញ្ជា terminal និង browser ទៅរបារចំហៀងស្តាំ។ វត្ថុបញ្ជា terminal ដំណើរការពាក្យបញ្ជាក្នុងផ្នែកដែលគាំទ្រដោយ Ghostty ខណៈដែលវត្ថុបញ្ជា browser បង្កប់ទំព័របណ្ដាញ។ ប្រើវាសម្រាប់ feed, logs, queues, git status, dev servers, dashboards ឬទំព័រយោងដែលក្រុមរបស់អ្នកចង់មាននៅជិត workspace នីមួយៗ។",
       "configTitle": "ការកំណត់",
