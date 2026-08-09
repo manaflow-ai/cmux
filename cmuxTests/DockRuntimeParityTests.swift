@@ -323,8 +323,8 @@ struct DockRuntimeParityTests {
         }
     }
 
-    @Test("Mark Oldest mutates the focused Dock surface and excludes its owner from the jump")
-    func markOldestMutatesFocusedDockSurfaceAndExcludesOwner() async throws {
+    @Test("Mark Oldest skips only the focused Dock surface when jumping")
+    func markOldestSkipsOnlyFocusedDockSurfaceWhenJumping() async throws {
         try await withAppContext(fileExplorerState: FileExplorerState()) {
             appDelegate, _, workspace, windowID in
             let notificationStore = TerminalNotificationStore.shared
@@ -357,12 +357,97 @@ struct DockRuntimeParityTests {
                 forTabId: windowID,
                 surfaceId: focusedPanel.id
             ))
-            #expect(notificationStore.hasManualUnread(
+            #expect(!notificationStore.hasManualUnread(
                 forTabId: windowID,
                 surfaceId: otherUnreadPanel.id
             ))
-            #expect(dock.focusedPanelId == focusedPanel.id)
+            #expect(dock.focusedPanelId == otherUnreadPanel.id)
             #expect(workspace.manualUnreadPanelIds.isEmpty)
+        }
+    }
+
+    @Test("Mark Oldest ignores notifications on sibling Dock surfaces")
+    func markOldestIgnoresSiblingDockSurfaceNotification() async throws {
+        try await withAppContext { appDelegate, _, workspace, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let window = try #require(appDelegate.windowForMainWindowId(windowID))
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let focusedPanel = DockRuntimeParityPanel(title: "Focused Dock surface")
+            let siblingPanel = DockRuntimeParityPanel(title: "Sibling Dock notification")
+            try dock.seedRuntimeParityPanel(focusedPanel)
+            try dock.seedRuntimeParityPanel(siblingPanel)
+            notificationStore.markRead(forTabId: windowID)
+            notificationStore.replaceNotificationsForTesting([
+                TerminalNotification(
+                    id: UUID(),
+                    tabId: windowID,
+                    surfaceId: siblingPanel.id,
+                    title: "Sibling Dock notification",
+                    subtitle: "",
+                    body: "Sibling",
+                    createdAt: .now,
+                    isRead: false
+                ),
+            ])
+            appDelegate.notificationStore = notificationStore
+            dock.focusPanel(focusedPanel.id)
+            appDelegate.keyboardFocusCoordinator(for: window)?
+                .noteRightSidebarInteraction(mode: .dock)
+            defer {
+                notificationStore.replaceNotificationsForTesting([])
+                notificationStore.markRead(forTabId: windowID)
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            _ = appDelegate.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
+                preferredWindow: window
+            )
+
+            #expect(notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: focusedPanel.id
+            ))
+            #expect(!notificationStore.hasUnreadNotification(
+                forTabId: windowID,
+                surfaceId: siblingPanel.id
+            ))
+            #expect(dock.focusedPanelId == siblingPanel.id)
+            #expect(workspace.manualUnreadPanelIds.isEmpty)
+        }
+    }
+
+    @Test("Window Dock unread changes the session autosave fingerprint")
+    func windowDockUnreadChangesSessionAutosaveFingerprint() async throws {
+        try await withAppContext { appDelegate, _, _, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let panel = DockRuntimeParityPanel(title: "Persisted Dock unread")
+            try dock.seedRuntimeParityPanel(panel)
+            notificationStore.markRead(forTabId: windowID)
+            appDelegate.notificationStore = notificationStore
+            defer {
+                notificationStore.markRead(forTabId: windowID)
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            let cleanFingerprint = try #require(appDelegate.sessionAutosaveFingerprint(
+                includeScrollback: false,
+                restorableAgentIndex: .empty,
+                surfaceResumeBindingIndex: .empty
+            ))
+            #expect(notificationStore.markWindowDockSurfaceUnread(
+                windowId: windowID,
+                surfaceId: panel.id
+            ))
+            let unreadFingerprint = try #require(appDelegate.sessionAutosaveFingerprint(
+                includeScrollback: false,
+                restorableAgentIndex: .empty,
+                surfaceResumeBindingIndex: .empty
+            ))
+
+            #expect(unreadFingerprint != cleanFingerprint)
         }
     }
 
