@@ -36,6 +36,14 @@ final class PortalViewHierarchyMutationTracker: NSObject {
         registrations.anyObject != nil
     }
 
+    private func beginRegistrationCycleIfNeeded() {
+        guard !hasActiveCaches else { return }
+        // Mutation hooks intentionally skip windows without a live cache.
+        // Revoke every proof from the prior active interval before indexing
+        // the first new cache, so dormant structural changes cannot revive it.
+        generation &+= 1
+    }
+
     static func register(
         rootView: NSView,
         hierarchyNodes: [(view: NSView, containsSplitView: Bool)]
@@ -44,6 +52,7 @@ final class PortalViewHierarchyMutationTracker: NSObject {
               let tracker = tracker(for: window, createIfNeeded: true) else {
             return nil
         }
+        tracker.beginRegistrationCycleIfNeeded()
         tracker.index(hierarchyNodes, rootView: rootView)
         let registration = PortalViewHierarchyMutationRegistration(
             tracker: tracker,
