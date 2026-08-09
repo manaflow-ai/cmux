@@ -5409,6 +5409,9 @@ struct WebViewRepresentable: NSViewRepresentable {
         private var hostedInspectorSideDockDockSide: HostedInspectorDockSide?
         private var isHostedInspectorDividerDragActive = false
         private var isApplyingHostedInspectorLayout = false
+        private let hostedWebKitPresentationScheduler = MainActorDeferredActionScheduler()
+        private var pendingHostedWebKitPresentationForceLifecycleRefresh = false
+        private var pendingHostedWebKitPresentationInspectorNormalization = false
         private let hostedInspectorReapplyScheduler = MainActorDeferredActionScheduler()
         private let hostedInspectorDockConfigurationSyncScheduler = MainActorDeferredActionScheduler()
         private var hostedInspectorSideDockPromotionTask: Task<Void, Never>?
@@ -5769,9 +5772,40 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
         }
 
-        func refreshHostedWebKitPresentation(
+        func scheduleHostedWebKitPresentationRefresh(
             reason: String,
-            forceLifecycleRefresh: Bool = false
+            forceLifecycleRefresh: Bool = false,
+            normalizeHostedInspectorLayout: Bool = false
+        ) {
+            pendingHostedWebKitPresentationForceLifecycleRefresh =
+                pendingHostedWebKitPresentationForceLifecycleRefresh || forceLifecycleRefresh
+            pendingHostedWebKitPresentationInspectorNormalization =
+                pendingHostedWebKitPresentationInspectorNormalization || normalizeHostedInspectorLayout
+            hostedWebKitPresentationScheduler.schedule { [weak self] in
+                guard let self else { return }
+                let shouldForceLifecycleRefresh = pendingHostedWebKitPresentationForceLifecycleRefresh
+                let shouldNormalizeHostedInspectorLayout = pendingHostedWebKitPresentationInspectorNormalization
+                pendingHostedWebKitPresentationForceLifecycleRefresh = false
+                pendingHostedWebKitPresentationInspectorNormalization = false
+                refreshHostedWebKitPresentation(
+                    reason: reason,
+                    forceLifecycleRefresh: shouldForceLifecycleRefresh
+                )
+                if shouldNormalizeHostedInspectorLayout {
+                    normalizeHostedInspectorLayoutIfNeeded(reason: reason)
+                }
+            }
+        }
+
+        private func cancelHostedWebKitPresentationRefresh() {
+            hostedWebKitPresentationScheduler.cancel()
+            pendingHostedWebKitPresentationForceLifecycleRefresh = false
+            pendingHostedWebKitPresentationInspectorNormalization = false
+        }
+
+        private func refreshHostedWebKitPresentation(
+            reason: String,
+            forceLifecycleRefresh: Bool
         ) {
             guard let localInlineSlotView else { return }
             guard !localInlineSlotView.isHidden else { return }
@@ -5826,15 +5860,15 @@ struct WebViewRepresentable: NSViewRepresentable {
 
             localInlineSlotView.displayIfNeeded()
             // Flush only this panel's subtree. A whole-window displayIfNeeded
-            // here would also draw sibling Metal terminal panes — and this
-            // method runs from updateNSView/viewDidMoveToWindow, inside the
-            // layout pass, where a synchronous terminal draw can wedge the
-            // main thread against the still-open window transaction. WebKit
-            // subtree flushes carry no such wait.
+            // here would also draw sibling Metal terminal panes and can wedge
+            // the main thread against their open window transactions. Callers
+            // originating in updateNSView and AppKit lifecycle callbacks reach
+            // this flush only through the deferred host scheduler above.
             displayIfNeeded()
         }
 
         func prepareForWindowPortalHosting() {
+            cancelHostedWebKitPresentationRefresh()
             hostedInspectorDockConfigurationSyncScheduler.cancel()
             notifyHostedWebKitHidden(reason: "prepareForWindowPortalHosting")
             deactivateHostedInspectorSideDockIfNeeded(reparentTo: localInlineSlotView)
@@ -5851,6 +5885,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         func releaseHostedWebViewConstraints() {
+            cancelHostedWebKitPresentationRefresh()
             NSLayoutConstraint.deactivate(hostedWebViewConstraints)
             hostedWebViewConstraints = []
             hostedWebView = nil
@@ -5873,7 +5908,6 @@ struct WebViewRepresentable: NSViewRepresentable {
                 !presentationView.translatesAutoresizingMaskIntoConstraints
             guard needsFrameHosting else {
                 needsLayout = true
-                layoutSubtreeIfNeeded()
                 return
             }
 
@@ -5891,7 +5925,6 @@ struct WebViewRepresentable: NSViewRepresentable {
                 presentationView.autoresizingMask = [.width, .height]
             }
             needsLayout = true
-            layoutSubtreeIfNeeded()
         }
 
         private func ensureHostedInspectorSideDockContainerView() -> HostedInspectorSideDockContainerView {
@@ -6161,12 +6194,13 @@ struct WebViewRepresentable: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if window == nil {
+                cancelHostedWebKitPresentationRefresh()
                 notifyHostedWebKitHidden(reason: "viewDidMoveToWindow")
                 clearActiveDividerCursor(restoreArrow: false)
             } else {
                 scheduleHostedInspectorDividerReapply(reason: "viewDidMoveToWindow")
                 scheduleHostedInspectorDockConfigurationSync(reason: "viewDidMoveToWindow")
-                refreshHostedWebKitPresentation(
+                scheduleHostedWebKitPresentationRefresh(
                     reason: "viewDidMoveToWindow",
                     forceLifecycleRefresh: hostedInspectorFrontendWebView != nil
                 )
@@ -7145,7 +7179,6 @@ struct WebViewRepresentable: NSViewRepresentable {
         if reusedSourceLocalFrames, sourceSlotBoundsSize != container.bounds.size {
             container.resizeSubviews(withOldSize: sourceSlotBoundsSize)
             container.needsLayout = true
-            container.layoutSubtreeIfNeeded()
         }
     }
 
@@ -7155,6 +7188,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         // portal will bind against an anchor with no real window and WKWebView will
         // fall into a hidden/unrendered state.
         guard host.window != nil else { return }
+        var didInstallConstraints = false
         if anchorView.superview !== host {
             anchorView.removeFromSuperview()
             anchorView.translatesAutoresizingMaskIntoConstraints = false
@@ -7165,6 +7199,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 anchorView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
                 anchorView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
             ])
+            didInstallConstraints = true
         } else if anchorView.translatesAutoresizingMaskIntoConstraints {
             anchorView.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
@@ -7173,8 +7208,11 @@ struct WebViewRepresentable: NSViewRepresentable {
                 anchorView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
                 anchorView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
             ])
+            didInstallConstraints = true
         }
-        host.layoutSubtreeIfNeeded()
+        if didInstallConstraints {
+            host.needsLayout = true
+        }
     }
 
     private func schedulePortalLifecycleVisibilityUpdate(
@@ -7320,19 +7358,14 @@ struct WebViewRepresentable: NSViewRepresentable {
             let didRevealDeveloperToolsAfterAttach =
                 !wasDeveloperToolsVisible && panel.isDeveloperToolsVisible()
             webView.needsLayout = true
-            webView.layoutSubtreeIfNeeded()
-            slotView.layoutSubtreeIfNeeded()
-            host.layoutSubtreeIfNeeded()
-            host.refreshHostedWebKitPresentation(
+            slotView.needsLayout = true
+            host.needsLayout = true
+            host.scheduleHostedWebKitPresentationRefresh(
                 reason: didAttachWebViewToLocalHost
                     ? "localInline.update.immediate"
                     : "localInline.update.existingHost",
-                forceLifecycleRefresh: didRevealDeveloperToolsAfterAttach
-            )
-            host.normalizeHostedInspectorLayoutIfNeeded(
-                reason: didAttachWebViewToLocalHost
-                    ? "localInline.update.immediate"
-                    : "localInline.update.existingHost"
+                forceLifecycleRefresh: didRevealDeveloperToolsAfterAttach,
+                normalizeHostedInspectorLayout: true
             )
             host.scheduleHostedInspectorDividerReapply(
                 reason: didAttachWebViewToLocalHost
@@ -7364,7 +7397,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                     )
                 }
                 host.setHostedInspectorFrontendWebView(nil)
-                host.refreshHostedWebKitPresentation(
+                host.scheduleHostedWebKitPresentationRefresh(
                     reason: didAttachWebViewToLocalHost
                         ? "localInline.update.async"
                         : "localInline.update.existingHost.async",

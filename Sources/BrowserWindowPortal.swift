@@ -1615,7 +1615,6 @@ final class WindowBrowserSlotView: NSView {
             !presentationView.translatesAutoresizingMaskIntoConstraints
         guard needsFrameHosting else {
             needsLayout = true
-            layoutSubtreeIfNeeded()
             return
         }
 
@@ -1632,7 +1631,6 @@ final class WindowBrowserSlotView: NSView {
             presentationView.autoresizingMask = [.width, .height]
         }
         needsLayout = true
-        layoutSubtreeIfNeeded()
     }
 
     func effectivePaneTopChromeHeight() -> CGFloat {
@@ -1837,6 +1835,7 @@ final class WindowBrowserPortal: NSObject {
     @MainActor
     private final class PendingHostedWebViewRefresh {
         var generation: UInt64 = 0
+        let geometryScheduler = MainActorDeferredActionScheduler()
         let asyncScheduler = MainActorDeferredActionScheduler()
         let delayedScheduler = MainActorDeferredActionScheduler()
     }
@@ -2008,10 +2007,6 @@ final class WindowBrowserPortal: NSObject {
 
     private func synchronizeAllEntriesFromExternalGeometryChange() {
         guard ensureInstalled() else { return }
-        installedContainerView?.layoutSubtreeIfNeeded()
-        installedReferenceView?.layoutSubtreeIfNeeded()
-        hostView.superview?.layoutSubtreeIfNeeded()
-        hostView.layoutSubtreeIfNeeded()
         synchronizeAllWebViews(excluding: nil, source: "externalGeometry")
 
         for entry in entriesByWebViewId.values {
@@ -2508,6 +2503,7 @@ final class WindowBrowserPortal: NSObject {
         keepGeneration: Bool = false
     ) {
         guard let pending = pendingHostedWebViewRefreshes[webViewId] else { return }
+        pending.geometryScheduler.cancel()
         pending.asyncScheduler.cancel()
         pending.delayedScheduler.cancel()
         if !keepGeneration {
@@ -2520,13 +2516,27 @@ final class WindowBrowserPortal: NSObject {
         in containerView: WindowBrowserSlotView,
         reason: String
     ) {
-        runHostedWebViewRefreshPass(
-            webView,
-            in: containerView,
-            reason: reason,
-            phase: "geometry",
-            reattachRenderingState: false
-        )
+        let webViewId = ObjectIdentifier(webView)
+        let pending = pendingHostedWebViewRefreshes[webViewId] ?? PendingHostedWebViewRefresh()
+        pendingHostedWebViewRefreshes[webViewId] = pending
+
+        // Portal geometry callbacks originate in NSViewRepresentable update and
+        // AppKit layout. Flushing WebKit's subtree on that stack re-enters the
+        // surrounding SwiftUI layout transaction. Coalesce the flush onto the
+        // next main-actor turn, after the outer transaction has unwound.
+        guard !pending.asyncScheduler.isScheduled,
+              !pending.geometryScheduler.isScheduled else { return }
+        pending.geometryScheduler.schedule { [weak self, weak webView, weak containerView] in
+            guard let self, let webView, let containerView else { return }
+            guard self.pendingHostedWebViewRefreshes[webViewId] === pending else { return }
+            self.runHostedWebViewRefreshPass(
+                webView,
+                in: containerView,
+                reason: reason,
+                phase: "geometry",
+                reattachRenderingState: false
+            )
+        }
     }
 
     private func refreshHostedWebViewPresentation(
@@ -2546,20 +2556,6 @@ final class WindowBrowserPortal: NSObject {
         let generation = nextHostedWebViewRefreshGeneration
         pending.generation = generation
         pendingHostedWebViewRefreshes[webViewId] = pending
-
-        runHostedWebViewRefreshPass(
-            webView,
-            in: containerView,
-            reason: reason,
-            phase: "immediate",
-            reattachRenderingState: true
-        )
-
-        // AppKit layout/display calls above can synchronously re-enter this
-        // method. Let the newer generation keep its follow-up passes instead of
-        // replacing them with stale closures from this frame.
-        guard pendingHostedWebViewRefreshes[webViewId] === pending,
-              pending.generation == generation else { return }
 
         pending.asyncScheduler.schedule { [weak self, weak webView, weak containerView] in
             guard let self, let webView, let containerView else { return }
@@ -3052,7 +3048,6 @@ final class WindowBrowserPortal: NSObject {
             }
             containerView.pinHostedWebView(webView)
             webView.needsLayout = true
-            webView.layoutSubtreeIfNeeded()
         } else {
             containerView.pinHostedWebView(webView)
         }
