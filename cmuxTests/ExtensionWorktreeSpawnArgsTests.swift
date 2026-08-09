@@ -1,3 +1,5 @@
+import Darwin
+import Dispatch
 import Foundation
 import Testing
 
@@ -269,6 +271,76 @@ struct ExtensionWorktreeSpawnArgsTests {
         let artifactBackup = try #require(rollbackBackups.first)
         #expect(rollbackBackups.count == 1)
         #expect(try Data(contentsOf: artifactBackup) == result.generatedArtifactContents)
+    }
+
+    @Test("rollback retains edits written through an open artifact descriptor")
+    func rollbackRetainsEditsWrittenThroughOpenArtifactDescriptor() async throws {
+        let fileManager = FileManager.default
+        let projectRoot = try makeTemporaryRepository(label: "open-artifact")
+        defer { try? fileManager.removeItem(at: projectRoot) }
+
+        let result = try await CmuxExtensionWorktreePrototype.createWorktree(
+            projectRootPath: projectRoot.path
+        )
+        let artifact = URL(fileURLWithPath: result.worktreePath, isDirectory: true)
+            .appendingPathComponent(result.generatedArtifactRelativePath)
+        let artifactDescriptor = Darwin.open(artifact.path, O_RDWR)
+        guard artifactDescriptor >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+
+        let changedContents = Data("user edit written through an open descriptor\n".utf8)
+        let mutation = AsyncStream<Int32>.makeStream()
+        let renameSource = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: artifactDescriptor,
+            eventMask: .rename,
+            queue: DispatchQueue(label: "com.cmux.tests.extension-worktree-artifact-rename")
+        )
+        renameSource.setEventHandler {
+            let mutationStatus = changedContents.withUnsafeBytes { bytes -> Int32 in
+                guard let baseAddress = bytes.baseAddress else { return EINVAL }
+                let written = Darwin.pwrite(
+                    artifactDescriptor,
+                    baseAddress,
+                    bytes.count,
+                    0
+                )
+                guard written == bytes.count else { return errno == 0 ? EIO : errno }
+                return Darwin.ftruncate(artifactDescriptor, off_t(bytes.count)) == 0 ? 0 : errno
+            }
+            mutation.continuation.yield(mutationStatus)
+            mutation.continuation.finish()
+        }
+        renameSource.resume()
+        defer {
+            renameSource.cancel()
+            Darwin.close(artifactDescriptor)
+        }
+
+        var rollbackError: NSError?
+        do {
+            try await result.rollbackUnclaimedWorktree()
+        } catch {
+            rollbackError = error as NSError
+        }
+
+        var mutationIterator = mutation.stream.makeAsyncIterator()
+        let mutationStatus = await mutationIterator.next()
+        #expect(mutationStatus == 0)
+        #expect(rollbackError?.domain == "CmuxExtensionWorktreePrototype")
+        #expect(rollbackError?.code == 3)
+        #expect(!fileManager.fileExists(atPath: result.worktreePath))
+        #expect(try !branchExists(result.branchName, projectRoot: projectRoot))
+
+        let worktreeRoot = URL(fileURLWithPath: result.worktreePath, isDirectory: true)
+            .deletingLastPathComponent()
+        let rollbackBackups = try fileManager.contentsOfDirectory(
+            at: worktreeRoot,
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasPrefix(".cmux-rollback-") }
+        let artifactBackup = try #require(rollbackBackups.first)
+        #expect(rollbackBackups.count == 1)
+        #expect(try Data(contentsOf: artifactBackup) == changedContents)
     }
 
     @Test("rollback retains checkout and branch after a new commit")
