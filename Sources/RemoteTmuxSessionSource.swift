@@ -128,6 +128,13 @@ protocol RemoteTmuxSessionSource: AnyObject {
     @discardableResult func sendWindowReorder(_ commands: [String], verification: ((Bool) -> Void)?) -> Bool
     /// Forwards typed input to a pane.
     @discardableResult func sendKeys(paneId: Int, data: Data) -> Bool
+    /// Forwards a named key (Enter, Escape, an arrow…) to a pane.
+    ///
+    /// Separate from ``sendKeys(paneId:data:)`` because tmux names these rather than taking
+    /// their bytes, so the caller passes a validated name and never a raw escape sequence.
+    @discardableResult func sendKey(paneId: Int, key: RemoteTmuxKeyName) -> Bool
+    /// Freezes the mirror and reconnects after an unusable control stream.
+    func beginReconnecting()
     /// Replays a pane's captured contents into a freshly-mounted surface, clearing
     /// that surface's scrollback first when the capture carries the pane's own
     /// history. Returns the id of the pane-seed transaction, or nil when no seed
