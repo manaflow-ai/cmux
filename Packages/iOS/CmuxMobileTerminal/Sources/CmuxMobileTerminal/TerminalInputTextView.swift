@@ -366,21 +366,16 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
         scrollView.alwaysBounceHorizontal = true
-        if #available(iOS 26.0, *) {
-            // The system's edge treatments are designed to separate scrollable
-            // content from fixed chrome. This compact strip already shares one
-            // background with its pinned controls. At only 28pt high, the top and
-            // bottom fills overlap across the full scroller and make it look like
-            // a separate gray rectangle in light mode, even though it does not
-            // scroll vertically.
-            scrollView.leftEdgeEffect.isHidden = true
-            scrollView.rightEdgeEffect.isHidden = true
-            scrollView.topEdgeEffect.isHidden = true
-            scrollView.bottomEdgeEffect.isHidden = true
-        }
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
         let stack = UIStackView()
+        // This stack is structural, not visual. UIStackView inherits UIView's
+        // opaque default even with no background color; when clipped through a
+        // UIScrollView, UIKit can composite that opaque region as a rectangular
+        // fill in light themes. Keep the toolbar's background owned solely by
+        // backgroundView.
+        stack.backgroundColor = .clear
+        stack.isOpaque = false
         stack.axis = .horizontal
         // Tighter inter-button spacing so the keys read as a compact row.
         stack.spacing = 4
