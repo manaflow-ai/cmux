@@ -82,6 +82,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             workspaceId: UUID(),
             reason: "test",
             surface: surface,
+            runtimeSurfaceGeneration: 0,
             callbackContext: nil,
             freeSurface: { pointer in
                 let bits = UInt(bitPattern: pointer)
@@ -108,6 +109,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
                 workspaceId: UUID(),
                 reason: "test.batch",
                 surface: surface,
+                runtimeSurfaceGeneration: 0,
                 callbackContext: nil,
                 freeSurface: { pointer in
                     let bits = UInt(bitPattern: pointer)
@@ -150,6 +152,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             workspaceId: UUID(),
             reason: "test.isolatedHibernation",
             surface: isolatedSurface,
+            runtimeSurfaceGeneration: 0,
             callbackContext: nil,
             manualIOContext: nil,
             byteTeeLease: nil,
@@ -172,6 +175,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             workspaceId: UUID(),
             reason: "test.secondIsolatedHibernation",
             surface: queuedIsolatedSurface,
+            runtimeSurfaceGeneration: 0,
             callbackContext: nil,
             manualIOContext: nil,
             byteTeeLease: nil,
@@ -186,6 +190,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             workspaceId: UUID(),
             reason: "test.serializedClose",
             surface: serializedSurface,
+            runtimeSurfaceGeneration: 0,
             callbackContext: nil,
             freeSurface: { _ in
                 serializedFreeCount.withLock { $0 += 1 }
@@ -226,6 +231,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             workspaceId: UUID(),
             reason: "test.staleIsolatedReservation",
             surface: surface,
+            runtimeSurfaceGeneration: 0,
             callbackContext: nil,
             manualIOContext: nil,
             byteTeeLease: nil,
@@ -252,6 +258,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             workspaceId: UUID(),
             reason: "test.teeLifetime",
             surface: surface,
+            runtimeSurfaceGeneration: 0,
             callbackContext: nil,
             manualIOContext: nil,
             byteTeeLease: lease,
@@ -264,5 +271,229 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             break
         }
         #expect(recorder.snapshot() == ["surface.free", "tee.release"])
+    }
+
+    // MARK: (B) ExternalHover native-surface lease
+
+    @Test func acquireThenReleaseThenTeardownFreesImmediately() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        nonisolated(unsafe) let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+        let lifetimeID = RuntimeSurfaceLifetimeID(surfaceID: UUID(), runtimeSurfaceGeneration: 1)
+
+        let lease = try #require(
+            await coordinator.acquireExternalHoverLease(lifetimeID: lifetimeID, surface: surface)
+        )
+        await coordinator.releaseExternalHoverLease(lease)
+
+        let recorder = FreedSurfaceRecorder()
+        let ticket = coordinator.enqueueRuntimeTeardown(
+            id: lifetimeID.surfaceID,
+            workspaceId: UUID(),
+            reason: "test.leaseThenTeardown",
+            surface: surface,
+            runtimeSurfaceGeneration: lifetimeID.runtimeSurfaceGeneration,
+            callbackContext: nil,
+            freeSurface: { pointer in
+                let bits = UInt(bitPattern: pointer)
+                Task { await recorder.record(bits) }
+            }
+        )
+        #expect(await ticket.wait(timeout: .seconds(1)))
+        await recorder.waitForFreeCount(1)
+    }
+
+    @Test func teardownWhileLeaseOutstandingDefersFreeUntilRelease() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        nonisolated(unsafe) let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+        let lifetimeID = RuntimeSurfaceLifetimeID(surfaceID: UUID(), runtimeSurfaceGeneration: 1)
+
+        let lease = try #require(
+            await coordinator.acquireExternalHoverLease(lifetimeID: lifetimeID, surface: surface)
+        )
+
+        let recorder = FreedSurfaceRecorder()
+        let ticket = coordinator.enqueueRuntimeTeardown(
+            id: lifetimeID.surfaceID,
+            workspaceId: UUID(),
+            reason: "test.teardownWhileLeaseOutstanding",
+            surface: surface,
+            runtimeSurfaceGeneration: lifetimeID.runtimeSurfaceGeneration,
+            callbackContext: nil,
+            freeSurface: { pointer in
+                let bits = UInt(bitPattern: pointer)
+                Task { await recorder.record(bits) }
+            }
+        )
+
+        // Give the enqueue Task a chance to run — it must NOT free while the
+        // lease is still outstanding.
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await ticket.wait(timeout: .zero) == false)
+        #expect(await recorder.freed.isEmpty)
+
+        // Releasing the last outstanding lease is what finally admits the
+        // deferred free.
+        await coordinator.releaseExternalHoverLease(lease)
+        #expect(await ticket.wait(timeout: .seconds(1)))
+        await recorder.waitForFreeCount(1)
+    }
+
+    @Test func acquireAfterTeardownRequestedFailsClosed() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        nonisolated(unsafe) let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+        let lifetimeID = RuntimeSurfaceLifetimeID(surfaceID: UUID(), runtimeSurfaceGeneration: 1)
+
+        let ticket = coordinator.enqueueRuntimeTeardown(
+            id: lifetimeID.surfaceID,
+            workspaceId: UUID(),
+            reason: "test.acquireAfterTeardown",
+            surface: surface,
+            runtimeSurfaceGeneration: lifetimeID.runtimeSurfaceGeneration,
+            callbackContext: nil,
+            freeSurface: { _ in }
+        )
+        #expect(await ticket.wait(timeout: .seconds(1)))
+
+        // A delayed acquire for the SAME lifetime, arriving after its
+        // teardown has already been requested (and completed), must fail
+        // closed — never hand out a lease for a pointer that may already
+        // be freed.
+        #expect(await coordinator.acquireExternalHoverLease(lifetimeID: lifetimeID, surface: surface) == nil)
+    }
+
+    @Test func hibernateOldGenerationFreeThenNewGenerationAcquireSucceeds() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let surfaceID = UUID()
+        nonisolated(unsafe) let oldSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        nonisolated(unsafe) let newSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer {
+            oldSurface.deallocate()
+            newSurface.deallocate()
+        }
+        let oldLifetime = RuntimeSurfaceLifetimeID(surfaceID: surfaceID, runtimeSurfaceGeneration: 1)
+        let newLifetime = RuntimeSurfaceLifetimeID(surfaceID: surfaceID, runtimeSurfaceGeneration: 2)
+
+        // Hibernate: free the old generation via the coordinator.
+        let ticket = coordinator.enqueueRuntimeTeardown(
+            id: surfaceID,
+            workspaceId: UUID(),
+            reason: "test.hibernate",
+            surface: oldSurface,
+            runtimeSurfaceGeneration: oldLifetime.runtimeSurfaceGeneration,
+            callbackContext: nil,
+            manualIOContext: nil,
+            byteTeeLease: nil,
+            executionLane: .isolatedHibernation,
+            isolatedHibernationReservation: nil,
+            freeSurface: { _ in }
+        )
+        #expect(await ticket.wait(timeout: .seconds(1)))
+
+        // Resume: a NEW generation on the SAME surfaceID must be acquirable —
+        // the watermark only ever retires the specific generation it saw,
+        // never the surfaceID as a whole (see RuntimeSurfaceLifetimeID).
+        #expect(await coordinator.acquireExternalHoverLease(lifetimeID: newLifetime, surface: newSurface) != nil)
+
+        // The OLD generation's lease request, arriving late, still fails closed.
+        #expect(await coordinator.acquireExternalHoverLease(lifetimeID: oldLifetime, surface: oldSurface) == nil)
+    }
+
+    @Test func doubleReleaseOfTheSameLeaseIsANoOpAndNeverAdmitsAnUnrelatedDeferredFree() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        nonisolated(unsafe) let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+        let lifetimeID = RuntimeSurfaceLifetimeID(surfaceID: UUID(), runtimeSurfaceGeneration: 1)
+
+        let leaseA = try #require(
+            await coordinator.acquireExternalHoverLease(lifetimeID: lifetimeID, surface: surface)
+        )
+        let leaseB = try #require(
+            await coordinator.acquireExternalHoverLease(lifetimeID: lifetimeID, surface: surface)
+        )
+
+        let recorder = FreedSurfaceRecorder()
+        let ticket = coordinator.enqueueRuntimeTeardown(
+            id: lifetimeID.surfaceID,
+            workspaceId: UUID(),
+            reason: "test.doubleRelease",
+            surface: surface,
+            runtimeSurfaceGeneration: lifetimeID.runtimeSurfaceGeneration,
+            callbackContext: nil,
+            freeSurface: { pointer in
+                let bits = UInt(bitPattern: pointer)
+                Task { await recorder.record(bits) }
+            }
+        )
+
+        // Releasing leaseA twice must not double-decrement and free while
+        // leaseB (a genuinely different, still-outstanding lease) is live.
+        await coordinator.releaseExternalHoverLease(leaseA)
+        await coordinator.releaseExternalHoverLease(leaseA)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await ticket.wait(timeout: .zero) == false)
+        #expect(await recorder.freed.isEmpty)
+
+        await coordinator.releaseExternalHoverLease(leaseB)
+        #expect(await ticket.wait(timeout: .seconds(1)))
+        await recorder.waitForFreeCount(1)
+    }
+
+    @Test func deferredIsolatedHibernationTeardownPreservesItsExecutionLaneAndReservation() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        nonisolated(unsafe) let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+        let lifetimeID = RuntimeSurfaceLifetimeID(surfaceID: UUID(), runtimeSurfaceGeneration: 1)
+
+        let lease = try #require(
+            await coordinator.acquireExternalHoverLease(lifetimeID: lifetimeID, surface: surface)
+        )
+        let reservation = try #require(
+            await coordinator.reserveIsolatedHibernationTeardown()
+        )
+        // The isolated lane's 2 slots are bounded; occupy the other one so
+        // this assertion can observe whether the deferred admission still
+        // requests an isolated slot (rather than silently falling back to
+        // the default serialized-close lane, which would leak this
+        // reservation's slot forever — review Blocking 3).
+        let otherReservation = try #require(
+            await coordinator.reserveIsolatedHibernationTeardown()
+        )
+        #expect(await coordinator.reserveIsolatedHibernationTeardown() == nil)
+        await coordinator.cancelIsolatedHibernationTeardown(otherReservation)
+
+        let recorder = FreedSurfaceRecorder()
+        let ticket = coordinator.enqueueRuntimeTeardown(
+            id: lifetimeID.surfaceID,
+            workspaceId: UUID(),
+            reason: "test.deferredIsolatedHibernation",
+            surface: surface,
+            runtimeSurfaceGeneration: lifetimeID.runtimeSurfaceGeneration,
+            callbackContext: nil,
+            manualIOContext: nil,
+            byteTeeLease: nil,
+            executionLane: .isolatedHibernation,
+            isolatedHibernationReservation: reservation,
+            freeSurface: { pointer in
+                let bits = UInt(bitPattern: pointer)
+                Task { await recorder.record(bits) }
+            }
+        )
+
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await ticket.wait(timeout: .zero) == false)
+
+        await coordinator.releaseExternalHoverLease(lease)
+        #expect(await ticket.wait(timeout: .seconds(1)))
+        await recorder.waitForFreeCount(1)
+
+        // The isolated slot the deferred admission used must have been
+        // released — a fresh reservation request succeeds again.
+        let afterReservation = try #require(
+            await coordinator.reserveIsolatedHibernationTeardown()
+        )
+        await coordinator.cancelIsolatedHibernationTeardown(afterReservation)
     }
 }

@@ -258,6 +258,16 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
             resolver.resolveWrappedCandidate(seed: seed, previousRow: nil, nextRow: "y", cwd: "/tmp")
         )
         #expect(candidate.path == existingFile)
+
+        // (B) ExternalHover — the clicked token spans the whole clicked
+        // row (no internal delimiter), and the winning `.next` fragment
+        // ("y") is at row offset +1, both at absolute columns matching the
+        // real text — never off by one, the exact failure mode a wrong
+        // topRow/clickedRow conflation would produce.
+        #expect(candidate.cellSpans == [
+            TerminalWrappedPathCellSpan(rowOffsetFromClicked: 0, startColumn: 0, endColumn: clickedRow.count),
+            TerminalWrappedPathCellSpan(rowOffsetFromClicked: 1, startColumn: 0, endColumn: 1),
+        ])
     }
 
     @Test func previousDirectionJoinsTrailingFragmentOfRowAbove() throws {
@@ -280,6 +290,15 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
             resolver.resolveWrappedCandidate(seed: seed, previousRow: previousRow, nextRow: nil, cwd: "/tmp")
         )
         #expect(candidate.path == existingFile)
+
+        // (B) ExternalHover — the winning `.previous` fragment is at row
+        // offset -1 (the row ABOVE the clicked row) — this is exactly the
+        // direction review Blocking 6 flagged as at risk of a 1-row
+        // conflation with `topRow`/the snapshot scope's own origin.
+        #expect(candidate.cellSpans == [
+            TerminalWrappedPathCellSpan(rowOffsetFromClicked: 0, startColumn: 0, endColumn: clickedRow.count),
+            TerminalWrappedPathCellSpan(rowOffsetFromClicked: -1, startColumn: 0, endColumn: previousRow.count),
+        ])
     }
 
     @Test func rowLocalResolutionTakesPriorityOverWrapDetection() {
