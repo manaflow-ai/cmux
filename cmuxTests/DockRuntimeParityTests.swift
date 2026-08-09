@@ -1098,6 +1098,61 @@ struct DockRuntimeParityTests {
         }
     }
 
+    @Test("Physical key input clears visual-BEL unread in a secondary window Dock")
+    func physicalKeyInputClearsVisualBellUnreadInSecondaryWindowDock() async throws {
+        try await withAppContext { appDelegate, primaryManager, _, _ in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let secondaryManager = TabManager(autoWelcomeIfNeeded: false)
+            let secondaryWindowID = appDelegate.registerMainWindowContextForTesting(
+                tabManager: secondaryManager
+            )
+            appDelegate.notificationStore = notificationStore
+            defer {
+                notificationStore.markRead(forTabId: secondaryWindowID)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: secondaryWindowID)
+                secondaryManager.tabs.forEach { $0.teardownAllPanels() }
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: secondaryWindowID)
+            let terminal = TerminalPanel(
+                workspaceId: secondaryWindowID,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            try dock.seedRuntimeParityPanel(terminal)
+            dock.focusPanel(terminal.id)
+
+            let visualBell = try #require(terminal.surface.onVisualBell)
+            visualBell()
+            #expect(notificationStore.hasManualUnread(
+                forTabId: secondaryWindowID,
+                surfaceId: terminal.id
+            ))
+            #expect(appDelegate.tabManager === primaryManager)
+            #expect(appDelegate.dockReferenceTabManager(for: dock) === secondaryManager)
+
+            let event = try #require(NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "",
+                charactersIgnoringModifiers: "",
+                isARepeat: false,
+                keyCode: 122
+            ))
+            terminal.hostedView.surfaceView.keyDown(with: event)
+
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: secondaryWindowID,
+                surfaceId: terminal.id
+            ))
+        }
+    }
+
     @Test("Window Dock unread follows a surface transfer exactly once")
     func windowDockUnreadFollowsSurfaceTransferExactlyOnce() async throws {
         try await withAppContext { appDelegate, _, _, sourceWindowID in

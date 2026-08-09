@@ -204,6 +204,56 @@ struct PiFeedDockOwnershipTests {
     }
 
     @MainActor
+    @Test("Surface-less blocking Feed marks the focused window Dock panel as needing input")
+    func surfaceLessBlockingFeedMarksFocusedWindowDockPanelAsNeedingInput() async throws {
+        try await withAppContext { appDelegate, _, _, windowID in
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let focusedPanel = try dock.seedPiFeedPanel()
+            dock.focusPanel(focusedPanel.id)
+            let recorder = PiFeedDockAttentionRecorder()
+            let requestID = "pi-window-dock-surface-less-blocking-request"
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+            let event = WorkstreamEvent(
+                sessionId: "pi-window-dock-surface-less-blocking-feed",
+                hookEventName: .permissionRequest,
+                source: "pi",
+                workspaceId: windowID.uuidString,
+                toolName: "Bash",
+                requestId: requestID
+            )
+
+            let result = await Task.detached {
+                FeedCoordinator.shared.ingestBlocking(
+                    event: event,
+                    waitTimeout: 1,
+                    onAcceptedOnMainActor: { acceptedEvent in
+                        recorder.acceptedEvent = acceptedEvent
+                        recorder.focusedWasNeedsInput = dock.agentRuntimeByPanelId[focusedPanel.id]?
+                            .agentLifecycleStates["pi"] == .needsInput
+                        recorder.targetStatusValue = dock.agentRuntimeStatusEntry(
+                            key: "pi",
+                            panelId: focusedPanel.id
+                        )?.value
+                        FeedCoordinator.shared.deliverReply(
+                            requestId: requestID,
+                            decision: .permission(.once)
+                        )
+                    }
+                )
+            }.value
+
+            guard case .resolved(_, .permission(.once)) = result else {
+                Issue.record("expected the surface-less window Dock blocking Feed event to resolve")
+                return
+            }
+            #expect(recorder.acceptedEvent?.workspaceId == windowID.uuidString)
+            #expect(recorder.acceptedEvent?.surfaceId == nil)
+            #expect(recorder.focusedWasNeedsInput)
+            #expect(recorder.targetStatusValue == FeedCoordinator.needsInputStatusValue)
+        }
+    }
+
+    @MainActor
     @Test("Acknowledged Feed follows a surface into its workspace Dock")
     func acknowledgedFeedRehomesStaleWorkspaceClaimToWorkspaceDockOwner() async throws {
         try await withAppContext { _, manager, workspace, _ in
