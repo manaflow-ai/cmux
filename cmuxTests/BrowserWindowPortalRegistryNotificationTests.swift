@@ -270,6 +270,84 @@ struct BrowserWindowPortalRegistryNotificationTests {
         )
     }
 
+    @Test func portalAnchorResynchronizesAfterAutoLayoutCorrectsReparentedGeometry() async throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 680, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let contentView = try #require(window.contentView)
+
+        let firstHost = NSView(frame: NSRect(x: 24, y: 24, width: 220, height: 140))
+        let replacementHost = NSView(frame: NSRect(x: 300, y: 64, width: 320, height: 230))
+        contentView.addSubview(firstHost)
+        contentView.addSubview(replacementHost)
+
+        let anchor = BrowserPortalAnchorView(frame: firstHost.bounds)
+        anchor.translatesAutoresizingMaskIntoConstraints = false
+        firstHost.addSubview(anchor)
+        let firstHostConstraints = [
+            anchor.topAnchor.constraint(equalTo: firstHost.topAnchor),
+            anchor.bottomAnchor.constraint(equalTo: firstHost.bottomAnchor),
+            anchor.leadingAnchor.constraint(equalTo: firstHost.leadingAnchor),
+            anchor.trailingAnchor.constraint(equalTo: firstHost.trailingAnchor),
+        ]
+        NSLayoutConstraint.activate(firstHostConstraints)
+        firstHost.layoutSubtreeIfNeeded()
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        defer { BrowserWindowPortalRegistry.detach(webView: webView) }
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        await waitForNextMainTurn()
+        await waitForNextMainTurn()
+
+        let initialAnchorFrame = anchor.convert(anchor.bounds, to: nil)
+        let initialSnapshot = try #require(BrowserWindowPortalRegistry.debugSnapshot(for: webView))
+        #expect(abs(initialSnapshot.frameInWindow.width - initialAnchorFrame.width) <= 0.5)
+        #expect(abs(initialSnapshot.frameInWindow.height - initialAnchorFrame.height) <= 0.5)
+
+        NSLayoutConstraint.deactivate(firstHostConstraints)
+        anchor.removeFromSuperview()
+        replacementHost.addSubview(anchor)
+        NSLayoutConstraint.activate([
+            anchor.topAnchor.constraint(equalTo: replacementHost.topAnchor),
+            anchor.bottomAnchor.constraint(equalTo: replacementHost.bottomAnchor),
+            anchor.leadingAnchor.constraint(equalTo: replacementHost.leadingAnchor),
+            anchor.trailingAnchor.constraint(equalTo: replacementHost.trailingAnchor),
+        ])
+        replacementHost.needsLayout = true
+
+        #expect(
+            abs(anchor.frame.width - replacementHost.bounds.width) > 1,
+            "The regression requires the reused anchor to retain its prior size until Auto Layout runs"
+        )
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        let staleSnapshot = try #require(BrowserWindowPortalRegistry.debugSnapshot(for: webView))
+        #expect(abs(staleSnapshot.frameInWindow.width - anchor.frame.width) <= 0.5)
+
+        replacementHost.layoutSubtreeIfNeeded()
+        let correctedAnchorFrame = anchor.convert(anchor.bounds, to: nil)
+        #expect(abs(correctedAnchorFrame.width - replacementHost.bounds.width) <= 0.5)
+        #expect(abs(correctedAnchorFrame.height - replacementHost.bounds.height) <= 0.5)
+
+        await waitForNextMainTurn()
+        await waitForNextMainTurn()
+
+        let synchronizedSnapshot = try #require(
+            BrowserWindowPortalRegistry.debugSnapshot(for: webView)
+        )
+        #expect(
+            abs(synchronizedSnapshot.frameInWindow.minX - correctedAnchorFrame.minX) <= 0.5 &&
+                abs(synchronizedSnapshot.frameInWindow.minY - correctedAnchorFrame.minY) <= 0.5 &&
+                abs(synchronizedSnapshot.frameInWindow.width - correctedAnchorFrame.width) <= 0.5 &&
+                abs(synchronizedSnapshot.frameInWindow.height - correctedAnchorFrame.height) <= 0.5,
+            "The portal must adopt the anchor's corrected Auto Layout geometry without an unrelated host update"
+        )
+    }
+
     @Test func renderingStateReattachReappliesStoredHostedInspectorDivider() async throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
