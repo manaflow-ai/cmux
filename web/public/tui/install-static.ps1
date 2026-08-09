@@ -57,3 +57,18 @@ if (($env:Path -split ";") -notcontains $BinDir) {
 }
 
 Write-Host "Installed cmux to $Destination"
+
+try {
+    $Telemetry = @{
+        product = "tui"
+        platform = "Windows-$Architecture"
+        method = "powershell"
+    } | ConvertTo-Json -Compress
+    Invoke-RestMethod -Method Post `
+        -Uri "https://cmux.com/api/install-events" `
+        -ContentType "application/json" `
+        -Body $Telemetry `
+        -TimeoutSec 2 | Out-Null
+} catch {
+    # Analytics is best effort and must never fail installation.
+}

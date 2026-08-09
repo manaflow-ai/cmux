@@ -478,6 +478,7 @@ extension Workspace {
         var simulatorSnapshot: SessionSimulatorPanelSnapshot? = nil
         let agentSessionSnapshot: SessionAgentSessionPanelSnapshot?
         let projectSnapshot: SessionProjectPanelSnapshot?; var workspaceTodoSnapshot: SessionWorkspaceTodoPanelSnapshot? = nil
+        var notificationsPanelSnapshot: SessionNotificationsPanelSnapshot? = nil
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -717,6 +718,10 @@ extension Workspace {
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
             workspaceTodoSnapshot = SessionWorkspaceTodoPanelSnapshot()
+        case .notifications:
+            terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
+            notificationsPanelSnapshot = SessionNotificationsPanelSnapshot()
         case .extensionBrowser:
             return nil
         case .cloudVMLoading:
@@ -752,7 +757,9 @@ extension Workspace {
             customSidebar: customSidebarSnapshot,
             simulator: simulatorSnapshot,
             agentSession: agentSessionSnapshot,
-            project: projectSnapshot, workspaceTodo: workspaceTodoSnapshot
+            project: projectSnapshot,
+            workspaceTodo: workspaceTodoSnapshot,
+            notificationsPanel: notificationsPanelSnapshot
         )
     }
     private func closedPanelHistoryEntry(panelId: UUID, tabId: TabID, pane: PaneID) -> ClosedPanelHistoryEntry? {
@@ -1905,6 +1912,11 @@ extension Workspace {
             guard let todoPanel = newWorkspaceTodoSurface(inPane: paneId, focus: false) else { return nil }
             applySessionPanelMetadata(snapshot, toPanelId: todoPanel.id)
             return todoPanel.id
+        case .notifications:
+            guard snapshot.notificationsPanel != nil,
+                  let notificationsPanel = newNotificationsSurface(inPane: paneId, focus: false) else { return nil }
+            applySessionPanelMetadata(snapshot, toPanelId: notificationsPanel.id)
+            return notificationsPanel.id
         case .extensionBrowser:
             return nil
         case .cloudVMLoading:
@@ -4676,7 +4688,15 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func hasBackgroundSurfaceStartWork(for panel: TerminalPanel) -> Bool {
-        panel.surface.hasDeferredStartupWorkForBackgroundStart() ||
+        // A surface that can never create a runtime (closing/closed panel,
+        // agent-hibernation suspension) must not count as prime work: the
+        // prime coordinator's timeout path deliberately keeps the workspace's
+        // hidden mount retained, so a never-satisfiable surface would pin one
+        // of the two global background-mount slots forever (#9769).
+        guard panel.surface.surface != nil || panel.surface.canCreateRuntimeSurface else {
+            return false
+        }
+        return panel.surface.hasDeferredStartupWorkForBackgroundStart() ||
             pendingTerminalInputObserversByPanelId[panel.id]?.isEmpty == false
     }
 

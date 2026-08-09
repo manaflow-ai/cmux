@@ -7,6 +7,79 @@ import Testing
 
 extension CmxIrohHostRuntimeTests {
     @Test
+    func emptyPublicHintsRenewRegistrationBeforePrivatePortFreshnessExpires() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(now: now)
+        let renewalDeadline = try #require(
+            CmxIrohHostRuntime.registrationRenewalDeadline(
+                binding: fixture.binding,
+                now: now
+            )
+        )
+        #expect(
+            renewalDeadline < now.addingTimeInterval(
+                CmxIrohPathHint.maximumPrivateHintTTL
+            )
+        )
+
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let clock = HostRegistrationRenewalClock(now: now)
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { clock.now() },
+            registrationClock: clock,
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+        await clock.waitUntilSleeping()
+        #expect(clock.observedSleepDeadlines().first == renewalDeadline)
+
+        clock.advance(to: renewalDeadline)
+        await broker.waitForRegistrationCount(2)
+
+        #expect(await broker.observedRegistrationCount() == 2)
+        await runtime.stop()
+    }
+
+    @Test
+    func stalePrivatePortFreshnessDoesNotScheduleImmediateRenewal() throws {
+        let bindingTime = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(now: bindingTime)
+        let staleNow = bindingTime.addingTimeInterval(
+            CmxIrohPathHint.maximumPrivateHintTTL + 1
+        )
+
+        #expect(CmxIrohHostRuntime.registrationRenewalDeadline(
+            binding: fixture.binding,
+            now: staleNow
+        ) == nil)
+    }
+
+    @Test
+    func nearExpiryPublicHintDoesNotScheduleImmediateRenewal() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(
+            now: now,
+            publicHintLifetime: 10
+        )
+
+        #expect(CmxIrohHostRuntime.registrationRenewalDeadline(
+            binding: fixture.binding,
+            now: now
+        ) == now.addingTimeInterval(
+            CmxIrohPathHint.maximumPrivateHintTTL - 15 * 60
+        ))
+    }
+
+    @Test
     func unchangedReachabilityRenewsRegistrationBeforeHintExpiry() async throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let fixture = try HostRuntimeFixture(now: now, publicHintLifetime: 60 * 60)
@@ -487,6 +560,9 @@ extension CmxIrohHostRuntimeTests {
         #expect(await factory.observedConfigurations().count == 1)
         #expect(clock.observedSleepDeadlines() == [
             now.addingTimeInterval(600),
+            now.addingTimeInterval(
+                CmxIrohPathHint.maximumPrivateHintTTL - 15 * 60
+            ),
         ])
         await runtime.stop()
     }

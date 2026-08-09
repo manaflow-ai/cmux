@@ -2,8 +2,8 @@ import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type React from "react";
 
-mock.module("@stackframe/stack", () => ({
-  UserButton: () => <span data-testid="account-control" />,
+mock.module("../app/[locale]/dashboard/dashboard-account-menu", () => ({
+  DashboardAccountMenu: () => <span data-testid="account-control" />,
 }));
 
 mock.module("next-intl", () => ({
@@ -40,6 +40,11 @@ describe("dashboard shell", () => {
 
     expect(html.match(/data-testid="account-control"/g)).toHaveLength(1);
     expect(html.match(/data-testid="theme-control"/g)).toHaveLength(1);
+    expect(html).toContain('href="/dashboard/coderouter"');
+    const billingIndex = html.indexOf('href="/dashboard/billing"');
+    const teamIndex = html.indexOf('href="/dashboard/team"');
+    expect(billingIndex).toBeGreaterThan(-1);
+    expect(teamIndex).toBeGreaterThan(billingIndex);
     const menuButton = html.match(
       /<button[^>]*aria-controls="dashboard-mobile-nav"[^>]*>/,
     )?.[0];

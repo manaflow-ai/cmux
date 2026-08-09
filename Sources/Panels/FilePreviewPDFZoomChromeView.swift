@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct FilePreviewPDFZoomChromeView: View {
@@ -10,6 +11,7 @@ struct FilePreviewPDFZoomChromeView: View {
     let rotateLeft: () -> Void
     let rotateRight: () -> Void
     let refresh: () -> Void
+    let share: (NSView, FilePreviewPDFShareActivation) -> Void
 
     var body: some View {
         if chromeStyleVariant == .systemControlGroup {
@@ -17,8 +19,8 @@ struct FilePreviewPDFZoomChromeView: View {
                 zoomButtons(includeDividers: false)
                 secondaryButtons(includeDividers: false)
                 refreshButton
-                if let fileURL {
-                    FileExternalOpenMenu(fileURL: fileURL, style: .chrome)
+                if fileURL != nil {
+                    shareButton
                 }
             } label: {
                 Label(
@@ -41,7 +43,7 @@ struct FilePreviewPDFZoomChromeView: View {
                 .frame(height: chromeStyleVariant == .liquidGlass ? 40 : 36)
                 .modifier(FilePreviewPDFChromeStyleModifier(variant: chromeStyleVariant))
 
-                if let fileURL {
+                if fileURL != nil {
                     HStack(spacing: 0) {
                         refreshButton
                     }
@@ -49,7 +51,7 @@ struct FilePreviewPDFZoomChromeView: View {
                     .modifier(FilePreviewPDFStandaloneChromeStyleModifier(variant: chromeStyleVariant))
 
                     HStack(spacing: 0) {
-                        FileExternalOpenMenu(fileURL: fileURL, style: .chrome)
+                        shareButton
                     }
                     .frame(width: 40, height: 40)
                     .modifier(FilePreviewPDFStandaloneChromeStyleModifier(variant: chromeStyleVariant))
@@ -64,6 +66,14 @@ struct FilePreviewPDFZoomChromeView: View {
             label: String(localized: "filePreview.refresh", defaultValue: "Refresh"),
             action: refresh
         )
+    }
+
+    private var shareButton: some View {
+        FilePreviewPDFShareButton(
+            label: String(localized: "filePreview.share", defaultValue: "Share"),
+            action: share
+        )
+        .frame(width: 40, height: 40)
     }
 
     @ViewBuilder
