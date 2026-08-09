@@ -1322,7 +1322,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             requests.first { ($0["method"] as? String) == "workspace.remote.configure" }
         )
         let configureParams = try XCTUnwrap(configureRequest["params"] as? [String: Any])
-        return try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
+        return try XCTUnwrap(
+            configureParams["terminal_startup_command"] as? String
+        )
+        .replacingOccurrences(of: "/usr/bin/ssh", with: "ssh")
     }
 
     private func generatedVMSSHInitialStartupCommand() throws -> String {
