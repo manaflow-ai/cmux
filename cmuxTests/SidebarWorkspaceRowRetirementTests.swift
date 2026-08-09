@@ -82,7 +82,9 @@ struct SidebarWorkspaceRowRetirementTests {
         defer { mounted.window.close() }
         let popoverWindow = try #require(
             NSApplication.shared.windows.first {
-                !existingWindowIds.contains(ObjectIdentifier($0)) && $0.isVisible
+                !existingWindowIds.contains(ObjectIdentifier($0))
+                    && $0 !== mounted.window
+                    && $0.isVisible
             }
         )
 
