@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxMobileShellModel
 
@@ -405,6 +406,41 @@ import Testing
         // Both builds of mac-a share one rank and stay adjacent (tag tiebreak),
         // ahead of the unprioritized foreground Mac.
         #expect(ordered == ["mac-a", "mac-a\u{1F}nightly", "mac-b"])
+    }
+
+    @Test func lastOpenedOrdersUnprioritizedMacsByRecencyThenName() {
+        let states = [
+            "mac-a": state("mac-a", name: "Alpha", ["a1"]),
+            "mac-b": state("mac-b", name: "Beta", ["b1"]),
+            "mac-c": state("mac-c", name: "Charlie", ["c1"]),
+            "mac-d": state("mac-d", name: "Delta", ["d1"]),
+        ]
+        let ordered = MobileWorkspaceAggregation().orderedMacIDs(
+            statesByMac: states,
+            foregroundMacDeviceID: "mac-a",
+            lastOpenedAt: [
+                "mac-a": Date(timeIntervalSince1970: 50),
+                "mac-c": Date(timeIntervalSince1970: 300),
+                "mac-b": Date(timeIntervalSince1970: 200),
+            ]
+        )
+        // Foreground still leads even with an older stamp (it is open NOW),
+        // then most recently opened, then never-opened computers by name.
+        #expect(ordered == ["mac-a", "mac-c", "mac-b", "mac-d"])
+    }
+
+    @Test func computerPriorityBeatsLastOpenedRecency() {
+        let states = [
+            "mac-a": state("mac-a", name: "Alpha", ["a1"]),
+            "mac-b": state("mac-b", name: "Beta", ["b1"]),
+        ]
+        let ordered = MobileWorkspaceAggregation().orderedMacIDs(
+            statesByMac: states,
+            foregroundMacDeviceID: nil,
+            computerPriority: ["mac-a"],
+            lastOpenedAt: ["mac-b": Date(timeIntervalSince1970: 500)]
+        )
+        #expect(ordered == ["mac-a", "mac-b"])
     }
 
     @Test func emptyComputerPriorityMatchesAutomaticOrder() {

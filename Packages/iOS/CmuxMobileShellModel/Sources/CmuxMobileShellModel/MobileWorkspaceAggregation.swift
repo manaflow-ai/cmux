@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Pure derivations from the per-Mac state map to aggregated workspace and group shapes.
 ///
@@ -19,10 +19,15 @@ public struct MobileWorkspaceAggregation: Sendable {
     /// builds of one prioritized Mac stay adjacent (same rank, tag tiebreak),
     /// and Macs not in the list keep the automatic order after the
     /// prioritized ones. Ids that match no live state are ignored.
+    ///
+    /// `lastOpenedAt` (Mac device id → when this device last used that
+    /// computer) drives the automatic "Last Opened" order: foreground first,
+    /// then most recent, with unknown computers alphabetical last.
     public func orderedMacIDs(
         statesByMac: [String: MacWorkspaceState],
         foregroundMacDeviceID foregroundKey: String?,
-        computerPriority: [String] = []
+        computerPriority: [String] = [],
+        lastOpenedAt: [String: Date] = [:]
     ) -> [String] {
         var priorityRank: [String: Int] = [:]
         for (index, deviceID) in computerPriority.enumerated()
@@ -36,6 +41,20 @@ public struct MobileWorkspaceAggregation: Sendable {
             let lhsForeground = lhs.key == foregroundKey
             let rhsForeground = rhs.key == foregroundKey
             if lhsForeground != rhsForeground { return lhsForeground }
+            // "Last Opened": most recently used computers lead; unknown ones
+            // fall through to the name order below. The foreground check above
+            // stays authoritative — the connected Mac is "opened now" even
+            // when its stored timestamp lags.
+            switch (lastOpenedAt[lhs.value.macDeviceID], lastOpenedAt[rhs.value.macDeviceID]) {
+            case let (lhsDate?, rhsDate?) where lhsDate != rhsDate:
+                return lhsDate > rhsDate
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            default:
+                break
+            }
             let lhsName = lhs.value.displayName ?? lhs.value.macDeviceID
             let rhsName = rhs.value.displayName ?? rhs.value.macDeviceID
             if lhsName != rhsName { return lhsName.localizedCaseInsensitiveCompare(rhsName) == .orderedAscending }

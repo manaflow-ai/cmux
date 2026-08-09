@@ -6578,12 +6578,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let statesByAggregateKey = Dictionary(
             uniqueKeysWithValues: workspacesByMac.map { ($0.key.pairingID, $0.value) }
         )
+        // "Last Opened" recency for the automatic order, keyed by device id.
+        // The pairing's lastSeenAt is the closest device-local record of when
+        // this phone last used that computer; the live foreground check inside
+        // the aggregation still beats it.
+        var lastOpenedByDeviceID: [String: Date] = [:]
+        for mac in pairedMacs {
+            let existing = lastOpenedByDeviceID[mac.macDeviceID]
+            if existing == nil || mac.lastSeenAt > existing! {
+                lastOpenedByDeviceID[mac.macDeviceID] = mac.lastSeenAt
+            }
+        }
         let macIDsInDisplayOrder = workspaceAggregation.orderedMacIDs(
             statesByMac: statesByAggregateKey,
             foregroundMacDeviceID: foregroundKey,
             computerPriority: workspaceSortMode == .computerPriority
                 ? expandedWorkspaceComputerPriority()
-                : []
+                : [],
+            lastOpenedAt: lastOpenedByDeviceID
         )
         var derived = workspaceAggregation.derivedWorkspaces(
             statesByMac: statesByAggregateKey,
