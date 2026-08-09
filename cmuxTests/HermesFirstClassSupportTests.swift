@@ -493,6 +493,133 @@ struct HermesFirstClassSupportTests {
         #expect(entry.agentProcessIDs == [processID])
     }
 
+    @MainActor
+    @Test("An idle Python console-script Hermes TUI remains armed for reopen")
+    func idlePythonConsoleScriptHermesTUIRemainsArmedForReopen() throws {
+        let defaultsName = "cmux-hermes-idle-console-script-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { source.teardownAllPanels() }
+        let panelID = try #require(source.focusedPanelId)
+        let sessionID = "20260807_192611_076701"
+        let fixture = try makeFixture(
+            workspaceID: source.id,
+            panelID: panelID
+        ) {
+            [StateRow(sessionID, cwd: $0.path, source: "tui")]
+        }
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let processID = Int(Int32.max) - 9_534
+        let identity = AgentPIDProcessIdentity(
+            pid: pid_t(processID),
+            startSeconds: 1_000,
+            startMicroseconds: 2_000
+        )
+        let pythonExecutable = fixture.root
+            .appendingPathComponent("venv/bin/python", isDirectory: false).path
+        let hermesConsoleScript = fixture.root
+            .appendingPathComponent("venv/bin/hermes", isDirectory: false).path
+        let launchCommand = AgentLaunchCommandSnapshot(
+            launcher: "hermes-agent",
+            executablePath: hermesConsoleScript,
+            arguments: [hermesConsoleScript, "--tui", "--resume", sessionID],
+            workingDirectory: fixture.repo.path,
+            environment: ["HERMES_HOME": fixture.hermesHome.path],
+            capturedAt: 42,
+            source: "environment"
+        )
+        try writeHermesHookStore(
+            fixture: fixture,
+            sessions: [(sessionID: sessionID, updatedAt: 42)],
+            processID: processID,
+            identity: identity,
+            executablePath: hermesConsoleScript,
+            arguments: launchCommand.arguments,
+            runtimeStatus: "idle",
+            agentLifecycle: "idle"
+        )
+        let liveProcess = CmuxTopProcessArguments(
+            arguments: [pythonExecutable, hermesConsoleScript, "--tui", "--resume", sessionID],
+            environment: hermesEnvironment(fixture).merging([
+                "CMUX_AGENT_LAUNCH_KIND": "hermes-agent",
+                "CMUX_WORKSPACE_ID": fixture.workspaceID.uuidString,
+                "CMUX_SURFACE_ID": fixture.panelID.uuidString,
+            ]) { _, incoming in incoming }
+        )
+        let process = hermesProcess(
+            pid: processID,
+            workspaceID: fixture.workspaceID,
+            panelID: fixture.panelID,
+            name: "Python",
+            path: pythonExecutable
+        )
+        let detected = try detectedHermesSnapshots(
+            fixture: fixture,
+            processes: [process],
+            argumentsByPID: [processID: liveProcess]
+        )
+        let detectedSnapshot = try #require(detected.values.first?.snapshot)
+        #expect(detectedSnapshot.kind == .hermesAgent)
+        #expect(detectedSnapshot.sessionId == sessionID)
+        #expect(detectedSnapshot.registration?.iconAssetName == "AgentIcons/HermesAgent")
+        #expect(detectedSnapshot.launchCommand?.executablePath == "hermes")
+        #expect(
+            detectedSnapshot.launchCommand?.arguments
+                == ["hermes", "--tui", "--resume", sessionID]
+        )
+
+        let index = try loadHookBackedHermesIndex(
+            fixture: fixture,
+            processID: processID,
+            identity: identity,
+            liveProcess: liveProcess
+        )
+        let entry = try #require(
+            index.entry(workspaceId: fixture.workspaceID, panelId: fixture.panelID)
+        )
+        #expect(entry.lifecycle == .idle)
+        #expect(entry.processLiveness == .running)
+        #expect(entry.agentProcessIDs == [processID])
+
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Hermes Agent",
+            kind: RestorableAgentKind.hermesAgent.rawValue,
+            command: "'\(hermesConsoleScript)' '--tui' '--resume' '\(sessionID)'",
+            cwd: fixture.repo.path,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            launchCommand: launchCommand,
+            autoResume: true,
+            approvalPolicy: .auto
+        )
+        #expect(source.setSurfaceResumeBinding(binding, panelId: panelID))
+
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: index,
+            surfaceResumeBindingIndex: .empty,
+            currentAgentProcessIdentity: { $0 == processID ? identity : nil },
+            agentProcessPresence: { $0 == processID ? .present : .absent }
+        )
+        let terminal = try #require(snapshot.panels.first?.terminal)
+        #expect(terminal.agent?.sessionId == sessionID)
+        #expect(terminal.resumeBinding?.autoResume == true)
+        #expect(terminal.wasAgentRunning == true)
+
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelID = try #require(restored.focusedPanelId)
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+
+        #expect(restoredPanel.surface.debugInitialCommand() == nil)
+        #expect(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+    }
+
     @Test("Hook indexing replaces a transient Hermes transport ID with its durable process-generation sibling")
     func hookIndexCanonicalizesTransientHermesIdentity() throws {
         let transientSessionID = "96dd0dcc"
@@ -1160,7 +1287,11 @@ struct HermesFirstClassSupportTests {
         let hermesExecutable: String
     }
 
-    private func makeFixture(rows: (URL) -> [StateRow]) throws -> Fixture {
+    private func makeFixture(
+        workspaceID: UUID = UUID(),
+        panelID: UUID = UUID(),
+        rows: (URL) -> [StateRow]
+    ) throws -> Fixture {
         let root = try temporaryDirectory(prefix: "cmux-hermes-first-class")
         let hermesHome = root.appendingPathComponent("hermes-home", isDirectory: true)
         let repo = root.appendingPathComponent("repo", isDirectory: true)
@@ -1173,8 +1304,8 @@ struct HermesFirstClassSupportTests {
             hermesHome: hermesHome,
             stateDB: stateDB,
             repo: repo,
-            workspaceID: UUID(),
-            panelID: UUID(),
+            workspaceID: workspaceID,
+            panelID: panelID,
             hermesExecutable: "/usr/local/bin/hermes"
         )
     }
