@@ -1,5 +1,85 @@
 public import Foundation
 
+/// A terminal row layout whose Swift `Character` offsets are proven to be
+/// identical to terminal-cell columns.
+///
+/// This is a permanent seam for the proof, but the hand-coded implementation
+/// is intentionally transient, like ``WrapBoundaryOracle``: once StringMap
+/// slices (or another native cell-provenance API) are available, replace this
+/// helper's implementation with that map and remove the hand-coded list. The
+/// expected lifetime of this implementation is one release-sized slice, not
+/// a second long-lived width model.
+struct TerminalRowCellLayout: Sendable, Equatable {
+    /// One measured narrow code point. Every entry records the exact Ghostty
+    /// source revision, date, and method used for the measurement so an
+    /// apparently harmless list expansion cannot silently become a width
+    /// assumption.
+    struct WidthMeasurement: Sendable, Equatable {
+        let scalar: Unicode.Scalar
+        let ghosttyCommit: String
+        let measuredOn: String
+        let method: String
+    }
+
+    /// The only non-ASCII scalars admitted by the current proof. An entry is
+    /// eligible only when it is (a) one code point, (b) measured as
+    /// `codepointWidth() == 1` by the same method in this Ghostty submodule,
+    /// (c) not East Asian Width W/F, (d) not default Emoji_Presentation, and
+    /// (e) accompanied by the per-entry measurement record below. Do not add
+    /// an unmeasured character here.
+    ///
+    /// Measurement record: the parent-pinned Ghostty commit
+    /// `abcf5697d4fcd05e29a83ccfc090d6e234952849`, measured on 2026-08-09 in a
+    /// temporary checkout with `ghostty/src/unicode/main.zig`'s
+    /// `codepointWidth()` exercised by the submodule's `zig build test`
+    /// measurement harness.
+    static let measuredNarrowScalarMetadata: [WidthMeasurement] = [
+        WidthMeasurement(scalar: "\u{2022}", ghosttyCommit: "abcf5697d4fcd05e29a83ccfc090d6e234952849", measuredOn: "2026-08-09", method: "ghostty/src/unicode/main.zig codepointWidth() via zig build test"),
+        WidthMeasurement(scalar: "\u{25CF}", ghosttyCommit: "abcf5697d4fcd05e29a83ccfc090d6e234952849", measuredOn: "2026-08-09", method: "ghostty/src/unicode/main.zig codepointWidth() via zig build test"),
+        WidthMeasurement(scalar: "\u{25A0}", ghosttyCommit: "abcf5697d4fcd05e29a83ccfc090d6e234952849", measuredOn: "2026-08-09", method: "ghostty/src/unicode/main.zig codepointWidth() via zig build test"),
+        WidthMeasurement(scalar: "\u{25CB}", ghosttyCommit: "abcf5697d4fcd05e29a83ccfc090d6e234952849", measuredOn: "2026-08-09", method: "ghostty/src/unicode/main.zig codepointWidth() via zig build test"),
+        WidthMeasurement(scalar: "\u{2B24}", ghosttyCommit: "abcf5697d4fcd05e29a83ccfc090d6e234952849", measuredOn: "2026-08-09", method: "ghostty/src/unicode/main.zig codepointWidth() via zig build test"),
+    ]
+
+    private static let measuredNarrowScalars = Set(measuredNarrowScalarMetadata.map(\.scalar))
+
+    private let characterCount: Int
+
+    private init(characterCount: Int) {
+        self.characterCount = characterCount
+    }
+
+    /// Returns a layout only when every `Character` is one scalar and that
+    /// scalar is either printable ASCII (0x20...0x7E) or one of the measured
+    /// narrow exceptions above. Printable ASCII is deliberately narrower than
+    /// `isASCII`: tab is ASCII but is not a one-cell printable character.
+    static func verified(for row: String) -> Self? {
+        let characters = Array(row)
+        guard characters.allSatisfy({ character in
+            let scalars = Array(character.unicodeScalars)
+            guard scalars.count == 1, let scalar = scalars.first else { return false }
+            let isPrintableASCII = (0x20...0x7E).contains(scalar.value)
+            return isPrintableASCII || measuredNarrowScalars.contains(scalar)
+        }) else {
+            return nil
+        }
+        return Self(characterCount: characters.count)
+    }
+
+    /// Converts an already-indexed Swift-character range to the corresponding
+    /// cell range. The identity proof makes the conversion intentionally
+    /// boring; bounds checking keeps callers from manufacturing an invalid
+    /// span if token extraction changes.
+    func cellRange(forCharacterOffsets range: Range<Int>) -> Range<Int>? {
+        guard range.lowerBound >= 0,
+              range.lowerBound < range.upperBound,
+              range.upperBound <= characterCount else {
+            return nil
+        }
+        return range
+    }
+}
+
 /// Which physical row completes a hard-wrapped path continuation.
 public enum TerminalWrapDirection: Sendable, Hashable {
     /// The clicked token starts with `/`; its continuation, if any, is on
@@ -98,8 +178,9 @@ enum TerminalWrappedRejectionReason: Sendable, Equatable {
     case candidateTooLong
     /// The span would need more rows than `maxWrappedRows` allows.
     case rowCountExceeded
-    /// A row-local hit's own mirror-seam/adjacent-only routing
-    /// (final-spec §3.1/§3.2) never reached a candidate.
+    /// A row-local hit's own mirror-seam or slash-seam routing
+    /// (final-spec §3.2 and issue #8810's revised §3.1) never reached a
+    /// candidate.
     case rowLocalPriorityBypass
     /// A row an eligible span needed had no extractable fragment/token at
     /// all (an ASCII row with nothing there to join) — distinct from
@@ -119,11 +200,12 @@ enum TerminalWrappedNotEvaluableReason: Sendable, Equatable {
 /// Which surface is asking the shared, multi-row resolution entry point
 /// (``TerminalPathResolver/resolveWrappedCandidate(seed:rows:clickedIndex:columns:cwd:purpose:)``)
 /// to resolve a candidate — design-decision-b1-fallback-policy.md rule 2
-/// condition 2. `.hover` can NEVER reach the narrow text-only fallback (an
-/// automated, continuous underline built on an unverified column-less join
-/// would be a silent false positive — final-spec's own "誤った下線は『何が
-/// 開くか』についての静かな虚偽" framing); `.click` is the only purpose
-/// that may, and only once every OTHER rule-2 condition also holds.
+/// condition 2. `.hover` can never reach the conservative text-only fallback:
+/// an automated, continuous underline built on an unverified column-less join
+/// would be a silent false positive. A leading row may still serve hover when
+/// ``TerminalRowCellLayout`` proves character-index == cell-column identity;
+/// that branch has real ranges and is not a column-less join. `.click` may use
+/// either branch once its own guards hold.
 /// Threading this as an explicit, required parameter — rather than a
 /// convention every caller has to remember — is what makes hover's
 /// exclusion from that fallback something a reviewer (or a test) can
@@ -283,13 +365,14 @@ public struct TerminalWrappedPathSeed: Sendable {
 /// adjacent row makes `column` a terminal-cell index that no longer lines
 /// up with `String` character indices (the same reason every ASCII guard
 /// in `String+TerminalPathTokens.swift` exists), so a candidate resolved
-/// through that row's fragment TEXT alone (``String/trailingContinuationFragmentText()``,
-/// the click-only fallback) has real path/match-key data but no column
-/// range to underline. This type makes that "unknown," not "wrong" or
-/// "silently absent": a caller must not guess a column range, and must not
-/// treat this the same as `.available([])` (which means "no spans, e.g. a
-/// resolution constructed directly rather than through the wrap-resolver
-/// paths" — a different, always-safe-to-ignore case).
+/// through that row's fragment TEXT alone (the conservative click-only
+/// fallback) has real path/match-key data but no column range to underline.
+/// This type makes that "unknown," not "wrong" or "silently absent": a
+/// caller must not guess a column range, and must not treat this the same as
+/// `.available([])` (which means "no spans, e.g. a resolution constructed
+/// directly rather than through the wrap-resolver paths" — a different,
+/// always-safe-to-ignore case). A verified leading-row layout is not this
+/// case: its character-to-cell identity supplies exact ranges.
 ///
 /// (B) ExternalHover fails closed on `.unavailableNonASCIIRow` — no
 /// candidate is shown, rather than one with a wrong or missing underline —
@@ -370,10 +453,11 @@ public struct TerminalWrappedPathResolution: Sendable, Equatable {
     /// `TerminalWrappedPathResolution` constructed directly (e.g. in
     /// existing click-arbitrator tests that only need `path`/
     /// `nativeMatchKeys`); `.unavailableNonASCIIRow` when the resolution
-    /// instead joined through ``String/trailingContinuationFragmentText()``'s
-    /// text-only, click-only fallback (design-next-round-bundle-8810.md
-    /// §1) — see ``TerminalWrappedCellSpans``'s own doc for what a caller
-    /// must do with that case.
+    /// instead joined through a conservative, text-only, click-only fallback
+    /// (design-next-round-bundle-8810.md §1) — see
+    /// ``TerminalWrappedCellSpans``'s own doc for what a caller must do with
+    /// that case. A leading row accepted by the verified layout seam returns
+    /// `.available` because its ranges are proven cell coordinates.
     public let cellSpans: TerminalWrappedCellSpans
 
     public init(
@@ -979,17 +1063,15 @@ public struct TerminalPathResolver: Sendable {
     /// issue #8810 symptom 1 — resolves a leading/bullet row when the
     /// clicked physical row itself is non-ASCII and therefore cannot yield
     /// a column-ranged ``TerminalWrappedPathSeed``. This is deliberately a
-    /// separate, click-only path from
-    /// ``resolveTextOnlyPreviousFallback(seed:window:cwd:)``: the latter
-    /// handles a click on the ASCII continuation row, while this handles a
-    /// click on the non-ASCII leading row.
+    /// separate path from ``resolveTextOnlyPreviousFallback(seed:window:cwd:)``:
+    /// the latter handles a click on the ASCII continuation row, while this
+    /// handles a click on the leading row.
     ///
-    /// The returned resolution always carries
-    /// `.unavailableNonASCIIRow`; the candidate may be opened by click, but
-    /// no caller may derive an underline range from the prefix row's text
-    /// indices. All ordinary `.next` guards (prefix shape, fragment-alone
-    /// existence, candidate shape, cwd resolution, and file existence) are
-    /// still applied by the existing evaluator.
+    /// A row accepted by ``TerminalRowCellLayout`` takes the exact branch:
+    /// both click and hover are allowed, the fabricated zero-width seed is
+    /// avoided, and the evaluator returns `.available` real cell spans. Rows
+    /// outside that proof remain the conservative click-only branch with a
+    /// 2× scalar upper bound and `.unavailableNonASCIIRow`.
     public func resolveTextOnlyLeadingRowFallback(
         clickedRow: String,
         column: Int,
@@ -997,9 +1079,8 @@ public struct TerminalPathResolver: Sendable {
         cwd: String,
         purpose: TerminalWrappedResolutionPurpose
     ) -> TerminalWrappedPathResolution? {
-        guard purpose == .click else { return nil }
-        guard !clickedRow.unicodeScalars.allSatisfy(\.isASCII) else { return nil }
         guard let nextRow else { return nil }
+        guard !clickedRow.unicodeScalars.allSatisfy(\.isASCII) else { return nil }
 
         let characters = Array(clickedRow)
         guard let bodyStart = characters.firstIndex(where: { $0.unicodeScalars.allSatisfy(\.isASCII) }) else {
@@ -1015,20 +1096,57 @@ public struct TerminalPathResolver: Sendable {
             width += max(1, character.unicodeScalars.count * 2)
         }
         let body = characters[bodyStart...]
-        guard body.allSatisfy({ $0.unicodeScalars.allSatisfy(\.isASCII) }),
-              column >= prefixCellUpperBound else {
-            return nil
-        }
+        guard body.allSatisfy({ $0.unicodeScalars.allSatisfy(\.isASCII) }) else { return nil }
 
-        let pathTokens: [String] = body
+        let pathTokenSlices = body
             .split(whereSeparator: { $0.isWhitespace })
-            .map { String($0) }
-            .filter { $0.isWrappedPathPrefixShaped }
-        guard pathTokens.count == 1, let token = pathTokens.first else { return nil }
+            .filter { String($0).isWrappedPathPrefixShaped }
+        guard pathTokenSlices.count == 1, let pathTokenSlice = pathTokenSlices.first else { return nil }
+        let token = String(pathTokenSlice)
         // Row-local priority must not reinterpret a terminal-cell column as a
         // Swift String index. Resolve the unique body token itself instead;
         // if it already exists, this is not a wrapped candidate.
         guard resolveQuicklookPath(token, cwd: cwd) == nil else { return nil }
+
+        if let layout = TerminalRowCellLayout.verified(for: clickedRow) {
+            // The identity proof is deliberately local to this fallback;
+            // `wrappedPathSeed`/`resolveVisibleLinePath` retain their
+            // conservative ASCII-only contracts until native cell provenance
+            // replaces this seam.
+            guard let tokenCellRange = layout.cellRange(forCharacterOffsets: pathTokenSlice.startIndex..<pathTokenSlice.endIndex),
+                  tokenCellRange.contains(column) else {
+                return nil
+            }
+
+            let seed = TerminalWrappedPathSeed(
+                directions: [.next],
+                token: token,
+                tokenStartColumn: tokenCellRange.lowerBound,
+                tokenEndColumn: tokenCellRange.upperBound,
+                disposition: .noRowLocalHit
+            )
+            let evaluation = evaluateWrappedCandidate(
+                seed: seed,
+                previousRow: nil,
+                nextRow: nextRow,
+                cwd: cwd
+            )
+            guard case .succeeded(let resolution) = evaluation.outcomes[.next],
+                  evaluation.candidate == resolution,
+                  case .available = resolution.cellSpans else {
+                return nil
+            }
+            return resolution
+        }
+
+        // The conservative branch has no trustworthy cell range. It is
+        // click-only and keeps the old upper-bound admission rule: a false
+        // negative is preferable to treating an ambiguous-width prefix cell
+        // as an ASCII body click.
+        guard purpose == .click,
+              column >= prefixCellUpperBound else {
+            return nil
+        }
 
         // The leading row has no trustworthy cell range. The existing
         // evaluator only needs the token text for its `.next` guards; the
@@ -1603,13 +1721,11 @@ public struct TerminalPathResolver: Sendable {
             }
         }
 
-        // final-spec §3.1 (review B2) — `.explicitTrailingSlashSeamBypass`
-        // is adjacent-only BY DISPOSITION, exactly like
-        // `.rowLocalHitAwaitingMirrorSlashSeam` is upward-only: neither
-        // may enter the general span search's normal bounds, which would
-        // otherwise let a longer, dominating multi-row candidate override
-        // the intentionally narrow 2-row join — the exact P0-2 shape
-        // final-spec §3.1 forbids.
+        // issue #8810 revised ruling — `.explicitTrailingSlashSeamBypass`
+        // searches downward through the same max-four-row bound as the
+        // mirror-seam disposition. The length-three-plus license guard below
+        // keeps this expansion tied to the clicked piece's own legacy slash
+        // seam; the two-row path retains its existing behavior byte-for-byte.
         let minStart: Int
         let maxEnd: Int
         switch seed.disposition {
@@ -1618,7 +1734,7 @@ public struct TerminalPathResolver: Sendable {
             maxEnd = min(window.rows.count - 1, clickedIndex + (Self.maxWrappedRows - 1))
         case .explicitTrailingSlashSeamBypass:
             minStart = clickedIndex
-            maxEnd = min(window.rows.count - 1, clickedIndex + 1)
+            maxEnd = min(window.rows.count - 1, clickedIndex + (Self.maxWrappedRows - 1))
         case .noRowLocalHit:
             minStart = max(0, clickedIndex - (Self.maxWrappedRows - 1))
             maxEnd = min(window.rows.count - 1, clickedIndex + (Self.maxWrappedRows - 1))
@@ -1737,6 +1853,17 @@ public struct TerminalPathResolver: Sendable {
                     leadingPiece.text.hasSuffix("/") && pieces[1].startColumn == 0
                 let trailingBoundaryHasLegacySlashSeam = spanEnd > spanStart &&
                     pieces[pieces.count - 2].text.hasSuffix("/") && trailingPiece.startColumn == 0
+
+                // The revised multi-row exception is licensed only when a
+                // three-or-more-row span begins with the clicked piece's
+                // legacy slash seam. Length two deliberately remains
+                // unchanged, including its existing indentation semantics.
+                if seed.disposition == .explicitTrailingSlashSeamBypass,
+                   length >= 3,
+                   !leadingBoundaryHasLegacySlashSeam {
+                    recordRejection(.rowLocalPriorityBypass)
+                    continue
+                }
 
                 // final-spec §4.2 — outer endpoint guard: leading piece
                 // must be path-prefix-shaped, unless a boundary bypass

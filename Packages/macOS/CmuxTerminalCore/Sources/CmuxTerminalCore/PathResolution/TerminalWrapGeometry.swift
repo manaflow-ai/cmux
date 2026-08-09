@@ -191,13 +191,13 @@ public enum TerminalRowLocalDisposition: Sendable, Equatable {
     case noRowLocalHit
 
     /// The existing bug A exception: the clicked token itself ends with
-    /// an explicit trailing `/`. **Adjacent-only, by design** — final-spec
-    /// §3.1 explicitly forbids extending this to multiple rows without a
-    /// much stronger provenance signal than filesystem existence alone
-    /// (e.g. a terminal-provided semantic link range or hyperlink
-    /// identity) — "long path, every row full, cwd exists, no indent" is
-    /// NOT sufficient evidence on its own, and this must never be used
-    /// for hover's automatic display even if such a signal existed.
+    /// an explicit trailing `/`. The original final-spec §3.1
+    /// adjacent-only ruling is superseded by issue #8810's revised rule:
+    /// length-two spans retain the old behavior, while a length-three-plus
+    /// span is licensed only when its leading boundary is the clicked piece's
+    /// legacy slash seam (the piece ends `/` and the next piece starts at
+    /// column 0). This disposition may therefore participate in the same
+    /// bounded, exact cell-span path used by hover once that guard holds.
     case explicitTrailingSlashSeamBypass
 
     /// A row-local hit exists, but the clicked token reaches the strict

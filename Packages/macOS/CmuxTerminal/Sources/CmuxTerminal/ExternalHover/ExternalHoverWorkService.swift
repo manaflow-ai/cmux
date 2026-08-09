@@ -578,44 +578,66 @@ public actor ExternalHoverWorkService {
         }
 #endif
 
-        guard let seed = resolver.wrappedPathSeed(
+        let resolved: TerminalWrappedPathResolution
+        let directionsTried: Int
+        if let seed = resolver.wrappedPathSeed(
             in: clickedLine, column: request.cell.column, cwd: request.cwd, columns: snapshot.columns
-        ) else {
+        ) {
+            // cmux-shared-behavior policy — the SAME entry point the click
+            // path calls (`GhosttyTerminalView.prepareCommandClickContext`),
+            // with `purpose: .hover` so it can never reach the conservative
+            // click-only fallback.
+            directionsTried = seed.directions.count
+            guard let candidate = resolver.resolveWrappedCandidate(
+                seed: seed, rows: lines, clickedIndex: clickedIndex, columns: snapshot.columns, cwd: request.cwd,
+                purpose: .hover
+            ) else {
 #if DEBUG
-            if diagnosticsOn {
-                logResolve(outcome: "rejected", reason: "noSeed")
-            }
+                if diagnosticsOn {
+                    logResolve(outcome: "rejected", reason: "noCandidate", directionsTried: directionsTried)
+                }
 #endif
-            return nil
-        }
-        // cmux-shared-behavior policy — the SAME entry point the click
-        // path calls (`GhosttyTerminalView.prepareCommandClickContext`),
-        // with `purpose: .hover` so it can never reach the click-only
-        // text-only fallback (design-decision-b1-fallback-policy.md).
-        guard let resolved = resolver.resolveWrappedCandidate(
-            seed: seed, rows: lines, clickedIndex: clickedIndex, columns: snapshot.columns, cwd: request.cwd,
-            purpose: .hover
-        ) else {
+                return nil
+            }
+            resolved = candidate
+        } else {
+            // A leading row with a verified single-cell layout cannot produce
+            // a normal seed because the shared token path remains
+            // ASCII-only. The fallback is still the same resolver entry
+            // point used by click, but only its exact-range branch is eligible
+            // for hover; conservative text-only joins remain click-only.
+            directionsTried = 1
+            let nextRow = clickedIndex + 1 < lines.count ? lines[clickedIndex + 1] : nil
+            guard let candidate = resolver.resolveTextOnlyLeadingRowFallback(
+                clickedRow: clickedLine,
+                column: request.cell.column,
+                nextRow: nextRow,
+                cwd: request.cwd,
+                purpose: .hover
+            ) else {
 #if DEBUG
-            if diagnosticsOn {
-                logResolve(outcome: "rejected", reason: "noCandidate", directionsTried: seed.directions.count)
-            }
+                if diagnosticsOn {
+                    logResolve(outcome: "rejected", reason: "noSeed")
+                }
 #endif
-            return nil
+                return nil
+            }
+            resolved = candidate
         }
 
         // design-next-round-bundle-8810.md §1 rule 5 — a candidate resolved
-        // through the click-only text extraction fallback carries no
-        // column data at all (`TerminalWrappedCellSpans.unavailableNonASCIIRow`,
-        // never a `TerminalWrappedPathCellSpan` array); hover must never
-        // guess a column range, so it fails closed exactly like any other
-        // rejection rather than showing an underline in the wrong place.
+        // through the conservative click-only text extraction fallback
+        // carries no column data at all
+        // (`TerminalWrappedCellSpans.unavailableNonASCIIRow`, never a
+        // `TerminalWrappedPathCellSpan` array); hover must never guess a
+        // column range. The verified leading-row branch is safe here because
+        // it returns `.available` exact spans.
         guard case .available(let spans) = resolved.cellSpans else {
 #if DEBUG
             if diagnosticsOn {
                 logResolve(
                     outcome: "rejected", reason: "cellSpansUnavailableNonASCIIRow",
-                    candidateLength: resolved.path.count, directionsTried: seed.directions.count
+                    candidateLength: resolved.path.count, directionsTried: directionsTried
                 )
             }
 #endif
@@ -636,7 +658,7 @@ public actor ExternalHoverWorkService {
             if diagnosticsOn {
                 logResolve(
                     outcome: "rejected", reason: "rangeConversionFailed", spanCount: spans.count,
-                    candidateLength: resolved.path.count, directionsTried: seed.directions.count
+                    candidateLength: resolved.path.count, directionsTried: directionsTried
                 )
             }
 #endif
@@ -646,7 +668,7 @@ public actor ExternalHoverWorkService {
         if diagnosticsOn {
             logResolve(
                 outcome: "accepted", spanCount: ranges.count, candidateLength: resolved.path.count,
-                directionsTried: seed.directions.count
+                directionsTried: directionsTried
             )
         }
 #endif
