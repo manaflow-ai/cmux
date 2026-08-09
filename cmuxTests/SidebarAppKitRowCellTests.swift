@@ -412,9 +412,9 @@ struct SidebarAppKitRowCellTests {
     func cancelingInlineRenameRestoresWorkspaceTitle() throws {
         let model = Self.makeModel()
         let cell = Self.configuredCell(model: model)
-        // This test owns the row state transition, not AppKit's field-editor
-        // lifecycle. Keeping the cell detached avoids an unrelated focus-loss
-        // commit when the headless CI process cannot make a test window key.
+        let window = Self.layoutCell(cell, model: model)
+        window.orderFront(nil)
+        defer { window.close() }
         let titleView = try #require(
             Self.descendants(of: cell)
                 .compactMap { $0 as? SidebarRowTextView }
@@ -425,10 +425,14 @@ struct SidebarAppKitRowCellTests {
 
         #expect(cell.isEditing)
         #expect(titleView.isHidden)
-        #expect(cell.renameField.stringValue == model.snapshot.title)
+        let editor = try #require(window.firstResponder as? NSTextView)
+        #expect(editor.string == model.snapshot.title)
 
-        let cancel = try #require(cell.renameField.onCancel)
-        cancel()
+        editor.string = "Abandoned draft"
+        // The shared rename coordinator uses the first Escape to move the
+        // caret to the start and the second to cancel the session.
+        editor.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
+        editor.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
 
         #expect(!cell.isEditing)
         #expect(!titleView.isHidden)
