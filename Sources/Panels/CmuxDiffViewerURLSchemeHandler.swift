@@ -11,45 +11,21 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     static let shared = CmuxDiffViewerURLSchemeHandler()
     static let maxRegisteredFiles = 1024
 
-    struct RegisteredFile {
-        let requestPath: String
-        let fileURL: URL
-        let mimeType: String
-    }
-
-    private struct Session {
-        let token: String
-        let filesByPath: [String: RegisteredFile]
-        let createdAt: Date
-        let lease: SessionLease
-    }
-
-    private final class SessionLease {
-        let fileDescriptor: Int32
-
-        init(root: URL, token: String) throws {
-            let path = root.appendingPathComponent(".session-lease-\(token).lock").path
-            fileDescriptor = Darwin.open(path, O_CREAT | O_RDWR, mode_t(0o600))
-            guard fileDescriptor >= 0, flock(fileDescriptor, LOCK_SH | LOCK_NB) == 0 else {
-                if fileDescriptor >= 0 { Darwin.close(fileDescriptor) }
-                throw POSIXError(.EWOULDBLOCK)
-            }
-        }
-
-        deinit {
-            _ = flock(fileDescriptor, LOCK_UN)
-            Darwin.close(fileDescriptor)
-        }
-    }
-
-    private struct ActiveSchemeTask {
-        let generation: UUID
-        let task: WKURLSchemeTask
-        var operation: Task<Void, Never>?
-    }
+    typealias RegisteredFile = CmuxDiffViewerRegisteredFile
+    private typealias Session = (
+        filesByPath: [String: RegisteredFile],
+        createdAt: Date,
+        lease: CmuxDiffViewerSessionLease
+    )
+    private typealias ActiveSchemeTask = (
+        generation: UUID,
+        task: WKURLSchemeTask,
+        operation: Task<Void, Never>?
+    )
 
     private var sessions: [String: Session] = [:]
     private var activeSchemeTasks: [ObjectIdentifier: ActiveSchemeTask] = [:]
+    private let assetReader = DiffViewerAssetReader()
     // Branch picker routes shell out to the bundled CLI (git). Run them on a
     // dedicated concurrent queue so a slow/hung git invocation cannot stall
     // restored diff-viewer file serving. The queue returns values to the main
@@ -76,6 +52,11 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         guard !files.isEmpty else {
             throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 2, userInfo: [
                 NSLocalizedDescriptionKey: "Diff viewer allowlist is empty"
+            ])
+        }
+        guard files.count <= Self.maxRegisteredFiles else {
+            throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 6, userInfo: [
+                NSLocalizedDescriptionKey: "Diff viewer allowlist is too large"
             ])
         }
 
@@ -112,9 +93,9 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             )
         }
 
-        let lease = try SessionLease(root: trustedRootURL, token: token)
+        let lease = try CmuxDiffViewerSessionLease(root: trustedRootURL, token: token)
         pruneExpiredSessions(now: now)
-        sessions[token] = Session(token: token, filesByPath: byPath, createdAt: now, lease: lease)
+        sessions[token] = (filesByPath: byPath, createdAt: now, lease: lease)
     }
 
     /// Whether the token currently has a registered (or manifest-restorable)
@@ -221,9 +202,9 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
     /// Runs the bundled CLI with a hard timeout. The child is terminated (then
     /// killed) if it exceeds `pickerCommandTimeout`, so a hung git invocation
-    /// cannot block the caller indefinitely. stdout is drained on a background
-    /// thread so a full pipe buffer cannot deadlock the wait. Returns nil on
-    /// launch failure or timeout.
+    /// cannot block the caller indefinitely. stdout goes to a private temporary
+    /// file so the child can never block on a full pipe. Returns nil on launch
+    /// failure.
     nonisolated private static func runBundledDiffViewerCommand(
         _ arguments: [String],
         timeout: TimeInterval
@@ -232,50 +213,57 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         let process = Process()
         process.executableURL = cli
         process.arguments = arguments
-        let stdoutPipe = Pipe()
-        process.standardOutput = stdoutPipe
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-diff-viewer-picker-\(UUID().uuidString).out")
+        guard FileManager.default.createFile(
+            atPath: outputURL.path,
+            contents: nil,
+            attributes: [.posixPermissions: 0o600]
+        ), let outputHandle = try? FileHandle(forWritingTo: outputURL) else {
+            return nil
+        }
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        process.standardOutput = outputHandle
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
-
-        // Drain stdout concurrently with the wait so the child can never block on
-        // a full pipe while we wait, and we still capture all output.
-        let drainQueue = DispatchQueue(label: "com.manaflow.cmux.diff-viewer-picker-drain")
-        var collected = Data()
-        let drainDone = DispatchSemaphore(value: 0)
-        let readHandle = stdoutPipe.fileHandleForReading
-        drainQueue.async {
-            collected = readHandle.readDataToEndOfFile()
-            drainDone.signal()
-        }
-
-        // Install the termination handler BEFORE run(): a cached refs request can
-        // exit almost immediately, and if the process terminated before the
-        // handler were attached the semaphore would never signal, leaving the
-        // timeout path waiting forever (hung request + leaked GCD worker).
-        let exited = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in exited.signal() }
 
         do {
             try process.run()
         } catch {
-            readHandle.closeFile()
+            try? outputHandle.close()
             return nil
         }
 
-        if exited.wait(timeout: .now() + timeout) == .timedOut {
-            // Bounded wait elapsed: terminate, then hard-kill if it ignores SIGTERM.
-            process.terminate()
-            if exited.wait(timeout: .now() + 2) == .timedOut {
-                kill(process.processIdentifier, SIGKILL)
-                exited.wait()
+        let deadlineQueue = DispatchQueue(
+            label: "com.manaflow.cmux.diff-viewer-picker-deadline",
+            qos: .userInitiated
+        )
+        // One-shot dispatch timers enforce genuine Process deadlines from this
+        // synchronous legacy seam, which has no async Task to host Clock.sleep.
+        let terminateTimer = DispatchSource.makeTimerSource(queue: deadlineQueue)
+        terminateTimer.schedule(deadline: .now() + timeout)
+        terminateTimer.setEventHandler {
+            if process.isRunning {
+                process.terminate()
             }
-            _ = drainDone.wait(timeout: .now() + 1)
-            return nil
         }
+        let killTimer = DispatchSource.makeTimerSource(queue: deadlineQueue)
+        killTimer.schedule(deadline: .now() + timeout + 2)
+        killTimer.setEventHandler {
+            if process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+            }
+        }
+        terminateTimer.resume()
+        killTimer.resume()
 
-        // Process exited within the bound; ensure stdout is fully drained.
-        drainDone.wait()
-        return (process.terminationStatus, collected)
+        process.waitUntilExit()
+        terminateTimer.cancel()
+        killTimer.cancel()
+        try? outputHandle.close()
+        guard let output = try? Data(contentsOf: outputURL) else { return nil }
+        return (process.terminationStatus, output)
     }
 
     private func handleDiffViewerRefsRoute(
@@ -296,9 +284,10 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         if let base = query["base"], !base.isEmpty {
             arguments += ["--base", base]
         }
+        let commandArguments = arguments
         let timeout = pickerCommandTimeout
         pickerQueue.async { [weak self] in
-            let result = Self.runBundledDiffViewerCommand(arguments, timeout: timeout)
+            let result = Self.runBundledDiffViewerCommand(commandArguments, timeout: timeout)
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 guard let result, result.status == 0 else {
@@ -640,26 +629,30 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             expectedContentLength: Self.fileSize(for: file.fileURL),
             textEncodingName: "utf-8"
         )
-        let reader = DiffViewerAssetReader(fileURL: file.fileURL)
+        let assetReader = assetReader
 
         let operation = Task { @MainActor [weak self] in
             guard let self else {
-                await reader.close()
+                await assetReader.close(streamID: generation)
                 return
             }
             do {
                 guard self.performSchemeTaskCallback(taskID, generation: generation, {
                     $0.didReceive(response)
                 }) else {
-                    await reader.close()
+                    await assetReader.close(streamID: generation)
                     return
                 }
 
                 while self.isSchemeTaskActive(taskID, generation: generation) {
                     try Task.checkCancellation()
-                    let data = try await reader.read(upToCount: 64 * 1024)
+                    let data = try await assetReader.read(
+                        streamID: generation,
+                        fileURL: file.fileURL,
+                        upToCount: 64 * 1024
+                    )
                     guard self.isSchemeTaskActive(taskID, generation: generation) else {
-                        await reader.close()
+                        await assetReader.close(streamID: generation)
                         return
                     }
                     if data.isEmpty {
@@ -668,20 +661,20 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                     guard self.performSchemeTaskCallback(taskID, generation: generation, {
                         $0.didReceive(data)
                     }) else {
-                        await reader.close()
+                        await assetReader.close(streamID: generation)
                         return
                     }
                 }
 
-                await reader.close()
+                await assetReader.close(streamID: generation)
                 guard self.performSchemeTaskCallback(taskID, generation: generation, {
                     $0.didFinish()
                 }) else { return }
                 self.finishSchemeTask(taskID, generation: generation)
             } catch is CancellationError {
-                await reader.close()
+                await assetReader.close(streamID: generation)
             } catch {
-                await reader.close()
+                await assetReader.close(streamID: generation)
                 self.failSchemeTask(taskID, generation: generation, error: error)
             }
         }
@@ -692,7 +685,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
         let generation = UUID()
         let replaced = activeSchemeTasks.updateValue(
-            ActiveSchemeTask(generation: generation, task: urlSchemeTask, operation: nil),
+            (generation: generation, task: urlSchemeTask, operation: nil),
             forKey: taskID
         )
         replaced?.operation?.cancel()
