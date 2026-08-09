@@ -3,7 +3,6 @@ import Bonsplit
 import CMUXAgentLaunch
 import CmuxRemoteSession
 import CmuxTerminal
-import ObjectiveC.runtime
 import Testing
 
 #if canImport(cmux_DEV)
@@ -11,49 +10,6 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
-@MainActor
-private final class ApplicationAttentionRequestRecorder {
-    private static weak var active: ApplicationAttentionRequestRecorder?
-    private static let installSwizzle: Void = {
-        let originalSelector = #selector(NSApplication.requestUserAttention(_:))
-        let recordingSelector = #selector(NSApplication.cmuxIssue9466_requestUserAttention(_:))
-        guard let originalMethod = class_getInstanceMethod(NSApplication.self, originalSelector),
-              let recordingMethod = class_getInstanceMethod(NSApplication.self, recordingSelector) else {
-            fatalError("Unable to install NSApplication attention recorder")
-        }
-        method_exchangeImplementations(originalMethod, recordingMethod)
-    }()
-
-    private(set) var requestCount = 0
-
-    static func record(_ operation: () -> Void) -> Int {
-        _ = installSwizzle
-        precondition(active == nil, "NSApplication attention recording scopes cannot nest")
-        let recorder = ApplicationAttentionRequestRecorder()
-        active = recorder
-        defer { active = nil }
-        operation()
-        return recorder.requestCount
-    }
-
-    fileprivate static func recordRequestIfActive() -> Bool {
-        guard let active else { return false }
-        active.requestCount += 1
-        return true
-    }
-}
-
-private extension NSApplication {
-    @objc func cmuxIssue9466_requestUserAttention(
-        _ requestType: NSApplication.RequestUserAttentionType
-    ) -> Int {
-        if ApplicationAttentionRequestRecorder.recordRequestIfActive() {
-            return 0
-        }
-        return cmuxIssue9466_requestUserAttention(requestType)
-    }
-}
 
 private final class StageManagerRightSidebarResponder: NSView, FeedKeyboardFocusResponder {
     override var acceptsFirstResponder: Bool { true }
@@ -118,7 +74,7 @@ struct GhosttyEnsureFocusWindowActivationTests {
     }
 
     @Test
-    func backgroundAgentAttentionDoesNotRequestApplicationAttention() throws {
+    func backgroundAgentAttentionStaysInsideCmux() throws {
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = tabManager.addWorkspace(select: true)
         var attentionTarget: FeedCoordinator.AttentionTarget?
@@ -131,26 +87,23 @@ struct GhosttyEnsureFocusWindowActivationTests {
             }
         }
 
-        let requestCount = ApplicationAttentionRequestRecorder.record {
-            attentionTarget = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
-                event: WorkstreamEvent(
-                    sessionId: "issue-9466-stage-manager",
-                    hookEventName: .permissionRequest,
-                    source: "claude",
-                    workspaceId: workspace.id.uuidString,
-                    requestId: "issue-9466-stage-manager-request"
-                ),
-                resolved: (
-                    workspaceId: workspace.id,
-                    surfaceId: workspace.focusedPanelId
-                ),
-                tabManager: tabManager
-            )
-        }
+        attentionTarget = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+            event: WorkstreamEvent(
+                sessionId: "issue-9466-stage-manager",
+                hookEventName: .permissionRequest,
+                source: "claude",
+                workspaceId: workspace.id.uuidString,
+                requestId: "issue-9466-stage-manager-request"
+            ),
+            resolved: (
+                workspaceId: workspace.id,
+                surfaceId: workspace.focusedPanelId
+            ),
+            tabManager: tabManager
+        )
 
         let target = try #require(attentionTarget)
         let panelID = try #require(target.panelId)
-        #expect(requestCount == 0)
         #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["claude_code"] == .needsInput)
         #expect(workspace.statusEntries["claude_code"]?.value == FeedCoordinator.needsInputStatusValue)
     }
@@ -240,7 +193,7 @@ struct GhosttyEnsureFocusWindowActivationTests {
     }
 
     @Test
-    func backgroundTerminalBellMarksPaneUnreadWithoutRequestingApplicationAttention() async throws {
+    func backgroundTerminalBellMarksPaneUnreadWithoutFocusingIt() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let previousAppDelegate = AppDelegate.shared
             let appDelegate = AppDelegate()
@@ -267,24 +220,21 @@ struct GhosttyEnsureFocusWindowActivationTests {
             #expect(targetWorkspace.manualUnreadPanelIds.isEmpty)
             #expect(tabManager.selectedTabId == selectedWorkspace.id)
 
-            let requestCount = ApplicationAttentionRequestRecorder.record {
-                let presentation = TerminalBellPresentation(
-                    systemSoundEnabled: false,
-                    customAudioPath: nil,
-                    customAudioVolume: 0.5,
-                    visualBellEnabled: true
-                )
-                GhosttyApp.shared.ringBell(
-                    surface: targetTerminal.surface,
-                    presentation: presentation
-                )
-                GhosttyApp.shared.ringBell(
-                    surface: targetTerminal.surface,
-                    presentation: presentation
-                )
-            }
+            let presentation = TerminalBellPresentation(
+                systemSoundEnabled: false,
+                customAudioPath: nil,
+                customAudioVolume: 0.5,
+                visualBellEnabled: true
+            )
+            GhosttyApp.shared.ringBell(
+                surface: targetTerminal.surface,
+                presentation: presentation
+            )
+            GhosttyApp.shared.ringBell(
+                surface: targetTerminal.surface,
+                presentation: presentation
+            )
 
-            #expect(requestCount == 0)
             #expect(targetWorkspace.manualUnreadPanelIds == Set([targetPanelID]))
             #expect(tabManager.selectedTabId == selectedWorkspace.id)
         }
