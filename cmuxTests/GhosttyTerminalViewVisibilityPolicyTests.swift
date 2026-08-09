@@ -202,22 +202,31 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         )
     }
 
-    @Test func hostGeometryCallbackUsesImmediateSyncWithoutLayoutFlush() {
-        switch GhosttyTerminalView.hostCallbackPortalGeometrySynchronizationAction(window: 3873) {
-        case .synchronizeWithoutLayoutFlush(let window):
-            #expect(window == 3873)
-        case .skip:
-            Issue.record("Window-attached host callbacks should immediately reconcile portal geometry without layout flushes")
-        }
-    }
+    @Test func portalReconciliationSchedulerDefersCoalescesAndPreservesRequiredWork() async {
+        let scheduler = TerminalPortalReconciliationScheduler()
+        var observedReasons: TerminalPortalReconciliationReasons?
+        var usedLatestReconciliation = false
 
-    @Test func hostGeometryCallbackSkipsWithoutWindow() {
-        switch GhosttyTerminalView.hostCallbackPortalGeometrySynchronizationAction(window: Optional<Int>.none) {
-        case .synchronizeWithoutLayoutFlush:
-            Issue.record("Detached host callbacks must not synchronize terminal portal geometry")
-        case .skip:
-            break
+        scheduler.stage(reasons: [.bindingRequired]) { _ in
+            Issue.record("The superseded reconciliation must not run")
         }
+        scheduler.stage(reasons: [.flushPendingManualSizeReport]) { reasons in
+            observedReasons = reasons
+            usedLatestReconciliation = true
+        }
+
+        #expect(observedReasons == nil)
+        #expect(!usedLatestReconciliation)
+
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            RunLoop.main.perform(inModes: [.common]) {
+                continuation.resume()
+            }
+        }
+
+        #expect(observedReasons?.contains(.bindingRequired) == true)
+        #expect(observedReasons?.contains(.flushPendingManualSizeReport) == true)
+        #expect(usedLatestReconciliation)
     }
 
     private func attentionStrokeHexes(in view: NSView) -> [String] {

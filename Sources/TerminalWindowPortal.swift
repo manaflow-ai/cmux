@@ -1503,10 +1503,9 @@ final class WindowTerminalPortal: NSObject {
         hostedView: GhosttySurfaceScrollView,
         to anchorView: NSView,
         visibleInUI: Bool,
-        zPriority: Int = 0,
-        deferLayoutSynchronization: Bool = false
+        zPriority: Int = 0
     ) {
-        guard ensureInstalled(syncLayout: !deferLayoutSynchronization) else { return }
+        guard ensureInstalled() else { return }
 
         let hostedId = ObjectIdentifier(hostedView)
         let anchorId = ObjectIdentifier(anchorView)
@@ -1627,17 +1626,8 @@ final class WindowTerminalPortal: NSObject {
 
         ensureDividerOverlayOnTop()
 
-        if deferLayoutSynchronization {
-            // Bind calls from SwiftUI NSViewRepresentable update/layout callbacks
-            // must not force ancestor layout synchronously. Still reconcile the
-            // portal entry from already-current host geometry so resize/visibility
-            // does not lag until a later external observer turn.
-            synchronizeHostedView(withId: hostedId, syncLayout: false)
-            scheduleDeferredFullSynchronizeAll()
-        } else {
-            synchronizeHostedView(withId: hostedId)
-            scheduleDeferredFullSynchronizeAll()
-        }
+        synchronizeHostedView(withId: hostedId)
+        scheduleDeferredFullSynchronizeAll()
         pruneDeadEntries()
     }
 
@@ -2504,8 +2494,7 @@ enum TerminalWindowPortalRegistry {
         visibleInUI: Bool,
         zPriority: Int = 0,
         expectedSurfaceId: UUID? = nil,
-        expectedGeneration: UInt64? = nil,
-        deferLayoutSynchronization: Bool = false
+        expectedGeneration: UInt64? = nil
     ) {
         guard let window = anchorView.window else { return }
 
@@ -2539,7 +2528,7 @@ enum TerminalWindowPortalRegistry {
             return
         }
 
-        let nextPortal = portal(for: window, syncLayout: !deferLayoutSynchronization)
+        let nextPortal = portal(for: window)
 
         if let oldWindowId = hostedToWindowId[hostedId],
            oldWindowId != windowId {
@@ -2550,8 +2539,7 @@ enum TerminalWindowPortalRegistry {
             hostedView: hostedView,
             to: anchorView,
             visibleInUI: visibleInUI,
-            zPriority: zPriority,
-            deferLayoutSynchronization: deferLayoutSynchronization
+            zPriority: zPriority
         )
         hostedToWindowId[hostedId] = windowId
         pruneHostedMappings(for: windowId, validHostedIds: nextPortal.hostedIds())
