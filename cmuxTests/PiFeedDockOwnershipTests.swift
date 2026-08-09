@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import Combine
+import CmuxSidebar
 import Foundation
 import Testing
 
@@ -186,6 +187,112 @@ struct PiFeedDockOwnershipTests {
                 workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == .idle
             )
             #expect(workspace.statusEntries["pi"] == nil)
+        }
+    }
+
+    @MainActor
+    @Test("Overlapping Feed attention preserves a newer agent lifecycle update")
+    func overlappingFeedAttentionPreservesNewerAgentLifecycleUpdate() async throws {
+        try await withAppContext { _, manager, workspace, _ in
+            let panel = try workspace.seedPiFeedPanel()
+            let idleStatus = SidebarStatusEntry(
+                key: "pi",
+                value: "Idle",
+                timestamp: Date(timeIntervalSince1970: 1)
+            )
+            workspace.setAgentLifecycle(key: "pi", panelId: panel.id, lifecycle: .idle)
+            workspace.statusEntries["pi"] = idleStatus
+            let firstTarget = try #require(
+                FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                    event: WorkstreamEvent(
+                        sessionId: "pi-overlap-agent-update-first-feed",
+                        hookEventName: .permissionRequest,
+                        source: "pi",
+                        workspaceId: workspace.id.uuidString,
+                        surfaceId: panel.id.uuidString,
+                        requestId: "pi-overlap-agent-update-first-request"
+                    ),
+                    resolved: (workspace.id, panel.id),
+                    tabManager: manager
+                )
+            )
+
+            let runningStatus = SidebarStatusEntry(
+                key: "pi",
+                value: "Running",
+                timestamp: Date(timeIntervalSince1970: 2)
+            )
+            workspace.setAgentLifecycle(key: "pi", panelId: panel.id, lifecycle: .running)
+            workspace.statusEntries["pi"] = runningStatus
+            let secondTarget = try #require(
+                FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                    event: WorkstreamEvent(
+                        sessionId: "pi-overlap-agent-update-second-feed",
+                        hookEventName: .permissionRequest,
+                        source: "pi",
+                        workspaceId: workspace.id.uuidString,
+                        surfaceId: panel.id.uuidString,
+                        requestId: "pi-overlap-agent-update-second-request"
+                    ),
+                    resolved: (workspace.id, panel.id),
+                    tabManager: manager
+                )
+            )
+
+            FeedCoordinator.shared.concludeBlockingDecisionAttention(firstTarget)
+
+            #expect(
+                workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == .running
+            )
+            #expect(workspace.statusEntries["pi"] == runningStatus)
+
+            FeedCoordinator.shared.concludeBlockingDecisionAttention(secondTarget)
+
+            #expect(
+                workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == .running
+            )
+            #expect(workspace.statusEntries["pi"] == runningStatus)
+        }
+    }
+
+    @MainActor
+    @Test("Feed attention preserves a preexisting Needs input lifecycle and status")
+    func feedAttentionPreservesPreexistingNeedsInputLifecycleAndStatus() async throws {
+        try await withAppContext { _, manager, workspace, _ in
+            let panel = try workspace.seedPiFeedPanel()
+            let agentStatus = SidebarStatusEntry(
+                key: "pi",
+                value: "Agent needs input",
+                timestamp: Date(timeIntervalSince1970: 1)
+            )
+            workspace.setAgentLifecycle(key: "pi", panelId: panel.id, lifecycle: .needsInput)
+            workspace.statusEntries["pi"] = agentStatus
+            let target = try #require(
+                FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                    event: WorkstreamEvent(
+                        sessionId: "pi-preexisting-needs-input-feed",
+                        hookEventName: .permissionRequest,
+                        source: "pi",
+                        workspaceId: workspace.id.uuidString,
+                        surfaceId: panel.id.uuidString,
+                        requestId: "pi-preexisting-needs-input-request"
+                    ),
+                    resolved: (workspace.id, panel.id),
+                    tabManager: manager
+                )
+            )
+
+            #expect(
+                workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == .needsInput
+            )
+            #expect(workspace.statusEntries["pi"] == agentStatus)
+
+            FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
+
+            #expect(
+                workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == .needsInput
+            )
+            #expect(workspace.statusEntries["pi"] == agentStatus)
         }
     }
 
