@@ -12307,6 +12307,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         }
     }
 
+    @MainActor
     final class Coordinator {
         var attachGeneration: Int = 0
         let portalReconciliationScheduler = TerminalPortalReconciliationScheduler()
