@@ -361,9 +361,20 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
         // Scrollable action buttons
         let scrollView = UIScrollView()
+        scrollView.backgroundColor = .clear
+        scrollView.isOpaque = false
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
         scrollView.alwaysBounceHorizontal = true
+        if #available(iOS 26.0, *) {
+            // The system's horizontal edge treatment is designed to separate
+            // scrollable content from fixed chrome. This compact strip already
+            // shares one background with its pinned controls, and the effect's
+            // fill covers the full 28pt height, making the scroller look like a
+            // separate gray rectangle in light mode.
+            scrollView.leftEdgeEffect.isHidden = true
+            scrollView.rightEdgeEffect.isHidden = true
+        }
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
         let stack = UIStackView()
