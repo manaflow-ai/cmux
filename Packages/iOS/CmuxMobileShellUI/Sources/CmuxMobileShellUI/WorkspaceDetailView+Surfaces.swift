@@ -1,5 +1,6 @@
 import CmuxMobileBrowser
 import CmuxMobileBrowserStream
+import CmuxMobileShell
 import CmuxMobileTerminal
 import SwiftUI
 
@@ -31,6 +32,9 @@ extension WorkspaceDetailView {
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
             } else if surface == .browserStream, let browser = activeBrowserStream {
                 browserStreamContent(browser)
+                    .background(store.activeTerminalTheme.terminalBackgroundColor)
+            } else if surface == .simulatorStream, let simulator = activeSimulatorStream {
+                simulatorStreamContent(simulator)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
             }
         }
@@ -101,6 +105,62 @@ extension WorkspaceDetailView {
         .onDisappear {
             browserStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
             Task { await store.stopMobileBrowserStream(panelID: browser.id) }
+        }
+    }
+
+    func simulatorStreamContent(_ simulator: MobileSimulatorStreamSurfaceState) -> some View {
+        SimulatorStreamPane(
+            state: simulator,
+            workspaceID: workspace.rpcWorkspaceID.rawValue,
+            actions: SimulatorStreamSurfaceActions(
+                pointer: { await store.sendMobileSimulatorPointer($0) },
+                text: { await store.sendMobileSimulatorText($0) },
+                button: { await store.sendMobileSimulatorButton($0) },
+                coordinate: { panelID, x, y, mapping in
+                    await store.recordMobileSimulatorCoordinate(
+                        panelID: panelID,
+                        x: x,
+                        y: y,
+                        mapping: mapping
+                    )
+                },
+                frameDiagnostic: { panelID, state, sequence, payloadBytes in
+                    await store.recordMobileSimulatorFrameDiagnostic(
+                        panelID: panelID,
+                        state: state,
+                        sequence: sequence,
+                        payloadBytes: payloadBytes
+                    )
+                },
+                inputDiagnostic: { panelID, state, kind, detail in
+                    await store.recordMobileSimulatorInputDiagnostic(
+                        panelID: panelID,
+                        state: state,
+                        kind: kind,
+                        detail: detail
+                    )
+                }
+            ),
+            reconnect: { Task { await store.reconnectOrRefresh() } }
+        )
+        .id(simulator.id)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onDisappear {
+            // Panel-scoped: when switching simulator A -> B, A's onDisappear
+            // fires AFTER B was activated, so the unconditional deactivate
+            // would clear B's fresh selection. The stop targets only this
+            // pane's panel and is a no-op on the Mac if it was already
+            // stopped by the selection switch.
+            simulatorStreamStore.deactivate(
+                panelID: simulator.id,
+                in: workspace.rpcWorkspaceID.rawValue
+            )
+            Task {
+                await store.stopMobileSimulatorStream(
+                    panelID: simulator.id,
+                    workspaceID: workspace.rpcWorkspaceID.rawValue
+                )
+            }
         }
     }
     #endif

@@ -1,10 +1,10 @@
 "use client";
 
-import { UserButton } from "@stackframe/stack";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { ThemeToggle } from "@/app/[locale]/theme";
 import { Link, usePathname } from "@/i18n/navigation";
+import { DashboardAccountMenu } from "./dashboard-account-menu";
 
 type DashboardNavGroup = {
   label: string;
@@ -15,13 +15,20 @@ type DashboardNavGroup = {
   }>;
 };
 
-export function DashboardShell({ children }: { children: React.ReactNode }) {
+export function DashboardShell({
+  children,
+  vaultEnabled,
+}: {
+  children: React.ReactNode;
+  vaultEnabled: boolean;
+}) {
   const t = useTranslations("dashboard.nav");
   const common = useTranslations("common");
   const pathname = usePathname();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const groups: DashboardNavGroup[] = [
-    {
+  const groups: DashboardNavGroup[] = [];
+  if (vaultEnabled) {
+    groups.push({
       label: t("vaultGroup"),
       items: [
         {
@@ -35,14 +42,16 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           active: pathname.startsWith("/dashboard/vault/sessions"),
         },
       ],
-    },
+    });
+  }
+  groups.push(
     {
-      label: t("subrouterGroup"),
+      label: t("coderouterGroup"),
       items: [
         {
-          href: "/dashboard/subrouter",
-          label: t("subrouterOverview"),
-          active: pathname.startsWith("/dashboard/subrouter"),
+          href: "/dashboard/coderouter",
+          label: t("coderouterOverview"),
+          active: pathname.startsWith("/dashboard/coderouter"),
         },
       ],
     },
@@ -55,13 +64,18 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           active: pathname.startsWith("/dashboard/billing"),
         },
         {
+          href: "/dashboard/team",
+          label: t("team"),
+          active: pathname.startsWith("/dashboard/team"),
+        },
+        {
           href: "/dashboard/testflight",
           label: t("testflight"),
           active: pathname.startsWith("/dashboard/testflight"),
         },
       ],
     },
-  ];
+  );
 
   return (
     <div className="min-h-screen bg-background text-sm text-foreground sm:grid sm:grid-cols-[13rem_minmax(0,1fr)]">
@@ -74,19 +88,19 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             {t("brand")}
           </Link>
         </div>
-        <DashboardNav groups={groups} className="flex-1 overflow-y-auto px-2 py-3 pb-14" />
+        <DashboardNav groups={groups} className="flex-1 overflow-y-auto px-2 py-3 pb-20" />
       </aside>
 
       <div className="min-w-0">
         <header className="sticky top-0 z-30 border-b border-border bg-background sm:fixed sm:inset-x-auto sm:bottom-0 sm:left-0 sm:top-auto sm:w-[13rem] sm:border-b-0 sm:border-r sm:border-t">
-          <div className="flex h-11 items-center justify-between px-3">
+          <div className="flex min-h-11 items-center justify-between px-3 py-1.5 sm:px-2">
             <Link
               href="/dashboard"
               className="font-medium focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground sm:hidden"
             >
               {t("brand")}
             </Link>
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-1 sm:w-full">
               <button
                 type="button"
                 aria-controls="dashboard-mobile-nav"
@@ -97,8 +111,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               >
                 <DashboardMenuIcon open={mobileNavOpen} />
               </button>
+              <DashboardAccountMenu />
               <ThemeToggle />
-              <UserButton />
             </div>
           </div>
           <DashboardNav
