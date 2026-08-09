@@ -4,17 +4,17 @@ nonisolated enum AgentObservedAttentionConclusionKey: Hashable {
         source: String,
         sessionId: String,
         id: String,
-        generation: AgentPIDProcessIdentity
+        generation: AgentProcessGeneration
     )
     case scope(
         source: String,
         sessionId: String,
         id: String,
-        generation: AgentPIDProcessIdentity
+        generation: AgentProcessGeneration
     )
     case processBoundary(
         source: String,
         sessionId: String,
-        generation: AgentPIDProcessIdentity
+        generation: AgentProcessGeneration
     )
 }

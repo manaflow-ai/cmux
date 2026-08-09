@@ -13,7 +13,7 @@ public struct ControlSidebarAgentStrings: Sendable, Equatable {
     let processGenerationPIDMismatch: String
     let invalidLifecycleFormat: String
     let unsupportedLifecycleKeyFormat: String
-    let processGenerationRequiredFormat: String
+    let processGenerationRequired: String
     let invalidProcessGenerationFormat: String
 
     /// Creates the localized agent-sidebar command strings.
@@ -25,7 +25,7 @@ public struct ControlSidebarAgentStrings: Sendable, Equatable {
     ///   - processGenerationPIDMismatch: The mismatched-generation PID error.
     ///   - invalidLifecycleFormat: The lifecycle-token and usage error format.
     ///   - unsupportedLifecycleKeyFormat: The unsupported-key error format.
-    ///   - processGenerationRequiredFormat: The missing-generation error format.
+    ///   - processGenerationRequired: The missing-generation error.
     ///   - invalidProcessGenerationFormat: The invalid-generation and usage
     ///     error format.
     public init(
@@ -35,7 +35,7 @@ public struct ControlSidebarAgentStrings: Sendable, Equatable {
         processGenerationPIDMismatch: String,
         invalidLifecycleFormat: String,
         unsupportedLifecycleKeyFormat: String,
-        processGenerationRequiredFormat: String,
+        processGenerationRequired: String,
         invalidProcessGenerationFormat: String
     ) {
         self.usageErrorFormat = usageErrorFormat
@@ -44,7 +44,7 @@ public struct ControlSidebarAgentStrings: Sendable, Equatable {
         self.processGenerationPIDMismatch = processGenerationPIDMismatch
         self.invalidLifecycleFormat = invalidLifecycleFormat
         self.unsupportedLifecycleKeyFormat = unsupportedLifecycleKeyFormat
-        self.processGenerationRequiredFormat = processGenerationRequiredFormat
+        self.processGenerationRequired = processGenerationRequired
         self.invalidProcessGenerationFormat = invalidProcessGenerationFormat
     }
 
@@ -66,8 +66,8 @@ public struct ControlSidebarAgentStrings: Sendable, Equatable {
             "ERROR: Invalid agent lifecycle '%1$@' — usage: %2$@",
         unsupportedLifecycleKeyFormat:
             "ERROR: Unsupported agent lifecycle key '%@'",
-        processGenerationRequiredFormat:
-            "ERROR: Agent process generation is required for '%@'",
+        processGenerationRequired:
+            "ERROR: Agent process generation is required for this agent.",
         invalidProcessGenerationFormat:
             "ERROR: Invalid agent process generation — usage: %@"
     )
@@ -82,10 +82,6 @@ public struct ControlSidebarAgentStrings: Sendable, Equatable {
 
     func unsupportedLifecycleKey(_ key: String) -> String {
         String(format: unsupportedLifecycleKeyFormat, key)
-    }
-
-    func processGenerationRequired(key: String) -> String {
-        String(format: processGenerationRequiredFormat, key)
     }
 
     func invalidProcessGeneration(usage: String) -> String {

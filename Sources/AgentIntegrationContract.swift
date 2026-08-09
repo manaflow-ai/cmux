@@ -14,3 +14,5 @@ typealias AgentObservedAttentionRecord<Target: Sendable> =
     CmuxAgentLifecycle.AgentObservedAttentionRecord<Target>
 typealias AgentObservedAttentionRegistry<Target: Sendable> =
     CmuxAgentLifecycle.AgentObservedAttentionRegistry<Target>
+typealias AgentObservedAttentionConclusionLedger =
+    CmuxAgentLifecycle.AgentObservedAttentionConclusionLedger

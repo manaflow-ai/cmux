@@ -810,7 +810,8 @@ extension AgentNotificationRegressionTests {
             priority: 0,
             format: .plain,
             panelID: fixture.panelId,
-            pid: getpid()
+            pid: getpid(),
+            processGeneration: processGeneration
         )
         TerminalController.shared.controlSidebarScheduleAgentLifecycle(
             target: .workspace(fixture.source.id),

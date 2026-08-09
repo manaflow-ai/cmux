@@ -567,24 +567,30 @@ export default function (amp: PluginAPI) {
     color: string;
   };
   type AmpActiveToolStatus = AmpStatusPresentation & {
+    toolUseID: string;
     sequence: number;
   };
   type AmpTurnState = {
     sessionId: string;
     turnId: string;
     activeTools: Map<string, AmpActiveToolStatus>;
+    activeToolOverflowed: boolean;
+    latestActiveTool: AmpActiveToolStatus | null;
     pendingEnd: PendingTurnEnd | null;
+    retired: boolean;
     nativeStateObservable: AmpThreadStateObservable | null;
     nativeStateSubscription: AmpThreadStateSubscription | null;
-    nativeStateObservationLease: ReturnType<typeof setTimeout> | null;
+    nativeStateSnapshotDeadline: ReturnType<typeof setTimeout> | null;
+    nativeStateSnapshotCancel: (() => void) | null;
     nativeStateObservationEpoch: number;
     nativeThreadState: AmpNativeThreadState | null;
     nativeAttentionDesiredEpisode: NativeAttentionEpisodeIdentity | null;
     nativeAttentionConfirmedEpisode: NativeAttentionEpisodeIdentity | null;
     nativeAttentionUnconfirmedBeginEpisode: NativeAttentionEpisodeIdentity | null;
     nativeAttentionInFlight: boolean;
+    nativeAttentionInFlightAction: "begin" | "end" | null;
+    nativeAttentionInFlightEpisode: NativeAttentionEpisodeIdentity | null;
     nativeAttentionRetryCount: number;
-    nativeAttentionIdentityRetryTimer: ReturnType<typeof setTimeout> | null;
     nativeAttentionIdentityRetryCount: number;
     nativeAttentionOwnsSharedStatus: boolean;
   };
@@ -620,18 +626,23 @@ export default function (amp: PluginAPI) {
         || firstString(event.id)
         || `${process.pid}:${threadId}:${Date.now()}:${sequence}`,
       activeTools: new Map(),
+      activeToolOverflowed: false,
+      latestActiveTool: null,
       pendingEnd: null,
+      retired: false,
       nativeStateObservable: null,
       nativeStateSubscription: null,
-      nativeStateObservationLease: null,
+      nativeStateSnapshotDeadline: null,
+      nativeStateSnapshotCancel: null,
       nativeStateObservationEpoch: 0,
       nativeThreadState: null,
       nativeAttentionDesiredEpisode: null,
       nativeAttentionConfirmedEpisode: null,
       nativeAttentionUnconfirmedBeginEpisode: null,
       nativeAttentionInFlight: false,
+      nativeAttentionInFlightAction: null,
+      nativeAttentionInFlightEpisode: null,
       nativeAttentionRetryCount: 0,
-      nativeAttentionIdentityRetryTimer: null,
       nativeAttentionIdentityRetryCount: 0,
       nativeAttentionOwnsSharedStatus: false,
     };
@@ -639,19 +650,19 @@ export default function (amp: PluginAPI) {
 
   const maximumImmediateNativeAttentionRetries = 1;
   const maximumNativeAttentionIdentityRetries = 2;
-  const nativeAttentionIdentityRetryDelayMilliseconds = 250;
   const nativeStateSnapshotDeadlineMilliseconds = 1_000;
-  const activeNativeStateObservationLeaseMilliseconds = 30 * 60 * 1_000;
+  const maximumRetainedActiveToolsPerTurn = 128;
   const maximumRetainedTurnStateCount = 128;
 
   const refreshNativeAttentionStatusOwnership = (
     state: AmpTurnState,
   ): void => {
-    const shouldOwn = state.nativeThreadState === "awaiting-approval"
+    const shouldOwn = !state.retired
+      && (state.nativeThreadState === "awaiting-approval"
       || state.nativeAttentionDesiredEpisode !== null
       || state.nativeAttentionConfirmedEpisode !== null
       || state.nativeAttentionUnconfirmedBeginEpisode !== null
-      || state.nativeAttentionInFlight;
+      || state.nativeAttentionInFlight);
     if (shouldOwn === state.nativeAttentionOwnsSharedStatus) return;
     state.nativeAttentionOwnsSharedStatus = shouldOwn;
     nativeAttentionStatusOwnerCount += shouldOwn ? 1 : -1;
@@ -665,10 +676,9 @@ export default function (amp: PluginAPI) {
 
     let activeTool: AmpActiveToolStatus | null = null;
     for (const state of turnStates.values()) {
-      for (const candidate of state.activeTools.values()) {
-        if (!activeTool || candidate.sequence > activeTool.sequence) {
-          activeTool = candidate;
-        }
+      const candidate = state.latestActiveTool;
+      if (candidate && (!activeTool || candidate.sequence > activeTool.sequence)) {
+        activeTool = candidate;
       }
     }
     if (activeTool) {
@@ -688,8 +698,70 @@ export default function (amp: PluginAPI) {
     }
   };
 
+  const nativeAttentionArguments = (
+    action: "begin" | "end",
+    sessionId: string,
+    episode: NativeAttentionEpisodeIdentity,
+    processGeneration: NativeAttentionProcessGeneration,
+  ): string[] | null => {
+    const args = [
+      "hooks",
+      "amp",
+      "__native-attention",
+      action,
+      "--pid",
+      String(process.pid),
+      "--pid-start-seconds",
+      processGeneration.startSeconds,
+      "--pid-start-microseconds",
+      processGeneration.startMicroseconds,
+      "--scope-id",
+      episode.scopeId,
+      "--observation-id",
+      episode.observationId,
+      "--session-id",
+      sessionId,
+    ];
+    if (action === "begin") {
+      const workspaceId = firstString(process.env.CMUX_WORKSPACE_ID);
+      const surfaceId = firstString(process.env.CMUX_SURFACE_ID);
+      if (!workspaceId || !surfaceId) return null;
+      args.push(
+        "--workspace-id",
+        workspaceId,
+        "--surface-id",
+        surfaceId,
+      );
+    }
+    return args;
+  };
+
+  const concludeNativeAttentionEpisode = (
+    sessionId: string,
+    episode: NativeAttentionEpisodeIdentity,
+    knownProcessGeneration: NativeAttentionProcessGeneration | null = null,
+  ): void => {
+    const conclude = (
+      processGeneration: NativeAttentionProcessGeneration | null,
+    ): void => {
+      if (!processGeneration) return;
+      const args = nativeAttentionArguments(
+        "end",
+        sessionId,
+        episode,
+        processGeneration,
+      );
+      if (args) runCmuxAcknowledged(args, () => {});
+    };
+    if (knownProcessGeneration) {
+      conclude(knownProcessGeneration);
+    } else {
+      void loadNativeAttentionProcessGeneration().then(conclude);
+    }
+  };
+
   const synchronizeNativeAttention = (state: AmpTurnState): void => {
-    if (state.nativeAttentionInFlight) return;
+    if (state.retired || state.nativeAttentionInFlight) return;
     const desiredEpisode = state.nativeAttentionDesiredEpisode;
     const confirmedEpisode = state.nativeAttentionConfirmedEpisode;
     const unconfirmedBeginEpisode =
@@ -725,10 +797,8 @@ export default function (amp: PluginAPI) {
     const attemptedVisibility = transition.action === "begin";
     const attemptedUnconfirmedCleanup = transition.unconfirmedCleanup;
     const attemptedEpisode = transition.episode;
-    const workspaceId = firstString(process.env.CMUX_WORKSPACE_ID);
-    const surfaceId = firstString(process.env.CMUX_SURFACE_ID);
-    if (!workspaceId || !surfaceId) return;
     const transitionIsStillNeeded = (): boolean => {
+      if (state.retired) return false;
       if (attemptedVisibility) {
         return state.nativeAttentionConfirmedEpisode === null
           && state.nativeAttentionDesiredEpisode === attemptedEpisode;
@@ -741,25 +811,27 @@ export default function (amp: PluginAPI) {
       return state.nativeAttentionConfirmedEpisode === attemptedEpisode;
     };
     state.nativeAttentionInFlight = true;
+    state.nativeAttentionInFlightAction = transition.action;
+    state.nativeAttentionInFlightEpisode = attemptedEpisode;
     refreshNativeAttentionStatusOwnership(state);
     void loadNativeAttentionProcessGeneration().then((processGeneration) => {
       if (!processGeneration) {
         state.nativeAttentionInFlight = false;
+        state.nativeAttentionInFlightAction = null;
+        state.nativeAttentionInFlightEpisode = null;
+        if (state.retired) return;
         if (
           transitionIsStillNeeded()
-          && !state.nativeAttentionIdentityRetryTimer
           && state.nativeAttentionIdentityRetryCount
             < maximumNativeAttentionIdentityRetries
         ) {
           state.nativeAttentionIdentityRetryCount += 1;
-          state.nativeAttentionIdentityRetryTimer = setTimeout(() => {
-            state.nativeAttentionIdentityRetryTimer = null;
-            if (turnStates.get(state.sessionId) !== state) return;
+          queueMicrotask(() => {
+            if (state.retired || turnStates.get(state.sessionId) !== state) return;
             if (transitionIsStillNeeded()) {
               synchronizeNativeAttention(state);
             }
-          }, nativeAttentionIdentityRetryDelayMilliseconds);
-          state.nativeAttentionIdentityRetryTimer.unref?.();
+          });
         }
         if (!transitionIsStillNeeded()) {
           state.nativeAttentionIdentityRetryCount = 0;
@@ -769,47 +841,53 @@ export default function (amp: PluginAPI) {
         publishAggregateStatus();
         return;
       }
-      if (state.nativeAttentionIdentityRetryTimer) {
-        clearTimeout(state.nativeAttentionIdentityRetryTimer);
-        state.nativeAttentionIdentityRetryTimer = null;
-      }
       state.nativeAttentionIdentityRetryCount = 0;
+      if (state.retired) {
+        state.nativeAttentionInFlight = false;
+        state.nativeAttentionInFlightAction = null;
+        state.nativeAttentionInFlightEpisode = null;
+        return;
+      }
       if (!transitionIsStillNeeded()) {
         state.nativeAttentionInFlight = false;
+        state.nativeAttentionInFlightAction = null;
+        state.nativeAttentionInFlightEpisode = null;
         synchronizeNativeAttention(state);
         refreshNativeAttentionStatusOwnership(state);
         publishAggregateStatus();
         return;
       }
       const action = attemptedVisibility ? "begin" : "end";
-      const args = [
-        "hooks",
-        "amp",
-        "__native-attention",
+      const args = nativeAttentionArguments(
         action,
-        "--pid",
-        String(process.pid),
-        "--pid-start-seconds",
-        processGeneration.startSeconds,
-        "--pid-start-microseconds",
-        processGeneration.startMicroseconds,
-        "--scope-id",
-        attemptedEpisode.scopeId,
-        "--observation-id",
-        attemptedEpisode.observationId,
-        "--session-id",
         state.sessionId,
-      ];
-      if (attemptedVisibility) {
-        args.push(
-          "--workspace-id",
-          workspaceId,
-          "--surface-id",
-          surfaceId,
-        );
+        attemptedEpisode,
+        processGeneration,
+      );
+      if (!args) {
+        state.nativeAttentionInFlight = false;
+        state.nativeAttentionInFlightAction = null;
+        state.nativeAttentionInFlightEpisode = null;
+        refreshNativeAttentionStatusOwnership(state);
+        publishAggregateStatus();
+        return;
       }
       runCmuxAcknowledged(args, (succeeded) => {
         state.nativeAttentionInFlight = false;
+        state.nativeAttentionInFlightAction = null;
+        state.nativeAttentionInFlightEpisode = null;
+        if (state.retired) {
+          if (attemptedVisibility) {
+            // The begin may have committed before a lost acknowledgement. A
+            // post-retirement completion may only issue idempotent cleanup.
+            concludeNativeAttentionEpisode(
+              state.sessionId,
+              attemptedEpisode,
+              processGeneration,
+            );
+          }
+          return;
+        }
         if (succeeded) {
           if (attemptedVisibility) {
             state.nativeAttentionConfirmedEpisode = attemptedEpisode;
@@ -846,6 +924,19 @@ export default function (amp: PluginAPI) {
               state.nativeAttentionRetryCount += 1;
             } else {
               state.nativeAttentionRetryCount = 0;
+              if (!attemptedVisibility) {
+                if (
+                  state.nativeAttentionConfirmedEpisode === attemptedEpisode
+                ) {
+                  state.nativeAttentionConfirmedEpisode = null;
+                }
+                if (
+                  state.nativeAttentionUnconfirmedBeginEpisode
+                    === attemptedEpisode
+                ) {
+                  state.nativeAttentionUnconfirmedBeginEpisode = null;
+                }
+              }
               refreshNativeAttentionStatusOwnership(state);
               publishAggregateStatus();
               return;
@@ -862,11 +953,8 @@ export default function (amp: PluginAPI) {
   };
 
   const beginNativeAttention = (state: AmpTurnState): void => {
+    if (state.retired) return;
     if (!state.nativeAttentionDesiredEpisode) {
-      if (state.nativeAttentionIdentityRetryTimer) {
-        clearTimeout(state.nativeAttentionIdentityRetryTimer);
-        state.nativeAttentionIdentityRetryTimer = null;
-      }
       state.nativeAttentionIdentityRetryCount = 0;
       state.nativeAttentionDesiredEpisode = makeNativeAttentionEpisode();
     }
@@ -876,10 +964,7 @@ export default function (amp: PluginAPI) {
   };
 
   const endNativeAttention = (state: AmpTurnState): void => {
-    if (state.nativeAttentionIdentityRetryTimer) {
-      clearTimeout(state.nativeAttentionIdentityRetryTimer);
-      state.nativeAttentionIdentityRetryTimer = null;
-    }
+    if (state.retired) return;
     state.nativeAttentionIdentityRetryCount = 0;
     state.nativeAttentionDesiredEpisode = null;
     refreshNativeAttentionStatusOwnership(state);
@@ -889,15 +974,12 @@ export default function (amp: PluginAPI) {
 
   const clearNativeStateObservation = (state: AmpTurnState): void => {
     state.nativeStateObservationEpoch += 1;
-    if (state.nativeStateObservationLease) {
-      clearTimeout(state.nativeStateObservationLease);
-      state.nativeStateObservationLease = null;
+    if (state.nativeStateSnapshotDeadline) {
+      clearTimeout(state.nativeStateSnapshotDeadline);
+      state.nativeStateSnapshotDeadline = null;
     }
-    if (state.nativeAttentionIdentityRetryTimer) {
-      clearTimeout(state.nativeAttentionIdentityRetryTimer);
-      state.nativeAttentionIdentityRetryTimer = null;
-    }
-    state.nativeAttentionIdentityRetryCount = 0;
+    state.nativeStateSnapshotCancel?.();
+    state.nativeStateSnapshotCancel = null;
     state.nativeStateSubscription?.unsubscribe();
     state.nativeStateSubscription = null;
     state.nativeStateObservable = null;
@@ -908,11 +990,35 @@ export default function (amp: PluginAPI) {
     threadId: string,
     state: AmpTurnState | undefined,
   ): void => {
-    if (!state) return;
-    clearNativeStateObservation(state);
-    endNativeAttention(state);
+    if (!state || state.retired) return;
+    const cleanupEpisodes = new Map<
+      string,
+      NativeAttentionEpisodeIdentity
+    >();
+    for (const episode of [
+      state.nativeAttentionDesiredEpisode,
+      state.nativeAttentionConfirmedEpisode,
+      state.nativeAttentionUnconfirmedBeginEpisode,
+      state.nativeAttentionInFlightAction === "begin"
+        ? state.nativeAttentionInFlightEpisode
+        : null,
+    ]) {
+      if (episode) cleanupEpisodes.set(episode.observationId, episode);
+    }
+    // Retirement is a one-way boundary: remove ownership before any async
+    // cleanup can finish and attempt to observe this state again.
+    state.retired = true;
     if (turnStates.get(threadId) === state) {
       turnStates.delete(threadId);
+    }
+    clearNativeStateObservation(state);
+    refreshNativeAttentionStatusOwnership(state);
+    state.nativeAttentionDesiredEpisode = null;
+    state.nativeAttentionConfirmedEpisode = null;
+    state.nativeAttentionUnconfirmedBeginEpisode = null;
+    state.nativeAttentionIdentityRetryCount = 0;
+    for (const episode of cleanupEpisodes.values()) {
+      concludeNativeAttentionEpisode(state.sessionId, episode);
     }
   };
 
@@ -920,7 +1026,7 @@ export default function (amp: PluginAPI) {
     threadId: string,
     state: AmpTurnState,
   ): void => {
-    if (turnStates.get(threadId) !== state) return;
+    if (state.retired || turnStates.get(threadId) !== state) return;
     turnStates.delete(threadId);
     turnStates.set(threadId, state);
   };
@@ -929,6 +1035,7 @@ export default function (amp: PluginAPI) {
     threadId: string,
     state: AmpTurnState,
   ): void => {
+    if (state.retired) return;
     const existing = turnStates.get(threadId);
     if (existing && existing !== state) {
       discardTurnState(threadId, existing);
@@ -942,47 +1049,19 @@ export default function (amp: PluginAPI) {
     }
   };
 
-  const renewNativeStateObservationLease = (
+  const retainNativeStateObservation = (
     threadId: string,
     state: AmpTurnState,
     observationEpoch: number,
   ): void => {
     if (
-      turnStates.get(threadId) !== state
+      state.retired
+      || turnStates.get(threadId) !== state
       || state.nativeStateObservationEpoch !== observationEpoch
     ) {
       return;
     }
     touchTurnState(threadId, state);
-    if (state.nativeStateObservationLease) {
-      clearTimeout(state.nativeStateObservationLease);
-      state.nativeStateObservationLease = null;
-    }
-    // Once agent.end is pending, only an observed terminal state, a matching
-    // tool result, or process exit can safely retire the turn. A wall-clock
-    // lease would discard durable work evidence from long-running tools.
-    if (
-      state.pendingEnd
-      || state.activeTools.size > 0
-      || state.nativeThreadState === "awaiting-approval"
-    ) {
-      return;
-    }
-    state.nativeStateObservationLease = setTimeout(() => {
-      if (
-        turnStates.get(threadId) !== state
-        || state.nativeStateObservationEpoch !== observationEpoch
-      ) {
-        return;
-      }
-      state.nativeStateObservationLease = null;
-      // A rejected/hung snapshot plus a silent subscription cannot prove a
-      // settled boundary. Retire our observer and turn ownership without
-      // publishing a false completion; a later agent event starts fresh.
-      discardTurnState(threadId, state);
-      publishAggregateStatus();
-    }, activeNativeStateObservationLeaseMilliseconds);
-    state.nativeStateObservationLease.unref?.();
   };
 
   const publishSettledTurn = (
@@ -1044,8 +1123,13 @@ export default function (amp: PluginAPI) {
     threadId: string,
     state: AmpTurnState,
   ): void => {
+    if (state.retired) return;
     const pendingEnd = state.pendingEnd;
-    if (!pendingEnd || state.activeTools.size > 0) return;
+    if (
+      !pendingEnd
+      || state.activeTools.size > 0
+      || state.activeToolOverflowed
+    ) return;
     if (
       state.nativeStateObservable
       && state.nativeThreadState !== "idle"
@@ -1062,6 +1146,7 @@ export default function (amp: PluginAPI) {
     state: AmpTurnState,
     ctx: AmpThreadContext,
   ): Promise<void> => {
+    if (state.retired || turnStates.get(threadId) !== state) return;
     const observable = ctx.thread?.state;
     if (
       !observable
@@ -1078,7 +1163,7 @@ export default function (amp: PluginAPI) {
       state.nativeStateObservable === observable
       && state.nativeStateSubscription
     ) {
-      renewNativeStateObservationLease(
+      retainNativeStateObservation(
         threadId,
         state,
         state.nativeStateObservationEpoch,
@@ -1091,7 +1176,8 @@ export default function (amp: PluginAPI) {
     const observationEpoch = state.nativeStateObservationEpoch;
     const applyNativeState = (nativeState: AmpNativeThreadState): void => {
       if (
-        turnStates.get(threadId) !== state
+        state.retired
+        || turnStates.get(threadId) !== state
         || state.nativeStateObservationEpoch !== observationEpoch
       ) {
         return;
@@ -1102,10 +1188,13 @@ export default function (amp: PluginAPI) {
       } else {
         endNativeAttention(state);
       }
-      if (nativeState === "error") {
+      if (nativeState === "idle" || nativeState === "error") {
         // Amp can terminate an errored/cancelled turn without emitting a final
-        // tool.result. Its terminal native state closes those tool lifetimes.
+        // tool.result. An authoritative terminal native state closes retained
+        // and overflowed tool lifetimes together.
         state.activeTools.clear();
+        state.activeToolOverflowed = false;
+        state.latestActiveTool = null;
       }
       tryPublishSettledTurn(threadId, state);
       if (turnStates.get(threadId) === state) {
@@ -1122,7 +1211,8 @@ export default function (amp: PluginAPI) {
     try {
       const subscription = observable.subscribe((nativeState) => {
         if (
-          turnStates.get(threadId) !== state
+          state.retired
+          || turnStates.get(threadId) !== state
           || state.nativeStateObservationEpoch !== observationEpoch
         ) {
           return;
@@ -1131,14 +1221,15 @@ export default function (amp: PluginAPI) {
         resolveSubscriptionState?.();
         resolveSubscriptionState = null;
         applyNativeState(nativeState);
-        renewNativeStateObservationLease(
+        retainNativeStateObservation(
           threadId,
           state,
           observationEpoch,
         );
       });
       if (
-        turnStates.get(threadId) === state
+        !state.retired
+        && turnStates.get(threadId) === state
         && state.nativeStateObservationEpoch === observationEpoch
       ) {
         state.nativeStateSubscription = subscription;
@@ -1148,7 +1239,8 @@ export default function (amp: PluginAPI) {
     } catch (_) {
       state.nativeStateSubscription = null;
     }
-    renewNativeStateObservationLease(threadId, state, observationEpoch);
+    if (state.retired || turnStates.get(threadId) !== state) return;
+    retainNativeStateObservation(threadId, state, observationEpoch);
 
     let acceptsInitialSnapshot = true;
     const snapshotState = Promise.resolve()
@@ -1165,25 +1257,38 @@ export default function (amp: PluginAPI) {
       .catch(() => {
         // A present-but-failing native state API is not evidence of settlement.
       });
+    let cancelSnapshotWait: (() => void) | null = null;
+    const snapshotCancelled = new Promise<void>((resolve) => {
+      cancelSnapshotWait = () => resolve();
+      state.nativeStateSnapshotCancel = cancelSnapshotWait;
+    });
     let snapshotDeadline: ReturnType<typeof setTimeout> | null = null;
     const snapshotTimedOut = new Promise<void>((resolve) => {
       snapshotDeadline = setTimeout(
         resolve,
         nativeStateSnapshotDeadlineMilliseconds,
       );
+      state.nativeStateSnapshotDeadline = snapshotDeadline;
     });
     try {
       await Promise.race([
         snapshotState,
         subscriptionState,
         snapshotTimedOut,
+        snapshotCancelled,
       ]);
-      if (turnStates.get(threadId) === state) {
+      if (!state.retired && turnStates.get(threadId) === state) {
         tryPublishSettledTurn(threadId, state);
       }
     } finally {
       acceptsInitialSnapshot = false;
       if (snapshotDeadline) clearTimeout(snapshotDeadline);
+      if (state.nativeStateSnapshotDeadline === snapshotDeadline) {
+        state.nativeStateSnapshotDeadline = null;
+      }
+      if (state.nativeStateSnapshotCancel === cancelSnapshotWait) {
+        state.nativeStateSnapshotCancel = null;
+      }
     }
   };
 
@@ -1242,13 +1347,25 @@ export default function (amp: PluginAPI) {
     const state = sessionId ? turnStates.get(sessionId) : undefined;
     const { label, icon } = detailedToolStatus(event, helpers);
     if (state) {
-      state.activeTools.set(event.toolUseID, {
+      const activeTool = {
+        toolUseID: event.toolUseID,
         label,
         icon,
         color: COLOR.active,
         sequence: ++activeToolStatusSequence,
-      });
-      renewNativeStateObservationLease(
+      };
+      if (
+        state.activeTools.has(event.toolUseID)
+        || state.activeTools.size < maximumRetainedActiveToolsPerTurn
+      ) {
+        state.activeTools.set(event.toolUseID, activeTool);
+      } else {
+        // Once an identity is dropped, retained results cannot prove every
+        // tool ended. Only a terminal native state can clear this latch.
+        state.activeToolOverflowed = true;
+      }
+      state.latestActiveTool = activeTool;
+      retainNativeStateObservation(
         state.sessionId,
         state,
         state.nativeStateObservationEpoch,
@@ -1263,7 +1380,18 @@ export default function (amp: PluginAPI) {
     const state = sessionId ? turnStates.get(sessionId) : undefined;
     if (state) {
       state.activeTools.delete(event.toolUseID);
-      renewNativeStateObservationLease(
+      if (state.latestActiveTool?.toolUseID === event.toolUseID) {
+        state.latestActiveTool = null;
+        for (const candidate of state.activeTools.values()) {
+          if (
+            !state.latestActiveTool
+            || candidate.sequence > state.latestActiveTool.sequence
+          ) {
+            state.latestActiveTool = candidate;
+          }
+        }
+      }
+      retainNativeStateObservation(
         state.sessionId,
         state,
         state.nativeStateObservationEpoch,
@@ -1312,7 +1440,8 @@ export default function (amp: PluginAPI) {
     sendHook("stop", sessionId, cwd, {
       turn_id: state.turnId,
       cmux_turn_boundary: "turn_end",
-      cmux_active_background_work_count: state.activeTools.size,
+      cmux_active_background_work_count: state.activeTools.size
+        + (state.activeToolOverflowed ? 1 : 0),
     });
     await observeNativeThreadState(sessionId, state, ctx);
   });

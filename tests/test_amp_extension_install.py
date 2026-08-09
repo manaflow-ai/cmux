@@ -392,6 +392,17 @@ const dispatchControlledTimers = async (delay) => {
   }
   throw new Error(`Amp controlled timer queue did not quiesce for ${delay}ms`);
 };
+const dispatchControlledTimersOrFail = async (delay) => {
+  const dispatched = await dispatchControlledTimers(delay);
+  if (dispatched === 0) {
+    throw new Error(
+      `Amp scheduled no ${delay}ms timer; pending delays=${
+        JSON.stringify(Array.from(controlledTimers, (timer) => timer.delay))
+      }`
+    );
+  }
+  return dispatched;
+};
 const extensionPath = process.env.CMUX_TEST_AMP_INSTRUMENTED_PATH;
 const mod = await import(extensionPath);
 const handlers = new Map();
@@ -498,7 +509,7 @@ await waitFor(
   () => attentionCalls("end").length === 1,
   "Amp did not start the first approval conclusion"
 );
-await dispatchControlledTimers(2_000);
+await dispatchControlledTimersOrFail(2_000);
 await waitFor(
   () => attentionCalls("end").length === 2
     && attentionCalls("end")[1].closedWith === 0,
@@ -576,7 +587,7 @@ await waitFor(
   () => attentionCalls("end").length === 3,
   "Amp did not start the second approval conclusion"
 );
-await dispatchControlledTimers(2_000);
+await dispatchControlledTimersOrFail(2_000);
 await waitFor(
   () => attentionCalls("end").length === 4
     && attentionCalls("end")[3].closedWith === 0,
@@ -605,7 +616,7 @@ await waitFor(
 );
 const unacknowledgedBegin = attentionCalls("begin")[2].args;
 thread.setState("running");
-await dispatchControlledTimers(2_000);
+await dispatchControlledTimersOrFail(2_000);
 await waitFor(
   () => attentionCalls("end").length === 5
     && attentionCalls("end")[4].closedWith === 0,
@@ -675,7 +686,7 @@ await waitFor(
   () => attentionCalls("end").length === aggregateApprovalEndCount + 1,
   "Amp did not start the aggregate-status approval conclusion"
 );
-await dispatchControlledTimers(2_000);
+await dispatchControlledTimersOrFail(2_000);
 await waitFor(
   () => attentionCalls("end").length === aggregateApprovalEndCount + 2
     && attentionCalls("end").at(-1).closedWith === 0,
@@ -728,7 +739,7 @@ await handlers.get("session.start")(
   { thread: discardedAttentionThread },
   discardedAttentionCtx
 );
-await dispatchControlledTimers(2_000);
+await dispatchControlledTimersOrFail(2_000);
 await waitFor(
   () => discardedBeginCall.killedWith === "SIGKILL",
   "Amp did not finish the abandoned approval subprocess deadline"
@@ -931,7 +942,7 @@ try {
     message: "native state never resolves",
     id: "msg-hang"
   }, hangingCtx);
-  await dispatchControlledTimers(1_000);
+  await dispatchControlledTimersOrFail(1_000);
   await hangingStart;
 
   const beforeHangingEnd = stopCalls().length;
@@ -1001,7 +1012,7 @@ try {
     () => attentionCalls("end").length === approvalEndCount + 1,
     "Amp did not start the lease-retention approval conclusion"
   );
-  await dispatchControlledTimers(2_000);
+  await dispatchControlledTimersOrFail(2_000);
   await waitFor(
     () => attentionCalls("end").length === approvalEndCount + 2
       && attentionCalls("end").at(-1).closedWith === 0,
@@ -1035,7 +1046,7 @@ try {
       message: "bounded pending native state",
       id: `msg-bounded-${index}`
     }, boundedCtx);
-    await dispatchControlledTimers(1_000);
+    await dispatchControlledTimersOrFail(1_000);
     await boundedStart;
     await handlers.get("agent.end")({
       thread: boundedThread,
@@ -1073,6 +1084,71 @@ try {
     "the most recent bounded Amp turn lost settlement ownership"
   );
 
+  const overflowThread = makeThread(
+    "T-amp-active-tool-overflow",
+    "running"
+  );
+  const overflowCtx = { thread: overflowThread };
+  await handlers.get("agent.start")({
+    thread: overflowThread,
+    message: "retain bounded active tools",
+    id: "msg-active-tool-overflow"
+  }, overflowCtx);
+  const maximumRetainedActiveToolsPerTurn = 128;
+  for (
+    let index = 0;
+    index <= maximumRetainedActiveToolsPerTurn;
+    index += 1
+  ) {
+    await handlers.get("tool.call")({
+      thread: overflowThread,
+      toolUseID: `tool-overflow-${index}`,
+      tool: "Task",
+      input: { prompt: `bounded tool ${index}` }
+    }, overflowCtx);
+  }
+  const beforeOverflowEnd = stopCalls().length;
+  await handlers.get("agent.end")({
+    thread: overflowThread,
+    message: "retain bounded active tools",
+    id: "msg-active-tool-overflow",
+    status: "done",
+    messages: []
+  }, overflowCtx);
+  const overflowProvisional = JSON.parse(stopCalls().at(-1).stdin);
+  if (
+    stopCalls().length !== beforeOverflowEnd + 1
+    || overflowProvisional.cmux_active_background_work_count
+      !== maximumRetainedActiveToolsPerTurn + 1
+  ) {
+    throw new Error(
+      `Amp did not latch active-tool overflow: ${
+        JSON.stringify(overflowProvisional)
+      }`
+    );
+  }
+  for (
+    let index = 0;
+    index <= maximumRetainedActiveToolsPerTurn;
+    index += 1
+  ) {
+    await handlers.get("tool.result")({
+      thread: overflowThread,
+      toolUseID: `tool-overflow-${index}`,
+      tool: "Task",
+      status: "done",
+      output: "done"
+    }, overflowCtx);
+  }
+  if (stopCalls().length !== beforeOverflowEnd + 1) {
+    throw new Error("retained tool results cleared an unproven overflow latch");
+  }
+  overflowThread.setState("idle");
+  await waitFor(
+    () => stopCalls().length === beforeOverflowEnd + 2,
+    "terminal Amp native state did not clear active-tool overflow"
+  );
+
   const failedConclusionThread = makeThread(
     "T-amp-failed-attention-conclusion",
     "running"
@@ -1097,7 +1173,7 @@ try {
     () => attentionCalls("end").length === failedConclusionEndCount + 1,
     "Amp did not start the first failed approval conclusion"
   );
-  await dispatchControlledTimers(2_000);
+  await dispatchControlledTimersOrFail(2_000);
   await waitFor(
     () => attentionCalls("end").length === failedConclusionEndCount + 2
       && attentionCalls("end").slice(-2).every(

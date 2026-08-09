@@ -3,7 +3,7 @@
 /// Observation and scope identifiers are opaque adapter correlations. Their
 /// exact session and process generation prevent a reused numeric PID or a
 /// sibling session from inheriting an earlier conclusion.
-nonisolated struct AgentObservedAttentionConclusionLedger {
+public nonisolated struct AgentObservedAttentionConclusionLedger {
     private static let maximumCount = 4_096
     private var keys: Set<AgentObservedAttentionConclusionKey> = []
     private var insertionOrder: [AgentObservedAttentionConclusionKey] = []
@@ -14,12 +14,25 @@ nonisolated struct AgentObservedAttentionConclusionLedger {
         [AgentObservedAttentionConclusionKey] = []
     private var boundaryInsertionOrderHead = 0
 
-    mutating func record(
+    /// Creates an empty conclusion ledger.
+    public init() {}
+
+    /// Records exact identifiers or a monotonic process boundary as concluded.
+    ///
+    /// - Parameters:
+    ///   - source: The built-in integration's normalized Feed source.
+    ///   - sessionId: The exact integration session, when known.
+    ///   - observationId: The exact native observation identifier, when known.
+    ///   - scopeId: The exact native approval scope, when known.
+    ///   - processGeneration: The process generation that owned the observation.
+    ///   - boundaryEpoch: A monotonic process-local conclusion boundary, when
+    ///     supplied by the observer.
+    public mutating func record(
         source: String,
         sessionId: String?,
         observationId: String?,
         scopeId: String?,
-        processGeneration: AgentPIDProcessIdentity,
+        processGeneration: AgentProcessGeneration,
         boundaryEpoch: UInt64? = nil
     ) {
         guard let sessionId else { return }
@@ -53,12 +66,24 @@ nonisolated struct AgentObservedAttentionConclusionLedger {
         }
     }
 
-    func contains(
+    /// Returns whether an incoming observation was already concluded.
+    ///
+    /// - Parameters:
+    ///   - source: The built-in integration's normalized Feed source.
+    ///   - sessionId: The exact integration session.
+    ///   - observationId: The exact native observation identifier.
+    ///   - scopeId: The exact native approval scope.
+    ///   - processGeneration: The process generation that owns the observation.
+    ///   - observationEpoch: The observation's monotonic process-local epoch,
+    ///     when supplied by the observer.
+    /// - Returns: `true` when either exact identifier or an equal-or-newer
+    ///   process boundary already concluded the observation.
+    public func contains(
         source: String,
         sessionId: String,
         observationId: String,
         scopeId: String,
-        processGeneration: AgentPIDProcessIdentity,
+        processGeneration: AgentProcessGeneration,
         observationEpoch: UInt64? = nil
     ) -> Bool {
         if let observationEpoch,
@@ -92,7 +117,7 @@ nonisolated struct AgentObservedAttentionConclusionLedger {
     private mutating func recordBoundary(
         source: String,
         sessionId: String,
-        processGeneration: AgentPIDProcessIdentity,
+        processGeneration: AgentProcessGeneration,
         epoch: UInt64
     ) {
         let key = AgentObservedAttentionConclusionKey.processBoundary(

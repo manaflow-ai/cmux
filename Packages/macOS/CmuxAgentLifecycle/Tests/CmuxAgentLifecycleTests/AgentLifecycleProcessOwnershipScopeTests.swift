@@ -5,20 +5,29 @@ import Testing
 struct AgentLifecycleProcessOwnershipScopeTests {
     @Test("Shared-process sessions aggregate only within one process")
     func sharedProcessKeysUseExactProcessIdentity() {
+        let firstGeneration = AgentProcessGeneration(
+            pid: 1_001,
+            startSeconds: 100,
+            startMicroseconds: 10
+        )
         let firstThreadKey = AgentLifecycleProcessOwnershipScope.sharedProcess.agentPIDKey(
             statusKey: BuiltInAgentIntegration.amp.statusKey,
             sessionId: "thread-a",
-            processID: 1_001
+            processGeneration: firstGeneration
         )
         let siblingThreadKey = AgentLifecycleProcessOwnershipScope.sharedProcess.agentPIDKey(
             statusKey: BuiltInAgentIntegration.amp.statusKey,
             sessionId: "thread-b",
-            processID: 1_001
+            processGeneration: firstGeneration
         )
         let otherProcessKey = AgentLifecycleProcessOwnershipScope.sharedProcess.agentPIDKey(
             statusKey: BuiltInAgentIntegration.amp.statusKey,
             sessionId: "thread-c",
-            processID: 2_002
+            processGeneration: AgentProcessGeneration(
+                pid: 2_002,
+                startSeconds: 200,
+                startMicroseconds: 20
+            )
         )
 
         #expect(firstThreadKey == siblingThreadKey)
@@ -30,12 +39,12 @@ struct AgentLifecycleProcessOwnershipScopeTests {
         let firstThreadKey = AgentLifecycleProcessOwnershipScope.sharedProcess.agentPIDKey(
             statusKey: BuiltInAgentIntegration.amp.statusKey,
             sessionId: "thread-a",
-            processID: nil
+            processGeneration: nil
         )
         let otherThreadKey = AgentLifecycleProcessOwnershipScope.sharedProcess.agentPIDKey(
             statusKey: BuiltInAgentIntegration.amp.statusKey,
             sessionId: "thread-b",
-            processID: nil
+            processGeneration: nil
         )
 
         #expect(firstThreadKey != otherThreadKey)
@@ -46,14 +55,40 @@ struct AgentLifecycleProcessOwnershipScopeTests {
         let firstProcessKey = AgentLifecycleProcessOwnershipScope.session.agentPIDKey(
             statusKey: BuiltInAgentIntegration.codex.statusKey,
             sessionId: "",
-            processID: 1_001
+            processGeneration: AgentProcessGeneration(
+                pid: 1_001,
+                startSeconds: 100,
+                startMicroseconds: 10
+            )
         )
         let otherProcessKey = AgentLifecycleProcessOwnershipScope.session.agentPIDKey(
             statusKey: BuiltInAgentIntegration.codex.statusKey,
             sessionId: "",
-            processID: 2_002
+            processGeneration: AgentProcessGeneration(
+                pid: 2_002,
+                startSeconds: 200,
+                startMicroseconds: 20
+            )
         )
 
         #expect(firstProcessKey != otherProcessKey)
+    }
+
+    @Test("Missing session and process evidence fails closed")
+    func missingOwnershipEvidenceProducesNoKey() {
+        #expect(
+            AgentLifecycleProcessOwnershipScope.session.agentPIDKey(
+                statusKey: BuiltInAgentIntegration.codex.statusKey,
+                sessionId: "",
+                processGeneration: nil
+            ) == nil
+        )
+        #expect(
+            AgentLifecycleProcessOwnershipScope.sharedProcess.agentPIDKey(
+                statusKey: BuiltInAgentIntegration.amp.statusKey,
+                sessionId: "",
+                processGeneration: nil
+            ) == nil
+        )
     }
 }

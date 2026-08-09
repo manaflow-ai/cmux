@@ -225,15 +225,20 @@ final class ClaudeHookSessionStore {
     private static let maxStructuredBackgroundWorkTurns = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
+    /// Longer than the replay subprocess's three-second response deadline, so
+    /// only an abandoned owner can become eligible for another hook.
+    private static let deferredSettlementReplayLeaseSeconds: TimeInterval = 10
 
     private let statePath: String
     private let fileManager: FileManager
+    private let clock: @Sendable () -> Date
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
     init(
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        clock: @escaping @Sendable () -> Date = { Date.now }
     ) {
         if let overridePath = processEnv["CMUX_CLAUDE_HOOK_STATE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !overridePath.isEmpty {
@@ -247,6 +252,7 @@ final class ClaudeHookSessionStore {
             self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
         }
         self.fileManager = fileManager
+        self.clock = clock
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
@@ -283,7 +289,7 @@ final class ClaudeHookSessionStore {
             $0.utf8.count <= Self.maxStructuredBackgroundWorkIdBytes
         } ?? false
         return try withLockedState { state in
-            let now = Date.now.timeIntervalSince1970
+            let now = clock().timeIntervalSince1970
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalizedSessionId,
@@ -439,9 +445,20 @@ final class ClaudeHookSessionStore {
                 record.hasBackgroundWorkTurnOverflow == true ? 1 : 0
             )
             if eventName == "SubagentStop",
-               conservativeActiveWorkCount == 0 {
-                deferredSettlement =
-                    deferredSettlementsByTurn[turnKey]
+               conservativeActiveWorkCount == 0,
+               var settlement = deferredSettlementsByTurn[turnKey] {
+                let hasLiveClaim = settlement.replayClaimID != nil
+                    && settlement.replayClaimedAt.map {
+                        $0 > now - Self.deferredSettlementReplayLeaseSeconds
+                    } == true
+                if hasLiveClaim {
+                    deferredSettlement = nil
+                } else {
+                    settlement.replayClaimID = UUID()
+                    settlement.replayClaimedAt = now
+                    deferredSettlementsByTurn[turnKey] = settlement
+                    deferredSettlement = settlement
+                }
             } else {
                 deferredSettlement = nil
             }
@@ -509,7 +526,7 @@ final class ClaudeHookSessionStore {
                 return
             }
             clearStructuredBackgroundWorkState(on: &record)
-            record.updatedAt = Date.now.timeIntervalSince1970
+            record.updatedAt = clock().timeIntervalSince1970
             state.sessions[normalizedSessionId] = record
         }
     }
@@ -531,7 +548,7 @@ final class ClaudeHookSessionStore {
         let normalizedSessionId = normalizeSessionId(sessionId)
         guard !normalizedSessionId.isEmpty else { return 0 }
         return try withLockedState { state in
-            let now = Date.now.timeIntervalSince1970
+            let now = clock().timeIntervalSince1970
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalizedSessionId,
@@ -633,7 +650,38 @@ final class ClaudeHookSessionStore {
                 deferredSettlementsByTurn.isEmpty
                     ? nil
                     : deferredSettlementsByTurn
-            record.updatedAt = Date.now.timeIntervalSince1970
+            record.updatedAt = clock().timeIntervalSince1970
+            state.sessions[normalizedSessionId] = record
+        }
+    }
+
+    /// Makes a failed replay immediately retryable without allowing an older
+    /// process to release a newer owner's lease.
+    func releaseDeferredTurnSettlementReplayClaim(
+        sessionId: String,
+        settlement: AgentDeferredTurnSettlement
+    ) throws {
+        let normalizedSessionId = normalizeSessionId(sessionId)
+        guard !normalizedSessionId.isEmpty,
+              settlement.replayClaimID != nil else {
+            return
+        }
+        try withLockedState { state in
+            guard var record = state.sessions[normalizedSessionId] else {
+                return
+            }
+            let turnKey = structuredBackgroundWorkTurnKey(settlement.turnId)
+            var deferredSettlementsByTurn =
+                record.deferredTurnSettlementsByTurn ?? [:]
+            guard var current = deferredSettlementsByTurn[turnKey],
+                  current == settlement else {
+                return
+            }
+            current.replayClaimID = nil
+            current.replayClaimedAt = nil
+            deferredSettlementsByTurn[turnKey] = current
+            record.deferredTurnSettlementsByTurn = deferredSettlementsByTurn
+            record.updatedAt = clock().timeIntervalSince1970
             state.sessions[normalizedSessionId] = record
         }
     }
@@ -657,7 +705,7 @@ final class ClaudeHookSessionStore {
                 deferredSettlementsByTurn.isEmpty
                     ? nil
                     : deferredSettlementsByTurn
-            record.updatedAt = Date.now.timeIntervalSince1970
+            record.updatedAt = clock().timeIntervalSince1970
             state.sessions[normalizedSessionId] = record
         }
     }
@@ -754,7 +802,7 @@ final class ClaudeHookSessionStore {
             case .skipShortTranscript, .skipInFlight, .skipTooSoon, .skipInsufficientGrowth:
                 break
             }
-            record.updatedAt = Date().timeIntervalSince1970
+            record.updatedAt = clock().timeIntervalSince1970
             state.sessions[normalized] = record
             return AutoNamingBeginOutcome(decision: decision, lastTitle: snapshot.lastTitle)
         }
@@ -782,7 +830,7 @@ final class ClaudeHookSessionStore {
                 record.autoNameLastLineCount = baselineLineCount
                 record.autoNameLastNamedAt = now.timeIntervalSince1970
             }
-            record.updatedAt = Date().timeIntervalSince1970
+            record.updatedAt = clock().timeIntervalSince1970
             state.sessions[normalized] = record
         }
     }
@@ -801,7 +849,7 @@ final class ClaudeHookSessionStore {
             record.activePromptDepth = nil
             record.activePromptTurnId = nil
             record.activePromptTurnIds = nil
-            record.updatedAt = Date().timeIntervalSince1970
+            record.updatedAt = clock().timeIntervalSince1970
             state.sessions[normalizedSessionId] = record
         }
     }
@@ -827,7 +875,7 @@ final class ClaudeHookSessionStore {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return (staleTerminalTurn: false, nested: false) }
         return try withLockedState { state in
-            let now = Date().timeIntervalSince1970
+            let now = clock().timeIntervalSince1970
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalized,
@@ -936,7 +984,7 @@ final class ClaudeHookSessionStore {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
         return try withLockedState { state in
-            let now = Date().timeIntervalSince1970
+            let now = clock().timeIntervalSince1970
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalized,
@@ -1088,7 +1136,7 @@ final class ClaudeHookSessionStore {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return [] }
         return try withLockedState { state in
-            let now = Date().timeIntervalSince1970
+            let now = clock().timeIntervalSince1970
             var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
                 sessionId: normalized,
                 workspaceId: workspaceId,
@@ -1177,7 +1225,7 @@ final class ClaudeHookSessionStore {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
         return try withLockedState { state in
-            let now = Date().timeIntervalSince1970
+            let now = clock().timeIntervalSince1970
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalized,
@@ -1300,7 +1348,7 @@ final class ClaudeHookSessionStore {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
         return try withLockedState { state in
-            let now = Date().timeIntervalSince1970
+            let now = clock().timeIntervalSince1970
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalized,
@@ -1375,7 +1423,7 @@ final class ClaudeHookSessionStore {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
         try withLockedState { state in
-            let now = Date().timeIntervalSince1970
+            let now = clock().timeIntervalSince1970
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalized,
@@ -1668,7 +1716,7 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return }
         try withLockedState { state in
             guard var record = state.sessions[normalized] else { return }
-            let now = Date().timeIntervalSince1970
+            let now = clock().timeIntervalSince1970
             record.lastEmittedNotificationFingerprint = nil
             record.lastEmittedNotificationAt = nil
             record.recentEmittedNotificationFingerprints = nil
@@ -1688,7 +1736,7 @@ final class ClaudeHookSessionStore {
         guard !normalizedFingerprint.isEmpty else { return false }
         return try withLockedState { state in
             guard let record = state.sessions[normalized] else { return false }
-            let now = Date().timeIntervalSince1970
+            let now = clock().timeIntervalSince1970
             if let emittedAt = record.recentEmittedNotificationFingerprints?[normalizedFingerprint],
                now - emittedAt <= interval {
                 return true
@@ -1708,7 +1756,7 @@ final class ClaudeHookSessionStore {
         guard !normalizedFingerprint.isEmpty else { return }
         try withLockedState { state in
             guard var record = state.sessions[normalized] else { return }
-            let now = Date().timeIntervalSince1970
+            let now = clock().timeIntervalSince1970
             record.lastEmittedNotificationFingerprint = normalizedFingerprint
             record.lastEmittedNotificationAt = now
             var recent = record.recentEmittedNotificationFingerprints ?? [:]
@@ -1735,7 +1783,7 @@ final class ClaudeHookSessionStore {
         let normalized = normalizeSessionId(sessionId)
         let key = "\(agentName):\(stage):\(normalized.isEmpty ? "unknown" : normalized)"
         return try withLockedState { state in
-            let now = Date().timeIntervalSince1970
+            let now = clock().timeIntervalSince1970
             var reports = state.agentHookFailureReportTimestamps
             if let lastFailureAt = reports[key], now - lastFailureAt < interval {
                 return false
@@ -1765,7 +1813,7 @@ final class ClaudeHookSessionStore {
             let excludedUpdatedAt = excluded.flatMap { state.sessions[$0]?.updatedAt }
             if onlyNewerThanExcludedSession, excludedUpdatedAt == nil { return false }
             var foundRunningSession = false
-            let now = Date().timeIntervalSince1970
+            let now = clock().timeIntervalSince1970
 
             for sessionId in Array(state.sessions.keys) {
                 guard var record = state.sessions[sessionId] else { continue }
@@ -2081,7 +2129,7 @@ final class ClaudeHookSessionStore {
     }
 
     private func pruneExpired(_ state: inout ClaudeHookSessionStoreFile) {
-        let now = Date().timeIntervalSince1970
+        let now = clock().timeIntervalSince1970
         let cutoff = now - Self.maxStateAgeSeconds
         state.sessions = state.sessions.filter { _, record in
             record.updatedAt >= cutoff
@@ -31732,7 +31780,9 @@ export default CMUXSessionRestore;
         let pidKey = def.integration.lifecycleProcessOwnershipScope.agentPIDKey(
             statusKey: def.statusKey,
             sessionId: sessionId,
-            processID: inferredPID
+            processGeneration: AgentPIDProcessIdentity(
+                agentTurnPID: inferredPID
+            )
         )
         var didSendFeedTelemetry = false
         // Destructive session teardown shared by a genuine (non-turn-boundary)
@@ -31754,10 +31804,12 @@ export default CMUXSessionRestore;
                 ) {
                     telemetry.breadcrumb("\(def.name)-hook.session-end.resume-clear-failed")
                 }
-                _ = try? sendV1Command(
-                    "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status",
-                    client: client
-                )
+                if let pidKey {
+                    _ = try? sendV1Command(
+                        "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status",
+                        client: client
+                    )
+                }
             }
         }
         func runtimeStatus(for notificationStatus: AgentHookNotificationStatus?) -> AgentHookRuntimeStatus? {
@@ -32164,7 +32216,7 @@ export default CMUXSessionRestore;
                 return
             }
             if !suppressVisibleMutations {
-                if let pid {
+                if let pid, let pidKey {
                     _ = try? sendV1Command(
                         "set_agent_pid \(pidKey) \(pid) "
                             + "--tab=\(workspaceId)"
@@ -32469,7 +32521,7 @@ export default CMUXSessionRestore;
                 stopStalePromptSubmit()
                 return
             }
-            if let pid, !suppressVisibleMutations {
+            if let pid, let pidKey, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(pidKey) \(pid) "
                         + "--tab=\(workspaceId)"
@@ -32727,10 +32779,12 @@ export default CMUXSessionRestore;
                         surfaceId: surfaceId
                     )
                 }
-                _ = try? sendV1Command(
-                    "clear_agent_pid \(pidKey) --tab=\(workspaceId)\(socketPanelOption(surfaceId)) --clear-status",
-                    client: client
-                )
+                if let pidKey {
+                    _ = try? sendV1Command(
+                        "clear_agent_pid \(pidKey) --tab=\(workspaceId)\(socketPanelOption(surfaceId)) --clear-status",
+                        client: client
+                    )
+                }
                 print("{}")
                 return
             case .settle, .settleTurnKeepingProcessRunning:
@@ -32909,7 +32963,7 @@ export default CMUXSessionRestore;
                     launchCommand: resumeLaunchCommand
                 )
             }
-            if let pid, !suppressVisibleMutations {
+            if let pid, let pidKey, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(pidKey) \(pid) "
                         + "--tab=\(workspaceId)"
@@ -33135,7 +33189,7 @@ export default CMUXSessionRestore;
                     launchCommand: resumeLaunchCommand
                 )
             }
-            if let pid, !suppressVisibleMutations {
+            if let pid, let pidKey, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(pidKey) \(pid) "
                         + "--tab=\(workspaceId)"
@@ -36006,9 +36060,15 @@ export default CMUXSessionRestore;
                                 sessionId: sessionId,
                                 settlement: settlement
                             )
+                    } else {
+                        try sessionStore
+                            .releaseDeferredTurnSettlementReplayClaim(
+                                sessionId: sessionId,
+                                settlement: settlement
+                            )
                     }
-                    // Failure or parent termination keeps the durable boundary
-                    // available for a duplicate terminal work event to retry.
+                    // Parent termination leaves the claim durable; its lease
+                    // expiry makes the boundary retryable by a later event.
                 }
             } catch {
                 telemetry.captureError(
@@ -36225,6 +36285,12 @@ export default CMUXSessionRestore;
             data.append(chunk)
         }
         guard data.count <= maxBytes else {
+            let drainer = Process()
+            drainer.executableURL = URL(fileURLWithPath: "/usr/bin/cat")
+            drainer.standardInput = handle
+            drainer.standardOutput = FileHandle.nullDevice
+            drainer.standardError = FileHandle.nullDevice
+            try? drainer.run()
             return (data: data, isComplete: false)
         }
         return (data: data, isComplete: true)

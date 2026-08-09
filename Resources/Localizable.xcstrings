@@ -232976,13 +232976,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Agent process generation is required for '%@'"
+            "value": "ERROR: Agent process generation is required for this agent."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エラー: '%@' にはエージェントプロセス世代が必要です"
+            "value": "エラー: このエージェントにはエージェントプロセス世代が必要です。"
           }
         }
       }

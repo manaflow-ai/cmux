@@ -106,7 +106,7 @@ extension ControlCommandCoordinator {
            ) == true {
             let strings =
                 context?.controlSidebarAgentStrings() ?? .englishFallback
-            return strings.processGenerationRequired(key: key)
+            return strings.processGenerationRequired
         }
 
         context?.controlSidebarScheduleStatusUpsert(
@@ -389,7 +389,7 @@ extension ControlCommandCoordinator {
                target: target,
                panelID: panelResolution.panelId
            ) == true {
-            return strings.processGenerationRequired(key: key)
+            return strings.processGenerationRequired
         }
         context?.controlSidebarScheduleAgentPIDRecord(
             target: target,
@@ -450,7 +450,7 @@ extension ControlCommandCoordinator {
                target: target,
                panelID: panelResolution.panelId
            ) == true {
-            return strings.processGenerationRequired(key: key)
+            return strings.processGenerationRequired
         }
         context?.controlSidebarScheduleAgentLifecycle(
             target: target,

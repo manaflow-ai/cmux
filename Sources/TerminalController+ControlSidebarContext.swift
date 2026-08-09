@@ -197,10 +197,10 @@ extension TerminalController: ControlSidebarContext {
                 defaultValue:
                     "ERROR: Unsupported agent lifecycle key '%@'"
             ),
-            processGenerationRequiredFormat: String(
+            processGenerationRequired: String(
                 localized: "socket.sidebar.agent.processGenerationRequired",
                 defaultValue:
-                    "ERROR: Agent process generation is required for '%@'"
+                    "ERROR: Agent process generation is required for this agent."
             ),
             invalidProcessGenerationFormat: String(
                 localized: "socket.sidebar.agent.invalidProcessGeneration",

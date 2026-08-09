@@ -90,20 +90,35 @@ struct WorkspaceSidebarObservationTests {
                 orientation: .horizontal
             )
         )
-        let firstKey = AgentLifecycleProcessOwnershipScope.sharedProcess.agentPIDKey(
-            statusKey: BuiltInAgentIntegration.amp.statusKey,
-            sessionId: "thread-a",
-            processID: 1_001
+        let firstGeneration = AgentPIDProcessIdentity(
+            pid: 1_001,
+            startSeconds: 100,
+            startMicroseconds: 10
         )
-        let siblingThreadKey = AgentLifecycleProcessOwnershipScope.sharedProcess.agentPIDKey(
-            statusKey: BuiltInAgentIntegration.amp.statusKey,
-            sessionId: "thread-b",
-            processID: 1_001
+        let firstKey = try #require(
+            AgentLifecycleProcessOwnershipScope.sharedProcess.agentPIDKey(
+                statusKey: BuiltInAgentIntegration.amp.statusKey,
+                sessionId: "thread-a",
+                processGeneration: firstGeneration
+            )
         )
-        let secondKey = AgentLifecycleProcessOwnershipScope.sharedProcess.agentPIDKey(
-            statusKey: BuiltInAgentIntegration.amp.statusKey,
-            sessionId: "thread-c",
-            processID: 2_002
+        let siblingThreadKey = try #require(
+            AgentLifecycleProcessOwnershipScope.sharedProcess.agentPIDKey(
+                statusKey: BuiltInAgentIntegration.amp.statusKey,
+                sessionId: "thread-b",
+                processGeneration: firstGeneration
+            )
+        )
+        let secondKey = try #require(
+            AgentLifecycleProcessOwnershipScope.sharedProcess.agentPIDKey(
+                statusKey: BuiltInAgentIntegration.amp.statusKey,
+                sessionId: "thread-c",
+                processGeneration: AgentPIDProcessIdentity(
+                    pid: 2_002,
+                    startSeconds: 200,
+                    startMicroseconds: 20
+                )
+            )
         )
 
         #expect(firstKey == siblingThreadKey)
