@@ -49,6 +49,41 @@ import WebKit
         #expect(referenceView.needsLayout)
     }
 
+    @Test func portalPresentationRefreshDoesNotDriveSwiftUILayout() {
+        let referenceView = LayoutCountingBrowserReferenceView(rootView: EmptyView())
+        referenceView.frame = NSRect(x: 0, y: 0, width: 640, height: 480)
+        let window = NSWindow(
+            contentRect: referenceView.frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = referenceView
+
+        let anchor = NSView(frame: NSRect(x: 40, y: 30, width: 320, height: 240))
+        referenceView.addSubview(anchor)
+        let webView = WKWebView(frame: anchor.bounds)
+        let portal = WindowBrowserPortal(window: window)
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+
+        defer {
+            portal.tearDown()
+            window.close()
+        }
+
+        referenceView.layoutSubtreeIfNeeded()
+        referenceView.layoutPassCount = 0
+        referenceView.needsLayout = true
+
+        portal.forceRefreshWebView(withId: ObjectIdentifier(webView), reason: "test")
+
+        #expect(
+            referenceView.layoutPassCount == 0,
+            "A portal presentation refresh must not synchronously lay out SwiftUI's hosting view."
+        )
+        #expect(referenceView.needsLayout)
+    }
+
     @Test func portalAnchorInstallationDefersLayoutToAppKit() throws {
         let host = LayoutCountingBrowserHostView(
             frame: NSRect(x: 0, y: 0, width: 480, height: 320)
