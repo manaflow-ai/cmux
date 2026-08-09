@@ -2341,20 +2341,14 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     let mut terminal_closed = false;
     for attempt in 0..3 {
         let key = format!("matrix-terminal-close-{attempt}");
-        let close = json_cli(
-            &server,
-            &["terminal", &terminal, "close", "--idempotency-key", &key],
-        );
+        let close = json_cli(&server, &["terminal", &terminal, "close", "--idempotency-key", &key]);
         if !close.status.success() {
             assert_eq!(close.status.code(), Some(1));
             let error = json_error(&close);
             assert_eq!(error["code"], "mutation.indeterminate");
             assert_eq!(error["details"]["idempotency_key"], key);
             assert_eq!(error["details"]["operation"], "terminal.close");
-            assert_eq!(
-                error["details"]["recovery"],
-                "inspect_state_then_retry_with_new_key"
-            );
+            assert_eq!(error["details"]["recovery"], "inspect_state_then_retry_with_new_key");
         }
 
         let read = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
