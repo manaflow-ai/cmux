@@ -195748,13 +195748,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "leftRailAuto automatic auto random assign colors every workspace rail stable unique distinct"
+            "value": "leftRailAuto left rail auto automatic random assign colors every workspace rail stable unique distinct"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "leftRailAuto 自動 ランダム 色 割り当て ワークスペース レール 一意 区別 • leftRailAuto automatic auto random assign colors every workspace rail stable unique distinct"
+            "value": "leftRailAuto left rail auto 左レール 自動 ランダム 色 割り当て ワークスペース レール 一意 区別 • leftRailAuto left rail auto automatic random assign colors every workspace rail stable unique distinct"
           }
         }
       }

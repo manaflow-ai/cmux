@@ -386,7 +386,7 @@ extension Array where Element == CuratedSettingEntry {
                     ),
                     String(
                         localized: "settings.search.alias.setting.workspaceColors.auto-assign",
-                        defaultValue: "automatic auto random assign colors every workspace rail stable unique distinct"
+                        defaultValue: "leftRailAuto left rail auto automatic random assign colors every workspace rail stable unique distinct"
                     ),
                 ].joined(separator: " ")
             ),

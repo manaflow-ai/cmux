@@ -180,7 +180,7 @@ enum SettingsSearchAliasIndex {
         "keyboardShortcuts:shortcuts": localized("settings.search.alias.setting.keyboardShortcuts.shortcuts", defaultValue: "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json"),
         "workspaceColors:indicator": [
             localized("settings.search.alias.setting.workspaceColors.indicator", defaultValue: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
-            localized("settings.search.alias.setting.workspaceColors.auto-assign", defaultValue: "automatic auto random assign colors every workspace rail stable unique distinct"),
+            localized("settings.search.alias.setting.workspaceColors.auto-assign", defaultValue: "leftRailAuto left rail auto automatic random assign colors every workspace rail stable unique distinct"),
         ].joined(separator: " "),
         "workspaceColors:selection": localized("settings.search.alias.setting.workspaceColors.selection", defaultValue: "workspaceColors.selectionColor selected workspace color highlight background active tab"),
         "workspaceColors:badge": localized("settings.search.alias.setting.workspaceColors.badge", defaultValue: "workspaceColors.notificationBadgeColor unread notification badge color dot count"),

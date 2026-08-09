@@ -18,7 +18,11 @@ import Testing
 ///    by its filled row background, so an auto color that leaked into
 ///    `sidebarWorkspaceRowBackgroundStyle` would make the selected row just one
 ///    more colored row.
-@Suite struct WorkspaceAutoTabColorAssignmentTests {
+///
+/// Serialized because reconciling coalesces through app-wide state on
+/// `AppDelegate`: run in parallel, tests that create managers would race each
+/// other's pending passes.
+@Suite(.serialized) struct WorkspaceAutoTabColorAssignmentTests {
     private static let palette: [WorkspaceTabColorEntry] = [
         WorkspaceTabColorEntry(name: "Red", hex: "#C0392B"),
         WorkspaceTabColorEntry(name: "Green", hex: "#196F3D"),
@@ -1023,17 +1027,19 @@ import Testing
     }
 
     /// One reconcile pass allocates against every window's workspaces, so the
-    /// coalescing flag must be app-wide. When it lived on `TabManager`, each
+    /// coalescing state must be app-wide. When it lived on `TabManager`, each
     /// open window ran its own full app-wide scan for a single change.
+    ///
+    /// It is keyed by the store the pass will reconcile: every window in the
+    /// app shares `UserDefaults.standard`, so windows coalesce, while managers
+    /// pointed at different stores stay independent.
     @MainActor
     @Test
     func reconcileCoalescesAcrossWindowsInsteadOfOncePerManager() throws {
         let app = try #require(AppDelegate.shared, "needs the app host")
         let defaults = Self.suite()
         let settings = UserDefaultsSettingsClient(defaults: defaults)
-        let previous = app.autoWorkspaceColorReconcileScheduled
-        defer { app.autoWorkspaceColorReconcileScheduled = previous }
-        app.autoWorkspaceColorReconcileScheduled = false
+        let store = ObjectIdentifier(defaults)
 
         let first = TabManager(
             autoWelcomeIfNeeded: false,
@@ -1047,15 +1053,29 @@ import Testing
             autoWorkspaceColorDefaults: defaults,
             closeTabWarningDefaults: defaults
         )
-        app.autoWorkspaceColorReconcileScheduled = false
+        app.scheduledAutoWorkspaceColorReconciles.remove(store)
 
         first.scheduleAutoWorkspaceColorReconcile()
         second.scheduleAutoWorkspaceColorReconcile()
 
-        #expect(app.autoWorkspaceColorReconcileScheduled)
-        // A per-manager flag would show up here, one pending pass per window.
+        // Both windows ride the same pending pass instead of each holding one.
+        #expect(app.scheduledAutoWorkspaceColorReconciles.contains(store))
         #expect(!first.autoWorkspaceColorReconcileScheduledFallback)
         #expect(!second.autoWorkspaceColorReconcileScheduledFallback)
+
+        // A different store is a different pass, so one manager's pending work
+        // cannot swallow a request that would reconcile something else.
+        let otherDefaults = Self.suite()
+        let otherStore = ObjectIdentifier(otherDefaults)
+        app.scheduledAutoWorkspaceColorReconciles.remove(otherStore)
+        let other = TabManager(
+            autoWelcomeIfNeeded: false,
+            settings: UserDefaultsSettingsClient(defaults: otherDefaults),
+            autoWorkspaceColorDefaults: otherDefaults,
+            closeTabWarningDefaults: otherDefaults
+        )
+        other.scheduleAutoWorkspaceColorReconcile()
+        #expect(app.scheduledAutoWorkspaceColorReconciles.contains(otherStore))
     }
 
     /// Polls `condition` until it holds or the deadline passes.

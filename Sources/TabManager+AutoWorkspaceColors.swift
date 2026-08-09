@@ -11,35 +11,47 @@ extension TabManager {
     /// defaults observer would re-enter the update that triggered it, so the
     /// work is always deferred and coalesced to one pass per turn.
     ///
-    /// The coalescing flag is app-wide rather than per-manager because a pass
+    /// The coalescing state is app-wide rather than per-manager because a pass
     /// allocates against every window's workspaces. Keeping it on `TabManager`
-    /// made N open windows run N identical full scans for one change.
+    /// made N open windows run N identical full scans for one change. It is
+    /// keyed by the store a pass will reconcile, which is one shared
+    /// `UserDefaults` for every window in the app.
     func scheduleAutoWorkspaceColorReconcile() {
-        guard !Self.autoWorkspaceColorReconcileIsScheduled(self) else { return }
-        Self.setAutoWorkspaceColorReconcileIsScheduled(true, self)
+        let store = ObjectIdentifier(autoWorkspaceColorDefaults)
+        guard !Self.autoWorkspaceColorReconcileIsScheduled(store, self) else { return }
+        Self.setAutoWorkspaceColorReconcileIsScheduled(true, store, self)
         Task { @MainActor [weak self] in
             // Released only once the pass is done, so the `UserDefaults` write
             // it performs cannot schedule a second, identical pass. Deferred so
-            // a deallocated manager cannot strand the app-wide flag.
-            defer { Self.setAutoWorkspaceColorReconcileIsScheduled(false, self) }
+            // a deallocated manager cannot strand the app-wide entry.
+            defer { TabManager.setAutoWorkspaceColorReconcileIsScheduled(false, store, self) }
             self?.reconcileAutoWorkspaceColorsNow()
         }
     }
 
-    private static func autoWorkspaceColorReconcileIsScheduled(_ manager: TabManager?) -> Bool {
-        AppDelegate.shared?.autoWorkspaceColorReconcileScheduled
-            ?? manager?.autoWorkspaceColorReconcileScheduledFallback
-            ?? false
+    private static func autoWorkspaceColorReconcileIsScheduled(
+        _ store: ObjectIdentifier,
+        _ manager: TabManager?
+    ) -> Bool {
+        guard let app = AppDelegate.shared else {
+            return manager?.autoWorkspaceColorReconcileScheduledFallback ?? false
+        }
+        return app.scheduledAutoWorkspaceColorReconciles.contains(store)
     }
 
     private static func setAutoWorkspaceColorReconcileIsScheduled(
         _ isScheduled: Bool,
+        _ store: ObjectIdentifier,
         _ manager: TabManager?
     ) {
-        if let app = AppDelegate.shared {
-            app.autoWorkspaceColorReconcileScheduled = isScheduled
-        } else {
+        guard let app = AppDelegate.shared else {
             manager?.autoWorkspaceColorReconcileScheduledFallback = isScheduled
+            return
+        }
+        if isScheduled {
+            app.scheduledAutoWorkspaceColorReconciles.insert(store)
+        } else {
+            app.scheduledAutoWorkspaceColorReconciles.remove(store)
         }
     }
 
