@@ -511,6 +511,64 @@ struct DockRuntimeParityTests {
         }
     }
 
+    @Test("Notification opens reveal exact panels in both Dock scopes")
+    func notificationOpensRevealExactPanelsInBothDockScopes() async throws {
+        try await withAppContext { appDelegate, _, workspace, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let workspaceDock = workspace.dockSplit
+            let globalDock = appDelegate.windowDock(forWindowId: windowID)
+            let workspacePanel = DockRuntimeParityPanel(title: "Workspace Dock")
+            let globalPanel = DockRuntimeParityPanel(title: "Global Dock")
+            try workspaceDock.seedRuntimeParityPanel(workspacePanel)
+            try globalDock.seedRuntimeParityPanel(globalPanel)
+
+            let workspaceNotification = TerminalNotification(
+                id: UUID(),
+                tabId: workspace.id,
+                surfaceId: workspacePanel.id,
+                title: "Workspace Dock",
+                subtitle: "",
+                body: "Unread",
+                createdAt: .now,
+                isRead: false
+            )
+            let globalNotification = TerminalNotification(
+                id: UUID(),
+                tabId: globalDock.workspaceId,
+                surfaceId: globalPanel.id,
+                title: "Global Dock",
+                subtitle: "",
+                body: "Unread",
+                createdAt: .now,
+                isRead: false
+            )
+            notificationStore.replaceNotificationsForTesting([
+                workspaceNotification,
+                globalNotification,
+            ])
+            appDelegate.notificationStore = notificationStore
+            defer {
+                notificationStore.replaceNotificationsForTesting([])
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            #expect(appDelegate.openTerminalNotification(workspaceNotification))
+            #expect(workspaceDock.focusedPanelId == workspacePanel.id)
+            #expect(!notificationStore.hasUnreadNotification(
+                forTabId: workspace.id,
+                surfaceId: workspacePanel.id
+            ))
+
+            #expect(appDelegate.openTerminalNotification(globalNotification))
+            #expect(globalDock.focusedPanelId == globalPanel.id)
+            #expect(!notificationStore.hasUnreadNotification(
+                forTabId: globalDock.workspaceId,
+                surfaceId: globalPanel.id
+            ))
+        }
+    }
+
     @Test("Focusing a window Dock panel dismisses its unread notification")
     func focusingWindowDockPanelDismissesUnreadNotification() async throws {
         try await withAppContext { appDelegate, _, _, windowID in
