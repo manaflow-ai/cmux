@@ -138,6 +138,7 @@ struct WorkspaceListViewOptionsPopover: View {
                 Spacer(minLength: 0)
                 if let systemImage {
                     Image(systemName: systemImage)
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -231,6 +232,8 @@ struct WorkspaceSortModeSchematic: View {
 
     @ViewBuilder
     private func header(tint: Color, symbol: String, rank: Int? = nil, grip: Bool = false) -> some View {
+        // Rank badges read as part of the miniature content, not the frame, so
+        // they take an extra indent off the tile border.
         HStack(spacing: 3) {
             if let rank {
                 Text("\(rank)")
@@ -238,6 +241,7 @@ struct WorkspaceSortModeSchematic: View {
                     .foregroundStyle(.white)
                     .frame(width: 10, height: 10)
                     .background(Circle().fill(tint))
+                    .padding(.leading, 4)
             }
             Image(systemName: symbol)
                 .font(.system(size: 8, weight: .semibold))
