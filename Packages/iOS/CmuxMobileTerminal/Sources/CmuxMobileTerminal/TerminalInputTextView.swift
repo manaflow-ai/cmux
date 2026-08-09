@@ -367,13 +367,16 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         scrollView.showsVerticalScrollIndicator = false
         scrollView.alwaysBounceHorizontal = true
         if #available(iOS 26.0, *) {
-            // The system's horizontal edge treatment is designed to separate
-            // scrollable content from fixed chrome. This compact strip already
-            // shares one background with its pinned controls, and the effect's
-            // fill covers the full 28pt height, making the scroller look like a
-            // separate gray rectangle in light mode.
+            // The system's edge treatments are designed to separate scrollable
+            // content from fixed chrome. This compact strip already shares one
+            // background with its pinned controls. At only 28pt high, the top and
+            // bottom fills overlap across the full scroller and make it look like
+            // a separate gray rectangle in light mode, even though it does not
+            // scroll vertically.
             scrollView.leftEdgeEffect.isHidden = true
             scrollView.rightEdgeEffect.isHidden = true
+            scrollView.topEdgeEffect.isHidden = true
+            scrollView.bottomEdgeEffect.isHidden = true
         }
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
