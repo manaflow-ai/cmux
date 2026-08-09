@@ -279,31 +279,36 @@ extension RemoteTmuxControlConnection {
             rawQueryTimeoutTasks.removeAll()
             let completions = Array(rawQueryCompletions.values)
             rawQueryCompletions.removeAll()
-            for completion in completions { completion(nil) }
+            for completion in completions { completion(.unanswered) }
         }
     }
 
-    /// Sends `command` and awaits its `%end` reply lines, failing (returning nil)
-    /// after `timeout` seconds instead of awaiting forever. Only callers that pass
+    /// Sends `command` and awaits its `%end` reply lines, giving up after `timeout`
+    /// seconds instead of awaiting forever. Only callers that pass
     /// `reconnectOnTimeout` drop and re-establish the control stream on timeout;
     /// others just resolve this one query so a slow quit/new-workspace command does
     /// not flap an otherwise healthy stream.
-    func queryWithTimeout(
+    ///
+    /// A `%error` reply is reported as `.error`, separately from `.unanswered`. The
+    /// two say opposite things about the stream: the server that answers `%error`
+    /// is talking to us, so retrying and then reconnecting on its account throws
+    /// away a healthy stream over one rejected command.
+    func queryOutcomeWithTimeout(
         _ command: String,
         timeout: Double,
         reconnectOnTimeout: Bool = false
-    ) async -> [String]? {
-        await withCheckedContinuation { (continuation: CheckedContinuation<[String]?, Never>) in
+    ) async -> RemoteTmuxRawQueryOutcome {
+        await withCheckedContinuation { (continuation: CheckedContinuation<RemoteTmuxRawQueryOutcome, Never>) in
             guard connectionState == .connected else {
-                continuation.resume(returning: nil)
+                continuation.resume(returning: .unanswered)
                 return
             }
             let token = UUID()
-            rawQueryCompletions[token] = { lines in
-                continuation.resume(returning: lines)
+            rawQueryCompletions[token] = { outcome in
+                continuation.resume(returning: outcome)
             }
             guard sendInternal(command, kind: .rawQuery(token)) else {
-                rawQueryCompletions.removeValue(forKey: token)?(nil)
+                rawQueryCompletions.removeValue(forKey: token)?(.unanswered)
                 return
             }
             rawQueryTimeoutTasks[token] = Task { @MainActor [weak self] in
@@ -312,8 +317,20 @@ extension RemoteTmuxControlConnection {
                       let completion = self.rawQueryCompletions.removeValue(forKey: token) else { return }
                 self.rawQueryTimeoutTasks.removeValue(forKey: token)
                 if reconnectOnTimeout { self.beginReconnecting() }
-                completion(nil)
+                completion(.unanswered)
             }
         }
+    }
+
+    /// ``queryOutcomeWithTimeout(_:timeout:reconnectOnTimeout:)`` for callers that
+    /// treat a rejected command and an unanswered one the same way.
+    func queryWithTimeout(
+        _ command: String,
+        timeout: Double,
+        reconnectOnTimeout: Bool = false
+    ) async -> [String]? {
+        await queryOutcomeWithTimeout(
+            command, timeout: timeout, reconnectOnTimeout: reconnectOnTimeout
+        ).lines
     }
 }

@@ -495,10 +495,17 @@ final class RemoteTmuxViewConnection {
 
 
     private func reconcileListQuery(_ conn: RemoteTmuxControlConnection, _ command: String) async -> [String]? {
-        if let first = await conn.queryWithTimeout(command, timeout: 15, reconnectOnTimeout: false) {
-            return first
+        switch await conn.queryOutcomeWithTimeout(command, timeout: 15, reconnectOnTimeout: false) {
+        case let .lines(lines):
+            return lines
+        case .error:
+            // The server answered, so the stream is fine and a retry would only be
+            // rejected again. Skip this reconcile and wait for the next notification;
+            // handleCommandResult already logs the %error text.
+            return nil
+        case .unanswered:
+            return await conn.queryWithTimeout(command, timeout: 30, reconnectOnTimeout: true)
         }
-        return await conn.queryWithTimeout(command, timeout: 30, reconnectOnTimeout: true)
     }
 
     func reconcile() async {

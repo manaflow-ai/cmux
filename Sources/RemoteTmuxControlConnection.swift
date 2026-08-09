@@ -163,9 +163,9 @@ final class RemoteTmuxControlConnection {
     /// never come.
     var activityQueryCompletions: [UUID: ([Int: PaneForegroundState]?) -> Void] = [:]
     /// In-flight raw-line queries (see ``queryWithTimeout(_:timeout:reconnectOnTimeout:)``),
-    /// keyed by the token carried on their `.rawQuery` command. Flushed with nil on any
-    /// stream reset so an awaiting coordinator never hangs.
-    var rawQueryCompletions: [UUID: ([String]?) -> Void] = [:]
+    /// keyed by the token carried on their `.rawQuery` command. Flushed with
+    /// `.unanswered` on any stream reset so an awaiting coordinator never hangs.
+    var rawQueryCompletions: [UUID: (RemoteTmuxRawQueryOutcome) -> Void] = [:]
     var rawQueryTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     /// `true` when this connection is the multiplexer's shared per-host view stream
     /// (a hidden `cmux-view-*` session with other sessions' windows linked in), rather

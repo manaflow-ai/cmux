@@ -316,6 +316,15 @@ extension RemoteTmuxController {
         let view = RemoteTmuxViewConnection(host: host, ownerId: Self.multiplexerOwnerId)
         view.onWorkspacesChanged = { [weak self, weak manager, weak view] in
             guard let self, let view, let shared = view.connection else { return }
+            // Teardown needs no TabManager, so it has to run ahead of the lookup
+            // below. Closing the host's last workspace removes its mirror, and the
+            // window the attach came from may be gone too, which leaves nothing for
+            // either side of that `??` — the stream, the hidden view session and the
+            // master would then stay up with no workspace left to reach them from.
+            if view.workspaces.isEmpty {
+                self.teardownMultiplexedHost(host: host)
+                return
+            }
             // Prefer the manager the host's mirrors CURRENTLY live in: the
             // attach-time window can close (or the workspaces be dragged away)
             // while the view lives on, and the reconcile must keep applying.
