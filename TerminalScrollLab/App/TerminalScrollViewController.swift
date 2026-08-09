@@ -105,7 +105,7 @@ final class TerminalScrollViewController: UIViewController {
         mechanicsView.bounces = true
         mechanicsView.decelerationRate = .normal
         mechanicsView.contentInsetAdjustmentBehavior = .never
-        mechanicsView.directionalLockEnabled = true
+        mechanicsView.isDirectionalLockEnabled = true
         mechanicsView.showsVerticalScrollIndicator = true
         scrollCoordinator = NativeTerminalScrollCoordinator(
             terminalView: terminalView,
