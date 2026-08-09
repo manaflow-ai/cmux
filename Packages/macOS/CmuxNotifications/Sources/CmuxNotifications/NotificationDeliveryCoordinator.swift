@@ -59,7 +59,18 @@ public final class NotificationDeliveryCoordinator {
         let categories = notificationCategories()
         categoryInstallationTask?.cancel()
         categoryInstallationTask = Task { [center] in
-            _ = await center.setNotificationCategories(categories)
+            // Preserve live per-request Feed question categories: this static
+            // install replaces the whole registered set, and a re-configure
+            // racing a minted `CMUXFeedQuestion.` category would silently strip
+            // that banner's option buttons. An unreadable daemon degrades to
+            // installing the static set alone.
+            var merged = categories
+            if case .success(let current) = await center.notificationCategories() {
+                merged.formUnion(current.filter {
+                    $0.identifier.hasPrefix("CMUXFeedQuestion.")
+                })
+            }
+            _ = await center.setNotificationCategories(merged)
         }
     }
 

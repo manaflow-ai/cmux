@@ -797,7 +797,13 @@ public final class MobilePushCoordinator {
         guard case .ready(let ready) = decision else {
             if case .expired = decision {
                 mobilePushLog.info("dropping expired inline reply")
+                return
             }
+            // Channel not ready. A store/channel event retries immediately,
+            // but a channel that recovers without one would otherwise strand
+            // the reply until its lifetime expires — keep the bounded retry
+            // ladder armed while parked.
+            scheduleReplyRetry()
             return
         }
 

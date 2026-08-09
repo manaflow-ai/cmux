@@ -5,8 +5,16 @@ import UserNotifications
 
 @MainActor
 private final class FakeNotificationCenter: UserNotificationCenterConfiguring {
-    private(set) var categories: Set<UNNotificationCategory> = []
+    var categories: Set<UNNotificationCategory> = []
+    private(set) var installCount = 0
     private(set) var delegate: (any UNUserNotificationCenterDelegate)?
+
+    func notificationCategories() async -> Result<
+        Set<UNNotificationCategory>,
+        UserNotificationCenterFailure
+    > {
+        .success(categories)
+    }
 
     /// When true, category installation suspends until
     /// ``releaseCategoryInstall()``, modeling the framework's unbounded wait
@@ -22,6 +30,7 @@ private final class FakeNotificationCenter: UserNotificationCenterConfiguring {
             await withCheckedContinuation { stallWaiters.append($0) }
         }
         self.categories = categories
+        installCount += 1
         let waiters = categoryInstallWaiters
         categoryInstallWaiters.removeAll()
         for waiter in waiters {
@@ -37,6 +46,13 @@ private final class FakeNotificationCenter: UserNotificationCenterConfiguring {
     /// Suspends until the fire-and-forget category install has landed.
     func waitForCategoryInstall() async {
         guard categories.isEmpty else { return }
+        await withCheckedContinuation { categoryInstallWaiters.append($0) }
+    }
+
+    /// Suspends until an install lands beyond `count`, for tests whose center
+    /// starts pre-seeded (the empty-set guard above would return immediately).
+    func waitForCategoryInstall(past count: Int) async {
+        guard installCount <= count else { return }
         await withCheckedContinuation { categoryInstallWaiters.append($0) }
     }
 
@@ -157,6 +173,25 @@ private final class DummyNotificationDelegate: NSObject, UNUserNotificationCente
 @Suite(.serialized)
 @MainActor
 struct NotificationDeliveryCoordinatorTests {
+    @Test("configure preserves live minted question categories")
+    func configurePreservesMintedQuestionCategories() async throws {
+        let center = FakeNotificationCenter()
+        center.categories = [UNNotificationCategory(
+            identifier: "CMUXFeedQuestion.live-req",
+            actions: [],
+            intentIdentifiers: [],
+            options: []
+        )]
+        let delegate = DummyNotificationDelegate()
+        let coordinator = makeCoordinator(center: center)
+
+        coordinator.configureUserNotifications(delegate: delegate)
+        await center.waitForCategoryInstall(past: 0)
+
+        #expect(center.categories.contains { $0.identifier == "CMUXFeedQuestion.live-req" })
+        #expect(center.categories.contains { $0.identifier == "terminal.category" })
+    }
+
     @Test("configure installs terminal and Feed categories and delegate")
     func configureInstallsCategoriesAndDelegate() async throws {
         let center = FakeNotificationCenter()
