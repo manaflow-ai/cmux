@@ -77,7 +77,7 @@ struct GhosttyEnsureFocusWindowActivationTests {
     func backgroundAgentAttentionStaysInsideCmux() throws {
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = tabManager.addWorkspace(select: true)
-        var attentionTarget: FeedCoordinator.AttentionTarget?
+        var attentionTarget: FeedAttentionTarget?
         defer {
             if let attentionTarget {
                 FeedCoordinator.shared.concludeBlockingDecisionAttention(attentionTarget)
@@ -123,7 +123,7 @@ struct GhosttyEnsureFocusWindowActivationTests {
             inPane: dockPane,
             focus: true
         ))
-        var attentionTarget: FeedCoordinator.AttentionTarget?
+        var attentionTarget: FeedAttentionTarget?
         defer {
             if let attentionTarget {
                 FeedCoordinator.shared.concludeBlockingDecisionAttention(attentionTarget)

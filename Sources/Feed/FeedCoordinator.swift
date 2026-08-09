@@ -58,12 +58,12 @@ final class FeedCoordinator: @unchecked Sendable {
     private let feedIngressDeliveryLane = FeedIngressDeliveryLane()
 
     /// In-flight blocking decisions whose needs-input overlay is currently lit,
-    /// keyed by ``AttentionTarget``. Panel keys stay stable while their live
+    /// keyed by ``FeedAttentionTarget``. Panel keys stay stable while their live
     /// owner changes; each state retains only a fallback owner for cleanup when
     /// the panel is temporarily absent from every live container registry.
     /// Main-actor isolated: read/written only from the `@MainActor` attention
     /// methods.
-    @MainActor private var pendingAttentionStates: [AttentionTarget: AttentionOverlayState] = [:]
+    @MainActor private var pendingAttentionStates: [FeedAttentionTarget: AttentionOverlayState] = [:]
 
     /// Tail of the serialized `CMUXFeedQuestion.` category mutation chain.
     /// `UNUserNotificationCenter` has no atomic category merge, so every
@@ -462,7 +462,7 @@ final class FeedCoordinator: @unchecked Sendable {
 
     /// Concludes an attention overlay (if any) on the main actor, hopping if
     /// called from the socket worker thread.
-    private func concludeAttentionOnMain(_ target: AttentionTarget?) {
+    private func concludeAttentionOnMain(_ target: FeedAttentionTarget?) {
         guard let target else { return }
         let conclude: @Sendable () -> Void = { [target] in
             MainActor.assumeIsolated {
@@ -602,30 +602,6 @@ extension FeedCoordinator {
         "cmux.feed.attention:\(lifecycleStatusKey(forSource: source))"
     }
 
-    /// Identifies the sidebar slot an attention overlay lights up. Panel-scoped
-    /// targets use only the stable panel identity, so the refcount follows a
-    /// live panel across workspace and Dock transfers. Owner identity remains
-    /// part of the key only when no panel can own the attention.
-    struct AttentionTarget: Hashable, Sendable {
-        enum OwnerKind: Hashable, Sendable {
-            case workspace
-            case dock
-        }
-
-        enum Location: Hashable, Sendable {
-            case panel(UUID)
-            case owner(kind: OwnerKind, id: UUID)
-        }
-
-        let location: Location
-        let statusKey: String
-
-        var panelId: UUID? {
-            guard case .panel(let panelId) = location else { return nil }
-            return panelId
-        }
-    }
-
     /// The localized "Needs input" sidebar status the overlay sets.
     static var needsInputStatusValue: String {
         String(localized: "feed.status.needsInput", defaultValue: "Needs input")
@@ -651,7 +627,7 @@ extension FeedCoordinator {
     ///
     /// The overlay is cleared by ``concludeBlockingDecisionAttention(_:)``
     /// when the decision resolves or times out. Clearing is refcounted per
-    /// ``AttentionTarget`` so overlapping decisions on the same panel keep the
+    /// ``FeedAttentionTarget`` so overlapping decisions on the same panel keep the
     /// badge lit until the last one concludes.
     ///
     /// - Parameter resolved: the target resolved off the main actor before UI
@@ -665,7 +641,7 @@ extension FeedCoordinator {
         event: WorkstreamEvent,
         resolved: (ownerId: UUID, surfaceId: UUID?)?,
         tabManager: TabManager?
-    ) -> AttentionTarget? {
+    ) -> FeedAttentionTarget? {
         guard Self.isBlockingDecisionEvent(event.hookEventName) else { return nil }
 
         #if DEBUG
@@ -685,7 +661,6 @@ extension FeedCoordinator {
         }
 
         let owner: ControlSidebarPanelOwner
-        let ownerKind: AttentionTarget.OwnerKind
         let panelId: UUID?
         let reorderWorkspaceId: UUID?
         if let dock = AppDelegate.shared?.existingWindowDock(forWindowId: resolved.ownerId) {
@@ -699,7 +674,6 @@ extension FeedCoordinator {
                 return nil
             }
             owner = .dock(dock)
-            ownerKind = .dock
             panelId = resolvedPanelId
             reorderWorkspaceId = nil
         } else {
@@ -716,17 +690,14 @@ extension FeedCoordinator {
             if let surfaceId = resolved.surfaceId,
                let target = tab.surfaceOwnershipTarget(for: surfaceId) {
                 owner = .workspace(tab)
-                ownerKind = .workspace
                 panelId = target.containerPanelID
             } else if let surfaceId = resolved.surfaceId,
                       let dock = tab._dockSplit,
                       dock.containsPanel(surfaceId) {
                 owner = .dock(dock)
-                ownerKind = .dock
                 panelId = surfaceId
             } else {
                 owner = .workspace(tab)
-                ownerKind = .workspace
                 panelId = resolved.surfaceId == nil ? tab.focusedPanelId : nil
             }
         }
@@ -739,11 +710,17 @@ extension FeedCoordinator {
             return nil
         }
         let statusKey = Self.attentionStatusKey(forSource: event.source)
-        let target = AttentionTarget(
-            location: panelId.map(AttentionTarget.Location.panel)
-                ?? .owner(kind: ownerKind, id: owner.id),
-            statusKey: statusKey
-        )
+        let target: FeedAttentionTarget
+        if let panelId {
+            target = .panel(id: panelId, statusKey: statusKey)
+        } else {
+            target = switch owner {
+            case .workspace:
+                .workspace(id: owner.id, statusKey: statusKey)
+            case .dock:
+                .dock(id: owner.id, statusKey: statusKey)
+            }
+        }
         let attentionState = pendingAttentionStates[target] ?? AttentionOverlayState(owner: owner)
         attentionState.fallbackOwner = owner
         attentionState.count += 1
@@ -778,7 +755,7 @@ extension FeedCoordinator {
     /// only that slot and never snapshots or restores the agent's concurrent
     /// running/idle/needs-input state.
     @MainActor
-    func concludeBlockingDecisionAttention(_ target: AttentionTarget) {
+    func concludeBlockingDecisionAttention(_ target: FeedAttentionTarget) {
         guard let attentionState = pendingAttentionStates[target] else { return }
         if attentionState.count > 1 {
             attentionState.count -= 1
@@ -823,12 +800,12 @@ extension FeedCoordinator {
     /// a panel between owners or an owner-scoped target that has disappeared.
     @MainActor
     private func liveAttentionOwner(
-        for target: AttentionTarget,
+        for target: FeedAttentionTarget,
         fallback: ControlSidebarPanelOwner
     ) -> ControlSidebarPanelOwner {
         guard let appDelegate = AppDelegate.shared else { return fallback }
-        switch target.location {
-        case .panel(let panelId):
+        switch target {
+        case .panel(let panelId, _):
             switch fallback {
             case .workspace(let workspace):
                 if let registeredWorkspace = appDelegate
@@ -854,19 +831,16 @@ extension FeedCoordinator {
             )?.workspace {
                 return .workspace(workspace)
             }
-        case .owner(let kind, let ownerId):
-            switch kind {
-            case .workspace:
-                if let manager = appDelegate.tabManagerFor(tabId: ownerId),
-                   let workspace = manager.workspacesById[ownerId] {
-                    return .workspace(workspace)
-                }
-            case .dock:
-                if let dock = DockSplitStore.liveStores.first(where: {
-                    $0.workspaceId == ownerId
-                }) {
-                    return .dock(dock)
-                }
+        case .workspace(let ownerId, _):
+            if let manager = appDelegate.tabManagerFor(tabId: ownerId),
+               let workspace = manager.workspacesById[ownerId] {
+                return .workspace(workspace)
+            }
+        case .dock(let ownerId, _):
+            if let dock = DockSplitStore.liveStores.first(where: {
+                $0.workspaceId == ownerId
+            }) {
+                return .dock(dock)
             }
         }
         return fallback
@@ -923,7 +897,7 @@ private final class PendingWaiter: @unchecked Sendable {
     /// reply can fire) and read when the decision concludes, so the
     /// needs-input overlay is cleared exactly once. Guarded by
     /// `FeedCoordinator.waiterLock`.
-    var attentionTarget: FeedCoordinator.AttentionTarget?
+    var attentionTarget: FeedAttentionTarget?
 
     init(semaphore: DispatchSemaphore) {
         self.semaphore = semaphore
