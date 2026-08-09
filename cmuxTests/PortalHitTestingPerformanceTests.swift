@@ -599,6 +599,57 @@ struct PortalHitTestingPerformanceTests {
     }
 
     @Test
+    func hierarchyRegistrationRevokesProofsAcrossInactivePeriod() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let rootView = try #require(window.contentView)
+        let container = NSView(frame: rootView.bounds)
+        let detachedContainer = NSView(frame: container.bounds)
+        container.addSubview(detachedContainer)
+        rootView.addSubview(container)
+
+        let invalidator = PortalSplitDividerCacheInvalidator()
+        func observeCurrentHierarchy() {
+            let collected = PortalSplitDividerRegion.collect(in: rootView)
+            invalidator.observe(
+                rootView: rootView,
+                geometryViews: collected.geometryObservedViews,
+                hierarchyNodes: collected.hierarchyNodes
+            ) {}
+            #expect(invalidator.isHierarchyCurrent(for: rootView))
+        }
+
+        observeCurrentHierarchy()
+        invalidator.invalidate()
+        detachedContainer.removeFromSuperview()
+
+        let detachedWrapper = NSView(frame: detachedContainer.frame)
+        detachedWrapper.addSubview(detachedContainer)
+        let splitView = NSSplitView(frame: detachedContainer.bounds)
+        splitView.addSubview(NSView(frame: .zero))
+        splitView.addSubview(NSView(frame: .zero))
+        detachedContainer.addSubview(splitView)
+
+        let windowContainer = try #require(rootView.superview)
+        let parkingView = NSView(frame: rootView.frame)
+        windowContainer.addSubview(parkingView, positioned: .below, relativeTo: rootView)
+        parkingView.addSubview(detachedWrapper)
+
+        // No cache was registered during the detached mutation. The next
+        // registration must revoke proofs retained from that inactive period.
+        observeCurrentHierarchy()
+        container.addSubview(detachedContainer)
+
+        #expect(!invalidator.isHierarchyCurrent(for: rootView))
+    }
+
+    @Test
     func arrangedSubviewMutationsInvalidateHierarchyRegistration() throws {
         try expectArrangedSubviewMutationInvalidates { splitView, panes in
             splitView.addArrangedSubview(panes[0])
