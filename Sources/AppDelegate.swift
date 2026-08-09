@@ -1939,12 +1939,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func deferTerminateForOwnedCleanup(reason: String) -> Bool {
         let markedForKill = remoteTmuxController.windowsMarkedForKillOnClose()
         let simulatorCleanupTasks = SimulatorPanel.beginApplicationTerminationCleanup()
-        guard !markedForKill.isEmpty || !simulatorCleanupTasks.isEmpty else { return false }
+        let historyEventLog = vaultHistoryEventLog
+        guard historyEventLog != nil || !markedForKill.isEmpty || !simulatorCleanupTasks.isEmpty else {
+            return false
+        }
         if !isAwaitingTerminateCleanup {
             isAwaitingTerminateCleanup = true
             StartupBreadcrumbLog.append(
                 "appDelegate.shouldTerminate.cleanupLater",
                 fields: [
+                    "history": historyEventLog == nil ? "0" : "1",
                     "windows": String(markedForKill.count),
                     "simulatorPanels": String(simulatorCleanupTasks.count),
                     "reason": reason,
@@ -1952,6 +1956,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             let cleanupTask = Task { @MainActor [weak self] in
                 guard let self else { return }
+                await historyEventLog?.flushPendingRecords()
+                guard !Task.isCancelled else { return }
                 if !markedForKill.isEmpty {
                     await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
                 }
