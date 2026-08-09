@@ -3255,6 +3255,38 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/subprocess_argv_sudo_curl.py",
+            (
+                'subprocess.run(["sudo", "-u", "root", "curl", '
+                '"https://api.openai.com/v1/items"])\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/subprocess_argv_sudo_dynamic_user_curl.py",
+            (
+                'subprocess.run(["sudo", "-u", user, "curl", '
+                '"https://api.openai.com/v1/items"])\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/spawn_argv_timeout_curl.ts",
+            (
+                'spawn("timeout", ["10", "curl", '
+                '"https://api.openai.com/v1/items"]);\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/spawn_argv_timeout_dynamic_signal_curl.ts",
+            (
+                'spawn("timeout", ["-s", signal, "10", "curl", '
+                '"https://api.openai.com/v1/items"]);\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/sudo_assignment_curl.sh",
             "sudo API_ENV=test curl https://api.openai.com/v1/items\n",
             {RULE_LIVE_NETWORK_HOST},
@@ -3558,6 +3590,20 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/axios_class_field_client_get.ts",
+            (
+                "class LiveClientTest {\n"
+                "  private readonly client: AxiosInstance = "
+                'axios.create({ baseURL: "https://api.openai.com" });\n'
+                "\n"
+                "  async testItems() {\n"
+                '    await this.client.get("/v1/items");\n'
+                "  }\n"
+                "}\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/requests_keyword_url.py",
             (
                 "requests.get(\n"
@@ -3822,6 +3868,27 @@ def _self_test() -> int:
         (
             "web/tests/n18i.ts",
             'spawn("echo", ["curl https://api.openai.com/v1/items"])\n',
+        ),
+        (
+            "tests/n18i_subprocess_sudo_option_value.py",
+            (
+                'subprocess.run(["sudo", "-p", "curl", "echo", '
+                '"https://api.openai.com/v1/items"])\n'
+            ),
+        ),
+        (
+            "tests/n18i_subprocess_sudo_dynamic_argument.py",
+            (
+                'subprocess.run(["sudo", sudo_argument, "curl", '
+                '"https://api.openai.com/v1/items"])\n'
+            ),
+        ),
+        (
+            "web/tests/n18i_spawn_timeout_option_value.ts",
+            (
+                'spawn("timeout", ["-s", "curl", "10", "echo", '
+                '"https://api.openai.com/v1/items"]);\n'
+            ),
         ),
         # An empty Node shell path is falsey and leaves the command in direct
         # executable mode; the whitespace-containing command cannot run curl.
