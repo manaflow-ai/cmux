@@ -483,6 +483,41 @@ struct PiFeedDockOwnershipTests {
     }
 
     @MainActor
+    @Test("Blocking Feed publishes window Dock attention to the rendered projection")
+    func blockingFeedPublishesWindowDockAttentionToRenderedProjection() async throws {
+        try await withAppContext { appDelegate, manager, _, windowID in
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let targetPanel = try dock.seedPiFeedPanel()
+            let projection = DockUnreadPanelProjection(
+                source: TerminalNotificationStore.shared.sidebarUnread,
+                workspaceID: windowID,
+                panelIDs: [targetPanel.id],
+                isActive: true
+            )
+            let target = try #require(
+                FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                    event: WorkstreamEvent(
+                        sessionId: "pi-window-dock-rendered-attention-feed",
+                        hookEventName: .permissionRequest,
+                        source: "pi",
+                        workspaceId: windowID.uuidString,
+                        surfaceId: targetPanel.id.uuidString,
+                        requestId: "pi-window-dock-rendered-attention-request"
+                    ),
+                    resolved: (windowID, targetPanel.id),
+                    tabManager: manager
+                )
+            )
+
+            #expect(projection.unreadPanelIDs == [targetPanel.id])
+
+            FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
+
+            #expect(projection.unreadPanelIDs.isEmpty)
+        }
+    }
+
+    @MainActor
     @Test("Blocking Feed attention follows a panel moved from window Dock to workspace")
     func blockingFeedAttentionFollowsPanelMovedFromWindowDockToWorkspace() async throws {
         try await withAppContext { appDelegate, _, workspace, windowID in
