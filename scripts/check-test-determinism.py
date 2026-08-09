@@ -148,7 +148,11 @@ class _FluentClientBinding:
     name: str
     kind: str
     constructor_end: int
+    base_target_bounds: Optional[tuple[int, int]]
+    scope_start: int
     scope_end: int
+    is_instance_property: bool
+    initialization_scope_end: Optional[int]
 
 
 # ---------------------------------------------------------------------------
@@ -1740,17 +1744,43 @@ def _fluent_constructor_base_target(
 def _fluent_assignment_binding(
     source: str,
     constructor_start: int,
+    constructor_end: int,
+    path_suffix: str,
 ) -> Optional[tuple[str, str]]:
-    """Return a simple assignment target and its indentation."""
+    """Return a simple assignment or Python context-manager binding."""
     window_floor = max(0, constructor_start - 512)
     window_start = source.rfind("\n", 0, window_floor) + 1
     match = _FLUENT_CLIENT_ASSIGNMENT.search(
         source[window_start:constructor_start]
     )
-    if match is None:
+    if match is not None:
+        binding = re.sub(r"\s*\.\s*", ".", match.group("binding"))
+        return binding, match.group("indent")
+
+    if path_suffix != ".py":
         return None
-    binding = re.sub(r"\s*\.\s*", ".", match.group("binding"))
-    return binding, match.group("indent")
+    line_end = source.find("\n", constructor_end)
+    if line_end == -1:
+        line_end = len(source)
+    context_binding = re.match(
+        r"\s+as\s+([A-Za-z_][A-Za-z0-9_]*)\s*:",
+        source[constructor_end + 1 : line_end],
+    )
+    if context_binding is None:
+        return None
+    body_start = line_end + 1
+    while body_start < len(source):
+        body_end = source.find("\n", body_start)
+        if body_end == -1:
+            body_end = len(source)
+        body_line = source[body_start:body_end]
+        if body_line.strip():
+            body_indent = re.match(r"[ \t]*", body_line)
+            if body_indent is not None:
+                return context_binding.group(1), body_indent.group(0)
+            return None
+        body_start = body_end + 1
+    return None
 
 
 def _python_binding_scope_end(
@@ -1778,24 +1808,75 @@ def _python_binding_scope_end(
     return len(source)
 
 
-def _javascript_binding_scope_end(
+def _python_instance_binding_scope_bounds(
     source: str,
     constructor_start: int,
     constructor_end: int,
+    binding_indent: str,
+) -> tuple[int, int]:
+    """Bound a self property to its owning Python class."""
+    line_start = source.rfind("\n", 0, constructor_start) + 1
+    while line_start > 0:
+        previous_end = line_start - 1
+        previous_start = source.rfind("\n", 0, previous_end) + 1
+        physical_line = source[previous_start:previous_end]
+        stripped = physical_line.lstrip()
+        indent_width = len(physical_line) - len(stripped)
+        if indent_width < len(binding_indent) and re.match(
+            r"class\b.*:\s*$",
+            stripped,
+        ):
+            scope_start = previous_end + 1
+            scan_start = source.find("\n", constructor_end)
+            if scan_start == -1:
+                return scope_start, len(source)
+            scan_start += 1
+            while scan_start < len(source):
+                scan_end = source.find("\n", scan_start)
+                if scan_end == -1:
+                    scan_end = len(source)
+                candidate = source[scan_start:scan_end]
+                if candidate.strip():
+                    candidate_indent = len(candidate) - len(candidate.lstrip())
+                    if candidate_indent <= indent_width:
+                        return scope_start, scan_start
+                scan_start = scan_end + 1
+            return scope_start, len(source)
+        line_start = previous_start
+    return (
+        constructor_end + 1,
+        _python_binding_scope_end(
+            source,
+            constructor_end,
+            binding_indent,
+        ),
+    )
+
+
+def _javascript_binding_scope_bounds(
+    source: str,
+    constructor_start: int,
+    constructor_end: int,
+    binding_name: str,
     path_suffix: str,
-) -> int:
+) -> tuple[int, int]:
     """Bound a JavaScript binding to its enclosing brace scope."""
     executable = _executable_code_positions(source, path_suffix)
-    brace_depth = 0
+    brace_stack: list[int] = []
     for index in range(constructor_start):
         if not executable[index]:
             continue
         if source[index] == "{":
-            brace_depth += 1
-        elif source[index] == "}":
-            brace_depth = max(0, brace_depth - 1)
+            brace_stack.append(index)
+        elif source[index] == "}" and brace_stack:
+            brace_stack.pop()
 
-    binding_depth = brace_depth
+    binding_depth = max(
+        0,
+        len(brace_stack) - (1 if binding_name.startswith("this.") else 0),
+    )
+    scope_start = brace_stack[binding_depth - 1] + 1 if binding_depth else 0
+    brace_depth = len(brace_stack)
     for index in range(constructor_end + 1, len(source)):
         if not executable[index]:
             continue
@@ -1804,28 +1885,48 @@ def _javascript_binding_scope_end(
         elif source[index] == "}":
             brace_depth -= 1
             if brace_depth < binding_depth:
-                return index
-    return len(source)
+                return scope_start, index
+    return scope_start, len(source)
 
 
-def _fluent_binding_scope_end(
+def _fluent_binding_scope(
     source: str,
     constructor_start: int,
     constructor_end: int,
+    binding_name: str,
     binding_indent: str,
     path_suffix: str,
-) -> int:
+) -> tuple[int, int, bool]:
     if path_suffix == ".py":
-        return _python_binding_scope_end(
-            source,
-            constructor_end,
-            binding_indent,
+        if binding_name.startswith("self."):
+            scope_start, scope_end = _python_instance_binding_scope_bounds(
+                source,
+                constructor_start,
+                constructor_end,
+                binding_indent,
+            )
+            return scope_start, scope_end, True
+        return (
+            constructor_end + 1,
+            _python_binding_scope_end(
+                source,
+                constructor_end,
+                binding_indent,
+            ),
+            False,
         )
-    return _javascript_binding_scope_end(
+    scope_start, scope_end = _javascript_binding_scope_bounds(
         source,
         constructor_start,
         constructor_end,
+        binding_name,
         path_suffix,
+    )
+    is_instance_property = binding_name.startswith("this.")
+    return (
+        scope_start if is_instance_property else constructor_end + 1,
+        scope_end,
+        is_instance_property,
     )
 
 
@@ -1833,7 +1934,7 @@ def _stored_fluent_client_bindings(
     source: str,
     path_suffix: str,
 ) -> list[_FluentClientBinding]:
-    """Find stored clients whose hardcoded base URL is public."""
+    """Find stored clients and their optional hardcoded base URL."""
     if path_suffix != ".py" and path_suffix not in _JAVASCRIPT_SUFFIXES:
         return []
     executable = _executable_code_positions(source, path_suffix)
@@ -1854,28 +1955,52 @@ def _stored_fluent_client_bindings(
             opening_paren,
             path_suffix,
         )
-        if base_target is None:
-            continue
-        base_start, base_end = base_target.value_bounds
-        if not _contains_public_network_url(source[base_start:base_end]):
-            continue
-        assignment = _fluent_assignment_binding(source, constructor.start())
+        constructor_end = _call_end(source, opening_paren, path_suffix)
+        assignment = _fluent_assignment_binding(
+            source,
+            constructor.start(),
+            constructor_end,
+            path_suffix,
+        )
         if assignment is None:
             continue
         name, binding_indent = assignment
-        constructor_end = _call_end(source, opening_paren, path_suffix)
+        scope_start, scope_end, is_instance_property = _fluent_binding_scope(
+            source,
+            constructor.start(),
+            constructor_end,
+            name,
+            binding_indent,
+            path_suffix,
+        )
+        initialization_scope_end: Optional[int] = None
+        if is_instance_property:
+            if path_suffix == ".py":
+                initialization_scope_end = _python_binding_scope_end(
+                    source,
+                    constructor_end,
+                    binding_indent,
+                )
+            else:
+                _, initialization_scope_end = _javascript_binding_scope_bounds(
+                    source,
+                    constructor.start(),
+                    constructor_end,
+                    "",
+                    path_suffix,
+                )
         bindings.append(
             _FluentClientBinding(
                 name=name,
                 kind=kind,
                 constructor_end=constructor_end,
-                scope_end=_fluent_binding_scope_end(
-                    source,
-                    constructor.start(),
-                    constructor_end,
-                    binding_indent,
-                    path_suffix,
+                base_target_bounds=(
+                    base_target.value_bounds if base_target is not None else None
                 ),
+                scope_start=scope_start,
+                scope_end=scope_end,
+                is_instance_property=is_instance_property,
+                initialization_scope_end=initialization_scope_end,
             )
         )
     return bindings
@@ -1885,6 +2010,45 @@ def _binding_expression_pattern(binding: str) -> str:
     return r"\s*\.\s*".join(
         re.escape(component)
         for component in binding.split(".")
+    )
+
+
+def _call_object_properties(
+    source: str,
+    arguments: list[_CallArgument],
+    path_suffix: str,
+) -> list[_CallArgument]:
+    return [
+        property_argument
+        for argument in arguments
+        for property_argument in _object_properties(
+            source,
+            argument.value_bounds,
+            path_suffix,
+        )
+    ]
+
+
+def _axios_invocation_method(matched_verb: str) -> Optional[str]:
+    match = re.match(
+        r"\s*axios(?:\s*\.\s*([A-Za-z]+))?\s*\(",
+        matched_verb,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    method = (match.group(1) or "call").lower()
+    return None if method == "create" else method
+
+
+def _axios_call_base_target(
+    source: str,
+    arguments: list[_CallArgument],
+    path_suffix: str,
+) -> Optional[_CallArgument]:
+    return _select_labeled_argument(
+        _call_object_properties(source, arguments, path_suffix),
+        _NETWORK_BASE_TARGET_LABELS,
     )
 
 
@@ -1898,10 +2062,9 @@ def _fluent_method_target(
     arguments = _call_arguments(source, opening_paren, path_suffix)
     candidates = list(arguments)
     if client_kind == "axios" and method == "request":
-        for argument in arguments:
-            candidates.extend(
-                _object_properties(source, argument.value_bounds, path_suffix)
-            )
+        candidates.extend(
+            _call_object_properties(source, arguments, path_suffix)
+        )
     positional_index = (
         1
         if client_kind == "httpx" and method in ("request", "stream")
@@ -1949,13 +2112,40 @@ def _stored_fluent_client_verb_offsets(
             rf"(?<![A-Za-z0-9_$]){expression}"
             r"\s*(?:\:\s*[^=\n;]+)?\s*=(?!=|>)"
         )
-        search_start = binding.constructor_end + 1
+        search_start = binding.scope_start
+        initialization_reassigned = (
+            binding.initialization_scope_end is not None
+            and _has_executable_match(
+                reassignment_pattern,
+                source,
+                binding.constructor_end + 1,
+                binding.initialization_scope_end,
+                executable,
+            )
+        )
         for call in method_pattern.finditer(
             source,
             search_start,
             binding.scope_end,
         ):
-            if _has_executable_match(
+            if binding.is_instance_property:
+                call_is_in_initialization_scope = (
+                    binding.initialization_scope_end is not None
+                    and binding.constructor_end < call.start()
+                    < binding.initialization_scope_end
+                )
+                if call_is_in_initialization_scope:
+                    if _has_executable_match(
+                        reassignment_pattern,
+                        source,
+                        binding.constructor_end + 1,
+                        call.start(),
+                        executable,
+                    ):
+                        continue
+                elif initialization_reassigned:
+                    continue
+            elif _has_executable_match(
                 reassignment_pattern,
                 source,
                 search_start,
@@ -1976,11 +2166,32 @@ def _stored_fluent_client_verb_offsets(
                 continue
             target_start, target_end = target.value_bounds
             target_source = source[target_start:target_end]
-            if _URL.search(target_source) and not _contains_public_network_url(
-                target_source
-            ):
+            if _URL.search(target_source):
+                if _contains_public_network_url(target_source):
+                    offsets.add(call.start())
                 continue
-            offsets.add(call.start())
+            if binding.kind == "axios":
+                call_arguments = _call_arguments(
+                    source,
+                    call.end() - 1,
+                    path_suffix,
+                )
+                base_override = _axios_call_base_target(
+                    source,
+                    call_arguments,
+                    path_suffix,
+                )
+                if base_override is not None:
+                    base_start, base_end = base_override.value_bounds
+                    base_source = source[base_start:base_end]
+                    if _URL.search(base_source):
+                        if _contains_public_network_url(base_source):
+                            offsets.add(call.start())
+                        continue
+            if binding.base_target_bounds is not None:
+                base_start, base_end = binding.base_target_bounds
+                if _contains_public_network_url(source[base_start:base_end]):
+                    offsets.add(call.start())
     return sorted(offsets)
 
 
@@ -2030,24 +2241,54 @@ def _direct_network_target_ranges(
             return []
 
     arguments = _call_arguments(line, opening_paren, path_suffix)
+    axios_method = _axios_invocation_method(matched_verb)
+    target_arguments = list(arguments)
+    if axios_method in ("call", "request"):
+        target_arguments.extend(
+            _call_object_properties(line, arguments, path_suffix)
+        )
     target_verb = line[match.start() : opening_paren + 1]
     spec = _network_target_spec(target_verb)
     target = _select_call_argument(
-        arguments,
+        target_arguments,
         spec.labels,
         spec.positional_index,
     )
     if target is None:
         return []
-    return [
-        target.value_bounds,
-        *_fluent_base_target_ranges(
+    fluent_base_ranges = _fluent_base_target_ranges(
+        line,
+        constructor_opening_paren,
+        target,
+        path_suffix,
+    )
+    target_start, target_end = target.value_bounds
+    if (
+        client_kind == "axios"
+        and not _URL.search(line[target_start:target_end])
+    ):
+        base_override = _axios_call_base_target(
             line,
-            constructor_opening_paren,
-            target,
+            arguments,
             path_suffix,
-        ),
+        )
+        if base_override is not None:
+            base_start, base_end = base_override.value_bounds
+            if _URL.search(line[base_start:base_end]):
+                fluent_base_ranges = [base_override.value_bounds]
+    target_ranges = [
+        target.value_bounds,
+        *fluent_base_ranges,
     ]
+    if axios_method is not None and not _URL.search(line[target_start:target_end]):
+        base_target = _axios_call_base_target(
+            line,
+            arguments,
+            path_suffix,
+        )
+        if base_target is not None:
+            target_ranges.append(base_target.value_bounds)
+    return target_ranges
 
 
 def _network_target_ranges(
@@ -2816,6 +3057,61 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/httpx_stored_client_explicit_public_target.py",
+            (
+                "client = httpx.Client()\n"
+                'client.get("https://api.openai.com/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/httpx_context_client_get.py",
+            (
+                'with httpx.Client(base_url="https://api.openai.com") as client:\n'
+                '    client.get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/httpx_instance_client_get.py",
+            (
+                "class LiveClientTest:\n"
+                "    def setUp(self):\n"
+                '        self.client = httpx.Client(base_url="https://api.openai.com")\n'
+                "\n"
+                "    def test_items(self):\n"
+                '        self.client.get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/httpx_instance_client_source_order.py",
+            (
+                "class LiveClientTest:\n"
+                "    def test_items(self):\n"
+                '        self.client.get("/v1/items")\n'
+                "\n"
+                "    def setUp(self):\n"
+                '        self.client = httpx.Client(base_url="https://api.openai.com")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/httpx_instance_client_teardown.py",
+            (
+                "class LiveClientTest:\n"
+                "    def setUp(self):\n"
+                '        self.client = httpx.Client(base_url="https://api.openai.com")\n'
+                "\n"
+                "    def tearDown(self):\n"
+                "        self.client = None\n"
+                "\n"
+                "    def test_items(self):\n"
+                '        self.client.get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/axios_client_get.ts",
             'axios.create().get("https://api.openai.com/v1/items")\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -2823,6 +3119,15 @@ def _self_test() -> int:
         (
             "web/tests/axios_options.ts",
             'axios.options("https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_request_base_url.ts",
+            (
+                'await axios.get("/v1/items", {\n'
+                '  baseURL: "https://api.openai.com",\n'
+                "});\n"
+            ),
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
@@ -2842,10 +3147,42 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/axios_client_request_base_override.ts",
+            (
+                'axios.create({ baseURL: "http://127.0.0.1:4321" })'
+                '.get("/v1/items", { baseURL: "https://api.openai.com" })\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/axios_stored_client_get.ts",
             (
                 'const client = axios.create({ baseURL: "https://api.openai.com" });\n'
                 'await client.get("/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_stored_client_public_base_override.ts",
+            (
+                'const client = axios.create({ baseURL: "http://127.0.0.1:4321" });\n'
+                'await client.get("/v1/items", '
+                '{ baseURL: "https://api.openai.com" });\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_instance_client_get.ts",
+            (
+                "class LiveClientTest {\n"
+                "  beforeEach() {\n"
+                '    this.client = axios.create({ baseURL: "https://api.openai.com" });\n'
+                "  }\n"
+                "\n"
+                "  async testItems() {\n"
+                '    await this.client.get("/v1/items");\n'
+                "  }\n"
+                "}\n"
             ),
             {RULE_LIVE_NETWORK_HOST},
         ),
@@ -3344,12 +3681,47 @@ def _self_test() -> int:
                 'client.get("/v1/items")\n'
             ),
         ),
+        (
+            "tests/n18y_httpx_instance_reassigned_in_setup.py",
+            (
+                "class LocalClientTest:\n"
+                "    def setUp(self):\n"
+                '        self.client = httpx.Client(base_url="https://api.openai.com")\n'
+                "        self.client = FakeClient()\n"
+                "\n"
+                "    def test_items(self):\n"
+                '        self.client.get("/v1/items")\n'
+            ),
+        ),
         # An explicit absolute request target overrides a stored base URL.
         (
             "web/tests/n18z_axios_loopback_override.ts",
             (
                 'const client = axios.create({ baseURL: "https://api.openai.com" });\n'
                 'await client.get("http://127.0.0.1:4321/health");\n'
+            ),
+        ),
+        (
+            "web/tests/n18z_axios_request_loopback_base.ts",
+            (
+                'await axios.get("/health", {\n'
+                '  baseURL: "http://127.0.0.1:4321",\n'
+                '  headers: { Referer: "https://cmux.com" },\n'
+                "});\n"
+            ),
+        ),
+        (
+            "web/tests/n18z_axios_stored_loopback_base_override.ts",
+            (
+                'const client = axios.create({ baseURL: "https://api.openai.com" });\n'
+                'await client.get("/health", { baseURL: "http://127.0.0.1:4321" });\n'
+            ),
+        ),
+        (
+            "web/tests/n18z_axios_chained_loopback_base_override.ts",
+            (
+                'await axios.create({ baseURL: "https://api.openai.com" })'
+                '.get("/health", { baseURL: "http://127.0.0.1:4321" });\n'
             ),
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
