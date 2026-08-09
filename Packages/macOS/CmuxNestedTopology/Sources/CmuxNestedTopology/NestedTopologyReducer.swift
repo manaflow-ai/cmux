@@ -288,19 +288,19 @@ public struct NestedTopologyReducer: Sendable {
         state: inout NestedTopologyReductionState
     ) throws {
         try validator.validateEventNode(node, provider: provider)
-        try validateParent(
-            node: node.id,
-            parent: node.association.tabID,
-            expectedKind: .tab,
-            provider: provider,
-            exists: state.lookup.tabIndices[node.association.tabID] != nil
-        )
         guard let index = state.lookup.paneIndices[node.id] else {
             throw NestedTopologyError.missingNode(id: node.id)
         }
         let existing = state.panes[index]
         let merged = existing.mergingUpdate(node)
         guard merged != existing else { return }
+        try validateParent(
+            node: merged.id,
+            parent: merged.association.tabID,
+            expectedKind: .tab,
+            provider: provider,
+            exists: state.lookup.tabIndices[merged.association.tabID] != nil
+        )
         state.replace(merged, at: index)
         state.paneOrderingChanged = existing.order != merged.order
             || existing.association.tabID != merged.association.tabID
