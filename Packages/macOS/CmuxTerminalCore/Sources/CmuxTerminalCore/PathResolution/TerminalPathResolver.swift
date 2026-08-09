@@ -86,16 +86,24 @@ public struct TerminalWrappedTokenShape: Sendable, Equatable {
 /// would have stopped at (never changing what it actually decides — see
 /// ``TerminalPathResolver/diagnoseCandidateShape(seed:previousRow:nextRow:cwd:gridColumns:)``'s
 /// doc). `nil` fields mean that step's INPUT was unavailable (e.g. no
-/// fragment extracted at all), not that the check failed.
+/// fragment extracted at all) OR unavailable in COLUMN-RANGED form (a
+/// non-ASCII `.previous` adjacent row where `outcome` itself succeeded
+/// only through ``String/trailingContinuationFragmentText()``'s
+/// text-only fallback, design-next-round-bundle-8810.md §1) — never that
+/// the check failed.
 public struct TerminalWrappedDirectionShapeDiagnostic: Sendable, Equatable {
     /// The REAL decision `resolveSingleDirection` makes for this
     /// direction — identical to what `diagnoseWrappedCandidate` reports.
+    /// May be `.succeeded` even when `fragmentShape` below is `nil` (the
+    /// text-only fallback case above) — this field alone is the ground
+    /// truth for whether the direction resolved, `fragmentShape` is
+    /// purely a column-shape extra.
     public let outcome: TerminalWrappedCandidateDirectionOutcome
     public let fragmentShape: TerminalWrappedTokenShape?
     /// Whether the leading piece of this direction's join (the clicked
     /// token for `.next`, the adjacent fragment for `.previous`) is
-    /// itself path-prefix-shaped — `nil` only if no fragment was
-    /// extracted at all.
+    /// itself path-prefix-shaped — `nil` only if no COLUMN-RANGED
+    /// fragment was extracted (see this type's own doc).
     public let leadingPieceIsPathPrefixShaped: Bool?
     /// Whether the joined candidate is shaped like a real path —
     /// computed even when an earlier guard (prefix shape, fragment-alone
@@ -142,14 +150,32 @@ public struct TerminalWrappedPathSeed: Sendable {
     /// caller never needs to re-tokenize to find where to underline it.
     let tokenStartColumn: Int
     let tokenEndColumn: Int
+    /// final-spec-scope-expansion-8810.md §3 — which row-local-hit state
+    /// `wrappedPathSeed(in:column:cwd:columns:)` left this seed in, for
+    /// the contiguous-span evaluator to route on. Internal (never
+    /// exposed): only ``TerminalPathResolver`` itself constructs a seed,
+    /// and only it needs to branch on this — see
+    /// ``TerminalRowLocalDisposition``'s own doc for what each case
+    /// means and why `evaluateContiguousSpans` must NEVER re-derive this
+    /// by calling ``resolveVisibleLinePath(_:column:cwd:)`` again itself
+    /// (final-spec §8 rule 1: never re-probe the clicked token).
+    let disposition: TerminalRowLocalDisposition
 }
 
 /// (B) ExternalHover — one cell span to underline, relative to the clicked
-/// row. Exactly two are ever produced for a resolved wrapped-path
-/// candidate: the clicked token's own span (`rowOffsetFromClicked == 0`)
-/// and the winning direction's adjacent-row fragment span
-/// (`rowOffsetFromClicked == -1` for `.previous`, `+1` for `.next`) — never
-/// a rejected direction's span, matching
+/// row. Through the 2-row
+/// ``TerminalPathResolver/resolveWrappedCandidate(seed:previousRow:nextRow:cwd:)``
+/// overload, exactly two are ever produced: the clicked token's own span
+/// (`rowOffsetFromClicked == 0`) and the winning direction's adjacent-row
+/// fragment span (`rowOffsetFromClicked == -1` for `.previous`, `+1` for
+/// `.next`). Through the geometry-aware, window-based
+/// ``TerminalPathResolver/resolveWrappedCandidate(seed:window:cwd:geometry:)``
+/// overload, one entry is produced per row in the winning contiguous span
+/// (final-spec-scope-expansion-8810.md §4) — up to ``TerminalWrapGeometry``'s
+/// `maxWrappedRows` (4) — clicked row first, then the rest in ascending
+/// row order, which degenerates to the exact 2-entry, 2-row shape above
+/// when the winning span happens to be 2 rows wide. Never a rejected
+/// span's entries, matching
 /// ``TerminalWrappedPathResolution/nativeMatchKeys``'s same winning-only
 /// rule.
 ///
@@ -157,6 +183,30 @@ public struct TerminalWrappedPathSeed: Sendable {
 /// clicked row's own viewport row to `rowOffsetFromClicked` — this type
 /// intentionally carries no absolute row itself, since that would require
 /// re-deriving it correctly at every call site instead of once.
+/// design-next-round-bundle-8810.md §1 — whether (B) ExternalHover's cell
+/// columns for a resolved candidate could be computed at all. A non-ASCII
+/// adjacent row makes `column` a terminal-cell index that no longer lines
+/// up with `String` character indices (the same reason every ASCII guard
+/// in `String+TerminalPathTokens.swift` exists), so a candidate resolved
+/// through that row's fragment TEXT alone (``String/trailingContinuationFragmentText()``,
+/// the click-only fallback) has real path/match-key data but no column
+/// range to underline. This type makes that "unknown," not "wrong" or
+/// "silently absent": a caller must not guess a column range, and must not
+/// treat this the same as `.available([])` (which means "no spans, e.g. a
+/// resolution constructed directly rather than through the wrap-resolver
+/// paths" — a different, always-safe-to-ignore case).
+///
+/// (B) ExternalHover fails closed on `.unavailableNonASCIIRow` — no
+/// candidate is shown, rather than one with a wrong or missing underline —
+/// while click still opens the resolved path (its correctness never
+/// depended on columns at all).
+public enum TerminalWrappedCellSpans: Sendable, Equatable {
+    case available([TerminalWrappedPathCellSpan])
+    /// The resolution joined through at least one non-ASCII row via
+    /// text-only extraction — see this type's own doc.
+    case unavailableNonASCIIRow
+}
+
 public struct TerminalWrappedPathCellSpan: Sendable, Equatable {
     public let rowOffsetFromClicked: Int
     /// Inclusive start column.
@@ -179,20 +229,30 @@ public struct TerminalWrappedPathCellSpan: Sendable, Equatable {
 public struct TerminalWrappedPathResolution: Sendable, Equatable {
     /// The existing standardized file-system path to open.
     public let path: String
-    /// Ordered, deduplicated, at most 3 exact-match keys for correlating
-    /// this candidate against a native Ghostty `open_url` callback for the
-    /// same click:
+    /// Ordered, deduplicated exact-match keys for correlating this
+    /// candidate against a native Ghostty `open_url` callback for the same
+    /// click.
+    ///
+    /// Through the 2-row `resolveWrappedCandidate(seed:previousRow:nextRow:cwd:)`
+    /// overload, at most 3:
     ///
     /// 1. The raw, fully joined candidate text (clicked token and adjacent
     ///    fragment concatenated in the order used to build ``path``).
     /// 2. The clicked row's raw fragment (the token alone).
     /// 3. The winning direction's adjacent row's raw fragment alone.
     ///
-    /// Only the *winning* direction's constituents are ever included —
-    /// never a rejected direction's fragment, which would widen the set of
+    /// Through the geometry-aware `resolveWrappedCandidate(seed:window:cwd:geometry:)`
+    /// overload, at most 8 (final-spec-scope-expansion-8810.md §6): every
+    /// clicked-row-containing contiguous subchain of the winning span, plus
+    /// the clicked row's immediate neighbors, in that stable order — which
+    /// degenerates to the exact 3-key set/order above when the winning
+    /// span happens to be 2 rows wide.
+    ///
+    /// Only the *winning* span/direction's constituents are ever included —
+    /// never a rejected one's fragment, which would widen the set of
     /// native text this candidate can claim beyond what this click actually
     /// resolved. Empty entries are dropped and duplicates collapsed, so the
-    /// array can have fewer than 3 entries.
+    /// array can have fewer entries than the cap.
     ///
     /// "Raw" means the terminal-visible representation Ghostty's own
     /// callback reports — not a filesystem-oriented path (no quote
@@ -208,17 +268,23 @@ public struct TerminalWrappedPathResolution: Sendable, Equatable {
 
     /// (B) ExternalHover — the clicked token's span plus the winning
     /// direction's adjacent-row fragment span, for underlining without
-    /// re-tokenizing. Exactly 2 entries when resolved through
-    /// ``TerminalPathResolver/resolveWrappedCandidate(seed:previousRow:nextRow:cwd:)``;
-    /// empty for a `TerminalWrappedPathResolution` constructed directly
-    /// (e.g. in existing click-arbitrator tests that only need `path`/
-    /// `nativeMatchKeys`).
-    public let cellSpans: [TerminalWrappedPathCellSpan]
+    /// re-tokenizing. `.available` with exactly 2 entries when resolved
+    /// through
+    /// ``TerminalPathResolver/resolveWrappedCandidate(seed:previousRow:nextRow:cwd:)``
+    /// via the guarded, column-range extractors; `.available([])` for a
+    /// `TerminalWrappedPathResolution` constructed directly (e.g. in
+    /// existing click-arbitrator tests that only need `path`/
+    /// `nativeMatchKeys`); `.unavailableNonASCIIRow` when the resolution
+    /// instead joined through ``String/trailingContinuationFragmentText()``'s
+    /// text-only, click-only fallback (design-next-round-bundle-8810.md
+    /// §1) — see ``TerminalWrappedCellSpans``'s own doc for what a caller
+    /// must do with that case.
+    public let cellSpans: TerminalWrappedCellSpans
 
     public init(
         path: String,
         nativeMatchKeys: [String],
-        cellSpans: [TerminalWrappedPathCellSpan] = []
+        cellSpans: TerminalWrappedCellSpans = .available([])
     ) {
         self.path = path
         self.nativeMatchKeys = nativeMatchKeys
@@ -355,35 +421,59 @@ public struct TerminalPathResolver: Sendable {
     ///   - clickedRow: The full text of the row under the cursor.
     ///   - column: The zero-based column under the cursor.
     ///   - cwd: The surface's working directory.
+    ///   - columns: The physical grid's column count, when known —
+    ///     final-spec-scope-expansion-8810.md §3.2's third row-local
+    ///     disposition (``TerminalRowLocalDisposition/rowLocalHitAwaitingMirrorSlashSeam``)
+    ///     needs this to detect whether the clicked token reaches the
+    ///     row's strict physical right edge, which a caller with no
+    ///     window/geometry at hand (the legacy 2-row callers) simply
+    ///     can't supply — `nil` here can NEVER reach that disposition,
+    ///     only ``TerminalRowLocalDisposition/noRowLocalHit`` or
+    ///     ``TerminalRowLocalDisposition/explicitTrailingSlashSeamBypass``,
+    ///     exactly matching this method's pre-§3.2 behavior byte-for-byte.
     /// - Returns: A seed naming which adjacent row would complete the
     ///   token, or `nil` when no wrapped-path candidate touches `column`.
     /// review-slash-boundary-and-codex-comparison.md §2's row1/leading-side
     /// fix (issue #8810 bug A): a row-local hit no longer unconditionally
     /// wins. Token/range extraction now runs BEFORE the row-local check, and
-    /// row-local resolving still returns `nil` here in every case EXCEPT one
-    /// narrow exception — an explicit `/` continuation seam — mirroring
-    /// Ghostty's own `link_wrap.zig` treating a trailing `/` as stronger
-    /// continuation evidence than ordinary mid-word adjacency.
+    /// row-local resolving still returns `nil` here in every case EXCEPT two
+    /// narrow exceptions — see ``TerminalRowLocalDisposition``'s own doc for
+    /// each case, and final-spec §3 generally.
     ///
-    /// The exception requires: the match has a `.next` direction (which,
-    /// by ``String/wrapContinuationToken(atColumn:maxIndentation:)``'s own
+    /// The FIRST exception (bug A, ``TerminalRowLocalDisposition/explicitTrailingSlashSeamBypass``)
+    /// requires: the match has a `.next` direction (which, by
+    /// ``String/wrapContinuationToken(atColumn:maxIndentation:)``'s own
     /// construction, already implies the token touches the row's trailing
     /// boundary — condition 3 in the design doc is structurally guaranteed
     /// by condition 1, not checked separately), and the clicked token
-    /// itself ends with `/`. Meeting this only produces a PROVISIONAL
-    /// seed: the actual decision still requires the adjacent row's
-    /// fragment to be unindented and the exact joined candidate to exist
-    /// (``resolveSingleDirection(_:seed:adjacentRow:cwd:)``'s matching
-    /// `explicitSlashSeam` bypass of the `fragmentAloneExists` guard). If
-    /// that later join fails, ``resolveWrappedCandidate(seed:previousRow:nextRow:cwd:)``
-    /// returns `nil` exactly as if this method had returned `nil` directly,
-    /// so a caller's existing row-local fallback (triggered by a `nil`
-    /// candidate, not by a `nil` seed specifically) still applies
-    /// identically either way.
+    /// itself ends with `/`.
+    ///
+    /// The SECOND exception (final-spec §3.2,
+    /// ``TerminalRowLocalDisposition/rowLocalHitAwaitingMirrorSlashSeam``)
+    /// requires `columns` to be supplied AND the clicked token to reach
+    /// the row's strict physical right edge — final-spec §1's adopted
+    /// `fullnessTolerance = 0` policy, matching
+    /// ``TerminalWrapGeometry``'s own default; there is no lower row
+    /// available at seed-construction time to route this through
+    /// ``WrapBoundaryOracle`` the way the evaluator's OWN boundary checks
+    /// do, so this uses ``String/lastNonWhitespaceColumn`` directly with
+    /// that same tolerance-0 semantics spelled out inline instead.
+    ///
+    /// EITHER exception only produces a PROVISIONAL seed: the actual
+    /// decision still requires further confirmation downstream (bug A:
+    /// ``resolveSingleDirection(_:seed:adjacentRow:cwd:)``'s matching
+    /// `explicitSlashSeam` bypass; §3.2: `evaluateContiguousSpans`'s own
+    /// mirror-seam-only gating on this disposition). If that later
+    /// confirmation fails, `resolveWrappedCandidate` returns `nil` exactly
+    /// as if this method had returned `nil` directly, so a caller's
+    /// existing row-local fallback (triggered by a `nil` candidate, not
+    /// by a `nil` seed specifically) still applies identically either
+    /// way — final-spec §3.2 rule 4.
     public func wrappedPathSeed(
         in clickedRow: String,
         column: Int,
-        cwd: String
+        cwd: String,
+        columns: Int? = nil
     ) -> TerminalWrappedPathSeed? {
         guard let match = clickedRow.wrapContinuationToken(
             atColumn: column,
@@ -392,17 +482,27 @@ public struct TerminalPathResolver: Sendable {
             return nil
         }
 
+        let disposition: TerminalRowLocalDisposition
         if resolveVisibleLinePath(clickedRow, column: column, cwd: cwd) != nil {
-            guard match.directions.contains(.next), match.token.hasSuffix("/") else {
+            if match.directions.contains(.next), match.token.hasSuffix("/") {
+                disposition = .explicitTrailingSlashSeamBypass
+            } else if let columns,
+                      let lastColumn = clickedRow.lastNonWhitespaceColumn,
+                      lastColumn >= columns - 1 {
+                disposition = .rowLocalHitAwaitingMirrorSlashSeam
+            } else {
                 return nil
             }
+        } else {
+            disposition = .noRowLocalHit
         }
 
         return TerminalWrappedPathSeed(
             directions: match.directions,
             token: match.token,
             tokenStartColumn: match.startColumn,
-            tokenEndColumn: match.endColumn
+            tokenEndColumn: match.endColumn,
+            disposition: disposition
         )
     }
 
@@ -500,34 +600,52 @@ public struct TerminalPathResolver: Sendable {
         evaluateWrappedCandidate(seed: seed, previousRow: previousRow, nextRow: nextRow, cwd: cwd).candidate
     }
 
-    /// impl-scope-expansion-8810-test-only
-    /// (final-spec-scope-expansion-8810.md §1/§10) — the geometry-aware
-    /// entry point the multi-row contiguous-span evaluator and mirror-
-    /// slash-seam predicate will use once implemented. **This pass
-    /// deliberately ignores `geometry` and falls back to the existing
-    /// adjacent-row-only behavior** — the contiguous-span evaluator,
-    /// mirror-slash-seam predicate, and `TerminalRowLocalDisposition`
-    /// wiring are gated on issue #8810 bug B's real-machine root-cause
-    /// confirmation (final-spec §12's implementation order) and land in a
-    /// later pass. Until then, `geometry: nil` and any other geometry
-    /// value produce IDENTICAL results through this overload — the
-    /// required tests for the deferred multi-row/mirror-seam behavior are
-    /// therefore expected to fail here (asserting on behavior this
-    /// overload doesn't implement yet), not to pass.
+    /// final-spec-scope-expansion-8810.md §2/§4-§10 — the geometry-aware,
+    /// multi-row entry point. Unlike
+    /// ``resolveWrappedCandidate(seed:previousRow:nextRow:cwd:)``, this
+    /// takes a whole ``TerminalPhysicalRowWindow`` (not just the two rows
+    /// immediately adjacent to the clicked one) — the contiguous-span
+    /// evaluator needs to see every row a candidate might span (up to
+    /// ``maxWrappedRows``), which a single `previousRow`/`nextRow` pair
+    /// structurally cannot carry.
     ///
-    /// final-spec §10's compatibility contract ("`geometry: nil` →
-    /// legacy") is satisfied trivially in this pass, since geometry is
-    /// ignored outright; it becomes a REAL, tested distinction once the
-    /// evaluator lands.
+    /// final-spec §10's compatibility contract: `geometry: nil` falls
+    /// back to the EXACT adjacent-row-only behavior of
+    /// ``resolveWrappedCandidate(seed:previousRow:nextRow:cwd:)`` (sourcing
+    /// `previousRow`/`nextRow` from the window's immediate neighbors) —
+    /// never the multi-row evaluator. A non-`nil` geometry activates the
+    /// contiguous-span evaluator (final-spec §4), the mirror-slash-seam
+    /// boundary predicate (§5), and the cap-8 `nativeMatchKeys` ordering
+    /// (§6).
+    ///
+    /// - Parameters:
+    ///   - seed: The seed returned by ``wrappedPathSeed(in:column:cwd:)``,
+    ///     tokenized from `window.rows[window.clickedIndex]`.
+    ///   - window: The physical rows around the click, with `window`
+    ///     being the sole owner of the grid's column count.
+    ///   - cwd: The surface's working directory.
+    ///   - geometry: The fullness-guard tunable; `nil` for legacy
+    ///     adjacent-row-only behavior.
+    /// - Returns: The resolved candidate when exactly one contiguous span
+    ///   dominates every other successful span; `nil` when zero spans
+    ///   succeed, or when multiple succeed without one containing all the
+    ///   others (final-spec §4.3).
     public func resolveWrappedCandidate(
         seed: TerminalWrappedPathSeed,
-        previousRow: String?,
-        nextRow: String?,
+        window: TerminalPhysicalRowWindow,
         cwd: String,
         geometry: TerminalWrapGeometry?
     ) -> TerminalWrappedPathResolution? {
-        _ = geometry
-        return resolveWrappedCandidate(seed: seed, previousRow: previousRow, nextRow: nextRow, cwd: cwd)
+        guard let geometry else {
+            let previousRow = window.clickedIndex > 0 ? window.rows[window.clickedIndex - 1] : nil
+            let nextRow = window.clickedIndex + 1 < window.rows.count ? window.rows[window.clickedIndex + 1] : nil
+            return resolveWrappedCandidate(seed: seed, previousRow: previousRow, nextRow: nextRow, cwd: cwd)
+        }
+        // final-spec §2.2: `tolerance >= columns` is checked here, the one
+        // place both a window (with `columns`) and a geometry are
+        // available together.
+        guard geometry.fullnessTolerance < window.columns else { return nil }
+        return evaluateContiguousSpans(seed: seed, window: window, cwd: cwd, geometry: geometry).candidate
     }
 
     /// Runs the same independent-per-direction resolution as
@@ -574,6 +692,20 @@ public struct TerminalPathResolver: Sendable {
         nextRow: String?,
         cwd: String
     ) -> (candidate: TerminalWrappedPathResolution?, outcomes: [TerminalWrapDirection: TerminalWrappedCandidateDirectionOutcome]) {
+        // final-spec §3.2 rule 2 — a seed in this disposition may ONLY
+        // produce a candidate through a boundary that satisfies
+        // `mirrorSlashSeam`, which needs `columns` (a window's, never
+        // just two bare row strings) to evaluate at all. This 2-row
+        // legacy path structurally has no `columns`, so it can never
+        // satisfy rule 2 — it must always defer to the existing
+        // row-local path (rule 4), never attempt the ordinary
+        // per-direction join `resolveSingleDirection` would otherwise
+        // run. Only the geometry-aware `resolveWrappedCandidate(seed:window:cwd:geometry:)`
+        // overload can actually resolve this disposition.
+        guard seed.disposition != .rowLocalHitAwaitingMirrorSlashSeam else {
+            return (nil, [:])
+        }
+
         var outcomes: [TerminalWrapDirection: TerminalWrappedCandidateDirectionOutcome] = [:]
 
         if seed.directions.contains(.previous), let previousRow {
@@ -705,15 +837,48 @@ public struct TerminalPathResolver: Sendable {
         cwd: String
     ) -> TerminalWrappedCandidateDirectionOutcome {
         let token = seed.token
-        let fragmentMatch: (fragment: String, startColumn: Int, endColumn: Int)?
+        // design-next-round-bundle-8810.md §1 — `.next` always uses the
+        // guarded, column-ranged extractor (the clicked column is the
+        // only place columns matter for THIS row's own token, but
+        // `.next`'s fragment sits on the row the clicked column never
+        // touches — still guarded, unrelaxed). `.previous` prefers that
+        // same guarded extractor too — (B) ExternalHover's underline
+        // needs its column range — but falls back to
+        // ``String/trailingContinuationFragmentText()`` when the guarded
+        // extractor fails ONLY because `adjacentRow` is non-ASCII: the
+        // trailing fragment's TEXT never depended on any column
+        // projection at all, unlike the guard's actual reason to exist.
+        // `fragmentColumns == nil` after this means the fallback was
+        // taken, and the eventual `.succeeded` result reports
+        // `.unavailableNonASCIIRow` instead of guessing a column range.
+        //
+        // This fallback is reachable ONLY through this 2-row legacy
+        // path: `evaluateContiguousSpans` (the geometry-aware, multi-row
+        // evaluator) never calls `resolveSingleDirection` at all — it
+        // extracts its own pieces directly, always through the guarded
+        // extractors — so a `geometry` value in play always means the
+        // guarded extractor and nothing else, matching that design's
+        // rule 2 ("geometry が渡されている場合は text-only 経路を使わない").
+        let fragment: String
+        let fragmentColumns: (startColumn: Int, endColumn: Int)?
         switch direction {
         case .next:
-            fragmentMatch = adjacentRow.leadingContinuationFragmentWithRange(maxIndentation: Self.maxContinuationIndentation)
+            guard let match = adjacentRow.leadingContinuationFragmentWithRange(
+                maxIndentation: Self.maxContinuationIndentation
+            ) else { return .noFragment }
+            fragment = match.fragment
+            fragmentColumns = (match.startColumn, match.endColumn)
         case .previous:
-            fragmentMatch = adjacentRow.trailingContinuationFragmentWithRange()
+            if let match = adjacentRow.trailingContinuationFragmentWithRange() {
+                fragment = match.fragment
+                fragmentColumns = (match.startColumn, match.endColumn)
+            } else if let textOnly = adjacentRow.trailingContinuationFragmentText() {
+                fragment = textOnly
+                fragmentColumns = nil
+            } else {
+                return .noFragment
+            }
         }
-        guard let fragmentMatch else { return .noFragment }
-        let fragment = fragmentMatch.fragment
         guard fragment.count <= Self.maxWrappedFragmentLength else { return .fragmentTooLong }
 
         // The fragment sum is checked before building the joined string so
@@ -747,7 +912,9 @@ public struct TerminalPathResolver: Sendable {
         let explicitSlashSeam: Bool
         switch direction {
         case .next:
-            explicitSlashSeam = token.hasSuffix("/") && fragmentMatch.startColumn == 0
+            // `.next`'s `fragmentColumns` is always populated (guarded
+            // extraction is the only branch above for that direction).
+            explicitSlashSeam = token.hasSuffix("/") && fragmentColumns?.startColumn == 0
         case .previous:
             explicitSlashSeam = fragment.hasSuffix("/") && seed.tokenStartColumn == 0
         }
@@ -777,18 +944,28 @@ public struct TerminalPathResolver: Sendable {
         // Order doesn't encode meaning (a caller materializes each by its
         // own rowOffsetFromClicked), but clicked-first matches this type's
         // own "clicked token, then adjacent fragment" narrative elsewhere.
-        let cellSpans = [
-            TerminalWrappedPathCellSpan(
-                rowOffsetFromClicked: 0,
-                startColumn: seed.tokenStartColumn,
-                endColumn: seed.tokenEndColumn
-            ),
-            TerminalWrappedPathCellSpan(
-                rowOffsetFromClicked: direction == .previous ? -1 : 1,
-                startColumn: fragmentMatch.startColumn,
-                endColumn: fragmentMatch.endColumn
-            ),
-        ]
+        // `fragmentColumns == nil` (the text-only fallback was taken)
+        // means there is no real column range to report at all — never
+        // guessed, never silently dropped to `.available([])` (which
+        // would read as "this resolution legitimately has no spans," a
+        // different case) — see ``TerminalWrappedCellSpans``'s own doc.
+        let cellSpans: TerminalWrappedCellSpans
+        if let fragmentColumns {
+            cellSpans = .available([
+                TerminalWrappedPathCellSpan(
+                    rowOffsetFromClicked: 0,
+                    startColumn: seed.tokenStartColumn,
+                    endColumn: seed.tokenEndColumn
+                ),
+                TerminalWrappedPathCellSpan(
+                    rowOffsetFromClicked: direction == .previous ? -1 : 1,
+                    startColumn: fragmentColumns.startColumn,
+                    endColumn: fragmentColumns.endColumn
+                ),
+            ])
+        } else {
+            cellSpans = .unavailableNonASCIIRow
+        }
         return .succeeded(TerminalWrappedPathResolution(
             path: standardizedPath,
             nativeMatchKeys: matchKeys,
@@ -813,5 +990,376 @@ public struct TerminalPathResolver: Sendable {
         }
         let standardized = (candidatePath as NSString).standardizingPath
         return fileExists(standardized) ? standardized : nil
+    }
+
+    // MARK: - final-spec-scope-expansion-8810.md §4-§8 — contiguous-span evaluator
+
+    /// Maximum physical rows a single wrapped-path candidate may span.
+    /// final-spec §7: the search's primary guard is fullness (every
+    /// internal boundary must reach the strict right edge); this is a
+    /// runaway backstop, not the main defense.
+    private static let maxWrappedRows = 4
+    /// Maximum joined-candidate length, in UTF-8 BYTES (never `Character`
+    /// or terminal-cell count — final-spec §7 is explicit that those units
+    /// must not be conflated here).
+    private static let maxWrappedCandidateBytes = 2048
+
+    /// One row's contribution to a multi-row span, plus the column range
+    /// it occupies on that physical row (for `cellSpans`).
+    private struct SpanPiece {
+        let text: String
+        let startColumn: Int
+        let endColumn: Int
+    }
+
+    /// A structurally- and existence-guarded span that resolved to a real
+    /// path — a candidate for adoption (final-spec §4.3), not yet the
+    /// final answer.
+    private struct SpanSuccess {
+        let range: ClosedRange<Int>
+        let standardizedPath: String
+        let pieces: [SpanPiece]
+    }
+
+    /// design-next-round-bundle-8810.md §3 — the single seam behind every
+    /// "does this boundary look like a hard-wrap continuation" judgment
+    /// the contiguous-span evaluator makes: final-spec §4.2's per-boundary
+    /// fullness guard, and ``mirrorSlashSeam(_:_:)``'s own upper-row-full
+    /// sub-check (§5.1) — never two separate copies of the same fact.
+    /// ``TextHeuristicWrapBoundaryOracle`` (strict physical edge, a
+    /// configurable tolerance) is the only implementation today; a future
+    /// pass can inject one that instead consumes Ghostty's native
+    /// `hardWrapBoundary` verdict (which has access to `row.wrap`/actual
+    /// cell data this text-only heuristic can only approximate) without
+    /// touching a single line of the span enumeration logic below —
+    /// exactly the reason this seam exists (design's own "同じ事実の
+    /// 二重の正本を作らない" rationale).
+    private protocol WrapBoundaryOracle {
+        /// - Parameters:
+        ///   - upperRow: The physical row immediately above the boundary.
+        ///   - lowerRow: The physical row immediately below the boundary
+        ///     — carried for a future native implementation that may
+        ///     need it; the current text heuristic only ever inspects
+        ///     `upperRow`.
+        ///   - columns: The physical grid's column count.
+        func isWrapContinuationBoundary(upperRow: String, lowerRow: String, columns: Int) -> Bool
+    }
+
+    /// The current, only ``WrapBoundaryOracle`` implementation: strict
+    /// physical right edge, with a configurable tolerance
+    /// (final-spec-scope-expansion-8810.md §1/§2.2) — byte-for-byte the
+    /// same judgment `evaluateContiguousSpans` made inline before this
+    /// seam existed.
+    private struct TextHeuristicWrapBoundaryOracle: WrapBoundaryOracle {
+        let fullnessTolerance: Int
+
+        func isWrapContinuationBoundary(upperRow: String, lowerRow: String, columns: Int) -> Bool {
+            guard let lastColumn = upperRow.lastNonWhitespaceColumn else { return false }
+            return lastColumn >= columns - 1 - fullnessTolerance
+        }
+    }
+
+    /// final-spec §4 — enumerates every structurally-eligible contiguous
+    /// row span (length 2...``maxWrappedRows``) containing
+    /// `window.clickedIndex`, evaluates each independently, and adopts the
+    /// unique dominating success (§4.3). `geometry` is always non-`nil`
+    /// here — the `nil` fallback is handled by the caller before this is
+    /// ever reached.
+    private func evaluateContiguousSpans(
+        seed: TerminalWrappedPathSeed,
+        window: TerminalPhysicalRowWindow,
+        cwd: String,
+        geometry: TerminalWrapGeometry
+    ) -> (candidate: TerminalWrappedPathResolution?, spanCount: Int) {
+        let clickedIndex = window.clickedIndex
+        let oracle: any WrapBoundaryOracle = TextHeuristicWrapBoundaryOracle(fullnessTolerance: geometry.fullnessTolerance)
+        var probeBudget = TerminalWrapProbeBudget()
+        // final-spec §8 rule 2: the SAME raw fragment/candidate probed by
+        // more than one span (e.g. the same `spanStart` fragment reused
+        // across several `spanEnd` choices) is only ever probed once.
+        var probeCache: [String: String?] = [:]
+
+        func probe(_ raw: String) -> String? {
+            if let cached = probeCache[raw] { return cached }
+            guard probeBudget.consume() else { return nil }
+            let result = probeExists(raw, cwd: cwd)
+            probeCache[raw] = result
+            return result
+        }
+
+        // final-spec §5.1: pure, boundary-local — never a property of
+        // which row was clicked (see that section's own "クリック行の属性に
+        // してはいけません" note, which is exactly why this takes two rows
+        // and never the seed/clicked index).
+        func mirrorSlashSeam(upperRow: String, lowerRow: String) -> Bool {
+            guard oracle.isWrapContinuationBoundary(upperRow: upperRow, lowerRow: lowerRow, columns: window.columns) else {
+                return false
+            }
+            return lowerRow.first == "/"
+        }
+
+        // final-spec §4.1: the clicked row always contributes `seed.token`
+        // (regardless of whether it also happens to be a span endpoint);
+        // an endpoint that ISN'T the clicked row contributes its
+        // trailing/leading fragment (mirroring the existing 2-row
+        // `.previous`/`.next` extraction); every other row contributes its
+        // whole grid-padding-trimmed content.
+        func piece(at row: Int, spanStart: Int, spanEnd: Int) -> SpanPiece? {
+            if row == clickedIndex {
+                return SpanPiece(text: seed.token, startColumn: seed.tokenStartColumn, endColumn: seed.tokenEndColumn)
+            }
+            if row == spanStart {
+                guard let match = window.rows[row].trailingContinuationFragmentWithRange() else { return nil }
+                return SpanPiece(text: match.fragment, startColumn: match.startColumn, endColumn: match.endColumn)
+            }
+            if row == spanEnd {
+                guard let match = window.rows[row].leadingContinuationFragmentWithRange(
+                    maxIndentation: Self.maxContinuationIndentation
+                ) else { return nil }
+                return SpanPiece(text: match.fragment, startColumn: match.startColumn, endColumn: match.endColumn)
+            }
+            guard let match = window.rows[row].gridPaddingTrimmedWithRange(), match.startColumn == 0 else {
+                // A middle row (fully enclosed by the span on both sides)
+                // that's still INDENTED is exactly the "independent list
+                // item after a directory line" shape final-spec §3.1 and
+                // Ghostty's own `link_wrap.zig` `startsIndependentLink`
+                // fail-close on for the 2-row case — an indented row is
+                // ambiguous with an unrelated sibling line, not proof of
+                // continuation, regardless of how full its neighbors are.
+                return nil
+            }
+            return SpanPiece(text: match.fragment, startColumn: match.startColumn, endColumn: match.endColumn)
+        }
+
+        // final-spec §3.2 rules 1-4 — a seed in this disposition may
+        // NEVER extend upward (rule 3: only "下流行" — downstream rows —
+        // may be added once the mirror boundary holds) and may ONLY
+        // produce a candidate at all when the boundary immediately after
+        // the clicked row satisfies `mirrorSlashSeam` (rule 2). Checked
+        // ONCE here, not per-span inside the loop below, since it's a
+        // fixed fact about this boundary, independent of `spanEnd`; if
+        // it doesn't hold, rule 4 applies — no wrapped candidate, the
+        // caller's existing row-local path is unaffected.
+        if seed.disposition == .rowLocalHitAwaitingMirrorSlashSeam {
+            guard clickedIndex + 1 < window.rows.count,
+                  mirrorSlashSeam(upperRow: window.rows[clickedIndex], lowerRow: window.rows[clickedIndex + 1]) else {
+                return (nil, 0)
+            }
+        }
+
+        let minStart = seed.disposition == .rowLocalHitAwaitingMirrorSlashSeam
+            ? clickedIndex
+            : max(0, clickedIndex - (Self.maxWrappedRows - 1))
+        let maxEnd = min(window.rows.count - 1, clickedIndex + (Self.maxWrappedRows - 1))
+
+        var successes: [SpanSuccess] = []
+        for spanStart in minStart...clickedIndex {
+            // final-spec §5.3 — extending a span upward when the
+            // tokenizer didn't license `.previous` for the clicked token
+            // (the literal-`/`-continuation case it deliberately keeps
+            // `.next`-only) is eligible ONLY through the mirror-seam
+            // exception at the SINGLE boundary immediately above the
+            // clicked row, and never propagates further: this is that
+            // row's own narrow exception (final-spec §3.3's row1-click
+            // scenario is its sole justification), not a general
+            // upward-search license the seed's own `directions` didn't
+            // grant. Without this, an absolute-prefixed token could
+            // spuriously reach two-or-more rows upward through nothing
+            // but incidental fullness on an intermediate boundary — the
+            // exact coincidental-override shape final-spec §4.4 warns is
+            // never fully excludable, so this narrows it as tightly as
+            // the one documented scenario requires.
+            if spanStart < clickedIndex, !seed.directions.contains(.previous) {
+                guard spanStart == clickedIndex - 1,
+                      mirrorSlashSeam(upperRow: window.rows[clickedIndex - 1], lowerRow: window.rows[clickedIndex])
+                else { continue }
+            }
+            for spanEnd in clickedIndex...maxEnd {
+                if spanEnd > clickedIndex {
+                    guard seed.directions.contains(.next) else { continue }
+                }
+                let length = spanEnd - spanStart + 1
+                guard length >= 2, length <= Self.maxWrappedRows else { continue }
+
+                // final-spec §4.2 — fullness on every internal boundary.
+                var fullnessOK = true
+                for boundary in spanStart..<spanEnd {
+                    guard oracle.isWrapContinuationBoundary(
+                        upperRow: window.rows[boundary], lowerRow: window.rows[boundary + 1], columns: window.columns
+                    ) else {
+                        fullnessOK = false
+                        break
+                    }
+                }
+                guard fullnessOK else { continue }
+
+                var pieces: [SpanPiece] = []
+                var extractionOK = true
+                for row in spanStart...spanEnd {
+                    guard let piece = piece(at: row, spanStart: spanStart, spanEnd: spanEnd),
+                          piece.text.count <= Self.maxWrappedFragmentLength else {
+                        extractionOK = false
+                        break
+                    }
+                    pieces.append(piece)
+                }
+                guard extractionOK, let leadingPiece = pieces.first, let trailingPiece = pieces.last else { continue }
+
+                // final-spec §5.1/§5.3 — mirror seam is per-boundary, not
+                // per-span; only the boundary immediately after the
+                // leading piece / immediately before the trailing piece
+                // is relevant to THAT piece's own guard bypass.
+                let leadingBoundaryHasMirrorSeam = spanStart < spanEnd &&
+                    mirrorSlashSeam(upperRow: window.rows[spanStart], lowerRow: window.rows[spanStart + 1])
+                let trailingBoundaryHasMirrorSeam = spanEnd > spanStart &&
+                    mirrorSlashSeam(upperRow: window.rows[spanEnd - 1], lowerRow: window.rows[spanEnd])
+
+                // The pre-existing bug A `explicitSlashSeam` bypass
+                // (`resolveSingleDirection`'s own, predating final-spec),
+                // generalized boundary-locally exactly like mirror seam
+                // above: a piece ending with `/` is itself strong-enough
+                // join evidence to bypass fragment-alone-exists at THAT
+                // boundary, provided the row immediately across it is
+                // unindented (`.startColumn == 0`). Bug A's 10 existing
+                // 2-row fixtures rely on this; without it here, their
+                // geometry-aware/legacy parity (final-spec §10) would
+                // break for exactly the fixtures that established it.
+                let leadingBoundaryHasLegacySlashSeam = spanStart < spanEnd &&
+                    leadingPiece.text.hasSuffix("/") && pieces[1].startColumn == 0
+                let trailingBoundaryHasLegacySlashSeam = spanEnd > spanStart &&
+                    pieces[pieces.count - 2].text.hasSuffix("/") && trailingPiece.startColumn == 0
+
+                // final-spec §4.2 — outer endpoint guard: leading piece
+                // must be path-prefix-shaped, unless a boundary bypass
+                // applies (a piece ending with `/` already contains `/`
+                // and would pass this trivially anyway, so this bypass
+                // only ever matters for `fragmentAloneExists` below).
+                //
+                // design-next-round-bundle-8810.md §2 (leading-piece
+                // requirement, confirmed correct and intentional) — a span
+                // whose leading piece (the first row's own fragment) isn't
+                // path-prefix-shaped never succeeds, REGARDLESS of row
+                // count: this is exactly what rejects a bare-relative
+                // multi-row split that wraps INSIDE the path's first
+                // segment (e.g. `verylongdirname` split as
+                // `verylongd`/`irname/file.md`) — a deliberate fail-closed
+                // against P0-2-style coincidental joins, not a gap. Only
+                // ``explicitTrailingSlashSeamBypass`` and `mirrorSlashSeam`
+                // bypass it, and each only under its own narrow condition
+                // above — relaxing this would need PROVENANCE that two
+                // rows are the same link (a terminal-provided semantic
+                // range/hyperlink identity), never a filesystem heuristic
+                // alone.
+                guard leadingBoundaryHasMirrorSeam || leadingBoundaryHasLegacySlashSeam
+                    || leadingPiece.text.isWrappedPathPrefixShaped else { continue }
+
+                let candidateRaw = pieces.map(\.text).joined()
+                guard candidateRaw.utf8.count <= Self.maxWrappedCandidateBytes else { continue }
+                guard candidateRaw.isWrappedPathCandidateShaped else { continue }
+
+                // final-spec §8 rule 3 — candidate existence is probed
+                // BEFORE the endpoint fragment-alone probes, so a span
+                // whose joined candidate doesn't exist never spends probes
+                // on fragment-alone checks it can no longer affect.
+                guard let standardizedPath = probe(candidateRaw) else { continue }
+
+                // final-spec §4.2 — fragment-alone-exists applies only to
+                // the two OUTER endpoints, and only when that endpoint
+                // isn't the clicked row itself (§8 rule 1: never re-probe
+                // the clicked token alone) — bypassed at a mirror-seam or
+                // legacy-slash-seam boundary.
+                if spanStart != clickedIndex, !leadingBoundaryHasMirrorSeam, !leadingBoundaryHasLegacySlashSeam,
+                   probe(leadingPiece.text) != nil {
+                    continue
+                }
+                if spanEnd != clickedIndex, !trailingBoundaryHasMirrorSeam, !trailingBoundaryHasLegacySlashSeam,
+                   probe(trailingPiece.text) != nil {
+                    continue
+                }
+
+                successes.append(SpanSuccess(range: spanStart...spanEnd, standardizedPath: standardizedPath, pieces: pieces))
+            }
+        }
+
+        guard !successes.isEmpty else { return (nil, 0) }
+
+        // final-spec §4.3 — the unique span containing every other
+        // success's row range dominates; anything else (including zero
+        // such spans, i.e. genuinely incomparable successes) fails closed.
+        let dominating = successes.filter { candidate in
+            successes.allSatisfy { other in
+                other.range.lowerBound >= candidate.range.lowerBound && other.range.upperBound <= candidate.range.upperBound
+            }
+        }
+        guard dominating.count == 1, let winner = dominating.first else { return (nil, successes.count) }
+
+        // Clicked row's own span first, then the rest in ascending row
+        // order — matches the existing 2-row overload's documented
+        // "clicked token, then adjacent fragment" convention exactly (its
+        // `cellSpans` doc: "clicked-first matches this type's own
+        // narrative elsewhere"), so a multi-row candidate that happens to
+        // degenerate to 2 rows produces byte-for-byte the same order.
+        let orderedOffsets = [clickedIndex] + winner.range.filter { $0 != clickedIndex }
+        let cellSpans = orderedOffsets.map { row -> TerminalWrappedPathCellSpan in
+            let piece = winner.pieces[row - winner.range.lowerBound]
+            return TerminalWrappedPathCellSpan(
+                rowOffsetFromClicked: row - clickedIndex,
+                startColumn: piece.startColumn,
+                endColumn: piece.endColumn
+            )
+        }
+        let keys = nativeMatchKeys(range: winner.range, pieces: winner.pieces.map(\.text), clickedIndex: clickedIndex)
+        return (
+            TerminalWrappedPathResolution(
+                path: winner.standardizedPath, nativeMatchKeys: keys, cellSpans: .available(cellSpans)
+            ),
+            successes.count
+        )
+    }
+
+    /// final-spec §6 — the winning span's `nativeMatchKeys`: every
+    /// clicked-row-containing contiguous subchain of `[i...j]`, plus the
+    /// clicked row's immediate neighbors, in the exact stable order §6.2
+    /// specifies, normalized/deduplicated/capped at 8.
+    private func nativeMatchKeys(range: ClosedRange<Int>, pieces: [String], clickedIndex: Int) -> [String] {
+        let i = range.lowerBound
+        let j = range.upperBound
+        let c = clickedIndex
+
+        func joined(_ a: Int, _ b: Int) -> String {
+            pieces[(a - i)...(b - i)].joined()
+        }
+
+        var ordered: [(Int, Int)] = [(i, j), (c, c)]
+        if c - 1 >= i { ordered.append((c - 1, c - 1)) }
+        if c + 1 <= j { ordered.append((c + 1, c + 1)) }
+
+        // §6.1 rule 1's full set, minus what's already ordered above,
+        // sorted by length descending then start index ascending (§6.2
+        // rule 5).
+        var remaining: [(Int, Int)] = []
+        for a in i...c {
+            for b in c...j {
+                remaining.append((a, b))
+            }
+        }
+        let alreadyOrdered = Set(ordered.map { "\($0.0)_\($0.1)" })
+        remaining = remaining.filter { !alreadyOrdered.contains("\($0.0)_\($0.1)") }
+        remaining.sort { lhs, rhs in
+            let lhsLength = lhs.1 - lhs.0 + 1
+            let rhsLength = rhs.1 - rhs.0 + 1
+            if lhsLength != rhsLength { return lhsLength > rhsLength }
+            return lhs.0 < rhs.0
+        }
+        ordered.append(contentsOf: remaining)
+
+        var keys: [String] = []
+        for (a, b) in ordered {
+            let key = joined(a, b).normalizedTerminalWrapMatchKey()
+            guard !key.isEmpty, !keys.contains(key) else { continue }
+            keys.append(key)
+            guard keys.count < 8 else { break }
+        }
+        return keys
     }
 }

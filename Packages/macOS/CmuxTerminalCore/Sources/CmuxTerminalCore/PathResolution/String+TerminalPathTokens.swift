@@ -382,6 +382,87 @@ extension String {
         return (fragment, start, end + 1)
     }
 
+    /// design-next-round-bundle-8810.md §1 — the same trailing token
+    /// ``trailingContinuationFragmentWithRange()`` extracts, but with
+    /// neither its ASCII guard nor a column range. That guard exists
+    /// ONLY to keep `startColumn`/`endColumn` valid terminal-cell indices
+    /// (a non-ASCII character can occupy a different number of cells
+    /// than `String` character indices assume) — the token's TEXT itself
+    /// never depends on any column projection: trimming trailing
+    /// grid-padding spaces and walking back to the nearest whitespace
+    /// boundary is purely textual, Character-indexed work.
+    ///
+    /// Exists so `TerminalPathResolver`'s `.previous`-direction
+    /// resolution can still extract a real fragment from a non-ASCII
+    /// previous row when the caller has no use for a column range — the
+    /// click-only fallback design-next-round-bundle-8810.md §1
+    /// specifies. (B) ExternalHover's underline is the one thing that
+    /// DOES need columns, so it never resolves through this path (see
+    /// ``TerminalWrappedCellSpans/unavailableNonASCIIRow``).
+    ///
+    /// - Returns: The trailing fragment, or `nil` for a row that's empty
+    ///   or entirely whitespace.
+    func trailingContinuationFragmentText() -> String? {
+        let characters = Array(self)
+        guard !characters.isEmpty else { return nil }
+
+        var end = characters.count - 1
+        while end >= 0, characters[end] == " " {
+            end -= 1
+        }
+        guard end >= 0, !characters.isWrapTokenBoundary(at: end) else { return nil }
+
+        var start = end
+        while start > 0, !characters.isWrapTokenBoundary(at: start - 1) {
+            start -= 1
+        }
+        let fragment = String(characters[start...end])
+        return fragment.isEmpty ? nil : fragment
+    }
+
+    /// final-spec-scope-expansion-8810.md §1 — the 0-indexed column of the
+    /// row's last non-whitespace character, for the contiguous-span
+    /// evaluator's fullness guard ("does this row reach the strict
+    /// physical right edge"). `nil` for non-ASCII rows (fail-closed, same
+    /// convention as the other wrap-continuation extractors) or a row
+    /// that's empty/entirely whitespace.
+    var lastNonWhitespaceColumn: Int? {
+        guard unicodeScalars.allSatisfy(\.isASCII) else { return nil }
+        let characters = Array(self)
+        var index = characters.count - 1
+        while index >= 0, characters[index].isWhitespace {
+            index -= 1
+        }
+        return index >= 0 ? index : nil
+    }
+
+    /// final-spec §4.1 — a *middle* row's full contribution to a
+    /// multi-row wrapped-path span: the whole row, minus leading/trailing
+    /// ASCII-space grid padding. Unlike
+    /// ``trailingContinuationFragmentWithRange()``/
+    /// ``leadingContinuationFragmentWithRange(maxIndentation:)``, this
+    /// never extracts just the last/first *token* bounded by internal
+    /// whitespace — a middle row is fully enclosed within the span (its
+    /// neighbors on both sides are also part of the same candidate), so
+    /// its entire visible content participates, not a sub-token of it.
+    ///
+    /// - Returns: The trimmed content and its column range (half-open),
+    ///   or `nil` for a non-ASCII row or one that's entirely padding.
+    func gridPaddingTrimmedWithRange() -> (fragment: String, startColumn: Int, endColumn: Int)? {
+        guard unicodeScalars.allSatisfy(\.isASCII) else { return nil }
+        let characters = Array(self)
+        var start = 0
+        while start < characters.count, characters[start] == " " {
+            start += 1
+        }
+        var end = characters.count - 1
+        while end >= start, characters[end] == " " {
+            end -= 1
+        }
+        guard start <= end else { return nil }
+        return (String(characters[start...end]), start, end + 1)
+    }
+
     /// The exact-match key used to correlate a wrapped-path candidate
     /// against a native Ghostty `open_url` callback for the same click.
     func normalizedTerminalWrapMatchKey() -> String {

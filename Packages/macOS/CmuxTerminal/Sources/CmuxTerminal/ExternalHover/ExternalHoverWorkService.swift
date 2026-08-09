@@ -539,7 +539,24 @@ public actor ExternalHoverWorkService {
             return nil
         }
 
-        let ranges = resolved.cellSpans.compactMap { span -> ExternalHoverCellRangeValue? in
+        // design-next-round-bundle-8810.md §1 rule 5 — a candidate resolved
+        // through the click-only text extraction fallback carries no
+        // column data at all (`TerminalWrappedCellSpans.unavailableNonASCIIRow`,
+        // never a `TerminalWrappedPathCellSpan` array); hover must never
+        // guess a column range, so it fails closed exactly like any other
+        // rejection rather than showing an underline in the wrong place.
+        guard case .available(let spans) = resolved.cellSpans else {
+#if DEBUG
+            if diagnosticsOn {
+                logResolve(
+                    outcome: "rejected", reason: "cellSpansUnavailableNonASCIIRow",
+                    candidateLength: resolved.path.count, directionsTried: seed.directions.count
+                )
+            }
+#endif
+            return nil
+        }
+        let ranges = spans.compactMap { span -> ExternalHoverCellRangeValue? in
             let absoluteRow = Int(clickedRow) + span.rowOffsetFromClicked
             guard absoluteRow >= 0, absoluteRow <= UInt16.max,
                   span.startColumn >= 0, span.endColumn <= Int(UInt16.max) + 1 else { return nil }
@@ -549,11 +566,11 @@ public actor ExternalHoverWorkService {
                 endColumn: UInt16(span.endColumn)
             )
         }
-        guard ranges.count == resolved.cellSpans.count else {
+        guard ranges.count == spans.count else {
 #if DEBUG
             if diagnosticsOn {
                 logResolve(
-                    outcome: "rejected", reason: "rangeConversionFailed", spanCount: resolved.cellSpans.count,
+                    outcome: "rejected", reason: "rangeConversionFailed", spanCount: spans.count,
                     candidateLength: resolved.path.count, directionsTried: seed.directions.count
                 )
             }
