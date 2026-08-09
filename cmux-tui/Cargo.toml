@@ -90,6 +90,7 @@ png = "0.17"
 libc = "0.2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 uds_windows = "1.2"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 regex = "1"
 jsonschema = { version = "0.30", default-features = false }
 flate2 = "1"

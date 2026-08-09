@@ -27,6 +27,30 @@ const COMMIT_PENDING: u8 = 0;
 const COMMIT_ADMITTED: u8 = 1;
 const COMMIT_CANCELED: u8 = 2;
 
+#[derive(Debug)]
+pub(crate) struct JournalCommitIndeterminate {
+    waited: Duration,
+}
+
+impl JournalCommitIndeterminate {
+    pub(crate) const fn after(waited: Duration) -> Self {
+        Self { waited }
+    }
+}
+
+impl std::fmt::Display for JournalCommitIndeterminate {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "session journal commit outcome is indeterminate after {} ms; the admitted commit may \
+             still become durable",
+            self.waited.as_millis()
+        )
+    }
+}
+
+impl std::error::Error for JournalCommitIndeterminate {}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FrontendFocusTarget {
@@ -547,13 +571,10 @@ impl JournalIngressSender {
                                 Err(anyhow::Error::msg(self.writer_error()))
                             }
                             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                                Err(anyhow::anyhow!(
-                                    "session journal commit outcome is indeterminate after {} ms; \
-                                     the admitted commit may still become durable",
+                                Err(anyhow::Error::new(JournalCommitIndeterminate::after(
                                     JOURNAL_DURABLE_WAIT
-                                        .saturating_add(JOURNAL_COMMIT_RESULT_WAIT)
-                                        .as_millis()
-                                ))
+                                        .saturating_add(JOURNAL_COMMIT_RESULT_WAIT),
+                                )))
                             }
                         }
                     }

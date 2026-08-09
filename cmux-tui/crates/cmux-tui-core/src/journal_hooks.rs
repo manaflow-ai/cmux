@@ -11,6 +11,16 @@ use std::time::{Duration, Instant};
 use regex::bytes::{Regex, RegexBuilder};
 use serde_json::json;
 use wait_timeout::ChildExt;
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+#[cfg(windows)]
+use windows_sys::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+    SetInformationJobObject, TerminateJobObject,
+};
+#[cfg(windows)]
+use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
 
 use crate::journal_kernel::{JournalDocument, SharedJournalRead};
 use crate::workspace_registry::{
@@ -26,6 +36,75 @@ const MIN_DELIVERY_WORKERS: usize = 4;
 const MAX_DELIVERY_WORKERS: usize = 32;
 const IDLE_WAIT: Duration = Duration::from_secs(30);
 const ACTIVE_WAIT: Duration = Duration::from_secs(1);
+
+#[cfg(windows)]
+struct WindowsHookJob {
+    handle: HANDLE,
+}
+
+#[cfg(windows)]
+impl WindowsHookJob {
+    fn assign(child: &std::process::Child) -> std::io::Result<Self> {
+        let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if handle.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+        let job = Self { handle };
+        let mut information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let information_size =
+            u32::try_from(std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
+                .expect("Windows job information fits in u32");
+        if unsafe {
+            SetInformationJobObject(
+                job.handle,
+                JobObjectExtendedLimitInformation,
+                std::ptr::from_ref(&information).cast(),
+                information_size,
+            )
+        } == 0
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        let process = unsafe {
+            OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, child.id())
+        };
+        if process.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+        let assigned = unsafe { AssignProcessToJobObject(job.handle, process) };
+        let assign_error = (assigned == 0).then(std::io::Error::last_os_error);
+        unsafe {
+            CloseHandle(process);
+        }
+        if let Some(error) = assign_error {
+            return Err(error);
+        }
+        Ok(job)
+    }
+
+    fn terminate_descendants(&self) {
+        unsafe {
+            TerminateJobObject(self.handle, 1);
+        }
+    }
+
+    fn terminate_and_wait(&self, child: &mut std::process::Child) {
+        self.terminate_descendants();
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
+#[cfg(windows)]
+impl Drop for WindowsHookJob {
+    fn drop(&mut self) {
+        unsafe {
+            CloseHandle(self.handle);
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct HookVersion {
@@ -630,16 +709,27 @@ fn execute_delivery(
         Ok(child) => child,
         Err(error) => return (None, Some(format!("start hook executable: {error}"))),
     };
+    #[cfg(windows)]
+    let job = match WindowsHookJob::assign(&child) {
+        Ok(job) => job,
+        Err(error) => {
+            terminate_hook_child(&mut child);
+            return (None, Some(format!("isolate hook process tree: {error}")));
+        }
+    };
     let process_group = child.id();
     let Some(stdin) = child.stdin.take() else {
+        #[cfg(unix)]
         terminate_hook_child(&mut child);
+        #[cfg(windows)]
+        job.terminate_and_wait(&mut child);
         return (None, Some("hook stdin pipe is unavailable".into()));
     };
     let timeout = Duration::from_millis(delivery.manifest.exec.timeout_ms);
     #[cfg(unix)]
     return execute_hook_child_unix(&mut child, stdin, &input, process_group, timeout);
-    #[cfg(not(unix))]
-    execute_hook_child_portable(&mut child, stdin, &input, process_group, timeout)
+    #[cfg(windows)]
+    execute_hook_child_portable(&mut child, stdin, &input, process_group, timeout, &job)
 }
 
 #[cfg(unix)]
@@ -709,6 +799,7 @@ fn execute_hook_child_unix(
     wait_for_hook_exit(child, process_group, deadline, timeout)
 }
 
+#[cfg(unix)]
 fn hook_stdin_closed_result(
     child: &mut std::process::Child,
     process_group: u32,
@@ -748,13 +839,14 @@ fn wait_hook_stdin_writable(fd: std::os::fd::RawFd, deadline: Instant) -> std::i
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
 fn execute_hook_child_portable(
     child: &mut std::process::Child,
     mut stdin: std::process::ChildStdin,
     input: &[u8],
     process_group: u32,
     timeout: Duration,
+    job: &WindowsHookJob,
 ) -> (Option<i32>, Option<String>) {
     let deadline = Instant::now() + timeout;
     let input = input.to_vec();
@@ -768,7 +860,7 @@ fn execute_hook_child_portable(
     ) {
         Ok(writer) => writer,
         Err(error) => {
-            terminate_hook_child(child);
+            job.terminate_and_wait(child);
             return (None, Some(format!("start hook stdin writer: {error}")));
         }
     };
@@ -776,37 +868,40 @@ fn execute_hook_child_portable(
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
-            terminate_hook_child(child);
+            job.terminate_and_wait(child);
             let _ = writer.join();
             return (None, Some(format!("hook timed out after {} ms", timeout.as_millis())));
         }
         match write_result_receiver.recv_timeout(remaining.min(Duration::from_millis(10))) {
             Ok(Ok(())) => {
                 let _ = writer.join();
-                return wait_for_hook_exit(child, process_group, deadline, timeout);
-            }
-            Ok(Err(error)) => {
-                let _ = writer.join();
-                return hook_stdin_closed_result(
+                return wait_for_hook_exit_windows(
                     child,
                     process_group,
                     deadline,
-                    &format!("write hook event: {error}"),
+                    timeout,
+                    job,
                 );
             }
+            Ok(Err(error)) => {
+                let _ = writer.join();
+                job.terminate_and_wait(child);
+                return (None, Some(format!("write hook event: {error}")));
+            }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                terminate_hook_child(child);
+                job.terminate_and_wait(child);
                 let _ = writer.join();
                 return (None, Some("hook stdin writer stopped without a result".into()));
             }
             Err(mpsc::RecvTimeoutError::Timeout) => match child.try_wait() {
                 Ok(Some(status)) => {
+                    job.terminate_descendants();
                     let _ = writer.join();
                     return hook_exit_result(status, process_group);
                 }
                 Ok(None) => {}
                 Err(error) => {
-                    terminate_hook_child(child);
+                    job.terminate_and_wait(child);
                     let _ = writer.join();
                     return (None, Some(format!("wait for hook executable: {error}")));
                 }
@@ -815,6 +910,31 @@ fn execute_hook_child_portable(
     }
 }
 
+#[cfg(windows)]
+fn wait_for_hook_exit_windows(
+    child: &mut std::process::Child,
+    process_group: u32,
+    deadline: Instant,
+    timeout: Duration,
+    job: &WindowsHookJob,
+) -> (Option<i32>, Option<String>) {
+    match child.wait_timeout(deadline.saturating_duration_since(Instant::now())) {
+        Ok(Some(status)) => {
+            job.terminate_descendants();
+            hook_exit_result(status, process_group)
+        }
+        Ok(None) => {
+            job.terminate_and_wait(child);
+            (None, Some(format!("hook timed out after {} ms", timeout.as_millis())))
+        }
+        Err(error) => {
+            job.terminate_and_wait(child);
+            (None, Some(format!("wait for hook executable: {error}")))
+        }
+    }
+}
+
+#[cfg(unix)]
 fn wait_for_hook_exit(
     child: &mut std::process::Child,
     process_group: u32,
@@ -990,6 +1110,7 @@ mod tests {
             .unwrap();
         let stdin = child.stdin.take().unwrap();
         let process_group = child.id();
+        let job = WindowsHookJob::assign(&child).unwrap();
         let timeout = Duration::from_millis(100);
         let started = Instant::now();
 
@@ -999,6 +1120,7 @@ mod tests {
             &vec![b'x'; 1024 * 1024],
             process_group,
             timeout,
+            &job,
         );
 
         assert_eq!(status, None);

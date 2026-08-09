@@ -7823,6 +7823,16 @@ fn handle_journal_extension_request(
 fn journal_extension_error(operation: &str, error: anyhow::Error) -> ResourceError {
     let message = error.to_string();
     eprintln!("cmux-tui: {operation} failed: {error:#}");
+    if error
+        .downcast_ref::<crate::journal_ingress::JournalCommitIndeterminate>()
+        .is_some()
+    {
+        // The helper must retry the same idempotency key until SQLite exposes
+        // the authoritative result. A non-retryable operation failure would
+        // make a later provider invocation allocate a new key and duplicate a
+        // commit that completed after the first receipt window.
+        return ResourceError::transport_closed(message);
+    }
     if message.contains("idempotency key was retried with a different payload") {
         return ResourceError::idempotency_conflict("<redacted>", operation);
     }
@@ -12595,6 +12605,20 @@ mod tests {
         .expect("secret journal sensitivity must be rejected");
         assert_eq!(error.code, "validation.invalid");
         assert_eq!(error.details["field"], "filter.max_sensitivity");
+    }
+
+    #[test]
+    fn indeterminate_journal_commit_remains_retryable() {
+        let error = journal_extension_error(
+            "session.journal.append",
+            anyhow::Error::new(crate::journal_ingress::JournalCommitIndeterminate::after(
+                Duration::from_secs(3),
+            )),
+        );
+
+        assert_eq!(error.code, "transport.closed");
+        assert!(error.retryable);
+        assert!(error.message.contains("indeterminate"));
     }
 
     #[test]

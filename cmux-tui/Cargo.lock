@@ -776,6 +776,7 @@ dependencies = [
  "uds_windows",
  "url",
  "wait-timeout",
+ "windows-sys 0.61.2",
  "zeroize",
 ]
 

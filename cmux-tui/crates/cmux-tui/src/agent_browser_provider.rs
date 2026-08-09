@@ -505,9 +505,33 @@ struct MuxControl {
 
 impl MuxControl {
     fn connect(socket: &Path, deadline: Instant) -> anyhow::Result<Self> {
+        let remaining = remaining_resolution_time(deadline)?;
+        let socket = socket.to_path_buf();
+        let display = socket.display().to_string();
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let connector = std::thread::Builder::new()
+            .name("agent-browser-provider-connect".into())
+            .spawn(move || {
+                let _ = sender.send(UnixStream::connect(socket));
+            })?;
+        let stream = match receiver.recv_timeout(remaining) {
+            Ok(result) => {
+                let _ = connector.join();
+                result.with_context(|| format!("cannot connect to cmux-tui socket {display}"))?
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                let _ = connector.join();
+                return Err(anyhow!("cmux-tui socket connector stopped without a result"));
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // This provider is a short-lived process. The outer loop has
+                // reached its shared final deadline, so returning ends the
+                // process and terminates the blocked connector thread.
+                drop(connector);
+                return Err(anyhow!("cmux-browser target resolution timed out"));
+            }
+        };
         let timeout = remaining_socket_timeout(deadline)?;
-        let stream = UnixStream::connect(socket)
-            .with_context(|| format!("cannot connect to cmux-tui socket {}", socket.display()))?;
         stream.set_read_timeout(Some(timeout))?;
         stream.set_write_timeout(Some(timeout))?;
         Ok(Self { writer: stream.try_clone()?, reader: BufReader::new(stream) })
@@ -533,9 +557,13 @@ impl MuxControl {
 }
 
 fn remaining_socket_timeout(deadline: Instant) -> anyhow::Result<Duration> {
+    Ok(remaining_resolution_time(deadline)?.min(SOCKET_TIMEOUT))
+}
+
+fn remaining_resolution_time(deadline: Instant) -> anyhow::Result<Duration> {
     let remaining = deadline.saturating_duration_since(Instant::now());
     anyhow::ensure!(!remaining.is_zero(), "cmux-browser target resolution timed out");
-    Ok(remaining.min(SOCKET_TIMEOUT))
+    Ok(remaining)
 }
 
 fn write_control_request(
