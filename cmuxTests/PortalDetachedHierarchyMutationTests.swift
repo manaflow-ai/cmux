@@ -49,15 +49,19 @@ private func makeRegisteredPortalHierarchy() throws -> (
 
 @MainActor
 @Suite(.serialized)
-struct PortalDetachedArrangedSubviewMutationTests {
+struct PortalDetachedArrangedSubviewBoundaryTests {
     @Test
-    func detachedArrangedSubviewReorderInvalidatesHierarchyRegistration() throws {
+    func detachingRegisteredRootRevokesCacheBeforeArrangedSubviewReorder() throws {
         let fixture = try makeRegisteredPortalHierarchy()
         defer { fixture.window.orderOut(nil) }
         defer { fixture.invalidator.invalidate() }
 
         fixture.window.contentView = NSView(frame: fixture.rootView.frame)
         #expect(fixture.splitView.window == nil)
+        #expect(
+            !fixture.invalidator.isHierarchyCurrent(for: fixture.rootView),
+            "Removing a registered split-bearing root must revoke its cache before detached mutations."
+        )
 
         fixture.splitView.removeArrangedSubview(fixture.panes[1])
         fixture.splitView.insertArrangedSubview(fixture.panes[1], at: 0)
@@ -70,15 +74,19 @@ struct PortalDetachedArrangedSubviewMutationTests {
 
 @MainActor
 @Suite(.serialized)
-struct PortalDetachedSubviewSortMutationTests {
+struct PortalDetachedSubviewSortBoundaryTests {
     @Test
-    func detachedSubviewSortInvalidatesHierarchyRegistration() throws {
+    func detachingRegisteredRootRevokesCacheBeforeSubviewSort() throws {
         let fixture = try makeRegisteredPortalHierarchy()
         defer { fixture.window.orderOut(nil) }
         defer { fixture.invalidator.invalidate() }
 
         fixture.window.contentView = NSView(frame: fixture.rootView.frame)
         #expect(fixture.rootView.window == nil)
+        #expect(
+            !fixture.invalidator.isHierarchyCurrent(for: fixture.rootView),
+            "Removing a registered split-bearing root must revoke its cache before detached mutations."
+        )
 
         fixture.rootView.sortSubviews({ lhs, rhs, _ in
             if lhs.frame.minX == rhs.frame.minX { return .orderedSame }

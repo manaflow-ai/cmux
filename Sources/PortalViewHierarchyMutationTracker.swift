@@ -158,6 +158,9 @@ final class PortalViewHierarchyMutationTracker: NSObject {
     static func arrangedSubviewsBeforeMutation(
         splitView: NSSplitView
     ) -> ArrangedSubviewsBeforeMutation? {
+        // A split-bearing indexed subtree cannot become windowless while its
+        // registration stays current: `recordRemoval` advances the generation
+        // at that boundary. Only in-window arranged mutations need a snapshot.
         guard let window = splitView.window,
               let tracker = tracker(for: window, createIfNeeded: false),
               tracker.hasActiveCaches,
@@ -187,6 +190,8 @@ final class PortalViewHierarchyMutationTracker: NSObject {
         parentView: NSView,
         parentWindow: NSWindow?
     ) -> SubviewOrderBeforeSort? {
+        // A parent whose index says it contains a split view dirties the
+        // generation when detached, before a nil-window sort can occur.
         guard let window = parentWindow,
               let tracker = tracker(for: window, createIfNeeded: false),
               tracker.hasActiveCaches,
