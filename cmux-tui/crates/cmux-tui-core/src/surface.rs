@@ -1290,17 +1290,25 @@ impl PtyTerminalRuntime {
 
     fn close_terminal_journal_capture_when_idle(&self, deadline: Instant) {
         let mut gate = self.journal_capture_gate.lock().unwrap();
+        let mut deadline_reported = false;
         loop {
             if self.journal_capture_epoch.load(Ordering::Acquire) & 1 == 0 {
                 self.journal_capture_open.store(false, Ordering::Release);
                 return;
             }
             if Instant::now() >= deadline {
-                self.journal_capture_open.store(false, Ordering::Release);
-                eprintln!(
-                    "cmux-tui: terminal journal capture did not become idle before the shared shutdown deadline; closing capture"
-                );
-                return;
+                if !deadline_reported {
+                    eprintln!(
+                        "cmux-tui: terminal journal capture did not become idle before the shared shutdown deadline; preserving the active update before closing capture"
+                    );
+                    deadline_reported = true;
+                }
+                // The gate prevents the reader from starting its next update.
+                // Do not close an update that already changed the terminal:
+                // its output must reach durable ingress before the shutdown
+                // barrier can be inserted.
+                gate = self.journal_capture_idle.wait(gate).unwrap();
+                continue;
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
             let (next, _) = self.journal_capture_idle.wait_timeout(gate, remaining).unwrap();
@@ -3995,9 +4003,9 @@ impl Surface {
             }
         }
         // A reader that is blocked in the PTY has an even capture epoch and
-        // does not delay shutdown. Give an in-flight journal update the same
-        // bounded drain interval, then close its gate so a failed journal
-        // cannot prevent daemon shutdown forever.
+        // does not delay shutdown. Close the gate between updates. If one
+        // update crossed the reader deadline, preserve it before the terminal
+        // ingress barrier instead of discarding parser-accepted bytes.
         pty.close_terminal_journal_capture_when_idle(deadline);
     }
 

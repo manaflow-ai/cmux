@@ -50,6 +50,9 @@ tokio.workspace = true
 url.workspace = true
 async-trait.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
 [dev-dependencies]
 cmux-pty.workspace = true
 tempfile = "3"

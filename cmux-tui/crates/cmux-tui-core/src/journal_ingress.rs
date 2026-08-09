@@ -1552,7 +1552,7 @@ mod tests {
     }
 
     #[test]
-    fn reader_timeout_closes_capture_after_the_shared_deadline() {
+    fn reader_timeout_preserves_the_active_update_before_closing_capture() {
         let mux = Mux::new("active-terminal-journal-update", crate::SurfaceOptions::default());
         let surface = crate::Surface::spawn_for_test(
             1,
@@ -1580,13 +1580,17 @@ mod tests {
             finishing_surface.finish_terminal_reader(Instant::now() + Duration::from_millis(10));
             finished.send(()).unwrap();
         });
+        assert!(
+            finished_receiver.recv_timeout(Duration::from_millis(100)).is_err(),
+            "shutdown discarded an active terminal update at its reader deadline"
+        );
+        release.send(()).unwrap();
         finished_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-        finisher.join().unwrap();
         assert!(
             surface.begin_terminal_journal_update_for_test().is_none(),
             "a late terminal update started after the shutdown capture fence"
         );
-        release.send(()).unwrap();
+        finisher.join().unwrap();
     }
 
     #[test]
@@ -1651,8 +1655,8 @@ mod tests {
         .unwrap();
         mux.insert_surface_runtime_for_test(surface.clone());
 
-        let pid_deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while !descendant_pid_path.is_file() && std::time::Instant::now() < pid_deadline {
+        let pid_deadline = Instant::now() + Duration::from_secs(5);
+        while !descendant_pid_path.is_file() && Instant::now() < pid_deadline {
             std::thread::sleep(Duration::from_millis(10));
         }
         let descendant_pid = std::fs::read_to_string(&descendant_pid_path)
@@ -1661,7 +1665,7 @@ mod tests {
             .parse::<libc::pid_t>()
             .unwrap();
 
-        let started = std::time::Instant::now();
+        let started = Instant::now();
         mux.shutdown();
         assert!(
             started.elapsed() < Duration::from_secs(3),
@@ -1669,8 +1673,8 @@ mod tests {
         );
 
         assert_eq!(unsafe { libc::kill(descendant_pid, libc::SIGKILL) }, 0);
-        let reader_deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while !surface.is_dead() && std::time::Instant::now() < reader_deadline {
+        let reader_deadline = Instant::now() + Duration::from_secs(5);
+        while !surface.is_dead() && Instant::now() < reader_deadline {
             std::thread::sleep(Duration::from_millis(10));
         }
         assert!(surface.is_dead(), "terminal reader did not stop after descendant cleanup");
@@ -1773,7 +1777,7 @@ mod tests {
             b"cannot commit".to_vec(),
         );
 
-        let started = std::time::Instant::now();
+        let started = Instant::now();
         let error = mux.flush_terminal_journal().unwrap_err();
 
         assert!(started.elapsed() < Duration::from_secs(3));
@@ -1981,7 +1985,7 @@ mod tests {
         let generation: Arc<str> = Arc::from("ingress-throughput-generation");
         let mut chunk = vec![b'x'; TERMINAL_OUTPUT_INGRESS_BYTES];
         chunk[TERMINAL_OUTPUT_INGRESS_BYTES - 17..].copy_from_slice(b"terminal-output\r\n");
-        let started = std::time::Instant::now();
+        let started = Instant::now();
         for _ in 0..CHUNKS {
             mux.journal_terminal_output(terminal_id.clone(), generation.clone(), chunk.clone());
         }

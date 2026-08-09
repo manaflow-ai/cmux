@@ -48,6 +48,127 @@ const MAX_DELIVERY_WORKERS: usize = 32;
 const IDLE_WAIT: Duration = Duration::from_secs(30);
 const ACTIVE_WAIT: Duration = Duration::from_secs(1);
 
+#[cfg(unix)]
+struct UnixHookTree {
+    root: u32,
+    tracked: Arc<Mutex<HashSet<u32>>>,
+    stop: Option<mpsc::SyncSender<()>>,
+    monitor: Option<std::thread::JoinHandle<()>>,
+    terminated: bool,
+}
+
+#[cfg(unix)]
+impl UnixHookTree {
+    fn track(root: u32) -> std::io::Result<Self> {
+        let tracked = Arc::new(Mutex::new(HashSet::from([root])));
+        let (stop, stopped) = mpsc::sync_channel(1);
+        let monitor_tracked = tracked.clone();
+        let monitor = std::thread::Builder::new()
+            .name("journal-hook-process-tree".into())
+            .spawn(move || loop {
+                scan_hook_descendants(root, &monitor_tracked);
+                match stopped.recv_timeout(Duration::from_millis(2)) {
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                }
+            })?;
+        Ok(Self { root, tracked, stop: Some(stop), monitor: Some(monitor), terminated: false })
+    }
+
+    fn terminate_descendants(&mut self) {
+        if self.terminated {
+            return;
+        }
+        self.terminated = true;
+        scan_hook_descendants(self.root, &self.tracked);
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.try_send(());
+        }
+        if let Some(monitor) = self.monitor.take() {
+            let _ = monitor.join();
+        }
+        // Scan once more after the monitor stops, then kill individual
+        // descendants as well as the original group. Individual PIDs cover a
+        // descendant that created a new session with setsid(2).
+        scan_hook_descendants(self.root, &self.tracked);
+        let mut descendants = self.tracked.lock().unwrap().iter().copied().collect::<Vec<_>>();
+        descendants.sort_unstable_by(|left, right| right.cmp(left));
+        for pid in descendants.into_iter().filter(|pid| *pid != self.root) {
+            if let Ok(pid) = libc::pid_t::try_from(pid) {
+                unsafe {
+                    libc::kill(pid, libc::SIGKILL);
+                }
+            }
+        }
+        terminate_hook_process_group(self.root);
+    }
+}
+
+#[cfg(unix)]
+impl Drop for UnixHookTree {
+    fn drop(&mut self) {
+        self.terminate_descendants();
+    }
+}
+
+#[cfg(unix)]
+fn scan_hook_descendants(root: u32, tracked: &Mutex<HashSet<u32>>) {
+    let mut pending = vec![root];
+    let mut visited = HashSet::new();
+    while let Some(parent) = pending.pop() {
+        if !visited.insert(parent) {
+            continue;
+        }
+        for child in direct_hook_child_pids(parent) {
+            tracked.lock().unwrap().insert(child);
+            pending.push(child);
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn direct_hook_child_pids(pid: u32) -> Vec<u32> {
+    let Ok(pid) = libc::pid_t::try_from(pid) else { return Vec::new() };
+    let count = unsafe { libc::proc_listchildpids(pid, std::ptr::null_mut(), 0) };
+    let Ok(count) = usize::try_from(count) else { return Vec::new() };
+    if count == 0 {
+        return Vec::new();
+    }
+    let mut children = vec![0 as libc::pid_t; count];
+    let Ok(bytes) = libc::c_int::try_from(
+        children.len().saturating_mul(std::mem::size_of::<libc::pid_t>()),
+    ) else {
+        return Vec::new();
+    };
+    let written = unsafe { libc::proc_listchildpids(pid, children.as_mut_ptr().cast(), bytes) };
+    let Ok(written) = usize::try_from(written) else { return Vec::new() };
+    children
+        .into_iter()
+        .take(written.min(count))
+        .filter(|child| *child > 0)
+        .filter_map(|child| u32::try_from(child).ok())
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn direct_hook_child_pids(pid: u32) -> Vec<u32> {
+    std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children"))
+        .ok()
+        .into_iter()
+        .flat_map(|children| {
+            children
+                .split_whitespace()
+                .filter_map(|child| child.parse::<u32>().ok())
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
+fn direct_hook_child_pids(_pid: u32) -> Vec<u32> {
+    Vec::new()
+}
+
 #[cfg(windows)]
 struct WindowsHookJob {
     handle: HANDLE,
@@ -762,6 +883,14 @@ fn execute_delivery(
         Ok(child) => child,
         Err(error) => return (None, Some(format!("start hook executable: {error}"))),
     };
+    #[cfg(unix)]
+    let mut tree = match UnixHookTree::track(child.id()) {
+        Ok(tree) => tree,
+        Err(error) => {
+            terminate_hook_child(&mut child);
+            return (None, Some(format!("isolate hook process tree: {error}")));
+        }
+    };
     #[cfg(windows)]
     let job = match WindowsHookJob::assign(&child) {
         Ok(job) => job,
@@ -778,14 +907,21 @@ fn execute_delivery(
     let process_group = child.id();
     let Some(stdin) = child.stdin.take() else {
         #[cfg(unix)]
-        terminate_hook_child(&mut child);
+        {
+            terminate_hook_child(&mut child);
+            tree.terminate_descendants();
+        }
         #[cfg(windows)]
         job.terminate_and_wait(&mut child);
         return (None, Some("hook stdin pipe is unavailable".into()));
     };
     let timeout = Duration::from_millis(delivery.manifest.exec.timeout_ms);
     #[cfg(unix)]
-    return execute_hook_child_unix(&mut child, stdin, &input, process_group, timeout);
+    {
+        let result = execute_hook_child_unix(&mut child, stdin, &input, process_group, timeout);
+        tree.terminate_descendants();
+        return result;
+    }
     #[cfg(windows)]
     execute_hook_child_portable(&mut child, stdin, &input, process_group, timeout, &job)
 }
@@ -1147,6 +1283,71 @@ mod tests {
         assert_eq!(delivery_worker_count(1), 4);
         assert_eq!(delivery_worker_count(8), 16);
         assert_eq!(delivery_worker_count(usize::MAX), 32);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_hook_tree_kills_a_descendant_that_created_a_new_session() {
+        const HELPER: &str = "CMUX_TEST_DETACHED_JOURNAL_HOOK";
+        const PID_PATH: &str = "CMUX_TEST_DETACHED_JOURNAL_HOOK_PID";
+        if std::env::var_os(HELPER).is_some() {
+            let session = unsafe { libc::setsid() };
+            assert!(session > 0, "detached hook helper could not create a session");
+            std::fs::write(std::env::var_os(PID_PATH).unwrap(), std::process::id().to_string())
+                .unwrap();
+            std::thread::sleep(Duration::from_secs(30));
+            return;
+        }
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-detached-journal-hook-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let pid_path = root.join("detached.pid");
+        let executable = std::env::current_exe().unwrap();
+        let test_name = "journal_hooks::tests::unix_hook_tree_kills_a_descendant_that_created_a_new_session";
+        let mut command = Command::new("/bin/sh");
+        command
+            .args([
+                "-c",
+                "\"$1\" --exact \"$2\" --nocapture & wait",
+                "cmux-journal-hook-test",
+            ])
+            .arg(&executable)
+            .arg(test_name)
+            .env(HELPER, "1")
+            .env(PID_PATH, &pid_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0);
+        let mut child = command.spawn().unwrap();
+        let mut tree = UnixHookTree::track(child.id()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let detached = loop {
+            if let Ok(pid) = std::fs::read_to_string(&pid_path)
+                && let Ok(pid) = pid.trim().parse::<libc::pid_t>()
+            {
+                break pid;
+            }
+            assert!(Instant::now() < deadline, "detached hook did not publish its pid");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+
+        tree.terminate_descendants();
+        let _ = child.kill();
+        let _ = child.wait();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while unsafe { libc::kill(detached, 0) } == 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let _ = std::fs::remove_dir_all(root);
+        assert_ne!(unsafe { libc::kill(detached, 0) }, 0, "detached hook survived cleanup");
     }
 
     #[cfg(windows)]

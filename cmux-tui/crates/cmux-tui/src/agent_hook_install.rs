@@ -1,11 +1,37 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Output, Stdio};
+#[cfg(unix)]
+use std::sync::{Arc, Mutex, mpsc};
+use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
 use serde_json::{Map, Value, json};
+use wait_timeout::ChildExt;
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+#[cfg(windows)]
+use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+    CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+};
+#[cfg(windows)]
+use windows_sys::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+    SetInformationJobObject, TerminateJobObject,
+};
+#[cfg(windows)]
+use windows_sys::Win32::System::Threading::{
+    CREATE_SUSPENDED, OpenProcess, OpenThread, PROCESS_SET_QUOTA, PROCESS_TERMINATE, ResumeThread,
+    THREAD_SUSPEND_RESUME,
+};
 
 const COMMAND_MARKER: &str = "cmux-tui-journal-hook";
 const PLUGIN_MARKER: &str = "cmux-tui-journal-plugin";
@@ -14,6 +40,8 @@ const MAX_CONFIG_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_HELPER_BYTES: u64 = 128 * 1024 * 1024;
 const COMMAND_HOOK_TIMEOUT_SECONDS: u64 = 5;
 const GEMINI_HOOK_TIMEOUT_MILLISECONDS: u64 = 5_000;
+const HERMES_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+const HERMES_COMMAND_OUTPUT_BYTES: u64 = 4 * 1024 * 1024;
 
 const CODEX_EVENTS: &[&str] = &[
     "SessionStart",
@@ -487,13 +515,311 @@ fn migrate_hermes_cmux_irc_tee(journal_path: &Path) -> anyhow::Result<bool> {
     Ok(true)
 }
 
+#[cfg(unix)]
+struct HermesUnixTree {
+    root: u32,
+    tracked: Arc<Mutex<BTreeSet<u32>>>,
+    stop: Option<mpsc::SyncSender<()>>,
+    monitor: Option<std::thread::JoinHandle<()>>,
+    terminated: bool,
+}
+
+#[cfg(unix)]
+impl HermesUnixTree {
+    fn track(root: u32) -> io::Result<Self> {
+        let tracked = Arc::new(Mutex::new(BTreeSet::from([root])));
+        let (stop, stopped) = mpsc::sync_channel(1);
+        let monitor_tracked = tracked.clone();
+        let monitor = std::thread::Builder::new()
+            .name("hermes-command-process-tree".into())
+            .spawn(move || loop {
+                scan_hermes_descendants(root, &monitor_tracked);
+                match stopped.recv_timeout(Duration::from_millis(2)) {
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                }
+            })?;
+        Ok(Self { root, tracked, stop: Some(stop), monitor: Some(monitor), terminated: false })
+    }
+
+    fn terminate(&mut self) {
+        if self.terminated {
+            return;
+        }
+        self.terminated = true;
+        scan_hermes_descendants(self.root, &self.tracked);
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.try_send(());
+        }
+        if let Some(monitor) = self.monitor.take() {
+            let _ = monitor.join();
+        }
+        scan_hermes_descendants(self.root, &self.tracked);
+        for pid in self.tracked.lock().unwrap().iter().rev().copied() {
+            if pid == self.root {
+                continue;
+            }
+            if let Ok(pid) = libc::pid_t::try_from(pid) {
+                unsafe {
+                    libc::kill(pid, libc::SIGKILL);
+                }
+            }
+        }
+        if let Ok(root) = libc::pid_t::try_from(self.root) {
+            unsafe {
+                libc::kill(-root, libc::SIGKILL);
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for HermesUnixTree {
+    fn drop(&mut self) {
+        self.terminate();
+    }
+}
+
+#[cfg(unix)]
+fn scan_hermes_descendants(root: u32, tracked: &Mutex<BTreeSet<u32>>) {
+    let mut pending = vec![root];
+    let mut visited = BTreeSet::new();
+    while let Some(parent) = pending.pop() {
+        if !visited.insert(parent) {
+            continue;
+        }
+        for child in direct_hermes_child_pids(parent) {
+            tracked.lock().unwrap().insert(child);
+            pending.push(child);
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn direct_hermes_child_pids(pid: u32) -> Vec<u32> {
+    let Ok(pid) = libc::pid_t::try_from(pid) else { return Vec::new() };
+    let count = unsafe { libc::proc_listchildpids(pid, std::ptr::null_mut(), 0) };
+    let Ok(count) = usize::try_from(count) else { return Vec::new() };
+    if count == 0 {
+        return Vec::new();
+    }
+    let mut children = vec![0 as libc::pid_t; count];
+    let Ok(bytes) = libc::c_int::try_from(
+        children.len().saturating_mul(std::mem::size_of::<libc::pid_t>()),
+    ) else {
+        return Vec::new();
+    };
+    let written = unsafe { libc::proc_listchildpids(pid, children.as_mut_ptr().cast(), bytes) };
+    let Ok(written) = usize::try_from(written) else { return Vec::new() };
+    children
+        .into_iter()
+        .take(written.min(count))
+        .filter(|child| *child > 0)
+        .filter_map(|child| u32::try_from(child).ok())
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn direct_hermes_child_pids(pid: u32) -> Vec<u32> {
+    fs::read_to_string(format!("/proc/{pid}/task/{pid}/children"))
+        .ok()
+        .into_iter()
+        .flat_map(|children| {
+            children
+                .split_whitespace()
+                .filter_map(|child| child.parse::<u32>().ok())
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
+fn direct_hermes_child_pids(_pid: u32) -> Vec<u32> {
+    Vec::new()
+}
+
+#[cfg(windows)]
+struct HermesWindowsJob {
+    handle: HANDLE,
+}
+
+#[cfg(windows)]
+impl HermesWindowsJob {
+    fn assign_and_resume(child: &std::process::Child) -> io::Result<Self> {
+        let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if handle.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        let job = Self { handle };
+        let mut information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let information_size = u32::try_from(std::mem::size_of::<
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        >())
+        .expect("Windows job information fits in u32");
+        if unsafe {
+            SetInformationJobObject(
+                job.handle,
+                JobObjectExtendedLimitInformation,
+                std::ptr::from_ref(&information).cast(),
+                information_size,
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        let process = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, child.id()) };
+        if process.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        let assigned = unsafe { AssignProcessToJobObject(job.handle, process) };
+        let assign_error = (assigned == 0).then(io::Error::last_os_error);
+        unsafe {
+            CloseHandle(process);
+        }
+        if let Some(error) = assign_error {
+            return Err(error);
+        }
+        resume_hermes_child(child)?;
+        Ok(job)
+    }
+
+    fn terminate(&self) {
+        unsafe {
+            TerminateJobObject(self.handle, 1);
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for HermesWindowsJob {
+    fn drop(&mut self) {
+        unsafe {
+            CloseHandle(self.handle);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn resume_hermes_child(child: &std::process::Child) -> io::Result<()> {
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+    if snapshot == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    let result = (|| {
+        let mut entry = THREADENTRY32 {
+            dwSize: u32::try_from(std::mem::size_of::<THREADENTRY32>())
+                .expect("Windows thread entry size fits in u32"),
+            ..THREADENTRY32::default()
+        };
+        if unsafe { Thread32First(snapshot, &mut entry) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        loop {
+            if entry.th32OwnerProcessID == child.id() {
+                let thread = unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID) };
+                if thread.is_null() {
+                    return Err(io::Error::last_os_error());
+                }
+                let resumed = unsafe { ResumeThread(thread) };
+                unsafe {
+                    CloseHandle(thread);
+                }
+                if resumed == u32::MAX {
+                    return Err(io::Error::last_os_error());
+                }
+                return Ok(());
+            }
+            if unsafe { Thread32Next(snapshot, &mut entry) } == 0 {
+                return Err(io::Error::new(io::ErrorKind::NotFound, "Hermes child thread not found"));
+            }
+        }
+    })();
+    unsafe {
+        CloseHandle(snapshot);
+    }
+    result
+}
+
+fn read_hermes_output(mut pipe: impl Read) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    pipe.by_ref().take(HERMES_COMMAND_OUTPUT_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > HERMES_COMMAND_OUTPUT_BYTES {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "Hermes output exceeds 4 MiB"));
+    }
+    Ok(bytes)
+}
+
+fn run_hermes_command(binary: &Path, args: &[&str]) -> anyhow::Result<Output> {
+    run_hermes_command_with_timeout(binary, args, HERMES_COMMAND_TIMEOUT)
+}
+
+fn run_hermes_command_with_timeout(
+    binary: &Path,
+    args: &[&str],
+    timeout: Duration,
+) -> anyhow::Result<Output> {
+    let deadline = Instant::now() + timeout;
+    let mut command = Command::new(binary);
+    command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(unix)]
+    command.process_group(0);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_SUSPENDED);
+    let mut child = command.spawn().with_context(|| format!("run {}", binary.display()))?;
+    #[cfg(unix)]
+    let mut tree = match HermesUnixTree::track(child.id()) {
+        Ok(tree) => tree,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error).context("track Hermes process tree");
+        }
+    };
+    #[cfg(windows)]
+    let job = match HermesWindowsJob::assign_and_resume(&child) {
+        Ok(job) => job,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error).context("isolate Hermes process tree");
+        }
+    };
+    let stdout = child.stdout.take().context("Hermes stdout pipe is unavailable")?;
+    let stderr = child.stderr.take().context("Hermes stderr pipe is unavailable")?;
+    let stdout = std::thread::Builder::new()
+        .name("hermes-command-stdout".into())
+        .spawn(move || read_hermes_output(stdout))?;
+    let stderr = std::thread::Builder::new()
+        .name("hermes-command-stderr".into())
+        .spawn(move || read_hermes_output(stderr))?;
+    let status = child.wait_timeout(timeout)?;
+    #[cfg(unix)]
+    tree.terminate();
+    #[cfg(windows)]
+    job.terminate();
+    let status = match status {
+        Some(status) => status,
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            anyhow::bail!("Hermes command timed out after {} ms", timeout.as_millis());
+        }
+    };
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    anyhow::ensure!(!remaining.is_zero(), "Hermes command output timed out");
+    let stdout = stdout.join().map_err(|_| anyhow::anyhow!("Hermes stdout reader panicked"))??;
+    let stderr = stderr.join().map_err(|_| anyhow::anyhow!("Hermes stderr reader panicked"))??;
+    Ok(Output { status, stdout, stderr })
+}
+
 fn hermes_plugin_enabled(context: &Context) -> anyhow::Result<bool> {
     let binary = find_executable("hermes", context.path.as_deref())
         .context("Hermes Agent executable is unavailable")?;
-    let output = std::process::Command::new(&binary)
-        .args(["plugins", "list", "--enabled", "--user", "--no-bundled", "--json"])
-        .output()
-        .with_context(|| format!("run {} plugins list", binary.display()))?;
+    let output = run_hermes_command(
+        &binary,
+        &["plugins", "list", "--enabled", "--user", "--no-bundled", "--json"],
+    )?;
     anyhow::ensure!(
         output.status.success(),
         "Hermes plugin status failed: {}",
@@ -511,9 +837,7 @@ fn set_hermes_plugin_enabled(context: &Context, enabled: bool) -> anyhow::Result
     let binary = find_executable("hermes", context.path.as_deref())
         .context("Hermes Agent executable is unavailable")?;
     let action = if enabled { "enable" } else { "disable" };
-    let output = std::process::Command::new(&binary)
-        .args(["plugins", action, "cmux-tui-journal"])
-        .output()
+    let output = run_hermes_command(&binary, &["plugins", action, "cmux-tui-journal"])
         .with_context(|| format!("run {} plugins {action}", binary.display()))?;
     anyhow::ensure!(
         output.status.success(),
@@ -1026,6 +1350,20 @@ mod tests {
             path: None,
             environment: BTreeMap::new(),
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hermes_command_obeys_its_execution_deadline() {
+        let started = Instant::now();
+        let error = run_hermes_command_with_timeout(
+            Path::new("/bin/sh"),
+            &["-c", "sleep 30"],
+            Duration::from_millis(100),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("timed out"));
+        assert!(started.elapsed() < Duration::from_secs(2));
     }
 
     #[cfg(not(unix))]

@@ -682,15 +682,6 @@ pub(crate) fn validate_journal_hook_manifest(manifest: &JournalHookManifest) -> 
 }
 
 impl WorkspaceRegistry {
-    pub(crate) fn append_journal_ingress_events(
-        &mut self,
-        events: &[&crate::journal_ingress::JournalIngressEvent],
-    ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>> {
-        self.append_journal_ingress_events_with_limits(events, Duration::from_secs(5), None, || {
-            Ok(())
-        })
-    }
-
     pub(crate) fn append_journal_ingress_events_with_deadline<F>(
         &mut self,
         events: &[&crate::journal_ingress::JournalIngressEvent],

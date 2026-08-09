@@ -4753,8 +4753,8 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn hold_workspace_registry_for_test(
         &self,
-        entered: std::sync::mpsc::SyncSender<()>,
-        release: std::sync::mpsc::Receiver<()>,
+        entered: SyncSender<()>,
+        release: Receiver<()>,
     ) {
         let _registry = self.workspace_registry.lock().unwrap();
         entered.send(()).unwrap();
@@ -4764,8 +4764,8 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn install_journal_before_commit_for_test(
         &self,
-        entered: std::sync::mpsc::SyncSender<()>,
-        release: std::sync::mpsc::Receiver<()>,
+        entered: SyncSender<()>,
+        release: Receiver<()>,
     ) {
         self.workspace_registry
             .lock()
@@ -4776,8 +4776,8 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn install_journal_after_commit_admission_for_test(
         &self,
-        entered: std::sync::mpsc::SyncSender<()>,
-        release: std::sync::mpsc::Receiver<()>,
+        entered: SyncSender<()>,
+        release: Receiver<()>,
     ) {
         self.workspace_registry
             .lock()
@@ -8288,9 +8288,10 @@ impl Mux {
             surface.finish_terminal_reader(terminal_reader_deadline);
         }
         // Each terminal reader has drained or its journal capture gate has
-        // closed within the shutdown deadline. Fence the terminal ingress lane
-        // while this Mux still owns the registry. The closed gate prevents a
-        // timed-out reader from inserting output after this barrier.
+        // closed between updates. An update that crossed the shared reader
+        // deadline was still preserved before this point. Fence the terminal
+        // ingress lane while this Mux still owns the registry; the closed gate
+        // prevents a timed-out reader from inserting output after the barrier.
         if let Err(error) = self.flush_terminal_journal() {
             eprintln!("cmux-tui: flush terminal journal during shutdown: {error:#}");
         }
@@ -24006,10 +24007,10 @@ mod tests {
                             },
                             ResourceChange::SetScreenOrder {
                                 workspace_id: workspace.public_id.clone(),
-                                screen_ids: vec![screen.clone()],
+                                screen_ids: vec![screen],
                             },
                             ResourceChange::SetTabOrder {
-                                pane_id: pane.clone(),
+                                pane_id: pane,
                                 tab_ids: vec![tab.clone()],
                             },
                             ResourceChange::SetActiveWorkspace {
