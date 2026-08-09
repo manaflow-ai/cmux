@@ -2239,28 +2239,24 @@ mod tests {
         let mut controller =
             StaticMachineController { runtime, active, connections, pending: None };
 
-        controller.perform(MachineRequest::CreateFrom { source_id: "docker".into() }).unwrap();
-        let created = controller
-            .runtime
-            .snapshot(active)
+        let action = controller
+            .perform(MachineRequest::CreateFrom { source_id: "docker".into() })
+            .unwrap();
+        let created = action
+            .ui
+            .snapshot
             .machines
-            .into_iter()
+            .iter()
             .find(|machine| machine.id == "prototype:docker:1")
             .unwrap()
             .key;
 
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        let phase = controller
-            .connections
-            .phases()
-            .into_iter()
-            .find(|(key, _)| *key == created)
-            .map(|(_, phase)| phase);
         assert_eq!(
-            phase,
-            Some(machine::MachineConnectionPhase::Disconnected),
+            action.ui.connection_phase(created),
+            machine::MachineConnectionPhase::Disconnected,
             "created machine transport must not open until the row is selected"
         );
+        assert!(action.replacement.is_none(), "creation must not replace the active session");
     }
 
     #[test]
