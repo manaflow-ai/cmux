@@ -595,6 +595,13 @@ extension FeedCoordinator {
         lifecycleStatusKeyOverrides[source] ?? source
     }
 
+    /// Returns the Feed-owned status/lifecycle slot for one agent source.
+    /// Keeping this transient overlay separate from the agent's own slot makes
+    /// concurrent hook updates and overlapping Feed decisions independent.
+    static func attentionStatusKey(forSource source: String) -> String {
+        "cmux.feed.attention:\(lifecycleStatusKey(forSource: source))"
+    }
+
     /// Identifies the sidebar slot an attention overlay lights up. Panel-scoped
     /// targets use only the stable panel identity, so the refcount follows a
     /// live panel across workspace and Dock transfers. Owner identity remains
@@ -619,19 +626,17 @@ extension FeedCoordinator {
         }
     }
 
-    /// The localized "Needs input" sidebar status the overlay sets. Exposed so
-    /// ``concludeBlockingDecisionAttention(_:)`` can confirm it's still the
-    /// value we wrote before clearing it (rather than one an agent hook
-    /// replaced in the meantime).
+    /// The localized "Needs input" sidebar status the overlay sets.
     static var needsInputStatusValue: String {
         String(localized: "feed.status.needsInput", defaultValue: "Needs input")
     }
 
     /// Surfaces in-app attention for a blocking feed decision: flips the exact
-    /// panel owner's agent lifecycle to `.needsInput`, sets its "Needs input"
-    /// status, and elevates workspace owners when *Reorder on Notification* is
-    /// enabled. Window-Dock owners retain their own runtime instead of being
-    /// reinterpreted as workspaces.
+    /// panel owner's Feed-owned lifecycle to `.needsInput`, sets its
+    /// Feed-owned "Needs input" status, and elevates workspace owners when
+    /// *Reorder on Notification* is enabled. The agent's own lifecycle and
+    /// status slots remain authoritative and untouched. Window-Dock owners
+    /// retain their own runtime instead of being reinterpreted as workspaces.
     ///
     /// This is the convergence point the PreToolUse→PermissionRequest
     /// migration left behind: the `feed.push` bridge ingested the card and
@@ -719,16 +724,13 @@ extension FeedCoordinator {
             #endif
             return nil
         }
-        let statusKey = Self.lifecycleStatusKey(forSource: event.source)
+        let statusKey = Self.attentionStatusKey(forSource: event.source)
         let target = AttentionTarget(
             location: panelId.map(AttentionTarget.Location.panel)
                 ?? .owner(kind: ownerKind, id: owner.id),
             statusKey: statusKey
         )
-        let attentionState = pendingAttentionStates[target] ?? AttentionOverlayState(
-            owner: owner,
-            previousLifecycle: owner.agentLifecycle(key: statusKey, panelId: panelId)
-        )
+        let attentionState = pendingAttentionStates[target] ?? AttentionOverlayState(owner: owner)
         attentionState.fallbackOwner = owner
         attentionState.count += 1
         pendingAttentionStates[target] = attentionState
@@ -758,11 +760,9 @@ extension FeedCoordinator {
 
     /// Concludes a blocking decision's attention overlay. Decrements the
     /// per-target refcount and, when it reaches zero, clears the needs-input
-    /// overlay — but only the parts the feed still owns: the lifecycle is
-    /// restored only if it's still `.needsInput`, and the status entry is
-    /// removed only if it still holds our "Needs input" value. Anything an
-    /// agent hook replaced in the meantime is left untouched, so a real
-    /// running/idle/needs-input update from the agent always wins.
+    /// overlay. Feed owns a reserved lifecycle/status slot, so cleanup removes
+    /// only that slot and never snapshots or restores the agent's concurrent
+    /// running/idle/needs-input state.
     @MainActor
     func concludeBlockingDecisionAttention(_ target: AttentionTarget) {
         guard let attentionState = pendingAttentionStates[target] else { return }
@@ -773,19 +773,10 @@ extension FeedCoordinator {
         pendingAttentionStates.removeValue(forKey: target)
         let owner = liveAttentionOwner(for: target, fallback: attentionState.fallbackOwner)
 
-        // Lifecycle is per-panel, so clearing this panel's needs-input is
-        // safe even if another panel still needs input.
-        if let panelId = target.panelId,
-           owner.agentLifecycle(key: target.statusKey, panelId: panelId) == .needsInput {
-            if let previousLifecycle = attentionState.previousLifecycle {
-                owner.setAgentLifecycle(
-                    key: target.statusKey,
-                    panelId: panelId,
-                    lifecycle: previousLifecycle
-                )
-            } else {
-                owner.clearAgentLifecycle(key: target.statusKey, panelId: panelId)
-            }
+        // Lifecycle is per-panel, so clearing this Feed-owned slot is safe even
+        // if another panel or the agent's own slot still needs input.
+        if let panelId = target.panelId {
+            owner.clearAgentLifecycle(key: target.statusKey, panelId: panelId)
         }
 
         // Workspace status is shared across panels (keyed only by statusKey),
@@ -807,9 +798,7 @@ extension FeedCoordinator {
         } else {
             sharedWorkspaceStatusStillPending = false
         }
-        if !sharedWorkspaceStatusStillPending,
-           owner.statusEntry(key: target.statusKey, panelId: target.panelId)?.value
-               == Self.needsInputStatusValue {
+        if !sharedWorkspaceStatusStillPending {
             owner.clearStatusEntry(key: target.statusKey, panelId: target.panelId)
         }
     }
@@ -919,15 +908,10 @@ extension FeedCoordinator {
 private final class AttentionOverlayState {
     var count: Int
     var fallbackOwner: ControlSidebarPanelOwner
-    let previousLifecycle: AgentHibernationLifecycleState?
 
-    init(
-        owner: ControlSidebarPanelOwner,
-        previousLifecycle: AgentHibernationLifecycleState?
-    ) {
+    init(owner: ControlSidebarPanelOwner) {
         self.count = 0
         self.fallbackOwner = owner
-        self.previousLifecycle = previousLifecycle
     }
 }
 

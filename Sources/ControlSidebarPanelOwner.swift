@@ -40,19 +40,6 @@ enum ControlSidebarPanelOwner {
         }
     }
 
-    func agentLifecycle(
-        key: String,
-        panelId: UUID?
-    ) -> AgentHibernationLifecycleState? {
-        guard let panelId else { return nil }
-        switch self {
-        case .workspace(let workspace):
-            return workspace.agentLifecycleStatesByPanelId[panelId]?[key]
-        case .dock(let dock):
-            return dock.agentRuntimeByPanelId[panelId]?.agentLifecycleStates[key]
-        }
-    }
-
     func setStatusEntry(_ entry: SidebarStatusEntry, key: String, panelId: UUID?) {
         switch self {
         case .workspace(let workspace): workspace.statusEntries[key] = entry

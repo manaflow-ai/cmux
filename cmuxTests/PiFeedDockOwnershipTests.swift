@@ -86,6 +86,10 @@ private extension Workspace {
 
 @Suite("Pi Feed Dock ownership", .serialized)
 struct PiFeedDockOwnershipTests {
+    private static var attentionStatusKey: String {
+        FeedCoordinator.attentionStatusKey(forSource: "pi")
+    }
+
     @MainActor
     @Test("Acknowledged Feed prefers its live claimed workspace over a stale Dock copy")
     func acknowledgedFeedPrefersLiveClaimedWorkspaceOverStaleDockCopy() async throws {
@@ -142,23 +146,27 @@ struct PiFeedDockOwnershipTests {
             )
 
             #expect(
-                workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == .needsInput
+                workspace.agentLifecycleStatesByPanelId[panel.id]?[Self.attentionStatusKey]
+                    == .needsInput
             )
-            #expect(workspace.statusEntries["pi"]?.value == FeedCoordinator.needsInputStatusValue)
+            #expect(
+                workspace.statusEntries[Self.attentionStatusKey]?.value
+                    == FeedCoordinator.needsInputStatusValue
+            )
 
             FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
 
             #expect(
-                workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == nil
+                workspace.agentLifecycleStatesByPanelId[panel.id]?[Self.attentionStatusKey] == nil
             )
-            #expect(workspace.statusEntries["pi"] == nil)
+            #expect(workspace.statusEntries[Self.attentionStatusKey] == nil)
             #expect(staleDock.agentRuntimeByPanelId[panel.id] == nil)
         }
     }
 
     @MainActor
-    @Test("Blocking Feed restores the lifecycle state it overlaid")
-    func blockingFeedRestoresPreviousLifecycleState() async throws {
+    @Test("Blocking Feed leaves the agent lifecycle state untouched")
+    func blockingFeedLeavesAgentLifecycleStateUntouched() async throws {
         try await withAppContext { _, manager, workspace, _ in
             let panel = try workspace.seedPiFeedPanel()
             workspace.setAgentLifecycle(key: "pi", panelId: panel.id, lifecycle: .idle)
@@ -178,7 +186,11 @@ struct PiFeedDockOwnershipTests {
             )
 
             #expect(
-                workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == .needsInput
+                workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == .idle
+            )
+            #expect(
+                workspace.agentLifecycleStatesByPanelId[panel.id]?[Self.attentionStatusKey]
+                    == .needsInput
             )
 
             FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
@@ -186,7 +198,10 @@ struct PiFeedDockOwnershipTests {
             #expect(
                 workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == .idle
             )
-            #expect(workspace.statusEntries["pi"] == nil)
+            #expect(
+                workspace.agentLifecycleStatesByPanelId[panel.id]?[Self.attentionStatusKey] == nil
+            )
+            #expect(workspace.statusEntries[Self.attentionStatusKey] == nil)
         }
     }
 
@@ -245,6 +260,14 @@ struct PiFeedDockOwnershipTests {
                 workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == .running
             )
             #expect(workspace.statusEntries["pi"] == runningStatus)
+            #expect(
+                workspace.agentLifecycleStatesByPanelId[panel.id]?[Self.attentionStatusKey]
+                    == .needsInput
+            )
+            #expect(
+                workspace.statusEntries[Self.attentionStatusKey]?.value
+                    == FeedCoordinator.needsInputStatusValue
+            )
 
             FeedCoordinator.shared.concludeBlockingDecisionAttention(secondTarget)
 
@@ -252,6 +275,10 @@ struct PiFeedDockOwnershipTests {
                 workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == .running
             )
             #expect(workspace.statusEntries["pi"] == runningStatus)
+            #expect(
+                workspace.agentLifecycleStatesByPanelId[panel.id]?[Self.attentionStatusKey] == nil
+            )
+            #expect(workspace.statusEntries[Self.attentionStatusKey] == nil)
         }
     }
 
@@ -286,6 +313,14 @@ struct PiFeedDockOwnershipTests {
                 workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == .needsInput
             )
             #expect(workspace.statusEntries["pi"] == agentStatus)
+            #expect(
+                workspace.agentLifecycleStatesByPanelId[panel.id]?[Self.attentionStatusKey]
+                    == .needsInput
+            )
+            #expect(
+                workspace.statusEntries[Self.attentionStatusKey]?.value
+                    == FeedCoordinator.needsInputStatusValue
+            )
 
             FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
 
@@ -293,6 +328,10 @@ struct PiFeedDockOwnershipTests {
                 workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == .needsInput
             )
             #expect(workspace.statusEntries["pi"] == agentStatus)
+            #expect(
+                workspace.agentLifecycleStatesByPanelId[panel.id]?[Self.attentionStatusKey] == nil
+            )
+            #expect(workspace.statusEntries[Self.attentionStatusKey] == nil)
         }
     }
 
@@ -345,10 +384,13 @@ struct PiFeedDockOwnershipTests {
 
             #expect(dock.agentRuntimeByPanelId[resolvedPanel.id] == nil)
             #expect(
-                workspace.agentLifecycleStatesByPanelId[pendingPanel.id]?["pi"]
+                workspace.agentLifecycleStatesByPanelId[pendingPanel.id]?[Self.attentionStatusKey]
                     == .needsInput
             )
-            #expect(workspace.statusEntries["pi"]?.value == FeedCoordinator.needsInputStatusValue)
+            #expect(
+                workspace.statusEntries[Self.attentionStatusKey]?.value
+                    == FeedCoordinator.needsInputStatusValue
+            )
         }
     }
 
@@ -413,11 +455,11 @@ struct PiFeedDockOwnershipTests {
                     onAcceptedOnMainActor: { acceptedEvent in
                         recorder.acceptedEvent = acceptedEvent
                         recorder.targetWasNeedsInput = dock.agentRuntimeByPanelId[targetPanel.id]?
-                            .agentLifecycleStates["pi"] == .needsInput
+                            .agentLifecycleStates[Self.attentionStatusKey] == .needsInput
                         recorder.focusedWasNeedsInput = dock.agentRuntimeByPanelId[focusedPanel.id]?
-                            .agentLifecycleStates["pi"] == .needsInput
+                            .agentLifecycleStates[Self.attentionStatusKey] == .needsInput
                         recorder.targetStatusValue = dock.agentRuntimeStatusEntry(
-                            key: "pi",
+                            key: Self.attentionStatusKey,
                             panelId: targetPanel.id
                         )?.value
                         FeedCoordinator.shared.deliverReply(
@@ -475,8 +517,10 @@ struct PiFeedDockOwnershipTests {
                             focusWindow: false
                         )
                         recorder.transferredWasNeedsInput = workspace
-                            .agentLifecycleStatesByPanelId[targetPanel.id]?["pi"] == .needsInput
-                        recorder.transferredStatusValue = workspace.statusEntries["pi"]?.value
+                            .agentLifecycleStatesByPanelId[targetPanel.id]?[Self.attentionStatusKey]
+                            == .needsInput
+                        recorder.transferredStatusValue = workspace
+                            .statusEntries[Self.attentionStatusKey]?.value
                         FeedCoordinator.shared.deliverReply(
                             requestId: requestID,
                             decision: .permission(.once)
@@ -493,9 +537,10 @@ struct PiFeedDockOwnershipTests {
             #expect(recorder.transferredWasNeedsInput)
             #expect(recorder.transferredStatusValue == FeedCoordinator.needsInputStatusValue)
             #expect(
-                workspace.agentLifecycleStatesByPanelId[targetPanel.id]?["pi"] == nil
+                workspace.agentLifecycleStatesByPanelId[targetPanel.id]?[Self.attentionStatusKey]
+                    == nil
             )
-            #expect(workspace.statusEntries["pi"] == nil)
+            #expect(workspace.statusEntries[Self.attentionStatusKey] == nil)
         }
     }
 
@@ -529,22 +574,32 @@ struct PiFeedDockOwnershipTests {
                 destination: .insert(targetPane: dockPane, targetIndex: nil)
             ))
             #expect(
-                dock.agentRuntimeByPanelId[targetPanel.id]?.agentLifecycleStates["pi"]
+                dock.agentRuntimeByPanelId[targetPanel.id]?
+                    .agentLifecycleStates[Self.attentionStatusKey]
                     == .needsInput
             )
             #expect(
-                dock.agentRuntimeStatusEntry(key: "pi", panelId: targetPanel.id)?.value
+                dock.agentRuntimeStatusEntry(
+                    key: Self.attentionStatusKey,
+                    panelId: targetPanel.id
+                )?.value
                     == FeedCoordinator.needsInputStatusValue
             )
-            #expect(workspace.statusEntries["pi"] == nil)
+            #expect(workspace.statusEntries[Self.attentionStatusKey] == nil)
 
             FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
 
             #expect(
-                dock.agentRuntimeByPanelId[targetPanel.id]?.agentLifecycleStates["pi"] == nil
+                dock.agentRuntimeByPanelId[targetPanel.id]?
+                    .agentLifecycleStates[Self.attentionStatusKey] == nil
             )
-            #expect(dock.agentRuntimeStatusEntry(key: "pi", panelId: targetPanel.id) == nil)
-            #expect(workspace.statusEntries["pi"] == nil)
+            #expect(
+                dock.agentRuntimeStatusEntry(
+                    key: Self.attentionStatusKey,
+                    panelId: targetPanel.id
+                ) == nil
+            )
+            #expect(workspace.statusEntries[Self.attentionStatusKey] == nil)
         }
     }
 
@@ -601,16 +656,21 @@ struct PiFeedDockOwnershipTests {
             FeedCoordinator.shared.concludeBlockingDecisionAttention(firstTarget)
 
             #expect(
-                workspace.agentLifecycleStatesByPanelId[targetPanel.id]?["pi"] == .needsInput
+                workspace.agentLifecycleStatesByPanelId[targetPanel.id]?[Self.attentionStatusKey]
+                    == .needsInput
             )
-            #expect(workspace.statusEntries["pi"]?.value == FeedCoordinator.needsInputStatusValue)
+            #expect(
+                workspace.statusEntries[Self.attentionStatusKey]?.value
+                    == FeedCoordinator.needsInputStatusValue
+            )
 
             FeedCoordinator.shared.concludeBlockingDecisionAttention(secondTarget)
 
             #expect(
-                workspace.agentLifecycleStatesByPanelId[targetPanel.id]?["pi"] == nil
+                workspace.agentLifecycleStatesByPanelId[targetPanel.id]?[Self.attentionStatusKey]
+                    == nil
             )
-            #expect(workspace.statusEntries["pi"] == nil)
+            #expect(workspace.statusEntries[Self.attentionStatusKey] == nil)
         }
     }
 
@@ -640,9 +700,9 @@ struct PiFeedDockOwnershipTests {
                     onAcceptedOnMainActor: { acceptedEvent in
                         recorder.acceptedEvent = acceptedEvent
                         recorder.focusedWasNeedsInput = dock.agentRuntimeByPanelId[focusedPanel.id]?
-                            .agentLifecycleStates["pi"] == .needsInput
+                            .agentLifecycleStates[Self.attentionStatusKey] == .needsInput
                         recorder.targetStatusValue = dock.agentRuntimeStatusEntry(
-                            key: "pi",
+                            key: Self.attentionStatusKey,
                             panelId: focusedPanel.id
                         )?.value
                         FeedCoordinator.shared.deliverReply(
