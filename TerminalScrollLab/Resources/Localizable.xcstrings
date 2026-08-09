@@ -1,0 +1,54 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "lab.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Ghostty Native Scroll Lab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Ghostty ネイティブスクロールラボ" } }
+      }
+    },
+    "runtime.error.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Ghostty could not start" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Ghostty を起動できませんでした" } }
+      }
+    },
+    "scroll.metrics.format" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@  offset %.1f pt  translation %.1f pt" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@  オフセット %.1f pt  移動 %.1f pt" } }
+      }
+    },
+    "scroll.phase.decelerating" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "DECELERATING" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "減速中" } }
+      }
+    },
+    "scroll.phase.dragging" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "DRAGGING" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ドラッグ中" } }
+      }
+    },
+    "scroll.phase.idle" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "IDLE" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "待機中" } }
+      }
+    },
+    "terminal.prompt" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Drag and fling anywhere in the terminal." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナル内をドラッグまたはフリックしてください。" } }
+      }
+    },
+    "terminal.row.format" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Ghostty renderer row %03lld" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Ghostty レンダラー行 %03lld" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}

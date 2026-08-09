@@ -31,6 +31,11 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// (sign = direction), `col`/`row` is the grid cell under the finger (so
     /// alt-screen mouse-wheel reports at the right cell). Optional.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int)
+    /// Reports Ghostty's applied scrollback range and viewport position.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didUpdateScrollBoundary boundary: TerminalScrollBoundary
+    )
     /// Resolves immediate input ownership from a generation-stamped artifact cache.
     /// Hosts defer when the cache is missing, stale, or contains a candidate.
     func ghosttySurfaceView(
@@ -97,6 +102,11 @@ public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didChangeWindowAttachment isAttached: Bool) {}
     /// Default no-op so hosts without remote scroll forwarding can ignore it.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
+    /// Default no-op so hosts without bounded scroll presentation can ignore it.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didUpdateScrollBoundary boundary: TerminalScrollBoundary
+    ) {}
     /// Default to immediate input for hosts without artifact-path interception.
     func ghosttySurfaceView(
         _ surfaceView: GhosttySurfaceView,

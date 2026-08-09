@@ -31,6 +31,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public var terminalConfigTheme: TerminalTheme = .monokai
     /// Verified sessions keep the Mac as the sole owner of terminal scroll state.
     public var scrollPresentationAuthority: TerminalScrollPresentationAuthority = .legacyMirror
+    /// The renderer's current cell size in UIKit points.
+    ///
+    /// A zero component means Ghostty has not completed its first geometry pass.
+    public var renderedCellSizeInPoints: CGSize {
+        let scale = max(preferredScreenScale, 1)
+        return CGSize(
+            width: cellPixelSize.width / scale,
+            height: cellPixelSize.height / scale
+        )
+    }
     private var appliedTerminalConfigTheme: TerminalTheme?
     weak var delegate: GhosttySurfaceViewDelegate?
     private let fontSize: Float32
@@ -2234,6 +2244,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     public func processOutput(_ data: Data) {
         processOutput(data, completion: nil)
+    }
+
+    func handleScrollBoundaryChange(_ boundary: TerminalScrollBoundary) {
+        delegate?.ghosttySurfaceView(self, didUpdateScrollBoundary: boundary)
     }
 
     func makeSurfaceOperationID() -> UInt64 {

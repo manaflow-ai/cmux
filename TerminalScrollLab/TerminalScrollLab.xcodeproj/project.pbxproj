@@ -1,0 +1,513 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0B73AC3D515562ABC663A3F8 /* CmuxMobileTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = 1FFCBAEE5007F5D3E2657F0C /* CmuxMobileTerminal */; };
+		33F33C8DEE590897B6E9014A /* TerminalScrollViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D31920CE28BCA063E1711BD /* TerminalScrollViewController.swift */; };
+		4D7719598551FDF4A05A0A32 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2EA5427BE274E4353DCB1F9 /* AppDelegate.swift */; };
+		6200D5AAF12F51D11CC3CBB9 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 89A1328978F9B9E8C610ED9E /* InfoPlist.strings */; };
+		6C6A27C42C5EB5361D382A26 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A419CCE5F0C4CDCB5E50081D /* SceneDelegate.swift */; };
+		7B5130FE26CED2590EA624EA /* NativeTerminalScrollCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A075FF358E55BDA84567C43 /* NativeTerminalScrollCoordinator.swift */; };
+		A5D4AE138E3AEAED0E9E8CAC /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = E78C18B379ED2EE72AD14CAB /* Localizable.xcstrings */; };
+		CF3E5E99BA649D6CA8F01363 /* NativeScrollStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 025013B8269FB307522CD0A4 /* NativeScrollStateTests.swift */; };
+		EA1AB491DC71BBC8B89D7FCD /* NativeScrollState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D801EF3C12FCE4400CC46848 /* NativeScrollState.swift */; };
+		F7A88130C0A497E633BBDC97 /* TerminalRuntimeErrorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE6840D5B826E3DFA0D98240 /* TerminalRuntimeErrorViewController.swift */; };
+		FFD87BBDEDABE2793B7D07DC /* TerminalSurfaceDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23B7993D4C946C0ADFDBE3BD /* TerminalSurfaceDelegate.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		4A050D8C8D9B64122DECB40A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8474CEC32AAC3B5E9C887E94 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F401C4FED28B9C9E049A4F04;
+			remoteInfo = TerminalScrollLab;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		025013B8269FB307522CD0A4 /* NativeScrollStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeScrollStateTests.swift; sourceTree = "<group>"; };
+		183305CB81D8D1008AA26390 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		23B7993D4C946C0ADFDBE3BD /* TerminalSurfaceDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurfaceDelegate.swift; sourceTree = "<group>"; };
+		2D31920CE28BCA063E1711BD /* TerminalScrollViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalScrollViewController.swift; sourceTree = "<group>"; };
+		5A075FF358E55BDA84567C43 /* NativeTerminalScrollCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTerminalScrollCoordinator.swift; sourceTree = "<group>"; };
+		5C41990814603010EACC53E3 /* TerminalScrollLab.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TerminalScrollLab.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		74F2E12335BC35F9338BE531 /* CmuxMobileTerminal */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CmuxMobileTerminal; path = ../Packages/iOS/CmuxMobileTerminal; sourceTree = SOURCE_ROOT; };
+		A419CCE5F0C4CDCB5E50081D /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
+		CD8EA41F7DA00D51F7F55F8B /* TerminalScrollLabTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TerminalScrollLabTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D801EF3C12FCE4400CC46848 /* NativeScrollState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeScrollState.swift; sourceTree = "<group>"; };
+		E517BC5EF5C404A8FDE7A5E2 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		E78C18B379ED2EE72AD14CAB /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		F2EA5427BE274E4353DCB1F9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		FE6840D5B826E3DFA0D98240 /* TerminalRuntimeErrorViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRuntimeErrorViewController.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		BC5FD576FBA57E28C9BFD6C7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0B73AC3D515562ABC663A3F8 /* CmuxMobileTerminal in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		24A39B6A38DFBF32E543D34D /* App */ = {
+			isa = PBXGroup;
+			children = (
+				F2EA5427BE274E4353DCB1F9 /* AppDelegate.swift */,
+				D801EF3C12FCE4400CC46848 /* NativeScrollState.swift */,
+				5A075FF358E55BDA84567C43 /* NativeTerminalScrollCoordinator.swift */,
+				A419CCE5F0C4CDCB5E50081D /* SceneDelegate.swift */,
+				FE6840D5B826E3DFA0D98240 /* TerminalRuntimeErrorViewController.swift */,
+				2D31920CE28BCA063E1711BD /* TerminalScrollViewController.swift */,
+				23B7993D4C946C0ADFDBE3BD /* TerminalSurfaceDelegate.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		3845CDF3020C55B4D958F7F3 = {
+			isa = PBXGroup;
+			children = (
+				24A39B6A38DFBF32E543D34D /* App */,
+				DE7C8C171271047791395F2D /* Packages */,
+				A3CA1E9E7DB64037E93629CB /* Resources */,
+				68C19C13F9EE1CA7669877A5 /* TerminalScrollLabTests */,
+				A208F18FD38AD3FD291BF394 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		68C19C13F9EE1CA7669877A5 /* TerminalScrollLabTests */ = {
+			isa = PBXGroup;
+			children = (
+				025013B8269FB307522CD0A4 /* NativeScrollStateTests.swift */,
+			);
+			name = TerminalScrollLabTests;
+			path = Tests/TerminalScrollLabTests;
+			sourceTree = "<group>";
+		};
+		A208F18FD38AD3FD291BF394 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				5C41990814603010EACC53E3 /* TerminalScrollLab.app */,
+				CD8EA41F7DA00D51F7F55F8B /* TerminalScrollLabTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A3CA1E9E7DB64037E93629CB /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				E78C18B379ED2EE72AD14CAB /* Localizable.xcstrings */,
+				89A1328978F9B9E8C610ED9E /* InfoPlist.strings */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		DE7C8C171271047791395F2D /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				74F2E12335BC35F9338BE531 /* CmuxMobileTerminal */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		96DE6AEE5848721AEE88EE78 /* TerminalScrollLabTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D7F05D79AA7C6A0A06D35978 /* Build configuration list for PBXNativeTarget "TerminalScrollLabTests" */;
+			buildPhases = (
+				E35B0EB0AA03DFADC77D7F06 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				08D5795E7DA04EF4D49FF29A /* PBXTargetDependency */,
+			);
+			name = TerminalScrollLabTests;
+			packageProductDependencies = (
+			);
+			productName = TerminalScrollLabTests;
+			productReference = CD8EA41F7DA00D51F7F55F8B /* TerminalScrollLabTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		F401C4FED28B9C9E049A4F04 /* TerminalScrollLab */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 84B086C30CB19DC266453DBE /* Build configuration list for PBXNativeTarget "TerminalScrollLab" */;
+			buildPhases = (
+				CD808A6FD176E46C1DC2CB87 /* Sources */,
+				3A1CE0941CA929A282EF4C73 /* Resources */,
+				BC5FD576FBA57E28C9BFD6C7 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TerminalScrollLab;
+			packageProductDependencies = (
+				1FFCBAEE5007F5D3E2657F0C /* CmuxMobileTerminal */,
+			);
+			productName = TerminalScrollLab;
+			productReference = 5C41990814603010EACC53E3 /* TerminalScrollLab.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8474CEC32AAC3B5E9C887E94 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					96DE6AEE5848721AEE88EE78 = {
+						DevelopmentTeam = 7WLXT3NR37;
+					};
+					F401C4FED28B9C9E049A4F04 = {
+						DevelopmentTeam = 7WLXT3NR37;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = CDD34A2F1D2215BD74AD39C6 /* Build configuration list for PBXProject "TerminalScrollLab" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+				ja,
+			);
+			mainGroup = 3845CDF3020C55B4D958F7F3;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				99EA90239B7D614231707C63 /* XCLocalSwiftPackageReference "../Packages/iOS/CmuxMobileTerminal" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = A208F18FD38AD3FD291BF394 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				F401C4FED28B9C9E049A4F04 /* TerminalScrollLab */,
+				96DE6AEE5848721AEE88EE78 /* TerminalScrollLabTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		3A1CE0941CA929A282EF4C73 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6200D5AAF12F51D11CC3CBB9 /* InfoPlist.strings in Resources */,
+				A5D4AE138E3AEAED0E9E8CAC /* Localizable.xcstrings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		CD808A6FD176E46C1DC2CB87 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4D7719598551FDF4A05A0A32 /* AppDelegate.swift in Sources */,
+				EA1AB491DC71BBC8B89D7FCD /* NativeScrollState.swift in Sources */,
+				7B5130FE26CED2590EA624EA /* NativeTerminalScrollCoordinator.swift in Sources */,
+				6C6A27C42C5EB5361D382A26 /* SceneDelegate.swift in Sources */,
+				F7A88130C0A497E633BBDC97 /* TerminalRuntimeErrorViewController.swift in Sources */,
+				33F33C8DEE590897B6E9014A /* TerminalScrollViewController.swift in Sources */,
+				FFD87BBDEDABE2793B7D07DC /* TerminalSurfaceDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E35B0EB0AA03DFADC77D7F06 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CF3E5E99BA649D6CA8F01363 /* NativeScrollStateTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		08D5795E7DA04EF4D49FF29A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F401C4FED28B9C9E049A4F04 /* TerminalScrollLab */;
+			targetProxy = 4A050D8C8D9B64122DECB40A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		89A1328978F9B9E8C610ED9E /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				183305CB81D8D1008AA26390 /* en */,
+				E517BC5EF5C404A8FDE7A5E2 /* ja */,
+			);
+			name = InfoPlist.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		0BE6A56C39F7BB61EA498B8B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = ai.manaflow.TerminalScrollLabTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TerminalScrollLab.app/TerminalScrollLab";
+			};
+			name = Debug;
+		};
+		96F226EB60FBE9385CB1302F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = ai.manaflow.TerminalScrollLabTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TerminalScrollLab.app/TerminalScrollLab";
+			};
+			name = Release;
+		};
+		9987043FC2AAF7967DC91E20 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Scroll Lab";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = "$(inherited) -lc++";
+				PRODUCT_BUNDLE_IDENTIFIER = ai.manaflow.TerminalScrollLab;
+				PRODUCT_NAME = "Terminal Scroll Lab";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		9C331B02DEDA2AE7918E1C07 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		D5C4102EE48F9984FE948D28 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		DF080BC0C7D2BABBEADF4BCD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Scroll Lab";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = "$(inherited) -lc++";
+				PRODUCT_BUNDLE_IDENTIFIER = ai.manaflow.TerminalScrollLab;
+				PRODUCT_NAME = "Terminal Scroll Lab";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		84B086C30CB19DC266453DBE /* Build configuration list for PBXNativeTarget "TerminalScrollLab" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9987043FC2AAF7967DC91E20 /* Debug */,
+				DF080BC0C7D2BABBEADF4BCD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		CDD34A2F1D2215BD74AD39C6 /* Build configuration list for PBXProject "TerminalScrollLab" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9C331B02DEDA2AE7918E1C07 /* Debug */,
+				D5C4102EE48F9984FE948D28 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D7F05D79AA7C6A0A06D35978 /* Build configuration list for PBXNativeTarget "TerminalScrollLabTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0BE6A56C39F7BB61EA498B8B /* Debug */,
+				96F226EB60FBE9385CB1302F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		99EA90239B7D614231707C63 /* XCLocalSwiftPackageReference "../Packages/iOS/CmuxMobileTerminal" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../Packages/iOS/CmuxMobileTerminal;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		1FFCBAEE5007F5D3E2657F0C /* CmuxMobileTerminal */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxMobileTerminal;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 8474CEC32AAC3B5E9C887E94 /* Project object */;
+}
