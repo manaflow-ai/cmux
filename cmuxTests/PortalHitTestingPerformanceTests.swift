@@ -650,26 +650,60 @@ struct PortalHitTestingPerformanceTests {
     }
 
     @Test
-    func arrangedSubviewMutationsInvalidateHierarchyRegistration() throws {
+    func addingArrangedSubviewInvalidatesHierarchyRegistration() throws {
         try expectArrangedSubviewMutationInvalidates(
             prepare: { splitView, panes in
-                splitView.removeArrangedSubview(panes[0])
+                splitView.arrangesAllSubviews = false
+                splitView.addArrangedSubview(panes[0])
             },
             mutation: { splitView, panes in
-                splitView.addArrangedSubview(panes[0])
+                splitView.addArrangedSubview(panes[1])
             }
         )
-        try expectArrangedSubviewMutationInvalidates { splitView, panes in
-            splitView.removeArrangedSubview(panes[0])
-        }
-        try expectArrangedSubviewMutationInvalidates { splitView, panes in
-            splitView.insertArrangedSubview(panes[1], at: 0)
-        }
+    }
+
+    @Test
+    func removingArrangedSubviewInvalidatesHierarchyRegistration() throws {
         try expectArrangedSubviewMutationInvalidates(
             prepare: { splitView, panes in
                 splitView.arrangesAllSubviews = false
                 for pane in panes {
-                    splitView.removeArrangedSubview(pane)
+                    splitView.addArrangedSubview(pane)
+                }
+            },
+            mutation: { splitView, panes in
+                splitView.removeArrangedSubview(panes[0])
+            },
+            cleanup: { _, panes in
+                // Complete AppKit's documented two-step removal while
+                // `arrangesAllSubviews` is false.
+                panes[0].removeFromSuperview()
+            }
+        )
+    }
+
+    @Test
+    func insertingArrangedSubviewInvalidatesHierarchyRegistration() throws {
+        try expectArrangedSubviewMutationInvalidates(
+            prepare: { splitView, panes in
+                splitView.arrangesAllSubviews = false
+                for pane in panes {
+                    splitView.addArrangedSubview(pane)
+                }
+            },
+            mutation: { splitView, panes in
+                splitView.insertArrangedSubview(panes[1], at: 0)
+            }
+        )
+    }
+
+    @Test
+    func arrangingAllSubviewsInvalidatesHierarchyRegistration() throws {
+        try expectArrangedSubviewMutationInvalidates(
+            prepare: { splitView, panes in
+                splitView.arrangesAllSubviews = false
+                for pane in panes {
+                    splitView.addSubview(pane)
                 }
             },
             mutation: { splitView, _ in
@@ -679,8 +713,9 @@ struct PortalHitTestingPerformanceTests {
     }
 
     private func expectArrangedSubviewMutationInvalidates(
-        prepare: (NSSplitView, [NSView]) -> Void = { _, _ in },
-        mutation: (NSSplitView, [NSView]) -> Void
+        prepare: (NSSplitView, [NSView]) -> Void,
+        mutation: (NSSplitView, [NSView]) -> Void,
+        cleanup: (NSSplitView, [NSView]) -> Void = { _, _ in }
     ) throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
@@ -697,18 +732,9 @@ struct PortalHitTestingPerformanceTests {
             NSView(frame: NSRect(x: 0, y: 0, width: 200, height: rootView.bounds.height)),
             NSView(frame: NSRect(x: 201, y: 0, width: 119, height: rootView.bounds.height)),
         ]
-        splitView.addSubview(panes[0])
-        splitView.addSubview(panes[1])
-        rootView.addSubview(splitView)
-        defer {
-            // `removeArrangedSubview` intentionally leaves the view in `subviews`.
-            // Restore AppKit's all-subviews-are-arranged invariant before the
-            // split view deallocates; macOS 15 otherwise tears down KVO twice.
-            for pane in panes where !splitView.arrangedSubviews.contains(where: { $0 === pane }) {
-                splitView.addArrangedSubview(pane)
-            }
-        }
         prepare(splitView, panes)
+        rootView.addSubview(splitView)
+        defer { cleanup(splitView, panes) }
 
         let invalidator = PortalSplitDividerCacheInvalidator()
         defer { invalidator.invalidate() }
