@@ -240,6 +240,42 @@ struct DockRuntimeParityTests {
         }
     }
 
+    @Test("Unavailable workspace Dock focus preserves window and workspace selection")
+    func unavailableWorkspaceDockFocusPreservesWindowAndSelection() async throws {
+        try await withAppContext { appDelegate, manager, selectedWorkspace, windowID in
+            let targetWorkspace = manager.addWorkspace(title: "Dock focus target", select: false)
+            let targetDock = targetWorkspace.dockSplit
+            let initiallyFocusedPanel = DockRuntimeParityPanel(title: "Initially focused")
+            let targetPanel = DockRuntimeParityPanel(title: "Focus target")
+            try targetDock.seedRuntimeParityPanel(initiallyFocusedPanel)
+            try targetDock.seedRuntimeParityPanel(targetPanel)
+            targetDock.focusPanel(initiallyFocusedPanel.id)
+
+            let window = try #require(appDelegate.windowForMainWindowId(windowID))
+            window.orderOut(nil)
+            #expect(manager.selectedTabId == selectedWorkspace.id)
+            #expect(targetDock.focusedPanelId == initiallyFocusedPanel.id)
+            #expect(!window.isVisible)
+
+            let defaults = UserDefaults.standard
+            let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
+            defaults.set(false, forKey: dockEnabledKey)
+            defer { defaults.set(true, forKey: dockEnabledKey) }
+
+            let envelope = try socketEnvelope(method: "surface.focus", params: [
+                "workspace_id": targetWorkspace.id.uuidString,
+                "surface_id": targetPanel.id.uuidString,
+            ])
+
+            #expect(envelope["ok"] as? Bool == false)
+            let error = try #require(envelope["error"] as? [String: Any])
+            #expect(error["code"] as? String == "unavailable")
+            #expect(manager.selectedTabId == selectedWorkspace.id)
+            #expect(targetDock.focusedPanelId == initiallyFocusedPanel.id)
+            #expect(!window.isVisible)
+        }
+    }
+
     @Test("Toggle Unread mutates only the focused window Dock surface")
     func toggleUnreadMutatesOnlyFocusedWindowDockSurface() async throws {
         try await withAppContext { appDelegate, _, workspace, windowID in
