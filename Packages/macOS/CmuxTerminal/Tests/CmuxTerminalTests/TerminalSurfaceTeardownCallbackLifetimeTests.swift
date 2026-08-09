@@ -15,6 +15,17 @@ import Testing
 /// native free to the runtime teardown coordinator.
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceTeardownCallbackLifetimeTests {
+    @Test func teardownWithoutRuntimeContextDoesNotEndViewLifetime() throws {
+        let surface = makeSurface()
+        let nativeView = try #require(
+            surface.surfaceView as? FakeTerminalSurfaceNativeView
+        )
+
+        surface.teardownSurface()
+
+        #expect(nativeView.endedRuntimeLifetimeIds.isEmpty)
+    }
+
     @Test func cancellingEventWaitReturnsWithoutWaitingForDeadline() async {
         let recorder = TeardownOrderRecorder()
         let wait = Task {

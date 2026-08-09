@@ -9,12 +9,15 @@ final class FakeTerminalSurfaceNativeView: NSView {
     var attachedSurfaceController: (any TerminalSurfaceControlling)? { attachedController }
     var currentKeyStateIndicatorText: String? { nil }
     var isKeyboardCopyModeActive: Bool { false }
+    private(set) var endedRuntimeLifetimeIds: [UUID?] = []
 
     func toggleKeyboardCopyMode() -> Bool { false }
     func applyWindowBackgroundIfActive() {}
     func forceRefreshSurface() -> Bool { true }
     func prepareForRuntimeSurfaceCreation(runtimeLifetimeId: UUID) {}
-    func runtimeSurfaceDidEnd(runtimeLifetimeId: UUID?) {}
+    func runtimeSurfaceDidEnd(runtimeLifetimeId: UUID?) {
+        endedRuntimeLifetimeIds.append(runtimeLifetimeId)
+    }
     func runtimeSurfaceDidBecomeReady() {}
 }
 
