@@ -78,11 +78,12 @@ extension DockSplitStore {
         }
         let preservedTransfer = removeDetachedSurfaceTransfer(forPanelID: panelId)
         let notificationStore = AppDelegate.shared?.notificationStore
-        let wasManuallyUnread = preservedTransfer?.manuallyUnread == true
-            || (scope == .global && notificationStore?.hasManualUnread(
+        let wasManuallyUnread = scope == .global
+            ? notificationStore?.hasManualUnread(
                 forTabId: workspaceId,
                 surfaceId: panelId
-            ) == true)
+            ) == true
+            : preservedTransfer?.manuallyUnread == true
         let restoredAgentObservation = SharedLiveAgentIndex.shared.index?.entry(
             workspaceId: preservedTransfer?.sessionRestoreWorkspaceId ?? workspaceId,
             panelId: panelId

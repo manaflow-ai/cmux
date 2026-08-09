@@ -110,6 +110,16 @@ enum AppFocusState {
         }
         return false
     }
+
+    /// Returns true only when the supplied main-window owner is the app's key window.
+    static func isOwnerWindowFocused(_ ownerWindow: NSWindow?) -> Bool {
+        guard isAppFocused(),
+              let ownerWindow,
+              let keyWindow = NSApp.keyWindow else {
+            return false
+        }
+        return ownerWindow === keyWindow
+    }
 }
 
 enum NotificationAuthorizationState: Equatable, Sendable {
@@ -715,6 +725,24 @@ final class TerminalNotificationStore: ObservableObject {
         forTabId tabId: UUID,
         surfaceId: UUID
     ) -> Bool {
+        guard mutateSurfaceManualUnread(
+            isUnread,
+            forTabId: tabId,
+            surfaceId: surfaceId
+        ) else {
+            return false
+        }
+        refreshUnreadPresentation()
+        return true
+    }
+
+    /// Mutates both Dock unread indexes without publishing intermediate projections.
+    @discardableResult
+    private func mutateSurfaceManualUnread(
+        _ isUnread: Bool,
+        forTabId tabId: UUID,
+        surfaceId: UUID
+    ) -> Bool {
         var surfaceIds = manualUnreadSurfaceIdsByOwnerId[tabId] ?? []
         let didChange = isUnread
             ? surfaceIds.insert(surfaceId).inserted
@@ -731,8 +759,26 @@ final class TerminalNotificationStore: ObservableObject {
         } else {
             manualUnreadSurfaceKeys.remove(key)
         }
-        refreshUnreadPresentation()
         return true
+    }
+
+    private func clearSurfaceManualUnread(
+        for keys: Set<SidebarSurfaceUnreadKey>
+    ) {
+        var didChange = false
+        for key in keys {
+            guard let surfaceId = key.surfaceId else { continue }
+            if mutateSurfaceManualUnread(
+                false,
+                forTabId: key.workspaceId,
+                surfaceId: surfaceId
+            ) {
+                didChange = true
+            }
+        }
+        if didChange {
+            refreshUnreadPresentation()
+        }
     }
 
     private func clearSurfaceManualUnread() {
@@ -1580,10 +1626,7 @@ final class TerminalNotificationStore: ObservableObject {
             setWorkspaceManualUnread(false, forTabId: tabID)
             setWorkspaceRestoredUnread(false, forTabId: tabID)
         }
-        for key in surfaceKeys {
-            guard let surfaceId = key.surfaceId else { continue }
-            setSurfaceManualUnread(false, forTabId: key.workspaceId, surfaceId: surfaceId)
-        }
+        clearSurfaceManualUnread(for: surfaceKeys)
         return marked
     }
 

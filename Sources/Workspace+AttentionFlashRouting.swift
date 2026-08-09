@@ -14,7 +14,9 @@ extension Workspace {
                   target.panel.panelType == .terminal else {
                 return
             }
-            let ownsActiveFocus = AppFocusState.isAppFocused()
+            let ownsActiveFocus = AppFocusState.isOwnerWindowFocused(
+                self.owningTabManager?.window
+            )
                 && self.owningTabManager?.selectedTabId == self.id
                 && self.focusedPanelId == target.containerPanelID
             if !ownsActiveFocus,

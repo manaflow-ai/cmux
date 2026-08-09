@@ -52,7 +52,9 @@ extension DockSplitStore {
                   mountedTerminal === terminal else {
                 return
             }
-            let ownsActiveFocus = AppFocusState.isAppFocused()
+            let ownsActiveFocus = AppFocusState.isOwnerWindowFocused(
+                terminal.surface.uiWindow
+            )
                 && self.panelIsActiveInVisibleDockPane(terminal.id)
                 && AppDelegate.shared?.focusedDockStoreForShortcut(
                     preferredWindow: terminal.surface.uiWindow

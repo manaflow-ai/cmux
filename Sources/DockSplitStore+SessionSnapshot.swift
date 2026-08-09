@@ -120,6 +120,12 @@ extension DockSplitStore {
         let tabTitle = tab?.title
         let customTitle = transfer?.customTitle ?? (tab?.hasCustomTitle == true ? tabTitle : nil)
         let directory = sessionWorkingDirectory(panel: panel, transfer: transfer)
+        let isManuallyUnread = scope == .global
+            ? AppDelegate.shared?.notificationStore?.hasManualUnread(
+                forTabId: workspaceId,
+                surfaceId: panelId
+            ) == true
+            : transfer?.manuallyUnread ?? false
 
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
@@ -266,7 +272,7 @@ extension DockSplitStore {
             directory: directory,
             directoryIsTrustedRemoteReport: transfer?.directoryIsTrustedRemoteReport,
             isPinned: false,
-            isManuallyUnread: transfer?.manuallyUnread ?? false,
+            isManuallyUnread: isManuallyUnread,
             listeningPorts: [],
             ttyName: transfer?.ttyName,
             terminal: terminalSnapshot,
