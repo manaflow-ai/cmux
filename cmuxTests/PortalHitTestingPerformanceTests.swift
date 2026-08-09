@@ -233,6 +233,16 @@ struct PortalHitTestingPerformanceTests {
             scaleContainers.reduce(0) { $0 + $1.subviewReadCount } == subviewReadCountAfterCacheWarmup,
             "Unrelated mutations should not make the next pointer hit re-walk the hierarchy."
         )
+        unrelatedLeaf.subviews = [NSView(frame: NSRect(x: 0, y: 0, width: 2, height: 2))]
+        #expect(host.performHitTest(at: dividerPointInHost, currentEvent: event) == nil)
+        #expect(
+            splitView.rectConversionCount - initialRectConversionCount == 2,
+            "Replacing split-free descendants should not rebuild the cached divider geometry."
+        )
+        #expect(
+            scaleContainers.reduce(0) { $0 + $1.subviewReadCount } == subviewReadCountAfterCacheWarmup,
+            "A split-free subviews replacement should not make the next pointer hit re-walk the hierarchy."
+        )
     }
 
     @Test
