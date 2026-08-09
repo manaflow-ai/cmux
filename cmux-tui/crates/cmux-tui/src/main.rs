@@ -2239,9 +2239,8 @@ mod tests {
         let mut controller =
             StaticMachineController { runtime, active, connections, pending: None };
 
-        let action = controller
-            .perform(MachineRequest::CreateFrom { source_id: "docker".into() })
-            .unwrap();
+        let action =
+            controller.perform(MachineRequest::CreateFrom { source_id: "docker".into() }).unwrap();
         let created = action
             .ui
             .snapshot
