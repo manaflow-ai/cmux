@@ -35,6 +35,20 @@
                ReferencedContainer = "container:TerminalScrollLab.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "6075F48CD40BAFB5AC514C8A"
+               BuildableName = "TerminalScrollLabUITests.xctest"
+               BlueprintName = "TerminalScrollLabUITests"
+               ReferencedContainer = "container:TerminalScrollLab.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -61,6 +75,17 @@
                BlueprintIdentifier = "96DE6AEE5848721AEE88EE78"
                BuildableName = "TerminalScrollLabTests.xctest"
                BlueprintName = "TerminalScrollLabTests"
+               ReferencedContainer = "container:TerminalScrollLab.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "6075F48CD40BAFB5AC514C8A"
+               BuildableName = "TerminalScrollLabUITests.xctest"
+               BlueprintName = "TerminalScrollLabUITests"
                ReferencedContainer = "container:TerminalScrollLab.xcodeproj">
             </BuildableReference>
          </TestableReference>

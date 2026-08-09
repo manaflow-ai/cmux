@@ -43,12 +43,24 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: true
+  TerminalScrollLabUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/TerminalScrollLabUITests
+    dependencies:
+      - target: TerminalScrollLab
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
 schemes:
   TerminalScrollLab:
     build:
       targets:
         TerminalScrollLab: all
         TerminalScrollLabTests: [test]
+        TerminalScrollLabUITests: [test]
     test:
       targets:
         - TerminalScrollLabTests
+        - TerminalScrollLabUITests
