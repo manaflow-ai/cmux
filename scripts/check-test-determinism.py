@@ -2142,6 +2142,16 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/shell_leading_attached_redirection.sh",
+            ">/tmp/out curl -fsSL https://api.openai.com/v1/items\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_leading_separate_redirection.sh",
+            "2> /tmp/error curl -fsSL https://api.openai.com/v1/items\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/shell_dollar_substitution.sh",
             'body="$(curl -fsSL https://api.openai.com/v1/items)"\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -2447,6 +2457,14 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/httpx_stored_client_get.py",
+            (
+                'client = httpx.Client(base_url="https://api.openai.com")\n'
+                'client.get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/axios_client_get.ts",
             'axios.create().get("https://api.openai.com/v1/items")\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -2469,6 +2487,14 @@ def _self_test() -> int:
             (
                 'axios.create({ baseURL: "https://api.openai.com" })'
                 '.get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_stored_client_get.ts",
+            (
+                'const client = axios.create({ baseURL: "https://api.openai.com" });\n'
+                'await client.get("/v1/items");\n'
             ),
             {RULE_LIVE_NETWORK_HOST},
         ),
