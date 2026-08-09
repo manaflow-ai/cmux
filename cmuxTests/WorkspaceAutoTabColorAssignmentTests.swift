@@ -766,6 +766,32 @@ import Testing
         #expect(Set(batched.prefix(3)).count == 3)
     }
 
+    /// A palette entry that cannot be parsed cannot be drawn either, so it must
+    /// never be handed out while a drawable entry ties with it — including on
+    /// the very first pick, when nothing is on screen to compare against.
+    @Test
+    func skipsPaletteEntriesThatCannotBeRendered() {
+        let palette = [
+            WorkspaceTabColorEntry(name: "Broken", hex: "#ZZZZZZ"),
+            WorkspaceTabColorEntry(name: "Green", hex: "#196F3D"),
+        ]
+
+        var allocator = WorkspaceAutoTabColorAllocator(palette: palette, usedHexes: [])
+        #expect(allocator.next() == "#196F3D")
+
+        #expect(
+            WorkspaceAutoTabColorAssignment.nextColorHex(palette: palette, usedHexes: []) == "#196F3D"
+        )
+
+        // With nothing drawable left there is no honest answer, so allocation
+        // declines rather than assigning a color the rail cannot show.
+        var unusable = WorkspaceAutoTabColorAllocator(
+            palette: [WorkspaceTabColorEntry(name: "Broken", hex: "#ZZZZZZ")],
+            usedHexes: []
+        )
+        #expect(unusable.next() == nil)
+    }
+
     /// The parser accepts exactly what `WorkspaceTabColorSettings.normalizedHex`
     /// produces, so a color that cannot be rendered cannot influence allocation.
     @Test

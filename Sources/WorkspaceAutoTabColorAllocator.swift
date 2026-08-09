@@ -13,8 +13,8 @@ import Foundation
 /// lives here rather than being rebuilt per workspace. Recomputing use counts
 /// and re-converting every used color to Lab on each pick made a first run over
 /// a large workspace list quadratic; keeping the counts, the reserved keys, and
-/// the distinct in-use Lab colors across picks makes each `next()` cost the
-/// palette rather than the whole history.
+/// each entry's distance to its nearest on-screen color across picks makes each
+/// `next()` cost the palette rather than the whole history.
 ///
 /// Deliberately free of AppKit/SwiftUI so the allocation rules stay
 /// unit-testable.
@@ -28,9 +28,20 @@ struct WorkspaceAutoTabColorAllocator {
     private let reservedKeys: Set<String>
 
     private var counts: [String: Int]
-    /// Distinct colors currently on screen, in Lab. Distance folds with `min`,
-    /// so a color that appears twice says nothing new.
-    private var inUse: [LabColor]
+    /// For each palette entry, the distance to the nearest color currently on
+    /// screen, parallel to `palette`.
+    ///
+    /// Folded forward instead of rescanned: distance folds with `min`, and the
+    /// set of on-screen colors only grows during a pass, so one comparison
+    /// against each newly recorded color keeps every entry exact. Rescanning
+    /// per pick cost the whole in-use set on every tied entry, which is where
+    /// the quadratic term came back once manual colors made that set large.
+    ///
+    /// `greatestFiniteMagnitude` means nothing is on screen yet, so every
+    /// entry ties and palette order decides.
+    private var nearest: [Double]
+    /// Distinct colors already folded into `nearest`. A color that appears
+    /// twice says nothing new.
     private var seenInUse: Set<String>
 
     init(
@@ -45,7 +56,7 @@ struct WorkspaceAutoTabColorAllocator {
         reservedKeys = Set(reservedHexes.map { WorkspaceAutoTabColorAssignment.normalized($0) })
 
         counts = [:]
-        inUse = []
+        nearest = Array(repeating: .greatestFiniteMagnitude, count: palette.count)
         seenInUse = []
         for hex in usedHexes {
             record(hex)
@@ -90,25 +101,16 @@ struct WorkspaceAutoTabColorAllocator {
         for index in palette.indices {
             guard (counts[paletteKeys[index]] ?? 0) == minimumCount else { continue }
             if !allowingReserved, reservedKeys.contains(paletteKeys[index]) { continue }
+            // A color that cannot be converted also cannot be drawn, so it is
+            // never worth handing out while a drawable color ties with it.
+            guard paletteLabs[index] != nil else { continue }
 
-            // With nothing on screen every color is equally good, so palette
-            // order decides and allocation stays deterministic.
-            guard !inUse.isEmpty else { return index }
-
-            guard let lab = paletteLabs[index] else {
-                // Unrenderable palette entries still count, but can never be
-                // chosen over one that renders.
-                if best == nil { best = index }
-                continue
-            }
-            var distance = Double.greatestFiniteMagnitude
-            for other in inUse {
-                distance = min(distance, lab.distance(to: other))
-            }
-            // Strict `>` keeps palette order as the tie-break.
-            if distance > bestDistance {
+            // Strict `>` keeps palette order as the tie-break. Before anything
+            // is on screen every entry sits at `greatestFiniteMagnitude`, so
+            // this picks the first drawable candidate and stays deterministic.
+            if nearest[index] > bestDistance {
                 best = index
-                bestDistance = distance
+                bestDistance = nearest[index]
             }
         }
         return best
@@ -122,6 +124,9 @@ struct WorkspaceAutoTabColorAllocator {
             counts[key, default: 0] += 1
         }
         guard seenInUse.insert(key).inserted, let lab = LabColor(hex: hex) else { return }
-        inUse.append(lab)
+        for index in palette.indices {
+            guard let entryLab = paletteLabs[index] else { continue }
+            nearest[index] = min(nearest[index], entryLab.distance(to: lab))
+        }
     }
 }
