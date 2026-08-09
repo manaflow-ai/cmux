@@ -2205,7 +2205,9 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		8362A0010000000000000001 /* TerminalCallerTTYResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8362A0020000000000000002 /* TerminalCallerTTYResolver.swift */; };
 		8362B0010000000000000001 /* TerminalCallerTTYResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8362B0020000000000000002 /* TerminalCallerTTYResolverTests.swift */; };
 		E4D1768B7041CDE4F9A084A4 /* TerminalClearScreenKeepScrollbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B7555E04A04849992547A2 /* TerminalClearScreenKeepScrollbackTests.swift */; };
+		B8835A000000000000000001 /* TerminalClipboardInputSequencer+State.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835A000000000000000002 /* TerminalClipboardInputSequencer+State.swift */; };
 		B88357000000000000000005 /* TerminalClipboardInputSequencer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000006 /* TerminalClipboardInputSequencer.swift */; };
+		B8835A000000000000000003 /* TerminalClipboardInputSequencerTests+Replay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835A000000000000000004 /* TerminalClipboardInputSequencerTests+Replay.swift */; };
 		B8835700000000000000000D /* TerminalClipboardInputSequencerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835700000000000000000E /* TerminalClipboardInputSequencerTests.swift */; };
 		B88357000000000000000013 /* TerminalClipboardRequestSurfaceIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000014 /* TerminalClipboardRequestSurfaceIdentity.swift */; };
 		C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */; };
@@ -2316,6 +2318,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5FB1303 /* TerminalForegroundCommandCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1304 /* TerminalForegroundCommandCapture.swift */; };
 		C86270000000000000000001 /* TerminalHTMLFileBrowserAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C86270000000000000000002 /* TerminalHTMLFileBrowserAction.swift */; };
 		A5001542 /* TerminalImageTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001544 /* TerminalImageTransfer.swift */; };
+		B8835A000000000000000005 /* TerminalImageTransferConcurrencyTests+Timeouts.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835A000000000000000006 /* TerminalImageTransferConcurrencyTests+Timeouts.swift */; };
 		B88350000000000000000001 /* TerminalImageTransferConcurrencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88350000000000000000002 /* TerminalImageTransferConcurrencyTests.swift */; };
 		B88351000000000000000003 /* TerminalImageTransferPreparationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000004 /* TerminalImageTransferPreparationService.swift */; };
 		B88351000000000000000005 /* TerminalImageTransferPreparedContent+Cleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000006 /* TerminalImageTransferPreparedContent+Cleanup.swift */; };
@@ -2446,6 +2449,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B88354000000000000000001 /* TextBoxPendingPasteEditRestoration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88354000000000000000002 /* TextBoxPendingPasteEditRestoration.swift */; };
 		B88353000000000000000003 /* TextBoxPendingPasteReservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88353000000000000000004 /* TextBoxPendingPasteReservation.swift */; };
 		A8530203C8F1BD33EF960CF0 /* TextBoxPendingPasteReservationInteractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7460EFBD02C53B6E8E70452 /* TextBoxPendingPasteReservationInteractionTests.swift */; };
+		B8835A000000000000000007 /* TextBoxPendingPasteReservationTests+Fixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835A000000000000000008 /* TextBoxPendingPasteReservationTests+Fixtures.swift */; };
 		B88352000000000000000001 /* TextBoxPendingPasteReservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88352000000000000000002 /* TextBoxPendingPasteReservationTests.swift */; };
 		B88351000000000000000007 /* TextBoxPreparedAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000008 /* TextBoxPreparedAttachment.swift */; };
 		C0DE7B290000000000000001 /* TextBoxProcessTerminationStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B290000000000000002 /* TextBoxProcessTerminationStatus.swift */; };
@@ -4896,7 +4900,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		8362A0020000000000000002 /* TerminalCallerTTYResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCallerTTYResolver.swift; sourceTree = "<group>"; };
 		8362B0020000000000000002 /* TerminalCallerTTYResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCallerTTYResolverTests.swift; sourceTree = "<group>"; };
 		F2B7555E04A04849992547A2 /* TerminalClearScreenKeepScrollbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClearScreenKeepScrollbackTests.swift; sourceTree = "<group>"; };
+		B8835A000000000000000002 /* TerminalClipboardInputSequencer+State.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalClipboardInputSequencer+State.swift"; sourceTree = "<group>"; };
 		B88357000000000000000006 /* TerminalClipboardInputSequencer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClipboardInputSequencer.swift; sourceTree = "<group>"; };
+		B8835A000000000000000004 /* TerminalClipboardInputSequencerTests+Replay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalClipboardInputSequencerTests+Replay.swift"; sourceTree = "<group>"; };
 		B8835700000000000000000E /* TerminalClipboardInputSequencerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClipboardInputSequencerTests.swift; sourceTree = "<group>"; };
 		B88357000000000000000014 /* TerminalClipboardRequestSurfaceIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClipboardRequestSurfaceIdentity.swift; sourceTree = "<group>"; };
 		C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCmdClickUITests.swift; sourceTree = "<group>"; };
@@ -5007,6 +5013,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5FB1304 /* TerminalForegroundCommandCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalForegroundCommandCapture.swift; sourceTree = "<group>"; };
 		C86270000000000000000002 /* TerminalHTMLFileBrowserAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalHTMLFileBrowserAction.swift; sourceTree = "<group>"; };
 		A5001544 /* TerminalImageTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransfer.swift; sourceTree = "<group>"; };
+		B8835A000000000000000006 /* TerminalImageTransferConcurrencyTests+Timeouts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalImageTransferConcurrencyTests+Timeouts.swift"; sourceTree = "<group>"; };
 		B88350000000000000000002 /* TerminalImageTransferConcurrencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransferConcurrencyTests.swift; sourceTree = "<group>"; };
 		B88351000000000000000004 /* TerminalImageTransferPreparationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransferPreparationService.swift; sourceTree = "<group>"; };
 		B88351000000000000000006 /* TerminalImageTransferPreparedContent+Cleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalImageTransferPreparedContent+Cleanup.swift"; sourceTree = "<group>"; };
@@ -5137,6 +5144,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B88354000000000000000002 /* TextBoxPendingPasteEditRestoration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxPendingPasteEditRestoration.swift; sourceTree = "<group>"; };
 		B88353000000000000000004 /* TextBoxPendingPasteReservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxPendingPasteReservation.swift; sourceTree = "<group>"; };
 		B7460EFBD02C53B6E8E70452 /* TextBoxPendingPasteReservationInteractionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxPendingPasteReservationInteractionTests.swift; sourceTree = "<group>"; };
+		B8835A000000000000000008 /* TextBoxPendingPasteReservationTests+Fixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TextBoxPendingPasteReservationTests+Fixtures.swift"; sourceTree = "<group>"; };
 		B88352000000000000000002 /* TextBoxPendingPasteReservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxPendingPasteReservationTests.swift; sourceTree = "<group>"; };
 		B88351000000000000000008 /* TextBoxPreparedAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxPreparedAttachment.swift; sourceTree = "<group>"; };
 		C0DE7B290000000000000002 /* TextBoxProcessTerminationStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxProcessTerminationStatus.swift; sourceTree = "<group>"; };
@@ -6189,6 +6197,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B88357000000000000000002 /* GhosttyNSView+ClipboardActions.swift */,
 				B88357000000000000000004 /* GhosttyNSView+ClipboardInputSequencing.swift */,
 				B88357000000000000000006 /* TerminalClipboardInputSequencer.swift */,
+				B8835A000000000000000002 /* TerminalClipboardInputSequencer+State.swift */,
 				B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */,
 				B8835700000000000000000A /* TerminalPastePreparationFailure.swift */,
 				B88357000000000000000010 /* GhosttySurfaceCallbackContext+ClipboardInputSequencing.swift */,
@@ -7823,12 +7832,15 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				EC010C02 /* TerminalUploadCommandTests.swift */,
 				02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */,
 				B88350000000000000000002 /* TerminalImageTransferConcurrencyTests.swift */,
+				B8835A000000000000000006 /* TerminalImageTransferConcurrencyTests+Timeouts.swift */,
 				B88350000000000000000004 /* PasteboardThreadSignalingDataProvider.swift */,
 				B88356000000000000000002 /* ControlledPastePreparationOperation.swift */,
 				B88356000000000000000004 /* ControlledPastePreparationDeadlines.swift */,
 				B8835700000000000000000C /* PastePreparationFailureProbe.swift */,
 				B8835700000000000000000E /* TerminalClipboardInputSequencerTests.swift */,
+				B8835A000000000000000004 /* TerminalClipboardInputSequencerTests+Replay.swift */,
 				B88352000000000000000002 /* TextBoxPendingPasteReservationTests.swift */,
+				B8835A000000000000000008 /* TextBoxPendingPasteReservationTests+Fixtures.swift */,
 				B7460EFBD02C53B6E8E70452 /* TextBoxPendingPasteReservationInteractionTests.swift */,
 				A11E5E1E0000000000000012 /* TerminalSelectionAccessibilityIngressGateTests.swift */,
 				570ED364A7E41085FB2D31FE /* MainWindowSelfSizingTests.swift */,
@@ -10084,6 +10096,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7490C00F7490C00F7490C00F /* TaskVMInfoMemoryPressureFootprintSampler.swift in Sources */,
 				8362A0030000000000000003 /* TerminalCallerTTYBinding.swift in Sources */,
 				8362A0010000000000000001 /* TerminalCallerTTYResolver.swift in Sources */,
+				B8835A000000000000000001 /* TerminalClipboardInputSequencer+State.swift in Sources */,
 				B88357000000000000000005 /* TerminalClipboardInputSequencer.swift in Sources */,
 				B88357000000000000000013 /* TerminalClipboardRequestSurfaceIdentity.swift in Sources */,
 				F87910190000000000000001 /* TerminalConfigurationReloadCoordinator.swift in Sources */,
@@ -11282,11 +11295,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */,
 				8362B0010000000000000001 /* TerminalCallerTTYResolverTests.swift in Sources */,
 				E4D1768B7041CDE4F9A084A4 /* TerminalClearScreenKeepScrollbackTests.swift in Sources */,
+				B8835A000000000000000003 /* TerminalClipboardInputSequencerTests+Replay.swift in Sources */,
 				B8835700000000000000000D /* TerminalClipboardInputSequencerTests.swift in Sources */,
 				8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */,
 				9C1BEA3D2E6F49709A71C020 /* TerminalControllerTerminalTextTests.swift in Sources */,
 				6190C0126190C0126190C012 /* TerminalCopyOnSelectManagedConfigLayeringTests.swift in Sources */,
 				851500000000000000000001 /* TerminalFontZoomSessionPersistenceTests.swift in Sources */,
+				B8835A000000000000000005 /* TerminalImageTransferConcurrencyTests+Timeouts.swift in Sources */,
 				B88350000000000000000001 /* TerminalImageTransferConcurrencyTests.swift in Sources */,
 				859100000000000000000001 /* TerminalLinkOpenCoordinatorTests.swift in Sources */,
 				A5C41103A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift in Sources */,
@@ -11314,6 +11329,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE7B300000000000000001 /* TextBoxMentionCompletionTests.swift in Sources */,
 				7898A0010000000000000001 /* TextBoxMentionGitIgnoreProbeTests.swift in Sources */,
 				A8530203C8F1BD33EF960CF0 /* TextBoxPendingPasteReservationInteractionTests.swift in Sources */,
+				B8835A000000000000000007 /* TextBoxPendingPasteReservationTests+Fixtures.swift in Sources */,
 				B88352000000000000000001 /* TextBoxPendingPasteReservationTests.swift in Sources */,
 				9005A0010000000000000001 /* TextBoxSelectionReplacementTests.swift in Sources */,
 				C0DE7B410000000000000001 /* TextBoxSubmitActionMemoryTests.swift in Sources */,

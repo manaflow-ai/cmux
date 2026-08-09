@@ -5,64 +5,6 @@ import os
 /// Preserves terminal input order while Ghostty is resolving a clipboard read.
 @MainActor
 final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendable> {
-    typealias ReservedOverflowHandler = @MainActor @Sendable () -> Void
-
-    private struct ReservedAdmission: Sendable {
-        let epoch: UInt64
-        let order: UInt64
-        let overflowHandler: ReservedOverflowHandler
-    }
-
-    private enum OverflowAction {
-        case active(() -> Void)
-        case reserved(ReservedOverflowHandler)
-
-        @MainActor
-        func perform() {
-            switch self {
-            case .active(let handler):
-                handler()
-            case .reserved(let handler):
-                handler()
-            }
-        }
-    }
-
-    private struct OrderedOverflowHandler {
-        let order: UInt64
-        let action: OverflowAction
-    }
-
-    private struct ReservedAdmissionState: Sendable {
-        var nextOrder: UInt64 = 0
-        var admissionsByID: [RequestID: ReservedAdmission] = [:]
-        var overflowCancellationDepthByEpoch: [UInt64: Int] = [:]
-    }
-
-    private struct BufferedEvent {
-        let event: Event
-        let discardWhenFull: Bool
-        let estimatedCost: Int
-    }
-
-    private struct EpochBuffer {
-        var events: [BufferedEvent] = []
-        var nextEventIndex = 0
-        var pendingCost = 0
-
-        var pendingCount: Int {
-            events.count - nextEventIndex
-        }
-    }
-
-    private struct ActiveRequest {
-        let epoch: UInt64
-        let defersInput: Bool
-        let reservationOrder: UInt64?
-        let onOverflow: () -> Void
-        var readyCompletion: (() -> Void)?
-    }
-
     // Synchronous C callbacks reserve off-actor; this lock transfers their
     // bounded epoch, order, and overflow state to main-actor lifecycle work.
     private nonisolated let reservedAdmissions = OSAllocatedUnfairLock(

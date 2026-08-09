@@ -13,99 +13,12 @@ private let terminalPasteboardTransactionLogger = Logger(
 /// pasteboard work happens outside the lock while the active marker prevents a
 /// second drainer from entering the same pasteboard.
 final class TerminalPasteboardTransactionLane: @unchecked Sendable {
-    static let defaultMaximumQueuedOperations = 32
-    static let defaultMaximumQueuedWriteBytes = 4 * 1_048_576
-
-    enum MutationCondition: Sendable {
-        case changeCount(Int)
-    }
-
-    struct Mutation: Sendable {
-        let contents: [TerminalPasteboardItemSnapshot]
-        let condition: MutationCondition?
-        let capturesPreviousContents: Bool
-    }
-
-    private enum Entry {
-        case read(TerminalPasteboardReadLease)
-        case mutation(
-            id: UInt64,
-            mutation: Mutation,
-            lease: TerminalPasteboardMutationLease?,
-            retainedBytes: Int,
-            coalescible: Bool,
-            isRestoration: Bool
-        )
-
-        var id: UInt64 {
-            switch self {
-            case .read(let lease):
-                return lease.id
-            case .mutation(let id, _, _, _, _, _):
-                return id
-            }
-        }
-
-        var retainedBytes: Int {
-            guard case .mutation(
-                _, _, _, let retainedBytes, _, _
-            ) = self else {
-                return 0
-            }
-            return retainedBytes
-        }
-
-        var isCoalescibleMutation: Bool {
-            guard case .mutation(_, _, nil, _, true, false) = self else {
-                return false
-            }
-            return true
-        }
-
-        var isRestoration: Bool {
-            guard case .mutation(_, _, _, _, _, true) = self else {
-                return false
-            }
-            return true
-        }
-    }
-
-    private struct ActiveMutation {
-        let id: UInt64
-        var isApplying = true
-        var finishRequested = false
-        var captureTask: Task<Void, Never>? = nil
-    }
-
-    private struct LaneState {
-        var nextID: UInt64 = 0
-        var activeReadID: UInt64?
-        var activeMutation: ActiveMutation?
-        var entries: [Entry] = []
-        var retainedMutationBytes = 0
-        var restorationOperationCount = 0
-    }
-
-    private enum DrainAction {
-        case beginRead(TerminalPasteboardReadLease)
-        case performMutation(
-            id: UInt64,
-            mutation: Mutation,
-            lease: TerminalPasteboardMutationLease?,
-            isRestoration: Bool
-        )
-    }
-
-    private enum MutationAdmission {
-        case admitted(shouldDrain: Bool)
-        case rejected
-    }
-
     private nonisolated(unsafe) let pasteboard: NSPasteboard
     private let maximumQueuedOperations: Int
     private let maximumQueuedWriteBytes: Int
     private let previousContentsCapture:
         TerminalPasteboardService.PreviousContentsCapture
+    private let mutationApplier: TerminalPasteboardMutationApplier
     private let state = OSAllocatedUnfairLock(initialState: LaneState())
 
     init(
@@ -113,12 +26,17 @@ final class TerminalPasteboardTransactionLane: @unchecked Sendable {
         maximumQueuedOperations: Int = defaultMaximumQueuedOperations,
         maximumQueuedWriteBytes: Int = defaultMaximumQueuedWriteBytes,
         previousContentsCapture: @escaping TerminalPasteboardService
-            .PreviousContentsCapture
+            .PreviousContentsCapture,
+        pasteboardWrite: TerminalPasteboardMutationApplier.PasteboardWrite? = nil
     ) {
         self.pasteboard = pasteboard
         self.maximumQueuedOperations = max(0, maximumQueuedOperations)
         self.maximumQueuedWriteBytes = max(0, maximumQueuedWriteBytes)
         self.previousContentsCapture = previousContentsCapture
+        self.mutationApplier = TerminalPasteboardMutationApplier(
+            pasteboard: pasteboard,
+            pasteboardWrite: pasteboardWrite
+        )
     }
 
     func reserveRead() -> TerminalPasteboardReadLease? {
@@ -390,7 +308,7 @@ final class TerminalPasteboardTransactionLane: @unchecked Sendable {
                     )
                     return
                 }
-                let result = apply(
+                let result = mutationApplier.apply(
                     mutation,
                     previousContents: nil
                 )
@@ -475,7 +393,7 @@ final class TerminalPasteboardTransactionLane: @unchecked Sendable {
 
         let result: TerminalPasteboardMutationResult
         if let snapshot {
-            result = apply(
+            result = mutationApplier.apply(
                 mutation,
                 previousContents: snapshot
             )
@@ -507,18 +425,8 @@ final class TerminalPasteboardTransactionLane: @unchecked Sendable {
         // ownership. If the signal won, finish() returns the applied result.
         let laneMustRestore = lease?.signalApplied(result)
             == .laneMustRestore
-        if laneMustRestore,
-           result.didWrite,
-           let previousContents = result.previousContents,
-           let publishedChangeCount = result.publishedChangeCount {
-            _ = apply(
-                Mutation(
-                    contents: previousContents,
-                    condition: .changeCount(publishedChangeCount),
-                    capturesPreviousContents: false
-                ),
-                previousContents: nil
-            )
+        if laneMustRestore {
+            mutationApplier.restoreAbandonedMutation(result)
         }
 
         let shouldKeepLease = state.withLock { state -> Bool in
@@ -571,95 +479,6 @@ final class TerminalPasteboardTransactionLane: @unchecked Sendable {
         if outcome.shouldDrain { drain() }
     }
 
-    private func apply(
-        _ mutation: Mutation,
-        previousContents snapshot: TerminalPasteboardContentsSnapshot?
-    ) -> TerminalPasteboardMutationResult {
-        guard let items = makePasteboardItems(from: mutation.contents) else {
-            return TerminalPasteboardMutationResult(
-                status: .writeFailed,
-                publishedContents: mutation.contents
-            )
-        }
-
-        switch mutation.condition {
-        case .changeCount(let expectedChangeCount):
-            guard pasteboard.changeCount == expectedChangeCount else {
-                return TerminalPasteboardMutationResult(
-                    status: .conditionNotMet,
-                    publishedContents: mutation.contents
-                )
-            }
-        case nil:
-            break
-        }
-
-        let previousContents: [TerminalPasteboardItemSnapshot]?
-        if mutation.capturesPreviousContents {
-            guard let snapshot else {
-                return TerminalPasteboardMutationResult(
-                    status: .captureLimitExceeded,
-                    publishedContents: mutation.contents
-                )
-            }
-            guard pasteboard.changeCount == snapshot.changeCount else {
-                return TerminalPasteboardMutationResult(
-                    status: .conditionNotMet,
-                    publishedContents: mutation.contents
-                )
-            }
-            previousContents = snapshot.contents
-        } else {
-            previousContents = nil
-        }
-
-        let previousItems: [NSPasteboardItem]?
-        if let previousContents {
-            guard let reconstructed = makePasteboardItems(
-                from: previousContents
-            ) else {
-                return TerminalPasteboardMutationResult(
-                    status: .captureLimitExceeded,
-                    publishedContents: mutation.contents
-                )
-            }
-            previousItems = reconstructed
-        } else {
-            previousItems = nil
-        }
-
-        if let snapshot,
-           pasteboard.changeCount != snapshot.changeCount {
-            return TerminalPasteboardMutationResult(
-                status: .conditionNotMet,
-                publishedContents: mutation.contents
-            )
-        }
-
-        pasteboard.clearContents()
-        let wrote = mutation.contents.isEmpty
-            || pasteboard.writeObjects(items)
-        if !wrote, let previousItems {
-            pasteboard.clearContents()
-            if !previousItems.isEmpty {
-                _ = pasteboard.writeObjects(previousItems)
-            }
-        }
-        return TerminalPasteboardMutationResult(
-            status: wrote ? .written : .writeFailed,
-            previousContents: previousContents,
-            publishedContents: mutation.contents,
-            publishedChangeCount: wrote ? pasteboard.changeCount : nil
-        )
-    }
-
-    private func makePasteboardItems(
-        from contents: [TerminalPasteboardItemSnapshot]
-    ) -> [NSPasteboardItem]? {
-        let items = contents.compactMap { $0.makePasteboardItem() }
-        return items.count == contents.count ? items : nil
-    }
-
     /// Applies an unmanaged mutation synchronously on a newly created, idle
     /// lane. Managed standard/selection pasteboards must use queue admission;
     /// rollback capture is asynchronous and is therefore unsupported here.
@@ -670,7 +489,7 @@ final class TerminalPasteboardTransactionLane: @unchecked Sendable {
                 && state.activeMutation == nil
                 && state.entries.isEmpty
         })
-        return apply(mutation, previousContents: nil)
+        return mutationApplier.apply(mutation, previousContents: nil)
     }
 
     var maximumRetainedMutationBytes: Int {
