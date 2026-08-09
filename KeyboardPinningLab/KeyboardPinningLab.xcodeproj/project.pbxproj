@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1E81F0EEF337DE057CCEC892 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = CE0E17A1008C3577E9CD4995 /* InfoPlist.strings */; };
 		7BCC8A0872603104E124D03E /* WorkspaceDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12AF82959FE7DAAA5C3ADBEE /* WorkspaceDetailViewController.swift */; };
 		8F1F331AA4DD22756ED437F4 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 949EB7D848CCC51B60D11989 /* Localizable.xcstrings */; };
 		DE8D30BAEC473E45B80219A5 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2728F872D5FB8D33A41A6E91 /* SceneDelegate.swift */; };
@@ -16,7 +17,9 @@
 /* Begin PBXFileReference section */
 		12AF82959FE7DAAA5C3ADBEE /* WorkspaceDetailViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDetailViewController.swift; sourceTree = "<group>"; };
 		2728F872D5FB8D33A41A6E91 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
+		2C03363774959A68994988EB /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		4444F6FE9025CD71B41223BE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		5405DD1047FED983298B8CD3 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		949EB7D848CCC51B60D11989 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		D4959730D56E1DB02C931108 /* KeyboardPinningLab.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = KeyboardPinningLab.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -45,6 +48,7 @@
 			isa = PBXGroup;
 			children = (
 				949EB7D848CCC51B60D11989 /* Localizable.xcstrings */,
+				CE0E17A1008C3577E9CD4995 /* InfoPlist.strings */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -118,6 +122,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1E81F0EEF337DE057CCEC892 /* InfoPlist.strings in Resources */,
 				8F1F331AA4DD22756ED437F4 /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -136,6 +141,18 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXVariantGroup section */
+		CE0E17A1008C3577E9CD4995 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				5405DD1047FED983298B8CD3 /* en */,
+				2C03363774959A68994988EB /* ja */,
+			);
+			name = InfoPlist.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
 		0E30ABD0849A82BD34D9BF72 /* Release */ = {
