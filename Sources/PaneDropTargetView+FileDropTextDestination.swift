@@ -68,6 +68,22 @@ extension PaneDropContainer {
         nil
     }
 
+    @discardableResult
+    func performPanelTextDrop(
+        panelId: UUID,
+        focusIntent: PanelFocusIntent,
+        window: NSWindow?,
+        insert: () -> Bool
+    ) -> Bool {
+        guard insert() else { return false }
+        focusPanelAfterSuccessfulPaneDrop(
+            panelId: panelId,
+            focusIntent: focusIntent,
+            window: window
+        )
+        return true
+    }
+
     func fileDropTextDestinationKind(
         in paneId: PaneID,
         hasHostedTerminal: Bool
@@ -100,12 +116,13 @@ extension PaneDropContainer {
         window: NSWindow?
     ) -> Bool {
         if let hostedView {
-            return FileDropTextDropController.performTerminalFileDrop(
-                container: self,
+            return performPanelTextDrop(
                 panelId: context.panelId,
-                hostedView: hostedView,
-                urls: urls,
-                window: window
+                focusIntent: .terminal(.surface),
+                window: window,
+                insert: {
+                    hostedView.handleDroppedURLs(urls)
+                }
             )
         }
 
@@ -113,17 +130,17 @@ extension PaneDropContainer {
             return false
         }
         if let terminalPanel = selected.panel as? TerminalPanel {
-            return FileDropTextDropController.performTerminalFileDrop(
-                container: self,
+            return performPanelTextDrop(
                 panelId: selected.panelId,
-                hostedView: terminalPanel.hostedView,
-                urls: urls,
-                window: window ?? terminalPanel.surface.uiWindow
+                focusIntent: .terminal(.surface),
+                window: window ?? terminalPanel.surface.uiWindow,
+                insert: {
+                    terminalPanel.hostedView.handleDroppedURLs(urls)
+                }
             )
         }
         if let filePreviewPanel = selected.panel as? FilePreviewPanel {
-            return FileDropTextDropController.performPanelTextDrop(
-                container: self,
+            return performPanelTextDrop(
                 panelId: selected.panelId,
                 focusIntent: .filePreview(.textEditor),
                 window: window,

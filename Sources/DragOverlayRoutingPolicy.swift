@@ -112,14 +112,15 @@ enum FileDropTextDropController {
 
     @discardableResult
     static func performPanelTextDrop(
-        container: any PaneDropContainer,
+        workspace: Workspace,
         panelId: UUID,
         focusIntent: PanelFocusIntent,
         window: NSWindow?,
         insert: () -> Bool
     ) -> Bool {
         guard insert() else { return false }
-        container.focusPanelAfterSuccessfulPaneDrop(
+        focusPanelAfterSuccessfulTextDrop(
+            workspace: workspace,
             panelId: panelId,
             focusIntent: focusIntent,
             window: window
@@ -129,54 +130,20 @@ enum FileDropTextDropController {
 
     @discardableResult
     static func performTerminalFileDrop(
-        container: any PaneDropContainer,
+        workspace: Workspace,
         panelId: UUID,
         hostedView: GhosttySurfaceScrollView,
         urls: [URL],
         window: NSWindow?
     ) -> Bool {
         performPanelTextDrop(
-            container: container,
+            workspace: workspace,
             panelId: panelId,
             focusIntent: .terminal(.surface),
             window: window,
             insert: {
                 hostedView.handleDroppedURLs(urls)
             }
-        )
-    }
-
-    @discardableResult
-    static func performPanelTextDrop(
-        workspace: Workspace,
-        panelId: UUID,
-        focusIntent: PanelFocusIntent,
-        window: NSWindow?,
-        insert: () -> Bool
-    ) -> Bool {
-        performPanelTextDrop(
-            container: workspace,
-            panelId: panelId,
-            focusIntent: focusIntent,
-            window: window,
-            insert: insert
-        )
-    }
-
-    @discardableResult
-    static func performTerminalFileDrop(
-        workspace: Workspace,
-        panelId: UUID,
-        hostedView: GhosttySurfaceScrollView,
-        urls: [URL],
-        window: NSWindow?
-    ) -> Bool {
-        performTerminalFileDrop(
-            container: workspace,
-            panelId: panelId,
-            hostedView: hostedView,
-            urls: urls,
-            window: window
         )
     }
 
@@ -211,11 +178,13 @@ enum FileDropTextDropController {
         focusIntent: PanelFocusIntent,
         window: NSWindow?
     ) {
-        workspace.focusPanelAfterSuccessfulPaneDrop(
+        AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
+            workspaceId: workspace.id,
             panelId: panelId,
-            focusIntent: focusIntent,
-            window: window
+            in: window
         )
+        workspace.focusPanel(panelId, focusIntent: focusIntent)
+        _ = workspace.panels[panelId]?.restoreFocusIntent(focusIntent)
     }
 }
 

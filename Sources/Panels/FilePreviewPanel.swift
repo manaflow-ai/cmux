@@ -978,11 +978,17 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     let panelType: PanelType = .filePreview
     let filePath: String
     private(set) var workspaceId: UUID
-    @Published private(set) var displayTitle: String
-    @Published private(set) var displayIcon: String?
+    @Published private(set) var displayTitle: String {
+        didSet { publishTabMetadataUpdate() }
+    }
+    @Published private(set) var displayIcon: String? {
+        didSet { publishTabMetadataUpdate() }
+    }
     @Published private(set) var isFileUnavailable = false
     @Published private(set) var textContent = ""
-    @Published private(set) var isDirty = false
+    @Published private(set) var isDirty = false {
+        didSet { publishTabMetadataUpdate() }
+    }
     @Published private(set) var isSaving = false
     @Published private(set) var focusFlashToken = 0
     @Published private(set) var previewMode: FilePreviewMode
@@ -1006,6 +1012,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private let modeResolver: @Sendable (URL) async -> FilePreviewMode
     private let textLoadCoordinator = FilePreviewLatestLoadCoordinator<FilePreviewTextLoader.Result>()
     private let modeLoadCoordinator = FilePreviewLatestLoadCoordinator<FilePreviewMode>()
+    let tabMetadataUpdates = FilePreviewTabMetadataUpdates()
 
     var fileURL: URL {
         URL(fileURLWithPath: filePath)
@@ -1063,6 +1070,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func close() {
         isClosed = true
+        tabMetadataUpdates.finish()
         stopWatchingForFileChanges()
         textLoadCoordinator.cancel()
         modeLoadCoordinator.cancel()

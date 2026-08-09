@@ -934,38 +934,40 @@ final class DockSplitStore: BonsplitDelegate {
             }
             panelCancellables[panel.id] = cancellable
         } else if let filePreview = panel as? FilePreviewPanel {
-            let titleAndDirty = Publishers.CombineLatest(
-                filePreview.$displayTitle.removeDuplicates(),
-                filePreview.$isDirty.removeDuplicates()
-            )
-            let cancellable = Publishers.CombineLatest(
-                titleAndDirty,
-                filePreview.$displayIcon.removeDuplicates()
-            )
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self, weak filePreview] titleAndDirty, displayIcon in
-                guard let self, let filePreview,
-                      let tabId = self.surfaceId(forPanelId: filePreview.id),
+            let panelId = filePreview.id
+            let updates = filePreview.makeTabMetadataUpdates()
+            let observationTask = Task { @MainActor [weak self] in
+                for await update in updates {
+                    guard !Task.isCancelled,
+                      let self,
+                      let tabId = self.surfaceId(forPanelId: panelId),
                       let existing = self.bonsplitController.tab(tabId) else {
-                    return
+                        continue
+                    }
+                    let icon = RenderableSystemSymbol.resolvedSurfaceTabIcon(
+                        update.displayIcon
+                    )
+                    let titleUpdate: String? =
+                        existing.hasCustomTitle || existing.title == update.title
+                        ? nil
+                        : update.title
+                    let iconUpdate: String?? = existing.icon == icon ? nil : .some(icon)
+                    let dirtyUpdate: Bool? =
+                        existing.isDirty == update.isDirty ? nil : update.isDirty
+                    guard titleUpdate != nil || iconUpdate != nil || dirtyUpdate != nil else {
+                        continue
+                    }
+                    self.bonsplitController.updateTab(
+                        tabId,
+                        title: titleUpdate,
+                        icon: iconUpdate,
+                        isDirty: dirtyUpdate
+                    )
                 }
-                let (title, isDirty) = titleAndDirty
-                let icon = RenderableSystemSymbol.resolvedSurfaceTabIcon(displayIcon)
-                let titleUpdate: String? =
-                    existing.hasCustomTitle || existing.title == title ? nil : title
-                let iconUpdate: String?? = existing.icon == icon ? nil : .some(icon)
-                let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
-                guard titleUpdate != nil || iconUpdate != nil || dirtyUpdate != nil else {
-                    return
-                }
-                self.bonsplitController.updateTab(
-                    tabId,
-                    title: titleUpdate,
-                    icon: iconUpdate,
-                    isDirty: dirtyUpdate
-                )
             }
-            panelCancellables[panel.id] = cancellable
+            panelCancellables[panelId] = AnyCancellable {
+                observationTask.cancel()
+            }
         } else if tracksTerminalTitle, let terminal = panel as? TerminalPanel {
             let cancellable = terminal.$title
                 .removeDuplicates()

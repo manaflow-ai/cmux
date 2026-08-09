@@ -142,10 +142,11 @@ extension DockSplitStore {
         focus: Bool,
         targetIndex: Int? = nil
     ) -> [FilePreviewPanel] {
+        guard containsPane(paneId.id) else { return [] }
         var nextIndex = targetIndex
         var openedPanels: [FilePreviewPanel] = []
         for filePath in filePaths {
-            guard let panel = newFilePreviewSurface(
+            guard let panel = newFilePreviewSurfaceInValidatedPane(
                 inPane: paneId,
                 filePath: filePath,
                 focus: focus,
@@ -169,6 +170,20 @@ extension DockSplitStore {
         targetIndex: Int? = nil
     ) -> FilePreviewPanel? {
         guard containsPane(paneId.id) else { return nil }
+        return newFilePreviewSurfaceInValidatedPane(
+            inPane: paneId,
+            filePath: filePath,
+            focus: focus,
+            targetIndex: targetIndex
+        )
+    }
+
+    private func newFilePreviewSurfaceInValidatedPane(
+        inPane paneId: PaneID,
+        filePath: String,
+        focus: Bool,
+        targetIndex: Int?
+    ) -> FilePreviewPanel? {
         let previousFocus = focus ? nil : focusedDockPaneSelection()
         let panel = FilePreviewPanel(workspaceId: workspaceId, filePath: filePath)
         panels[panel.id] = panel
