@@ -7466,12 +7466,21 @@ final class cmuxUITests: XCTestCase {
             keyboard: initialKeyboard,
             context: "rapid-reversal baseline"
         )
+        let composerKeyboardInset = initialKeyboard.frame.minY - composerField.frame.maxY
 
         let hideKeyboardButton = app.buttons["terminal.inputAccessory.hideKeyboard"]
         XCTAssertTrue(hideKeyboardButton.waitForExistence(timeout: 4))
 
         for cycle in 1...10 {
             hideKeyboardButton.tap()
+            if app.keyboards.firstMatch.exists {
+                XCTAssertEqual(
+                    app.keyboards.firstMatch.frame.minY - composerField.frame.maxY,
+                    composerKeyboardInset,
+                    accuracy: 2,
+                    "The whole dock detached while keyboard dismissal was still visible in cycle \(cycle)"
+                )
+            }
             surface.tap()
 
             guard let keyboard = waitForSoftwareKeyboardKeyPlane(
@@ -7480,6 +7489,12 @@ final class cmuxUITests: XCTestCase {
                 timeout: 4
             ) else { return }
             let dock = surfaceDock(in: app)
+            XCTAssertEqual(
+                keyboard.frame.minY - composerField.frame.maxY,
+                composerKeyboardInset,
+                accuracy: 2,
+                "The whole dock detached from the keyboard after rapid reversal \(cycle)"
+            )
             assertTerminalDockPinnedToSoftwareKeyboard(
                 dock,
                 surface: surface,
