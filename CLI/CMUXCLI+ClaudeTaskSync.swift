@@ -498,6 +498,15 @@ extension CMUXCLI {
                     workspaceIDs: [resolvedTarget.workspaceId],
                     deadlineUptime: hookDeadlineUptime
                 ) else { return }
+                guard clearSupersededPersonalClaudeTaskChecklistOwnerIfNeeded(
+                    currentRecord: currentRecord,
+                    taskDirectoryName: sessionSnapshot.directoryName,
+                    taskStoreIdentity: taskStoreIdentity,
+                    currentWorkspaceID: resolvedTarget.workspaceId,
+                    client: client,
+                    telemetry: telemetry,
+                    deadlineUptime: hookDeadlineUptime
+                ) else { return }
                 guard deliverClaudeTaskSnapshot(
                     sessionSnapshot,
                     taskStoreIdentity: taskStoreIdentity,
@@ -525,6 +534,43 @@ extension CMUXCLI {
             )
         }
         printClaudeHookAck()
+    }
+
+    /// Clears a superseded session-owned destination before publishing its replacement.
+    private func clearSupersededPersonalClaudeTaskChecklistOwnerIfNeeded(
+        currentRecord: ClaudeHookSessionRecord?,
+        taskDirectoryName: String,
+        taskStoreIdentity: ClaudeTaskStoreIdentity,
+        currentWorkspaceID: String,
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry,
+        deadlineUptime: TimeInterval
+    ) -> Bool {
+        guard let currentRecord,
+              let previousTaskDirectoryName = currentRecord.claudeTaskDirectoryName,
+              currentRecord.claudeTaskStoreID == taskStoreIdentity.rawValue else {
+            return true
+        }
+        let previousWorkspaceID = currentRecord.workspaceId.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let normalizedCurrentWorkspaceID = currentWorkspaceID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !previousWorkspaceID.isEmpty,
+              !normalizedCurrentWorkspaceID.isEmpty,
+              previousTaskDirectoryName != taskDirectoryName
+                || previousWorkspaceID != normalizedCurrentWorkspaceID else {
+            return true
+        }
+        return clearClaudeTaskChecklistOwner(
+            taskDirectoryName: previousTaskDirectoryName,
+            taskStoreIdentity: taskStoreIdentity,
+            client: client,
+            telemetry: telemetry,
+            workspaceIDs: [previousWorkspaceID],
+            deadlineUptime: deadlineUptime
+        ).succeeded
     }
 
     /// Clears one pre-profile owner before namespaced delivery and stamps its proof.

@@ -341,7 +341,7 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    /// Persists a session-owned task-directory binding.
+    /// Persists a session-owned task-directory binding and its latest destination.
     ///
     /// Claude launches asynchronous hooks in separate CLI processes, so the
     /// binding is updated inside the existing cross-process session-store
@@ -355,7 +355,9 @@ final class ClaudeHookSessionStore {
     ) throws {
         let normalizedSessionId = normalizeSessionId(sessionId)
         let normalizedDirectoryName = directoryName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedSessionId.isEmpty,
+        guard let normalizedWorkspaceId = normalizeOptional(workspaceId),
+              let normalizedSurfaceId = normalizeOptional(surfaceId),
+              !normalizedSessionId.isEmpty,
               !normalizedDirectoryName.isEmpty,
               normalizedDirectoryName != ".",
               normalizedDirectoryName != "..",
@@ -365,16 +367,23 @@ final class ClaudeHookSessionStore {
             let now = Date.now.timeIntervalSince1970
             var record = state.sessions[normalizedSessionId] ?? ClaudeHookSessionRecord(
                 sessionId: normalizedSessionId,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
+                workspaceId: normalizedWorkspaceId,
+                surfaceId: normalizedSurfaceId,
                 startedAt: now,
                 updatedAt: now
             )
-            guard record.claudeTaskDirectoryName != normalizedDirectoryName
-                    || record.claudeTaskStoreID != taskStoreIdentity.rawValue else { return }
-            record.claudeTaskDirectoryName = normalizedDirectoryName
-            record.claudeTaskStoreID = taskStoreIdentity.rawValue
-            record.claudeTaskLegacyOwnerCleared = nil
+            let bindingChanged = record.claudeTaskDirectoryName != normalizedDirectoryName
+                || record.claudeTaskStoreID != taskStoreIdentity.rawValue
+            let destinationChanged = record.workspaceId != normalizedWorkspaceId
+                || record.surfaceId != normalizedSurfaceId
+            guard bindingChanged || destinationChanged else { return }
+            if bindingChanged {
+                record.claudeTaskDirectoryName = normalizedDirectoryName
+                record.claudeTaskStoreID = taskStoreIdentity.rawValue
+                record.claudeTaskLegacyOwnerCleared = nil
+            }
+            record.workspaceId = normalizedWorkspaceId
+            record.surfaceId = normalizedSurfaceId
             record.updatedAt = now
             state.sessions[normalizedSessionId] = record
         }

@@ -234562,7 +234562,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "owner_id must be 1...500 characters"
+            "value": "owner_id must be between 1 and 500 characters"
           }
         },
         "es": {

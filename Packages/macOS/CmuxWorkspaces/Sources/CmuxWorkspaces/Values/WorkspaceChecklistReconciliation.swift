@@ -1,3 +1,5 @@
+import Foundation
+
 extension Array where Element == WorkspaceChecklistItem {
     /// Atomically replaces the checklist items owned by one external source.
     ///
@@ -16,6 +18,13 @@ extension Array where Element == WorkspaceChecklistItem {
         ownerID: String,
         with items: [WorkspaceChecklistReplacementItem]
     ) -> Result<[WorkspaceChecklistItem], WorkspaceChecklistReplaceError> {
+        var existingIDs = Set<UUID>()
+        for (index, existing) in enumerated() {
+            guard existingIDs.insert(existing.id).inserted else {
+                return .failure(.duplicateId(index: index))
+            }
+        }
+
         let unrelatedItems = filter { $0.ownerID != ownerID }
         guard unrelatedItems.count + items.count <= WorkspaceChecklistItem.maxChecklistItems else {
             return .failure(.tooManyItems(count: unrelatedItems.count + items.count))

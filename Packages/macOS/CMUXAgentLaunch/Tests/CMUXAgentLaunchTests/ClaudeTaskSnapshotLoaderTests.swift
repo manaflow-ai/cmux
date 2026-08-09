@@ -485,14 +485,21 @@ struct ClaudeTaskSnapshotLoaderTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let sessionDirectory = root.appendingPathComponent("subject-overflow", isDirectory: true)
         try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
-        let subject = String(repeating: "x", count: 8 * 1024 + 1)
+        let subject = String(
+            repeating: "x",
+            count: ClaudeTaskSnapshotLoader.maximumTaskTextByteCount + 1
+        )
         try writeTask(
             #"{"id":"1","subject":"\#(subject)","status":"pending"}"#,
             named: "1.json",
             in: sessionDirectory
         )
 
-        #expect(throws: (any Error).self) {
+        #expect(throws: ClaudeTaskSnapshotLoaderError.taskTextTooLarge(
+            fileName: "1.json",
+            field: "subject",
+            limit: ClaudeTaskSnapshotLoader.maximumTaskTextByteCount
+        )) {
             try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(sessionID: "subject-overflow")
         }
     }
@@ -504,14 +511,21 @@ struct ClaudeTaskSnapshotLoaderTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let sessionDirectory = root.appendingPathComponent("active-form-overflow", isDirectory: true)
         try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
-        let activeForm = String(repeating: "x", count: 8 * 1024 + 1)
+        let activeForm = String(
+            repeating: "x",
+            count: ClaudeTaskSnapshotLoader.maximumTaskTextByteCount + 1
+        )
         try writeTask(
             #"{"id":"1","subject":"Task","activeForm":"\#(activeForm)","status":"in_progress"}"#,
             named: "1.json",
             in: sessionDirectory
         )
 
-        #expect(throws: (any Error).self) {
+        #expect(throws: ClaudeTaskSnapshotLoaderError.taskTextTooLarge(
+            fileName: "1.json",
+            field: "activeForm",
+            limit: ClaudeTaskSnapshotLoader.maximumTaskTextByteCount
+        )) {
             try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(sessionID: "active-form-overflow")
         }
     }
@@ -523,8 +537,13 @@ struct ClaudeTaskSnapshotLoaderTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let sessionDirectory = root.appendingPathComponent("text-overflow", isDirectory: true)
         try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
-        let subject = String(repeating: "x", count: 8 * 1024)
-        for taskID in 1...65 {
+        let subject = String(
+            repeating: "x",
+            count: ClaudeTaskSnapshotLoader.maximumTaskTextByteCount
+        )
+        let taskCount = ClaudeTaskSnapshotLoader.maximumSnapshotTextByteCount
+            / ClaudeTaskSnapshotLoader.maximumTaskTextByteCount + 1
+        for taskID in 1...taskCount {
             try writeTask(
                 #"{"id":"\#(taskID)","subject":"\#(subject)","status":"pending"}"#,
                 named: "\(taskID).json",
@@ -532,7 +551,9 @@ struct ClaudeTaskSnapshotLoaderTests {
             )
         }
 
-        #expect(throws: (any Error).self) {
+        #expect(throws: ClaudeTaskSnapshotLoaderError.snapshotTextTooLarge(
+            limit: ClaudeTaskSnapshotLoader.maximumSnapshotTextByteCount
+        )) {
             try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(sessionID: "text-overflow")
         }
     }
@@ -544,8 +565,12 @@ struct ClaudeTaskSnapshotLoaderTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let sessionDirectory = root.appendingPathComponent("boundary", isDirectory: true)
         try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
-        let prefix = "{\"id\":\"1\",\"subject\":\""
-        let suffix = "\",\"status\":\"pending\"}"
+        let subject = String(
+            repeating: "x",
+            count: ClaudeTaskSnapshotLoader.maximumTaskTextByteCount
+        )
+        let prefix = "{\"id\":\"1\",\"subject\":\"\(subject)\",\"status\":\"pending\",\"padding\":\""
+        let suffix = "\"}"
         let paddingCount = ClaudeTaskSnapshotLoader.maximumTaskFileByteCount
             - prefix.utf8.count
             - suffix.utf8.count
@@ -560,7 +585,7 @@ struct ClaudeTaskSnapshotLoaderTests {
         )
 
         #expect(snapshot.todos.count == 1)
-        #expect(snapshot.todos[0].content.utf8.count == paddingCount)
+        #expect(snapshot.todos[0].content.utf8.count == ClaudeTaskSnapshotLoader.maximumTaskTextByteCount)
     }
 
     @Test("Task snapshots reject a directory beyond the entry boundary")

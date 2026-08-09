@@ -10,6 +10,10 @@ enum ClaudeTaskSnapshotLoaderError: Error, Equatable {
     case tooManyDirectoryEntries(limit: Int)
     /// A task file exceeded its hard byte limit.
     case taskFileTooLarge(fileName: String, limit: Int)
+    /// One decoded task text field exceeded its hard UTF-8 byte limit.
+    case taskTextTooLarge(fileName: String, field: String, limit: Int)
+    /// The live task text retained by one snapshot exceeded its aggregate limit.
+    case snapshotTextTooLarge(limit: Int)
     /// A known task-list path existed but was not a direct, non-symlink directory.
     case invalidTaskDirectory(directoryName: String)
     /// The team-store root could not be enumerated while resolving an agent.

@@ -99,7 +99,11 @@ public struct ClaudeTeamTaskListBinding: Codable, Equatable, Sendable {
         if let agentID = nonEmpty(agentID) {
             return agentIDs.contains(agentID)
         }
-        return nonEmpty(sessionID) == leaderSessionID
+        guard let sessionID = nonEmpty(sessionID),
+              let leaderSessionID else {
+            return false
+        }
+        return sessionID == leaderSessionID
     }
 
     /// Copies an identity with the config generation that proved it unique.

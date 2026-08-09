@@ -17,7 +17,7 @@ extension TerminalController: ControlWorkspaceTodoContext {
             ),
             invalidOwnerIDLength: String(
                 localized: "socket.workspace.todo.reconcile.invalidOwnerIDLength",
-                defaultValue: "owner_id must be 1...500 characters"
+                defaultValue: "owner_id must be between 1 and 500 characters"
             )
         )
     }

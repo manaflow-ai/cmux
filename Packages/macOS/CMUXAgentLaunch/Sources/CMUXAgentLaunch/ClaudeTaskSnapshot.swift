@@ -5,9 +5,4 @@ public struct ClaudeTaskSnapshot: Sendable, Equatable {
 
     /// The complete live task list, including an intentionally empty list.
     public let todos: [WorkstreamTaskTodo]
-
-    init(directoryName: String, todos: [WorkstreamTaskTodo]) {
-        self.directoryName = directoryName
-        self.todos = todos
-    }
 }

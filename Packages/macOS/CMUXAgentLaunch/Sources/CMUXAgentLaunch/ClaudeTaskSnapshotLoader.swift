@@ -12,6 +12,10 @@ public struct ClaudeTaskSnapshotLoader {
     static let maximumTaskRootEntryCount = 512
     /// Maximum bytes read from one task JSON file.
     static let maximumTaskFileByteCount = 64 * 1024
+    /// Maximum UTF-8 bytes retained from one task text field.
+    static let maximumTaskTextByteCount = 8 * 1024
+    /// Maximum aggregate UTF-8 bytes retained in one authoritative snapshot.
+    static let maximumSnapshotTextByteCount = 512 * 1024
 
     /// The directory containing Claude's per-session task directories.
     public let tasksRootURL: URL
@@ -251,6 +255,7 @@ public struct ClaudeTaskSnapshotLoader {
         let decoder = JSONDecoder()
         var todos: [WorkstreamTaskTodo] = []
         var entryCount = 0
+        var snapshotTextByteCount = 0
         while let fileURL = enumerator.nextObject() as? URL {
             try operationDeadline.check()
             entryCount += 1
@@ -287,12 +292,24 @@ public struct ClaudeTaskSnapshotLoader {
                   let taskID = validPathComponent(record.id),
                   taskID == record.id,
                   fileURL.deletingPathExtension().lastPathComponent == taskID,
-                  let state = record.canonicalState,
-                  let content = nonEmptyTaskText(record.subject) else { continue }
+                  let state = record.canonicalState else { continue }
+            try validateTaskText(record.subject, field: "subject", fileURL: fileURL)
+            if let activeForm = record.activeForm {
+                try validateTaskText(activeForm, field: "activeForm", fileURL: fileURL)
+            }
+            guard let content = nonEmptyTaskText(record.subject) else { continue }
+            let activeForm = nonEmptyTaskText(record.activeForm)
+            let taskTextByteCount = content.utf8.count + (activeForm?.utf8.count ?? 0)
+            guard taskTextByteCount <= Self.maximumSnapshotTextByteCount - snapshotTextByteCount else {
+                throw ClaudeTaskSnapshotLoaderError.snapshotTextTooLarge(
+                    limit: Self.maximumSnapshotTextByteCount
+                )
+            }
+            snapshotTextByteCount += taskTextByteCount
             todos.append(WorkstreamTaskTodo(
                 id: taskID,
                 content: content,
-                activeForm: nonEmptyTaskText(record.activeForm),
+                activeForm: activeForm,
                 state: state
             ))
         }
@@ -421,6 +438,10 @@ public struct ClaudeTaskSnapshotLoader {
         }
         try operationDeadline.check()
         guard let record = try? decoder.decode(ClaudeTaskRecord.self, from: data) else { return false }
+        try validateTaskText(record.subject, field: "subject", fileURL: fileURL)
+        if let activeForm = record.activeForm {
+            try validateTaskText(activeForm, field: "activeForm", fileURL: fileURL)
+        }
         return record.id == identity.id && record.subject == identity.subject
     }
 
@@ -462,6 +483,20 @@ public struct ClaudeTaskSnapshotLoader {
     private func nonEmptyTaskText(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private func validateTaskText(
+        _ value: String,
+        field: String,
+        fileURL: URL
+    ) throws {
+        guard value.utf8.count <= Self.maximumTaskTextByteCount else {
+            throw ClaudeTaskSnapshotLoaderError.taskTextTooLarge(
+                fileName: fileURL.lastPathComponent,
+                field: field,
+                limit: Self.maximumTaskTextByteCount
+            )
+        }
     }
 
     private func taskSort(_ lhs: WorkstreamTaskTodo, _ rhs: WorkstreamTaskTodo) -> Bool {
