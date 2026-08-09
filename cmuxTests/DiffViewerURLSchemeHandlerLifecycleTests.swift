@@ -53,6 +53,64 @@ struct DiffViewerURLSchemeHandlerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func concurrentCompressedStreamsRemainCorrectAndMainThreadBound() async throws {
+        let token = UUID().uuidString.lowercased()
+        let rootURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let handler = CmuxDiffViewerURLSchemeHandler()
+        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        var registeredFiles: [CmuxDiffViewerURLSchemeHandler.RegisteredFile] = []
+        var requests: [(task: DiffViewerRecordingSchemeTask, expectedBody: Data)] = []
+
+        for index in 0..<8 {
+            let requestPath = "/asset-\(index).mjs"
+            let fileURL = rootURL.appendingPathComponent("asset-\(index).mjs.deflate")
+            let text = String(repeating: "export const asset\(index) = true;\n", count: 4_096)
+            try DeflatedAssetTestSupport.writeText(text, to: fileURL)
+            registeredFiles.append(.init(
+                requestPath: requestPath,
+                fileURL: fileURL,
+                mimeType: "text/javascript"
+            ))
+            let requestURL = try #require(URL(
+                string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)\(requestPath)"
+            ))
+            requests.append((
+                DiffViewerRecordingSchemeTask(request: URLRequest(url: requestURL)),
+                Data(text.utf8)
+            ))
+        }
+
+        try handler.register(token: token, files: registeredFiles)
+        for request in requests {
+            handler.webView(webView, start: request.task)
+        }
+
+        for request in requests {
+            var callbacks: [DiffViewerRecordingSchemeTask.Callback] = []
+            for await callback in request.task.callbacks {
+                callbacks.append(callback)
+            }
+            var body = Data()
+            for callback in callbacks {
+                if let data = callback.data {
+                    body.append(data)
+                }
+            }
+
+            #expect(callbacks.first?.kind == .response)
+            #expect(callbacks.last?.kind == .finish)
+            #expect(callbacks.dropFirst().dropLast().allSatisfy { $0.kind == .data })
+            #expect(callbacks.allSatisfy(\.wasOnMainThread))
+            #expect(body == request.expectedBody)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func stopNeverWaitsForOffMainCallbackDelivery() async throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
@@ -130,6 +188,7 @@ private final class DiffViewerRecordingSchemeTask: NSObject, WKURLSchemeTask {
 
         let kind: Kind
         let wasOnMainThread: Bool
+        let data: Data?
     }
 
     enum BlockingHopExit: Sendable, Equatable {
@@ -170,7 +229,7 @@ private final class DiffViewerRecordingSchemeTask: NSObject, WKURLSchemeTask {
     }
 
     func didReceive(_ data: Data) {
-        recordCallback(.data)
+        recordCallback(.data, data: data)
     }
 
     func didFinish() {
@@ -187,9 +246,13 @@ private final class DiffViewerRecordingSchemeTask: NSObject, WKURLSchemeTask {
         blockingMainHopRelease.signal()
     }
 
-    private func recordCallback(_ kind: Callback.Kind) {
+    private func recordCallback(_ kind: Callback.Kind, data: Data? = nil) {
         let wasOnMainThread = Thread.isMainThread
-        callbackContinuation.yield(Callback(kind: kind, wasOnMainThread: wasOnMainThread))
+        callbackContinuation.yield(Callback(
+            kind: kind,
+            wasOnMainThread: wasOnMainThread,
+            data: data
+        ))
         if simulatesBlockingMainHop, !wasOnMainThread {
             blockingHopEntryContinuation.yield(())
             let result = blockingMainHopRelease.wait(timeout: .now() + 1)

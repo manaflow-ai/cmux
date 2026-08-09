@@ -50,6 +50,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
     private var sessions: [String: Session] = [:]
     private var activeSchemeTasks: [ObjectIdentifier: ActiveSchemeTask] = [:]
+    private let assetReader = DiffViewerAssetReader()
     // Branch picker routes shell out to the bundled CLI (git). Run them on a
     // dedicated concurrent queue so a slow/hung git invocation cannot stall
     // restored diff-viewer file serving. The queue returns values to the main
@@ -640,26 +641,30 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             expectedContentLength: Self.fileSize(for: file.fileURL),
             textEncodingName: "utf-8"
         )
-        let reader = DiffViewerAssetReader(fileURL: file.fileURL)
+        let assetReader = assetReader
 
         let operation = Task { @MainActor [weak self] in
             guard let self else {
-                await reader.close()
+                await assetReader.close(streamID: generation)
                 return
             }
             do {
                 guard self.performSchemeTaskCallback(taskID, generation: generation, {
                     $0.didReceive(response)
                 }) else {
-                    await reader.close()
+                    await assetReader.close(streamID: generation)
                     return
                 }
 
                 while self.isSchemeTaskActive(taskID, generation: generation) {
                     try Task.checkCancellation()
-                    let data = try await reader.read(upToCount: 64 * 1024)
+                    let data = try await assetReader.read(
+                        streamID: generation,
+                        fileURL: file.fileURL,
+                        upToCount: 64 * 1024
+                    )
                     guard self.isSchemeTaskActive(taskID, generation: generation) else {
-                        await reader.close()
+                        await assetReader.close(streamID: generation)
                         return
                     }
                     if data.isEmpty {
@@ -668,20 +673,20 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                     guard self.performSchemeTaskCallback(taskID, generation: generation, {
                         $0.didReceive(data)
                     }) else {
-                        await reader.close()
+                        await assetReader.close(streamID: generation)
                         return
                     }
                 }
 
-                await reader.close()
+                await assetReader.close(streamID: generation)
                 guard self.performSchemeTaskCallback(taskID, generation: generation, {
                     $0.didFinish()
                 }) else { return }
                 self.finishSchemeTask(taskID, generation: generation)
             } catch is CancellationError {
-                await reader.close()
+                await assetReader.close(streamID: generation)
             } catch {
-                await reader.close()
+                await assetReader.close(streamID: generation)
                 self.failSchemeTask(taskID, generation: generation, error: error)
             }
         }
