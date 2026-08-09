@@ -12,10 +12,14 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `3fbdd078d`, which resolves fonts for
-decomposed (NFD) Hangul grapheme clusters through their canonically composed
-syllable so NFC and NFD Korean text select the same face. It landed on fork
-main in merge `d462c1d97`
+The submodule pinned by this branch is `1f78a79aa`, the fork-main merge of
+https://github.com/manaflow-ai/ghostty/pull/183. It prevents a short URL ending
+in break punctuation from absorbing unrelated text on the next row by requiring
+the upper row to be width-filled before accepting an unindented hard-newline
+continuation. The merge builds on fork main `90ba327fc`, whose ancestry includes
+`3fbdd078d`, which resolves fonts for decomposed (NFD) Hangul grapheme clusters
+through their canonically composed syllable so NFC and NFD Korean text select
+the same face. That change landed on fork main in merge `d462c1d97`
 (https://github.com/manaflow-ai/ghostty/pull/185) together with its
 regression-test commit `0316a8de8`. It builds on fork main `7350263b4`, the
 merge of https://github.com/manaflow-ai/ghostty/pull/184 (bounded embedded
@@ -781,10 +785,15 @@ declared architecture, and `_ghostty_surface_rebuild_renderer` plus
 
 ### Unindented hard-newline link continuations
 
-- Pull request: https://github.com/manaflow-ai/ghostty/pull/134
+- Pull requests:
+  - https://github.com/manaflow-ai/ghostty/pull/134
+  - https://github.com/manaflow-ai/ghostty/pull/183
 - Commits:
   - `823641e234c3c6bf4bc5badb72261d8a6fc37232` (fix: join unindented wrapped links)
   - `f6b47c8371991a4555f907737e808f161c368661` (merge the link continuation fix)
+  - `28baa8649` (test: reject a short slash-terminated URL joining the next row)
+  - `589856524` (fix: require a width-filled row for an unindented continuation)
+  - `1f78a79aa` (merge the trailing-slash URL fix)
 - Files:
   - `src/Surface.zig`
   - `src/link.zig`
@@ -794,13 +803,20 @@ declared architecture, and `_ghostty_surface_rebuild_renderer` plus
     expansion and newline normalization, so hover, copy, preview, and open all
     resolve the same complete link.
   - Recognizes unindented hard-newline continuations after link punctuation
-    while preserving the existing indented continuation behavior.
+    only when the upper physical row is width-filled. Indented continuations
+    and terminal soft wraps keep their existing behavior.
+  - Prevents a short complete URL or path ending in break punctuation from
+    absorbing unrelated output on the next row; a trailing wide-character
+    spacer head still counts as filling the row.
   - Keeps conservative boundaries for explicit schemes and roots, semantic
     prompt transitions, unrelated indentation, and trailing sentence
     punctuation.
   - Conflict note: link-grid expansion and newline normalization must continue
-    to share the classifier; duplicating the continuation decision can make
-    hover and activation disagree.
+    to share the punctuation classifier, while grid expansion alone preserves
+    the width-filled invariant because normalization has no terminal-column
+    context. Do not apply that width check to indented continuations or terminal
+    soft wraps; duplicating the remaining continuation decision can make hover
+    and activation disagree.
 
 ### Bounded Kitty graphics state
 
