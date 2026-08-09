@@ -190,7 +190,9 @@ Press Shift-Tab in the TextBox to cycle the default action. This shortcut is `sh
 Built-in action IDs: `claude`, `codex`, `opencode`, `pi`.
 
 Set `textBoxDefaultSubmitAction` to `text-entry` to force plain Text Entry for new terminals.
-Built-in provider actions shell-quote `{{prompt}}` before pasting the command. Claude may still show its workspace trust prompt before processing the prompt. Built-ins run `claude --dangerously-skip-permissions -- {{prompt}}`, `codex --yolo -- {{prompt}}`, `opencode --prompt {{prompt}}`, and `pi -- {{prompt}}`.
+Built-in provider actions shell-quote `{{prompt}}` before pasting the command. Claude may still show its workspace trust prompt before processing the prompt. Built-ins run `claude --dangerously-skip-permissions -- {{prompt}}`, `codex --yolo -- {{prompt}}`, `opencode --prompt {{prompt}}`, and `pi {{prompt}}`.
+
+Pi 0.84 and newer automatically receives `--session-id cmux-<surface-id>`. The built-in Pi action renders the ID into its command, including inside an SSH shell. Local hand-typed `pi` commands receive it through cmux's wrapper. Relaunching Pi in the same restored surface reattaches to that project session. Explicit `--session`, `--session-id`, `--fork`, `--continue`, and `--resume` arguments keep their normal Pi behavior. Older Pi versions pass through unchanged.
 
 Action fields:
 

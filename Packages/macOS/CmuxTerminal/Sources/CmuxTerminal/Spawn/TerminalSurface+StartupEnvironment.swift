@@ -179,6 +179,11 @@ extension TerminalSurface {
                 shimDirectory: shimDirectory,
                 fileManager: fileManager
             )
+            installPiCommandShimIfPossible(
+                claudeWrapperURL: wrapperURL,
+                shimDirectory: shimDirectory,
+                fileManager: fileManager
+            )
             return ClaudeCommandShim(
                 directoryPath: shimDirectory.path,
                 executablePath: shimURL.path,
@@ -261,6 +266,62 @@ extension TerminalSurface {
             )
         } catch {
             return nil
+        }
+    }
+
+    /// Writes the per-surface `pi` wrapper shim into `shimDirectory`, if the
+    /// bundled `cmux-pi-wrapper` exists alongside `cmux-claude-wrapper`.
+    @discardableResult
+    public static func installPiCommandShimIfPossible(
+        claudeWrapperURL: URL,
+        shimDirectory: URL,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        let piWrapperURL = claudeWrapperURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("cmux-pi-wrapper", isDirectory: false)
+            .standardizedFileURL
+        guard fileManager.isExecutableFile(atPath: piWrapperURL.path) else {
+            return false
+        }
+
+        let shimURL = shimDirectory.appendingPathComponent("pi", isDirectory: false)
+        do {
+            let script = """
+            #!/usr/bin/env bash
+            cmux_wrapper=\(shellSingleQuoted(piWrapperURL.path))
+            if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then
+                cmux_candidate="$(dirname "$CMUX_BUNDLED_CLI_PATH")/cmux-pi-wrapper"
+                if [[ -x "$cmux_candidate" ]]; then
+                    cmux_wrapper="$cmux_candidate"
+                fi
+            fi
+            export CMUX_PI_WRAPPER_SHIM=\(shellSingleQuoted(shimURL.path))
+            if [[ -x "$cmux_wrapper" ]]; then
+                exec "$cmux_wrapper" "$@"
+            fi
+            cmux_path_without_shim=""
+            cmux_old_ifs="$IFS"
+            IFS=:
+            for cmux_entry in ${PATH:-}; do
+                if [[ "$cmux_entry" == */cmux-cli-shims/* || "$cmux_entry" == */cmux-cli-shims ]]; then
+                    continue
+                fi
+                if [[ -z "$cmux_path_without_shim" ]]; then
+                    cmux_path_without_shim="$cmux_entry"
+                else
+                    cmux_path_without_shim="$cmux_path_without_shim:$cmux_entry"
+                fi
+            done
+            IFS="$cmux_old_ifs"
+            export PATH="$cmux_path_without_shim"
+            exec pi "$@"
+            """
+            try script.write(to: shimURL, atomically: true, encoding: .utf8)
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shimURL.path)
+            return true
+        } catch {
+            return false
         }
     }
 
