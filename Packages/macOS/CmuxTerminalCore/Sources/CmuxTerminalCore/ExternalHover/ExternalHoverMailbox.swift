@@ -73,8 +73,15 @@ public struct ExternalHoverMailbox: Sendable, Equatable {
     }
 
     /// Clears the pending candidate without touching the accepted owner.
-    public mutating func clearPending() {
+    /// Returns whatever was cleared (`nil` if nothing was pending) — (C)
+    /// diagnostics' `withdrawUnconditionally` uses this to release a still-
+    /// armed render demand for the cleared entry's event even when it never
+    /// reached `acceptedOwner`.
+    @discardableResult
+    public mutating func clearPending() -> Entry? {
+        let cleared = pending
         pending = nil
+        return cleared
     }
 
     /// Synchronous acceptance into host logical ownership: the entry becomes

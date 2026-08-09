@@ -18,6 +18,28 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     /// Largest batch that can own independently startable native-free slots.
     public static let maximumIsolatedHibernationTeardownCount = 2
 
+    /// (C) diagnostics — review round3 B4: the raw C drain + POD decode
+    /// `defaultDrainExternalHoverDiagnostics` performs, pulled out into an
+    /// injectable seam so a test can supply canned entries and observe
+    /// them reach the REAL default formatter/log sink, instead of either
+    /// bypassing `defaultDrainExternalHoverDiagnostics` entirely (an
+    /// injected `drainDiagnostics` on `enqueueRuntimeTeardown` itself,
+    /// which the review rejects as not exercising the production path) or
+    /// needing a real live Ghostty surface. Production composition never
+    /// overrides this — the default IS the real
+    /// `ghostty_surface_drain_external_hover_diagnostics` call + decode.
+    public typealias DrainExternalHoverRing = @Sendable (
+        _ surface: ghostty_surface_t
+    ) -> (entries: [ExternalHoverDiagEntryValue], droppedCountCumulative: UInt64)
+
+    /// (C) diagnostics — review round3 B4/B1: matches
+    /// `ExternalHoverWorkService.DiagnosticsEnabled`'s own rationale —
+    /// `defaultDrainExternalHoverDiagnostics` reads the injected gate
+    /// rather than the static `ExternalHoverDiagnosticsGate.isEnabled`
+    /// directly, so a test can flip it independently of the real
+    /// process-wide env var.
+    public typealias DiagnosticsEnabled = @Sendable () -> Bool
+
     private let timeout: Duration = .seconds(5)
 #if DEBUG
     // Readable at internal scope in DEBUG so the debug-only extension in
@@ -56,8 +78,47 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     /// hibernation reservation — see `DeferredRuntimeTeardown`.
     private var deferredHoverTeardowns: [RuntimeSurfaceLifetimeID: DeferredRuntimeTeardown] = [:]
 
+    /// (C) diagnostics — review B5: shared with `ExternalHoverWorkService`
+    /// (which reads this same instance off its own `teardownCoordinator`
+    /// dependency at construction — see that type's `init`), so the
+    /// setter/render-trigger/withdrawal drains and this coordinator's own
+    /// final teardown drain linearize against ONE per-lifetime
+    /// dropped-count baseline instead of each keeping (or, before this
+    /// fix, not even keeping) their own. Plain `let`, not actor-isolated
+    /// state — the tracker is its own thread-safe type, readable from the
+    /// `nonisolated` teardown drain path without an `await`.
+    public nonisolated let droppedCountTracker = ExternalHoverDroppedCountTracker()
+
+    /// (C) diagnostics — review round2 B5: shared with
+    /// `ExternalHoverWorkService` the same way `droppedCountTracker` is —
+    /// see `ExternalHoverSurfaceSerialRegistry`'s own doc.
+    public nonisolated let surfaceSerialRegistry = ExternalHoverSurfaceSerialRegistry()
+
+    /// (C) diagnostics — review round3 B4. `nonisolated`, matching
+    /// `defaultDrainExternalHoverDiagnostics`'s own isolation — see
+    /// `DrainExternalHoverRing`'s doc. NOT YET routed through the
+    /// diagnostics gate below (that stays the static
+    /// `ExternalHoverDiagnosticsGate.isEnabled` for now) — wiring an
+    /// injected gate in is the fix half of this finding; this property's
+    /// addition, and `defaultDrainExternalHoverDiagnostics`'s use of it
+    /// instead of an inline C call, is scaffolding only.
+    private nonisolated let drainExternalHoverRing: DrainExternalHoverRing
+
+    /// (C) diagnostics — review round3 B4/B1. NOT YET read by
+    /// `defaultDrainExternalHoverDiagnostics` (that guard stays the
+    /// static `ExternalHoverDiagnosticsGate.isEnabled` for now) — see
+    /// `DiagnosticsEnabled`'s own doc. This property's addition is
+    /// scaffolding only; wiring the guard to read it is the fix half of
+    /// this finding.
+    private nonisolated let diagnosticsEnabled: DiagnosticsEnabled
+
     /// Creates the process's teardown coordinator.
-    public init() {
+    public init(
+        drainExternalHoverRing: @escaping DrainExternalHoverRing = TerminalSurfaceRuntimeTeardownCoordinator.defaultDrainExternalHoverRing,
+        diagnosticsEnabled: @escaping DiagnosticsEnabled = { ExternalHoverDiagnosticsGate.isEnabled }
+    ) {
+        self.drainExternalHoverRing = drainExternalHoverRing
+        self.diagnosticsEnabled = diagnosticsEnabled
         isolatedHibernationQueues = (
             0..<Self.maximumIsolatedHibernationTeardownCount
         ).map { executionSlot in
@@ -66,6 +127,33 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
                 qos: .utility
             )
         }
+    }
+
+    /// The REAL drain: calls `ghostty_surface_drain_external_hover_diagnostics`
+    /// and decodes each raw POD entry into `ExternalHoverDiagEntryValue` —
+    /// exactly what `defaultDrainExternalHoverDiagnostics` used to do
+    /// inline. `nonisolated static` so it can serve as a default
+    /// parameter expression.
+    public nonisolated static func defaultDrainExternalHoverRing(
+        _ surface: ghostty_surface_t
+    ) -> (entries: [ExternalHoverDiagEntryValue], droppedCountCumulative: UInt64) {
+        var buffer = [ghostty_external_hover_diag_entry_s](
+            repeating: ghostty_external_hover_diag_entry_s(), count: 64
+        )
+        var droppedCumulative: UInt64 = 0
+        let count: Int = buffer.withUnsafeMutableBufferPointer { buf in
+            Int(ghostty_surface_drain_external_hover_diagnostics(
+                surface, buf.baseAddress, buf.count, &droppedCumulative
+            ))
+        }
+        let entries = (0..<count).map { index -> ExternalHoverDiagEntryValue in
+            let raw = buffer[index]
+            return ExternalHoverDiagEntryValue(
+                event: raw.event, source: raw.source, reason: raw.reason,
+                verdict: raw.verdict, flags: raw.flags, seq: raw.seq
+            )
+        }
+        return (entries: entries, droppedCountCumulative: droppedCumulative)
     }
 
     @MainActor
@@ -125,6 +213,78 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         )
     }
 
+    /// (C) ExternalHover diagnostics — the real production drain+log
+    /// implementation `enqueueRuntimeTeardown`'s `drainDiagnostics`
+    /// defaults to. `nonisolated` (an instance method, not `static`, per
+    /// review B5 — it needs `self.droppedCountTracker` to linearize
+    /// against the SAME per-lifetime baseline `ExternalHoverWorkService`
+    /// uses, rather than reporting the ring's raw cumulative count as if
+    /// it were a fresh delta every time). Safe to run on whatever thread
+    /// a deferred admission happens on — the tracker is its own
+    /// thread-safe type, and this makes no other coordinator-state
+    /// access.
+    ///
+    /// Review round2 B5: `surfaceSerialRegistry` (populated by
+    /// `ExternalHoverWorkService` off `request.surfaceSerial`, the ONLY
+    /// place this coordinator has access to the real value — see that
+    /// type's own doc) supplies the SAME numeric `surfaceSerial` the
+    /// normal read/resolve/setter lines use, so this final drain's lines
+    /// join on `(surfaceSerial, event)` with everything that came before
+    /// it for the SAME surface, exactly as design v4's correlation-key
+    /// contract requires. Falls back to `0` only if this lifetime was
+    /// never registered (no request ever submitted for it — nothing to
+    /// correlate either way). No separate `teardownSurfaceToken` field:
+    /// the review explicitly rejected the two-scheme split this replaces.
+    nonisolated func defaultDrainExternalHoverDiagnostics(
+        _ surface: ghostty_surface_t,
+        _ lifetimeID: RuntimeSurfaceLifetimeID
+    ) {
+        // Review round3 B1: unconditional cleanup via `defer` at the very
+        // top — this runs on EVERY path through this function, including
+        // the gate-OFF early return below, so neither tracker's entry for
+        // `lifetimeID` can ever outlive this. Before this fix, cleanup
+        // lived after the gate guard, so a gate-OFF teardown (the common
+        // case: `swift test` never sets the env var, and most real
+        // dogfood sessions run with it off too) never reached it at all —
+        // every torn-down lifetime's registry/tracker entry leaked for
+        // the life of the process. Safe to run unconditionally: this call
+        // site (`admitTeardown`, via `enqueueRuntimeTeardown`'s default
+        // `drainDiagnostics`) is provably the LAST possible report for
+        // `lifetimeID` regardless of the gate — `enqueue(_:)` has already
+        // confirmed no hover lease is outstanding for it, its watermark
+        // bump permanently blocks any FUTURE lease acquisition for it,
+        // and `freeSurface` runs immediately after this returns — so this
+        // can never race a still-pending or later report the way doing it
+        // from `ExternalHoverWorkService.closeLifetime` could (see that
+        // method's own doc).
+        defer {
+            droppedCountTracker.closeLifetime(lifetimeID)
+            surfaceSerialRegistry.closeLifetime(lifetimeID)
+        }
+        // Review round3 B4: the injected gate, not the static
+        // `ExternalHoverDiagnosticsGate.isEnabled` directly — matches
+        // `ExternalHoverWorkService`'s own gates, and is what lets a test
+        // observe this function's real formatter/log path without the
+        // real process-wide env var.
+        guard diagnosticsEnabled() else { return }
+        let (entries, droppedCumulative) = drainExternalHoverRing(surface)
+        let droppedDelta = droppedCountTracker.reportAndComputeDelta(
+            lifetimeID: lifetimeID, cumulative: droppedCumulative
+        )
+        let surfaceSerial = surfaceSerialRegistry.serial(for: lifetimeID) ?? 0
+#if DEBUG
+        for entry in entries {
+            logDebugEvent("link.externalHover.diag " + entry.describeLine(surfaceSerial: surfaceSerial))
+        }
+        if droppedDelta > 0 {
+            logDebugEvent(
+                "link.externalHover stage=ghosttyDiag event=none aggregate=true droppedDelta=\(droppedDelta) " +
+                "teardown=true surfaceSerial=\(surfaceSerial)"
+            )
+        }
+#endif
+    }
+
     /// Reads a bounded screen tail away from the main actor and before any
     /// subsequently enqueued native free for the same surface.
     ///
@@ -159,7 +319,8 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
         freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void = { surface in
             ghostty_surface_free(surface)
-        }
+        },
+        drainDiagnostics: (@Sendable (ghostty_surface_t, RuntimeSurfaceLifetimeID) -> Void)? = nil
     ) -> TerminalSurfaceRuntimeTeardownTicket {
         enqueueRuntimeTeardown(
             id: id,
@@ -170,7 +331,8 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             callbackContext: callbackContext,
             manualIOContext: nil,
             byteTeeLease: nil,
-            freeSurface: freeSurface
+            freeSurface: freeSurface,
+            drainDiagnostics: drainDiagnostics
         )
     }
 
@@ -215,10 +377,18 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             TerminalSurfaceRuntimeTeardownReservation? = nil,
         freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void = { surface in
             ghostty_surface_free(surface)
-        }
+        },
+        drainDiagnostics: (@Sendable (ghostty_surface_t, RuntimeSurfaceLifetimeID) -> Void)? = nil
     ) -> TerminalSurfaceRuntimeTeardownTicket {
         let completion = TerminalSurfaceRuntimeTeardownCompletion()
         let ticket = TerminalSurfaceRuntimeTeardownTicket(completion: completion)
+        // (C) diagnostics — review B5: the default can't be expressed as
+        // a plain default-parameter value (it needs `self.
+        // droppedCountTracker`, and default expressions can't reference
+        // `self`), so it's resolved here instead, once per call.
+        let resolvedDrainDiagnostics = drainDiagnostics ?? { [weak self] surface, lifetimeID in
+            self?.defaultDrainExternalHoverDiagnostics(surface, lifetimeID)
+        }
         let request = TerminalSurfaceRuntimeTeardownRequest(
             id: id,
             workspaceId: workspaceId,
@@ -229,6 +399,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             manualIOContext: manualIOContext,
             byteTeeLease: byteTeeLease,
             freeSurface: freeSurface,
+            drainDiagnostics: resolvedDrainDiagnostics,
             completion: completion
         )
         Task {
@@ -291,6 +462,14 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         isolatedHibernationReservation:
             TerminalSurfaceRuntimeTeardownReservation? = nil
     ) async {
+        // (C) ExternalHover diagnostics — design v4 §3.4's "clear/
+        // teardown" trigger: the final drain, strictly BEFORE this
+        // function's every path eventually calls `freeSurface`, never
+        // after. `admitTeardown` is the ONE place every teardown source
+        // (close/deinit/hibernation) funnels through — see the type doc
+        // above — so this is also the one place the final drain needs to
+        // live for every source to get it.
+        request.drainDiagnostics(request.surface, request.lifetimeID)
         pendingReasonsById[request.id] = request.reason
         switch executionLane {
         case .isolatedHibernation:

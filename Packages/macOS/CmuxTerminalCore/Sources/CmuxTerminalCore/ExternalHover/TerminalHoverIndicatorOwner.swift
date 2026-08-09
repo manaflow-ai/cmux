@@ -25,4 +25,16 @@ public enum TerminalHoverIndicatorOwner: Sendable, Equatable {
     case none
     case native(hoverEventID: UInt64)
     case external(hoverEventID: UInt64, token: HoverActivationTokenValue)
+
+    /// (C) ExternalHover diagnostics — design v4 §5's `projection` stage
+    /// `ownerBefore`/`ownerAfter` fields: a kind label only, never the
+    /// associated `hoverEventID`/`token` (design v4 §5's secrecy policy —
+    /// no raw token/path values in any diagnostic line).
+    public var diagnosticKind: String {
+        switch self {
+        case .none: return "none"
+        case .native: return "native"
+        case .external: return "external"
+        }
+    }
 }

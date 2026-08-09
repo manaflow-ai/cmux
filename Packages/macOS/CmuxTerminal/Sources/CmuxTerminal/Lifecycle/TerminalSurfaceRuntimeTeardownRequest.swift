@@ -30,6 +30,19 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
     let manualIOContext: Unmanaged<TerminalManualIOWriteBox>?
     let byteTeeLease: (any TerminalByteTeeLease)?
     let freeSurface: @Sendable (ghostty_surface_t) -> Void
+    /// (C) ExternalHover diagnostics — design v4 §3.4's "clear/teardown"
+    /// trigger: the final, destructive drain of any diagnostic entries
+    /// still sitting in the ring, called by `admitTeardown` BEFORE
+    /// `freeSurface` (never after — a getter call on a freed surface is
+    /// exactly what the teardown coordinator's lease discipline exists to
+    /// prevent). Takes `lifetimeID` (review B5) so the real
+    /// implementation can linearize its dropped-count reporting against
+    /// the SAME per-lifetime baseline `ExternalHoverWorkService` uses,
+    /// and disambiguate its log lines by surface even without a numeric
+    /// `surfaceSerial` in scope. Defaults to the real production
+    /// drain+log implementation; tests inject a spy to assert
+    /// ordering/liveness without a real Ghostty surface.
+    let drainDiagnostics: @Sendable (ghostty_surface_t, RuntimeSurfaceLifetimeID) -> Void
     let completion: TerminalSurfaceRuntimeTeardownCompletion
 #if DEBUG
     let surfaceToken: String
@@ -50,6 +63,7 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         manualIOContext: Unmanaged<TerminalManualIOWriteBox>?,
         byteTeeLease: (any TerminalByteTeeLease)?,
         freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void,
+        drainDiagnostics: @escaping @Sendable (ghostty_surface_t, RuntimeSurfaceLifetimeID) -> Void,
         completion: TerminalSurfaceRuntimeTeardownCompletion
     ) {
         self.id = id
@@ -61,6 +75,7 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         self.manualIOContext = manualIOContext
         self.byteTeeLease = byteTeeLease
         self.freeSurface = freeSurface
+        self.drainDiagnostics = drainDiagnostics
         self.completion = completion
 #if DEBUG
         self.surfaceToken = String(id.uuidString.prefix(5))

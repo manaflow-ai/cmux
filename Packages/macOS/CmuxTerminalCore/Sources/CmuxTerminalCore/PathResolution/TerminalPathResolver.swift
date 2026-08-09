@@ -38,6 +38,90 @@ public enum TerminalWrappedCandidateDirectionOutcome: Sendable, Equatable {
     case candidateDoesNotExist
 }
 
+/// impl-bugB-diagnostics-v2 (review-bugB-bare-token-no-slash.md §4) —
+/// which broad class a token/fragment's first or last character falls
+/// into, for a permanent DEBUG log that must never carry the character
+/// (or the surrounding text) itself.
+public enum TerminalWrappedCharacterClass: String, Sendable, Equatable {
+    case slash
+    case dot
+    case alphanumeric
+    case whitespace
+    case other
+}
+
+/// impl-bugB-diagnostics-v2 — non-raw shape summary of one token/fragment:
+/// its column range plus a handful of booleans/classifications, never the
+/// text itself. Safe for a permanent (non-ephemeral) DEBUG log.
+public struct TerminalWrappedTokenShape: Sendable, Equatable {
+    public let startColumn: Int
+    public let endColumn: Int
+    public let length: Int
+    public let containsSlash: Bool
+    public let containsDot: Bool
+    public let firstCharacterClass: TerminalWrappedCharacterClass
+    public let lastCharacterClass: TerminalWrappedCharacterClass
+
+    fileprivate init(text: String, startColumn: Int, endColumn: Int) {
+        self.startColumn = startColumn
+        self.endColumn = endColumn
+        self.length = text.count
+        self.containsSlash = text.contains("/")
+        self.containsDot = text.contains(".")
+        self.firstCharacterClass = text.first.map(Self.classify) ?? .other
+        self.lastCharacterClass = text.last.map(Self.classify) ?? .other
+    }
+
+    private static func classify(_ character: Character) -> TerminalWrappedCharacterClass {
+        if character == "/" { return .slash }
+        if character == "." { return .dot }
+        if character.isWhitespace { return .whitespace }
+        if character.isLetter || character.isNumber { return .alphanumeric }
+        return .other
+    }
+}
+
+/// impl-bugB-diagnostics-v2 — one direction's shape diagnostic, computed
+/// by CONTINUING past whichever guard `resolveSingleDirection` itself
+/// would have stopped at (never changing what it actually decides — see
+/// ``TerminalPathResolver/diagnoseCandidateShape(seed:previousRow:nextRow:cwd:gridColumns:)``'s
+/// doc). `nil` fields mean that step's INPUT was unavailable (e.g. no
+/// fragment extracted at all), not that the check failed.
+public struct TerminalWrappedDirectionShapeDiagnostic: Sendable, Equatable {
+    /// The REAL decision `resolveSingleDirection` makes for this
+    /// direction — identical to what `diagnoseWrappedCandidate` reports.
+    public let outcome: TerminalWrappedCandidateDirectionOutcome
+    public let fragmentShape: TerminalWrappedTokenShape?
+    /// Whether the leading piece of this direction's join (the clicked
+    /// token for `.next`, the adjacent fragment for `.previous`) is
+    /// itself path-prefix-shaped — `nil` only if no fragment was
+    /// extracted at all.
+    public let leadingPieceIsPathPrefixShaped: Bool?
+    /// Whether the joined candidate is shaped like a real path —
+    /// computed even when an earlier guard (prefix shape, fragment-alone
+    /// existence) would have stopped `resolveSingleDirection` first.
+    public let candidateIsPathShaped: Bool?
+    /// Whether the adjacent fragment resolves to an existing path by
+    /// itself.
+    public let fragmentAloneExists: Bool?
+    /// Whether the joined, cwd-resolved candidate exists on disk.
+    public let candidateExists: Bool?
+}
+
+/// impl-bugB-diagnostics-v2 — the full shape-only diagnostic snapshot for
+/// one `noCandidate` abort, safe for a permanent DEBUG log (no raw row,
+/// token, or fragment text anywhere in this type).
+public struct TerminalWrappedCandidateShapeDiagnostic: Sendable, Equatable {
+    public let cellRow: Int
+    public let cellColumn: Int
+    /// The stable snapshot's physical grid width — review's "同じ stable
+    /// snapshot から" requirement, so a later comparison against the
+    /// click-time grid can confirm they match.
+    public let gridColumns: Int
+    public let tokenShape: TerminalWrappedTokenShape
+    public let directions: [TerminalWrapDirection: TerminalWrappedDirectionShapeDiagnostic]
+}
+
 /// A hard-wrapped path token detected on the clicked row, awaiting one or
 /// both adjacent rows before it can resolve to an existing file.
 ///
@@ -413,13 +497,37 @@ public struct TerminalPathResolver: Sendable {
         nextRow: String?,
         cwd: String
     ) -> TerminalWrappedPathResolution? {
-        let outcomes = diagnoseWrappedCandidate(seed: seed, previousRow: previousRow, nextRow: nextRow, cwd: cwd)
-        let successes = outcomes.values.compactMap { outcome -> TerminalWrappedPathResolution? in
-            if case .succeeded(let resolution) = outcome { return resolution }
-            return nil
-        }
-        guard successes.count == 1 else { return nil }
-        return successes[0]
+        evaluateWrappedCandidate(seed: seed, previousRow: previousRow, nextRow: nextRow, cwd: cwd).candidate
+    }
+
+    /// impl-scope-expansion-8810-test-only
+    /// (final-spec-scope-expansion-8810.md §1/§10) — the geometry-aware
+    /// entry point the multi-row contiguous-span evaluator and mirror-
+    /// slash-seam predicate will use once implemented. **This pass
+    /// deliberately ignores `geometry` and falls back to the existing
+    /// adjacent-row-only behavior** — the contiguous-span evaluator,
+    /// mirror-slash-seam predicate, and `TerminalRowLocalDisposition`
+    /// wiring are gated on issue #8810 bug B's real-machine root-cause
+    /// confirmation (final-spec §12's implementation order) and land in a
+    /// later pass. Until then, `geometry: nil` and any other geometry
+    /// value produce IDENTICAL results through this overload — the
+    /// required tests for the deferred multi-row/mirror-seam behavior are
+    /// therefore expected to fail here (asserting on behavior this
+    /// overload doesn't implement yet), not to pass.
+    ///
+    /// final-spec §10's compatibility contract ("`geometry: nil` →
+    /// legacy") is satisfied trivially in this pass, since geometry is
+    /// ignored outright; it becomes a REAL, tested distinction once the
+    /// evaluator lands.
+    public func resolveWrappedCandidate(
+        seed: TerminalWrappedPathSeed,
+        previousRow: String?,
+        nextRow: String?,
+        cwd: String,
+        geometry: TerminalWrapGeometry?
+    ) -> TerminalWrappedPathResolution? {
+        _ = geometry
+        return resolveWrappedCandidate(seed: seed, previousRow: previousRow, nextRow: nextRow, cwd: cwd)
     }
 
     /// Runs the same independent-per-direction resolution as
@@ -445,6 +553,27 @@ public struct TerminalPathResolver: Sendable {
         nextRow: String?,
         cwd: String
     ) -> [TerminalWrapDirection: TerminalWrappedCandidateDirectionOutcome] {
+        evaluateWrappedCandidate(seed: seed, previousRow: previousRow, nextRow: nextRow, cwd: cwd).outcomes
+    }
+
+    /// impl-bugB-diagnostics-v2 (review-bugB-bare-token-no-slash.md §4's
+    /// closing note) — runs the per-direction resolution exactly ONCE,
+    /// returning both the collapsed single-candidate result (mirroring
+    /// ``resolveWrappedCandidate(seed:previousRow:nextRow:cwd:)``) and the
+    /// full per-direction outcome map (mirroring
+    /// ``diagnoseWrappedCandidate(seed:previousRow:nextRow:cwd:)``) from
+    /// that SAME evaluation. Both of those public methods now delegate to
+    /// this internally, so calling either alone still costs exactly the
+    /// documented per-direction filesystem-probe budget; a caller that
+    /// needs BOTH pieces (e.g. an abort-path DEBUG log) should call this
+    /// directly instead of calling both public methods separately, which
+    /// would otherwise re-run the same probes twice for one click/hover.
+    public func evaluateWrappedCandidate(
+        seed: TerminalWrappedPathSeed,
+        previousRow: String?,
+        nextRow: String?,
+        cwd: String
+    ) -> (candidate: TerminalWrappedPathResolution?, outcomes: [TerminalWrapDirection: TerminalWrappedCandidateDirectionOutcome]) {
         var outcomes: [TerminalWrapDirection: TerminalWrappedCandidateDirectionOutcome] = [:]
 
         if seed.directions.contains(.previous), let previousRow {
@@ -454,7 +583,119 @@ public struct TerminalPathResolver: Sendable {
             outcomes[.next] = resolveSingleDirection(.next, seed: seed, adjacentRow: nextRow, cwd: cwd)
         }
 
-        return outcomes
+        let successes = outcomes.values.compactMap { outcome -> TerminalWrappedPathResolution? in
+            if case .succeeded(let resolution) = outcome { return resolution }
+            return nil
+        }
+        return (successes.count == 1 ? successes[0] : nil, outcomes)
+    }
+
+    /// impl-bugB-diagnostics-v2 (review-bugB-bare-token-no-slash.md §4) —
+    /// the shape-only diagnostic for a `noCandidate` abort: cell row/
+    /// column, the stable snapshot's `gridColumns`, the seed token's
+    /// shape, and — per named direction — the REAL outcome plus shape
+    /// flags computed by continuing past whichever guard would have
+    /// stopped `resolveSingleDirection` first (never changing what it
+    /// actually decides; this is diagnosis only). Never returns or logs
+    /// raw row/token/fragment text.
+    ///
+    /// This is its OWN single pass, independent of
+    /// ``evaluateWrappedCandidate(seed:previousRow:nextRow:cwd:)`` — the
+    /// two compute different things (a go/no-go decision that stops at
+    /// the first failing guard, vs. every flag regardless of which guard
+    /// would have stopped first) and so cannot share one evaluation the
+    /// way ``resolveWrappedCandidate``/``diagnoseWrappedCandidate`` can.
+    /// It stays within the same bounded per-direction probe budget
+    /// (`resolveSingleDirection`'s own two probes) as the real
+    /// resolution — this diagnostic is only ever reached on an
+    /// already-failed abort path, never a hot path.
+    public func diagnoseCandidateShape(
+        seed: TerminalWrappedPathSeed,
+        previousRow: String?,
+        nextRow: String?,
+        cwd: String,
+        cellRow: Int,
+        cellColumn: Int,
+        gridColumns: Int
+    ) -> TerminalWrappedCandidateShapeDiagnostic {
+        var directions: [TerminalWrapDirection: TerminalWrappedDirectionShapeDiagnostic] = [:]
+        if seed.directions.contains(.previous), let previousRow {
+            directions[.previous] = diagnoseSingleDirectionShape(.previous, seed: seed, adjacentRow: previousRow, cwd: cwd)
+        }
+        if seed.directions.contains(.next), let nextRow {
+            directions[.next] = diagnoseSingleDirectionShape(.next, seed: seed, adjacentRow: nextRow, cwd: cwd)
+        }
+        return TerminalWrappedCandidateShapeDiagnostic(
+            cellRow: cellRow,
+            cellColumn: cellColumn,
+            gridColumns: gridColumns,
+            tokenShape: TerminalWrappedTokenShape(
+                text: seed.token,
+                startColumn: seed.tokenStartColumn,
+                endColumn: seed.tokenEndColumn
+            ),
+            directions: directions
+        )
+    }
+
+    private func diagnoseSingleDirectionShape(
+        _ direction: TerminalWrapDirection,
+        seed: TerminalWrappedPathSeed,
+        adjacentRow: String,
+        cwd: String
+    ) -> TerminalWrappedDirectionShapeDiagnostic {
+        let outcome = resolveSingleDirection(direction, seed: seed, adjacentRow: adjacentRow, cwd: cwd)
+
+        let fragmentMatch: (fragment: String, startColumn: Int, endColumn: Int)?
+        switch direction {
+        case .next:
+            fragmentMatch = adjacentRow.leadingContinuationFragmentWithRange(maxIndentation: Self.maxContinuationIndentation)
+        case .previous:
+            fragmentMatch = adjacentRow.trailingContinuationFragmentWithRange()
+        }
+        guard let fragmentMatch else {
+            return TerminalWrappedDirectionShapeDiagnostic(
+                outcome: outcome,
+                fragmentShape: nil,
+                leadingPieceIsPathPrefixShaped: nil,
+                candidateIsPathShaped: nil,
+                fragmentAloneExists: nil,
+                candidateExists: nil
+            )
+        }
+        let fragment = fragmentMatch.fragment
+        let fragmentShape = TerminalWrappedTokenShape(
+            text: fragment,
+            startColumn: fragmentMatch.startColumn,
+            endColumn: fragmentMatch.endColumn
+        )
+
+        let leadingPiece = direction == .next ? seed.token : fragment
+        let leadingPieceIsPathPrefixShaped = leadingPiece.isWrappedPathPrefixShaped
+
+        // Diagnostic-only continuation past the guards `resolveSingleDirection`
+        // itself would have stopped at (length caps, prefix shape,
+        // fragment-alone existence) — bounded to the SAME two probes
+        // (fragment alone, joined candidate) that call already budgets
+        // for, never more.
+        let fragmentAloneExists = probeExists(fragment, cwd: cwd) != nil
+
+        let candidateRaw: String
+        switch direction {
+        case .next: candidateRaw = seed.token + fragment
+        case .previous: candidateRaw = fragment + seed.token
+        }
+        let candidateIsPathShaped = candidateRaw.isWrappedPathCandidateShaped
+        let candidateExists = candidateIsPathShaped && probeExists(candidateRaw, cwd: cwd) != nil
+
+        return TerminalWrappedDirectionShapeDiagnostic(
+            outcome: outcome,
+            fragmentShape: fragmentShape,
+            leadingPieceIsPathPrefixShaped: leadingPieceIsPathPrefixShaped,
+            candidateIsPathShaped: candidateIsPathShaped,
+            fragmentAloneExists: fragmentAloneExists,
+            candidateExists: candidateExists
+        )
     }
 
     private func resolveSingleDirection(

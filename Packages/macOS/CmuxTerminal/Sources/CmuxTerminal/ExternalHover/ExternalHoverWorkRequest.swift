@@ -30,6 +30,14 @@ public struct ExternalHoverWorkRequest: @unchecked Sendable {
     public let cwd: String
     public let mirror: HoverCallbackMirror
     public let coordinator: ExternalHoverOwnerCoordinator
+    /// (C) ExternalHover diagnostics — the process-local, debug-only
+    /// monotonic id (design-hover-diagnostics-v4-final.md §1) identifying
+    /// which `GhosttyNSView` this request came from, so a single shared
+    /// debug log with multiple surfaces can disambiguate `event` values
+    /// that would otherwise collide across surfaces. Never crosses into
+    /// Ghostty — `host_event_id` on the C ABI is `requestGeneration`
+    /// alone.
+    public let surfaceSerial: UInt64
 
     public init(
         lifetimeID: RuntimeSurfaceLifetimeID,
@@ -39,7 +47,8 @@ public struct ExternalHoverWorkRequest: @unchecked Sendable {
         viewportRowCount: UInt32,
         cwd: String,
         mirror: HoverCallbackMirror,
-        coordinator: ExternalHoverOwnerCoordinator
+        coordinator: ExternalHoverOwnerCoordinator,
+        surfaceSerial: UInt64
     ) {
         self.lifetimeID = lifetimeID
         self.surface = surface
@@ -49,5 +58,6 @@ public struct ExternalHoverWorkRequest: @unchecked Sendable {
         self.cwd = cwd
         self.mirror = mirror
         self.coordinator = coordinator
+        self.surfaceSerial = surfaceSerial
     }
 }

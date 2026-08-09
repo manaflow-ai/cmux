@@ -30,6 +30,24 @@ public struct ExternalHoverSurfaceLease: @unchecked Sendable {
     public let surface: ghostty_surface_t
 }
 
+/// (C) ExternalHover diagnostics — a bare `@unchecked Sendable` transport
+/// for one already-known-live surface pointer, crossing into
+/// `ExternalHoverWorkService.drainForRenderTrigger`'s actor isolation.
+/// Unlike `ExternalHoverSurfaceLease` above, this carries no lease `id` —
+/// `drainForRenderTrigger` acquires its OWN just-in-time lease internally
+/// (see its doc); this wrapper exists solely so a bare `ghostty_surface_t`
+/// (not `Sendable`) can cross the actor boundary as a function parameter
+/// without triggering Swift 6's "sending" analysis, which (correctly)
+/// rejects passing the SAME raw pointer to a `sending` parameter across
+/// more than one call — the render trigger's whole point is to be called
+/// repeatedly, once per delivered frame, with the same surface.
+public struct ExternalHoverRenderTriggerSurface: @unchecked Sendable {
+    public let surface: ghostty_surface_t
+    public init(_ surface: ghostty_surface_t) {
+        self.surface = surface
+    }
+}
+
 /// (B) ExternalHover — a teardown request deferred because a hover lease
 /// was still outstanding for its lifetime when it arrived. Holds the full
 /// execution envelope, not just the request: `executionLane` and

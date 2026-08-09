@@ -415,7 +415,7 @@ class GhosttyApp {
             guard let ptr = text.text, text.text_len > 0 else { return "" }
             return String(decoding: Data(bytes: ptr, count: Int(text.text_len)), as: UTF8.self)
         },
-        callSetter: { lease, topRow, rowCount, text, ranges in
+        callSetter: { lease, topRow, rowCount, text, ranges, hostEventID in
             let cRanges = ranges.map {
                 ghostty_external_hover_cell_range_s(row: $0.row, start_column: $0.startColumn, end_column: $0.endColumn)
             }
@@ -432,7 +432,8 @@ class GhosttyApp {
                             byteCount,
                             rangesBuf.baseAddress,
                             rangesBuf.count,
-                            tokenBuf.baseAddress
+                            tokenBuf.baseAddress,
+                            hostEventID
                         )
                     }
                 }
@@ -448,6 +449,27 @@ class GhosttyApp {
             bits.withUnsafeBufferPointer { buf in
                 ghostty_surface_clear_external_link_hover(lease.surface, buf.baseAddress)
             }
+        },
+        // cmux fork: (C) ExternalHover diagnostics — the fourth (and
+        // last) place this file calls a raw `ghostty_surface_*` C
+        // function for hover; see the type doc above.
+        drainDiagnostics: { lease, capacity in
+            var buffer = [ghostty_external_hover_diag_entry_s](
+                repeating: ghostty_external_hover_diag_entry_s(), count: capacity
+            )
+            var droppedCumulative: UInt64 = 0
+            let count: Int = buffer.withUnsafeMutableBufferPointer { buf in
+                Int(ghostty_surface_drain_external_hover_diagnostics(
+                    lease.surface, buf.baseAddress, buf.count, &droppedCumulative
+                ))
+            }
+            let entries = buffer.prefix(count).map { raw in
+                ExternalHoverDiagEntryValue(
+                    event: raw.event, source: raw.source, reason: raw.reason,
+                    verdict: raw.verdict, flags: raw.flags, seq: raw.seq
+                )
+            }
+            return (entries: entries, droppedCountCumulative: droppedCumulative)
         }
     )
 
@@ -3362,6 +3384,27 @@ class GhosttyApp {
             // before `receiveTransition` (review Blocking 1/5) — its
             // return value is the ack reducer's `performAction` verbatim.
             let hoverAction = action.action.external_link_hover
+            // (C) diagnostics — #8810 426ms-delay investigation
+            // (diagnostics-only, no behavior change): the exact moment
+            // Ghostty's renderer thread reached Swift via `performAction`
+            // — logged BEFORE any of this case's own mailbox/coordinator
+            // work, so it's callback-ENTRY time, not post-processing
+            // time. Pairs with the Zig-side `stage=ghosttyValidation
+            // ... transitionSnapshot=true` ring entry `generic.zig`'s
+            // render loop pushes at transition-value-snapshot time, to
+            // localize where the delay actually is: in Ghostty's own
+            // render loop (if this line lands late relative to that one)
+            // or downstream in the renderer thread's wakeup/delivery to
+            // the apprt (if that one lands promptly but this one is
+            // late). Same gate as every other (C) diagnostics line.
+            #if DEBUG
+            if ExternalHoverDiagnosticsGate.isEnabled {
+                cmuxDebugLog(
+                    "link.externalHover stage=callbackEntry surfaceSerial=\(surfaceView.externalHoverSurfaceSerial) " +
+                    "active=\(hoverAction.active) tokenBits0=\(hoverAction.token_bits.0)"
+                )
+            }
+            #endif
             let token = HoverActivationTokenValue(
                 bits: (
                     hoverAction.token_bits.0,
@@ -3737,6 +3780,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         return UserDefaults.standard.bool(forKey: "cmuxFocusDebug")
     }()
+    // cmux fork: (C) ExternalHover diagnostics — design v4 §1's
+    // `surfaceSerial`: a debug-only, process-local monotonic id
+    // disambiguating `event` values across surfaces in one shared debug
+    // log. Never crosses into Ghostty (the C ABI's `host_event_id` is
+    // `hoverEventID` alone) — purely a host-side logging convenience.
+    private static let externalHoverSurfaceSerialCounter = AtomicUInt64Value(0)
     internal enum DropPlan: Equatable {
         case insertText(String)
         case uploadFiles([URL])
@@ -3945,6 +3994,44 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 object: self
             )
         }
+        if reasons.contains(.externalHoverDiagnostics) {
+            drainExternalHoverDiagnosticsOnRenderTrigger()
+        }
+    }
+
+    /// (C) ExternalHover diagnostics — design v4 §3.4's "render 後"
+    /// trigger. Runs on the main actor (this method is only ever reached
+    /// from `flushRenderedFrameUpdate`, itself always main-thread). Hops
+    /// into `ExternalHoverWorkService`'s actor to drain through the SAME
+    /// lease discipline every other C access uses — never a raw
+    /// `ghostty_surface_drain_external_hover_diagnostics` call from here
+    /// directly, since a concurrent teardown could otherwise race this
+    /// main-thread read against `ghostty_surface_free`.
+    private func drainExternalHoverDiagnosticsOnRenderTrigger() {
+        guard ExternalHoverDiagnosticsGate.isEnabled,
+              let surface, let terminalSurface else { return }
+        let lifetimeID = RuntimeSurfaceLifetimeID(
+            surfaceID: terminalSurface.id,
+            runtimeSurfaceGeneration: terminalSurface.runtimeSurfaceGeneration
+        )
+        let serial = externalHoverSurfaceSerial
+        let coordinator = externalHoverOwnerCoordinator
+        // (C) diagnostics — review B2: release is no longer "any entry
+        // drained ⇒ release" (which could release an overlapping newer
+        // activation's demand using an older activation's unrelated ring
+        // entry). `drainAndLog` itself notifies `coordinator` of each
+        // drained entry's OWN terminal event, and the coordinator only
+        // calls `manageDiagnosticsRenderDemand(false)` once every event
+        // that armed it has been accounted for — this call site no
+        // longer decides release itself.
+        Task {
+            _ = await GhosttyApp.externalHoverWorkService.drainForRenderTrigger(
+                lifetimeID: lifetimeID,
+                surface: ExternalHoverRenderTriggerSurface(surface),
+                surfaceSerial: serial,
+                coordinator: coordinator
+            )
+        }
     }
 
     var desiredFocus: Bool = false
@@ -3977,6 +4064,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // from the renderer-callback path.
     fileprivate let hoverCallbackMirror = HoverCallbackMirror()
     private let externalHoverRecomputeScheduler = MainActorDeferredActionScheduler()
+    // (C) ExternalHover diagnostics — this surface's own serial. See
+    // `Self.externalHoverSurfaceSerialCounter`'s doc.
+    // `fileprivate`, not `private`: `GhosttyApp.handleAction`'s
+    // `GHOSTTY_ACTION_EXTERNAL_LINK_HOVER` case (a different type, same
+    // file) reads this synchronously from the renderer-callback path for
+    // its own `stage=callbackEntry` diagnostic line — same rationale as
+    // `hoverCallbackMirror`'s own `fileprivate` above.
+    fileprivate let externalHoverSurfaceSerial: UInt64 = GhosttyNSView.externalHoverSurfaceSerialCounter.wrappingIncrementRelaxed()
     // Pure reducer (see `TerminalHoverIndicatorState`'s own doc) — the
     // sole owner of "which mechanism is currently displayed" and "what
     // native result is being held back while external is active". This
@@ -3984,10 +4079,39 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // `displayedURL` straight to `setLinkHoverURL`; it makes no
     // displacement decisions of its own.
     private var hoverIndicatorState = TerminalHoverIndicatorState()
-    fileprivate lazy var externalHoverOwnerCoordinator = ExternalHoverOwnerCoordinator(
+    // (C) ExternalHover diagnostics — review round3 B2: built via
+    // `externalHoverDiagnosticsRenderDemandTracker`'s own factory, not a
+    // locally-written `manageDiagnosticsRenderDemand` closure literal —
+    // see `RenderDemandActivationTracker.makeExternalHoverOwnerCoordinator`'s
+    // doc for why a copy-pasted-but-identical closure at this call site
+    // and at the test's call site wouldn't actually pin the wiring down.
+    fileprivate lazy var externalHoverOwnerCoordinator = externalHoverDiagnosticsRenderDemandTracker.makeExternalHoverOwnerCoordinator(
         scheduler: { DispatchQueue.main.async(execute: $0) },
-        project: { [weak self] entry in self?.applyExternalHoverProjection(entry) }
+        project: { [weak self] entry in self?.applyExternalHoverProjection(entry) },
+        logTransition: { [weak self] verdict in
+            guard let self else { return }
+            #if DEBUG
+            if ExternalHoverDiagnosticsGate.isEnabled {
+                cmuxDebugLog(
+                    "link.externalHover stage=transition surfaceSerial=\(self.externalHoverSurfaceSerial) " +
+                    "event=\(verdict.event.map(String.init) ?? "none") active=\(verdict.active) " +
+                    "identityMatched=\(verdict.identityMatched) pendingMatched=\(verdict.pendingMatched) " +
+                    "committed=\(verdict.committed)"
+                )
+            }
+            #endif
+        }
     )
+    // (C) ExternalHover diagnostics — the "render 後" trigger's demand
+    // counter/retention. `manageDiagnosticsRenderDemand` above calls this
+    // directly (no `DispatchQueue.main.async` hop): unlike the
+    // keyboard-copy-mode analog below, this one is armed/released from
+    // `ExternalHoverOwnerCoordinator`, which is not necessarily running on
+    // the main actor (see that coordinator's `ManageDiagnosticsRenderDemand`
+    // typealias doc), so the toggle needs its own thread-safe home rather
+    // than a main-actor-confined var — see `RenderDemandActivationTracker`'s
+    // doc (review round2 B1).
+    private let externalHoverDiagnosticsRenderDemandTracker = RenderDemandActivationTracker()
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
@@ -4093,6 +4217,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             renderDemand: GhosttyApp.renderedFrameNotificationDemand,
             localRenderDemand: localRenderedFrameNotificationDemand,
             keyboardCopyModeCursorDemand: keyboardCopyModeRenderedFrameDemand,
+            externalHoverDiagnosticsDemand: externalHoverDiagnosticsRenderDemandTracker.counter,
             receiver: self
         )
         metalLayer.pixelFormat = .bgra8Unorm
@@ -6883,44 +7008,65 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             Self.externalHoverSignposter.endInterval("externalHoverRecompute", interval)
             #endif
         }
+        // (C) diagnostics — design v4 §5's `recompute` stage. Logs the
+        // SAME `reason` string `clearExternalHoverCandidate` already
+        // receives — no separate diagnostic classification, per guard 1's
+        // spirit of never re-deriving a reason a production path already
+        // decided.
+        func abortRecompute(_ reason: String) {
+            #if DEBUG
+            if ExternalHoverDiagnosticsGate.isEnabled {
+                cmuxDebugLog(
+                    "link.externalHover stage=recompute surfaceSerial=\(externalHoverSurfaceSerial) event=\(hoverEventID) " +
+                    "outcome=aborted reason=\(reason)"
+                )
+            }
+            #endif
+            clearExternalHoverCandidate(reason: reason)
+            finish()
+        }
 
         guard let surface, let terminalSurface else {
-            clearExternalHoverCandidate(reason: "noSurface")
-            finish()
+            abortRecompute("noSurface")
             return
         }
         guard let point = preferredPointerPoint() else {
-            clearExternalHoverCandidate(reason: "noPoint")
-            finish()
+            abortRecompute("noPoint")
             return
         }
         let modifierFlags = NSEvent.modifierFlags
         guard modifierFlags.contains(.command) else {
-            clearExternalHoverCandidate(reason: "cmdReleased")
-            finish()
+            abortRecompute("cmdReleased")
             return
         }
         guard !shouldSuppressCommandPathHover(for: modifierFlags) else {
-            clearExternalHoverCandidate(reason: "selectionActive")
-            finish()
+            abortRecompute("selectionActive")
             return
         }
         guard let workspace = terminalSurface.owningWorkspace(),
               workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: terminalSurface.id) else {
-            clearExternalHoverCandidate(reason: "remote")
-            finish()
+            abortRecompute("remote")
             return
         }
         guard let metrics = currentGridMetrics(), let cell = gridCell(at: point, metrics: metrics) else {
-            clearExternalHoverCandidate(reason: "noCell")
-            finish()
+            abortRecompute("noCell")
             return
         }
         guard let cwd = resolvedWordPathWorkingDirectory(workspace: workspace, terminalSurface: terminalSurface) else {
-            clearExternalHoverCandidate(reason: "noCwd")
-            finish()
+            abortRecompute("noCwd")
             return
         }
+        #if DEBUG
+        if ExternalHoverDiagnosticsGate.isEnabled {
+            cmuxDebugLog(
+                "link.externalHover stage=recompute surfaceSerial=\(externalHoverSurfaceSerial) event=\(hoverEventID) outcome=accepted"
+            )
+            cmuxDebugLog(
+                "link.externalHover stage=request surfaceSerial=\(externalHoverSurfaceSerial) event=\(hoverEventID) " +
+                "cellRow=\(cell.row) cellColumn=\(cell.column) viewportRows=\(metrics.rows) cwdLength=\(cwd.count)"
+            )
+        }
+        #endif
 
         let lifetimeID = RuntimeSurfaceLifetimeID(
             surfaceID: terminalSurface.id,
@@ -6934,7 +7080,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             viewportRowCount: UInt32(metrics.rows),
             cwd: cwd,
             mirror: hoverCallbackMirror,
-            coordinator: externalHoverOwnerCoordinator
+            coordinator: externalHoverOwnerCoordinator,
+            surfaceSerial: externalHoverSurfaceSerial
         )
         let task = GhosttyApp.externalHoverWorkService.submit(request)
         #if DEBUG
@@ -6968,7 +7115,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             viewportRowCount: 1,
             cwd: "",
             mirror: hoverCallbackMirror,
-            coordinator: externalHoverOwnerCoordinator
+            coordinator: externalHoverOwnerCoordinator,
+            surfaceSerial: externalHoverSurfaceSerial
         )
         Task { [weak self] in
             await GhosttyApp.externalHoverWorkService.withdrawCurrentCandidate(request: request, reason: reason)
@@ -6992,13 +7140,48 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// entry while `displayedOwner` is anything else is a no-op — never
     /// touches `.native`.
     private func applyExternalHoverProjection(_ entry: ExternalHoverMailbox.Entry?) {
+        let ownerBefore = hoverIndicatorState.displayedOwner
         if let entry {
             hoverIndicatorState.receiveExternalActive(event: entry.event, token: entry.token, path: entry.path)
         } else if case .external(let event, let token) = hoverIndicatorState.displayedOwner {
             hoverIndicatorState.receiveExternalInactive(event: event, token: token)
         }
         terminalSurface?.hostedView.setLinkHoverURL(hoverIndicatorState.displayedURL)
+        #if DEBUG
+        // (C) diagnostics — review B4: a clear (`entry == nil`) has no
+        // event of its own to report — the event being cleared is
+        // `ownerBefore`'s, captured above BEFORE the reducer call.
+        // Passing `entry?.event` here always logged `event=none` for
+        // every clear, severing the ability to correlate a terminating
+        // `projection` line back to the activation it ends.
+        let clearedExternalEvent: UInt64? = {
+            guard case .external(let event, _) = ownerBefore else { return nil }
+            return event
+        }()
+        logHoverProjection(event: entry?.event ?? clearedExternalEvent, ownerBefore: ownerBefore)
+        #endif
     }
+
+    #if DEBUG
+    /// (C) ExternalHover diagnostics — design v4 §5's `projection` stage.
+    /// Design v4 §6.3's implementation constraint: `TerminalHoverIndicatorState`
+    /// itself stays pure (no IO injected into the reducer) — the CALLER
+    /// records before/after here, reading `hoverIndicatorState.displayedOwner`
+    /// captured before the reducer call and again (via `self`) after it.
+    /// No raw token/path/URL values, per design v4 §5's secrecy policy —
+    /// only the owner KIND label, a boolean, and a length.
+    private func logHoverProjection(event: UInt64?, ownerBefore: TerminalHoverIndicatorOwner) {
+        guard ExternalHoverDiagnosticsGate.isEnabled else { return }
+        let ownerAfter = hoverIndicatorState.displayedOwner
+        cmuxDebugLog(
+            "link.externalHover stage=projection surfaceSerial=\(externalHoverSurfaceSerial) " +
+            "event=\(event.map(String.init) ?? "none") ownerBefore=\(ownerBefore.diagnosticKind) " +
+            "ownerAfter=\(ownerAfter.diagnosticKind) deferredPresent=\(hoverIndicatorState.deferredNative != nil) " +
+            "urlLength=\(hoverIndicatorState.displayedURL?.count ?? 0) " +
+            "indicatorVisible=\(hoverIndicatorState.displayedURL != nil)"
+        )
+    }
+    #endif
 
     /// Applies a native `MOUSE_OVER_LINK` result, captured synchronously
     /// (via `captureHoverCallbackSnapshot()`) at the point the callback
@@ -7011,8 +7194,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // `fileprivate`: called from `GhosttyApp.handleAction`'s
     // `GHOSTTY_ACTION_MOUSE_OVER_LINK` case (a different type, same file).
     fileprivate func applyNativeHoverResult(hoverEventID: UInt64, url: String?) {
+        let ownerBefore = hoverIndicatorState.displayedOwner
         hoverIndicatorState.receiveNative(event: hoverEventID, url: url)
         terminalSurface?.hostedView.setLinkHoverURL(hoverIndicatorState.displayedURL)
+        #if DEBUG
+        logHoverProjection(event: hoverEventID, ownerBefore: ownerBefore)
+        #endif
     }
 
     /// One physical row of visible viewport text per array entry, from a
@@ -7127,11 +7314,33 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         let clickedRow = snapshot.lines[cell.row]
 
-        guard let seed = TerminalPathResolver().wrappedPathSeed(
+        let resolver = TerminalPathResolver()
+        guard let seed = resolver.wrappedPathSeed(
             in: clickedRow,
             column: cell.column,
             cwd: cwd
         ) else {
+            // bug B diagnostics v2 (review-bugB-bare-token-no-slash.md §4)
+            // — classify WHY, never changing wrappedPathSeed's own
+            // decision. DEBUG-only and gated separately from `abort`'s
+            // own reason string (which IS built in every configuration,
+            // just never logged outside DEBUG) so no diagnostic-only
+            // value ever gets constructed at all in a release build, not
+            // merely un-logged. Non-sensitive structured fields come
+            // FIRST and `cwd` LAST: `CMUXDebugLog`'s redactor consumes
+            // the rest of the message once it sees a sensitive key like
+            // `cwd` with no other known field after it
+            // (`DebugEventLog.swift`), so `cwd` earlier in the line was
+            // silently swallowing every field meant to follow it. Raw row
+            // text is never logged at all (only `diagnoseSeedAbsence`'s
+            // classification and the grid geometry).
+            #if DEBUG
+            let seedAbsenceReason = resolver.diagnoseSeedAbsence(in: clickedRow, column: cell.column, cwd: cwd)
+            cmuxDebugLog(
+                "link.wrappedPath.prepare noSeed detail reason=\(seedAbsenceReason) " +
+                "row=\(cell.row) column=\(cell.column) gridColumns=\(metrics.columns) cwd=\(cwd)"
+            )
+            #endif
             return abort("noSeed row=\(cell.row) column=\(cell.column)")
         }
 
@@ -7145,13 +7354,31 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return abort("noAdjacentRow directions=\(seed.directions)")
         }
 
-        let resolver = TerminalPathResolver()
-        guard let candidate = resolver.resolveWrappedCandidate(
-            seed: seed,
-            previousRow: previousRow,
-            nextRow: nextRow,
-            cwd: cwd
-        ) else {
+        // bug B diagnostics v2 — one evaluation covers both the real
+        // decision and (on the abort path below) the DEBUG diagnostic;
+        // `resolveWrappedCandidate`/`diagnoseWrappedCandidate` calls
+        // would otherwise each re-run the same per-direction filesystem
+        // probes independently.
+        let evaluation = resolver.evaluateWrappedCandidate(
+            seed: seed, previousRow: previousRow, nextRow: nextRow, cwd: cwd
+        )
+        guard let candidate = evaluation.candidate else {
+            // Shape-only diagnostic (never raw row/token/fragment text) —
+            // structured fields first, `cwd` last, same redaction reason
+            // as the `noSeed` case above. `outcomes` (already computed by
+            // `evaluation` above) and `diagnoseCandidateShape` are logged
+            // together; the latter is its own bounded pass (see its doc)
+            // since it continues past guards `evaluation` itself stopped
+            // at, which is a different computation, not a duplicate of it.
+            #if DEBUG
+            let shape = resolver.diagnoseCandidateShape(
+                seed: seed, previousRow: previousRow, nextRow: nextRow, cwd: cwd,
+                cellRow: cell.row, cellColumn: cell.column, gridColumns: Int(metrics.columns)
+            )
+            cmuxDebugLog(
+                "link.wrappedPath.prepare noCandidate detail outcomes=\(evaluation.outcomes) shape=\(shape) cwd=\(cwd)"
+            )
+            #endif
             return abort("noCandidate directions=\(seed.directions)")
         }
 
@@ -8351,6 +8578,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     deinit {
         keyboardCopyModeRenderedFrameDemandRelease?()
+        externalHoverDiagnosticsRenderDemandTracker.setActive(false)
         selectionAccessibilitySignal.finish()
         if titleUpdateSurfaceKey != nil {
             titleUpdateIngress.retireCurrentAttachment()
