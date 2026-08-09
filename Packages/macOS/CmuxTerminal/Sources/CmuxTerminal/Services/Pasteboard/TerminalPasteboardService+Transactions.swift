@@ -35,7 +35,7 @@ extension TerminalPasteboardService {
             return unmanagedResult(for: mutation, pasteboard: pasteboard)
                 .didWrite
         }
-        return lane.enqueueRestoration(mutation)
+        return lane.enqueueMutation(mutation)
     }
 
     /// Replaces one pasteboard and waits for publication or rejection.
@@ -113,7 +113,7 @@ extension TerminalPasteboardService {
             return unmanagedResult(for: mutation, pasteboard: pasteboard)
                 .didWrite
         }
-        return lane.enqueueMutation(mutation)
+        return lane.enqueueRestoration(mutation)
     }
 
     /// Writes one plain string through the managed lane when applicable.

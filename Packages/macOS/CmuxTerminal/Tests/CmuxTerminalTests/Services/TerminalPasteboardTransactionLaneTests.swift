@@ -180,6 +180,42 @@ struct TerminalPasteboardTransactionLaneTests {
         )
     }
 
+    @Test("an applied mutation keeps its rollback snapshot after repeated finish")
+    func appliedMutationResultSurvivesRepeatedFinish() async throws {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        fixture.standard.clearContents()
+        fixture.standard.setString("user clipboard", forType: .string)
+
+        let temporaryItem = NSPasteboardItem()
+        #expect(temporaryItem.setString("temporary", forType: .string))
+        let lease = try #require(
+            fixture.service.reserveMutation(
+                of: fixture.standard,
+                replacingWith: [temporaryItem]
+            )
+        )
+        #expect(await lease.waitUntilApplied() != nil)
+
+        let cancellationHandlerResult = try #require(lease.finish())
+        let ownerResult = try #require(lease.finish())
+        #expect(cancellationHandlerResult.status == .written)
+        #expect(ownerResult.status == .written)
+        #expect(
+            ownerResult.previousContents
+                == cancellationHandlerResult.previousContents
+        )
+        #expect(
+            fixture.service.restoreContents(
+                replacedBy: ownerResult,
+                in: fixture.standard
+            )
+        )
+        #expect(
+            fixture.standard.string(forType: .string) == "user clipboard"
+        )
+    }
+
     private func makeFixture(
         maximumQueuedOperations: Int = 8
     ) -> (

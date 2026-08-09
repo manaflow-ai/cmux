@@ -11,7 +11,7 @@ public final class TerminalPasteboardMutationLease: @unchecked Sendable {
     private enum State {
         case waiting(CheckedContinuation<TerminalPasteboardMutationResult?, Never>?)
         case applied(TerminalPasteboardMutationResult)
-        case finished
+        case finished(TerminalPasteboardMutationResult?)
     }
 
     let id: UInt64
@@ -68,9 +68,9 @@ public final class TerminalPasteboardMutationLease: @unchecked Sendable {
 
     /// Releases the lane after the owner has registered any dependent read.
     ///
-    /// - Returns: The applied result when publication already finished. This
-    ///   lets a cancelling owner restore a temporary mutation even when its
-    ///   awaiting task has not resumed yet.
+    /// - Returns: The applied result when publication already finished. The
+    ///   result remains available on repeated calls so a cancellation handler
+    ///   cannot consume the owner's sole clipboard-restoration snapshot.
     @discardableResult
     public func finish() -> TerminalPasteboardMutationResult? {
         let outcome = state.withLock {
@@ -84,16 +84,16 @@ public final class TerminalPasteboardMutationLease: @unchecked Sendable {
             ) in
             switch state {
             case .waiting(let continuation):
-                state = .finished
+                state = .finished(nil)
                 return (true, nil, continuation)
             case .applied(let result):
-                state = .finished
+                state = .finished(result)
                 return (true, result, nil)
-            case .finished:
-                return (false, nil, nil)
+            case .finished(let result):
+                return (false, result, nil)
             }
         }
-        guard outcome.shouldFinish else { return nil }
+        guard outcome.shouldFinish else { return outcome.appliedResult }
         outcome.continuation?.resume(returning: nil)
         finishHandler()
         return outcome.appliedResult
@@ -109,6 +109,9 @@ public final class TerminalPasteboardMutationLease: @unchecked Sendable {
             case .waiting(let continuation):
                 state = .applied(result)
                 return continuation
+            case .finished(nil):
+                state = .finished(result)
+                return nil
             case .applied, .finished:
                 return nil
             }
