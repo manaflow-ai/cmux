@@ -26,22 +26,22 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     private var sessions: [String: Session] = [:]
     private var activeSchemeTasks: [ObjectIdentifier: ActiveSchemeTask] = [:]
     private let assetReader = DiffViewerAssetReader()
-    // Branch picker routes shell out to the bundled CLI (git). Run them on a
-    // dedicated concurrent queue so a slow/hung git invocation cannot stall
-    // restored diff-viewer file serving. The queue returns values to the main
-    // actor and never touches a WKURLSchemeTask directly.
-    private let pickerQueue = DispatchQueue(
-        label: "com.manaflow.cmux.diff-viewer-picker",
-        qos: .userInitiated,
-        attributes: .concurrent
-    )
-    // Hard cap on a single bundled-CLI picker invocation before it is terminated.
-    private let pickerCommandTimeout: TimeInterval = 15
+    private let pickerCommandRunner: DiffViewerPickerCommandRunner
     private let maxSessionAge: TimeInterval = 24 * 60 * 60
     private let trustedRootURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
         .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
         .standardizedFileURL
         .resolvingSymlinksInPath()
+
+    override init() {
+        pickerCommandRunner = DiffViewerPickerCommandRunner()
+        super.init()
+    }
+
+    init(pickerCommandRunner: DiffViewerPickerCommandRunner) {
+        self.pickerCommandRunner = pickerCommandRunner
+        super.init()
+    }
 
     func register(token: String, files: [RegisteredFile], now: Date = Date()) throws {
         guard Self.isValidToken(token) else {
@@ -185,87 +185,6 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         return result
     }
 
-    /// Path to the bundled `cmux` CLI used to run the headless picker commands.
-    nonisolated private static func bundledCLIURL() -> URL? {
-        if let env = ProcessInfo.processInfo.environment["CMUX_BUNDLED_CLI_PATH"],
-           !env.isEmpty,
-           FileManager.default.isExecutableFile(atPath: env) {
-            return URL(fileURLWithPath: env)
-        }
-        let candidate = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
-        if FileManager.default.isExecutableFile(atPath: candidate.path) {
-            return candidate
-        }
-        return nil
-    }
-
-    /// Runs the bundled CLI with a hard timeout. The child is terminated (then
-    /// killed) if it exceeds `pickerCommandTimeout`, so a hung git invocation
-    /// cannot block the caller indefinitely. stdout goes to a private temporary
-    /// file so the child can never block on a full pipe. Returns nil on launch
-    /// failure.
-    nonisolated private static func runBundledDiffViewerCommand(
-        _ arguments: [String],
-        timeout: TimeInterval
-    ) -> (status: Int32, stdout: Data)? {
-        guard let cli = bundledCLIURL() else { return nil }
-        let process = Process()
-        process.executableURL = cli
-        process.arguments = arguments
-        let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-diff-viewer-picker-\(UUID().uuidString).out")
-        guard FileManager.default.createFile(
-            atPath: outputURL.path,
-            contents: nil,
-            attributes: [.posixPermissions: 0o600]
-        ), let outputHandle = try? FileHandle(forWritingTo: outputURL) else {
-            return nil
-        }
-        defer { try? FileManager.default.removeItem(at: outputURL) }
-
-        process.standardOutput = outputHandle
-        process.standardError = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice
-
-        do {
-            try process.run()
-        } catch {
-            try? outputHandle.close()
-            return nil
-        }
-
-        let deadlineQueue = DispatchQueue(
-            label: "com.manaflow.cmux.diff-viewer-picker-deadline",
-            qos: .userInitiated
-        )
-        // One-shot dispatch timers enforce genuine Process deadlines from this
-        // synchronous legacy seam, which has no async Task to host Clock.sleep.
-        let terminateTimer = DispatchSource.makeTimerSource(queue: deadlineQueue)
-        terminateTimer.schedule(deadline: .now() + timeout)
-        terminateTimer.setEventHandler {
-            if process.isRunning {
-                process.terminate()
-            }
-        }
-        let killTimer = DispatchSource.makeTimerSource(queue: deadlineQueue)
-        killTimer.schedule(deadline: .now() + timeout + 2)
-        killTimer.setEventHandler {
-            if process.isRunning {
-                kill(process.processIdentifier, SIGKILL)
-            }
-        }
-        terminateTimer.resume()
-        killTimer.resume()
-
-        process.waitUntilExit()
-        terminateTimer.cancel()
-        killTimer.cancel()
-        try? outputHandle.close()
-        guard let output = try? Data(contentsOf: outputURL) else { return nil }
-        return (process.terminationStatus, output)
-    }
-
     private func handleDiffViewerRefsRoute(
         requestURL: URL,
         token: String,
@@ -284,35 +203,33 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         if let base = query["base"], !base.isEmpty {
             arguments += ["--base", base]
         }
-        let commandArguments = arguments
-        let timeout = pickerCommandTimeout
-        pickerQueue.async { [weak self] in
-            let result = Self.runBundledDiffViewerCommand(commandArguments, timeout: timeout)
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                guard let result, result.status == 0 else {
-                    self.failSchemeTask(
-                        taskID,
-                        generation: generation,
-                        code: NSURLErrorCannotConnectToHost
-                    )
-                    return
-                }
-                self.respondScheme(
-                    taskID: taskID,
+        let pickerCommandRunner = pickerCommandRunner
+        let operation = Task { @MainActor [weak self] in
+            let stdout = await pickerCommandRunner.run(arguments: arguments)
+            guard let self, !Task.isCancelled else { return }
+            guard let stdout else {
+                self.failSchemeTask(
+                    taskID,
                     generation: generation,
-                    requestURL: requestURL,
-                    statusCode: 200,
-                    headers: [
-                        "Content-Type": "application/json; charset=utf-8",
-                        "Cache-Control": "no-store",
-                        "X-Content-Type-Options": "nosniff",
-                        "Cross-Origin-Resource-Policy": "same-origin"
-                    ],
-                    body: result.stdout
+                    code: NSURLErrorCannotConnectToHost
                 )
+                return
             }
+            self.respondScheme(
+                taskID: taskID,
+                generation: generation,
+                requestURL: requestURL,
+                statusCode: 200,
+                headers: [
+                    "Content-Type": "application/json; charset=utf-8",
+                    "Cache-Control": "no-store",
+                    "X-Content-Type-Options": "nosniff",
+                    "Cross-Origin-Resource-Policy": "same-origin"
+                ],
+                body: Data(stdout.utf8)
+            )
         }
+        setSchemeTaskOperation(operation, taskID: taskID, generation: generation)
     }
 
     private func handleDiffViewerBranchRoute(
@@ -330,66 +247,64 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
 
         // Thread the request token so the CLI binds regeneration to the session
-        // that owns this group. Only value data crosses to the picker queue.
+        // that owns this group. Only value data crosses to the subprocess actor.
         let arguments = [
             "__diff-viewer-branch", "--group", group,
             "--repo", repo, "--base", base, "--token", token
         ]
-        let timeout = pickerCommandTimeout
-        pickerQueue.async { [weak self] in
-            let result = Self.runBundledDiffViewerCommand(arguments, timeout: timeout)
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                guard let result, result.status == 0,
-                      let viewerURLString = String(data: result.stdout, encoding: .utf8)?
-                          .trimmingCharacters(in: .whitespacesAndNewlines),
-                      !viewerURLString.isEmpty else {
-                    self.failSchemeTask(
-                        taskID,
-                        generation: generation,
-                        code: NSURLErrorCannotConnectToHost
-                    )
-                    return
-                }
-                // Defense in depth: the produced viewer URL must be a
-                // custom-scheme URL for this request's token.
-                guard let viewerURL = URL(string: viewerURLString),
-                      viewerURL.scheme == Self.scheme,
-                      viewerURL.host == token else {
-                    self.failSchemeTask(
-                        taskID,
-                        generation: generation,
-                        code: NSURLErrorBadServerResponse
-                    )
-                    return
-                }
-
-                // WKURLSchemeTask cannot drive a top-level 302 the browser
-                // follows, so return a tiny document that navigates in place.
-                let metaEscaped = Self.htmlAttributeEscaped(viewerURLString)
-                let jsEscaped = viewerURLString
-                    .replacingOccurrences(of: "\\", with: "\\\\")
-                    .replacingOccurrences(of: "\"", with: "\\\"")
-                let html = """
-                <!doctype html><html><head><meta charset="utf-8">\
-                <meta http-equiv="refresh" content="0;url=\(metaEscaped)"></head>\
-                <body><script>window.location.replace("\(jsEscaped)");</script></body></html>
-                """
-                self.respondScheme(
-                    taskID: taskID,
+        let pickerCommandRunner = pickerCommandRunner
+        let operation = Task { @MainActor [weak self] in
+            let stdout = await pickerCommandRunner.run(arguments: arguments)
+            guard let self, !Task.isCancelled else { return }
+            guard let viewerURLString = stdout?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                !viewerURLString.isEmpty else {
+                self.failSchemeTask(
+                    taskID,
                     generation: generation,
-                    requestURL: requestURL,
-                    statusCode: 200,
-                    headers: [
-                        "Content-Type": "text/html; charset=utf-8",
-                        "Cache-Control": "no-store",
-                        "X-Content-Type-Options": "nosniff",
-                        "Cross-Origin-Resource-Policy": "same-origin"
-                    ],
-                    body: Data(html.utf8)
+                    code: NSURLErrorCannotConnectToHost
                 )
+                return
             }
+            // Defense in depth: the produced viewer URL must be a
+            // custom-scheme URL for this request's token.
+            guard let viewerURL = URL(string: viewerURLString),
+                  viewerURL.scheme == Self.scheme,
+                  viewerURL.host == token else {
+                self.failSchemeTask(
+                    taskID,
+                    generation: generation,
+                    code: NSURLErrorBadServerResponse
+                )
+                return
+            }
+
+            // WKURLSchemeTask cannot drive a top-level 302 the browser
+            // follows, so return a tiny document that navigates in place.
+            let metaEscaped = Self.htmlAttributeEscaped(viewerURLString)
+            let jsEscaped = viewerURLString
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            let html = """
+            <!doctype html><html><head><meta charset="utf-8">\
+            <meta http-equiv="refresh" content="0;url=\(metaEscaped)"></head>\
+            <body><script>window.location.replace("\(jsEscaped)");</script></body></html>
+            """
+            self.respondScheme(
+                taskID: taskID,
+                generation: generation,
+                requestURL: requestURL,
+                statusCode: 200,
+                headers: [
+                    "Content-Type": "text/html; charset=utf-8",
+                    "Cache-Control": "no-store",
+                    "X-Content-Type-Options": "nosniff",
+                    "Cross-Origin-Resource-Policy": "same-origin"
+                ],
+                body: Data(html.utf8)
+            )
         }
+        setSchemeTaskOperation(operation, taskID: taskID, generation: generation)
     }
 
     /// Responds to a registered scheme task on the main actor. A stale
