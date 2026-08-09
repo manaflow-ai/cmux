@@ -3,6 +3,9 @@ import SwiftUI
 
 final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     private let zeroSafeAreaLayoutGuide = NSLayoutGuide()
+#if DEBUG
+    private var issue9612LayoutDepth = 0
+#endif
 
     override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
     override var safeAreaRect: NSRect { bounds }
@@ -10,6 +13,21 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     override var mouseDownCanMoveWindow: Bool { false }
     override var fittingSize: NSSize { CmuxMainWindow.minimumContentSize }
     override var intrinsicContentSize: NSSize { CmuxMainWindow.minimumContentSize }
+
+#if DEBUG
+    override func layout() {
+        if issue9612LayoutDepth > 0 {
+            let stack = Thread.callStackSymbols
+                .dropFirst()
+                .prefix(24)
+                .joined(separator: " | ")
+            NSLog("[Issue9612] nested main hosting layout stack=%@", stack)
+        }
+        issue9612LayoutDepth += 1
+        defer { issue9612LayoutDepth -= 1 }
+        super.layout()
+    }
+#endif
 
     /// Lets a click on an interactive titlebar control (the sidebar toggle, the
     /// right-sidebar mode bar, the session-index header controls, etc.) both
