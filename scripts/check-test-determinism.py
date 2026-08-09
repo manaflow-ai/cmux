@@ -130,6 +130,12 @@ class _CallArgument:
 
 
 @dataclass(frozen=True)
+class _ArgvElement:
+    value_bounds: tuple[int, int]
+    literal: Optional[str]
+
+
+@dataclass(frozen=True)
 class _NetworkTargetSpec:
     verb_pattern: re.Pattern[str]
     positional_index: int
@@ -144,7 +150,7 @@ class _InterpreterSourceSpec:
 
 
 @dataclass(frozen=True)
-class _ShellCommandWrapperSpec:
+class _CommandWrapperSpec:
     options_with_values: frozenset[str]
     leading_operands: int = 0
     allows_assignments: bool = False
@@ -336,11 +342,15 @@ _FLUENT_CLIENT_ASSIGNMENT = re.compile(
     r"""(?mx)
     (?:^|[;\n{])
     (?P<indent>[ \t]*)
-    (?:(?:const|let|var)\s+)?
+    (?P<modifiers>
+        (?:(?:abstract|accessor|declare|override|private|protected|public|readonly|static)\s+)*
+    )
+    (?:(?P<declaration>const|let|var)\s+)?
     (?P<binding>
-        [A-Za-z_$][A-Za-z0-9_$]*
+        \#?[A-Za-z_$][A-Za-z0-9_$]*
         (?:\s*\.\s*[A-Za-z_$][A-Za-z0-9_$]*)*
     )
+    [!?]?
     (?:\s*:\s*[^=\n;]+)?
     \s*=\s*\Z
     """
@@ -957,31 +967,6 @@ def _quoted_argument_bounds(
     return content_start, len(line)
 
 
-def _quoted_literals_in_range(line: str, start: int, end: int) -> list[tuple[int, int]]:
-    """Return quoted literal content ranges without descending into a literal."""
-    bounds: list[tuple[int, int]] = []
-    index = start
-    while index < end:
-        if line[index] not in ("'", '"', "`"):
-            index += 1
-            continue
-        delimiter = "`" if line[index] == "`" else _quote_delimiter_at(line, index)
-        content_start = index + len(delimiter)
-        index = content_start
-        while index < end:
-            if line[index] == "\\":
-                index += 2
-                continue
-            if line.startswith(delimiter, index):
-                bounds.append((content_start, index))
-                index += len(delimiter)
-                break
-            index += 1
-        else:
-            bounds.append((content_start, end))
-    return bounds
-
-
 def _trim_bounds(line: str, start: int, end: int) -> tuple[int, int]:
     while start < end and line[start].isspace():
         start += 1
@@ -1177,13 +1162,80 @@ def _argv_source_ranges(
     return ranges
 
 
-def _argv_literal_tokens(
+def _argv_element(
+    line: str,
+    bounds: tuple[int, int],
+) -> _ArgvElement:
+    """Return an argv element while retaining dynamic positional slots."""
+    start, end = _trim_bounds(line, *bounds)
+    prefix = re.match(r"(?i)(?:[rubf]{1,2})?(?=['\"`])", line[start:end])
+    quote_start = start + len(prefix.group(0)) if prefix else start
+    if quote_start >= end or line[quote_start] not in ("'", '"', "`"):
+        return _ArgvElement((start, end), None)
+
+    delimiter = (
+        "`"
+        if line[quote_start] == "`"
+        else _quote_delimiter_at(line, quote_start)
+    )
+    literal_bounds = _quoted_argument_bounds(line, start)
+    if (
+        literal_bounds is None
+        or literal_bounds[1] + len(delimiter) != end
+    ):
+        return _ArgvElement((start, end), None)
+    return _ArgvElement(
+        literal_bounds,
+        line[literal_bounds[0] : literal_bounds[1]],
+    )
+
+
+def _argv_range_elements(
+    line: str,
+    bounds: tuple[int, int],
+    path_suffix: str,
+) -> list[_ArgvElement]:
+    """Split one command source range into top-level argv elements."""
+    start, end = _trim_bounds(line, *bounds)
+    if start >= end or line[start] not in ("(", "["):
+        return [_argv_element(line, (start, end))]
+
+    opening = line[start]
+    closing = ")" if opening == "(" else "]"
+    executable = _executable_code_positions(line, path_suffix)
+    depth = 0
+    container_end: Optional[int] = None
+    for index in range(start, end):
+        if not executable[index]:
+            continue
+        if line[index] == opening:
+            depth += 1
+        elif line[index] == closing:
+            depth -= 1
+            if depth == 0:
+                container_end = index
+                break
+    if container_end is None:
+        return []
+
+    return [
+        _argv_element(line, argument.value_bounds)
+        for argument in _arguments_in_range(
+            line,
+            start + 1,
+            container_end,
+            path_suffix,
+        )
+    ]
+
+
+def _argv_elements(
     line: str,
     opening_paren: int,
     path_suffix: str = "",
     object_command_labels: frozenset[str] = _NO_ARGUMENT_LABELS,
-) -> list[tuple[int, int]]:
-    """Return argv literals only when argv[0] itself is a quoted literal."""
+) -> list[_ArgvElement]:
+    """Return positional argv elements when argv[0] is a quoted literal."""
     ranges = _argv_source_ranges(
         line,
         opening_paren,
@@ -1193,24 +1245,18 @@ def _argv_literal_tokens(
     if not ranges:
         return []
 
-    argument_start, first_end = ranges[0]
-    while argument_start < first_end and line[argument_start] in "([":
-        argument_start += 1
-        while argument_start < first_end and line[argument_start].isspace():
-            argument_start += 1
-
-    first_literal = _quoted_argument_bounds(line, argument_start)
-    if first_literal is None or first_literal[1] > first_end:
-        return []
-
-    literals = [
-        literal
-        for start, end in ranges
-        for literal in _quoted_literals_in_range(line, start, end)
+    elements = [
+        element
+        for source_range in ranges
+        for element in _argv_range_elements(
+            line,
+            source_range,
+            path_suffix,
+        )
     ]
-    if not literals or literals[0] != first_literal:
+    if not elements or elements[0].literal is None:
         return []
-    return literals
+    return elements
 
 
 _SHELL_ASSIGNMENT_WORD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
@@ -1218,19 +1264,23 @@ _SHELL_REDIRECTION_PREFIX = re.compile(
     r"^(?:\d+|\{[A-Za-z_][A-Za-z0-9_]*\})?"
     r"(?:<<<|<<-|<<|<>|&>>|&>|>>|>\||<&|>&|<|>)"
 )
-_SHELL_COMMAND_WRAPPER_SPECS = {
-    "builtin": _ShellCommandWrapperSpec(frozenset()),
-    "command": _ShellCommandWrapperSpec(frozenset()),
-    "exec": _ShellCommandWrapperSpec(frozenset()),
-    "gtimeout": _ShellCommandWrapperSpec(
+_COMMAND_WRAPPER_SPECS = {
+    "builtin": _CommandWrapperSpec(frozenset()),
+    "command": _CommandWrapperSpec(frozenset()),
+    "env": _CommandWrapperSpec(
+        frozenset({"-C", "--chdir", "-S", "--split-string", "-u", "--unset"}),
+        allows_assignments=True,
+    ),
+    "exec": _CommandWrapperSpec(frozenset()),
+    "gtimeout": _CommandWrapperSpec(
         frozenset({"-k", "--kill-after", "-s", "--signal"}),
         leading_operands=1,
     ),
-    "nice": _ShellCommandWrapperSpec(
+    "nice": _CommandWrapperSpec(
         frozenset({"-n", "--adjustment"}),
     ),
-    "nohup": _ShellCommandWrapperSpec(frozenset()),
-    "sudo": _ShellCommandWrapperSpec(
+    "nohup": _CommandWrapperSpec(frozenset()),
+    "sudo": _CommandWrapperSpec(
         frozenset(
             {
                 "-C",
@@ -1263,10 +1313,10 @@ _SHELL_COMMAND_WRAPPER_SPECS = {
         ),
         allows_assignments=True,
     ),
-    "time": _ShellCommandWrapperSpec(
+    "time": _CommandWrapperSpec(
         frozenset({"-f", "--format", "-o", "--output"}),
     ),
-    "timeout": _ShellCommandWrapperSpec(
+    "timeout": _CommandWrapperSpec(
         frozenset({"-k", "--kill-after", "-s", "--signal"}),
         leading_operands=1,
     ),
@@ -1398,19 +1448,17 @@ def _shell_next_non_redirection_index(
     return index
 
 
-def _shell_wrapper_command_index(
-    line: str,
-    words: list[tuple[int, int]],
+def _command_wrapper_nested_index(
+    arguments: list[Optional[str]],
     wrapper_index: int,
-    spec: _ShellCommandWrapperSpec,
-) -> int:
+    spec: _CommandWrapperSpec,
+) -> Optional[int]:
     """Return the nested command index after a wrapper's own arguments."""
     index = wrapper_index + 1
-    while index < len(words):
-        index = _shell_next_non_redirection_index(line, words, index)
-        if index >= len(words):
-            return index
-        argument, _ = _shell_word_value_and_bounds(line, words[index])
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument is None:
+            return None
         if argument == "--":
             index += 1
             break
@@ -1418,14 +1466,8 @@ def _shell_wrapper_command_index(
         flag, separator, _ = argument.partition("=")
         if flag in spec.options_with_values:
             index += 1
-            if not separator:
-                index = _shell_next_non_redirection_index(
-                    line,
-                    words,
-                    index,
-                )
-                if index < len(words):
-                    index += 1
+            if not separator and index < len(arguments):
+                index += 1
             continue
         if argument.startswith("-"):
             index += 1
@@ -1433,26 +1475,43 @@ def _shell_wrapper_command_index(
         break
 
     operands_remaining = spec.leading_operands
-    while operands_remaining and index < len(words):
-        index = _shell_next_non_redirection_index(line, words, index)
-        if index >= len(words):
-            return index
+    while operands_remaining and index < len(arguments):
         index += 1
         operands_remaining -= 1
 
     if spec.allows_assignments:
-        while index < len(words):
-            index = _shell_next_non_redirection_index(line, words, index)
-            if index >= len(words):
-                return index
-            argument, _ = _shell_word_value_and_bounds(
-                line,
-                words[index],
-            )
+        while index < len(arguments):
+            argument = arguments[index]
+            if argument is None:
+                return None
             if not _SHELL_ASSIGNMENT_WORD.match(argument):
                 break
             index += 1
-    return _shell_next_non_redirection_index(line, words, index)
+    return index
+
+
+def _command_executable_index(
+    arguments: list[Optional[str]],
+    start_index: int = 0,
+) -> Optional[int]:
+    """Resolve nested command wrappers to the executable token."""
+    index = start_index
+    while index < len(arguments):
+        command = arguments[index]
+        if command is None:
+            return None
+        command_name = command.rsplit("/", 1)[-1]
+        spec = _COMMAND_WRAPPER_SPECS.get(command_name)
+        if spec is None:
+            return index
+        index = _command_wrapper_nested_index(
+            arguments,
+            index,
+            spec,
+        )
+        if index is None:
+            return None
+    return None
 
 
 def _shell_command_word_bounds(
@@ -1477,32 +1536,31 @@ def _shell_command_word_bounds(
         if is_unquoted and command_name in _SHELL_CONTROL_FLOW_PREFIXES:
             index += 1
             continue
-        if command_name == "env":
-            index += 1
-            while index < len(words):
-                if (next_index := _shell_redirection_next_index(line, words, index)) is not None:
-                    index = next_index
-                    continue
-                argument, _ = _shell_word_value_and_bounds(line, words[index])
-                if argument == "--":
-                    index += 1
+        if command_name in _COMMAND_WRAPPER_SPECS:
+            wrapper_words: list[tuple[int, int]] = []
+            wrapper_index = index
+            while wrapper_index < len(words):
+                wrapper_index = _shell_next_non_redirection_index(
+                    line,
+                    words,
+                    wrapper_index,
+                )
+                if wrapper_index >= len(words):
                     break
-                if argument in ("-u", "--unset"):
-                    index += 2
-                    continue
-                if argument.startswith("-") or _SHELL_ASSIGNMENT_WORD.match(argument):
-                    index += 1
-                    continue
-                break
-            continue
-        if wrapper_spec := _SHELL_COMMAND_WRAPPER_SPECS.get(command_name):
-            index = _shell_wrapper_command_index(
-                line,
-                words,
-                index,
-                wrapper_spec,
+                wrapper_words.append(words[wrapper_index])
+                wrapper_index += 1
+            wrapper_arguments = [
+                _shell_word_value_and_bounds(line, word)[0]
+                for word in wrapper_words
+            ]
+            executable_index = _command_executable_index(
+                wrapper_arguments,
             )
-            continue
+            return (
+                wrapper_words[executable_index]
+                if executable_index is not None
+                else None
+            )
         return words[index]
     return None
 
@@ -1704,54 +1762,37 @@ def _argv_interpreter_source_bounds(
     object_command_labels: frozenset[str] = _NO_ARGUMENT_LABELS,
 ) -> Optional[tuple[int, int]]:
     """Return the argv word a known interpreter consumes as evaluated source."""
-    literals = _argv_literal_tokens(
+    elements = _argv_elements(
         line,
         opening_paren,
         path_suffix,
         object_command_labels,
     )
-    token_index = _argv_executable_index(line, literals)
-    if token_index is None or len(literals) - token_index < 2:
+    token_index = _argv_executable_index(elements)
+    if token_index is None or len(elements) - token_index < 2:
         return None
 
-    executable = line[literals[token_index][0] : literals[token_index][1]]
+    executable = elements[token_index].literal
+    if executable is None:
+        return None
     spec = _interpreter_source_spec(executable)
     if spec is None:
         return None
     return _evaluated_source_argument_bounds(
         line,
-        literals[token_index + 1 :],
+        [element.value_bounds for element in elements[token_index + 1 :]],
         spec,
     )
 
 
 def _argv_executable_index(
-    line: str,
-    literals: list[tuple[int, int]],
+    elements: list[_ArgvElement],
 ) -> Optional[int]:
-    if not literals:
+    if not elements:
         return None
-    first = line[literals[0][0] : literals[0][1]]
-    if first.rsplit("/", 1)[-1] != "env":
-        return 0
-
-    index = 1
-    while index < len(literals):
-        argument = line[literals[index][0] : literals[index][1]]
-        if argument == "--":
-            index += 1
-            break
-        if argument in ("-u", "--unset"):
-            index += 2
-            continue
-        if argument.startswith("-"):
-            index += 1
-            continue
-        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", argument):
-            index += 1
-            continue
-        break
-    return index if index < len(literals) else None
+    return _command_executable_index(
+        [element.literal for element in elements]
+    )
 
 
 def _argv_executable_bounds(
@@ -1760,14 +1801,14 @@ def _argv_executable_bounds(
     path_suffix: str = "",
     object_command_labels: frozenset[str] = _NO_ARGUMENT_LABELS,
 ) -> Optional[tuple[int, int]]:
-    literals = _argv_literal_tokens(
+    elements = _argv_elements(
         line,
         opening_paren,
         path_suffix,
         object_command_labels,
     )
-    index = _argv_executable_index(line, literals)
-    return literals[index] if index is not None else None
+    index = _argv_executable_index(elements)
+    return elements[index].value_bounds if index is not None else None
 
 
 def _bounds_contain_offset(bounds: tuple[int, int], offset: int) -> bool:
@@ -1981,12 +2022,48 @@ def _fluent_constructor_base_target(
     )
 
 
+def _javascript_assignment_is_instance_field(
+    source: str,
+    constructor_start: int,
+    path_suffix: str,
+    match: re.Match[str],
+) -> bool:
+    """Return whether an assignment declares an instance class field."""
+    if (
+        path_suffix not in _JAVASCRIPT_SUFFIXES
+        or match.group("declaration") is not None
+        or "static" in match.group("modifiers").split()
+        or "." in match.group("binding")
+    ):
+        return False
+
+    executable = _executable_code_positions(source, path_suffix)
+    brace_stack: list[int] = []
+    for index in range(constructor_start):
+        if not executable[index]:
+            continue
+        if source[index] == "{":
+            brace_stack.append(index)
+        elif source[index] == "}" and brace_stack:
+            brace_stack.pop()
+    if not brace_stack:
+        return False
+
+    class_brace = brace_stack[-1]
+    window_start = max(0, class_brace - 2048)
+    declaration = "".join(
+        source[index] if executable[index] else " "
+        for index in range(window_start, class_brace)
+    )
+    return bool(re.search(r"\bclass\b[^{};]*$", declaration))
+
+
 def _fluent_assignment_binding(
     source: str,
     constructor_start: int,
     constructor_end: int,
     path_suffix: str,
-) -> Optional[tuple[str, str]]:
+) -> Optional[tuple[str, str, bool]]:
     """Return a simple assignment or Python context-manager binding."""
     window_floor = max(0, constructor_start - 512)
     window_start = source.rfind("\n", 0, window_floor) + 1
@@ -1995,7 +2072,15 @@ def _fluent_assignment_binding(
     )
     if match is not None:
         binding = re.sub(r"\s*\.\s*", ".", match.group("binding"))
-        return binding, match.group("indent")
+        is_instance_field = _javascript_assignment_is_instance_field(
+            source,
+            constructor_start,
+            path_suffix,
+            match,
+        )
+        if is_instance_field:
+            binding = f"this.{binding}"
+        return binding, match.group("indent"), is_instance_field
 
     if path_suffix != ".py":
         return None
@@ -2017,7 +2102,7 @@ def _fluent_assignment_binding(
         if body_line.strip():
             body_indent = re.match(r"[ \t]*", body_line)
             if body_indent is not None:
-                return context_binding.group(1), body_indent.group(0)
+                return context_binding.group(1), body_indent.group(0), False
             return None
         body_start = body_end + 1
     return None
@@ -2136,6 +2221,7 @@ def _fluent_binding_scope(
     binding_name: str,
     binding_indent: str,
     path_suffix: str,
+    is_javascript_class_field: bool,
 ) -> tuple[int, int, bool]:
     if path_suffix == ".py":
         if binding_name.startswith("self."):
@@ -2159,7 +2245,7 @@ def _fluent_binding_scope(
         source,
         constructor_start,
         constructor_end,
-        binding_name,
+        "" if is_javascript_class_field else binding_name,
         path_suffix,
     )
     is_instance_property = binding_name.startswith("this.")
@@ -2204,7 +2290,7 @@ def _stored_fluent_client_bindings(
         )
         if assignment is None:
             continue
-        name, binding_indent = assignment
+        name, binding_indent, is_javascript_class_field = assignment
         scope_start, scope_end, is_instance_property = _fluent_binding_scope(
             source,
             constructor.start(),
@@ -2212,10 +2298,13 @@ def _stored_fluent_client_bindings(
             name,
             binding_indent,
             path_suffix,
+            is_javascript_class_field,
         )
         initialization_scope_end: Optional[int] = None
         if is_instance_property:
-            if path_suffix == ".py":
+            if is_javascript_class_field:
+                initialization_scope_end = constructor_end
+            elif path_suffix == ".py":
                 initialization_scope_end = _python_binding_scope_end(
                     source,
                     constructor_end,
