@@ -2,6 +2,21 @@ import Foundation
 import Testing
 import CmuxTerminalCore
 
+// Two `.unavailableNonASCIIRow` values compare `==` to each other, so a
+// bare `cellSpans == cellSpans` equality check can't tell "both sides
+// really did compute available columns" apart from "both sides gave up in
+// the same way" — exactly the regression this would silently mask for an
+// ASCII-only fixture that should never hit the text-only fallback at all.
+private func expectAvailableCellSpans(
+    _ cellSpans: TerminalWrappedCellSpans,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    guard case .available = cellSpans else {
+        Issue.record("Expected .available cellSpans for an ASCII-only fixture, got \(cellSpans)", sourceLocation: sourceLocation)
+        return
+    }
+}
+
 private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Bool {
     // Standardize the fixture set itself too, not just the incoming probe
     // path — `NSString.standardizingPath` strips a trailing `/`
@@ -271,10 +286,10 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         // ("y") is at row offset +1, both at absolute columns matching the
         // real text — never off by one, the exact failure mode a wrong
         // topRow/clickedRow conflation would produce.
-        #expect(candidate.cellSpans == [
+        #expect(candidate.cellSpans == .available([
             TerminalWrappedPathCellSpan(rowOffsetFromClicked: 0, startColumn: 0, endColumn: clickedRow.count),
             TerminalWrappedPathCellSpan(rowOffsetFromClicked: 1, startColumn: 0, endColumn: 1),
-        ])
+        ]))
     }
 
     @Test func previousDirectionJoinsTrailingFragmentOfRowAbove() throws {
@@ -302,10 +317,10 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         // offset -1 (the row ABOVE the clicked row) — this is exactly the
         // direction review Blocking 6 flagged as at risk of a 1-row
         // conflation with `topRow`/the snapshot scope's own origin.
-        #expect(candidate.cellSpans == [
+        #expect(candidate.cellSpans == .available([
             TerminalWrappedPathCellSpan(rowOffsetFromClicked: 0, startColumn: 0, endColumn: clickedRow.count),
             TerminalWrappedPathCellSpan(rowOffsetFromClicked: -1, startColumn: 0, endColumn: previousRow.count),
-        ])
+        ]))
     }
 
     @Test func rowLocalResolutionTakesPriorityOverWrapDetection() {
@@ -860,6 +875,91 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         )
         #expect(candidate.path == joinedPath)
     }
+
+    // design-next-round-bundle-8810.md §1 (issue #8810 bug B's actual
+    // resolution) — a THIRD live dogfood shape, structurally identical to
+    // the two above except the previous row is prefixed by Claude Code's
+    // own bullet ("●", U+25CF, non-ASCII). Previously pinned as an
+    // INTENDED fail-closed (design-answer-bugB-ascii-guard.md): the
+    // guarded `trailingContinuationFragmentWithRange()` still returns
+    // `nil` for this row, exactly as before — that guard is untouched.
+    // What changed is `resolveSingleDirection` no longer stops there for
+    // `.previous`: it falls back to
+    // ``String/trailingContinuationFragmentText()``, which needs no
+    // column projection onto this row at all, so it extracts the SAME
+    // trailing fragment text a pure-ASCII row would have yielded. The
+    // result carries `cellSpans = .unavailableNonASCIIRow` (never a
+    // guessed column range) — this is the click-only path (no `geometry`
+    // parameter exists on this legacy 2-row overload at all), so (B)
+    // ExternalHover's own consumption gate (`ExternalHoverWorkService`)
+    // is what keeps this from ever producing a wrong-positioned
+    // underline; this test only proves the resolver's own half.
+    //
+    // The `.next` direction (row32, pure ASCII) is unaffected and still
+    // fails the SAME guard as before — pinned here too, as proof
+    // `leadingPieceNotPathPrefixShaped` was never relaxed and the `.next`
+    // extractor was never touched.
+    @Test func bulletPrefixedPreviousRowResolvesViaTextOnlyOnTheLegacyClickPathNextDirectionUnaffected() throws {
+        let cwd = "/tmp/bugB"
+        let row30 = "\u{25CF} research/docs/notes/2026-07-31_key_cost_volume_price_and_probab"
+        let row31 = "  ility_floor.md"
+        let row32 = "  research/docs/notes/2026-07-31_scaffold_kl_foundations_and_meas"
+        let trailingFragment = "research/docs/notes/2026-07-31_key_cost_volume_price_and_probab"
+        let token = "ility_floor.md"
+        let mdFile = cwd + "/research/docs/notes/2026-07-31_key_cost_volume_price_and_probability_floor.md"
+        let htmlFile = cwd + "/research/docs/notes/2026-07-31_scaffold_kl_foundations_and_measurement_limits.html"
+        let resolver = TerminalPathResolver(fileExists: existsIn([mdFile, htmlFile]))
+
+        let seed = try #require(resolver.wrappedPathSeed(in: row31, column: 12, cwd: cwd))
+        let outcomes = resolver.diagnoseWrappedCandidate(seed: seed, previousRow: row30, nextRow: row32, cwd: cwd)
+
+        #expect(outcomes[.previous] == .succeeded(TerminalWrappedPathResolution(
+            path: mdFile,
+            nativeMatchKeys: [trailingFragment + token, token, trailingFragment],
+            cellSpans: .unavailableNonASCIIRow
+        )))
+        #expect(outcomes[.next] == .leadingPieceNotPathPrefixShaped)
+
+        let candidate = try #require(
+            resolver.resolveWrappedCandidate(seed: seed, previousRow: row30, nextRow: row32, cwd: cwd)
+        )
+        #expect(candidate.path == mdFile)
+        #expect(candidate.cellSpans == .unavailableNonASCIIRow)
+    }
+
+    // final-spec §3.2 rule 2 — `.rowLocalHitAwaitingMirrorSlashSeam`
+    // must NEVER fall back to an ordinary cross-row search just because
+    // the clicked token's own leading piece happens to be path-prefix-
+    // shaped: row0 ("a/foo") is a row-local hit reaching the strict
+    // right edge, `cwd/a/foo` exists (making it a row-local hit at all),
+    // AND the coincidentally-joined candidate `cwd/a/fooaRest` ALSO
+    // exists — but row1 ("aRest") doesn't start with `/`, so the
+    // boundary immediately after the clicked row never satisfies
+    // `mirrorSlashSeam`. Without rule 2's gating, the ordinary evaluator
+    // would happily adopt this span (the leading piece "a/foo" already
+    // contains `/`, satisfying `leadingPieceNotPathPrefixShaped` on its
+    // own) — exactly the filesystem-coincidence override final-spec
+    // §3.1/§3.2 exist to forbid for a row-local hit.
+    @Test func rowLocalHitAwaitingMirrorSlashSeamNeverAdoptsAnOrdinaryCoincidentalJoin() throws {
+        let cwd = "/tmp"
+        let rows = ["a/foo", "aRest"]
+        let parentDirectory = "/tmp/a/foo"
+        let coincidentalJoin = "/tmp/a/fooaRest"
+        let resolver = TerminalPathResolver(fileExists: existsIn([parentDirectory, coincidentalJoin]))
+        let geometry = TerminalWrapGeometry(fullnessTolerance: 0)
+
+        // columns: 5 — "a/foo" (5 chars) must reach the strict right
+        // edge for `wrappedPathSeed` to reach the disposition at all.
+        let seed = try #require(resolver.wrappedPathSeed(in: rows[0], column: 0, cwd: cwd, columns: 5))
+        let window = try #require(TerminalPhysicalRowWindow(rows: rows, clickedIndex: 0, columns: 5))
+        #expect(resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry) == nil)
+
+        // The legacy 2-row overload must independently reject this too
+        // (evaluateWrappedCandidate's own disposition guard) — it has no
+        // `columns` to evaluate `mirrorSlashSeam` at all, so it can never
+        // legitimately satisfy rule 2, regardless of what `nextRow` is.
+        #expect(resolver.resolveWrappedCandidate(seed: seed, previousRow: nil, nextRow: rows[1], cwd: cwd) == nil)
+    }
 }
 
 // review-slash-boundary-and-codex-comparison.md's 10 required regression
@@ -962,7 +1062,11 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
             _ candidate: TerminalWrappedPathResolution,
             clickedAbsoluteRow: Int
         ) -> Set<[Int]> {
-            Set(candidate.cellSpans.map { span in
+            guard case .available(let spans) = candidate.cellSpans else {
+                Issue.record("Expected .available cellSpans for an ASCII-only fixture")
+                return []
+            }
+            return Set(spans.map { span in
                 [clickedAbsoluteRow + span.rowOffsetFromClicked, span.startColumn, span.endColumn]
             })
         }
@@ -1189,7 +1293,259 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(hoverCandidate.path == releaseCandidate.path)
         #expect(hoverCandidate.nativeMatchKeys == releaseCandidate.nativeMatchKeys)
         #expect(hoverCandidate.cellSpans == releaseCandidate.cellSpans)
+        expectAvailableCellSpans(hoverCandidate.cellSpans)
         #expect(hoverCandidate.path == joinedFile)
+    }
+}
+
+// final-spec-scope-expansion-8810.md §10/§14 — bug A's 10 fixtures above
+// (`TerminalSlashSeamContinuationTests`), each re-run through the
+// geometry-aware, window-based overload and checked against the SAME
+// legacy (non-geometry) result: identical `path`/`cellSpans`/
+// `nativeMatchKeys` when a candidate resolves, identical `nil` when it
+// doesn't. This is final-spec §10's actual compatibility guarantee — a
+// fixture that only stays green through `geometry: nil` would never catch
+// a regression in the geometry-aware path production eventually adopts.
+// Fixture #8 (`rowLocalRegularFileHitIsNeverOverriddenByAnAdjacentRow`)
+// only exercises `wrappedPathSeed` (never reaches `resolveWrappedCandidate`
+// at all), so there is nothing to parameterize — 9 of the 10 apply here.
+@Suite struct TerminalSlashSeamGeometryParityTests {
+    private let geometry = TerminalWrapGeometry(fullnessTolerance: 0)
+
+    // 1. continuationSideClickJoinsThroughAnExistingDirectoryFragment
+    @Test func fixture1ContinuationSideClickAgreesWithLegacy() throws {
+        let cwd = "/tmp"
+        let previousRow = "/Users/dev/project/research/docs/"
+        let clickedRow = "notes/report.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([previousRow, previousRow + clickedRow]))
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
+
+        let legacy = try #require(
+            resolver.resolveWrappedCandidate(seed: seed, previousRow: previousRow, nextRow: nil, cwd: cwd)
+        )
+        let window = try #require(
+            TerminalPhysicalRowWindow(rows: [previousRow, clickedRow], clickedIndex: 1, columns: previousRow.count)
+        )
+        let viaGeometry = try #require(
+            resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry)
+        )
+        #expect(viaGeometry.path == legacy.path)
+        #expect(viaGeometry.cellSpans == legacy.cellSpans)
+        expectAvailableCellSpans(legacy.cellSpans)
+        #expect(viaGeometry.nativeMatchKeys == legacy.nativeMatchKeys)
+    }
+
+    // 2. leadingSideClickJoinsThroughARowLocalDirectoryHit
+    @Test func fixture2LeadingSideClickAgreesWithLegacy() throws {
+        let cwd = "/tmp"
+        let clickedRow = "/Users/dev/project/research/docs/"
+        let nextRow = "notes/report.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([clickedRow, clickedRow + nextRow]))
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 5, cwd: cwd))
+
+        let legacy = try #require(
+            resolver.resolveWrappedCandidate(seed: seed, previousRow: nil, nextRow: nextRow, cwd: cwd)
+        )
+        let window = try #require(
+            TerminalPhysicalRowWindow(rows: [clickedRow, nextRow], clickedIndex: 0, columns: clickedRow.count)
+        )
+        let viaGeometry = try #require(
+            resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry)
+        )
+        #expect(viaGeometry.path == legacy.path)
+        #expect(viaGeometry.cellSpans == legacy.cellSpans)
+        expectAvailableCellSpans(legacy.cellSpans)
+        #expect(viaGeometry.nativeMatchKeys == legacy.nativeMatchKeys)
+    }
+
+    // 3. bothRowsResolveToTheSameFullPathWithSymmetricCellSpans
+    @Test func fixture3BothClickedRowsAgreeWithLegacy() throws {
+        let cwd = "/tmp"
+        let directoryRow = "/Users/dev/project/research/docs/"
+        let continuationRow = "notes/report.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([directoryRow, directoryRow + continuationRow]))
+        let window = try #require(
+            TerminalPhysicalRowWindow(
+                rows: [directoryRow, continuationRow], clickedIndex: 0, columns: directoryRow.count
+            )
+        )
+
+        let leadingSeed = try #require(resolver.wrappedPathSeed(in: directoryRow, column: 0, cwd: cwd))
+        let leadingLegacy = try #require(
+            resolver.resolveWrappedCandidate(seed: leadingSeed, previousRow: nil, nextRow: continuationRow, cwd: cwd)
+        )
+        let leadingViaGeometry = try #require(
+            resolver.resolveWrappedCandidate(seed: leadingSeed, window: window, cwd: cwd, geometry: geometry)
+        )
+        #expect(leadingViaGeometry.path == leadingLegacy.path)
+        #expect(leadingViaGeometry.cellSpans == leadingLegacy.cellSpans)
+        expectAvailableCellSpans(leadingLegacy.cellSpans)
+        #expect(leadingViaGeometry.nativeMatchKeys == leadingLegacy.nativeMatchKeys)
+
+        let continuationSeed = try #require(resolver.wrappedPathSeed(in: continuationRow, column: 0, cwd: cwd))
+        let continuationWindow = try #require(
+            TerminalPhysicalRowWindow(
+                rows: [directoryRow, continuationRow], clickedIndex: 1, columns: directoryRow.count
+            )
+        )
+        let continuationLegacy = try #require(
+            resolver.resolveWrappedCandidate(seed: continuationSeed, previousRow: directoryRow, nextRow: nil, cwd: cwd)
+        )
+        let continuationViaGeometry = try #require(
+            resolver.resolveWrappedCandidate(seed: continuationSeed, window: continuationWindow, cwd: cwd, geometry: geometry)
+        )
+        #expect(continuationViaGeometry.path == continuationLegacy.path)
+        #expect(continuationViaGeometry.cellSpans == continuationLegacy.cellSpans)
+        expectAvailableCellSpans(continuationLegacy.cellSpans)
+        #expect(continuationViaGeometry.nativeMatchKeys == continuationLegacy.nativeMatchKeys)
+    }
+
+    // 4. nonSlashDirectoryFragmentIsStillRejectedByFragmentAloneExists
+    @Test func fixture4NonSlashFragmentStaysNilViaGeometryToo() throws {
+        let cwd = "/tmp"
+        let previousRow = "/Users/dev/project/docs"
+        let clickedRow = "report.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([previousRow]))
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
+
+        #expect(resolver.resolveWrappedCandidate(seed: seed, previousRow: previousRow, nextRow: nil, cwd: cwd) == nil)
+        let window = try #require(
+            TerminalPhysicalRowWindow(rows: [previousRow, clickedRow], clickedIndex: 1, columns: previousRow.count)
+        )
+        #expect(resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry) == nil)
+    }
+
+    // 5. indentedContinuationAfterSlashSeamDoesNotJoin
+    @Test func fixture5IndentedContinuationStaysNilViaGeometryToo() throws {
+        let cwd = "/tmp"
+        let previousRow = "/Users/dev/project/research/docs/"
+        let indentedClickedRow = "    notes/report.md"
+        let joinedFile = previousRow + "notes/report.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([previousRow, joinedFile]))
+        let seed = try #require(resolver.wrappedPathSeed(in: indentedClickedRow, column: 4, cwd: cwd))
+
+        #expect(
+            resolver.resolveWrappedCandidate(seed: seed, previousRow: previousRow, nextRow: nil, cwd: cwd) == nil
+        )
+        let window = try #require(
+            TerminalPhysicalRowWindow(
+                rows: [previousRow, indentedClickedRow], clickedIndex: 1, columns: previousRow.count
+            )
+        )
+        #expect(resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry) == nil)
+    }
+
+    // 6. bareRelativeDogfoodRowsResolveFromEitherRow (leading/continuation
+    // resolves only — the labeled-clicked-row sub-case is covered
+    // qualitatively elsewhere and isn't re-checked here).
+    @Test func fixture6BareRelativeDogfoodRowsAgreeWithLegacy() throws {
+        let cwd = "/Users/yosuke/workspace/github.com/TMLlaboratory/s-code"
+        let leadingRow = "research/docs/notes/2026-07-31_key_cost_volume_price_and_probability_floo"
+        let continuationRow = "r.md"
+        let joinedFile = cwd + "/" + leadingRow + continuationRow
+        let resolver = TerminalPathResolver(fileExists: existsIn([joinedFile]))
+        let window = try #require(
+            TerminalPhysicalRowWindow(rows: [leadingRow, continuationRow], clickedIndex: 0, columns: leadingRow.count)
+        )
+
+        let leadingSeed = try #require(resolver.wrappedPathSeed(in: leadingRow, column: 0, cwd: cwd))
+        let leadingLegacy = try #require(
+            resolver.resolveWrappedCandidate(
+                seed: leadingSeed, previousRow: "unrelated/xyz", nextRow: continuationRow, cwd: cwd
+            )
+        )
+        let leadingViaGeometry = try #require(
+            resolver.resolveWrappedCandidate(seed: leadingSeed, window: window, cwd: cwd, geometry: geometry)
+        )
+        #expect(leadingViaGeometry.path == leadingLegacy.path)
+        #expect(leadingViaGeometry.cellSpans == leadingLegacy.cellSpans)
+        expectAvailableCellSpans(leadingLegacy.cellSpans)
+        #expect(leadingViaGeometry.nativeMatchKeys == leadingLegacy.nativeMatchKeys)
+
+        let continuationSeed = try #require(resolver.wrappedPathSeed(in: continuationRow, column: 0, cwd: cwd))
+        let continuationWindow = try #require(
+            TerminalPhysicalRowWindow(rows: [leadingRow, continuationRow], clickedIndex: 1, columns: leadingRow.count)
+        )
+        let continuationLegacy = try #require(
+            resolver.resolveWrappedCandidate(
+                seed: continuationSeed, previousRow: leadingRow, nextRow: "unrelated/xyz", cwd: cwd
+            )
+        )
+        let continuationViaGeometry = try #require(
+            resolver.resolveWrappedCandidate(seed: continuationSeed, window: continuationWindow, cwd: cwd, geometry: geometry)
+        )
+        #expect(continuationViaGeometry.path == continuationLegacy.path)
+        #expect(continuationViaGeometry.cellSpans == continuationLegacy.cellSpans)
+        expectAvailableCellSpans(continuationLegacy.cellSpans)
+        #expect(continuationViaGeometry.nativeMatchKeys == continuationLegacy.nativeMatchKeys)
+    }
+
+    // 7. bareRelativeFixtureStaysNilForWrongCwdRemoteNonASCIIAndAmbiguity
+    // (wrong-cwd and no-cwd sub-cases only).
+    @Test func fixture7WrongCwdAndNoCwdStayNilViaGeometryToo() throws {
+        let realCwd = "/Users/dev/project"
+        let leadingRow = "research/docs/notes/report"
+        let continuationRow = ".md"
+        let joinedFile = realCwd + "/" + leadingRow + continuationRow
+        let resolver = TerminalPathResolver(fileExists: existsIn([joinedFile]))
+        let seed = try #require(resolver.wrappedPathSeed(in: leadingRow, column: 0, cwd: realCwd))
+        let window = try #require(
+            TerminalPhysicalRowWindow(rows: [leadingRow, continuationRow], clickedIndex: 0, columns: leadingRow.count)
+        )
+
+        for wrongCwd in ["/Users/dev/other-project", ""] {
+            #expect(
+                resolver.resolveWrappedCandidate(
+                    seed: seed, previousRow: nil, nextRow: continuationRow, cwd: wrongCwd
+                ) == nil
+            )
+            #expect(
+                resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: wrongCwd, geometry: geometry) == nil
+            )
+        }
+    }
+
+    // 9. existingRegularFileFragmentIsStillRejectedOutsideTheSlashSeam
+    @Test func fixture9ExistingRegularFileFragmentStaysNilViaGeometryToo() throws {
+        let cwd = "/tmp"
+        let existingFragmentFile = "/tmp/existing.txt"
+        let clickedRow = "tail.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([existingFragmentFile]))
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
+
+        #expect(
+            resolver.resolveWrappedCandidate(seed: seed, previousRow: existingFragmentFile, nextRow: nil, cwd: cwd)
+                == nil
+        )
+        let window = try #require(
+            TerminalPhysicalRowWindow(
+                rows: [existingFragmentFile, clickedRow], clickedIndex: 1, columns: existingFragmentFile.count
+            )
+        )
+        #expect(resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry) == nil)
+    }
+
+    // 10. slashSeamCandidateResolvesIdenticallyAndOnceEachTimeForHoverThenClickCommit
+    @Test func fixture10HoverThenClickCommitAgreesWithLegacy() throws {
+        let cwd = "/tmp"
+        let previousRow = "/Users/dev/project/research/docs/"
+        let clickedRow = "notes/report.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([previousRow, previousRow + clickedRow]))
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
+
+        let legacy = try #require(
+            resolver.resolveWrappedCandidate(seed: seed, previousRow: previousRow, nextRow: nil, cwd: cwd)
+        )
+        let window = try #require(
+            TerminalPhysicalRowWindow(rows: [previousRow, clickedRow], clickedIndex: 1, columns: previousRow.count)
+        )
+        let viaGeometry = try #require(
+            resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry)
+        )
+        #expect(viaGeometry.path == legacy.path)
+        #expect(viaGeometry.cellSpans == legacy.cellSpans)
+        expectAvailableCellSpans(legacy.cellSpans)
+        #expect(viaGeometry.nativeMatchKeys == legacy.nativeMatchKeys)
     }
 }
 
@@ -1353,19 +1709,27 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(previousDiagnostic.candidateExists == false)
     }
 
-    @Test func diagnoseCandidateShapeReportsNoFragmentWhenExtractionFails() throws {
+    @Test func diagnoseCandidateShapeReportsNoColumnShapeWhenOnlyTextOnlyExtractionSucceeds() throws {
         let cwd = "/tmp"
         let clickedRow = "notes/report.md"
         let resolver = TerminalPathResolver(fileExists: existsIn([]))
         let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
 
-        // A non-ASCII previous row fails fragment extraction outright.
+        // A non-ASCII previous row fails the GUARDED, column-ranged
+        // extraction this shape diagnostic itself uses (unchanged) — but
+        // `resolveSingleDirection`'s own `outcome` (design-next-round-
+        // bundle-8810.md §1) now falls back to text-only extraction, so
+        // it's no longer `.noFragment`: "café" IS a real fragment now,
+        // it just isn't shaped like a path prefix (no `/`, no marker).
+        // `fragmentShape`/the flags past it stay `nil` regardless — this
+        // diagnostic only ever reports COLUMN shape, which text-only
+        // extraction structurally cannot supply.
         let shape = resolver.diagnoseCandidateShape(
             seed: seed, previousRow: "caf\u{e9}", nextRow: nil, cwd: cwd,
             cellRow: 0, cellColumn: 0, gridColumns: 40
         )
         let previousDiagnostic = try #require(shape.directions[.previous])
-        #expect(previousDiagnostic.outcome == .noFragment)
+        #expect(previousDiagnostic.outcome == .leadingPieceNotPathPrefixShaped)
         #expect(previousDiagnostic.fragmentShape == nil)
         #expect(previousDiagnostic.leadingPieceIsPathPrefixShaped == nil)
         #expect(previousDiagnostic.candidateIsPathShaped == nil)

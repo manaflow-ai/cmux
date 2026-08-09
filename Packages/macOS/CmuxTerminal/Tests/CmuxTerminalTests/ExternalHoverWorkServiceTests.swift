@@ -200,6 +200,71 @@ import CmuxTerminalCore
         ) == true)
     }
 
+    // design-next-round-bundle-8810.md §1 rule 5 — the exact bug-B
+    // bullet-prefixed fixture that NOW resolves on the click path (see
+    // `TerminalPathResolverTests.swift`'s
+    // `bulletPrefixedPreviousRowResolvesViaTextOnlyOnTheLegacyClickPathNextDirectionUnaffected`)
+    // must still never produce a hover candidate: the resolution's
+    // `cellSpans` come back `.unavailableNonASCIIRow` (no real column
+    // range, since text-only extraction never projects a column onto
+    // the non-ASCII previous row), and `resolveFully`'s consumption gate
+    // (added alongside `TerminalWrappedCellSpans`) fails closed on
+    // exactly that rather than guess an underline position.
+    @Test func bulletPrefixedPreviousRowNeverProducesAHoverCandidateEvenThoughClickResolves() async {
+        let teardownCoordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let counts = CallCounts()
+        let cwd = "/tmp/bugB"
+        let row30 = "\u{25CF} research/docs/notes/2026-07-31_key_cost_volume_price_and_probab"
+        let row31 = "  ility_floor.md"
+        let row32 = "  research/docs/notes/2026-07-31_scaffold_kl_foundations_and_meas"
+        let mdFile = cwd + "/research/docs/notes/2026-07-31_key_cost_volume_price_and_probability_floor.md"
+        let htmlFile = cwd + "/research/docs/notes/2026-07-31_scaffold_kl_foundations_and_measurement_limits.html"
+        let physicalRowsText = row30 + "\n" + row31 + "\n" + row32 + "\n"
+
+        let lifetimeID = Self.makeLifetime()
+        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+        let mirror = HoverCallbackMirror()
+        mirror.publish(.init(lifetimeID: lifetimeID, hoverEventID: 1, eligible: true, visible: true))
+        let mailboxCoordinator = Self.makeCoordinator()
+
+        let service = ExternalHoverWorkService(
+            teardownCoordinator: teardownCoordinator,
+            resolver: TerminalPathResolver(fileExists: { $0 == mdFile || $0 == htmlFile }),
+            readPhysicalRows: { _, _, _ in
+                counts.reads += 1
+                return physicalRowsText
+            },
+            callSetter: { _, _, _, _, _, hostEventID in
+                counts.setterCalls += 1
+                counts.setterHostEventIDs.append(hostEventID)
+                return HoverActivationTokenValue(bits: (1, 1, 1, 1))
+            },
+            callClear: { _, token in
+                counts.clearCalls += 1
+                counts.clearedTokens.append(token)
+            },
+            drainDiagnostics: { lease, capacity in
+                counts.drainCalls += 1
+                counts.drainedLifetimeSurfaces.append(lease.lifetimeID)
+                return (entries: [], droppedCountCumulative: 0)
+            }
+        )
+
+        // row31 (clicked) at absolute row 5, matching this file's own
+        // "nonzero viewport offset" convention (topRow=4 != clickedRow).
+        let request = ExternalHoverWorkRequest(
+            lifetimeID: lifetimeID, surface: surface, requestGeneration: 1,
+            cell: ExternalHoverGridCell(row: 5, column: 12), viewportRowCount: 10, cwd: cwd,
+            mirror: mirror, coordinator: mailboxCoordinator, surfaceSerial: 0
+        )
+        await service.submit(request).value
+
+        #expect(counts.reads == 1, "the read itself must still happen — only the resolved candidate is rejected")
+        #expect(counts.setterCalls == 0, "hover must never show a candidate resolved through the column-less text-only fallback")
+        #expect(mailboxCoordinator.currentMailbox.pending == nil)
+    }
+
     @Test func sameRangeCacheReuseSkipsResolverAndReadWhenCellStaysWithinCachedRanges() async {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let counts = CallCounts()

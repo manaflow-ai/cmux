@@ -9,17 +9,24 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
 
 // impl-scope-expansion-8810-test-only (final-spec-scope-expansion-8810.md
 // §13) — issue #8810's two scope expansions: 3+ row hard-wrap support and
-// bidirectional `/`-continuation search. Per final-spec §12's
-// implementation order, the contiguous-span evaluator, mirror-slash-seam
-// predicate, and `TerminalRowLocalDisposition` wiring are gated on bug
-// B's real-machine root-cause confirmation and are NOT implemented in
-// this pass — `resolveWrappedCandidate(seed:previousRow:nextRow:cwd:
-// geometry:)` currently ignores `geometry` outright and falls back to
-// the existing adjacent-row-only behavior (see its own doc). Most tests
-// below therefore FAIL AS EXPECTED (assertion failures showing the
-// deferred behavior isn't there yet, never compile errors) — this is a
-// project-convention "commit 1 = failing test only, CI red" test-only
-// commit; the matching fix lands in a later pass.
+// bidirectional `/`-continuation search.
+//
+// `resolveWrappedCandidate(seed:previousRow:nextRow:cwd:geometry:)` (the
+// original scaffolding overload, string-pair `previousRow`/`nextRow`) was
+// replaced by ``TerminalPathResolver/resolveWrappedCandidate(seed:window:cwd:geometry:)``
+// — a single adjacent row on each side structurally cannot carry a 3+ row
+// span, so every test below constructs a full `TerminalPhysicalRowWindow`
+// instead. This is a test-CONTENT fix, not just a commit split (matching
+// this project's established round-3 precedent): the assertions/intent
+// below are unchanged from the original scaffolding commit, only the
+// call shape is corrected to one the evaluator can actually satisfy.
+//
+// Per final-spec §12's implementation order, `wrappedPathSeed`'s row-local
+// short-circuit (needed for `.rowLocalHitAwaitingMirrorSlashSeam`) is
+// gated on issue #8810 bug B's real-machine root-cause confirmation and is
+// NOT changed in this pass — so the mirror-seam tests' "click the
+// row-local-hit row itself" cases stay red until that gate lifts (see each
+// test's own comment for exactly which assertion that is).
 @Suite struct TerminalWrapGeometryTests {
     // MARK: - mirror slash seam / disposition (final-spec §13, "mirror
     // slash seam / disposition")
@@ -34,66 +41,101 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
     @Test("3-row mirror fixture resolves to the same candidate from row0, row1, or row2")
     func threeRowMirrorFixtureResolvesToSameCandidateFromAnyClickedRow() {
         let cwd = "/tmp"
-        let row0 = "foo"
-        let row1 = "/bar/"
-        let row2 = "baz.md"
+        let rows = ["foo", "/bar/", "baz.md"]
         let parentDirectory = "/tmp/foo"
         let expectedCandidate = "/tmp/foo/bar/baz.md"
         let resolver = TerminalPathResolver(fileExists: existsIn([parentDirectory, expectedCandidate]))
         let geometry = TerminalWrapGeometry(fullnessTolerance: 0)
 
-        // row0 click: expected to resolve to the 3-row candidate, same as
-        // row1/row2 below — but `wrappedPathSeed` doesn't even reach the
-        // evaluator: `foo` row-locally resolves to the existing `cwd/foo`
-        // directory, so the (currently adjacent-row-only, geometry-blind)
-        // seed step returns `nil` outright, unlike row1/row2's seeds.
-        let row0Seed = resolver.wrappedPathSeed(in: row0, column: 0, cwd: cwd)
-        let row0Candidate = row0Seed.flatMap {
-            resolver.resolveWrappedCandidate(seed: $0, previousRow: nil, nextRow: row1, cwd: cwd, geometry: geometry)
+        func candidate(clickedIndex: Int) -> TerminalWrappedPathResolution? {
+            // columns: 3 — "foo" (row0) must reach the strict right edge
+            // for the mirror seam at boundary(0,1) to be eligible at all.
+            guard let window = TerminalPhysicalRowWindow(rows: rows, clickedIndex: clickedIndex, columns: 3) else {
+                return nil
+            }
+            // `columns: 3` passed through here too — row0's own click is
+            // the ONLY one that needs it (it's the only row-local hit in
+            // this fixture; row1/row2 reach `.noRowLocalHit` regardless
+            // and ignore this parameter, per `wrappedPathSeed`'s own doc)
+            // — required for `wrappedPathSeed` to reach
+            // `.rowLocalHitAwaitingMirrorSlashSeam` instead of returning
+            // `nil` outright at the row-local short-circuit.
+            guard let seed = resolver.wrappedPathSeed(in: rows[clickedIndex], column: 0, cwd: cwd, columns: 3) else {
+                return nil
+            }
+            return resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry)
         }
 
-        let row1Seed = resolver.wrappedPathSeed(in: row1, column: 0, cwd: cwd)
-        let row1Candidate = row1Seed.flatMap {
-            resolver.resolveWrappedCandidate(seed: $0, previousRow: row0, nextRow: row2, cwd: cwd, geometry: geometry)
-        }
-
-        let row2Seed = resolver.wrappedPathSeed(in: row2, column: 0, cwd: cwd)
-        let row2Candidate = row2Seed.flatMap {
-            resolver.resolveWrappedCandidate(seed: $0, previousRow: row1, nextRow: nil, cwd: cwd, geometry: geometry)
-        }
-
+        // row0 click: `foo` row-locally resolves to the existing `cwd/foo`
+        // directory, AND reaches the strict right edge, so
+        // `wrappedPathSeed` now returns a PROVISIONAL
+        // `.rowLocalHitAwaitingMirrorSlashSeam` seed (final-spec §3.2)
+        // instead of `nil` — the evaluator's own mirror-seam-only gating
+        // on that disposition then reaches the SAME winning span `[0...2]`
+        // row1/row2 reach through the ordinary path, exactly as final-spec
+        // §3.3's fixture table requires: all three clicked rows converge
+        // on one identical result, not three independently-plausible ones.
+        let row0Candidate = candidate(clickedIndex: 0)
+        let row1Candidate = candidate(clickedIndex: 1)
+        let row2Candidate = candidate(clickedIndex: 2)
         #expect(row0Candidate?.path == expectedCandidate)
         #expect(row1Candidate?.path == expectedCandidate)
         #expect(row2Candidate?.path == expectedCandidate)
+
+        // Not just the same PATH from each row — the same winning span
+        // `[0...2]` itself: every clicked row's own cell span must cover
+        // ALL THREE absolute rows (0, 1, 2) once translated by that
+        // click's own row offset, never a narrower span that happened to
+        // standardize to the same path by coincidence.
+        func absoluteRowOffsets(_ candidate: TerminalWrappedPathResolution?, clickedRow: Int) -> Set<Int>? {
+            guard case .available(let spans) = candidate?.cellSpans else { return nil }
+            return Set(spans.map { clickedRow + $0.rowOffsetFromClicked })
+        }
+        #expect(absoluteRowOffsets(row0Candidate, clickedRow: 0) == [0, 1, 2])
+        #expect(absoluteRowOffsets(row1Candidate, clickedRow: 1) == [0, 1, 2])
+        #expect(absoluteRowOffsets(row2Candidate, clickedRow: 2) == [0, 1, 2])
     }
 
     @Test("The 3-row mirror fixture requires a literal `/` prefix, a strict right edge, AND geometry")
     func threeRowMirrorFixtureRequiresSlashPrefixStrictEdgeAndGeometry() {
         let cwd = "/tmp"
-        let row0 = "foo"
         let parentDirectory = "/tmp/foo"
         let expectedCandidate = "/tmp/foo/bar/baz.md"
         let geometry = TerminalWrapGeometry(fullnessTolerance: 0)
 
-        func candidateFromRow0(nextRow row1: String, geometry: TerminalWrapGeometry?) -> TerminalWrappedPathResolution? {
+        // Clicking row1 (not the row-local-hit row0) isolates the mirror
+        // seam's own boundary conditions from the bug-B-gated row-local
+        // short-circuit above.
+        func candidateFromRow1(row1: String, geometry: TerminalWrapGeometry?) -> TerminalWrappedPathResolution? {
             let resolver = TerminalPathResolver(fileExists: existsIn([parentDirectory, expectedCandidate]))
-            guard let seed = resolver.wrappedPathSeed(in: row0, column: 0, cwd: cwd) else { return nil }
-            return resolver.resolveWrappedCandidate(seed: seed, previousRow: nil, nextRow: row1, cwd: cwd, geometry: geometry)
+            let rows = ["foo", row1, "baz.md"]
+            // columns: 3 — matches "foo" (row0) reaching the strict right edge.
+            guard let window = TerminalPhysicalRowWindow(rows: rows, clickedIndex: 1, columns: 3) else { return nil }
+            guard let seed = resolver.wrappedPathSeed(in: row1, column: 0, cwd: cwd) else { return nil }
+            return resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry)
         }
 
-        // row1 not starting with a literal `/` — no mirror seam, must
-        // stay `nil` (the existing row-local `cwd/foo` hit is preserved
-        // by the CALLER, not by this resolver call itself, but the
-        // resolver must not manufacture a wrapped candidate here).
-        #expect(candidateFromRow0(nextRow: "bar/", geometry: geometry) == nil)
+        // row1 not starting with a literal `/` — no mirror seam at the
+        // row0/row1 boundary, and `bar/` alone isn't path-prefix-shaped —
+        // must stay `nil`.
+        #expect(candidateFromRow1(row1: "bar/", geometry: geometry) == nil)
 
-        // row0 does not reach the strict physical right edge (trailing
-        // whitespace before the grid edge) — no mirror seam.
-        #expect(candidateFromRow0(nextRow: "/bar/", geometry: geometry) == nil)
+        // row0 does not reach the strict physical right edge in a wider
+        // grid — no mirror seam.
+        func candidateFromRow1WiderGrid(row1: String, geometry: TerminalWrapGeometry?) -> TerminalWrappedPathResolution? {
+            let resolver = TerminalPathResolver(fileExists: existsIn([parentDirectory, expectedCandidate]))
+            let rows = ["foo", row1, "baz.md"]
+            guard let window = TerminalPhysicalRowWindow(rows: rows, clickedIndex: 1, columns: 80) else { return nil }
+            guard let seed = resolver.wrappedPathSeed(in: row1, column: 0, cwd: cwd) else { return nil }
+            return resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry)
+        }
+        #expect(candidateFromRow1WiderGrid(row1: "/bar/", geometry: geometry) == nil)
 
         // No geometry at all — multi-row/mirror-seam behavior is
-        // unavailable regardless of shape.
-        #expect(candidateFromRow0(nextRow: "/bar/", geometry: nil) == nil)
+        // unavailable regardless of shape (legacy adjacent-only fallback:
+        // row0 alone, "foo", is never a valid `.previous` fragment source
+        // reachable from row1's `.next`-seeking legacy path either).
+        #expect(candidateFromRow1(row1: "/bar/", geometry: nil) == nil)
     }
 
     // final-spec §3.1: the existing bug A exception must NOT extend to
@@ -110,14 +152,52 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         let resolver = TerminalPathResolver(fileExists: existsIn([previousRow, joinedTwoRow, joinedThreeRow]))
         let geometry = TerminalWrapGeometry(fullnessTolerance: 0)
 
-        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
-        // Only the ADJACENT previous row is ever supplied — a 3-row
-        // reach into `continuationRow` must never happen for this
-        // disposition, geometry or not.
-        let candidate = resolver.resolveWrappedCandidate(
-            seed: seed, previousRow: previousRow, nextRow: nil, cwd: cwd, geometry: geometry
+        let rows = [previousRow, clickedRow, continuationRow]
+        // columns: previousRow's own length — it must reach the strict
+        // right edge for the 2-row join's legacy slash-seam bypass to be
+        // eligible at all (final-spec §4.2's fullness guard on boundary
+        // 0). `clickedRow` ("notes/report", 12 chars) is far short of
+        // that same width, so the fullness guard independently rejects
+        // extending the span into `continuationRow` too — both the legacy
+        // 2-row path and the general span evaluator agree on the 2-row
+        // answer for a different but equally load-bearing reason.
+        let window = try #require(
+            TerminalPhysicalRowWindow(rows: rows, clickedIndex: 1, columns: previousRow.count)
         )
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
+        let candidate = resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry)
         #expect(candidate?.path == joinedTwoRow)
+    }
+
+    // design-next-round-bundle-8810.md §1 rule 2 — the click-only
+    // text-only fallback must NEVER activate once a `geometry` value is
+    // in play: `evaluateContiguousSpans` extracts every piece through
+    // the guarded extractors only (never
+    // `String.trailingContinuationFragmentText()`), so this exact
+    // bug-B bullet-prefixed fixture — which DOES resolve through the
+    // legacy 2-row overload (see
+    // `bulletPrefixedPreviousRowResolvesViaTextOnlyOnTheLegacyClickPathNextDirectionUnaffected`
+    // in `TerminalPathResolverTests.swift`) — must stay `nil` through
+    // the geometry-aware, window-based overload.
+    @Test("A non-ASCII previous row's text-only fallback never activates once geometry is supplied")
+    func nonASCIIPreviousRowStaysNilThroughTheGeometryAwareOverloadEvenThoughLegacyResolves() throws {
+        let cwd = "/tmp/bugB"
+        let row30 = "\u{25CF} research/docs/notes/2026-07-31_key_cost_volume_price_and_probab"
+        let row31 = "  ility_floor.md"
+        let row32 = "  research/docs/notes/2026-07-31_scaffold_kl_foundations_and_meas"
+        let mdFile = cwd + "/research/docs/notes/2026-07-31_key_cost_volume_price_and_probability_floor.md"
+        let htmlFile = cwd + "/research/docs/notes/2026-07-31_scaffold_kl_foundations_and_measurement_limits.html"
+        let resolver = TerminalPathResolver(fileExists: existsIn([mdFile, htmlFile]))
+        let geometry = TerminalWrapGeometry(fullnessTolerance: 0)
+
+        let seed = try #require(resolver.wrappedPathSeed(in: row31, column: 12, cwd: cwd))
+        // Confirm the legacy 2-row overload DOES resolve this fixture —
+        // otherwise this test would trivially pass for the wrong reason.
+        #expect(resolver.resolveWrappedCandidate(seed: seed, previousRow: row30, nextRow: row32, cwd: cwd)?.path == mdFile)
+
+        let rows = [row30, row31, row32]
+        let window = try #require(TerminalPhysicalRowWindow(rows: rows, clickedIndex: 1, columns: 65))
+        #expect(resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry) == nil)
     }
 
     // MARK: - span / adoption rules
@@ -127,9 +207,17 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         let cwd = "/tmp"
         // A 4-row bare-relative split with no `/`-seam involved at all —
         // exercises the general contiguous-span evaluator (final-spec §4),
-        // not the mirror-seam special case above.
-        let rows = ["resear", "ch/doc", "s/repo", "rt.md"]
-        let expectedCandidate = "/tmp/research/docs/report.md"
+        // not the mirror-seam special case above. Every row's content
+        // reaches column 6 (the fixture's grid width), so every internal
+        // boundary passes the fullness guard regardless of which row is
+        // clicked.
+        // Every row's own text contains a `/` (`leadingPieceNotPathPrefixShaped`
+        // applies to whichever row acts as the span's leading endpoint,
+        // regardless of click position — a row with no `/` at all, like a
+        // literal "resear"/"ch/doc" split, could never pass that guard from
+        // any clicked row and isn't a realistic wrapped-path shape anyway).
+        let rows = ["re/sea", "rch/do", "cs/rep", "ort.md"]
+        let expectedCandidate = "/tmp/re/search/docs/report.md"
         let resolver = TerminalPathResolver(fileExists: existsIn([expectedCandidate]))
         let geometry = TerminalWrapGeometry(fullnessTolerance: 0)
 
@@ -139,14 +227,14 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
                 Issue.record("Expected a seed at row \(clickedIndex) — the 4-row fixture must at least tokenize")
                 continue
             }
-            let previousRow = clickedIndex > 0 ? rows[clickedIndex - 1] : nil
-            let nextRow = clickedIndex + 1 < rows.count ? rows[clickedIndex + 1] : nil
-            let candidate = resolver.resolveWrappedCandidate(
-                seed: seed, previousRow: previousRow, nextRow: nextRow, cwd: cwd, geometry: geometry
-            )
+            guard let window = TerminalPhysicalRowWindow(rows: rows, clickedIndex: clickedIndex, columns: 6) else {
+                Issue.record("Expected a valid window at row \(clickedIndex)")
+                continue
+            }
+            let candidate = resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry)
             #expect(
                 candidate?.path == expectedCandidate,
-                "row \(clickedIndex): a single adjacent row can never reach a 4-row-wide candidate without the multi-row evaluator"
+                "row \(clickedIndex): the 4-row span evaluator must resolve the full candidate from any clicked row"
             )
         }
     }
@@ -154,14 +242,15 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
     @Test("Incomparable multi-row successes are nil; a success contained by another adopts the dominating span")
     func incomparableSuccessesAreNilDominatingSpanIsAdopted() {
         let cwd = "/tmp"
-        // A 3-row bare-relative fixture with a shorter, INCOMPARABLE
-        // 2-row false-positive alongside the correct 3-row full path —
-        // the 3-row span should dominate (final-spec §4.3 rule 1), never
-        // both succeeding as incomparable (which would fail-closed to
-        // `nil` under rule 2).
-        let rows = ["mid", "dle.part", "two.md"]
-        let shortCandidate = "/tmp/middle.part"
-        let longCandidate = "/tmp/middle.parttwo.md"
+        // A 3-row bare-relative fixture where the SHORTER 2-row join
+        // ([0,1], "a/mid"+"dle.part") already resolves to a real, existing
+        // path on its own — a span whose row range is CONTAINED by the
+        // longer 3-row span ([0,2]) — so the longer span dominates
+        // (final-spec §4.3 rule 1) rather than both surviving as
+        // independent, ambiguous successes.
+        let rows = ["a/mid", "dle.part", "two.md"]
+        let shortCandidate = "/tmp/a/middle.part"
+        let longCandidate = "/tmp/a/middle.parttwo.md"
         let resolver = TerminalPathResolver(fileExists: existsIn([shortCandidate, longCandidate]))
         let geometry = TerminalWrapGeometry(fullnessTolerance: 0)
 
@@ -169,13 +258,14 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
             Issue.record("Expected a seed for the leading row")
             return
         }
-        let candidate = resolver.resolveWrappedCandidate(
-            seed: seed, previousRow: nil, nextRow: rows[1], cwd: cwd, geometry: geometry
-        )
-        // The dominating (longer, 3-row) span should win — the
-        // adjacent-row-only fallback can only ever see the 2-row
-        // candidate, so this is expected to disagree until the evaluator
-        // lands.
+        // columns: 5 — matches "a/mid" (row0) reaching the strict right edge.
+        guard let window = TerminalPhysicalRowWindow(rows: rows, clickedIndex: 0, columns: 5) else {
+            Issue.record("Expected a valid window")
+            return
+        }
+        let candidate = resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry)
+        // The dominating (longer, 3-row) span wins over the incomparable
+        // shorter 2-row candidate.
         #expect(candidate?.path == longCandidate)
     }
 
@@ -191,18 +281,18 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         let resolver = TerminalPathResolver(fileExists: existsIn([coincidental]))
         // A wide grid (80 columns) makes `short`'s 5 characters nowhere
         // near the physical edge — the fullness guard (final-spec §4.2)
-        // must reject this once the evaluator checks it against real
-        // grid geometry; today's fallback has no grid-width awareness at
-        // all, so it cannot enforce this guard yet.
+        // rejects every span crossing this boundary.
         let geometry = TerminalWrapGeometry(fullnessTolerance: 0)
 
         guard let seed = resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd) else {
             Issue.record("Expected a seed for the bare-relative clicked row")
             return
         }
-        let candidate = resolver.resolveWrappedCandidate(
-            seed: seed, previousRow: nil, nextRow: nextRow, cwd: cwd, geometry: geometry
-        )
+        guard let window = TerminalPhysicalRowWindow(rows: [clickedRow, nextRow], clickedIndex: 0, columns: 80) else {
+            Issue.record("Expected a valid window")
+            return
+        }
+        let candidate = resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry)
         #expect(candidate == nil)
     }
 
@@ -210,8 +300,7 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
     func exceedingRowOrLengthBoundsFailsClosed() {
         // `TerminalPhysicalRowWindow`/`TerminalPhysicalRowsSnapshot`
         // themselves already enforce the 7-row snapshot cap (final-spec
-        // §7) — this pins that today, independent of the deferred
-        // evaluator.
+        // §7) — this pins that independent of the evaluator.
         let eightRows = (0..<8).map { "row\($0)" }
         #expect(TerminalPhysicalRowWindow(rows: eightRows, clickedIndex: 0, columns: 80) == nil)
         #expect(
@@ -220,20 +309,24 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
             ) == nil
         )
 
-        // A candidate exceeding `maxWrappedRows` (4) worth of joined rows
-        // must fail closed once the evaluator enforces it — the current
-        // fallback has no row-count-aware rejection at all, so this is
-        // expected to disagree with a hypothetical (wrong) accept.
+        // A candidate needing 5 fragments (1 more than maxWrappedRows) to
+        // spell the real path must fail closed — the evaluator can only
+        // ever see spans up to length 4, so no 5-row span is even
+        // enumerated, regardless of the window holding all 5 rows.
         let cwd = "/tmp"
         let rows = ["re", "se", "ar", "ch", ".md"] // 5 fragments, 1 more than maxWrappedRows
-        let overlong = "/tmp/reseach.md" // deliberately not what the 5-row join would even spell — never expected to exist
+        let overlong = "/tmp/research.md" // exists, but only spellable by joining all 5 rows
         let resolver = TerminalPathResolver(fileExists: existsIn([overlong]))
         guard let seed = resolver.wrappedPathSeed(in: rows[0], column: 0, cwd: cwd) else {
             Issue.record("Expected a seed for the leading row")
             return
         }
+        guard let window = TerminalPhysicalRowWindow(rows: rows, clickedIndex: 0, columns: 2) else {
+            Issue.record("Expected a valid window")
+            return
+        }
         let candidate = resolver.resolveWrappedCandidate(
-            seed: seed, previousRow: nil, nextRow: rows[1], cwd: cwd, geometry: TerminalWrapGeometry(fullnessTolerance: 0)
+            seed: seed, window: window, cwd: cwd, geometry: TerminalWrapGeometry(fullnessTolerance: 0)
         )
         #expect(candidate == nil)
     }
@@ -248,9 +341,12 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         let existingFile = previousRow + clickedRow
         let resolver = TerminalPathResolver(fileExists: existsIn([existingFile]))
         let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
+        let window = try #require(
+            TerminalPhysicalRowWindow(rows: [previousRow, clickedRow], clickedIndex: 1, columns: previousRow.count)
+        )
         let candidate = try #require(
             resolver.resolveWrappedCandidate(
-                seed: seed, previousRow: previousRow, nextRow: nil, cwd: cwd, geometry: TerminalWrapGeometry(fullnessTolerance: 0)
+                seed: seed, window: window, cwd: cwd, geometry: TerminalWrapGeometry(fullnessTolerance: 0)
             )
         )
         #expect(candidate.nativeMatchKeys == [existingFile, clickedRow, previousRow])
@@ -259,21 +355,41 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
     @Test("A 4-row center click's nativeMatchKeys stay within the cap-8 exact set and order")
     func fourRowCenterClickKeysCapAtEightExactSetAndOrder() {
         let cwd = "/tmp"
-        let rows = ["resear", "ch/doc", "s/repo", "rt.md"]
-        let expectedCandidate = "/tmp/research/docs/report.md"
+        // Every row's own text contains a `/` (`leadingPieceNotPathPrefixShaped`
+        // applies to whichever row acts as the span's leading endpoint,
+        // regardless of click position — a row with no `/` at all, like a
+        // literal "resear"/"ch/doc" split, could never pass that guard from
+        // any clicked row and isn't a realistic wrapped-path shape anyway).
+        let rows = ["re/sea", "rch/do", "cs/rep", "ort.md"]
+        let expectedCandidate = "/tmp/re/search/docs/report.md"
         let resolver = TerminalPathResolver(fileExists: existsIn([expectedCandidate]))
         guard let seed = resolver.wrappedPathSeed(in: rows[1], column: 0, cwd: cwd) else {
             Issue.record("Expected a seed for the center row")
             return
         }
+        guard let window = TerminalPhysicalRowWindow(rows: rows, clickedIndex: 1, columns: 6) else {
+            Issue.record("Expected a valid window")
+            return
+        }
         let candidate = resolver.resolveWrappedCandidate(
-            seed: seed, previousRow: rows[0], nextRow: rows[2], cwd: cwd, geometry: TerminalWrapGeometry(fullnessTolerance: 0)
+            seed: seed, window: window, cwd: cwd, geometry: TerminalWrapGeometry(fullnessTolerance: 0)
         )
         // final-spec §6.4: a 4-row span clicked in the center expects
-        // exactly 8 keys (6 clicked-containing subchains + 2 immediate
-        // neighbors). Today's adjacent-row-only fallback can never
-        // resolve this 4-row candidate at all.
-        #expect(candidate?.nativeMatchKeys.count == 8)
+        // exactly 8 keys — the exact SET and ORDER (§6.2), not just the
+        // count: full candidate, clicked constituent, immediate neighbor
+        // above, immediate neighbor below, then the 4 remaining
+        // clicked-containing subchains by length-desc/start-asc.
+        #expect(candidate?.path == expectedCandidate)
+        #expect(candidate?.nativeMatchKeys == [
+            "re/search/docs/report.md", // full: [0,3]
+            "rch/do", // clicked: [1,1]
+            "re/sea", // neighbor above: [0,0]
+            "cs/rep", // neighbor below: [2,2]
+            "re/search/docs/rep", // [0,2] — length 3, start 0
+            "rch/docs/report.md", // [1,3] — length 3, start 1
+            "re/search/do", // [0,1] — length 2, start 0
+            "rch/docs/rep", // [1,2] — length 2, start 1
+        ])
     }
 
     // MARK: - parity / type
@@ -281,23 +397,24 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
     @Test("Hover-style and click-style resolves of the same fixture agree on candidate, spans, and keys")
     func hoverAndClickResolvesOfTheSameFixtureAgree() {
         let cwd = "/tmp"
-        let row0 = "foo"
-        let row1 = "/bar/"
-        let row2 = "baz.md"
+        let rows = ["foo", "/bar/", "baz.md"]
         let resolver = TerminalPathResolver(fileExists: existsIn(["/tmp/foo", "/tmp/foo/bar/baz.md"]))
         let geometry = TerminalWrapGeometry(fullnessTolerance: 0)
 
-        // Two independent resolves standing in for hover (first pass)
-        // and click (release-time re-check) against the identical input
-        // — must never disagree, regardless of whether the underlying
-        // behavior is the deferred multi-row path or today's fallback.
+        // Two independent resolves standing in for hover (first pass) and
+        // click (release-time re-check) against the identical input —
+        // must never disagree. Clicking row1 (not the bug-B-gated
+        // row-local-hit row0) keeps this test independent of that gate.
         func resolveAsIfFromRow1() -> TerminalWrappedPathResolution? {
-            guard let seed = resolver.wrappedPathSeed(in: row1, column: 0, cwd: cwd) else { return nil }
-            return resolver.resolveWrappedCandidate(seed: seed, previousRow: row0, nextRow: row2, cwd: cwd, geometry: geometry)
+            // columns: 3 — matches "foo" (row0) reaching the strict right edge.
+            guard let window = TerminalPhysicalRowWindow(rows: rows, clickedIndex: 1, columns: 3) else { return nil }
+            guard let seed = resolver.wrappedPathSeed(in: rows[1], column: 0, cwd: cwd) else { return nil }
+            return resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry)
         }
         let hoverResult = resolveAsIfFromRow1()
         let clickResult = resolveAsIfFromRow1()
         #expect(hoverResult == clickResult)
+        #expect(hoverResult?.path == "/tmp/foo/bar/baz.md")
     }
 
     // final-spec §13 "window / geometry の columns 不一致が型で作れないこと":
@@ -311,11 +428,16 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
 
     // MARK: - probe budget
 
-    @Test("Resolving a 4-row candidate never exceeds the 15-probe budget, even though the row count exceeds today's fallback")
+    @Test("Resolving a 4-row candidate never exceeds the 15-probe budget, even with all 4 rows in play")
     func fourRowResolveStaysWithinTheProbeBudget() {
         let cwd = "/tmp"
-        let rows = ["resear", "ch/doc", "s/repo", "rt.md"]
-        let expectedCandidate = "/tmp/research/docs/report.md"
+        // Every row's own text contains a `/` (`leadingPieceNotPathPrefixShaped`
+        // applies to whichever row acts as the span's leading endpoint,
+        // regardless of click position — a row with no `/` at all, like a
+        // literal "resear"/"ch/doc" split, could never pass that guard from
+        // any clicked row and isn't a realistic wrapped-path shape anyway).
+        let rows = ["re/sea", "rch/do", "cs/rep", "ort.md"]
+        let expectedCandidate = "/tmp/re/search/docs/report.md"
 
         final class ProbeRecorder: @unchecked Sendable {
             private(set) var probedPaths: [String] = []
@@ -326,19 +448,41 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
                 return existingPaths.contains((path as NSString).standardizingPath)
             }
         }
+        // The seed is constructed through a SEPARATE, non-recording
+        // resolver — `wrappedPathSeed`'s own row-local check
+        // (`resolveVisibleLinePath`) probes the filesystem too, on a
+        // completely different budget, and must never count against the
+        // wrapped-candidate-phase assertions below (matches the existing
+        // convention in `TerminalWrappedBidirectionalResolutionTests`'
+        // `ProbeRecorder` doc).
+        let seedResolver = TerminalPathResolver(fileExists: existsIn([]))
+        // Click the CENTER row (index 1), not the leading row — a leading
+        // click only ever enumerates spans starting at row 0 (3 spans
+        // total), never final-spec §8's worst case. A center click
+        // enumerates every (spanStart, spanEnd) combination §8 counts
+        // toward the 9-candidate/6-fragment-alone/15-probe budget.
+        guard let seed = seedResolver.wrappedPathSeed(in: rows[1], column: 0, cwd: cwd) else {
+            Issue.record("Expected a seed for the center row")
+            return
+        }
         let recorder = ProbeRecorder(existingPaths: [expectedCandidate])
         let resolver = TerminalPathResolver(fileExists: recorder.fileExists)
-        guard let seed = resolver.wrappedPathSeed(in: rows[0], column: 0, cwd: cwd) else {
-            Issue.record("Expected a seed for the leading row")
+        guard let window = TerminalPhysicalRowWindow(rows: rows, clickedIndex: 1, columns: 6) else {
+            Issue.record("Expected a valid window")
             return
         }
         let candidate = resolver.resolveWrappedCandidate(
-            seed: seed, previousRow: nil, nextRow: rows[1], cwd: cwd, geometry: TerminalWrapGeometry(fullnessTolerance: 0)
+            seed: seed, window: window, cwd: cwd, geometry: TerminalWrapGeometry(fullnessTolerance: 0)
         )
         #expect(recorder.probedPaths.count <= TerminalWrapGeometryTests.maxProbeBudget)
-        // The real point of this test (once the evaluator lands): the
-        // 4-row candidate must actually resolve, not just stay under
-        // budget by doing nothing.
+        // final-spec §8 rule 2 — no duplicate probe of the same
+        // standardized path across spans/boundaries within one resolve.
+        #expect(Set(recorder.probedPaths).count == recorder.probedPaths.count)
+        // final-spec §8 rule 1 — the clicked token itself ("rch/do") is
+        // never re-probed as a fragment-alone candidate.
+        #expect(!recorder.probedPaths.contains(cwd + "/" + rows[1]))
+        // The real point of this test: the 4-row candidate must actually
+        // resolve, not just stay under budget by doing nothing.
         #expect(candidate?.path == expectedCandidate)
     }
 
