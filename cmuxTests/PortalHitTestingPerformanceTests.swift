@@ -809,6 +809,65 @@ struct PortalHitTestingPerformanceTests {
     }
 
     @Test
+    func terminalSplitDividerCacheDoesNotReviveAfterWrappedDetachedMutation() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let rootView = try #require(window.contentView)
+        let container = NSView(frame: rootView.bounds)
+        let detachedContainer = NSView(frame: container.bounds)
+        container.addSubview(detachedContainer)
+        rootView.addSubview(container)
+
+        let hostedView = CapturingView(frame: rootView.bounds)
+        let host = WindowTerminalHostView(frame: rootView.bounds)
+        host.addSubview(hostedView)
+        rootView.addSubview(host)
+
+        let warmPointInWindow = rootView.convert(NSPoint(x: 20, y: 20), to: nil)
+        let warmEvent = makeMouseEvent(type: .mouseMoved, at: warmPointInWindow, window: window)
+        #expect(host.performHitTest(at: host.convert(warmPointInWindow, from: nil), currentEvent: warmEvent) === hostedView)
+
+        let windowContainer = try #require(rootView.superview)
+        let parkingView = NSView(frame: rootView.frame)
+        windowContainer.addSubview(parkingView, positioned: .below, relativeTo: rootView)
+        detachedContainer.removeFromSuperview()
+
+        // A fresh wrapper has no indexed node state. Mutating the indexed child
+        // while this whole branch is detached must still revoke its old proof.
+        let detachedWrapper = NSView(frame: detachedContainer.frame)
+        detachedWrapper.addSubview(detachedContainer)
+
+        let splitView = CountingSplitView(frame: detachedContainer.bounds)
+        splitView.isVertical = true
+        let splitDelegate = SplitDelegate()
+        splitView.delegate = splitDelegate
+        splitView.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 200, height: detachedContainer.bounds.height)))
+        splitView.addSubview(NSView(frame: NSRect(x: 201, y: 0, width: 119, height: detachedContainer.bounds.height)))
+        splitView.setPosition(200, ofDividerAt: 0)
+        splitView.adjustSubviews()
+        detachedContainer.addSubview(splitView)
+
+        // Re-enter through the unindexed wrapper, then move only the formerly
+        // indexed child back to the cache root in the same window.
+        parkingView.addSubview(detachedWrapper)
+        container.addSubview(detachedContainer)
+
+        let dividerPointInWindow = splitView.convert(
+            NSPoint(x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5), y: splitView.bounds.midY),
+            to: nil
+        )
+        let event = makeMouseEvent(type: .mouseMoved, at: dividerPointInWindow, window: window)
+        #expect(host.performHitTest(at: host.convert(dividerPointInWindow, from: nil), currentEvent: event) == nil)
+        withExtendedLifetime(splitDelegate) {}
+    }
+
+    @Test
     func terminalSplitDividerCacheRefreshesWhenNestedSplitBecomesVisible() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
