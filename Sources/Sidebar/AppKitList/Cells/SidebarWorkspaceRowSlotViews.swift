@@ -437,6 +437,11 @@ final class SidebarRowTextView: NSTextField {
             in: textContainer
         )
         guard glyphRect.contains(textPoint) else { return nil }
+        guard !visibleGlyphRanges(
+            in: NSRange(location: glyphIndex, length: 1),
+            layoutManager: layoutManager,
+            textContainer: textContainer
+        ).isEmpty else { return nil }
 
         let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
         guard characterIndex < attributedStringValue.length else { return nil }
