@@ -168,7 +168,8 @@ struct SidebarUnreadSnapshotTests {
 
         #expect(recorder.snapshots == [model.snapshot])
         #expect(model.snapshot.totalUnreadCount == 5)
-        #expect(model.snapshot.unreadSurfaceKeys == [existingKey, dockKey])
+        #expect(model.snapshot.unreadSurfaceKeys == [existingKey])
+        #expect(model.unreadSurfaceKeys == [existingKey, dockKey])
         #expect(model.snapshot.summaryByWorkspaceId == [existingWorkspaceID: summary])
         #expect(model.snapshot.focusedReadIndicatorByWorkspaceId == focusedReadIndicators)
         #expect(model.snapshot.manualUnreadWorkspaceIds == manualUnreadWorkspaceIDs)
@@ -186,7 +187,7 @@ struct SidebarUnreadSnapshotTests {
             totalUnreadCount: 4
         )
         #expect(recorder.snapshots.count == 2)
-        #expect(model.snapshot.unreadSurfaceKeys == [existingKey])
+        #expect(model.unreadSurfaceKeys == [existingKey])
         #expect(model.snapshot.totalUnreadCount == 4)
         #expect(model.snapshot.summaryByWorkspaceId == [existingWorkspaceID: summary])
     }
@@ -242,6 +243,84 @@ struct SidebarUnreadSnapshotTests {
             forWorkspaceId: ownerID,
             surfaceId: secondSurfaceID
         ))
+    }
+
+    @Test
+    @MainActor
+    func surfaceObserversReceiveOnlyTheirOwnerProjection() {
+        let observedOwnerID = UUID()
+        let otherOwnerID = UUID()
+        let firstSurfaceID = UUID()
+        let secondSurfaceID = UUID()
+        let model = SidebarUnreadModel()
+        final class Recorder {
+            var projections: [SidebarSurfaceUnreadProjection] = []
+        }
+        let recorder = Recorder()
+        let observation = model.observeSurfaceChanges(
+            forOwnerId: observedOwnerID,
+            owner: recorder
+        ) { recorder, projection in
+            recorder.projections.append(projection)
+        }
+        defer { observation.cancel() }
+
+        model.applySurfaceUnreadProjection(
+            SidebarSurfaceUnreadKey(
+                workspaceId: otherOwnerID,
+                surfaceId: firstSurfaceID
+            ),
+            isUnread: true,
+            totalUnreadCount: 1
+        )
+        #expect(recorder.projections.isEmpty)
+
+        model.applySurfaceUnreadProjection(
+            SidebarSurfaceUnreadKey(
+                workspaceId: observedOwnerID,
+                surfaceId: secondSurfaceID
+            ),
+            isUnread: true,
+            totalUnreadCount: 2
+        )
+        #expect(recorder.projections == [SidebarSurfaceUnreadProjection(
+            ownerId: observedOwnerID,
+            unreadSurfaceIds: [secondSurfaceID]
+        )])
+    }
+
+    @Test
+    @MainActor
+    func summaryObserversIgnoreSurfaceOnlyChanges() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let model = SidebarUnreadModel()
+        final class Recorder {
+            var snapshots: [SidebarUnreadSnapshot] = []
+        }
+        let recorder = Recorder()
+        let observation = model.observeSummaryChanges(owner: recorder) { recorder, snapshot in
+            recorder.snapshots.append(snapshot)
+        }
+        defer { observation.cancel() }
+
+        model.applySurfaceUnreadProjection(
+            SidebarSurfaceUnreadKey(workspaceId: workspaceID, surfaceId: surfaceID),
+            isUnread: true,
+            totalUnreadCount: 1
+        )
+        #expect(recorder.snapshots.isEmpty)
+
+        let summary = SidebarWorkspaceUnreadSummary(
+            unreadCount: 1,
+            latestNotificationText: nil
+        )
+        model.applyWorkspaceSummaryProjection(
+            forWorkspaceId: workspaceID,
+            summary: summary,
+            totalUnreadCount: 1
+        )
+        #expect(recorder.snapshots.map(\.summaryByWorkspaceId) == [[workspaceID: summary]])
     }
 
     @Test

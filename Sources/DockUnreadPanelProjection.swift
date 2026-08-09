@@ -12,8 +12,7 @@ final class DockUnreadPanelProjection {
     @ObservationIgnored private let workspaceID: UUID
     @ObservationIgnored private var panelIDs: Set<UUID> = []
     @ObservationIgnored private var isActive = false
-    @ObservationIgnored private var unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey>
-    @ObservationIgnored private var focusedReadIndicatorByWorkspaceID: [UUID: UUID]
+    @ObservationIgnored private var surfaceProjection: SidebarSurfaceUnreadProjection
     @ObservationIgnored private var unreadObservation: SidebarUnreadObservation?
 
     init(
@@ -25,15 +24,13 @@ final class DockUnreadPanelProjection {
         self.workspaceID = workspaceID
         self.panelIDs = panelIDs
         self.isActive = isActive
-        let initialSnapshot = source.snapshot
-        unreadSurfaceKeys = initialSnapshot.unreadSurfaceKeys
-        focusedReadIndicatorByWorkspaceID = initialSnapshot.focusedReadIndicatorByWorkspaceId
+        surfaceProjection = source.surfaceProjection(forOwnerId: workspaceID)
         refresh()
-        unreadObservation = source.observeChanges(owner: self) { projection, snapshot in
-            projection.receive(
-                unreadSurfaceKeys: snapshot.unreadSurfaceKeys,
-                focusedReadIndicatorByWorkspaceID: snapshot.focusedReadIndicatorByWorkspaceId
-            )
+        unreadObservation = source.observeSurfaceChanges(
+            forOwnerId: workspaceID,
+            owner: self
+        ) { projection, surfaceProjection in
+            projection.receive(surfaceProjection)
         }
     }
 
@@ -44,23 +41,16 @@ final class DockUnreadPanelProjection {
         refresh()
     }
 
-    private func receive(
-        unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey>,
-        focusedReadIndicatorByWorkspaceID: [UUID: UUID]
-    ) {
-        self.unreadSurfaceKeys = unreadSurfaceKeys
-        self.focusedReadIndicatorByWorkspaceID = focusedReadIndicatorByWorkspaceID
+    private func receive(_ surfaceProjection: SidebarSurfaceUnreadProjection) {
+        self.surfaceProjection = surfaceProjection
         refresh()
     }
 
     private func refresh() {
         let nextUnreadPanelIDs: Set<UUID>
         if isActive {
-            let focusedReadPanelID = focusedReadIndicatorByWorkspaceID[workspaceID]
             nextUnreadPanelIDs = Set(panelIDs.filter { panelID in
-                unreadSurfaceKeys.contains(
-                    SidebarSurfaceUnreadKey(workspaceId: workspaceID, surfaceId: panelID)
-                ) || focusedReadPanelID == panelID
+                surfaceProjection.hasVisibleIndicator(surfaceId: panelID)
             })
         } else {
             nextUnreadPanelIDs = []

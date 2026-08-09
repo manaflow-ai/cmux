@@ -380,9 +380,7 @@ final class TerminalNotificationStore: ObservableObject {
     private var manualUnreadSurfaceIdsByOwnerId: [UUID: Set<UUID>] = [:]
     private var manualUnreadSurfaceKeys: Set<SidebarSurfaceUnreadKey> = []
     private var manualUnreadSurfaceTargetsByRecency: [WindowDockUnreadTarget] = []
-    @Published private(set) var panelDerivedUnreadWorkspaceIds: Set<UUID> = [] {
-        didSet { refreshUnreadPresentation() }
-    }
+    @Published private(set) var panelDerivedUnreadWorkspaceIds: Set<UUID> = []
     @Published private(set) var restoredUnreadWorkspaceIds: Set<UUID> = [] {
         didSet { refreshUnreadPresentation() }
     }
@@ -553,9 +551,10 @@ final class TerminalNotificationStore: ObservableObject {
             summaries: buildSidebarUnreadSummaries(),
             unreadSurfaceKeys: Set(indexes.unreadByTabSurface.map {
                 SidebarSurfaceUnreadKey(workspaceId: $0.tabId, surfaceId: $0.surfaceId)
-            }).union(manualUnreadSurfaceKeys),
+            }),
             focusedReadIndicatorByWorkspaceId: focusedReadIndicatorByTabId,
-            manualUnreadWorkspaceIds: manualUnreadWorkspaceIds
+            manualUnreadWorkspaceIds: manualUnreadWorkspaceIds,
+            manualUnreadSurfaceIdsByOwnerId: manualUnreadSurfaceIdsByOwnerId
         )
         refreshDockBadge()
         emitUnreadBadgeEventIfChanged()
@@ -579,6 +578,22 @@ final class TerminalNotificationStore: ObservableObject {
         )
         guard ownerUnreadChanged else { return }
 
+        refreshUnreadIndicatorTotals()
+    }
+
+    /// Publishes a workspace panel-indicator transition without rebuilding the
+    /// surface index or unrelated workspace summaries.
+    private func refreshWorkspacePanelUnreadPresentation(forTabId tabId: UUID) {
+        sidebarUnread.applyWorkspaceSummaryProjection(
+            forWorkspaceId: tabId,
+            summary: buildSidebarUnreadSummary(forTabId: tabId),
+            totalUnreadCount: unreadCount
+        )
+        refreshUnreadIndicatorTotals()
+    }
+
+    /// Refreshes global indicator totals after an incremental owner transition.
+    private func refreshUnreadIndicatorTotals() {
         let nextMenuSnapshot = NotificationMenuSnapshot(
             unreadCount: unreadCount,
             hasNotifications: !notifications.isEmpty || workspaceUnreadIndicatorCount > 0,
@@ -603,21 +618,29 @@ final class TerminalNotificationStore: ObservableObject {
         var result: [UUID: SidebarWorkspaceUnreadSummary] = [:]
         result.reserveCapacity(ids.count)
         for id in ids {
-            let count = unreadCount(forTabId: id)
-            let latestNotification = indexes.latestByTabId[id]
-            let latestText: String? = latestNotification.flatMap { notification in
-                let text = notification.body.isEmpty ? notification.title : notification.body
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                return trimmed.isEmpty ? nil : trimmed
-            }
-            if count == 0, latestNotification == nil { continue }
-            result[id] = SidebarWorkspaceUnreadSummary(
-                unreadCount: count,
-                latestNotificationText: latestText,
-                hasLatestNotification: latestNotification != nil
-            )
+            guard let summary = buildSidebarUnreadSummary(forTabId: id) else { continue }
+            result[id] = summary
         }
         return result
+    }
+
+    /// Builds one workspace summary, omitting the default empty value.
+    private func buildSidebarUnreadSummary(
+        forTabId tabId: UUID
+    ) -> SidebarWorkspaceUnreadSummary? {
+        let count = unreadCount(forTabId: tabId)
+        let latestNotification = indexes.latestByTabId[tabId]
+        let latestText: String? = latestNotification.flatMap { notification in
+            let text = notification.body.isEmpty ? notification.title : notification.body
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        guard count > 0 || latestNotification != nil else { return nil }
+        return SidebarWorkspaceUnreadSummary(
+            unreadCount: count,
+            latestNotificationText: latestText,
+            hasLatestNotification: latestNotification != nil
+        )
     }
 
     private func logAuthorization(_ message: String) {
@@ -851,21 +874,26 @@ final class TerminalNotificationStore: ObservableObject {
 
     @discardableResult
     private func setPanelDerivedWorkspaceUnread(_ isUnread: Bool, forTabId tabId: UUID) -> Bool {
-        var nextIds = panelDerivedUnreadWorkspaceIds
-        let didChange: Bool
-        if isUnread {
-            didChange = nextIds.insert(tabId).inserted
-        } else {
-            didChange = nextIds.remove(tabId) != nil
+        guard panelDerivedUnreadWorkspaceIds.contains(tabId) != isUnread else {
+            return false
         }
-        guard didChange else { return false }
-        panelDerivedUnreadWorkspaceIds = nextIds
+        let ownerWasUnread = workspaceUnreadIndicatorIds.contains(tabId)
+        if isUnread {
+            panelDerivedUnreadWorkspaceIds.insert(tabId)
+        } else {
+            panelDerivedUnreadWorkspaceIds.remove(tabId)
+        }
+        let ownerIsUnread = workspaceUnreadIndicatorIds.contains(tabId)
+        if ownerWasUnread != ownerIsUnread {
+            refreshWorkspacePanelUnreadPresentation(forTabId: tabId)
+        }
         return true
     }
 
     private func clearPanelDerivedWorkspaceUnread() {
         guard !panelDerivedUnreadWorkspaceIds.isEmpty else { return }
         panelDerivedUnreadWorkspaceIds = []
+        refreshUnreadPresentation()
     }
 
     private func clearWorkspacePanelUnread(forTabId tabId: UUID) {
