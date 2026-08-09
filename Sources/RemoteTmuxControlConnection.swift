@@ -897,9 +897,14 @@ final class RemoteTmuxControlConnection {
     // MARK: - Reconnect
 
     /// Freezes the mirror and reconnects after an unusable control stream.
-    func beginReconnecting() {
+    /// - Parameter preservingBackoff: keeps the current attempt count, so successive failures space
+    ///   themselves out instead of each starting from the base delay. Set when the reason for
+    ///   reconnecting is one that can repeat immediately — a `%exit` caused by the transport dying
+    ///   arrives within a second of every attach, and resetting the backoff there turned recovery
+    ///   into a tight loop against a tunnel that can demand interactive auth on each new connection.
+    func beginReconnecting(preservingBackoff: Bool = false) {
         guard connectionState == .connected || connectionState == .connecting else { return }
-        record("reconnecting")
+        record("reconnecting\(preservingBackoff ? " preserving-backoff attempt=\(reconnectAttemptCount)" : "")")
         // The stream is dead: a close decision awaiting an activity query must
         // not hang for the whole backoff window — fail it onto the cache now.
         failPendingCommandTransactions()
@@ -920,7 +925,7 @@ final class RemoteTmuxControlConnection {
         sessionDigestSubscribed = false
         pendingPostAttachAction = nil
         teardownProcessHandles()
-        reconnectAttemptCount = 0
+        if !preservingBackoff { reconnectAttemptCount = 0 }
         awaitingInteractiveAuth = false
         connectionState = .reconnecting
         scheduleReconnectAttempt()
