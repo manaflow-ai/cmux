@@ -16,7 +16,6 @@ import {
   withApiRouteSpan,
 } from "../../../../services/telemetry";
 
-export const dynamic = "force-dynamic";
 
 type BillingCompleteDependencies = {
   isConfigured: () => boolean;
