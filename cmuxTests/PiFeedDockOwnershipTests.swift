@@ -119,6 +119,43 @@ struct PiFeedDockOwnershipTests {
     }
 
     @MainActor
+    @Test("Blocking Feed conclusion prefers its live workspace over a stale Dock copy")
+    func blockingFeedConclusionPrefersLiveWorkspaceOverStaleDockCopy() async throws {
+        try await withAppContext { appDelegate, manager, workspace, windowID in
+            let panel = try workspace.seedPiFeedPanel()
+            let staleDock = appDelegate.windowDock(forWindowId: windowID)
+            _ = try staleDock.seedPiFeedPanel(id: panel.id)
+            let target = try #require(
+                FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                    event: WorkstreamEvent(
+                        sessionId: "pi-live-workspace-blocking-feed",
+                        hookEventName: .permissionRequest,
+                        source: "pi",
+                        workspaceId: workspace.id.uuidString,
+                        surfaceId: panel.id.uuidString,
+                        requestId: "pi-live-workspace-blocking-request"
+                    ),
+                    resolved: (workspace.id, panel.id),
+                    tabManager: manager
+                )
+            )
+
+            #expect(
+                workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == .needsInput
+            )
+            #expect(workspace.statusEntries["pi"]?.value == FeedCoordinator.needsInputStatusValue)
+
+            FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
+
+            #expect(
+                workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == .running
+            )
+            #expect(workspace.statusEntries["pi"] == nil)
+            #expect(staleDock.agentRuntimeByPanelId[panel.id] == nil)
+        }
+    }
+
+    @MainActor
     @Test("Acknowledged Feed follows a surface into its window Dock")
     func acknowledgedFeedRehomesStaleWorkspaceClaimToWindowDockOwner() async throws {
         try await withAppContext { appDelegate, manager, workspace, windowID in
@@ -261,6 +298,56 @@ struct PiFeedDockOwnershipTests {
             #expect(
                 workspace.agentLifecycleStatesByPanelId[targetPanel.id]?["pi"] == .running
             )
+            #expect(workspace.statusEntries["pi"] == nil)
+        }
+    }
+
+    @MainActor
+    @Test("Blocking Feed attention follows a panel moved from workspace to window Dock")
+    func blockingFeedAttentionFollowsPanelMovedFromWorkspaceToWindowDock() async throws {
+        try await withAppContext { appDelegate, manager, workspace, windowID in
+            let targetPanel = try workspace.seedPiFeedPanel()
+            let sourceTabID = try #require(workspace.surfaceIdFromPanelId(targetPanel.id))
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+            let target = try #require(
+                FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                    event: WorkstreamEvent(
+                        sessionId: "pi-workspace-transfer-blocking-feed",
+                        hookEventName: .permissionRequest,
+                        source: "pi",
+                        workspaceId: workspace.id.uuidString,
+                        surfaceId: targetPanel.id.uuidString,
+                        toolName: "Bash",
+                        requestId: "pi-workspace-transfer-blocking-request"
+                    ),
+                    resolved: (workspace.id, targetPanel.id),
+                    tabManager: manager
+                )
+            )
+
+            #expect(appDelegate.moveSurfaceIntoDock(
+                sourceTabId: sourceTabID.uuid,
+                destinationDock: dock,
+                destination: .insert(targetPane: dockPane, targetIndex: nil)
+            ))
+            #expect(
+                dock.agentRuntimeByPanelId[targetPanel.id]?.agentLifecycleStates["pi"]
+                    == .needsInput
+            )
+            #expect(
+                dock.agentRuntimeStatusEntry(key: "pi", panelId: targetPanel.id)?.value
+                    == FeedCoordinator.needsInputStatusValue
+            )
+            #expect(workspace.statusEntries["pi"] == nil)
+
+            FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
+
+            #expect(
+                dock.agentRuntimeByPanelId[targetPanel.id]?.agentLifecycleStates["pi"]
+                    == .running
+            )
+            #expect(dock.agentRuntimeStatusEntry(key: "pi", panelId: targetPanel.id) == nil)
             #expect(workspace.statusEntries["pi"] == nil)
         }
     }

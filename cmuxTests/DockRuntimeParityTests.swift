@@ -1115,6 +1115,74 @@ struct DockRuntimeParityTests {
         }
     }
 
+    @Test("Mark Oldest atomically replaces window Dock visual-BEL unread")
+    func markOldestAtomicallyReplacesWindowDockVisualBellUnread() async throws {
+        try await withAppContext { appDelegate, _, _, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let panel = DockRuntimeParityPanel(title: "Atomic Mark Oldest")
+            try dock.seedRuntimeParityPanel(panel)
+            let notificationID = UUID()
+            notificationStore.replaceNotificationsForTesting([
+                TerminalNotification(
+                    id: notificationID,
+                    tabId: windowID,
+                    surfaceId: panel.id,
+                    title: "Read notification",
+                    subtitle: "",
+                    body: "Ready to become unread",
+                    createdAt: .now,
+                    isRead: true
+                ),
+            ])
+            appDelegate.notificationStore = notificationStore
+            #expect(notificationStore.markWindowDockSurfaceUnread(
+                windowId: windowID,
+                surfaceId: panel.id
+            ))
+            defer {
+                notificationStore.markRead(forTabId: windowID)
+                notificationStore.replaceNotificationsForTesting([])
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            let unreadProjection = DockUnreadPanelProjection(
+                source: notificationStore.sidebarUnread,
+                workspaceID: windowID,
+                panelIDs: [panel.id],
+                isActive: true
+            )
+            let observer = DockRuntimeParityUnreadObserver()
+            let observation = notificationStore.sidebarUnread.observeChanges(
+                owner: observer
+            ) { owner, snapshot in
+                owner.publicationCount += 1
+                owner.totalUnreadCounts.append(snapshot.totalUnreadCount)
+            }
+            defer { observation.cancel() }
+
+            #expect(
+                notificationStore.markLatestWindowDockNotificationAsOldestUnread(
+                    windowId: windowID,
+                    surfaceId: panel.id
+                ) == notificationID
+            )
+
+            #expect(observer.publicationCount == 1)
+            #expect(observer.totalUnreadCounts == [1])
+            #expect(unreadProjection.unreadPanelIDs == [panel.id])
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: panel.id
+            ))
+            #expect(notificationStore.hasUnreadNotification(
+                forTabId: windowID,
+                surfaceId: panel.id
+            ))
+        }
+    }
+
     @Test("Terminal bell in a non-key cmux window marks its Dock pane unread")
     func terminalBellInNonKeyCmuxWindowMarksDockPaneUnread() async throws {
         try await withAppContext { appDelegate, _, _, windowID in
