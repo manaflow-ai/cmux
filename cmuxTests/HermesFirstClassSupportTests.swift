@@ -602,6 +602,65 @@ struct HermesFirstClassSupportTests {
         #expect(entry.cwd == fixture.repo.path)
     }
 
+    @Test("Default Hermes Vault resumes stay on the indexed profile")
+    func defaultHermesVaultResumePinsIndexedProfile() throws {
+        let root = try temporaryDirectory(prefix: "cmux-hermes-vault-resume")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        let launcher = binDirectory.appendingPathComponent("hermes", isDirectory: false)
+        try """
+        #!/bin/sh
+        profile=
+        previous=
+        for argument in "$@"; do
+          if [ "$previous" = "--profile" ]; then
+            profile="$argument"
+          fi
+          previous="$argument"
+        done
+        if [ "$HERMES_HOME" != "$EXPECTED_HERMES_HOME" ]; then
+          echo "wrong Hermes home"
+          exit 41
+        fi
+        if [ "$profile" != "default" ]; then
+          echo "wrong Hermes profile"
+          exit 42
+        fi
+        printf '%s\n' "$@"
+        """.write(to: launcher, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: launcher.path)
+
+        let entry = SessionEntry(
+            id: "hermes-agent:indexed-session",
+            agent: .hermesAgent,
+            sessionId: "indexed-session",
+            title: "Indexed session",
+            cwd: nil,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 0),
+            fileURL: nil,
+            specifics: .hermesAgent(source: "tui", model: nil, hermesHome: nil)
+        )
+        let expectedHome = HermesAgentSessionResolver.hermesHome(env: ["HOME": NSHomeDirectory()])
+        let result = try runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", entry.resumeCommand],
+            environment: [
+                "HOME": NSHomeDirectory(),
+                "HERMES_HOME": root.appendingPathComponent("wrong-profile").path,
+                "EXPECTED_HERMES_HOME": expectedHome,
+                "PATH": "\(binDirectory.path):/usr/bin:/bin",
+            ]
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        #expect(result.output.split(separator: "\n").map(String.init) == [
+            "--profile", "default", "--tui", "--resume", "indexed-session",
+        ])
+    }
+
     @MainActor
     @Test("Indexed Hermes sessions form a visible Vault section")
     func indexedSessionsFormVisibleVaultSection() throws {
