@@ -67,11 +67,33 @@ describe("coderouter analytics", () => {
         properties: Record<string, unknown>;
       }>;
     };
-    expect(payload.batch[0]?.distinct_id).toBe("stack-user-1");
+    expect(payload.batch[0]?.distinct_id).not.toContain("stack-user-1");
+    expect(payload.batch[0]?.distinct_id).toStartWith("coderouter-team-");
+    expect(payload.batch[0]?.properties.$process_person_profile).toBe(false);
     expect(payload.batch[0]?.properties.$groups).toEqual({
       coderouter_team: "team-1",
     });
     expect(payload.batch[0]?.properties.$insert_id).toBeString();
+    expect(bodies[0]).not.toContain("stack-user-1");
+  });
+
+  test("drops aggregate usage events that have no team scope", () => {
+    const defer = mock(() => {});
+
+    captureCoderouterEvent(
+      {
+        event: "coderouter_model_request_completed",
+        userId: "stack-user-1",
+        properties: { total_tokens: 10 },
+      },
+      {
+        fetch,
+        defer,
+        enabled: () => true,
+      },
+    );
+
+    expect(defer).not.toHaveBeenCalled();
   });
 });
 
