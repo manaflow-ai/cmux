@@ -18,6 +18,7 @@ final class NativeScrollInteractionUITests: XCTestCase {
         XCTAssertTrue(metrics.label.contains("IDLE"))
         let audit = try XCTUnwrap(metrics.value as? String)
         XCTAssertTrue(audit.contains("Deceleration observed"), audit)
+        XCTAssertTrue(audit.contains("Fixed chrome stable"), audit)
         let rows = audit.matches(of: /row (\d+)/).compactMap { UInt64($0.1) }
         XCTAssertEqual(rows.count, 2)
         XCTAssertEqual(rows[0], rows[1])
