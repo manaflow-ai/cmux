@@ -148,10 +148,100 @@ struct PiFeedDockOwnershipTests {
             FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
 
             #expect(
-                workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == .running
+                workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == nil
             )
             #expect(workspace.statusEntries["pi"] == nil)
             #expect(staleDock.agentRuntimeByPanelId[panel.id] == nil)
+        }
+    }
+
+    @MainActor
+    @Test("Blocking Feed restores the lifecycle state it overlaid")
+    func blockingFeedRestoresPreviousLifecycleState() async throws {
+        try await withAppContext { _, manager, workspace, _ in
+            let panel = try workspace.seedPiFeedPanel()
+            workspace.setAgentLifecycle(key: "pi", panelId: panel.id, lifecycle: .idle)
+            let target = try #require(
+                FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                    event: WorkstreamEvent(
+                        sessionId: "pi-restore-previous-lifecycle-feed",
+                        hookEventName: .permissionRequest,
+                        source: "pi",
+                        workspaceId: workspace.id.uuidString,
+                        surfaceId: panel.id.uuidString,
+                        requestId: "pi-restore-previous-lifecycle-request"
+                    ),
+                    resolved: (workspace.id, panel.id),
+                    tabManager: manager
+                )
+            )
+
+            #expect(
+                workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == .needsInput
+            )
+
+            FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
+
+            #expect(
+                workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == .idle
+            )
+            #expect(workspace.statusEntries["pi"] == nil)
+        }
+    }
+
+    @MainActor
+    @Test("Resolved Feed cannot transfer another panel's Needs input status")
+    func resolvedFeedCannotTransferAnotherPanelsNeedsInputStatus() async throws {
+        try await withAppContext { appDelegate, manager, workspace, windowID in
+            let resolvedPanel = try workspace.seedPiFeedPanel()
+            let pendingPanel = try workspace.seedPiFeedPanel()
+            let resolvedTarget = try #require(
+                FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                    event: WorkstreamEvent(
+                        sessionId: "pi-resolved-panel-feed",
+                        hookEventName: .permissionRequest,
+                        source: "pi",
+                        workspaceId: workspace.id.uuidString,
+                        surfaceId: resolvedPanel.id.uuidString,
+                        requestId: "pi-resolved-panel-request"
+                    ),
+                    resolved: (workspace.id, resolvedPanel.id),
+                    tabManager: manager
+                )
+            )
+            FeedCoordinator.shared.concludeBlockingDecisionAttention(resolvedTarget)
+
+            let pendingTarget = try #require(
+                FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                    event: WorkstreamEvent(
+                        sessionId: "pi-pending-panel-feed",
+                        hookEventName: .permissionRequest,
+                        source: "pi",
+                        workspaceId: workspace.id.uuidString,
+                        surfaceId: pendingPanel.id.uuidString,
+                        requestId: "pi-pending-panel-request"
+                    ),
+                    resolved: (workspace.id, pendingPanel.id),
+                    tabManager: manager
+                )
+            )
+            defer { FeedCoordinator.shared.concludeBlockingDecisionAttention(pendingTarget) }
+
+            let resolvedTabID = try #require(workspace.surfaceIdFromPanelId(resolvedPanel.id))
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+            #expect(appDelegate.moveSurfaceIntoDock(
+                sourceTabId: resolvedTabID.uuid,
+                destinationDock: dock,
+                destination: .insert(targetPane: dockPane, targetIndex: nil)
+            ))
+
+            #expect(dock.agentRuntimeByPanelId[resolvedPanel.id] == nil)
+            #expect(
+                workspace.agentLifecycleStatesByPanelId[pendingPanel.id]?["pi"]
+                    == .needsInput
+            )
+            #expect(workspace.statusEntries["pi"]?.value == FeedCoordinator.needsInputStatusValue)
         }
     }
 
@@ -296,7 +386,7 @@ struct PiFeedDockOwnershipTests {
             #expect(recorder.transferredWasNeedsInput)
             #expect(recorder.transferredStatusValue == FeedCoordinator.needsInputStatusValue)
             #expect(
-                workspace.agentLifecycleStatesByPanelId[targetPanel.id]?["pi"] == .running
+                workspace.agentLifecycleStatesByPanelId[targetPanel.id]?["pi"] == nil
             )
             #expect(workspace.statusEntries["pi"] == nil)
         }
@@ -344,8 +434,7 @@ struct PiFeedDockOwnershipTests {
             FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
 
             #expect(
-                dock.agentRuntimeByPanelId[targetPanel.id]?.agentLifecycleStates["pi"]
-                    == .running
+                dock.agentRuntimeByPanelId[targetPanel.id]?.agentLifecycleStates["pi"] == nil
             )
             #expect(dock.agentRuntimeStatusEntry(key: "pi", panelId: targetPanel.id) == nil)
             #expect(workspace.statusEntries["pi"] == nil)
@@ -412,7 +501,7 @@ struct PiFeedDockOwnershipTests {
             FeedCoordinator.shared.concludeBlockingDecisionAttention(secondTarget)
 
             #expect(
-                workspace.agentLifecycleStatesByPanelId[targetPanel.id]?["pi"] == .running
+                workspace.agentLifecycleStatesByPanelId[targetPanel.id]?["pi"] == nil
             )
             #expect(workspace.statusEntries["pi"] == nil)
         }
