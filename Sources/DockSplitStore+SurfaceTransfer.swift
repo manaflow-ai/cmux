@@ -232,6 +232,7 @@ extension DockSplitStore {
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         panelCancellables[panelId]?.cancel()
         panelCancellables.removeValue(forKey: panelId)
+        filePreviewMetadataObservationTasks.removeValue(forKey: panelId)?.cancel()
         surfaceIdToPanelId.removeValue(forKey: tabId)
         panels.removeValue(forKey: panelId)
 
@@ -513,6 +514,7 @@ extension DockSplitStore {
         scheduleDockPortalReconcile(reason: reconcileReason)
     }
 
+    /// Returns the Bonsplit tab kind for a transferred Dock panel.
     static func surfaceKind(for panel: any Panel) -> String {
         switch panel.panelType {
         case .terminal:

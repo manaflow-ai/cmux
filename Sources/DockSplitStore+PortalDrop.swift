@@ -140,6 +140,7 @@ extension DockSplitStore {
         }
     }
 
+    /// Opens file-preview tabs in one already-validated Dock pane.
     @discardableResult
     func openFilePreviewSurfaces(
         inPane paneId: PaneID,
@@ -172,6 +173,7 @@ extension DockSplitStore {
         return openedPanels
     }
 
+    /// Creates one file-preview tab and preserves or moves Dock focus as requested.
     @discardableResult
     func newFilePreviewSurface(
         inPane paneId: PaneID,
@@ -197,6 +199,7 @@ extension DockSplitStore {
         return panel
     }
 
+    /// Creates one preview without performing a separate pane lookup or focus change.
     private func newFilePreviewSurfaceInValidatedPane(
         inPane paneId: PaneID,
         filePath: String,
@@ -224,6 +227,7 @@ extension DockSplitStore {
         return panel
     }
 
+    /// Creates the first preview in a new pane and returns that exact pane.
     private func splitPaneWithFilePreview(
         targetPane paneId: PaneID,
         orientation: SplitOrientation,

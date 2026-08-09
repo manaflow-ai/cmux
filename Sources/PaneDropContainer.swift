@@ -8,12 +8,15 @@ import Foundation
 /// in a `Workspace`.
 @MainActor
 protocol PaneDropContainer: AnyObject {
+    /// Returns the selected panel owned by `paneId`.
     func selectedPanelForPaneDrop(
         in paneId: PaneID
     ) -> (panelId: UUID, panel: any Panel)?
 
+    /// Returns whether this container accepts the portal transfer.
     func canPerformPortalPaneDrop(_ transfer: PaneDragTransfer) -> Bool
 
+    /// Resolves the effective target zone for a portal transfer.
     func portalPaneDropZone(
         tabId: UUID,
         sourcePaneId: UUID,
@@ -21,6 +24,7 @@ protocol PaneDropContainer: AnyObject {
         proposedZone: DropZone
     ) -> DropZone
 
+    /// Performs a portal transfer within or into this container.
     func performPortalPaneDrop(
         tabId: UUID,
         sourcePaneId: UUID,
@@ -28,20 +32,24 @@ protocol PaneDropContainer: AnyObject {
         zone: DropZone
     ) -> Bool
 
+    /// Returns the drag operation for a simulator file destination, if present.
     func simulatorFileDropOperation(
         urls: [URL],
         panelId: UUID
     ) -> NSDragOperation?
 
+    /// Performs a simulator file drop, or returns `nil` for non-simulator panels.
     func performSimulatorFileDrop(
         urls: [URL],
         panelId: UUID
     ) -> Bool?
 
+    /// Opens external files within this container's split tree.
     func handleExternalFileDrop(
         _ request: BonsplitController.ExternalFileDropRequest
     ) -> Bool
 
+    /// Restores container-owned focus after a successful text drop.
     func focusPanelAfterSuccessfulPaneDrop(
         panelId: UUID,
         focusIntent: PanelFocusIntent,
@@ -50,10 +58,12 @@ protocol PaneDropContainer: AnyObject {
 }
 
 extension PaneDropContainer {
+    /// Accepts only transfers created by this cmux process by default.
     func canPerformPortalPaneDrop(_ transfer: PaneDragTransfer) -> Bool {
         transfer.isFromCurrentProcess
     }
 
+    /// Declines simulator routing for containers without simulator panels.
     func simulatorFileDropOperation(
         urls _: [URL],
         panelId _: UUID
@@ -61,6 +71,7 @@ extension PaneDropContainer {
         nil
     }
 
+    /// Declines simulator handling for containers without simulator panels.
     func performSimulatorFileDrop(
         urls _: [URL],
         panelId _: UUID
@@ -68,6 +79,7 @@ extension PaneDropContainer {
         nil
     }
 
+    /// Inserts text and applies the container's focus transaction on success.
     @discardableResult
     func performPanelTextDrop(
         panelId: UUID,
@@ -84,6 +96,7 @@ extension PaneDropContainer {
         return true
     }
 
+    /// Resolves whether the target pane accepts dropped files as text.
     func fileDropTextDestinationKind(
         in paneId: PaneID,
         hasHostedTerminal: Bool
@@ -109,6 +122,7 @@ extension PaneDropContainer {
         }
     }
 
+    /// Inserts dropped file paths into the target terminal or text editor.
     func performFileDropAsText(
         _ urls: [URL],
         context: PaneDropContext,
@@ -154,6 +168,7 @@ extension PaneDropContainer {
 }
 
 extension Workspace: PaneDropContainer {
+    /// Returns the workspace panel selected in the target pane.
     func selectedPanelForPaneDrop(
         in paneId: PaneID
     ) -> (panelId: UUID, panel: any Panel)? {
@@ -165,6 +180,7 @@ extension Workspace: PaneDropContainer {
         return (panelId, panel)
     }
 
+    /// Delegates simulator drag validation to the workspace policy.
     func simulatorFileDropOperation(
         urls: [URL],
         panelId: UUID
@@ -176,6 +192,7 @@ extension Workspace: PaneDropContainer {
         )
     }
 
+    /// Delegates simulator file handling to the workspace.
     func performSimulatorFileDrop(
         urls: [URL],
         panelId: UUID
@@ -183,6 +200,7 @@ extension Workspace: PaneDropContainer {
         handleSimulatorExternalFileDrop(urls: urls, panelId: panelId)
     }
 
+    /// Applies workspace focus intent after inserting dropped text.
     func focusPanelAfterSuccessfulPaneDrop(
         panelId: UUID,
         focusIntent: PanelFocusIntent,
@@ -199,6 +217,7 @@ extension Workspace: PaneDropContainer {
 }
 
 extension DockSplitStore: PaneDropContainer {
+    /// Returns the Dock panel selected in the target pane.
     func selectedPanelForPaneDrop(
         in paneId: PaneID
     ) -> (panelId: UUID, panel: any Panel)? {
@@ -210,6 +229,7 @@ extension DockSplitStore: PaneDropContainer {
         return (panelId, panel)
     }
 
+    /// Accepts Dock-local transfers and valid transfers from another container.
     func canPerformPortalPaneDrop(_ transfer: PaneDragTransfer) -> Bool {
         if containsPane(transfer.sourcePaneId) { return true }
         return AppDelegate.shared?.canMoveSurfaceIntoDock(
@@ -218,6 +238,7 @@ extension DockSplitStore: PaneDropContainer {
         ) == true
     }
 
+    /// Applies the Dock focus transaction after inserting dropped text.
     func focusPanelAfterSuccessfulPaneDrop(
         panelId: UUID,
         focusIntent: PanelFocusIntent,
@@ -229,6 +250,7 @@ extension DockSplitStore: PaneDropContainer {
 }
 
 extension AppDelegate {
+    /// Resolves the workspace or Dock that authoritatively owns a drop target.
     func paneDropContainer(
         for context: PaneDropContext
     ) -> (any PaneDropContainer)? {

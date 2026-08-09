@@ -6,8 +6,16 @@ import CmuxTerminal
 
 final class PaneDropTargetView: NSView {
     weak var hostedView: GhosttySurfaceScrollView?
-    var dropContext: PaneDropContext?
+    var dropContext: PaneDropContext? {
+        didSet {
+            if dropContext != oldValue {
+                clearActiveDropContainer()
+            }
+        }
+    }
     private var activeZone: DropZone?
+    private weak var activeDropContainer: (any PaneDropContainer)?
+    private var activeDropContainerContext: PaneDropContext?
     private let dropRoutingRegistration = PaneDropRoutingRegistration()
     private let dropZoneOverlayView = NSView(frame: .zero)
     private lazy var dropZoneOverlayAnimator = PaneDropZoneOverlayAnimator(overlayView: dropZoneOverlayView)
@@ -33,6 +41,7 @@ final class PaneDropTargetView: NSView {
     override func viewWillMove(toSuperview newSuperview: NSView?) {
         if newSuperview == nil {
             dropRoutingRegistration.clear()
+            clearActiveDropContainer()
         }
         super.viewWillMove(toSuperview: newSuperview)
     }
@@ -83,6 +92,11 @@ final class PaneDropTargetView: NSView {
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        if let dropContext {
+            _ = resolveAndCacheDropContainer(for: dropContext)
+        } else {
+            clearActiveDropContainer()
+        }
         let operation = updateDragState(sender, phase: "entered")
         dropRoutingRegistration.update(sender, operation: operation, targetView: self)
         return operation
@@ -97,6 +111,7 @@ final class PaneDropTargetView: NSView {
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         dropRoutingRegistration.clear(sender)
         clearDragState(phase: "exited")
+        clearActiveDropContainer()
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
@@ -104,6 +119,7 @@ final class PaneDropTargetView: NSView {
         defer {
             dropRoutingRegistration.clear(sender)
             clearDragState(phase: "perform.clear")
+            clearActiveDropContainer()
         }
 
         guard let dropContext else {
@@ -113,7 +129,7 @@ final class PaneDropTargetView: NSView {
             return false
         }
 
-        guard let container = AppDelegate.shared?.paneDropContainer(for: dropContext) else {
+        guard let container = cachedDropContainer(for: dropContext) else {
 #if DEBUG
             cmuxDebugLog("terminal.paneDrop.perform allowed=0 reason=missingContainer")
 #endif
@@ -209,7 +225,11 @@ final class PaneDropTargetView: NSView {
         return handled
     }
 
-    private func updateDragState(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
+    /// Resolves the current drag operation using the cached entry-time owner.
+    private func updateDragState(
+        _ sender: any NSDraggingInfo,
+        phase: String
+    ) -> NSDragOperation {
         let location = convert(sender.draggingLocation, from: nil)
         if shouldDeferToPaneTabBar(at: location) {
             clearDragState(phase: "\(phase).tabBar")
@@ -221,7 +241,7 @@ final class PaneDropTargetView: NSView {
             return []
         }
 
-        guard let container = AppDelegate.shared?.paneDropContainer(for: dropContext) else {
+        guard let container = cachedDropContainer(for: dropContext) else {
             clearDragState(phase: "\(phase).reject")
             return []
         }
@@ -289,6 +309,30 @@ final class PaneDropTargetView: NSView {
         )
 #endif
         return .copy
+    }
+
+    /// Resolves pane ownership once when a drag enters this target.
+    private func resolveAndCacheDropContainer(
+        for context: PaneDropContext
+    ) -> (any PaneDropContainer)? {
+        let container = AppDelegate.shared?.paneDropContainer(for: context)
+        activeDropContainer = container
+        activeDropContainerContext = container == nil ? nil : context
+        return container
+    }
+
+    /// Reuses the entry-time owner during drag updates and drop execution.
+    private func cachedDropContainer(
+        for context: PaneDropContext
+    ) -> (any PaneDropContainer)? {
+        guard activeDropContainerContext == context else { return nil }
+        return activeDropContainer
+    }
+
+    /// Releases cached ownership when the drag or target context ends.
+    private func clearActiveDropContainer() {
+        activeDropContainer = nil
+        activeDropContainerContext = nil
     }
 
     static func simulatorFileDropOperation(

@@ -2342,6 +2342,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
+    /// Async file-preview metadata observations keyed by their owned panel.
+    var filePreviewMetadataObservationTasks: [UUID: Task<Void, Never>] = [:]
     private var agentSessionPanelCallbackIds: Set<UUID> = []
 
     /// Aggregate media-device activity across every browser pane in this
@@ -3505,6 +3507,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let featureFlagsObserver {
             NotificationCenter.default.removeObserver(featureFlagsObserver)
         }
+        filePreviewMetadataObservationTasks.values.forEach { $0.cancel() }
         activeRemoteSessionControllerID = nil
         remoteSessionTransitionTask?.cancel()
         remoteSessionController?.stop(cleanupScope: .persistentSlot)
@@ -4271,13 +4274,15 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func installFilePreviewPanelSubscription(_ filePreviewPanel: FilePreviewPanel) {
-        let subscription = filePreviewPanel.tabMetadataPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self, weak filePreviewPanel] metadata in
-                guard let self,
-                      let filePreviewPanel,
-                      let tabId = self.surfaceIdFromPanelId(filePreviewPanel.id) else { return }
-                guard let existing = self.bonsplitController.tab(tabId) else { return }
+        let updates = filePreviewPanel.tabMetadataUpdates
+        let observationTask = Task { @MainActor [weak self, weak filePreviewPanel] in
+            for await metadata in updates {
+                guard !Task.isCancelled else { break }
+                guard let self, let filePreviewPanel else { break }
+                guard let tabId = self.surfaceIdFromPanelId(filePreviewPanel.id),
+                      let existing = self.bonsplitController.tab(tabId) else {
+                    continue
+                }
 
                 if self.panelTitles[filePreviewPanel.id] != metadata.title {
                     self.panelTitles[filePreviewPanel.id] = metadata.title
@@ -4293,7 +4298,9 @@ final class Workspace: Identifiable, ObservableObject {
                 let iconUpdate: String?? = existing.icon == resolvedIcon ? nil : .some(resolvedIcon)
                 let dirtyUpdate: Bool? =
                     existing.isDirty == metadata.isDirty ? nil : metadata.isDirty
-                guard titleUpdate != nil || iconUpdate != nil || dirtyUpdate != nil else { return }
+                guard titleUpdate != nil || iconUpdate != nil || dirtyUpdate != nil else {
+                    continue
+                }
                 self.bonsplitController.updateTab(
                     tabId,
                     title: titleUpdate,
@@ -4302,7 +4309,9 @@ final class Workspace: Identifiable, ObservableObject {
                     isDirty: dirtyUpdate
                 )
             }
-        panelSubscriptions[filePreviewPanel.id] = subscription
+        }
+        filePreviewMetadataObservationTasks.removeValue(forKey: filePreviewPanel.id)?.cancel()
+        filePreviewMetadataObservationTasks[filePreviewPanel.id] = observationTask
     }
 
     private func installAgentSessionPanelSubscription(_ agentPanel: AgentSessionPanel) {
@@ -9786,6 +9795,7 @@ final class Workspace: Identifiable, ObservableObject {
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
+            filePreviewMetadataObservationTasks.removeValue(forKey: detached.panelId)?.cancel()
             discardBrowserPanelSubscription(panelId: detached.panelId, panel: detached.panel)
             if let agentPanel = detached.panel as? AgentSessionPanel {
                 agentPanel.onDisplayStateChanged = nil
@@ -9867,7 +9877,7 @@ final class Workspace: Identifiable, ObservableObject {
             installMarkdownPanelSubscription(markdownPanel)
         }
         if let filePreviewPanel = detached.panel as? FilePreviewPanel,
-           panelSubscriptions[filePreviewPanel.id] == nil {
+           filePreviewMetadataObservationTasks[filePreviewPanel.id] == nil {
             installFilePreviewPanelSubscription(filePreviewPanel)
         }
         if let agentPanel = detached.panel as? AgentSessionPanel {

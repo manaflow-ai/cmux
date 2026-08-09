@@ -381,6 +381,7 @@ extension DockSplitStore {
         return browser.id
     }
 
+    /// Recreates one persisted file-preview panel in its restored Dock pane.
     private func restoreSessionFilePreview(
         from snapshot: SessionPanelSnapshot,
         inPane paneId: PaneID,

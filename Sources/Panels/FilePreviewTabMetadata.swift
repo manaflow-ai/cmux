@@ -1,14 +1,14 @@
 import Combine
 
-struct FilePreviewTabMetadata: Equatable {
+struct FilePreviewTabMetadata: Equatable, Sendable {
     let title: String
     let displayIcon: String?
     let isDirty: Bool
 }
 
 extension FilePreviewPanel {
-    /// Reuses the panel's existing observation path for every tab owner.
-    var tabMetadataPublisher: AnyPublisher<FilePreviewTabMetadata, Never> {
+    /// Exposes the existing published metadata as an owner-cancellable sequence.
+    var tabMetadataUpdates: some AsyncSequence<FilePreviewTabMetadata, Never> {
         Publishers.CombineLatest3(
             $displayTitle.removeDuplicates(),
             $displayIcon.removeDuplicates(),
@@ -21,6 +21,6 @@ extension FilePreviewPanel {
                 isDirty: isDirty
             )
         }
-        .eraseToAnyPublisher()
+        .values
     }
 }

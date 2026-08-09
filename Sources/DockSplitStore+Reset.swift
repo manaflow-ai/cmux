@@ -31,6 +31,8 @@ extension DockSplitStore {
         restoredResumeSessionWorkingDirectoriesByPanelId.removeAll()
         panelCancellables.values.forEach { $0.cancel() }
         panelCancellables.removeAll()
+        filePreviewMetadataObservationTasks.values.forEach { $0.cancel() }
+        filePreviewMetadataObservationTasks.removeAll()
     }
 
     func cancelConfigurationTasks() {

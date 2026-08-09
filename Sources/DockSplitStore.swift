@@ -50,6 +50,8 @@ final class DockSplitStore: BonsplitDelegate {
     @ObservationIgnored private var activeTerminalFontSizeChangeInheritanceContext:
         TerminalFontSizeChangeInheritanceContext?
     var panelCancellables: [UUID: AnyCancellable] = [:]
+    /// Async file-preview metadata observations keyed by their owned panel.
+    @ObservationIgnored var filePreviewMetadataObservationTasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
     /// Live agent runtime owned by Dock panels. The matching transfer snapshot
     /// is kept in sync so the state survives Dock-to-workspace moves.
@@ -312,6 +314,10 @@ final class DockSplitStore: BonsplitDelegate {
         }
         focusHistoryNavigation.attach(host: self)
         Self.liveStoresTable.add(self)
+    }
+
+    deinit {
+        filePreviewMetadataObservationTasks.values.forEach { $0.cancel() }
     }
 
     var focusHistoryIncludesPanesAndTabs: Bool {
@@ -934,13 +940,14 @@ final class DockSplitStore: BonsplitDelegate {
             }
             panelCancellables[panel.id] = cancellable
         } else if let filePreview = panel as? FilePreviewPanel {
-            let cancellable = filePreview.tabMetadataPublisher
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self, weak filePreview] update in
-                    guard let self, let filePreview,
-                          let tabId = self.surfaceId(forPanelId: filePreview.id),
+            let updates = filePreview.tabMetadataUpdates
+            let observationTask = Task { @MainActor [weak self, weak filePreview] in
+                for await update in updates {
+                    guard !Task.isCancelled else { break }
+                    guard let self, let filePreview else { break }
+                    guard let tabId = self.surfaceId(forPanelId: filePreview.id),
                           let existing = self.bonsplitController.tab(tabId) else {
-                        return
+                        continue
                     }
                     let icon = RenderableSystemSymbol.resolvedSurfaceTabIcon(
                         update.displayIcon
@@ -953,7 +960,7 @@ final class DockSplitStore: BonsplitDelegate {
                     let dirtyUpdate: Bool? =
                         existing.isDirty == update.isDirty ? nil : update.isDirty
                     guard titleUpdate != nil || iconUpdate != nil || dirtyUpdate != nil else {
-                        return
+                        continue
                     }
                     self.bonsplitController.updateTab(
                         tabId,
@@ -962,7 +969,9 @@ final class DockSplitStore: BonsplitDelegate {
                         isDirty: dirtyUpdate
                     )
                 }
-            panelCancellables[filePreview.id] = cancellable
+            }
+            filePreviewMetadataObservationTasks.removeValue(forKey: filePreview.id)?.cancel()
+            filePreviewMetadataObservationTasks[filePreview.id] = observationTask
         } else if tracksTerminalTitle, let terminal = panel as? TerminalPanel {
             let cancellable = terminal.$title
                 .removeDuplicates()
