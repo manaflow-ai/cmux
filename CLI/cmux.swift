@@ -446,19 +446,17 @@ final class ClaudeHookSessionStore {
             )
             if eventName == "SubagentStop",
                conservativeActiveWorkCount == 0,
-               var settlement = deferredSettlementsByTurn[turnKey] {
-                let hasLiveClaim = settlement.replayClaimID != nil
-                    && settlement.replayClaimedAt.map {
-                        $0 > now - Self.deferredSettlementReplayLeaseSeconds
-                    } == true
-                if hasLiveClaim {
-                    deferredSettlement = nil
-                } else {
-                    settlement.replayClaimID = UUID()
-                    settlement.replayClaimedAt = now
-                    deferredSettlementsByTurn[turnKey] = settlement
-                    deferredSettlement = settlement
+               let existingSettlement = deferredSettlementsByTurn[turnKey] {
+                let claimedSettlement = existingSettlement.claimingReplay(
+                    at: now,
+                    leaseDuration:
+                        Self.deferredSettlementReplayLeaseSeconds,
+                    claimID: UUID()
+                )
+                if let claimedSettlement {
+                    deferredSettlementsByTurn[turnKey] = claimedSettlement
                 }
+                deferredSettlement = claimedSettlement
             } else {
                 deferredSettlement = nil
             }
@@ -673,13 +671,13 @@ final class ClaudeHookSessionStore {
             let turnKey = structuredBackgroundWorkTurnKey(settlement.turnId)
             var deferredSettlementsByTurn =
                 record.deferredTurnSettlementsByTurn ?? [:]
-            guard var current = deferredSettlementsByTurn[turnKey],
-                  current == settlement else {
+            guard let current = deferredSettlementsByTurn[turnKey],
+                  let released = current.releasingReplayClaim(
+                    matching: settlement
+                  ) else {
                 return
             }
-            current.replayClaimID = nil
-            current.replayClaimedAt = nil
-            deferredSettlementsByTurn[turnKey] = current
+            deferredSettlementsByTurn[turnKey] = released
             record.deferredTurnSettlementsByTurn = deferredSettlementsByTurn
             record.updatedAt = clock().timeIntervalSince1970
             state.sessions[normalizedSessionId] = record

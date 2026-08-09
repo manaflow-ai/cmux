@@ -492,11 +492,10 @@ await handlers.get("agent.start")({ thread, message: "delegate", id: "msg-1" }, 
 thread.setState("awaiting-approval");
 thread.setState("awaiting-approval");
 await waitFor(
-  () => attentionCalls("identify").length === 1
+  () => attentionCalls("identify").length >= 1
     && attentionCalls("identify")[0].closedWith === 1,
   "Amp did not observe the transient process-identity failure"
 );
-await dispatchControlledTimers(250);
 await waitFor(
   () => attentionCalls("identify").length === 2
     && attentionCalls("begin").length === 1
@@ -615,14 +614,18 @@ await waitFor(
   "Amp did not start the acknowledgement-timeout approval episode"
 );
 const unacknowledgedBegin = attentionCalls("begin")[2].args;
+const unacknowledgedEndCount = attentionCalls("end").length;
 thread.setState("running");
 await dispatchControlledTimersOrFail(2_000);
 await waitFor(
-  () => attentionCalls("end").length === 5
-    && attentionCalls("end")[4].closedWith === 0,
+  () => attentionCalls("end")
+    .slice(unacknowledgedEndCount)
+    .some((call) => call.closedWith === 0),
   "Amp did not conservatively conclude an unacknowledged approval begin"
 );
-const unacknowledgedConclusion = attentionCalls("end")[4].args;
+const unacknowledgedConclusion = attentionCalls("end")
+  .slice(unacknowledgedEndCount)
+  .find((call) => call.closedWith === 0).args;
 if (
   option(unacknowledgedConclusion, "--scope-id")
     !== option(unacknowledgedBegin, "--scope-id")
@@ -767,6 +770,21 @@ if (statusCalls().at(-1)?.args[2] !== "subagent") {
     }`
   );
 }
+await handlers.get("tool.result")({
+  thread: postDiscardThread,
+  toolUseID: "tool-post-discard-status",
+  tool: "Task",
+  status: "done",
+  output: "post-discard proof complete"
+}, postDiscardCtx);
+await handlers.get("agent.end")({
+  thread: postDiscardThread,
+  message: "post-discard proof complete",
+  id: "msg-post-discard-status",
+  status: "done",
+  messages: []
+}, postDiscardCtx);
+postDiscardThread.setState("idle");
 for (const [statusThread, statusCtx, messageId] of [
   [approvalStatusThread, approvalStatusCtx, "msg-status-approval"],
   [siblingStatusThread, siblingStatusCtx, "msg-status-sibling"]

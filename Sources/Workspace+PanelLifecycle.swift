@@ -327,7 +327,7 @@ extension Workspace {
         }
         if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
         sidebarAgentRuntimeObservation.cancelAgentProcessExitObservation(key: key)
-        if let panelId, let processIdentity {
+        if panelId != nil, let processIdentity {
             sidebarAgentRuntimeObservation.observeAgentProcessExit(
                 key: key,
                 generation: processIdentity
