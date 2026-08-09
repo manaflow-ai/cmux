@@ -8,7 +8,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite struct RemoteTmuxSessionSnapshotTests {
+@Suite(.serialized) struct RemoteTmuxSessionSnapshotTests {
     @Test func sessionSnapshotSkipsWindowWithOnlyRemoteTmuxMirrorWorkspaces() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
