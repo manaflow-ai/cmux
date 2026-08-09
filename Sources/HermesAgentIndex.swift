@@ -70,14 +70,12 @@ extension SessionIndexStore {
 extension SessionEntry {
     static func hermesResumeCommand(sessionId: String, source: String?, model: String?, hermesHome: String?) -> String {
         var parts = ["hermes"]
-        let requestedHome = hermesHome?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let pinnedHome = requestedHome.flatMap { $0.isEmpty ? nil : $0 }
-            ?? HermesAgentSessionResolver.hermesHome(env: ["HOME": NSHomeDirectory()])
-        // A root HERMES_HOME still follows Hermes's sticky active_profile. Select
-        // the default profile explicitly so the command opens the state.db that
-        // produced this Vault row. Named profile paths are already authoritative.
-        if URL(fileURLWithPath: pinnedHome).deletingLastPathComponent().lastPathComponent != "profiles" {
-            parts.append("--profile default")
+        let profilePin = HermesAgentResumeProfilePin(
+            hermesHome: hermesHome,
+            homeDirectory: NSHomeDirectory()
+        )
+        if !profilePin.requiredProfileArguments.isEmpty {
+            parts.append(profilePin.requiredProfileArguments.joined(separator: " "))
         }
         if source == "tui" {
             parts.append("--tui")
@@ -87,6 +85,6 @@ extension SessionEntry {
             parts.append("--model \(Self.shellQuote(model))")
         }
         let command = parts.joined(separator: " ")
-        return "env HERMES_HOME=\(Self.shellQuote(pinnedHome)) \(command)"
+        return "env HERMES_HOME=\(Self.shellQuote(profilePin.hermesHome)) \(command)"
     }
 }

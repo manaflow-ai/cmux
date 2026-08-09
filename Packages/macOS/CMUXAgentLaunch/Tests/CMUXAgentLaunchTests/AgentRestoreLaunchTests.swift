@@ -287,18 +287,23 @@ import Testing
             executableFileResolver: AgentRestoreExecutableFileResolver()
         ).invocation(
             for: request,
-            ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            ambientEnvironment: [
+                "HOME": "/Users/example",
+                "PATH": "/usr/bin:/bin",
+            ]
         ))
 
         #expect(invocation.arguments.first == executable)
+        #expect(Array(invocation.arguments.prefix(3)) == [executable, "--profile", "default"])
+        #expect(invocation.environment["HERMES_HOME"] == "/Users/example/.hermes")
         #expect(invocation.arguments.contains("--resume"))
         #expect(invocation.arguments.contains("hermes-session-123"))
         #expect(invocation.arguments.contains("openai-codex") == false)
         #expect(invocation.arguments.contains(HermesAgentCodexEnvironment.defaultProvider))
         #expect(invocation.preflightInvocations.count >= 3)
         #expect(invocation.preflightInvocations.allSatisfy {
-            $0.arguments.first == executable &&
-                Array($0.arguments.dropFirst().prefix(2)) == ["config", "set"]
+            Array($0.arguments.prefix(5))
+                == [executable, "--profile", "default", "config", "set"]
         })
         #expect(invocation.preflightInvocations.flatMap(\.arguments).contains("model.provider"))
         #expect(invocation.preflightInvocations.flatMap(\.arguments).contains("model.base_url"))
@@ -344,6 +349,89 @@ import Testing
         )
     }
 
+    @Test func structuredHermesRestoreKeepsACapturedNamedProfile() throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "hermes-agent",
+            checkpointID: "hermes-coder-session",
+            source: "agent-hook",
+            workingDirectory: "/tmp/hermes",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "hermes-agent",
+                arguments: ["hermes", "--tui", "--provider", "anthropic"],
+                environment: ["HERMES_HOME": "/tmp/hermes/profiles/coder"]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner(
+            executableFileResolver: AgentRestoreExecutableFileResolver()
+        ).invocation(
+            for: request,
+            ambientEnvironment: [
+                "HOME": "/Users/example",
+                "HERMES_HOME": "/tmp/hermes/profiles/wrong",
+                "PATH": "/usr/bin:/bin",
+            ]
+        ))
+
+        #expect(invocation.environment["HERMES_HOME"] == "/tmp/hermes/profiles/coder")
+        #expect(
+            invocation.arguments
+                == [
+                    "hermes",
+                    "--tui",
+                    "--provider", "anthropic",
+                    "--resume", "hermes-coder-session",
+                ]
+        )
+    }
+
+    @Test func structuredHermesRestoreKeepsAnExplicitProfileSelector() throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "hermes-agent",
+            checkpointID: "hermes-coder-session",
+            source: "agent-hook",
+            workingDirectory: "/tmp/hermes",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "hermes-agent",
+                arguments: [
+                    "hermes",
+                    "--profile", "coder",
+                    "--tui",
+                    "--provider", "anthropic",
+                ]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner(
+            executableFileResolver: AgentRestoreExecutableFileResolver()
+        ).invocation(
+            for: request,
+            ambientEnvironment: [
+                "HOME": "/Users/example",
+                "PATH": "/usr/bin:/bin",
+            ]
+        ))
+
+        #expect(invocation.environment["HERMES_HOME"] == "/Users/example/.hermes")
+        #expect(invocation.arguments.filter { $0 == "--profile" }.count == 1)
+        #expect(
+            invocation.arguments
+                == [
+                    "hermes",
+                    "--profile", "coder",
+                    "--tui",
+                    "--provider", "anthropic",
+                    "--resume", "hermes-coder-session",
+                ]
+        )
+    }
+
     @Test func structuredHermesRestoreUsesDefaultCodexBaseURLForPreflights() throws {
         let codexHome = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hermes-codex-\(UUID().uuidString)", isDirectory: true)
@@ -382,7 +470,7 @@ import Testing
         ))
         let baseURLPreflight = try #require(
             invocation.preflightInvocations.first {
-                $0.arguments.dropFirst(3).first == "model.base_url"
+                $0.arguments.dropLast().last == "model.base_url"
             }
         )
 
