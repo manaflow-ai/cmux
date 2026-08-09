@@ -80,11 +80,17 @@ public actor AppLog {
         let header: String
         var handle: FileHandle?
         var bytesWritten = 0
+        /// Byte level at which the next rotation is attempted. Normally
+        /// `maxBytes`; raised after a failed rotate so a sustained failure
+        /// (busy file, read-only directory) retries once per additional
+        /// budget of growth instead of once per appended line.
+        var rotationThreshold: Int
 
         init(url: URL, maxBytes: Int, header: String) {
             self.url = url
             self.maxBytes = maxBytes
             self.header = header
+            self.rotationThreshold = maxBytes
             openFreshGeneration(rotatingExisting: true)
         }
 
@@ -112,35 +118,44 @@ public actor AppLog {
             }
             handle = opened
             bytesWritten = 0
-            append(header)
+            rotationThreshold = maxBytes
+            write(header)
         }
 
-        /// Keeps writing to the current generation after a failed rotate. The
-        /// inherited size may already exceed `maxBytes`; each later append
-        /// retries one rotation, which succeeds once the file stops being
-        /// busy, so the fallback is temporary rather than unbounded.
+        /// Keeps writing to the current generation after a failed rotate,
+        /// with no extra header (the file already carries its generation
+        /// header, and a sustained failure must not add one per retry). The
+        /// raised threshold makes the next retry wait for another full byte
+        /// budget, so the fallback is bounded churn, not per-line reopens.
         private mutating func openExistingForAppending() {
-            guard let opened = try? FileHandle(forWritingTo: url) else {
+            guard let opened = try? FileHandle(forWritingTo: url),
+                  let size = try? opened.seekToEnd() else {
+                // A generation that cannot be opened or positioned at its end
+                // is not safely appendable: writing from offset 0 would
+                // overwrite the content this fallback exists to preserve.
                 handle = nil
                 return
             }
-            let size = (try? opened.seekToEnd()) ?? 0
             handle = opened
             bytesWritten = Int(clamping: size)
-            append(header, allowRotation: false)
+            rotationThreshold = bytesWritten + maxBytes
         }
 
-        mutating func append(_ line: String, allowRotation: Bool = true) {
+        mutating func append(_ line: String) {
+            guard handle != nil else { return }
+            let data = Data((line + "\n").utf8)
+            if bytesWritten + data.count > rotationThreshold {
+                try? handle?.close()
+                handle = nil
+                openFreshGeneration(rotatingExisting: true)
+                guard handle != nil else { return }
+            }
+            write(line)
+        }
+
+        private mutating func write(_ line: String) {
             guard let handle else { return }
             let data = Data((line + "\n").utf8)
-            if allowRotation, bytesWritten + data.count > maxBytes {
-                try? handle.close()
-                self.handle = nil
-                openFreshGeneration(rotatingExisting: true)
-                // One rotation attempt per line; an oversized single line is
-                // written past the limit rather than rotating forever.
-                return append(line, allowRotation: false)
-            }
             do {
                 try handle.write(contentsOf: data)
                 bytesWritten += data.count

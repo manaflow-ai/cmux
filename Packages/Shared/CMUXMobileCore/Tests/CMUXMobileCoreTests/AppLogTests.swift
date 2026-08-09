@@ -148,8 +148,10 @@ import Testing
         )
 
         let log = AppLog(appFileURL: appURL, networkFileURL: nil, buildStamp: "test")
-        log.mirrorAppLine("post-failure line")
-        try await waitForProcessed(log, 1)
+        log.mirrorAppLine("post-failure line 1")
+        log.mirrorAppLine("post-failure line 2")
+        log.mirrorAppLine("post-failure line 3")
+        try await waitForProcessed(log, 3)
 
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755],
@@ -157,7 +159,11 @@ import Testing
         )
         let contents = try contents(of: appURL)
         #expect(contents.contains("previous-generation marker"))
-        #expect(contents.contains("post-failure line"))
+        #expect(contents.contains("post-failure line 1"))
+        #expect(contents.contains("post-failure line 3"))
+        // The fallback appends no session header: a sustained rotate failure
+        // must not grow the file by one header per retried line.
+        #expect(!contents.contains("cmux app log"))
         #expect(!FileManager.default.fileExists(
             atPath: appURL.appendingPathExtension("1").path
         ))
