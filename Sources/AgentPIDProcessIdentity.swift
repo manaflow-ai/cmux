@@ -5,6 +5,26 @@ typealias AgentPIDProcessIdentity =
     CmuxAgentLifecycle.AgentProcessGeneration
 
 extension AgentPIDProcessIdentity {
+    /// Resolves the exact live generation for a positive agent-turn PID.
+    init?(agentTurnPID pid: Int?) {
+        guard let pid,
+              pid > 0,
+              pid <= Int(Int32.max),
+              let generation = AgentPIDProcessIdentity(pid: pid_t(pid)) else {
+            return nil
+        }
+        self = generation
+    }
+
+    /// Observes whether this exact process generation is still live.
+    var liveness: AgentTurnProcessLiveness {
+        AgentTurnProcessLiveness.observe(
+            pid: Int(pid),
+            expectedStartSeconds: startSeconds,
+            expectedStartMicroseconds: startMicroseconds
+        )
+    }
+
     /// Reads a live process's birth timestamp, distinguishing PID reuse.
     ///
     /// `sysctl` can read privileged process rows that `proc_pidinfo` rejects.

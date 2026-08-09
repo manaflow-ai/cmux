@@ -1429,6 +1429,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_subagent_lifecycle.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_campfire_extension_install.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_amp_extension_install.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_codex_deferred_settlement.py
 
       - name: Clean up isolated app-host home
         if: ${{ always() }}
