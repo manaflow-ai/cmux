@@ -115,6 +115,10 @@ class FakeCmuxSocket:
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
+    def arm_next_raw_response_gate(self) -> None:
+        with self._raw_response_gate_lock:
+            self._raw_response_gate_pending = True
+
     def __enter__(self) -> "FakeCmuxSocket":
         self.path.unlink(missing_ok=True)
         self._thread.start()
@@ -1098,6 +1102,7 @@ def test_codex_deferred_settlement_has_single_live_replay_claim(
                     f"the replay-claim race: {fake.frames[before_stop:]!r}"
                 )
 
+            fake.arm_next_raw_response_gate()
             raw_response_gate.clear()
             first_start = len(fake.frames)
             first_process = start_stop_hook()

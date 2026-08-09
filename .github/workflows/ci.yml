@@ -1715,7 +1715,7 @@ jobs:
             fi
             echo "::group::swift test $pkgdir"
             case "$pkg" in
-            CmuxAgentChat|CmuxAuthRuntime|CmuxIrohTransport)
+            CmuxAgentLifecycle|CmuxAgentChat|CmuxAuthRuntime|CmuxIrohTransport)
               ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
               ;;
             CmuxTerminal|CmuxTerminalCore)

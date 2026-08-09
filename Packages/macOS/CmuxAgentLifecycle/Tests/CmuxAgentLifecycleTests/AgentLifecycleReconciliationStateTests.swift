@@ -8,12 +8,12 @@ struct AgentLifecycleReconciliationStateTests {
     func rejectsOlderGenerationDeliveredAfterNewerGeneration() throws {
         let panelId = UUID()
         let newer = AgentProcessGeneration(
-            pid: 200,
+            pid: 100,
             startSeconds: 20,
             startMicroseconds: 0
         )
         let older = AgentProcessGeneration(
-            pid: 100,
+            pid: 200,
             startSeconds: 10,
             startMicroseconds: 0
         )
@@ -54,6 +54,10 @@ struct AgentLifecycleReconciliationStateTests {
             processGeneration: older
         )
         #expect(!acceptedOlderLifecycle)
+        #expect(
+            state.resolvedStatesByPanelId[panelId]?[BuiltInAgentIntegration.codex.statusKey]
+                == .running
+        )
     }
 
     @Test("A dead generation cannot be resurrected")
@@ -133,6 +137,10 @@ struct AgentLifecycleReconciliationStateTests {
             token: token
         )
         #expect(endedAttention)
+        #expect(
+            state.resolvedStatesByPanelId[panelId]?[BuiltInAgentIntegration.cursor.statusKey]
+                != .needsInput
+        )
     }
 
     @Test("Replacement generation preserves attention without exact ownership")
@@ -189,5 +197,9 @@ struct AgentLifecycleReconciliationStateTests {
             token: unidentifiedToken
         )
         #expect(endedUnidentifiedAttention)
+        #expect(
+            state.resolvedStatesByPanelId[panelId]?[BuiltInAgentIntegration.cursor.statusKey]
+                != .needsInput
+        )
     }
 }

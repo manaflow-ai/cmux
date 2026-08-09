@@ -219,7 +219,7 @@ struct WorkspaceSidebarObservationTests {
             startMicroseconds: 10
         )
         let newer = AgentPIDProcessIdentity(
-            pid: 4_242,
+            pid: 4_141,
             startSeconds: 200,
             startMicroseconds: 20
         )
@@ -227,7 +227,7 @@ struct WorkspaceSidebarObservationTests {
             workspace.setAgentLifecycle(
                 key: "amp",
                 panelId: panelId,
-                lifecycle: .running,
+                lifecycle: .idle,
                 processGeneration: newer
             )
         )
@@ -348,7 +348,7 @@ struct WorkspaceSidebarObservationTests {
             "An accepted replacement relay generation must retire attention owned by the superseded process."
         )
         #expect(
-            workspace.agentLifecycleStatesByPanelId[panelId]?["amp"] == .running
+            workspace.agentLifecycleStatesByPanelId[panelId]?["amp"] == .idle
         )
     }
 
