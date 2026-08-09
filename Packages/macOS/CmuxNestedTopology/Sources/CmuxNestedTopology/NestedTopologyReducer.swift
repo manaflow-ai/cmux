@@ -78,7 +78,7 @@ public struct NestedTopologyReducer: Sendable {
     ) throws -> NestedTopologySnapshot {
         try validator.validateLimits()
         try validator.validateEventBatchCount(events.count)
-        let prepared = try preparedSnapshot(snapshot)
+        let prepared = try validator.preparedSnapshot(snapshot)
         guard !events.isEmpty else { return prepared }
 
         var state = NestedTopologyReductionState(snapshot: prepared)
@@ -110,7 +110,7 @@ public struct NestedTopologyReducer: Sendable {
         to snapshot: NestedTopologySnapshot
     ) throws -> NestedTopologySnapshot {
         try validator.validateLimits()
-        let prepared = try preparedSnapshot(snapshot)
+        let prepared = try validator.preparedSnapshot(snapshot)
         try validator.validateEventTarget(change.nodeID, provider: prepared.provider)
         try validator.validateLocalTitleChange(change)
 
@@ -129,22 +129,6 @@ public struct NestedTopologyReducer: Sendable {
 
     private var validator: NestedTopologyValidator {
         NestedTopologyValidator(limits: limits)
-    }
-
-    private func preparedSnapshot(
-        _ snapshot: NestedTopologySnapshot
-    ) throws -> NestedTopologySnapshot {
-        guard snapshot.validationLimits != limits else { return snapshot }
-        return try validator.validatedSnapshot(
-            provider: snapshot.provider,
-            capabilities: snapshot.capabilities,
-            workspaces: snapshot.workspaces,
-            tabs: snapshot.tabs,
-            panes: snapshot.panes,
-            agents: snapshot.agents,
-            focus: snapshot.focus,
-            titleAuthoritySource: .publishedSnapshot
-        )
     }
 
     private func apply(
