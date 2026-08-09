@@ -110,8 +110,13 @@ the extension target, launch the containing app once, then reopen CMUX's Sidebar
 Extensions browser. You can also check system discovery directly:
 
 ```sh
-pluginkit -mAvvv -p com.cmuxterm.app.cmux.sidebar
+pluginkit -mAvvv
 ```
+
+The normal CMUX release uses `com.cmuxterm.app.cmux.sidebar`. Tagged development
+builds use the point stored in the host's `CMUXSidebarExtensionPointIdentifier`
+Info.plist key (currently `<host-bundle-id>.cmux.sidebar`), so do not filter on
+the production point when diagnosing a tagged or custom host.
 
 If it appears but cannot be enabled, check signing on both the containing app and the embedded appex.
 

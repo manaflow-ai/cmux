@@ -2,7 +2,8 @@
 
 `CmuxExtensionKit` is the zero-dependency public SDK for CMUX sidebar extensions.
 
-Version 1 only supports sidebar extensions. The API exposes a stable workspace snapshot and typed action channels:
+The current SDK supports sidebar extensions only. Its API exposes a stable
+workspace snapshot and typed action channels:
 
 - read the current sidebar snapshot
 - create, select, navigate, and close workspaces
@@ -11,7 +12,8 @@ Version 1 only supports sidebar extensions. The API exposes a stable workspace s
 
 The snapshot includes workspace identity, title, detail text, paths, git branch, unread state, listening ports, pull request URLs, and shared surface metadata. It does not expose terminal buffers, shell history, environment variables, secrets, or arbitrary filesystem access.
 
-Host-side lifecycle, discovery, and display belong in `Packages/macOS/CMUXExtensionHostSupport`.
+Host-side lifecycle, discovery, and display belong in
+`Packages/macOS/CmuxSidebar/Sources/CmuxSidebar/ExtensionHost`.
 Internal cmux-owned sidebar provider/render models live in `Packages/macOS/CmuxSidebarProviderKit`.
 They are separate from the public extension-author SDK.
 
@@ -34,13 +36,16 @@ as the reference project:
 9. If more than one sidebar extension is enabled, choose your extension from the
    extension sidebar header.
 
-The extension target declares the extension point manually in its `Info.plist`:
+The extension target declares the extension point in its `Info.plist`. The
+reference project gives this build setting the production value
+`com.cmuxterm.app.cmux.sidebar`; the tagged development helper overrides it to
+match the tagged host:
 
 ```xml
 <key>EXAppExtensionAttributes</key>
 <dict>
   <key>EXExtensionPointIdentifier</key>
-  <string>com.cmuxterm.app.cmux.sidebar</string>
+  <string>$(CMUX_SIDEBAR_EXTENSION_POINT_ID)</string>
 </dict>
 ```
 
@@ -126,11 +131,14 @@ embed, and sign but never register, with no useful error in CMUX. Check
 registration independently of CMUX with:
 
 ```sh
-pluginkit -mAvvv -p com.cmuxterm.app.cmux.sidebar
+pluginkit -mAvvv
 ```
 
-If the extension is absent from that output, fix its sandbox, signing, bundle
-identifier, and extension point before debugging the CMUX connection.
+The normal CMUX release uses `com.cmuxterm.app.cmux.sidebar`. Tagged development
+builds use the point stored in the host's `CMUXSidebarExtensionPointIdentifier`
+Info.plist key (currently `<host-bundle-id>.cmux.sidebar`). If the extension is
+absent from the unfiltered output, fix its sandbox, signing, bundle identifier,
+and extension point before debugging the CMUX connection.
 
 ### Launch the real executable, not an Xcode shim
 
@@ -150,20 +158,21 @@ For local development, real Git paths reported to avoid the Xcode shim include:
 - `/Applications/Xcode.app/Contents/Developer/usr/bin/git`
 
 Treat host-installed paths as development-only diagnostics, not portable
-distribution targets: their availability and sandbox access vary by machine. A
-file-selection or bookmark grant authorizes data access, not an arbitrary
-executable. For a distributed extension, follow Apple's [sandboxed helper-tool
+distribution targets: their availability and sandbox access vary by machine.
+Even if one launches in a local development setup, App Sandbox user-selected
+file access authorizes data access, not execution of arbitrary host binaries.
+For a distributed extension, follow Apple's [sandboxed command-line helper
 guidance](https://developer.apple.com/documentation/xcode/embedding-a-helper-tool-in-a-sandboxed-app):
-embed and sign the required executable or helper in the extension's own bundle
-and configure sandbox inheritance as appropriate. A child tool still inherits
-the extension's sandbox and file access.
+embed and sign the required executable or helper in the extension's own bundle.
+The helper should carry the App Sandbox and sandbox-inheritance entitlements
+(`com.apple.security.app-sandbox` and `com.apple.security.inherit`). A child tool
+still inherits the extension's sandbox and file access.
 
 ### Set a readable working directory
 
 Always set `Process.currentDirectoryURL` before launch. ExtensionKit may start
-the appex in a directory that its sandbox cannot read. Git asks the operating
-system for the current directory before it processes `-C`, so `-C` alone cannot
-recover from this failure:
+the appex in a directory that its sandbox cannot read. Tools that inspect their
+inherited working directory can then fail before doing useful work:
 
 ```text
 fatal: Unable to read current working directory: Operation not permitted
@@ -179,19 +188,30 @@ process.arguments = ["status", "--short"]
 ```
 
 If you keep `-C`, still set `currentDirectoryURL` to a readable directory.
+Current Git accepts `-C` as a global option before the subcommand
+(`git -C <repository> status`), but not as a `status` option; an explicit
+`currentDirectoryURL` also protects launches of other tools that do not have a
+Git-style override.
 
 ### Authorize repository access explicitly
 
 A `workspacePaths` grant tells the extension where a repository is; it does not
-authorize the extension process to open it. Enable the appropriate **User
-Selected File** entitlement and have the user choose the repository with a
-standard Open panel. If the containing app presents the panel, pass URL bookmark
-data to the extension and resolve it there. Keep the authorized URL's
-security-scoped access active for the entire child-process lifetime. Apple's
-[macOS App Sandbox file-access
+authorize the extension process to open it. CMUX also does not broker command
+execution or bookmark data: `CmuxSidebarHost` exposes typed workspace, surface,
+and URL actions only. The extension owns every `Process` it starts and every
+filesystem grant that process needs.
+
+Enable the appropriate **User Selected File** entitlement on the extension
+target and have the user choose the repository with a standard Open panel. If
+the containing app owns selection instead, transfer URL bookmark data through
+an app-owned channel, such as storage shared by an App Group; the current
+`CmuxExtensionKit` XPC channel does not carry arbitrary bookmark payloads. Both
+targets need the capabilities required by that channel. Resolve the bookmark in
+the extension and keep the authorized URL's security-scoped access active for
+the entire child-process lifetime. Apple's [macOS App Sandbox file-access
 guide](https://developer.apple.com/documentation/security/accessing-files-from-the-macos-app-sandbox)
-covers user-selected URLs, persistent security-scoped bookmarks, and passing
-bookmarks between processes.
+distinguishes live interprocess URL bookmarks from persistent security-scoped
+bookmarks and documents App Group storage.
 
 Privacy controls such as Files and Folders still apply to locations including
 Desktop, Documents, and Downloads. [Apple documents embedded
