@@ -1015,8 +1015,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     /// Build (or rebuild) a button's configuration for `item` and its current
-    /// armed/sticky state. On iOS 26 the bar uses real Liquid Glass
-    /// (`.glass()` resting, `.prominentGlass()` armed/sticky); earlier OSes keep
+    /// armed/sticky state. On iOS 26 the bar uses clear Liquid Glass. Regular
+    /// glass inside the clipped horizontal scroller composites one shared
+    /// rectangular backdrop behind every button; clear glass keeps each capsule
+    /// distinct over the toolbar's single themed background. Earlier OSes keep
     /// the flat gray/blue fill the bar shipped with. Built-in modifier titles
     /// follow `isMacRemote`; custom actions render their saved title/icon and
     /// never arm.
@@ -1080,7 +1082,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         let activeBackground = UIColor.systemBlue
         let activeForeground = activeBackground.terminalReadableForeground
         if #available(iOS 26.0, *) {
-            var config: UIButton.Configuration = (armed || sticky) ? .prominentGlass() : .glass()
+            var config: UIButton.Configuration = (armed || sticky)
+                ? .prominentClearGlass()
+                : .clearGlass()
             config.baseForegroundColor = armed || sticky ? activeForeground : themeChromeColor
             if armed || sticky {
                 config.baseBackgroundColor = activeBackground
