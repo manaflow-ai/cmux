@@ -77,7 +77,7 @@ struct SidebarWorkspaceSwitchLayoutFaultTests {
     }
 
     @concurrent
-    private static func waitForLogMessage(_ expected: String, since startDate: Date) async throws -> Bool {
+    private nonisolated static func waitForLogMessage(_ expected: String, since startDate: Date) async throws -> Bool {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(5))
         while clock.now < deadline {
@@ -94,7 +94,7 @@ struct SidebarWorkspaceSwitchLayoutFaultTests {
     }
 
     @concurrent
-    private static func viewUpdateFaultMessages(since startDate: Date) async throws -> [String] {
+    private nonisolated static func viewUpdateFaultMessages(since startDate: Date) async throws -> [String] {
         let store = try OSLogStore(scope: .currentProcessIdentifier)
         let entries = try store.getEntries(at: store.position(date: startDate))
         let faultFragments = [
