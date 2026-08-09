@@ -1087,6 +1087,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
     var isApplyingSessionRestore = false
+    /// App-wide coalescing flag for `TabManager.scheduleAutoWorkspaceColorReconcile()`.
+    ///
+    /// One reconcile pass already allocates against every window's workspaces,
+    /// so the flag cannot live on `TabManager`: N open windows would each run
+    /// the same app-wide scan after a single settings or assignment change.
+    var autoWorkspaceColorReconcileScheduled = false
     /// Durable navigation links that arrived before startup restore registered
     /// their target workspaces.
     var pendingStartupNavigationURLRequests: [CmuxNavigationURLRequest] = []

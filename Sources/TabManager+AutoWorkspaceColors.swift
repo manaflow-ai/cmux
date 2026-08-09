@@ -10,13 +10,36 @@ extension TabManager {
     /// snapshot. Doing that synchronously from a `tabs` `willSet` or from a
     /// defaults observer would re-enter the update that triggered it, so the
     /// work is always deferred and coalesced to one pass per turn.
+    ///
+    /// The coalescing flag is app-wide rather than per-manager because a pass
+    /// allocates against every window's workspaces. Keeping it on `TabManager`
+    /// made N open windows run N identical full scans for one change.
     func scheduleAutoWorkspaceColorReconcile() {
-        guard !autoWorkspaceColorReconcileScheduled else { return }
-        autoWorkspaceColorReconcileScheduled = true
+        guard !Self.autoWorkspaceColorReconcileIsScheduled(self) else { return }
+        Self.setAutoWorkspaceColorReconcileIsScheduled(true, self)
         Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.autoWorkspaceColorReconcileScheduled = false
-            self.reconcileAutoWorkspaceColorsNow()
+            // Released only once the pass is done, so the `UserDefaults` write
+            // it performs cannot schedule a second, identical pass. Deferred so
+            // a deallocated manager cannot strand the app-wide flag.
+            defer { Self.setAutoWorkspaceColorReconcileIsScheduled(false, self) }
+            self?.reconcileAutoWorkspaceColorsNow()
+        }
+    }
+
+    private static func autoWorkspaceColorReconcileIsScheduled(_ manager: TabManager?) -> Bool {
+        AppDelegate.shared?.autoWorkspaceColorReconcileScheduled
+            ?? manager?.autoWorkspaceColorReconcileScheduledFallback
+            ?? false
+    }
+
+    private static func setAutoWorkspaceColorReconcileIsScheduled(
+        _ isScheduled: Bool,
+        _ manager: TabManager?
+    ) {
+        if let app = AppDelegate.shared {
+            app.autoWorkspaceColorReconcileScheduled = isScheduled
+        } else {
+            manager?.autoWorkspaceColorReconcileScheduledFallback = isScheduled
         }
     }
 

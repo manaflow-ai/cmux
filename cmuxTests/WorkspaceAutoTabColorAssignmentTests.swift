@@ -1022,6 +1022,42 @@ import Testing
         )
     }
 
+    /// One reconcile pass allocates against every window's workspaces, so the
+    /// coalescing flag must be app-wide. When it lived on `TabManager`, each
+    /// open window ran its own full app-wide scan for a single change.
+    @MainActor
+    @Test
+    func reconcileCoalescesAcrossWindowsInsteadOfOncePerManager() throws {
+        let app = try #require(AppDelegate.shared, "needs the app host")
+        let defaults = Self.suite()
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let previous = app.autoWorkspaceColorReconcileScheduled
+        defer { app.autoWorkspaceColorReconcileScheduled = previous }
+        app.autoWorkspaceColorReconcileScheduled = false
+
+        let first = TabManager(
+            autoWelcomeIfNeeded: false,
+            settings: settings,
+            autoWorkspaceColorDefaults: defaults,
+            closeTabWarningDefaults: defaults
+        )
+        let second = TabManager(
+            autoWelcomeIfNeeded: false,
+            settings: settings,
+            autoWorkspaceColorDefaults: defaults,
+            closeTabWarningDefaults: defaults
+        )
+        app.autoWorkspaceColorReconcileScheduled = false
+
+        first.scheduleAutoWorkspaceColorReconcile()
+        second.scheduleAutoWorkspaceColorReconcile()
+
+        #expect(app.autoWorkspaceColorReconcileScheduled)
+        // A per-manager flag would show up here, one pending pass per window.
+        #expect(!first.autoWorkspaceColorReconcileScheduledFallback)
+        #expect(!second.autoWorkspaceColorReconcileScheduledFallback)
+    }
+
     /// Polls `condition` until it holds or the deadline passes.
     ///
     /// Reconciling hops through `Task { @MainActor }`, so a single

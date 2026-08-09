@@ -198,8 +198,11 @@ class TabManager: ObservableObject {
     private let windowDockTitleRoutingStores =
         NSMapTable<NSUUID, DockSplitStore>.strongToWeakObjects()
 
-    /// Coalescing flag for `scheduleAutoWorkspaceColorReconcile()`.
-    var autoWorkspaceColorReconcileScheduled = false
+    /// Coalescing flag for `scheduleAutoWorkspaceColorReconcile()` used only
+    /// when there is no `AppDelegate` to own it app-wide, which is the case in
+    /// unit tests that build a standalone manager. Such a manager is the only
+    /// source of workspaces, so its own flag is already app-wide.
+    var autoWorkspaceColorReconcileScheduledFallback = false
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
