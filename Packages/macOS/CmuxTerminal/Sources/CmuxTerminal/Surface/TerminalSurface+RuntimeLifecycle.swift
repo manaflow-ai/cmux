@@ -10,6 +10,16 @@ internal import CMUXDebugLog
 // MARK: - Headless bootstrap windows and runtime surface lifecycle
 extension TerminalSurface {
     @MainActor
+    private func endAttachedViewRuntimeLifetime() {
+        let runtimeLifetimeId = surfaceCallbackContext?
+            .takeUnretainedValue().runtimeLifetimeId
+        let view = attachedView ?? surfaceView
+        view.runtimeSurfaceDidEnd(
+            runtimeLifetimeId: runtimeLifetimeId
+        )
+    }
+
+    @MainActor
     func scheduleHeadlessRuntimeStartIfNeeded(
         reason: String,
         source: RuntimeSurfaceCreationSource = .normal
@@ -130,7 +140,7 @@ extension TerminalSurface {
         let registeredOwnerId = registry.runtimeSurfaceOwnerId(surface)
         guard registeredOwnerId == id,
               GhosttySurfaceRuntimeProbe.surfacePointerAppearsLive(surface) else {
-            attachedView?.runtimeSurfaceDidEnd()
+            endAttachedViewRuntimeLifetime()
             let callbackContext = surfaceCallbackContext
             surfaceCallbackContext = nil
             let teeLease = mobileByteTeeLease
@@ -237,7 +247,7 @@ extension TerminalSurface {
         backgroundSurfaceStartSource = .normal
         cancelClaudeCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
-        attachedView?.runtimeSurfaceDidEnd()
+        endAttachedViewRuntimeLifetime()
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
@@ -320,7 +330,7 @@ extension TerminalSurface {
         backgroundSurfaceStartSource = .normal
         cancelClaudeCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
-        attachedView?.runtimeSurfaceDidEnd()
+        endAttachedViewRuntimeLifetime()
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
         let manualIOContext = manualIOContext
@@ -653,9 +663,6 @@ extension TerminalSurface {
 
         let scaleFactors = scaleFactors(for: view)
 
-        // Activate view-owned runtime state before `ghostty_surface_new`: a
-        // fast child or buffered manual I/O can emit actions during creation.
-        view.prepareForRuntimeSurfaceCreation()
         let runtimeSurfaceCreation = createNativeRuntimeSurface(
             app: app,
             for: view,
@@ -666,6 +673,11 @@ extension TerminalSurface {
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput
 
         if surface == nil {
+            let failedRuntimeLifetimeId = surfaceCallbackContext?
+                .takeUnretainedValue().runtimeLifetimeId
+            view.runtimeSurfaceDidEnd(
+                runtimeLifetimeId: failedRuntimeLifetimeId
+            )
             surfaceCallbackContext?.release()
             surfaceCallbackContext = nil
             manualIOContext?.release()

@@ -1,4 +1,5 @@
 public import AppKit
+internal import Foundation
 public import GhosttyKit
 
 /// Resolves Ghostty and cmux pointer intent for one terminal surface.
@@ -9,7 +10,7 @@ public import GhosttyKit
 @MainActor
 public struct TerminalPointerStyleState {
     private var ghosttyCursor: NSCursor = .iBeam
-    private var acceptsGhosttyShape = false
+    private var activeRuntimeLifetimeId: UUID?
     private var isFocused = false
     private var isCmuxLinkHoverActive = false
 
@@ -35,22 +36,26 @@ public struct TerminalPointerStyleState {
     @discardableResult
     public mutating func apply(_ event: TerminalPointerStyleEvent) -> Bool {
         switch event {
-        case .runtimeActivated:
+        case .runtimeActivated(let runtimeLifetimeId):
             let previousCursor = effectiveCursor
-            acceptsGhosttyShape = true
+            activeRuntimeLifetimeId = runtimeLifetimeId
             ghosttyCursor = .iBeam
             isCmuxLinkHoverActive = false
             return !cursorsEqual(previousCursor, effectiveCursor)
 
-        case .runtimeEnded:
+        case .runtimeEnded(let runtimeLifetimeId):
+            if let runtimeLifetimeId,
+               activeRuntimeLifetimeId != runtimeLifetimeId {
+                return false
+            }
             let previousCursor = effectiveCursor
-            acceptsGhosttyShape = false
+            activeRuntimeLifetimeId = nil
             ghosttyCursor = .iBeam
             isCmuxLinkHoverActive = false
             return !cursorsEqual(previousCursor, effectiveCursor)
 
-        case .ghosttyShape(let shape):
-            guard acceptsGhosttyShape else { return false }
+        case .ghosttyShape(let shape, let runtimeLifetimeId):
+            guard activeRuntimeLifetimeId == runtimeLifetimeId else { return false }
             guard let cursor = cursor(for: shape) else { return false }
             let previousCursor = effectiveCursor
             ghosttyCursor = cursor

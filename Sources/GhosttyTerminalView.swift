@@ -3157,14 +3157,14 @@ class GhosttyApp {
 
         if action.tag == GHOSTTY_ACTION_SHOW_CHILD_EXITED {
             let actionSurface = callbackContext?.terminalSurface
-            let actionRuntimeSurface = target.target.surface
             if let surfaceView = callbackContext?.surfaceView,
                let actionSurfaceId = callbackSurfaceId,
-               let actionRuntimeSurface {
+               let runtimeLifetimeId = callbackContext?.runtimeLifetimeId {
                 performOnMain {
-                    guard surfaceView.terminalSurface?.id == actionSurfaceId,
-                          surfaceView.terminalSurface?.surface == actionRuntimeSurface else { return }
-                    surfaceView.runtimeSurfaceDidEnd()
+                    guard surfaceView.terminalSurface?.id == actionSurfaceId else { return }
+                    surfaceView.runtimeSurfaceDidEnd(
+                        runtimeLifetimeId: runtimeLifetimeId
+                    )
                 }
             }
             return handleChildExitedAction(
@@ -3278,11 +3278,12 @@ class GhosttyApp {
         case GHOSTTY_ACTION_MOUSE_SHAPE:
             let shape = action.action.mouse_shape
             guard let actionSurfaceId = callbackSurfaceId,
-                  let actionRuntimeSurface = target.target.surface else { return false }
+                  let runtimeLifetimeId = callbackContext?.runtimeLifetimeId else { return false }
             performOnMain {
-                guard surfaceView.terminalSurface?.id == actionSurfaceId,
-                      surfaceView.terminalSurface?.surface == actionRuntimeSurface else { return }
-                surfaceView.applyTerminalPointerStyle(.ghosttyShape(shape))
+                guard surfaceView.terminalSurface?.id == actionSurfaceId else { return }
+                surfaceView.applyTerminalPointerStyle(
+                    .ghosttyShape(shape, runtimeLifetimeId: runtimeLifetimeId)
+                )
             }
             return true
         case GHOSTTY_ACTION_MOUSE_OVER_LINK:
@@ -4089,7 +4090,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if !isSameSurface {
             appliedColorScheme = nil
             // Reset any OSC 22 mouse shape carried over from the previous surface.
-            applyTerminalPointerStyle(.runtimeActivated)
+            runtimeSurfaceDidEnd(runtimeLifetimeId: nil)
         }
         terminalSurface = surface
         tabId = surface.tabId
@@ -4612,12 +4613,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    func prepareForRuntimeSurfaceCreation() {
-        applyTerminalPointerStyle(.runtimeActivated)
+    func prepareForRuntimeSurfaceCreation(runtimeLifetimeId: UUID) {
+        applyTerminalPointerStyle(.runtimeActivated(runtimeLifetimeId))
     }
 
-    func runtimeSurfaceDidEnd() {
-        applyTerminalPointerStyle(.runtimeEnded)
+    func runtimeSurfaceDidEnd(runtimeLifetimeId: UUID?) {
+        applyTerminalPointerStyle(.runtimeEnded(runtimeLifetimeId))
     }
 
     func runtimeSurfaceDidBecomeReady() {
