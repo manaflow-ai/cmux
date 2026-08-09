@@ -252,11 +252,48 @@ struct HermesFirstClassSupportTests {
                 == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore hermes-agent \(durableSessionID)\n"
         )
 
+        // Hermes's durable conversation record becomes idle after a completed
+        // turn while the TUI transport process remains live. A quit in this
+        // state can persist the already-repaired durable binding as retired
+        // before its queued restore input starts. The next launch must still
+        // re-arm that durable checkpoint from the live transport evidence.
         try writeHermesHookStore(
             fixture: fixture,
             sessions: [
                 (sessionID: durableSessionID, updatedAt: 103),
                 (sessionID: transientSessionID, updatedAt: 104),
+            ],
+            processID: processID,
+            identity: processIdentity,
+            executablePath: fixture.hermesExecutable,
+            arguments: [fixture.hermesExecutable, "--tui"],
+            runtimeStatusBySessionID: [
+                durableSessionID: "idle",
+                transientSessionID: "running",
+            ],
+            agentLifecycleBySessionID: [
+                durableSessionID: "idle",
+                transientSessionID: "running",
+            ]
+        )
+
+        let afterCompletedTurn = Workspace.repairedLegacyHermesSessionPanelSnapshot(
+            retiredPanel,
+            workspaceId: fixture.workspaceID
+        )
+        let afterCompletedTurnTerminal = try #require(afterCompletedTurn.terminal)
+        #expect(afterCompletedTurnTerminal.agent?.sessionId == durableSessionID)
+        #expect(afterCompletedTurnTerminal.resumeBinding?.checkpointId == durableSessionID)
+        #expect(afterCompletedTurnTerminal.resumeBinding?.autoResume == true)
+        #expect(afterCompletedTurnTerminal.managedAgentResumeBinding?.checkpointId == durableSessionID)
+        #expect(afterCompletedTurnTerminal.managedAgentResumeBinding?.autoResume == true)
+        #expect(afterCompletedTurnTerminal.wasAgentRunning == true)
+
+        try writeHermesHookStore(
+            fixture: fixture,
+            sessions: [
+                (sessionID: durableSessionID, updatedAt: 105),
+                (sessionID: transientSessionID, updatedAt: 106),
             ],
             processID: processID,
             identity: processIdentity,
@@ -1461,7 +1498,9 @@ struct HermesFirstClassSupportTests {
         executablePath: String,
         arguments: [String],
         runtimeStatus: String? = nil,
-        agentLifecycle: String? = nil
+        agentLifecycle: String? = nil,
+        runtimeStatusBySessionID: [String: String] = [:],
+        agentLifecycleBySessionID: [String: String] = [:]
     ) throws {
         let stateDirectory = fixture.root.appendingPathComponent(".cmuxterm", isDirectory: true)
         try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
@@ -1488,10 +1527,10 @@ struct HermesFirstClassSupportTests {
                     "source": "environment",
                 ],
             ]
-            if let runtimeStatus {
+            if let runtimeStatus = runtimeStatusBySessionID[session.sessionID] ?? runtimeStatus {
                 record["runtimeStatus"] = runtimeStatus
             }
-            if let agentLifecycle {
+            if let agentLifecycle = agentLifecycleBySessionID[session.sessionID] ?? agentLifecycle {
                 record["agentLifecycle"] = agentLifecycle
             }
             sessionObjects[session.sessionID] = record
