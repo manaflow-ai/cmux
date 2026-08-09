@@ -293,6 +293,58 @@ struct TerminalPasteboardTransactionLaneTests {
         #expect(lease.finish()?.previousContents == previousContents)
     }
 
+    @Test("an abandoned mutation retries restoration after a write failure")
+    func abandonedMutationRetriesRestorationAfterWriteFailure() async throws {
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-abandoned-mutation-\(UUID().uuidString)")
+        )
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+        pasteboard.clearContents()
+        #expect(pasteboard.setString("user clipboard", forType: .string))
+
+        var mutationLease: TerminalPasteboardMutationLease?
+        var writeAttempt = 0
+        let lane = TerminalPasteboardTransactionLane(
+            pasteboard: pasteboard,
+            previousContentsCapture: { request in
+                captureTransactionLanePasteboardContents(request)
+            },
+            pasteboardWrite: { items in
+                writeAttempt += 1
+                if writeAttempt == 2 {
+                    return false
+                }
+                let wrote = pasteboard.writeObjects(items)
+                if writeAttempt == 1 {
+                    mutationLease?.finish()
+                }
+                return wrote
+            }
+        )
+        let activeRead = try #require(lane.reserveRead())
+        #expect(await activeRead.waitUntilReady())
+
+        let temporaryItem = NSPasteboardItem()
+        #expect(temporaryItem.setString("temporary", forType: .string))
+        mutationLease = try #require(lane.reserveMutation(.init(
+            contents: TerminalPasteboardItemSnapshot.snapshots(
+                from: [temporaryItem]
+            ),
+            condition: nil,
+            capturesPreviousContents: true
+        )))
+        let queuedRead = try #require(lane.reserveRead())
+
+        activeRead.finish()
+        #expect(await queuedRead.waitUntilReady())
+        queuedRead.finish()
+
+        #expect(pasteboard.string(forType: .string) == "user clipboard")
+    }
+
     @Test("failed item reconstruction preserves the existing clipboard")
     func failedItemReconstructionPreservesExistingClipboard() {
         let fixture = makeFixture()
