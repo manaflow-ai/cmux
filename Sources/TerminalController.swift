@@ -3842,7 +3842,9 @@ class TerminalController {
     /// compare-and-set: a manual or different current automatic title is
     /// preserved and reported as `workspace_apply_skipped`. The corresponding
     /// `expected_panel_title` protects a newer automatic panel title in the same
-    /// transaction. `panel_apply_skipped` distinguishes compare-and-set and
+    /// transaction. For remote tmux mirrors, reconciliation may only reapply an
+    /// already matching auto-owned panel title because the remote window name is
+    /// authoritative. `panel_apply_skipped` distinguishes compare-and-set and
     /// valid single-panel suppression from an unresolved target, while
     /// `clear_status_on_apply=false` lets reconciliation preserve the last
     /// summarizer health warning when it only reapplies a stored title.
@@ -3938,6 +3940,15 @@ class TerminalController {
             }
             if let resolvedPanelId {
                 if panelOnlyIfMultiple && workspace.panels.count < 2 {
+                    panelApplySkipped = true
+                } else if let expectedPanelTitle,
+                          workspace.isRemoteTmuxMirror,
+                          (workspace.panelCustomTitleSources[resolvedPanelId] != .auto ||
+                           workspace.panelCustomTitles[resolvedPanelId] != expectedPanelTitle) {
+                    // A remote tmux window name is authoritative. Reconciliation
+                    // may reapply a title this panel already auto-owns, but must
+                    // not treat missing ownership as permission to emit
+                    // `rename-window` over a newer remote name.
                     panelApplySkipped = true
                 } else if let expectedPanelTitle,
                           workspace.panelCustomTitleSources[resolvedPanelId] == .auto,
