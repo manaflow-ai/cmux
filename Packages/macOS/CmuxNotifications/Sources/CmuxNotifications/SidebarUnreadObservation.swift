@@ -3,11 +3,9 @@ import Foundation
 /// Cancels one imperative unread-state observation.
 @MainActor
 public final class SidebarUnreadObservation {
-    // SAFETY: explicit cancellation is main-actor isolated; `deinit` only reads
-    // this thread-safe weak reference before handing removal to the main actor.
-    nonisolated(unsafe) private weak var model: SidebarUnreadModel?
-    nonisolated private let id: UUID
-    nonisolated private let channel: SidebarUnreadObservationChannel
+    private weak var model: SidebarUnreadModel?
+    private let id: UUID
+    private let channel: SidebarUnreadObservationChannel
 
     init(
         model: SidebarUnreadModel,
@@ -26,11 +24,11 @@ public final class SidebarUnreadObservation {
     }
 
     deinit {
-        let model = model
-        let id = id
-        let channel = channel
-        Task { @MainActor in
-            model?.removeObserver(id, channel: channel)
+        // This token's API and lifetime are MainActor-owned. Keep teardown
+        // synchronous so releasing it is the exact delivery boundary.
+        // `isolated deinit` cannot be used while cmux verifies with Xcode 16.4.
+        MainActor.assumeIsolated {
+            cancel()
         }
     }
 }

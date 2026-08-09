@@ -674,7 +674,8 @@ struct DockRuntimeParityTests {
                 source: notificationStore.sidebarUnread,
                 workspaceID: dock.workspaceId,
                 panelIDs: [panel.id],
-                isActive: true
+                isActive: true,
+                agentAttentionSource: dock.agentNeedsInputAttention
             )
             notificationStore.replaceNotificationsForTesting([
                 TerminalNotification(
@@ -994,13 +995,15 @@ struct DockRuntimeParityTests {
                 source: notificationStore.sidebarUnread,
                 workspaceID: workspaceDock.workspaceId,
                 panelIDs: [workspacePanel.id],
-                isActive: true
+                isActive: true,
+                agentAttentionSource: workspaceDock.agentNeedsInputAttention
             )
             let globalProjection = DockUnreadPanelProjection(
                 source: notificationStore.sidebarUnread,
                 workspaceID: globalDock.workspaceId,
                 panelIDs: [globalPanel.id],
-                isActive: true
+                isActive: true,
+                agentAttentionSource: globalDock.agentNeedsInputAttention
             )
             let selectedWorkspace = manager.addWorkspace(select: true)
             let unreadObserver = DockRuntimeParityUnreadObserver()
@@ -1075,7 +1078,8 @@ struct DockRuntimeParityTests {
                 source: notificationStore.sidebarUnread,
                 workspaceID: windowID,
                 panelIDs: [terminal.id],
-                isActive: true
+                isActive: true,
+                agentAttentionSource: dock.agentNeedsInputAttention
             )
 
             let visualBell = try #require(terminal.surface.onVisualBell)
@@ -1151,7 +1155,8 @@ struct DockRuntimeParityTests {
                 source: notificationStore.sidebarUnread,
                 workspaceID: windowID,
                 panelIDs: [panel.id],
-                isActive: true
+                isActive: true,
+                agentAttentionSource: dock.agentNeedsInputAttention
             )
             let observer = DockRuntimeParityUnreadObserver()
             let observation = notificationStore.sidebarUnread.observeChanges(
@@ -1555,11 +1560,13 @@ struct DockNotificationAttentionTests {
         let secondPanelID = UUID()
         let foreignPanelID = UUID()
         let unread = SidebarUnreadModel()
+        let agentAttention = SurfaceAttentionModel()
         let projection = DockUnreadPanelProjection(
             source: unread,
             workspaceID: workspaceID,
             panelIDs: [firstPanelID, secondPanelID],
-            isActive: true
+            isActive: true,
+            agentAttentionSource: agentAttention
         )
 
         unread.apply(
@@ -1581,6 +1588,11 @@ struct DockNotificationAttentionTests {
             focusedReadIndicatorByWorkspaceId: [workspaceID: secondPanelID],
             manualUnreadWorkspaceIds: []
         )
+        #expect(projection.unreadPanelIDs == [secondPanelID])
+
+        agentAttention.setAttention(true, forSurfaceId: firstPanelID)
+        #expect(projection.unreadPanelIDs == [firstPanelID, secondPanelID])
+        agentAttention.setAttention(false, forSurfaceId: firstPanelID)
         #expect(projection.unreadPanelIDs == [secondPanelID])
 
         projection.updateContext(

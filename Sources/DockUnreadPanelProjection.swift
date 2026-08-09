@@ -24,15 +24,14 @@ final class DockUnreadPanelProjection {
         workspaceID: UUID,
         panelIDs: Set<UUID>,
         isActive: Bool,
-        agentAttentionSource: SurfaceAttentionModel? = nil
+        agentAttentionSource: SurfaceAttentionModel
     ) {
         self.workspaceID = workspaceID
         self.panelIDs = panelIDs
         self.isActive = isActive
         surfaceProjection = source.surfaceProjection(forOwnerId: workspaceID)
-        let resolvedAgentAttentionSource = agentAttentionSource ?? SurfaceAttentionModel()
-        self.agentAttentionSource = resolvedAgentAttentionSource
-        agentAttentionSurfaceIDs = resolvedAgentAttentionSource.surfaceIds
+        self.agentAttentionSource = agentAttentionSource
+        agentAttentionSurfaceIDs = agentAttentionSource.surfaceIds
         refresh()
         unreadObservation = source.observeSurfaceChanges(
             forOwnerId: workspaceID,
