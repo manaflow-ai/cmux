@@ -567,6 +567,9 @@ struct RemoteResumeBindingTests {
         let roundTripBinding = try #require(
             roundTrip.panels.first { $0.id == restoredSurfaceID }?.terminal?.resumeBinding
         )
+        #expect(
+            roundTripBinding.restoreWorkingDirectorySelection == .exact("/srv/remote project")
+        )
         let encodedBinding = try JSONEncoder().encode(roundTripBinding)
         let bindingObject = try #require(
             JSONSerialization.jsonObject(with: encodedBinding) as? [String: Any]
@@ -596,6 +599,34 @@ struct RemoteResumeBindingTests {
         #expect(!gonePTYCommand.contains("--require-existing"), "\(gonePTYCommand)")
         let gonePTYRemoteCommand = try decodedRemoteCommand(from: gonePTYCommand)
         try expectRemoteResumeBootstrap(gonePTYRemoteCommand)
+    }
+
+    @Test
+    func legacyPersistentAgentHookBindingWithoutCwdPolicyReattachesWithoutReplayingStartupInput() throws {
+        let fixture = try makeRelayedFixture()
+        let legacySnapshot = try snapshotWithoutRestoreWorkingDirectorySelection(fixture.snapshot)
+        let suiteName = "cmux-legacy-remote-resume-cwd-policy-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let socketPath = reserveRemoteRestoreSocket()
+        defer { cleanupRemoteRestoreSocket(socketPath) }
+
+        let restoredWorkspace = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let restoredIDs = restoredWorkspace.restoreSessionSnapshot(legacySnapshot)
+        let restoredSurfaceID = try #require(restoredIDs[fixture.surfaceID])
+        let startupCommand = try #require(
+            restoredWorkspace.terminalPanel(for: restoredSurfaceID)?.surface.debugInitialCommand()
+        )
+
+        #expect(startupCommand.contains("ssh-pty-attach"), "\(startupCommand)")
+        #expect(startupCommand.contains("--require-existing"), "\(startupCommand)")
+        let remoteCommand = try decodedRemoteCommand(from: startupCommand)
+        #expect(remoteCommand.contains("export CMUX_SOCKET_PATH=127.0.0.1:\(relayPort)"), "\(remoteCommand)")
+        #expect(try decodedInitialCommandIfPresent(from: remoteCommand) == nil)
+        #expect(!remoteCommand.contains("session-remote-7989"), "\(remoteCommand)")
+        #expect(!remoteCommand.contains("REMOTE_FLAG"), "\(remoteCommand)")
     }
 
     @Test
@@ -947,6 +978,27 @@ struct RemoteResumeBindingTests {
         return try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: legacyData)
     }
 
+    private func snapshotWithoutRestoreWorkingDirectorySelection(
+        _ snapshot: SessionWorkspaceSnapshot
+    ) throws -> SessionWorkspaceSnapshot {
+        let encoded = try JSONEncoder().encode(snapshot)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        var panels = try #require(object["panels"] as? [[String: Any]])
+        let panelIndex = try #require(panels.firstIndex { $0["terminal"] != nil })
+        var panel = panels[panelIndex]
+        var terminal = try #require(panel["terminal"] as? [String: Any])
+        var binding = try #require(terminal["resumeBinding"] as? [String: Any])
+        binding.removeValue(forKey: "restoreWorkingDirectorySelection")
+        terminal["resumeBinding"] = binding
+        panel["terminal"] = terminal
+        panels[panelIndex] = panel
+        object["panels"] = panels
+        return try JSONDecoder().decode(
+            SessionWorkspaceSnapshot.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+    }
+
     private func snapshotByReplacingRemoteContext(
         _ snapshot: SessionWorkspaceSnapshot,
         persistentPTYSessionID: String
@@ -1002,9 +1054,15 @@ struct RemoteResumeBindingTests {
     }
 
     private func decodedInitialCommand(from bootstrap: String) throws -> String {
-        let payloadLine = try #require(bootstrap.split(separator: "\n").first { line in
+        try #require(decodedInitialCommandIfPresent(from: bootstrap))
+    }
+
+    private func decodedInitialCommandIfPresent(from bootstrap: String) throws -> String? {
+        guard let payloadLine = bootstrap.split(separator: "\n").first(where: { line in
             line.contains("printf %s '") && line.contains("> \"$cmux_initial_command_tmp\"")
-        })
+        }) else {
+            return nil
+        }
         let prefixRange = try #require(payloadLine.range(of: "printf %s '"))
         let encodedSuffix = payloadLine[prefixRange.upperBound...]
         let closingQuote = try #require(encodedSuffix.firstIndex(of: "'"))

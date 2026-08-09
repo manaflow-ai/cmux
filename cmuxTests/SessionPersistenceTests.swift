@@ -4388,6 +4388,65 @@ extension SessionPersistenceTests {
         )
     }
 
+    func testAgentHookSurfaceResumeBindingDropsKimiAndQoderShortWorkingDirectoryOptions() {
+        let workingDirectory = "/tmp/project"
+        let cases = [
+            (kind: "kimi", option: "-w '\(workingDirectory)'"),
+            (kind: "kimi", option: "-w\(workingDirectory)"),
+            (kind: "qoder", option: "-w '\(workingDirectory)'"),
+            (kind: "qoder", option: "-w\(workingDirectory)"),
+        ]
+
+        for item in cases {
+            let binding = SurfaceResumeBindingSnapshot(
+                kind: item.kind,
+                command: "cd '\(workingDirectory)' && \(item.kind) --resume session \(item.option) --model fast",
+                cwd: workingDirectory,
+                source: "agent-hook",
+                updatedAt: 1
+            )
+
+            XCTAssertEqual(
+                binding.command,
+                TerminalStartupWorkingDirectoryPrefix.prefix(
+                    "\(item.kind) --resume session --model fast",
+                    workingDirectory: workingDirectory
+                ),
+                "\(item.kind) \(item.option)"
+            )
+        }
+    }
+
+    func testAgentHookRetargetingDropsKimiAndQoderShortWorkingDirectoryOptions() {
+        let workingDirectory = "/tmp/project"
+        let cases = [
+            (kind: "kimi", option: "-w '\(workingDirectory)'"),
+            (kind: "kimi", option: "-w\(workingDirectory)"),
+            (kind: "qoder", option: "-w '\(workingDirectory)'"),
+            (kind: "qoder", option: "-w\(workingDirectory)"),
+        ]
+
+        for item in cases {
+            let binding = SurfaceResumeBindingSnapshot(
+                kind: item.kind,
+                command: "\(item.kind) --resume session \(item.option) --model fast",
+                cwd: nil,
+                source: "agent-hook",
+                updatedAt: 1
+            )
+            let retargeted = binding.retargetingWorkingDirectory(workingDirectory)
+
+            XCTAssertEqual(
+                retargeted.command,
+                TerminalStartupWorkingDirectoryPrefix.prefix(
+                    "\(item.kind) --resume session --model fast",
+                    workingDirectory: workingDirectory
+                ),
+                "\(item.kind) \(item.option)"
+            )
+        }
+    }
+
     func testAgentHookSurfaceResumeBindingPreservesClaudeTeamsWorktreeOption() {
         let workingDirectory = "/tmp/team-worktree"
         let command = "cmux claude-teams --resume team-session -w '\(workingDirectory)' --model sonnet"
