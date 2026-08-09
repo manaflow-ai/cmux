@@ -51,9 +51,29 @@ extension TerminalSurface {
                 guard !Task.isCancelled else { return }
                 guard let self else { return }
                 self.agentCommandShims = shims
-                self.agentCommandShimInstallCompleted = true
                 self.agentCommandShimInstallTask = nil
                 self.agentCommandShimCompletionTask = nil
+                self.agentCommandShimDeadlineTask?.cancel()
+                self.agentCommandShimDeadlineTask = nil
+                // The deadline may have already released spawn without the
+                // shims; the late result still serves future runtime creations.
+                guard !self.agentCommandShimInstallCompleted else { return }
+                self.agentCommandShimInstallCompleted = true
+                let source = self.agentCommandShimPendingCreationSource ?? source
+                self.agentCommandShimPendingCreationSource = nil
+                self.resumeSurfaceCreationAfterAgentCommandShimsReady(view: view, source: source)
+            }
+            // Bounded, cancellable deadline (injected clock): command shims
+            // are an optional PATH convenience, and a hung install must never
+            // starve PTY spawn (#9769).
+            let deadline = agentCommandShimInstallDeadline
+            let clock = agentCommandShimInstallDeadlineClock
+            agentCommandShimDeadlineTask = Task { @MainActor [weak self, weak view] in
+                try? await clock.sleep(for: deadline, tolerance: nil)
+                guard !Task.isCancelled else { return }
+                guard let self, !self.agentCommandShimInstallCompleted else { return }
+                self.agentCommandShimInstallCompleted = true
+                self.agentCommandShimDeadlineTask = nil
                 let source = self.agentCommandShimPendingCreationSource ?? source
                 self.agentCommandShimPendingCreationSource = nil
                 self.resumeSurfaceCreationAfterAgentCommandShimsReady(view: view, source: source)
@@ -69,7 +89,15 @@ extension TerminalSurface {
         agentCommandShimCompletionTask = nil
         agentCommandShimInstallTask?.cancel()
         agentCommandShimInstallTask = nil
+        agentCommandShimDeadlineTask?.cancel()
+        agentCommandShimDeadlineTask = nil
         agentCommandShimPendingCreationSource = nil
+        // A deadline-released spawn marks the install completed without
+        // shims. Reopen the gate after cancelling that install so a later
+        // runtime generation can try again.
+        if agentCommandShims == nil {
+            agentCommandShimInstallCompleted = false
+        }
     }
 
     @MainActor

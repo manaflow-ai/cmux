@@ -2,7 +2,9 @@ use std::fs;
 #[cfg(unix)]
 use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
+use std::os::fd::AsRawFd;
+#[cfg(unix)]
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 #[cfg(unix)]
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
@@ -338,7 +340,7 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     let state = dir.join("state");
     let home = dir.join("home");
     fs::create_dir_all(&home).unwrap();
-    let session = "schema-{found}";
+    let session = "--old-schema-{found}";
 
     drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
     let database = fs::read_dir(&state)
@@ -445,10 +447,40 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     assert!(english.contains(&format!("session socket: {}", socket.display())), "{english}");
     assert!(!english.contains("state database:"), "{english}");
     assert!(!english.contains(&database.display().to_string()), "{english}");
-    assert!(
-        english.contains("no server is listening on this socket; nothing needs to be stopped"),
-        "{english}"
-    );
+    assert!(english.contains("no server is listening on this socket"), "{english}");
+    assert!(!english.contains("nothing needs to be stopped"), "{english}");
+    #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+    {
+        assert!(
+            english.contains(&format!(
+                "cmux session 'name:{session}' reset-state --state '{}'",
+                state.display()
+            )),
+            "{english}"
+        );
+        assert!(
+            !english.contains(&format!(
+                "cmux session 'name:{session}' reset-state --state '{}' --force",
+                state.display()
+            )),
+            "{english}"
+        );
+    }
+    #[cfg(not(any(
+        target_os = "ios",
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "android"
+    )))]
+    {
+        assert!(!english.contains(" reset-state"), "{english}");
+        assert!(
+            english.contains(
+                "scoped saved-state reset is not supported on this platform; no reset command is shown"
+            ),
+            "{english}"
+        );
+    }
     assert!(!english.contains("session current shutdown --force"), "{english}");
     assert!(english.contains("saved state still requires a newer cmux"), "{english}");
     assert!(english.contains(&format!("--session '{session}-separate'")), "{english}");
@@ -580,12 +612,665 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     assert!(japanese.contains("セッションソケット:"), "{japanese}");
     assert!(!japanese.contains("状態データベース:"), "{japanese}");
     assert!(!japanese.contains(&database.display().to_string()), "{japanese}");
-    assert!(
-        japanese.contains("このソケットを待ち受けているサーバーはありません。停止は不要です"),
-        "{japanese}"
-    );
+    assert!(japanese.contains("このソケットを待ち受けているサーバーはありません"), "{japanese}");
+    assert!(!japanese.contains("停止は不要"), "{japanese}");
+    #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+    {
+        assert!(
+            japanese.contains(&format!(
+                "cmux session 'name:{session}' reset-state --state '{}'",
+                state.display()
+            )),
+            "{japanese}"
+        );
+        assert!(
+            !japanese.contains(&format!(
+                "cmux session 'name:{session}' reset-state --state '{}' --force",
+                state.display()
+            )),
+            "{japanese}"
+        );
+    }
+    #[cfg(not(any(
+        target_os = "ios",
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "android"
+    )))]
+    {
+        assert!(!japanese.contains(" reset-state"), "{japanese}");
+        assert!(
+            japanese.contains("このプラットフォームではスコープ付き保存状態リセットに対応していないため、リセットコマンドは表示しません"),
+            "{japanese}"
+        );
+    }
     assert!(!japanese.contains("session current shutdown --force"), "{japanese}");
     assert!(japanese.contains("保存状態には新しい cmux が必要です"), "{japanese}");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn session_reset_state_rejects_global_routing_options() {
+    let dir = unique_temp_dir("session-reset-routing-options");
+    let state = dir.join("state");
+    for (option, value) in
+        [("--socket", "ignored.sock"), ("--session", "ignored"), ("--machine", "ignored")]
+    {
+        let output = Command::new(bin())
+            .args(["--json", option, value, "session", "target", "reset-state", "--state"])
+            .arg(&state)
+            .env_remove("CMUX_TUI_SOCKET")
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{option} unexpectedly reached reset execution");
+        let error: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(error["code"], "session.reset_state.routing_options_unsupported");
+        assert_eq!(error["details"]["options"], serde_json::json!([option]));
+        assert!(error["message"].as_str().unwrap().contains(option));
+        assert!(!state.exists(), "{option} created the ignored state root");
+    }
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn session_reset_state_removes_only_the_named_saved_state() {
+    let dir = unique_temp_dir("session-reset-state");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let stale_session = "schema-reset-target";
+    let kept_session = "schema-reset-kept";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, stale_session).unwrap());
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, kept_session).unwrap());
+    let session_database = |session: &str| {
+        fs::read_dir(&state)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+            .filter(|path| path.is_file())
+            .find(|path| {
+                let connection = rusqlite::Connection::open(path).unwrap();
+                let session_id: String = connection
+                    .query_row("SELECT value FROM meta WHERE key = 'session_name'", [], |row| {
+                        row.get(0)
+                    })
+                    .unwrap();
+                session_id == session
+            })
+            .expect("session database")
+    };
+    let stale_database = session_database(stale_session);
+    let kept_database = session_database(kept_session);
+    let stale_host_root =
+        cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, stale_session);
+    let kept_host_root =
+        cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, kept_session);
+    fs::create_dir_all(&stale_host_root).unwrap();
+    fs::create_dir_all(&kept_host_root).unwrap();
+    fs::write(stale_host_root.join("orphaned-sidecar"), b"stale").unwrap();
+    fs::write(kept_host_root.join("orphaned-sidecar"), b"kept").unwrap();
+    let connection = rusqlite::Connection::open(&stale_database).unwrap();
+    connection.execute("UPDATE meta SET value = '999' WHERE key = 'schema_version'", []).unwrap();
+    drop(connection);
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", stale_session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    assert_eq!(preview["session"], stale_session);
+    assert_eq!(preview["requires_force"], true);
+    assert_eq!(preview["state_root"], state.display().to_string());
+    assert_eq!(preview["session_dir"], stale_database.parent().unwrap().display().to_string());
+    assert_eq!(preview["terminal_host_root"], stale_host_root.display().to_string());
+    let confirm_reset = preview["confirm_reset"].as_str().unwrap().to_string();
+    assert!(stale_database.exists(), "preview removed stale database");
+    assert!(stale_host_root.exists(), "preview removed stale terminal-host state");
+
+    let rejected = Command::new(bin())
+        .args(["session", stale_session, "reset-state", "--force", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!rejected.status.success(), "force without preview token unexpectedly succeeded");
+    assert!(stale_database.exists(), "rejected force removed stale database");
+    assert!(stale_host_root.exists(), "rejected force removed stale terminal-host state");
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            stale_session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            &confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&reset);
+    assert!(!stale_database.exists(), "reset left stale database at {}", stale_database.display());
+    assert!(!stale_host_root.exists(), "reset left stale terminal-host state");
+    assert!(kept_database.exists(), "reset removed another session's database");
+    assert!(kept_host_root.exists(), "reset removed another session's terminal-host state");
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, stale_session).unwrap());
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn session_reset_state_refuses_live_terminal_host_state() {
+    let dir = unique_temp_dir("session-reset-live-host");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-live-host";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
+    let _live_host = create_live_terminal_host_record(&host_root);
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env("LC_ALL", "C")
+        .env("LC_MESSAGES", "C")
+        .env("LANG", "C")
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset unexpectedly succeeded");
+    let stderr = String::from_utf8(reset.stderr).unwrap();
+    assert!(stderr.contains("could not complete saved-state reset for session"), "{stderr}");
+    assert!(stderr.contains("stop it cleanly before retrying the reset"), "{stderr}");
+    assert!(!stderr.contains(&state.display().to_string()), "{stderr}");
+    assert!(database.exists(), "reset removed the registry while a live host was present");
+    assert!(host_root.exists(), "reset removed live terminal-host state");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn session_reset_state_refuses_orphan_terminal_host_live_marker() {
+    let dir = unique_temp_dir("session-reset-orphan-host-marker");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-orphan-host";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    let live_marker = host_root.join("orphan.live");
+    let live_file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_marker)
+        .unwrap();
+    assert_eq!(unsafe { libc::flock(live_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset unexpectedly succeeded");
+    assert!(database.exists(), "reset removed the registry while a live marker was present");
+    assert!(live_marker.exists(), "reset removed the orphan live marker");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn session_reset_state_removes_dead_orphan_terminal_host_live_marker() {
+    let dir = unique_temp_dir("session-reset-dead-orphan-host-marker");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-dead-orphan-host";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    let live_marker = host_root.join("orphan.live");
+    fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_marker)
+        .unwrap();
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&reset);
+    assert!(!database.exists(), "reset left the registry after removing a dead live marker");
+    assert!(!host_root.exists(), "reset left terminal-host state after removing a dead marker");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_reset_state_rejects_stale_preview_when_targets_change() {
+    let dir = unique_temp_dir("session-reset-stale-preview");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-stale-preview";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
+    assert!(!host_root.exists());
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let stale_confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(host_root.join("sentinel"), b"new-host-state").unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            stale_confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset accepted a stale preview token");
+    assert!(database.exists(), "reset removed the registry with a stale token");
+    assert!(host_root.join("sentinel").exists(), "reset removed newly appeared host state");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_reset_state_rejects_preview_for_recreated_registry() {
+    let dir = unique_temp_dir("session-reset-recreated-registry");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-recreated-registry";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let original_database = find_session_database(&state, session);
+    let session_dir = original_database.parent().unwrap().to_path_buf();
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let stale_confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    fs::remove_dir_all(&session_dir).unwrap();
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let recreated_database = find_session_database(&state, session);
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            stale_confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset accepted a token from a replaced registry");
+    assert!(recreated_database.exists(), "reset removed the recreated registry");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_reset_state_rejects_preview_when_session_sidecar_appears() {
+    let dir = unique_temp_dir("session-reset-new-sidecar");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-new-sidecar";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let session_dir = database.parent().unwrap();
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let stale_confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    let sidecar = session_dir.join("workspace-registry.sqlite3-wal");
+    fs::write(&sidecar, b"new-sidecar-state").unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            stale_confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset accepted a token before a new sidecar existed");
+    assert!(database.exists(), "reset removed the registry with a stale token");
+    assert!(sidecar.exists(), "reset removed a sidecar that was not previewed");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn session_reset_state_rejects_preview_when_nested_session_file_appears() {
+    let dir = unique_temp_dir("session-reset-new-nested-file");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-new-nested-file";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let session_dir = database.parent().unwrap();
+    let nested_dir = session_dir.join("nested");
+    fs::create_dir_all(&nested_dir).unwrap();
+    fs::write(nested_dir.join("previewed"), b"old").unwrap();
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let stale_confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    let unpreviewed = nested_dir.join("unpreviewed");
+    fs::write(&unpreviewed, b"new").unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            stale_confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset accepted a token before a nested file existed");
+    assert!(database.exists(), "reset removed the registry with a stale token");
+    assert!(unpreviewed.exists(), "reset removed a nested file that was not previewed");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_reset_state_bad_token_does_not_mutate_state_root() {
+    let dir = unique_temp_dir("session-reset-bad-token-no-mutation");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    fs::create_dir_all(&state).unwrap();
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o755)).unwrap();
+    let session = "schema-reset-bad-token";
+    let resetter = cmux_tui_core::PersistentSessionStateResetter::new(state.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            "wrong-token",
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset accepted a wrong confirmation token");
+    assert!(!state.join("session-locks").exists(), "wrong-token reset created session locks");
+    assert_eq!(fs::metadata(&state).unwrap().permissions().mode() & 0o777, 0o755);
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_reset_state_rejects_symlinked_terminal_host_state() {
+    let dir = unique_temp_dir("session-reset-symlink-host");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-symlink-host";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
+    let outside_host_root = dir.join("outside-host-state");
+    fs::create_dir_all(&outside_host_root).unwrap();
+    fs::set_permissions(&outside_host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    let outside_sentinel = outside_host_root.join("sentinel");
+    fs::write(&outside_sentinel, b"outside").unwrap();
+    symlink(&outside_host_root, &host_root).unwrap();
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset accepted a symlinked host root");
+    assert!(database.exists(), "reset removed the registry after rejecting host root");
+    assert!(fs::symlink_metadata(&host_root).unwrap().file_type().is_symlink());
+    assert!(outside_sentinel.exists(), "reset mutated the symlink target");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_reset_state_rejects_symlinked_state_root() {
+    let dir = unique_temp_dir("session-reset-symlink-root");
+    fs::create_dir_all(&dir).unwrap();
+    let actual_state = dir.join("actual-state");
+    let state = dir.join("state-link");
+    let session = "schema-reset-symlink-root";
+    fs::create_dir_all(&actual_state).unwrap();
+    fs::write(actual_state.join("root-sentinel"), b"keep").unwrap();
+    symlink(&actual_state, &state).unwrap();
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&actual_state, session);
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::write(host_root.join("orphaned-sidecar"), b"stale").unwrap();
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!preview.status.success(), "preview accepted a symlinked state root");
+    let preview_error: serde_json::Value = serde_json::from_slice(&preview.stderr).unwrap();
+    assert_eq!(preview_error["code"], "session.reset_state.filesystem");
+
+    let reset = Command::new(bin())
+        .args([
+            "--json",
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            "unused",
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset accepted a symlinked state root");
+    let reset_error: serde_json::Value = serde_json::from_slice(&reset.stderr).unwrap();
+    assert_eq!(reset_error["code"], "session.reset_state.filesystem");
+    assert!(database.exists(), "reset removed stale database through symlinked state root");
+    assert!(host_root.exists(), "reset removed terminal-host state through symlinked state root");
+    assert!(fs::symlink_metadata(&state).unwrap().file_type().is_symlink());
+    assert!(actual_state.join("root-sentinel").exists(), "reset removed root sibling data");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn session_reset_state_missing_target_does_not_mutate_state_root() {
+    let dir = unique_temp_dir("session-reset-missing-target");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("not-cmux-state");
+    fs::create_dir_all(&state).unwrap();
+    #[cfg(unix)]
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(state.join("sentinel"), b"keep").unwrap();
+
+    let reset = Command::new(bin())
+        .args(["--json", "session", "missing-session", "reset-state", "--force", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&reset);
+    let reset: serde_json::Value = serde_json::from_slice(&reset.stdout).unwrap();
+    assert_eq!(reset["removed_session_state"], false);
+    assert_eq!(reset["removed_terminal_hosts"], false);
+    assert!(state.join("sentinel").exists());
+    assert!(!state.join("session-locks").exists());
+    #[cfg(unix)]
+    assert_eq!(fs::metadata(&state).unwrap().permissions().mode() & 0o777, 0o755);
 
     fs::remove_dir_all(dir).unwrap();
 }
@@ -2104,6 +2789,63 @@ fn assert_success(output: &Output) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+fn find_session_database(state: &std::path::Path, session: &str) -> PathBuf {
+    fs::read_dir(state)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+        .filter(|path| path.is_file())
+        .find(|path| {
+            let connection = rusqlite::Connection::open(path).unwrap();
+            let session_id: String = connection
+                .query_row("SELECT value FROM meta WHERE key = 'session_name'", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            session_id == session
+        })
+        .expect("session database")
+}
+
+#[cfg(unix)]
+fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
+    fs::create_dir_all(root).unwrap();
+    fs::set_permissions(root, fs::Permissions::from_mode(0o700)).unwrap();
+    let terminal_id = "0000000000004000800000000000002a";
+    let incarnation = "0000000000004000800000000000002b";
+    let owner_token = "01".repeat(32);
+    let host_start_nonce = "02".repeat(32);
+    let uid = fs::metadata(root).unwrap().uid();
+    let record = cmux_tui_core::terminal_host_runtime::TerminalHostRecord {
+        record_version: 2,
+        terminal_id: terminal_id.to_string(),
+        incarnation: incarnation.to_string(),
+        endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
+        owner_token,
+        host_pid: std::process::id(),
+        host_start_nonce: host_start_nonce.clone(),
+        workspace_key: String::new(),
+        supports_set_defaults: true,
+        supports_clear_history: true,
+    };
+    let record_path = record.record_path(root);
+    let live_path = record_path.with_extension(format!("{incarnation}-{host_start_nonce}.live"));
+    let live_file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_path)
+        .unwrap();
+    assert_eq!(unsafe { libc::flock(live_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let mut record_file =
+        fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record_path).unwrap();
+    record_file.write_all(&serde_json::to_vec(&record).unwrap()).unwrap();
+    record_file.sync_all().unwrap();
+    live_file
 }
 
 fn unique_temp_dir(name: &str) -> PathBuf {

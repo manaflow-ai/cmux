@@ -86,6 +86,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
     let restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling
     let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
+    let agentCommandShimInstallDeadline: Duration
+    let agentCommandShimInstallDeadlineClock: any Clock<Duration>
     /// Port ordinal base/range for CMUX_PORT assignment, snapshotted by the app composition root.
     let sessionPortBase: Int
     let sessionPortRangeSize: Int
@@ -287,6 +289,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var agentCommandShims: AgentCommandShimSet?
     var agentCommandShimInstallTask: Task<AgentCommandShimSet?, Never>?
     var agentCommandShimCompletionTask: Task<Void, Never>?
+    var agentCommandShimDeadlineTask: Task<Void, Never>?
     var agentCommandShimInstallCompleted = false
     var agentCommandShimPendingCreationSource: RuntimeSurfaceCreationSource?
     /// The retained byte-tee lease for the libghostty PTY tee callback (cmux
@@ -540,6 +543,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.runtimeTeardown = dependencies.runtimeTeardown
         self.restoreSpawnScheduler = dependencies.restoreSpawnScheduler
         self.runtimeFilesystem = dependencies.runtimeFilesystem
+        self.agentCommandShimInstallDeadline = dependencies.agentCommandShimInstallDeadline
+        self.agentCommandShimInstallDeadlineClock = dependencies.agentCommandShimInstallDeadlineClock
         self.requiresRestoreSpawnPacing = runtimeSpawnPolicy == .pacedSessionRestore
         self.sessionPortBase = dependencies.sessionPortBase
         self.sessionPortRangeSize = dependencies.sessionPortRangeSize
