@@ -77,6 +77,12 @@ extension DockSplitStore {
                 )
         }
         let preservedTransfer = removeDetachedSurfaceTransfer(forPanelID: panelId)
+        let notificationStore = AppDelegate.shared?.notificationStore
+        let wasManuallyUnread = preservedTransfer?.manuallyUnread == true
+            || (scope == .global && notificationStore?.hasManualUnread(
+                forTabId: workspaceId,
+                surfaceId: panelId
+            ) == true)
         let restoredAgentObservation = SharedLiveAgentIndex.shared.index?.entry(
             workspaceId: preservedTransfer?.sessionRestoreWorkspaceId ?? workspaceId,
             panelId: panelId
@@ -281,7 +287,7 @@ extension DockSplitStore {
             cachedTitle: panel.displayTitle,
             customTitle: preservedTransfer?.customTitle,
             customTitleSource: preservedTransfer?.customTitleSource,
-            manuallyUnread: preservedTransfer?.manuallyUnread ?? false,
+            manuallyUnread: wasManuallyUnread,
             restoredUnreadIndicator: preservedTransfer?.restoredUnreadIndicator,
             restorableAgent: transferredRestorableAgent,
             restorableAgentResumeState: transferredResumeState,
@@ -301,6 +307,12 @@ extension DockSplitStore {
             remotePTYSessionID: preservedTransfer?.remotePTYSessionID,
             remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration
         )
+        if scope == .global {
+            notificationStore?.clearWindowDockSurfaceUnread(
+                windowId: workspaceId,
+                surfaceId: panelId
+            )
+        }
         clearSessionRestoreState(panelId: panelId)
         return detached
     }
@@ -372,6 +384,12 @@ extension DockSplitStore {
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface"
         )
+        if scope == .global, detached.manuallyUnread {
+            AppDelegate.shared?.notificationStore?.markWindowDockSurfaceUnread(
+                windowId: workspaceId,
+                surfaceId: detached.panelId
+            )
+        }
         if let terminalPanel = panel as? TerminalPanel {
             if let owningWorkspace =
                     terminalFontSizeOwningWorkspace {
@@ -467,6 +485,12 @@ extension DockSplitStore {
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface.split"
         )
+        if scope == .global, detached.manuallyUnread {
+            AppDelegate.shared?.notificationStore?.markWindowDockSurfaceUnread(
+                windowId: workspaceId,
+                surfaceId: detached.panelId
+            )
+        }
         if let terminalPanel = panel as? TerminalPanel {
             if let owningWorkspace =
                     terminalFontSizeOwningWorkspace {

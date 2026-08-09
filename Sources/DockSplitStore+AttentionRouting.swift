@@ -24,10 +24,10 @@ extension DockSplitStore {
         return true
     }
 
-    /// Gives a Dock-owned terminal a Dock-owned pane-flash callback. A terminal
-    /// moved out of a workspace can otherwise retain the workspace closure and
-    /// send its flash into the old pane overlay.
-    func installAttentionFlashRouting(for panel: any Panel) {
+    /// Gives a Dock-owned terminal Dock-owned flash and visual-BEL callbacks.
+    /// A moved terminal can otherwise retain its prior container's closures and
+    /// publish attention into the wrong owner.
+    func installAttentionRouting(for panel: any Panel) {
         guard let terminal = panel as? TerminalPanel else { return }
         terminal.onRequestWorkspacePaneFlash = { [weak self, weak terminal] reason in
             guard let self, let terminal,
@@ -38,6 +38,39 @@ extension DockSplitStore {
             mountedTerminal.hostedView.triggerFlash(
                 style: GhosttySurfaceScrollView.flashStyle(for: reason)
             )
+        }
+        guard scope == .global else {
+            // The legacy workspace Dock is not rendered by the sidebar. Audio
+            // still rings, but visual BEL attention must not create a phantom
+            // workspace target that navigation cannot reveal.
+            terminal.surface.onVisualBell = nil
+            return
+        }
+        terminal.surface.onVisualBell = { [weak self, weak terminal] in
+            guard let self, let terminal,
+                  let mountedTerminal = self.panels[terminal.id] as? TerminalPanel,
+                  mountedTerminal === terminal else {
+                return
+            }
+            let ownsActiveFocus = AppFocusState.isAppFocused()
+                && self.panelIsActiveInVisibleDockPane(terminal.id)
+                && AppDelegate.shared?.focusedDockStoreForShortcut(
+                    preferredWindow: terminal.surface.uiWindow
+                ) === self
+            if !ownsActiveFocus,
+               let notificationStore = AppDelegate.shared?.notificationStore {
+                guard !notificationStore.hasManualUnread(
+                    forTabId: self.workspaceId,
+                    surfaceId: terminal.id
+                ) else {
+                    return
+                }
+                notificationStore.markWindowDockSurfaceUnread(
+                    windowId: self.workspaceId,
+                    surfaceId: terminal.id
+                )
+            }
+            mountedTerminal.triggerFlash(reason: .notificationArrival)
         }
     }
 }

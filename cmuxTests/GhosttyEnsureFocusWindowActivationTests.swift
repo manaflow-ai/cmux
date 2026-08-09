@@ -134,6 +134,7 @@ struct GhosttyEnsureFocusWindowActivationTests {
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         appDelegate.tabManager = tabManager
         let targetWorkspace = tabManager.addWorkspace(select: true)
+        let targetTerminal = try #require(targetWorkspace.focusedTerminalPanel)
         let targetPanelID = try #require(targetWorkspace.focusedPanelId)
         let selectedWorkspace = tabManager.addWorkspace(select: true)
         defer {
@@ -148,12 +149,10 @@ struct GhosttyEnsureFocusWindowActivationTests {
         #expect(targetWorkspace.manualUnreadPanelIds.isEmpty)
         #expect(tabManager.selectedTabId == selectedWorkspace.id)
 
-        let routed = appDelegate.routeTerminalBellAttention(
-            preferredTabID: targetWorkspace.id,
-            surfaceID: targetPanelID
-        )
+        let visualBell = try #require(targetTerminal.surface.onVisualBell)
+        visualBell()
+        visualBell()
 
-        #expect(routed)
         #expect(targetWorkspace.manualUnreadPanelIds == Set([targetPanelID]))
         #expect(tabManager.selectedTabId == selectedWorkspace.id)
     }

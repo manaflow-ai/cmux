@@ -53,6 +53,10 @@ final class NotificationNavSeamAdapter:
         owner?.workspaceUnreadIndicatorIdsForNav ?? []
     }
 
+    var windowDockUnreadTargets: [WindowDockUnreadTarget] {
+        owner?.windowDockUnreadTargetsForNav ?? []
+    }
+
     func hasManualUnread(forTabId tabId: UUID) -> Bool {
         owner?.navStoreHasManualUnread(forTabId: tabId) ?? false
     }
@@ -63,6 +67,10 @@ final class NotificationNavSeamAdapter:
 
     func markRead(id: UUID) {
         owner?.navMarkRead(id: id)
+    }
+
+    func clearWindowDockUnread(_ target: WindowDockUnreadTarget) {
+        owner?.navClearWindowDockUnread(target)
     }
 
     // MARK: MainWindowContextResolving
@@ -157,6 +165,10 @@ final class NotificationNavSeamAdapter:
             scrollTotalRows: scrollTotalRows,
             scrollRowSpaceRevision: scrollRowSpaceRevision
         ) ?? false
+    }
+
+    func openWindowDockUnread(_ target: WindowDockUnreadTarget) -> Bool {
+        owner?.openWindowDockUnread(target) ?? false
     }
 
     func tabTitle(forTabId tabId: UUID) -> String? {
@@ -267,6 +279,10 @@ extension AppDelegate {
         notificationStore?.workspaceUnreadIndicatorIds ?? []
     }
 
+    var windowDockUnreadTargetsForNav: [WindowDockUnreadTarget] {
+        notificationStore?.windowDockUnreadTargets ?? []
+    }
+
     func navStoreHasManualUnread(forTabId tabId: UUID) -> Bool {
         notificationStore?.hasManualUnread(forTabId: tabId) ?? false
     }
@@ -277,6 +293,13 @@ extension AppDelegate {
 
     func navMarkRead(id: UUID) {
         notificationStore?.markRead(id: id)
+    }
+
+    func navClearWindowDockUnread(_ target: WindowDockUnreadTarget) {
+        notificationStore?.clearWindowDockSurfaceUnread(
+            windowId: target.windowId,
+            surfaceId: target.surfaceId
+        )
     }
 
     /// Whether `notification` is openable by the jump-to-latest scan. A thin
@@ -440,6 +463,20 @@ extension AppDelegate {
                 rowSpaceRevision: scrollRowSpaceRevision
             )
         )
+    }
+
+    func openWindowDockUnread(_ target: WindowDockUnreadTarget) -> Bool {
+        guard let dock = windowDockForRegisteredOwner(target.windowId),
+              dock.containsPanel(target.surfaceId),
+              let manager = tabManagerForWindowDockOwner(target.windowId) else {
+            return false
+        }
+        _ = TerminalController.shared.focusAndRevealWindowDock(
+            for: dock,
+            fallback: manager
+        )
+        dock.focusPanel(target.surfaceId)
+        return dock.focusedPanelId == target.surfaceId
     }
 
     func tabTitle(forTabId tabId: UUID) -> String? {

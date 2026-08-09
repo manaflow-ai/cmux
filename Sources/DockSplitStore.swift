@@ -880,7 +880,7 @@ final class DockSplitStore: BonsplitDelegate {
         if let terminal = panel as? TerminalPanel {
             configureAgentHibernationResume(for: terminal)
         }
-        installAttentionFlashRouting(for: panel)
+        installAttentionRouting(for: panel)
         if let browser = panel as? BrowserPanel {
             let cancellable = Publishers.CombineLatest4(
                 browser.$pageTitle.removeDuplicates(),

@@ -120,8 +120,25 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
                 return notification.id
             }
         }
+        if openLatestWindowDockUnread(excludingOwnerId: excludedWorkspaceId) {
+            return nil
+        }
         _ = openLatestWorkspaceUnread(excludingWorkspaceId: excludedWorkspaceId)
         return nil
+    }
+
+    private func openLatestWindowDockUnread(excludingOwnerId excludedOwnerId: UUID?) -> Bool {
+        for target in store.windowDockUnreadTargets
+        where target.windowId != excludedOwnerId {
+            guard openRouting.openWindowDockUnread(target) else { continue }
+            signalDidFocusForJumpUnread(
+                tabId: target.windowId,
+                surfaceId: target.surfaceId
+            )
+            store.clearWindowDockUnread(target)
+            return true
+        }
+        return false
     }
 
     private func openLatestWorkspaceUnread(excludingWorkspaceId excludedWorkspaceId: UUID? = nil) -> Bool {

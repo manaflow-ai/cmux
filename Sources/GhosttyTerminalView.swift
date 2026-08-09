@@ -2768,7 +2768,7 @@ class GhosttyApp {
     }
 
     @MainActor
-    private func ringBell(tabID: UUID?, surfaceID: UUID?) {
+    private func ringBell(surface: TerminalSurface?) {
         let features = bellFeatures()
         let customAudioEnabled = (features & (1 << 1)) != 0
         terminalBellService.ring(
@@ -2776,11 +2776,8 @@ class GhosttyApp {
             customAudioPath: customAudioEnabled ? bellAudioPath() : nil,
             customAudioVolume: customAudioEnabled ? bellAudioVolume() : 0.5
         )
-        if (features & (1 << 2)) != 0, let surfaceID {
-            AppDelegate.shared?.routeTerminalBellAttention(
-                preferredTabID: tabID,
-                surfaceID: surfaceID
-            )
+        if (features & (1 << 2)) != 0 {
+            surface?.onVisualBell?()
         }
     }
 
@@ -3103,7 +3100,7 @@ class GhosttyApp {
 
             if action.tag == GHOSTTY_ACTION_RING_BELL {
                 performOnMain {
-                    self.ringBell(tabID: nil, surfaceID: nil)
+                    self.ringBell(surface: nil)
                 }
                 return true
             }
@@ -3188,8 +3185,8 @@ class GhosttyApp {
         case GHOSTTY_ACTION_RING_BELL:
             performOnMain {
                 self.ringBell(
-                    tabID: callbackTabId ?? surfaceView.tabId,
-                    surfaceID: callbackSurfaceId ?? surfaceView.terminalSurface?.id
+                    surface: callbackContext?.terminalSurface
+                        ?? surfaceView.terminalSurface
                 )
             }
             return true

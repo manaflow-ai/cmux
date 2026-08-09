@@ -383,9 +383,11 @@ final class TerminalNotificationStore: ObservableObject {
     @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = [] {
         didSet { refreshUnreadPresentation() }
     }
-    @Published private var manualUnreadSurfaceIdsByWorkspaceId: [UUID: Set<UUID>] = [:] {
-        didSet { refreshUnreadPresentation() }
-    }
+    /// Surface-scoped manual unread belongs only to per-window Docks. Keep the
+    /// owner index and the published sidebar projection in lockstep so BEL
+    /// handling stays constant-time and refreshes once per logical mutation.
+    private var manualUnreadSurfaceIdsByOwnerId: [UUID: Set<UUID>] = [:]
+    private var manualUnreadSurfaceKeys: Set<SidebarSurfaceUnreadKey> = []
     @Published private(set) var panelDerivedUnreadWorkspaceIds: Set<UUID> = [] {
         didSet { refreshUnreadPresentation() }
     }
@@ -512,13 +514,27 @@ final class TerminalNotificationStore: ObservableObject {
 
     var workspaceUnreadIndicatorIds: Set<UUID> {
         manualUnreadWorkspaceIds
-            .union(manualUnreadSurfaceIdsByWorkspaceId.keys)
             .union(panelDerivedUnreadWorkspaceIds)
             .union(restoredUnreadWorkspaceIds)
     }
 
     private var workspaceUnreadIndicatorCount: Int {
-        workspaceUnreadIndicatorIds.count
+        workspaceUnreadIndicatorIds.count + manualUnreadSurfaceIdsByOwnerId.count
+    }
+
+    var windowDockUnreadTargets: [WindowDockUnreadTarget] {
+        manualUnreadSurfaceKeys.compactMap { key in
+            guard let surfaceId = key.surfaceId else { return nil }
+            return WindowDockUnreadTarget(
+                windowId: key.workspaceId,
+                surfaceId: surfaceId
+            )
+        }.sorted { lhs, rhs in
+            if lhs.windowId != rhs.windowId {
+                return lhs.windowId.uuidString < rhs.windowId.uuidString
+            }
+            return lhs.surfaceId.uuidString < rhs.surfaceId.uuidString
+        }
     }
 
     private func refreshUnreadPresentation() {
@@ -693,43 +709,54 @@ final class TerminalNotificationStore: ObservableObject {
         manualUnreadWorkspaceIds = []
     }
 
-    private var manualUnreadSurfaceKeys: Set<SidebarSurfaceUnreadKey> {
-        var keys = Set<SidebarSurfaceUnreadKey>()
-        for (workspaceId, surfaceIds) in manualUnreadSurfaceIdsByWorkspaceId {
-            for surfaceId in surfaceIds {
-                keys.insert(SidebarSurfaceUnreadKey(
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId
-                ))
-            }
-        }
-        return keys
-    }
-
     @discardableResult
     private func setSurfaceManualUnread(
         _ isUnread: Bool,
         forTabId tabId: UUID,
         surfaceId: UUID
     ) -> Bool {
-        var nextSurfaceIdsByWorkspaceId = manualUnreadSurfaceIdsByWorkspaceId
-        var surfaceIds = nextSurfaceIdsByWorkspaceId[tabId] ?? []
+        var surfaceIds = manualUnreadSurfaceIdsByOwnerId[tabId] ?? []
         let didChange = isUnread
             ? surfaceIds.insert(surfaceId).inserted
             : surfaceIds.remove(surfaceId) != nil
         guard didChange else { return false }
         if surfaceIds.isEmpty {
-            nextSurfaceIdsByWorkspaceId.removeValue(forKey: tabId)
+            manualUnreadSurfaceIdsByOwnerId.removeValue(forKey: tabId)
         } else {
-            nextSurfaceIdsByWorkspaceId[tabId] = surfaceIds
+            manualUnreadSurfaceIdsByOwnerId[tabId] = surfaceIds
         }
-        manualUnreadSurfaceIdsByWorkspaceId = nextSurfaceIdsByWorkspaceId
+        let key = SidebarSurfaceUnreadKey(workspaceId: tabId, surfaceId: surfaceId)
+        if isUnread {
+            manualUnreadSurfaceKeys.insert(key)
+        } else {
+            manualUnreadSurfaceKeys.remove(key)
+        }
+        refreshUnreadPresentation()
         return true
     }
 
     private func clearSurfaceManualUnread() {
-        guard !manualUnreadSurfaceIdsByWorkspaceId.isEmpty else { return }
-        manualUnreadSurfaceIdsByWorkspaceId = [:]
+        guard !manualUnreadSurfaceIdsByOwnerId.isEmpty else { return }
+        manualUnreadSurfaceIdsByOwnerId.removeAll()
+        manualUnreadSurfaceKeys.removeAll()
+        refreshUnreadPresentation()
+    }
+
+    @discardableResult
+    private func clearSurfaceManualUnread(forTabId tabId: UUID) -> Bool {
+        guard let surfaceIds = manualUnreadSurfaceIdsByOwnerId.removeValue(
+            forKey: tabId
+        ) else {
+            return false
+        }
+        for surfaceId in surfaceIds {
+            manualUnreadSurfaceKeys.remove(SidebarSurfaceUnreadKey(
+                workspaceId: tabId,
+                surfaceId: surfaceId
+            ))
+        }
+        refreshUnreadPresentation()
+        return true
     }
 
     @discardableResult
@@ -786,7 +813,7 @@ final class TerminalNotificationStore: ObservableObject {
     func hasManualUnread(forTabId tabId: UUID) -> Bool { manualUnreadWorkspaceIds.contains(tabId) }
 
     func hasManualUnread(forTabId tabId: UUID, surfaceId: UUID) -> Bool {
-        manualUnreadSurfaceIdsByWorkspaceId[tabId]?.contains(surfaceId) ?? false
+        manualUnreadSurfaceIdsByOwnerId[tabId]?.contains(surfaceId) ?? false
     }
 
     func hasPanelDerivedUnread(forTabId tabId: UUID) -> Bool { panelDerivedUnreadWorkspaceIds.contains(tabId) }
@@ -797,7 +824,7 @@ final class TerminalNotificationStore: ObservableObject {
         (indexes.unreadCountByTabId[tabId] ?? 0) > 0 ||
             focusedReadIndicatorByTabId[tabId] != nil ||
             manualUnreadWorkspaceIds.contains(tabId) ||
-            manualUnreadSurfaceIdsByWorkspaceId[tabId]?.isEmpty == false ||
+            manualUnreadSurfaceIdsByOwnerId[tabId]?.isEmpty == false ||
             panelDerivedUnreadWorkspaceIds.contains(tabId) ||
             restoredUnreadWorkspaceIds.contains(tabId) ||
             inFlightPolicyRequests.hasPendingRequest(forTabId: tabId)
@@ -825,14 +852,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     @discardableResult
     func clearManualUnread(forTabId tabId: UUID) -> Bool {
-        let didClearWorkspace = setWorkspaceManualUnread(false, forTabId: tabId)
-        guard manualUnreadSurfaceIdsByWorkspaceId[tabId] != nil else {
-            return didClearWorkspace
-        }
-        var nextSurfaceIdsByWorkspaceId = manualUnreadSurfaceIdsByWorkspaceId
-        nextSurfaceIdsByWorkspaceId.removeValue(forKey: tabId)
-        manualUnreadSurfaceIdsByWorkspaceId = nextSurfaceIdsByWorkspaceId
-        return true
+        setWorkspaceManualUnread(false, forTabId: tabId)
     }
 
     @discardableResult
@@ -844,7 +864,7 @@ final class TerminalNotificationStore: ObservableObject {
     // summing these counts can exceed indexes.unreadCount.
     func unreadCount(forTabId tabId: UUID) -> Int {
         let hasWorkspaceUnreadIndicator = manualUnreadWorkspaceIds.contains(tabId) ||
-            manualUnreadSurfaceIdsByWorkspaceId[tabId]?.isEmpty == false ||
+            manualUnreadSurfaceIdsByOwnerId[tabId]?.isEmpty == false ||
             panelDerivedUnreadWorkspaceIds.contains(tabId) ||
             restoredUnreadWorkspaceIds.contains(tabId)
         return (indexes.unreadCountByTabId[tabId] ?? 0) + (hasWorkspaceUnreadIndicator ? 1 : 0)
@@ -1583,6 +1603,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         clearFocusedReadIndicator(forTabId: tabId)
         clearManualUnread(forTabId: tabId)
+        clearSurfaceManualUnread(forTabId: tabId)
         clearWorkspacePanelUnread(forTabId: tabId)
         setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
         setWorkspaceRestoredUnread(false, forTabId: tabId)
@@ -1623,6 +1644,7 @@ final class TerminalNotificationStore: ObservableObject {
             clearManualUnread(forTabId: tabId, surfaceId: surfaceId)
         } else {
             clearManualUnread(forTabId: tabId)
+            clearSurfaceManualUnread(forTabId: tabId)
         }
         if surfaceId == nil {
             // Whole-tab mark-read dismisses every indicator kind, matching
@@ -1648,8 +1670,17 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func markUnread(forTabId tabId: UUID, surfaceId: UUID) {
-        setSurfaceManualUnread(true, forTabId: tabId, surfaceId: surfaceId)
-        setWorkspaceRestoredUnread(false, forTabId: tabId)
+        markWindowDockSurfaceUnread(windowId: tabId, surfaceId: surfaceId)
+    }
+
+    @discardableResult
+    func markWindowDockSurfaceUnread(windowId: UUID, surfaceId: UUID) -> Bool {
+        setSurfaceManualUnread(true, forTabId: windowId, surfaceId: surfaceId)
+    }
+
+    @discardableResult
+    func clearWindowDockSurfaceUnread(windowId: UUID, surfaceId: UUID) -> Bool {
+        setSurfaceManualUnread(false, forTabId: windowId, surfaceId: surfaceId)
     }
 
     @discardableResult
@@ -1838,7 +1869,7 @@ final class TerminalNotificationStore: ObservableObject {
         guard !notifications.isEmpty ||
             !focusedReadIndicatorByTabId.isEmpty ||
             !manualUnreadWorkspaceIds.isEmpty ||
-            !manualUnreadSurfaceIdsByWorkspaceId.isEmpty ||
+            !manualUnreadSurfaceIdsByOwnerId.isEmpty ||
             !panelDerivedUnreadWorkspaceIds.isEmpty ||
             !restoredUnreadWorkspaceIds.isEmpty else { return }
         let tabIdsToClearPanelUnread = panelDerivedUnreadWorkspaceIds.union(notifications.map(\.tabId))
@@ -1869,9 +1900,16 @@ final class TerminalNotificationStore: ObservableObject {
         inFlightPolicyRequests.discard(forTabId: tabId, surfaceId: surfaceId, through: throughNotificationGeneration)
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotificationsForClear(tabId: liveTabId, surfaceId: surfaceId) }
         let hadRestoredWorkspaceUnread = surfaceId == nil && restoredUnreadWorkspaceIds.contains(tabId)
-        let hadSurfaceManualUnread = surfaceId.map { surfaceId in
-            tabIds.contains { hasManualUnread(forTabId: $0, surfaceId: surfaceId) }
-        } ?? false
+        let hadSurfaceManualUnread: Bool
+        if let surfaceId {
+            hadSurfaceManualUnread = tabIds.contains {
+                hasManualUnread(forTabId: $0, surfaceId: surfaceId)
+            }
+        } else {
+            hadSurfaceManualUnread = tabIds.contains {
+                manualUnreadSurfaceIdsByOwnerId[$0]?.isEmpty == false
+            }
+        }
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = [], indicatorTabIds: Set<UUID> = [tabId]
@@ -1900,6 +1938,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         if surfaceId == nil {
             setWorkspaceRestoredUnread(false, forTabId: tabId)
+            tabIds.forEach { clearSurfaceManualUnread(forTabId: $0) }
         } else if let surfaceId {
             tabIds.forEach {
                 setSurfaceManualUnread(false, forTabId: $0, surfaceId: surfaceId)
@@ -1922,20 +1961,6 @@ final class TerminalNotificationStore: ObservableObject {
             toTabId: destinationTabId,
             surfaceId: surfaceId
         )
-        if hasManualUnread(forTabId: sourceTabId, surfaceId: surfaceId) {
-            var nextSurfaceIdsByWorkspaceId = manualUnreadSurfaceIdsByWorkspaceId
-            var sourceSurfaceIds = nextSurfaceIdsByWorkspaceId[sourceTabId] ?? []
-            sourceSurfaceIds.remove(surfaceId)
-            if sourceSurfaceIds.isEmpty {
-                nextSurfaceIdsByWorkspaceId.removeValue(forKey: sourceTabId)
-            } else {
-                nextSurfaceIdsByWorkspaceId[sourceTabId] = sourceSurfaceIds
-            }
-            var destinationSurfaceIds = nextSurfaceIdsByWorkspaceId[destinationTabId] ?? []
-            destinationSurfaceIds.insert(surfaceId)
-            nextSurfaceIdsByWorkspaceId[destinationTabId] = destinationSurfaceIds
-            manualUnreadSurfaceIdsByWorkspaceId = nextSurfaceIdsByWorkspaceId
-        }
         var didMoveNotification = false
         let updated = notifications.map { notification -> TerminalNotification in
             guard notification.retargetsToLiveSurfaceOwner,
@@ -1984,6 +2009,7 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         clearManualUnread(forTabId: tabId)
+        clearSurfaceManualUnread(forTabId: tabId)
         clearWorkspacePanelUnread(forTabId: tabId)
         setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
         setWorkspaceRestoredUnread(false, forTabId: tabId)

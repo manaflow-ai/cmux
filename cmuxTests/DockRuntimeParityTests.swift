@@ -41,6 +41,11 @@ private final class DockRuntimeParityPanel: Panel, ObservableObject {
 }
 
 @MainActor
+private final class DockRuntimeParityUnreadObserver {
+    var publicationCount = 0
+}
+
+@MainActor
 private extension DockSplitStore {
     @discardableResult
     func seedRuntimeParityPanel(_ panel: any Panel) throws -> PaneID {
@@ -56,6 +61,7 @@ private extension DockSplitStore {
             )
         )
         surfaceIdToPanelId[tabID] = panel.id
+        installAttentionRouting(for: panel)
         return pane
     }
 }
@@ -393,8 +399,8 @@ struct DockRuntimeParityTests {
         }
     }
 
-    @Test("Terminal bell attention projects unread state for both Dock scopes")
-    func terminalBellAttentionProjectsUnreadStateForBothDockScopes() async throws {
+    @Test("Terminal bell attention targets only the rendered window Dock")
+    func terminalBellAttentionTargetsOnlyRenderedWindowDock() async throws {
         try await withAppContext { appDelegate, manager, workspace, windowID in
             let notificationStore = TerminalNotificationStore.shared
             let previousNotificationStore = appDelegate.notificationStore
@@ -410,8 +416,14 @@ struct DockRuntimeParityTests {
 
             let workspaceDock = workspace.dockSplit
             let globalDock = appDelegate.windowDock(forWindowId: windowID)
-            let workspacePanel = DockRuntimeParityPanel(title: "Workspace Dock")
-            let globalPanel = DockRuntimeParityPanel(title: "Global Dock")
+            let workspacePanel = TerminalPanel(
+                workspaceId: workspace.id,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            let globalPanel = TerminalPanel(
+                workspaceId: windowID,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
             try workspaceDock.seedRuntimeParityPanel(workspacePanel)
             try globalDock.seedRuntimeParityPanel(globalPanel)
             let workspaceProjection = DockUnreadPanelProjection(
@@ -426,31 +438,32 @@ struct DockRuntimeParityTests {
                 panelIDs: [globalPanel.id],
                 isActive: true
             )
+            let selectedWorkspace = manager.addWorkspace(select: true)
+            let unreadObserver = DockRuntimeParityUnreadObserver()
+            let unreadObservation = notificationStore.sidebarUnread.observeChanges(
+                owner: unreadObserver
+            ) { owner, _ in
+                owner.publicationCount += 1
+            }
+            defer { unreadObservation.cancel() }
 
-            #expect(appDelegate.routeTerminalBellAttention(
-                preferredTabID: workspace.id,
-                surfaceID: workspacePanel.id
-            ))
-            #expect(appDelegate.routeTerminalBellAttention(
-                preferredTabID: workspace.id,
-                surfaceID: globalPanel.id
-            ))
-            #expect(workspaceProjection.unreadPanelIDs == [workspacePanel.id])
-            #expect(globalProjection.unreadPanelIDs == [globalPanel.id])
-            #expect(notificationStore.unreadCount == 2)
-            #expect(TerminalNotificationStore.dockBadgeLabel(
-                unreadCount: notificationStore.unreadCount,
-                isEnabled: true
-            ) == "2")
+            #expect(workspacePanel.surface.onVisualBell == nil)
+            let globalVisualBell = try #require(globalPanel.surface.onVisualBell)
+            globalVisualBell()
+            let publicationCountAfterFirstBell = unreadObserver.publicationCount
+            globalVisualBell()
 
-            workspaceDock.focusPanel(workspacePanel.id)
-            #expect(manager.dismissNotificationOnTerminalInteraction(
-                tabId: workspaceDock.workspaceId,
-                surfaceId: workspacePanel.id
-            ))
             #expect(workspaceProjection.unreadPanelIDs.isEmpty)
             #expect(globalProjection.unreadPanelIDs == [globalPanel.id])
             #expect(notificationStore.unreadCount == 1)
+            #expect(publicationCountAfterFirstBell == 1)
+            #expect(unreadObserver.publicationCount == publicationCountAfterFirstBell)
+            #expect(TerminalNotificationStore.dockBadgeLabel(
+                unreadCount: notificationStore.unreadCount,
+                isEnabled: true
+            ) == "1")
+            #expect(manager.selectedTabId == selectedWorkspace.id)
+            #expect(TerminalController.shared.activeTabManagerForCallerNotification() === manager)
 
             globalDock.focusPanel(globalPanel.id)
             #expect(manager.dismissNotificationOnTerminalInteraction(
@@ -463,14 +476,58 @@ struct DockRuntimeParityTests {
                 unreadCount: notificationStore.unreadCount,
                 isEnabled: true
             ) == nil)
-            #expect(workspacePanel.flashReasons == [
-                .notificationArrival,
-                .unreadIndicatorDismiss,
-            ])
-            #expect(globalPanel.flashReasons == [
-                .notificationArrival,
-                .unreadIndicatorDismiss,
-            ])
+        }
+    }
+
+    @Test("Window Dock unread follows a surface transfer exactly once")
+    func windowDockUnreadFollowsSurfaceTransferExactlyOnce() async throws {
+        try await withAppContext { appDelegate, _, _, sourceWindowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let destinationWindowID = UUID()
+            notificationStore.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = notificationStore
+            defer {
+                notificationStore.markRead(forTabId: sourceWindowID)
+                notificationStore.markRead(forTabId: destinationWindowID)
+                notificationStore.replaceNotificationsForTesting([])
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            let sourceDock = appDelegate.windowDock(forWindowId: sourceWindowID)
+            let destinationDock = DockSplitStore(
+                workspaceId: destinationWindowID,
+                scope: .global,
+                baseDirectoryProvider: { nil }
+            )
+            let panel = DockRuntimeParityPanel(title: "Transferred unread")
+            try sourceDock.seedRuntimeParityPanel(panel)
+            notificationStore.markWindowDockSurfaceUnread(
+                windowId: sourceWindowID,
+                surfaceId: panel.id
+            )
+
+            let detached = try #require(sourceDock.detachSurface(panelId: panel.id))
+
+            #expect(detached.manuallyUnread)
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: sourceWindowID,
+                surfaceId: panel.id
+            ))
+            let destinationPane = try #require(
+                destinationDock.bonsplitController.allPaneIds.first
+            )
+            #expect(destinationDock.attachDetachedSurface(
+                detached,
+                inPane: destinationPane,
+                focus: false
+            ) == panel.id)
+            #expect(notificationStore.hasManualUnread(
+                forTabId: destinationWindowID,
+                surfaceId: panel.id
+            ))
+
+            _ = destinationDock.closePanel(panel.id, force: true)
         }
     }
 

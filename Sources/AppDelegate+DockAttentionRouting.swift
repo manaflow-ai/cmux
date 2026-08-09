@@ -56,62 +56,6 @@ extension AppDelegate {
         return (owner.workspace.id, target.surfaceID, owner.tabManager)
     }
 
-    /// Routes Ghostty's terminal-bell attention into cmux-owned UI state.
-    ///
-    /// AppKit process attention is deliberately absent from this path. Under
-    /// Stage Manager, AppKit process attention can promote cmux's whole window
-    /// set even while another application owns focus. A terminal bell instead
-    /// marks its owning pane (or its Dock/global workspace fallback) unread and
-    /// flashes that pane without changing focus.
-    @discardableResult
-    func routeTerminalBellAttention(
-        preferredTabID: UUID?,
-        surfaceID: UUID
-    ) -> Bool {
-        guard let owner = notificationSurfaceOwner(
-            surfaceID: surfaceID,
-            preferredTabID: preferredTabID
-        ) else {
-            return false
-        }
-
-        let focusedTarget = terminalBellFocusedTarget()
-        let targetOwnsActiveFocus = AppFocusState.isAppFocused() &&
-            focusedTarget?.tabID == owner.tabID &&
-            focusedTarget?.surfaceID == owner.surfaceID
-
-        if !targetOwnsActiveFocus {
-            if let workspace = owner.tabManager.workspacesById[owner.tabID],
-               let target = workspace.surfaceOwnershipTarget(for: owner.surfaceID) {
-                workspace.markPanelUnread(target.containerPanelID)
-            } else {
-                notificationStore?.markUnread(
-                    forTabId: owner.tabID,
-                    surfaceId: owner.surfaceID
-                )
-            }
-        }
-
-        return routeNotificationAttentionFlash(
-            workspaceID: owner.tabID,
-            panelID: owner.surfaceID,
-            reason: .notificationArrival,
-            shouldFocus: false
-        )
-    }
-
-    private func terminalBellFocusedTarget() -> (tabID: UUID, surfaceID: UUID)? {
-        if let dock = focusedDockStoreForShortcut(preferredWindow: NSApp.keyWindow),
-           let surfaceID = dock.focusedPanelId {
-            return (tabID: dock.workspaceId, surfaceID: surfaceID)
-        }
-        guard let target = resolveFocusedNotificationTarget(preferredWindow: nil),
-              let surfaceID = target.surfaceId else {
-            return nil
-        }
-        return (tabID: target.tabId, surfaceID: surfaceID)
-    }
-
     /// Shared notification-attention route for every surface container. Dock
     /// stores resolve first through their live registry; workspace panels use
     /// the existing attention coordinator and pane-overlay path.

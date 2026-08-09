@@ -10,13 +10,18 @@ import Testing
 private final class FakeStore: NotificationNavigationStoreReading {
     var orderedNotifications: [NotificationNavSnapshot] = []
     var workspaceUnreadIndicatorIds: Set<UUID> = []
+    var windowDockUnreadTargets: [WindowDockUnreadTarget] = []
     var manualUnreadTabs: Set<UUID> = []
     var restoredUnreadTabs: Set<UUID> = []
     private(set) var markedReadIds: [UUID] = []
+    private(set) var clearedWindowDockTargets: [WindowDockUnreadTarget] = []
 
     func hasManualUnread(forTabId tabId: UUID) -> Bool { manualUnreadTabs.contains(tabId) }
     func hasRestoredUnreadIndicator(forTabId tabId: UUID) -> Bool { restoredUnreadTabs.contains(tabId) }
     func markRead(id: UUID) { markedReadIds.append(id) }
+    func clearWindowDockUnread(_ target: WindowDockUnreadTarget) {
+        clearedWindowDockTargets.append(target)
+    }
 }
 
 /// Scriptable window resolver: an ordered target list for the unread jump.
@@ -164,6 +169,52 @@ struct NotificationNavigationCoordinatorTests {
         let openedId = coordinator.jumpToLatestUnread(excludingNotificationId: excluded.id)
 
         #expect(openedId == next.id)
+    }
+
+    // MARK: - Window Dock unread fallback
+
+    @Test("window Dock unread opens before workspace fallback and clears only its surface")
+    func windowDockUnreadOpensBeforeWorkspaceFallback() {
+        let store = FakeStore()
+        let windows = FakeWindows()
+        let unread = FakeUnreadTargeting()
+        let openRouting = FakeOpenRouting()
+        let target = WindowDockUnreadTarget(windowId: UUID(), surfaceId: UUID())
+        let workspaceID = UUID()
+        store.windowDockUnreadTargets = [target]
+        store.workspaceUnreadIndicatorIds = [workspaceID]
+        windows.orderedTargetsForUnreadJump = [
+            MainWindowTarget(windowId: UUID(), workspaceIds: [workspaceID]),
+        ]
+        let coordinator = makeCoordinator(
+            store: store,
+            windows: windows,
+            unreadTargeting: unread,
+            openRouting: openRouting
+        )
+
+        let openedID = coordinator.jumpToLatestUnread()
+
+        #expect(openedID == nil)
+        #expect(store.clearedWindowDockTargets == [target])
+        #expect(unread.clearedJumps.isEmpty)
+        #expect(openRouting.log == [
+            "windowDock(window=\(short(target.windowId)),surf=\(short(target.surfaceId)))",
+        ])
+    }
+
+    @Test("failed window Dock unread open falls through without clearing it")
+    func failedWindowDockUnreadFallsThrough() {
+        let store = FakeStore()
+        let openRouting = FakeOpenRouting()
+        let target = WindowDockUnreadTarget(windowId: UUID(), surfaceId: UUID())
+        store.windowDockUnreadTargets = [target]
+        openRouting.windowDockSucceeds = false
+        let coordinator = makeCoordinator(store: store, openRouting: openRouting)
+
+        _ = coordinator.jumpToLatestUnread()
+
+        #expect(store.clearedWindowDockTargets.isEmpty)
     }
 
     // MARK: - Workspace-unread fallback + flash/clear
