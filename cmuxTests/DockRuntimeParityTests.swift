@@ -714,6 +714,69 @@ struct DockRuntimeParityTests {
         }
     }
 
+    @Test("Opening a window Dock notification clears its focused indicator and restores scroll")
+    func openingWindowDockNotificationClearsFocusedIndicatorAndRestoresScroll() async throws {
+        try await withAppContext { appDelegate, _, _, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let terminal = TerminalPanel(
+                workspaceId: windowID,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            defer { terminal.surface.releaseSurfaceForTesting() }
+            try dock.seedRuntimeParityPanel(terminal)
+
+            let scrollPosition = TerminalNotificationScrollPosition(
+                row: 120,
+                totalRows: 500,
+                rowSpaceRevision: 7
+            )
+            terminal.hostedView.notificationScrollRestoreState = NotificationScrollRestoreState(
+                replay: .replaying(expectedEndBoundary: "dock-notification-open"),
+                request: .idle
+            )
+            let notification = TerminalNotification(
+                id: UUID(),
+                tabId: windowID,
+                surfaceId: terminal.id,
+                title: "Dock terminal",
+                subtitle: "",
+                body: "Restore this transcript position",
+                createdAt: .now,
+                isRead: false,
+                scrollPosition: scrollPosition
+            )
+            notificationStore.replaceNotificationsForTesting([notification])
+            notificationStore.setFocusedReadIndicator(
+                forTabId: windowID,
+                surfaceId: terminal.id
+            )
+            appDelegate.notificationStore = notificationStore
+            defer {
+                notificationStore.replaceNotificationsForTesting([])
+                notificationStore.clearFocusedReadIndicator(forTabId: windowID)
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            #expect(
+                notificationStore.focusedReadIndicatorSurfaceId(forTabId: windowID)
+                    == terminal.id
+            )
+            #expect(!terminal.hostedView.hasPendingNotificationScrollRestore)
+
+            #expect(appDelegate.openTerminalNotification(notification))
+
+            #expect(
+                notificationStore.focusedReadIndicatorSurfaceId(forTabId: windowID) == nil
+            )
+            #expect(
+                terminal.hostedView.notificationScrollRestoreState.pendingPosition
+                    == scrollPosition
+            )
+        }
+    }
+
     @Test("Clearing workspace manual unread preserves window Dock pane unread")
     func clearingWorkspaceManualUnreadPreservesWindowDockPaneUnread() {
         let notificationStore = TerminalNotificationStore.shared
