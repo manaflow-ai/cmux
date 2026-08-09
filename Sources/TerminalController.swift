@@ -6982,7 +6982,9 @@ class TerminalController {
                     selectWhenNotFocused: true,
                     preferredProfileID: preferredProfileID,
                     creationPolicy: .automationPreload,
-                    omnibarVisible: omnibarVisible,
+                    chromeVisibility: BrowserChromeVisibility(
+                        omnibarVisible: omnibarVisible
+                    ),
                     transparentBackground: transparentBackground,
                     bypassRemoteProxy: bypassRemoteProxy
                 )
@@ -6996,7 +6998,9 @@ class TerminalController {
                     preferredProfileID: preferredProfileID,
                     focus: focus,
                     creationPolicy: .automationPreload,
-                    omnibarVisible: omnibarVisible,
+                    chromeVisibility: BrowserChromeVisibility(
+                        omnibarVisible: omnibarVisible
+                    ),
                     transparentBackground: transparentBackground,
                     bypassRemoteProxy: bypassRemoteProxy
                 )

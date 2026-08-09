@@ -344,6 +344,41 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Focus address bar is a no-op for a focused chromeless Dock browser")
+    @MainActor
+    func focusAddressBarNoOpsForChromelessDockBrowser() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let dockBrowserId = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let dockBrowser = try #require(
+                    harness.dock.browserPanel(for: dockBrowserId)
+                )
+                dockBrowser.setChromeVisibility(.chromeless)
+                let mainPanelIdsBefore = Set(harness.mainWorkspace.panels.keys)
+                let shortcut = Self.customShortcut(key: "l")
+                KeyboardShortcutSettings.setShortcut(
+                    shortcut,
+                    for: .focusBrowserAddressBar
+                )
+
+                #expect(Self.dispatch(shortcut, in: harness))
+                #expect(dockBrowser.chromeVisibility == .chromeless)
+                #expect(dockBrowser.pendingAddressBarFocusRequestId == nil)
+                #expect(
+                    harness.appDelegate.focusedBrowserAddressBarPanelId() == nil
+                )
+                #expect(Set(harness.mainWorkspace.panels.keys) == mainPanelIdsBefore)
+                #expect(harness.dock.focusedPanelId == dockBrowserId)
+            }
+        }
+    }
+
     @Test("Focus address bar preserves main fallback without a focused Dock browser")
     @MainActor
     func focusAddressBarFallsBackWithoutFocusedDockBrowser() async throws {

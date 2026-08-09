@@ -818,7 +818,10 @@ final class DockSplitStore: BonsplitDelegate {
             )
         case .browser:
             guard browserAvailabilityProvider() else { return nil }
-            return makeBrowserPanel(url: def.url.flatMap { URL(string: $0) })
+            return makeBrowserPanel(
+                url: def.url.flatMap { URL(string: $0) },
+                chromeVisibility: def.showsBrowserChrome ? .visible : .chromeless
+            )
         }
     }
 

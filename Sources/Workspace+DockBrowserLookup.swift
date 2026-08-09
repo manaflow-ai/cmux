@@ -121,6 +121,7 @@ extension DockSplitStore {
         initialRequest: URLRequest? = nil,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
+        chromeVisibility: BrowserChromeVisibility = .visible,
         transparentBackground: Bool = false,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel {
@@ -131,6 +132,7 @@ extension DockSplitStore {
             initialURL: url,
             initialRequest: initialRequest,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+            chromeVisibility: chromeVisibility,
             transparentBackground: transparentBackground,
             proxyEndpoint: settings.proxyEndpoint,
             bypassRemoteProxy: settings.bypassRemoteProxy,

@@ -1021,11 +1021,11 @@ final class BrowserPanelProfileIsolationTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
-    func testRequestPersistsUntilAcknowledged() {
+    func testRequestPersistsUntilAcknowledged() throws {
         let panel = BrowserPanel(workspaceId: UUID())
         XCTAssertNil(panel.pendingAddressBarFocusRequestId)
 
-        let requestId = panel.requestAddressBarFocus()
+        let requestId = try XCTUnwrap(panel.requestAddressBarFocus())
         XCTAssertEqual(panel.pendingAddressBarFocusRequestId, requestId)
         XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .preserveFieldEditorSelection)
         XCTAssertTrue(panel.shouldSuppressWebViewFocus())
@@ -1061,11 +1061,11 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
         XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .selectAll)
     }
 
-    func testStaleAcknowledgementDoesNotClearNewestRequest() {
+    func testStaleAcknowledgementDoesNotClearNewestRequest() throws {
         let panel = BrowserPanel(workspaceId: UUID())
-        let firstRequest = panel.requestAddressBarFocus()
+        let firstRequest = try XCTUnwrap(panel.requestAddressBarFocus())
         panel.acknowledgeAddressBarFocusRequest(firstRequest)
-        let secondRequest = panel.requestAddressBarFocus()
+        let secondRequest = try XCTUnwrap(panel.requestAddressBarFocus())
 
         XCTAssertNotEqual(firstRequest, secondRequest)
         XCTAssertEqual(panel.pendingAddressBarFocusRequestId, secondRequest)
