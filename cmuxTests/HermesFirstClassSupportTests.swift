@@ -410,6 +410,31 @@ struct HermesFirstClassSupportTests {
         #expect(detected.isEmpty)
     }
 
+    @Test("Python interpreter options preserve the exact Hermes entrypoint")
+    func pythonInterpreterOptionsPreserveHermesEntrypoint() {
+        let observed = VaultObservedAgentProcess(
+            processName: "Python",
+            processPath: "/tmp/venv/bin/python3",
+            arguments: [
+                "/tmp/venv/bin/python3",
+                "-u", "-X", "dev",
+                "/tmp/venv/bin/HERMES-AGENT",
+                "--tui", "--resume", "durable-session",
+            ],
+            environment: [:]
+        )
+        let registration = CmuxVaultAgentRegistration.builtInHermes
+
+        #expect(registration.detect.matches(observed))
+        #expect(registration.detect.usesAlternateMatchWithoutPrimaryMatch(observed))
+        #expect(
+            registration.detect.alternateLaunchArguments(
+                for: observed,
+                defaultExecutable: "hermes"
+            ) == ["hermes", "--tui", "--resume", "durable-session"]
+        )
+    }
+
     @Test(
         "Python-backed Hermes management commands are detected but never restored",
         arguments: ["gateway", "doctor", "update"]
