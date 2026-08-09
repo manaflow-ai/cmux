@@ -346,4 +346,78 @@ import CmuxTerminalCore
         )).value
         #expect(counts.reads == 2, "matching noteExternalInactive must have invalidated the cache")
     }
+
+    // Pass 2 (impl-B-pass2-wiring) — deferred from Pass 1. The click path
+    // (`prepareCommandClickContext`/`commitWrappedCandidate`/
+    // `performCommandClickRelease`, untouched by this pass) shares only
+    // the stateless `TerminalPathResolver` with (B) ExternalHover — never
+    // this actor's cache or mailbox. This exercises that boundary
+    // directly: prime the actor's cache with a candidate for one
+    // (existing) path, then run a SEPARATE, freshly-constructed resolver
+    // call — standing in for a click at a different cell/cwd, backed by a
+    // `fileExists` double that reports the ORIGINAL cached path as
+    // deleted — and confirm it resolves its own candidate exactly once,
+    // from its own fresh filesystem check, with no path through the
+    // actor's state at all (the two calls don't even share a resolver
+    // instance).
+    @Test func clickPathResolutionIsUnaffectedByAStaleOrDeletedHoverCache() async {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let counts = CallCounts()
+        let lifetimeID = Self.makeLifetime()
+        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+        let mirror = HoverCallbackMirror()
+        mirror.publish(.init(lifetimeID: lifetimeID, hoverEventID: 1, eligible: true, visible: true))
+        let mailboxCoordinator = Self.makeCoordinator()
+
+        // 1. Prime the hover actor's cache for `existingPath`, as if the
+        //    user had hovered it a moment ago.
+        let service = makeService(teardownCoordinator: coordinator, counts: counts)
+        await service.submit(makeRequest(
+            lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
+            surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
+        )).value
+        let primedCache = await service.debugCache(for: lifetimeID)
+        #expect(primedCache?.path == Self.existingPath)
+
+        // 2. The click path never touches `service`/`mirror`/
+        //    `mailboxCoordinator` above — it only ever gets a fresh
+        //    `TerminalPathResolver`, exactly as `commitWrappedCandidate`
+        //    does. This double reports the hover-cached path as GONE
+        //    (deleted since it was cached) and a DIFFERENT path — at a
+        //    different cwd, standing in for a click at a different
+        //    location — as the one that actually exists.
+        let clickOnlyPath = "/Users/dev/other-project/click-target.txt"
+        let clickResolveCount = OSAllocatedUnfairLock(initialState: 0)
+        let clickResolver = TerminalPathResolver(fileExists: { path in
+            clickResolveCount.withLock { $0 += 1 }
+            return path == clickOnlyPath
+        })
+        // `cwd` here is deliberately NOT the click-only fixture's own
+        // directory (mirroring the module fixture above, which resolves
+        // via the absolute `previousRowText` join, never `cwd`) — so the
+        // single-row `resolveVisibleLinePath` check inside
+        // `wrappedPathSeed` genuinely fails first and the wrapped-join
+        // path actually runs, instead of short-circuiting on a same-row
+        // match before ever exercising the code this test targets.
+        let previousRowText = "/Users/dev/other-project/"
+        let clickedRowText = "click-target.txt"
+        guard let seed = clickResolver.wrappedPathSeed(in: clickedRowText, column: 0, cwd: "/tmp") else {
+            Issue.record("expected a wrapped-path seed for the click-only fixture")
+            return
+        }
+        let resolution = clickResolver.resolveWrappedCandidate(
+            seed: seed, previousRow: previousRowText, nextRow: nil, cwd: "/tmp"
+        )
+
+        #expect(resolution?.path == clickOnlyPath)
+        #expect(clickResolveCount.withLock { $0 } > 0, "the click path must run its OWN fresh filesystem check")
+
+        // 3. The hover actor's cache is exactly as it was before the
+        //    click-path call ran — never read, never invalidated, never
+        //    touched by it.
+        let cacheAfterClick = await service.debugCache(for: lifetimeID)
+        #expect(cacheAfterClick?.path == Self.existingPath)
+        #expect(counts.reads == 1, "the click-path resolution above must not have gone through the hover actor's read closure")
+    }
 }

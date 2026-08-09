@@ -3,7 +3,14 @@ import Testing
 import CmuxTerminalCore
 
 private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Bool {
-    { path in existingPaths.contains((path as NSString).standardizingPath) }
+    // Standardize the fixture set itself too, not just the incoming probe
+    // path — `NSString.standardizingPath` strips a trailing `/`
+    // (`"/a/b/".standardizingPath == "/a/b"`), so a directory fixture
+    // written with its natural trailing slash (as terminal-visible
+    // wrapped-path text always has one) would otherwise never match what
+    // `TerminalPathResolver.probeExists` actually looks up.
+    let standardized = Set(existingPaths.map { ($0 as NSString).standardizingPath })
+    return { path in standardized.contains((path as NSString).standardizingPath) }
 }
 
 @Suite struct TerminalPathTrailingPunctuationTests {
@@ -852,6 +859,337 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
             resolver.resolveWrappedCandidate(seed: seed, previousRow: nil, nextRow: nextRow, cwd: cwd)
         )
         #expect(candidate.path == joinedPath)
+    }
+}
+
+// review-slash-boundary-and-codex-comparison.md's 10 required regression
+// tests (issue #8810 bug A): a leading piece that ends with an explicit
+// `/` continuation seam is stronger join evidence than ordinary mid-word
+// adjacency, so it narrowly bypasses (only in that exact shape, only when
+// the continuation row is unindented) the two independent points that
+// otherwise reject it — `fragmentAloneExists` in
+// `resolveSingleDirection` (row2/continuation-side clicks) and the
+// row-local short-circuit in `wrappedPathSeed` (row1/leading-side
+// clicks). Both fixes are exercised together where useful (tests 1-3, 5)
+// so the same directory+file fixture pins the exact click-position
+// symmetry the review's root-cause analysis called out.
+@Suite struct TerminalSlashSeamContinuationTests {
+    // 1. Row2/continuation-side click (review §1-a's exact repro): the
+    // previous row's trailing fragment is an existing directory ending in
+    // `/`. Before this fix, `fragmentAloneExists` rejected this
+    // unconditionally; the explicit, unindented `/` seam now bypasses it.
+    @Test func continuationSideClickJoinsThroughAnExistingDirectoryFragment() throws {
+        let cwd = "/tmp"
+        let previousRow = "/Users/dev/project/research/docs/"
+        let clickedRow = "notes/report.md"
+        let joinedFile = previousRow + clickedRow
+
+        let resolver = TerminalPathResolver(fileExists: existsIn([previousRow, joinedFile]))
+        // Clicking at column 0 keeps the clicked token unindented, which
+        // is what makes `.previous`'s explicit-slash-seam bypass apply.
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
+
+        let candidate = try #require(
+            resolver.resolveWrappedCandidate(seed: seed, previousRow: previousRow, nextRow: nil, cwd: cwd)
+        )
+        #expect(candidate.path == joinedFile)
+    }
+
+    // 2. Row1/leading-side click (review §1-b's exact repro): the clicked
+    // row itself is an existing directory ending in `/`, which previously
+    // made `wrappedPathSeed`'s row-local short-circuit return `nil`
+    // outright before ever reaching the resolver's join logic. The
+    // narrow provisional-seed exception (unindented `.next` continuation,
+    // clicked token ending in `/`) now lets the join through instead.
+    @Test func leadingSideClickJoinsThroughARowLocalDirectoryHit() throws {
+        let cwd = "/tmp"
+        let clickedRow = "/Users/dev/project/research/docs/"
+        let nextRow = "notes/report.md"
+        let joinedFile = clickedRow + nextRow
+
+        let resolver = TerminalPathResolver(fileExists: existsIn([clickedRow, joinedFile]))
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 5, cwd: cwd))
+        #expect(seed.directions == [.next])
+
+        let candidate = try #require(
+            resolver.resolveWrappedCandidate(seed: seed, previousRow: nil, nextRow: nextRow, cwd: cwd)
+        )
+        #expect(candidate.path == joinedFile)
+    }
+
+    // 3. The same link, clicked/hovered from EITHER physical row, must
+    // resolve to the identical full path with cell spans that cover the
+    // identical two absolute rows/columns — never a different result
+    // depending on which half of the wrap was clicked, and never more
+    // than the one candidate each click produces (`resolveWrappedCandidate`
+    // is structurally exactly-once: it returns non-nil only when exactly
+    // one direction succeeds).
+    @Test func bothRowsResolveToTheSameFullPathWithSymmetricCellSpans() throws {
+        let cwd = "/tmp"
+        let directoryRow = "/Users/dev/project/research/docs/"
+        let continuationRow = "notes/report.md"
+        let joinedFile = directoryRow + continuationRow
+        let resolver = TerminalPathResolver(fileExists: existsIn([directoryRow, joinedFile]))
+
+        // Absolute physical rows this fixture stands in for, so each
+        // click's row-relative `cellSpans` can be translated to the same
+        // coordinate space and compared directly.
+        let directoryAbsoluteRow = 5
+        let continuationAbsoluteRow = 6
+
+        let leadingSeed = try #require(
+            resolver.wrappedPathSeed(in: directoryRow, column: 0, cwd: cwd)
+        )
+        let leadingCandidate = try #require(
+            resolver.resolveWrappedCandidate(
+                seed: leadingSeed, previousRow: nil, nextRow: continuationRow, cwd: cwd
+            )
+        )
+
+        let continuationSeed = try #require(
+            resolver.wrappedPathSeed(in: continuationRow, column: 0, cwd: cwd)
+        )
+        let continuationCandidate = try #require(
+            resolver.resolveWrappedCandidate(
+                seed: continuationSeed, previousRow: directoryRow, nextRow: nil, cwd: cwd
+            )
+        )
+
+        #expect(leadingCandidate.path == joinedFile)
+        #expect(continuationCandidate.path == joinedFile)
+
+        func absoluteSpans(
+            _ candidate: TerminalWrappedPathResolution,
+            clickedAbsoluteRow: Int
+        ) -> Set<[Int]> {
+            Set(candidate.cellSpans.map { span in
+                [clickedAbsoluteRow + span.rowOffsetFromClicked, span.startColumn, span.endColumn]
+            })
+        }
+
+        let leadingAbsoluteSpans = absoluteSpans(leadingCandidate, clickedAbsoluteRow: directoryAbsoluteRow)
+        let continuationAbsoluteSpans = absoluteSpans(continuationCandidate, clickedAbsoluteRow: continuationAbsoluteRow)
+        #expect(leadingAbsoluteSpans.count == 2)
+        #expect(leadingAbsoluteSpans == continuationAbsoluteSpans)
+    }
+
+    // 4. A `/`-less existing directory fragment is still rejected exactly
+    // as before — the exception is keyed on an explicit `/` seam, never
+    // on filesystem kind (review §2's explicitly-rejected "directory ⇒
+    // skip the guard" alternative).
+    @Test func nonSlashDirectoryFragmentIsStillRejectedByFragmentAloneExists() throws {
+        let cwd = "/tmp"
+        let previousRow = "/Users/dev/project/docs"
+        let clickedRow = "report.md"
+
+        let resolver = TerminalPathResolver(fileExists: existsIn([previousRow]))
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
+
+        let outcomes = resolver.diagnoseWrappedCandidate(
+            seed: seed, previousRow: previousRow, nextRow: nil, cwd: cwd
+        )
+        #expect(outcomes[.previous] == .fragmentAloneExists)
+        #expect(resolver.resolveWrappedCandidate(seed: seed, previousRow: previousRow, nextRow: nil, cwd: cwd) == nil)
+    }
+
+    // 5. The unindented condition, pinned directly: the EXACT SAME
+    // directory+file fixture as test 1, except the continuation row is
+    // indented (mirroring an independent, indented list item after a
+    // directory line) — join must NOT happen, matching Ghostty's own
+    // `link_wrap.zig` `startsIndependentLink` treating this shape as
+    // ambiguous and failing closed, even though both the directory
+    // fragment and the joined file genuinely exist on disk.
+    @Test func indentedContinuationAfterSlashSeamDoesNotJoin() {
+        let cwd = "/tmp"
+        let previousRow = "/Users/dev/project/research/docs/"
+        let indentedClickedRow = "    notes/report.md"
+        let joinedFile = previousRow + "notes/report.md"
+
+        let resolver = TerminalPathResolver(fileExists: existsIn([previousRow, joinedFile]))
+        // Clicking within the indentation-shifted token (column 4, where
+        // "notes/report.md" actually starts) is what makes the fixture
+        // genuinely indented for `.previous`'s seam check.
+        guard let seed = resolver.wrappedPathSeed(in: indentedClickedRow, column: 4, cwd: cwd) else {
+            Issue.record("Expected a seed for the indented continuation token")
+            return
+        }
+
+        #expect(
+            resolver.resolveWrappedCandidate(seed: seed, previousRow: previousRow, nextRow: nil, cwd: cwd) == nil
+        )
+    }
+
+    // 6. Bare-relative dogfood rows (label prefix, ISO date, the exact
+    // split position from the live repro) resolve from EITHER row — this
+    // is bug B's shape (review §3: "現行 resolver 単体で解決できる"), a
+    // non-`/`-seam bare-relative join that must keep working unchanged
+    // alongside the new `/`-seam exception.
+    @Test func bareRelativeDogfoodRowsResolveFromEitherRow() throws {
+        let cwd = "/Users/yosuke/workspace/github.com/TMLlaboratory/s-code"
+        let leadingRow = "research/docs/notes/2026-07-31_key_cost_volume_price_and_probability_floo"
+        let continuationRow = "r.md"
+        let joinedFile = cwd + "/" + leadingRow + continuationRow
+        let resolver = TerminalPathResolver(fileExists: existsIn([joinedFile]))
+
+        let leadingSeed = try #require(resolver.wrappedPathSeed(in: leadingRow, column: 0, cwd: cwd))
+        let leadingCandidate = try #require(
+            resolver.resolveWrappedCandidate(
+                seed: leadingSeed, previousRow: "unrelated/xyz", nextRow: continuationRow, cwd: cwd
+            )
+        )
+        #expect(leadingCandidate.path == joinedFile)
+
+        let continuationSeed = try #require(resolver.wrappedPathSeed(in: continuationRow, column: 0, cwd: cwd))
+        let continuationCandidate = try #require(
+            resolver.resolveWrappedCandidate(
+                seed: continuationSeed, previousRow: leadingRow, nextRow: "unrelated/xyz", cwd: cwd
+            )
+        )
+        #expect(continuationCandidate.path == joinedFile)
+
+        // The label-prefixed clicked-row shape from the live dogfood log
+        // (`dogfoodEvidence2IgnoresLabelPrefixOnClickedRow`'s sibling),
+        // confirmed against this same split position. The label's
+        // non-space characters ("- md: ") break `touchesLeadingBoundary`
+        // (which requires the leading run to be pure ASCII spaces), so
+        // this is `.next`-only, not ambiguous — same single-direction
+        // outcome as the absolute-path label case, for a different
+        // structural reason (here: a failed leading-boundary check;
+        // there: an explicit root marker).
+        let labeledLeadingRow = "  - md: " + leadingRow
+        let labeledSeed = try #require(resolver.wrappedPathSeed(in: labeledLeadingRow, column: 12, cwd: cwd))
+        #expect(labeledSeed.directions == [.next])
+        let labeledCandidate = try #require(
+            resolver.resolveWrappedCandidate(
+                seed: labeledSeed, previousRow: "unrelated/xyz", nextRow: continuationRow, cwd: cwd
+            )
+        )
+        #expect(labeledCandidate.path == joinedFile)
+    }
+
+    // 7. The same bare-relative fixture stays `nil` for every one of the
+    // conditions review §3's "次に確認すべきもの" list separates: wrong
+    // cwd, no cwd at all ("remote", from this resolver's own perspective
+    // — it has no remote concept, only whether a usable cwd is
+    // available), a non-ASCII adjacent row, and both directions
+    // succeeding (ambiguous).
+    @Test func bareRelativeFixtureStaysNilForWrongCwdRemoteNonASCIIAndAmbiguity() throws {
+        let realCwd = "/Users/dev/project"
+        let leadingRow = "research/docs/notes/report"
+        let continuationRow = ".md"
+        let joinedFile = realCwd + "/" + leadingRow + continuationRow
+        let resolver = TerminalPathResolver(fileExists: existsIn([joinedFile]))
+
+        let seed = try #require(resolver.wrappedPathSeed(in: leadingRow, column: 0, cwd: realCwd))
+
+        // Wrong cwd: the joined candidate resolves against a directory
+        // where it doesn't exist.
+        #expect(
+            resolver.resolveWrappedCandidate(
+                seed: seed, previousRow: nil, nextRow: continuationRow, cwd: "/Users/dev/other-project"
+            ) == nil
+        )
+
+        // No cwd at all ("remote", from the resolver's own perspective —
+        // `probeExists` skips any relative candidate without one).
+        #expect(
+            resolver.resolveWrappedCandidate(
+                seed: seed, previousRow: nil, nextRow: continuationRow, cwd: ""
+            ) == nil
+        )
+
+        // Non-ASCII adjacent row: the fragment extractor fails closed,
+        // never a `candidateDoesNotExist` masking a real ASCII mismatch.
+        let nonASCIIContinuation = "caf\u{e9}.md"
+        let nonASCIIOutcomes = resolver.diagnoseWrappedCandidate(
+            seed: seed, previousRow: nil, nextRow: nonASCIIContinuation, cwd: realCwd
+        )
+        #expect(nonASCIIOutcomes[.next] == .noFragment)
+
+        // Both directions succeeding is ambiguous, never a guess.
+        let ambiguousClickedRow = "mid/dle.txt"
+        let ambiguousSeed = try #require(
+            resolver.wrappedPathSeed(in: ambiguousClickedRow, column: 0, cwd: realCwd)
+        )
+        let ambiguousResolver = TerminalPathResolver(
+            fileExists: existsIn(["/Users/dev/project/a/premid/dle.txt", "/Users/dev/project/mid/dle.txt2/b"])
+        )
+        #expect(
+            ambiguousResolver.resolveWrappedCandidate(
+                seed: ambiguousSeed, previousRow: "a/pre", nextRow: "2/b", cwd: realCwd
+            ) == nil
+        )
+    }
+
+    // 8. A row-local hit on an ordinary REGULAR FILE (no trailing `/`) is
+    // never overridden by an adjacent row, even one shaped like a
+    // plausible continuation — the provisional-seed exception is keyed
+    // strictly on the clicked token itself ending with `/`.
+    @Test func rowLocalRegularFileHitIsNeverOverriddenByAnAdjacentRow() {
+        let cwd = "/tmp"
+        let existingFile = "/tmp/existing-file.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([existingFile]))
+        #expect(
+            resolver.wrappedPathSeed(in: existingFile, column: 2, cwd: cwd) == nil
+        )
+    }
+
+    // 9. An existing REGULAR FILE (not a directory) as the adjacent
+    // fragment is likewise still rejected by `fragmentAloneExists`
+    // outside the `/` seam — the exception's scope is the seam shape,
+    // never "the fragment happens to exist," directory or otherwise.
+    @Test func existingRegularFileFragmentIsStillRejectedOutsideTheSlashSeam() throws {
+        let cwd = "/tmp"
+        let existingFragmentFile = "/tmp/existing.txt"
+        let clickedRow = "tail.md"
+
+        let resolver = TerminalPathResolver(fileExists: existsIn([existingFragmentFile]))
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
+
+        let outcomes = resolver.diagnoseWrappedCandidate(
+            seed: seed, previousRow: existingFragmentFile, nextRow: nil, cwd: cwd
+        )
+        #expect(outcomes[.previous] == .fragmentAloneExists)
+    }
+
+    // 10. Integration: the resolved candidate from a `/`-seam join is the
+    // single, stable value the rest of the current pipeline consumes —
+    // resolving it twice (standing in for a hover preview immediately
+    // followed by the click-release re-check
+    // `commitWrappedCandidate` performs, per its own doc comment) yields
+    // byte-for-byte the same path, match keys, and cell spans each time,
+    // with no additional filesystem probes leaking beyond the documented
+    // per-direction budget — i.e. nothing about resolving through the new
+    // exception makes the pipeline's existing "resolve once, reuse"
+    // contracts any less exact.
+    @Test func slashSeamCandidateResolvesIdenticallyAndOnceEachTimeForHoverThenClickCommit() throws {
+        let cwd = "/tmp"
+        let previousRow = "/Users/dev/project/research/docs/"
+        let clickedRow = "notes/report.md"
+        let joinedFile = previousRow + clickedRow
+
+        let hoverResolver = TerminalPathResolver(fileExists: existsIn([previousRow, joinedFile]))
+        let hoverSeed = try #require(hoverResolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
+        let hoverCandidate = try #require(
+            hoverResolver.resolveWrappedCandidate(seed: hoverSeed, previousRow: previousRow, nextRow: nil, cwd: cwd)
+        )
+
+        // The click-release re-check: a fresh resolver/seed/call, exactly
+        // as `commitWrappedCandidate`'s own doc describes re-probing
+        // existence at release time rather than trusting the earlier
+        // prepare — never sharing mutable state with the hover call above.
+        let releaseResolver = TerminalPathResolver(fileExists: existsIn([previousRow, joinedFile]))
+        let releaseSeed = try #require(releaseResolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
+        let releaseCandidate = try #require(
+            releaseResolver.resolveWrappedCandidate(
+                seed: releaseSeed, previousRow: previousRow, nextRow: nil, cwd: cwd
+            )
+        )
+
+        #expect(hoverCandidate.path == releaseCandidate.path)
+        #expect(hoverCandidate.nativeMatchKeys == releaseCandidate.nativeMatchKeys)
+        #expect(hoverCandidate.cellSpans == releaseCandidate.cellSpans)
+        #expect(hoverCandidate.path == joinedFile)
     }
 }
 
