@@ -89,14 +89,21 @@ public actor AppLog {
         }
 
         /// Rotates `<name>` to `<name>.1` (replacing any previous `.1`) and
-        /// opens a fresh file with the header line. Failures disable writing
-        /// for this file only.
+        /// opens a fresh file with the header line. A failed rotate falls back
+        /// to appending to the existing generation: truncating in place would
+        /// erase the very diagnostics a user may be about to share. Only a
+        /// failed open disables writing, and for this file only.
         private mutating func openFreshGeneration(rotatingExisting: Bool) {
             let fileManager = FileManager.default
             if rotatingExisting, fileManager.fileExists(atPath: url.path) {
                 let rotated = url.appendingPathExtension("1")
                 try? fileManager.removeItem(at: rotated)
-                try? fileManager.moveItem(at: url, to: rotated)
+                do {
+                    try fileManager.moveItem(at: url, to: rotated)
+                } catch {
+                    openExistingForAppending()
+                    return
+                }
             }
             fileManager.createFile(atPath: url.path, contents: nil)
             guard let opened = try? FileHandle(forWritingTo: url) else {
@@ -106,6 +113,21 @@ public actor AppLog {
             handle = opened
             bytesWritten = 0
             append(header)
+        }
+
+        /// Keeps writing to the current generation after a failed rotate. The
+        /// inherited size may already exceed `maxBytes`; each later append
+        /// retries one rotation, which succeeds once the file stops being
+        /// busy, so the fallback is temporary rather than unbounded.
+        private mutating func openExistingForAppending() {
+            guard let opened = try? FileHandle(forWritingTo: url) else {
+                handle = nil
+                return
+            }
+            let size = (try? opened.seekToEnd()) ?? 0
+            handle = opened
+            bytesWritten = Int(clamping: size)
+            append(header, allowRotation: false)
         }
 
         mutating func append(_ line: String, allowRotation: Bool = true) {

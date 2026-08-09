@@ -126,6 +126,43 @@ import Testing
         #expect(try contents(of: rotated).contains("filler line"))
     }
 
+    /// A failed launch-time rotation (busy file, read-only directory) must
+    /// append to the existing log instead of truncating away the diagnostics
+    /// a user may be about to share.
+    @Test func failedRotationAppendsInsteadOfTruncating() async throws {
+        let dir = try makeTempDirectory()
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o755],
+                ofItemAtPath: dir.path
+            )
+            try? FileManager.default.removeItem(at: dir)
+        }
+        let appURL = dir.appendingPathComponent("app.log")
+        try Data("previous-generation marker\n".utf8).write(to: appURL)
+        // A read-only parent makes the `.1` move fail while the existing
+        // file itself stays writable.
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o555],
+            ofItemAtPath: dir.path
+        )
+
+        let log = AppLog(appFileURL: appURL, networkFileURL: nil, buildStamp: "test")
+        log.mirrorAppLine("post-failure line")
+        try await waitForProcessed(log, 1)
+
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: dir.path
+        )
+        let contents = try contents(of: appURL)
+        #expect(contents.contains("previous-generation marker"))
+        #expect(contents.contains("post-failure line"))
+        #expect(!FileManager.default.fileExists(
+            atPath: appURL.appendingPathExtension("1").path
+        ))
+    }
+
     @Test func classificationCoversNetworkPlane() {
         #expect(DiagnosticEventCode.transportDialFailed.appLogDomain == .network)
         #expect(DiagnosticEventCode.sessionClosed.appLogDomain == .network)
