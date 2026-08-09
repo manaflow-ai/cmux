@@ -530,15 +530,16 @@ impl HermesUnixTree {
         let tracked = Arc::new(Mutex::new(BTreeSet::from([root])));
         let (stop, stopped) = mpsc::sync_channel(1);
         let monitor_tracked = tracked.clone();
-        let monitor = std::thread::Builder::new()
-            .name("hermes-command-process-tree".into())
-            .spawn(move || loop {
-                scan_hermes_descendants(root, &monitor_tracked);
-                match stopped.recv_timeout(Duration::from_millis(2)) {
-                    Err(mpsc::RecvTimeoutError::Timeout) => {}
-                    Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                }
-            })?;
+        let monitor =
+            std::thread::Builder::new().name("hermes-command-process-tree".into()).spawn(
+                move || loop {
+                    scan_hermes_descendants(root, &monitor_tracked);
+                    match stopped.recv_timeout(Duration::from_millis(2)) {
+                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+                        Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
+                },
+            )?;
         Ok(Self { root, tracked, stop: Some(stop), monitor: Some(monitor), terminated: false })
     }
 
@@ -604,9 +605,9 @@ fn direct_hermes_child_pids(pid: u32) -> Vec<u32> {
         return Vec::new();
     }
     let mut children = vec![0 as libc::pid_t; count];
-    let Ok(bytes) = libc::c_int::try_from(
-        children.len().saturating_mul(std::mem::size_of::<libc::pid_t>()),
-    ) else {
+    let Ok(bytes) =
+        libc::c_int::try_from(children.len().saturating_mul(std::mem::size_of::<libc::pid_t>()))
+    else {
         return Vec::new();
     };
     let written = unsafe { libc::proc_listchildpids(pid, children.as_mut_ptr().cast(), bytes) };
@@ -653,10 +654,9 @@ impl HermesWindowsJob {
         let job = Self { handle };
         let mut information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        let information_size = u32::try_from(std::mem::size_of::<
-            JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-        >())
-        .expect("Windows job information fits in u32");
+        let information_size =
+            u32::try_from(std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
+                .expect("Windows job information fits in u32");
         if unsafe {
             SetInformationJobObject(
                 job.handle,
@@ -731,7 +731,10 @@ fn resume_hermes_child(child: &std::process::Child) -> io::Result<()> {
                 return Ok(());
             }
             if unsafe { Thread32Next(snapshot, &mut entry) } == 0 {
-                return Err(io::Error::new(io::ErrorKind::NotFound, "Hermes child thread not found"));
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "Hermes child thread not found",
+                ));
             }
         }
     })();

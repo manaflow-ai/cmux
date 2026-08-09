@@ -63,15 +63,15 @@ impl UnixHookTree {
         let tracked = Arc::new(Mutex::new(HashSet::from([root])));
         let (stop, stopped) = mpsc::sync_channel(1);
         let monitor_tracked = tracked.clone();
-        let monitor = std::thread::Builder::new()
-            .name("journal-hook-process-tree".into())
-            .spawn(move || loop {
+        let monitor = std::thread::Builder::new().name("journal-hook-process-tree".into()).spawn(
+            move || loop {
                 scan_hook_descendants(root, &monitor_tracked);
                 match stopped.recv_timeout(Duration::from_millis(2)) {
                     Err(mpsc::RecvTimeoutError::Timeout) => {}
                     Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
                 }
-            })?;
+            },
+        )?;
         Ok(Self { root, tracked, stop: Some(stop), monitor: Some(monitor), terminated: false })
     }
 
@@ -135,9 +135,9 @@ fn direct_hook_child_pids(pid: u32) -> Vec<u32> {
         return Vec::new();
     }
     let mut children = vec![0 as libc::pid_t; count];
-    let Ok(bytes) = libc::c_int::try_from(
-        children.len().saturating_mul(std::mem::size_of::<libc::pid_t>()),
-    ) else {
+    let Ok(bytes) =
+        libc::c_int::try_from(children.len().saturating_mul(std::mem::size_of::<libc::pid_t>()))
+    else {
         return Vec::new();
     };
     let written = unsafe { libc::proc_listchildpids(pid, children.as_mut_ptr().cast(), bytes) };
@@ -1302,22 +1302,16 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "cmux-detached-journal-hook-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         std::fs::create_dir_all(&root).unwrap();
         let pid_path = root.join("detached.pid");
         let executable = std::env::current_exe().unwrap();
-        let test_name = "journal_hooks::tests::unix_hook_tree_kills_a_descendant_that_created_a_new_session";
+        let test_name =
+            "journal_hooks::tests::unix_hook_tree_kills_a_descendant_that_created_a_new_session";
         let mut command = Command::new("/bin/sh");
         command
-            .args([
-                "-c",
-                "\"$1\" --exact \"$2\" --nocapture & wait",
-                "cmux-journal-hook-test",
-            ])
+            .args(["-c", "\"$1\" --exact \"$2\" --nocapture & wait", "cmux-journal-hook-test"])
             .arg(&executable)
             .arg(test_name)
             .env(HELPER, "1")
