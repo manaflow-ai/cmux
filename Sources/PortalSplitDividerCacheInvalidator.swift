@@ -36,12 +36,16 @@ private extension NSView {
 
     @objc(cmux_portalSetSubviews:)
     func cmux_portalSetSubviews(_ newSubviews: [NSView]) {
-        let parentWindow = window
+        let replacementState = PortalViewHierarchyMutationTracker.subviewsBeforeReplacement(
+            parentView: self,
+            newSubviews: newSubviews
+        )
         cmux_portalSetSubviews(newSubviews)
+        guard let replacementState else { return }
         PortalViewHierarchyMutationTracker.recordSubviewsReplacement(
             parentView: self,
-            parentWindow: parentWindow,
-            newSubviews: newSubviews
+            newSubviews: newSubviews,
+            replacementState: replacementState
         )
     }
 

@@ -9,6 +9,12 @@ final class PortalViewHierarchyMutationTracker: NSObject {
         fileprivate let subviews: [NSView]
     }
 
+    struct SubviewsBeforeReplacement {
+        fileprivate let tracker: PortalViewHierarchyMutationTracker
+        fileprivate let subviews: [NSView]
+        fileprivate let newSubviewWasInTrackedWindow: [Bool]
+    }
+
     private static let windowAssociationKey = NSObject()
     private static let nodeStateAssociationKey = NSObject()
 
@@ -98,17 +104,33 @@ final class PortalViewHierarchyMutationTracker: NSObject {
         )
     }
 
-    static func recordSubviewsReplacement(
+    static func subviewsBeforeReplacement(
         parentView: NSView,
-        parentWindow: NSWindow?,
         newSubviews: [NSView]
-    ) {
-        guard let window = parentWindow,
+    ) -> SubviewsBeforeReplacement? {
+        guard let window = parentView.window,
               let tracker = tracker(for: window, createIfNeeded: false),
               tracker.hasActiveCaches else {
-            return
+            return nil
         }
-        tracker.recordSubviewsReplacement(parentView: parentView, newSubviews: newSubviews)
+        return SubviewsBeforeReplacement(
+            tracker: tracker,
+            subviews: parentView.subviews,
+            newSubviewWasInTrackedWindow: newSubviews.map { $0.window === window }
+        )
+    }
+
+    static func recordSubviewsReplacement(
+        parentView: NSView,
+        newSubviews: [NSView],
+        replacementState: SubviewsBeforeReplacement
+    ) {
+        replacementState.tracker.recordSubviewsReplacement(
+            parentView: parentView,
+            oldSubviews: replacementState.subviews,
+            newSubviews: newSubviews,
+            newSubviewWasInTrackedWindow: replacementState.newSubviewWasInTrackedWindow
+        )
     }
 
     static func subviewOrderBeforeSort(
@@ -257,11 +279,51 @@ final class PortalViewHierarchyMutationTracker: NSObject {
         )
     }
 
-    private func recordSubviewsReplacement(parentView: NSView, newSubviews: [NSView]) {
-        guard !isSorting(parentView: parentView) else { return }
-        if currentNodeState(for: parentView) != nil
-            || newSubviews.contains(where: isCurrentRegisteredRoot) {
+    private func recordSubviewsReplacement(
+        parentView: NSView,
+        oldSubviews: [NSView],
+        newSubviews: [NSView],
+        newSubviewWasInTrackedWindow: [Bool]
+    ) {
+        guard !isSorting(parentView: parentView),
+              hasActiveCaches,
+              !Self.haveSameIdentityOrder(oldSubviews, newSubviews) else { return }
+        guard let parentState = currentNodeState(for: parentView) else {
+            if oldSubviews.contains(where: isCurrentRegisteredRoot)
+                || newSubviews.contains(where: isCurrentRegisteredRoot) {
+                markDirty()
+            }
+            return
+        }
+        guard !parentState.containsSplitView else {
             markDirty()
+            return
+        }
+
+        for (newSubview, wasInTrackedWindow) in zip(newSubviews, newSubviewWasInTrackedWindow) {
+            if newSubview is NSSplitView {
+                markDirty()
+                return
+            }
+            if wasInTrackedWindow,
+               let newSubviewState = currentNodeState(for: newSubview) {
+                if newSubviewState.containsSplitView {
+                    markDirty()
+                    return
+                }
+                continue
+            }
+            guard newSubview.subviews.isEmpty else {
+                markDirty()
+                return
+            }
+            guard let newSubviewState = nodeState(for: newSubview, createIfNeeded: true) else {
+                markDirty()
+                return
+            }
+            newSubviewState.tracker = self
+            newSubviewState.generation = generation
+            newSubviewState.containsSplitView = false
         }
     }
 
