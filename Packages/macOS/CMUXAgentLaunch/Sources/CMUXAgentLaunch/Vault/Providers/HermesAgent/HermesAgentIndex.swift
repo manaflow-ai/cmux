@@ -58,7 +58,8 @@ public enum HermesAgentIndexError: Error, Equatable, Sendable {
     case sqlite(String)
 }
 
-private struct HermesAgentDatabaseSnapshot {
+/// A disposable copy of Hermes's database and its live WAL sidecars.
+struct HermesAgentDatabaseSnapshot {
     let databaseURL: URL
     private let directoryURL: URL
 
@@ -75,90 +76,10 @@ private struct HermesAgentDatabaseSnapshot {
 public enum HermesAgentIndex {
     private static let contentJSONPrefix = "\u{0}json:"
     // Keep this list aligned with source kinds resumeCommand knows how to relaunch.
-    private static let knownSources = ["cli", "tui"]
-
-    struct RecoveryEvidence: Equatable, Sendable {
-        let sessionID: String
-        let source: String
-        let startedAt: TimeInterval
-        let cwd: String?
-    }
+    static let knownSources = ["cli", "tui"]
 
     public static func defaultStateDBPath(env: [String: String] = ProcessInfo.processInfo.environment) -> String {
         HermesAgentSessionResolver.stateDBPath(env: env)
-    }
-
-    /// Determines whether Hermes can resume an exact session identifier.
-    ///
-    /// A private writable snapshot is used so databases left in persistent WAL
-    /// mode remain readable without mutating Hermes's live files.
-    ///
-    /// - Parameters:
-    ///   - sessionID: The exact Hermes session identifier to validate.
-    ///   - stateDBPath: The Hermes `state.db` path to inspect.
-    /// - Returns: Whether the identifier exists, is missing, or could not be checked.
-    public static func sessionExistence(
-        sessionID: String,
-        stateDBPath: String = Self.defaultStateDBPath()
-    ) -> HermesAgentSessionExistence {
-        guard let sessionID = normalized(sessionID) else { return .missing }
-        let snapshot: HermesAgentDatabaseSnapshot
-        do {
-            guard let madeSnapshot = try makeSnapshot(
-                stateDBPath: stateDBPath,
-                prefix: "cmux-hermes-agent-existence"
-            ) else {
-                return .unavailable
-            }
-            snapshot = madeSnapshot
-        } catch {
-            return .unavailable
-        }
-        defer { snapshot.remove() }
-
-        do {
-            return try withDatabase(snapshot.databaseURL.path) { database in
-                try sessionExists(database: database, sessionID: sessionID) ? .exists : .missing
-            }
-        } catch {
-            return .unavailable
-        }
-    }
-
-    static func recoveryEvidence(
-        cwd: String,
-        startedAt: TimeInterval,
-        before upperBound: TimeInterval?,
-        stateDBPath: String
-    ) -> [RecoveryEvidence]? {
-        let cwdCandidates = HermesAgentStateDBResolver().cwdMatchCandidates(for: cwd)
-        guard !cwdCandidates.isEmpty else { return [] }
-        let snapshot: HermesAgentDatabaseSnapshot
-        do {
-            guard let madeSnapshot = try makeSnapshot(
-                stateDBPath: stateDBPath,
-                prefix: "cmux-hermes-agent-recovery"
-            ) else {
-                return nil
-            }
-            snapshot = madeSnapshot
-        } catch {
-            return nil
-        }
-        defer { snapshot.remove() }
-
-        do {
-            return try withDatabase(snapshot.databaseURL.path) { database in
-                try loadRecoveryEvidence(
-                    database: database,
-                    cwdCandidates: cwdCandidates,
-                    startedAt: startedAt,
-                    upperBound: upperBound
-                )
-            }
-        } catch {
-            return nil
-        }
     }
 
     /// Loads Hermes CLI/TUI sessions from state.db, optionally scoped to a working directory.
@@ -228,107 +149,6 @@ public enum HermesAgentIndex {
         return try withDatabase(snapshot.databaseURL.path) { db in
             try loadTranscript(db: db, sessionId: sessionId, limit: limit)
         }
-    }
-
-    private static func sessionExists(
-        database: OpaquePointer,
-        sessionID: String
-    ) throws -> Bool {
-        let sourcePlaceholders = knownSources.map { _ in "?" }.joined(separator: ", ")
-        let sql = "SELECT 1 FROM sessions WHERE id = ? AND source IN (\(sourcePlaceholders)) LIMIT 1"
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,
-              let statement else {
-            sqlite3_finalize(statement)
-            throw HermesAgentIndexError.sqlite(sqliteMessage(database) ?? "prepare failed")
-        }
-        defer { sqlite3_finalize(statement) }
-
-        let destructor = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-        guard sqlite3_bind_text(statement, 1, sessionID, -1, destructor) == SQLITE_OK else {
-            throw HermesAgentIndexError.sqlite(sqliteMessage(database) ?? "bind failed")
-        }
-        for (offset, source) in knownSources.enumerated() {
-            guard sqlite3_bind_text(statement, Int32(offset + 2), source, -1, destructor) == SQLITE_OK else {
-                throw HermesAgentIndexError.sqlite(sqliteMessage(database) ?? "bind failed")
-            }
-        }
-
-        switch sqlite3_step(statement) {
-        case SQLITE_ROW:
-            return true
-        case SQLITE_DONE:
-            return false
-        default:
-            throw HermesAgentIndexError.sqlite(sqliteMessage(database) ?? "step failed")
-        }
-    }
-
-    private static func loadRecoveryEvidence(
-        database: OpaquePointer,
-        cwdCandidates: [String],
-        startedAt: TimeInterval,
-        upperBound: TimeInterval?
-    ) throws -> [RecoveryEvidence] {
-        guard HermesAgentStateDBResolver().sessionsHaveCwdColumn(database) else { return [] }
-        let cwdPlaceholders = cwdCandidates.map { _ in "?" }.joined(separator: ", ")
-        var sql = """
-            SELECT id, source, started_at, cwd
-            FROM sessions
-            WHERE source = 'tui'
-              AND started_at >= ?
-              AND cwd IN (\(cwdPlaceholders))
-            """
-        if upperBound != nil {
-            sql += "\n  AND started_at < ?"
-        }
-        sql += "\nORDER BY started_at, id"
-
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,
-              let statement else {
-            sqlite3_finalize(statement)
-            throw HermesAgentIndexError.sqlite(sqliteMessage(database) ?? "prepare failed")
-        }
-        defer { sqlite3_finalize(statement) }
-
-        guard sqlite3_bind_double(statement, 1, startedAt) == SQLITE_OK else {
-            throw HermesAgentIndexError.sqlite(sqliteMessage(database) ?? "bind failed")
-        }
-        let destructor = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-        var bindIndex: Int32 = 2
-        for cwd in cwdCandidates {
-            guard sqlite3_bind_text(statement, bindIndex, cwd, -1, destructor) == SQLITE_OK else {
-                throw HermesAgentIndexError.sqlite(sqliteMessage(database) ?? "bind failed")
-            }
-            bindIndex += 1
-        }
-        if let upperBound {
-            guard sqlite3_bind_double(statement, bindIndex, upperBound) == SQLITE_OK else {
-                throw HermesAgentIndexError.sqlite(sqliteMessage(database) ?? "bind failed")
-            }
-        }
-
-        var evidence: [RecoveryEvidence] = []
-        var stepResult = sqlite3_step(statement)
-        while stepResult == SQLITE_ROW {
-            guard let sessionID = normalized(sqliteText(statement, 0)),
-                  let source = normalized(sqliteText(statement, 1)) else {
-                stepResult = sqlite3_step(statement)
-                continue
-            }
-            evidence.append(RecoveryEvidence(
-                sessionID: sessionID,
-                source: source,
-                startedAt: sqlite3_column_double(statement, 2),
-                cwd: normalized(sqliteText(statement, 3))
-            ))
-            stepResult = sqlite3_step(statement)
-        }
-        guard stepResult == SQLITE_DONE else {
-            throw HermesAgentIndexError.sqlite(sqliteMessage(database) ?? "step failed")
-        }
-        return evidence
     }
 
     private static func loadSessions(
@@ -499,7 +319,8 @@ public enum HermesAgentIndex {
         return turns
     }
 
-    private static func makeSnapshot(stateDBPath: String, prefix: String) throws -> HermesAgentDatabaseSnapshot? {
+    /// Copies a Hermes database and any WAL sidecars into a private directory.
+    static func makeSnapshot(stateDBPath: String, prefix: String) throws -> HermesAgentDatabaseSnapshot? {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: stateDBPath) else { return nil }
 
@@ -524,7 +345,8 @@ public enum HermesAgentIndex {
         return HermesAgentDatabaseSnapshot(databaseURL: snapshotDB, directoryURL: snapshotDir)
     }
 
-    private static func withDatabase<T>(_ path: String, _ body: (OpaquePointer) throws -> T) throws -> T {
+    /// Opens a private snapshot for the duration of a synchronous read.
+    static func withDatabase<T>(_ path: String, _ body: (OpaquePointer) throws -> T) throws -> T {
         var db: OpaquePointer?
         // `path` is always a private temporary snapshot. Hermes can leave the
         // main database in persistent WAL mode after removing its sidecars;
@@ -582,7 +404,7 @@ public enum HermesAgentIndex {
         return value.components(separatedBy: .newlines).first.map { String($0.prefix(120)) }
     }
 
-    private static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
+    static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
         guard sqlite3_column_type(stmt, index) != SQLITE_NULL,
               let bytes = sqlite3_column_text(stmt, index) else {
             return nil
@@ -591,7 +413,7 @@ public enum HermesAgentIndex {
         return String(data: Data(bytes: bytes, count: count), encoding: .utf8)
     }
 
-    private static func sqliteMessage(_ db: OpaquePointer?) -> String? {
+    static func sqliteMessage(_ db: OpaquePointer?) -> String? {
         guard let db, let cString = sqlite3_errmsg(db) else { return nil }
         return String(cString: cString)
     }
@@ -608,7 +430,7 @@ public enum HermesAgentIndex {
         return error.localizedDescription
     }
 
-    private static func normalized(_ value: String?) -> String? {
+    static func normalized(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
     }
