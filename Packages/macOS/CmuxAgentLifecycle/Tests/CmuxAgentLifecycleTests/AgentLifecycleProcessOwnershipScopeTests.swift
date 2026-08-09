@@ -40,4 +40,20 @@ struct AgentLifecycleProcessOwnershipScopeTests {
 
         #expect(firstThreadKey != otherThreadKey)
     }
+
+    @Test("Missing session IDs remain isolated by reliable process evidence")
+    func emptySessionIDsDoNotCollapseAcrossProcesses() {
+        let firstProcessKey = AgentLifecycleProcessOwnershipScope.session.agentPIDKey(
+            statusKey: BuiltInAgentIntegration.codex.statusKey,
+            sessionId: "",
+            processID: 1_001
+        )
+        let otherProcessKey = AgentLifecycleProcessOwnershipScope.session.agentPIDKey(
+            statusKey: BuiltInAgentIntegration.codex.statusKey,
+            sessionId: "",
+            processID: 2_002
+        )
+
+        #expect(firstProcessKey != otherProcessKey)
+    }
 }

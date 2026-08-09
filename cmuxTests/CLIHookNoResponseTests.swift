@@ -296,6 +296,11 @@ struct CLIHookNoResponseTests {
         let finished = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in finished.signal() }
         try process.run()
+        try stdin.fileHandleForReading.close()
+        let writerFD = stdin.fileHandleForWriting.fileDescriptor
+        guard fcntl(writerFD, F_SETNOSIGPIPE, 1) == 0 else {
+            throw POSIXError(.init(rawValue: errno) ?? .EIO)
+        }
         defer {
             try? stdin.fileHandleForWriting.close()
             if process.isRunning {
@@ -308,8 +313,18 @@ struct CLIHookNoResponseTests {
             contentsOf: Data(repeating: 0x78, count: 1 * 1024 * 1024 + 1)
         )
         let returnedBeforeEOF = finished.wait(timeout: .now() + 2) == .success
+        var producerAcceptedAdditionalInput = false
+        var additionalWriteError = ""
+        if returnedBeforeEOF {
+            do {
+                try stdin.fileHandleForWriting.write(contentsOf: Data("more".utf8))
+                producerAcceptedAdditionalInput = true
+            } catch {
+                additionalWriteError = String(describing: error)
+            }
+        }
+        try? stdin.fileHandleForWriting.close()
         if !returnedBeforeEOF {
-            try? stdin.fileHandleForWriting.close()
             if finished.wait(timeout: .now() + 1) != .success,
                process.isRunning {
                 process.terminate()
@@ -328,6 +343,10 @@ struct CLIHookNoResponseTests {
         #expect(
             returnedBeforeEOF,
             "An oversized untrusted hook payload must not keep the CLI blocked until its producer closes stdin."
+        )
+        #expect(
+            producerAcceptedAdditionalInput,
+            "The detached oversized-input drainer must keep accepting producer bytes after the CLI exits: \(additionalWriteError)"
         )
         #expect(process.terminationStatus == 0, Comment(rawValue: standardError))
         #expect(standardOutput == "{}\n")

@@ -120,8 +120,12 @@ def main() -> int:
         if refresh_result.returncode == 0:
             print("FAIL: Amp refresh fixture unexpectedly connected to its missing socket")
             return 1
-        if extension_path.read_text(encoding="utf-8") != extension_text:
+        refreshed_text = extension_path.read_text(encoding="utf-8")
+        if refreshed_text != extension_text:
             print("FAIL: Amp session-start did not refresh the stale cmux-managed plugin")
+            return 1
+        if "cmux-amp-session-extension-marker" not in refreshed_text:
+            print("FAIL: Amp session-start rewrote the plugin without the cmux marker")
             return 1
 
         fake_cmux = root / "fake-cmux"
@@ -257,7 +261,10 @@ export function spawn(command, args, options) {
     const observationId = call.args[observationIndex + 1] || "missing";
     const attempt = nativeAttentionEndAttempts.get(observationId) || 0;
     nativeAttentionEndAttempts.set(observationId, attempt + 1);
-    if (globalThis.__cmuxAmpSkipNextEndTimeout === true) {
+    if (globalThis.__cmuxAmpHangNextEndAttempts > 0) {
+      globalThis.__cmuxAmpHangNextEndAttempts -= 1;
+      hangs = true;
+    } else if (globalThis.__cmuxAmpSkipNextEndTimeout === true) {
       globalThis.__cmuxAmpSkipNextEndTimeout = false;
     } else if (attempt === 0) {
       hangs = true;
@@ -328,6 +335,9 @@ export function spawnSync(command, args, options) {
             encoding="utf-8",
         )
         instrumented_path = extension_path.parent / "cmux-session-instrumented.ts"
+        if extension_text.count('from "node:child_process";') != 1:
+            print("FAIL: Amp plugin no longer has exactly one child_process import")
+            return 1
         instrumented_text = extension_text.replace(
             'from "node:child_process";',
             'from "./cmux-test-spawn.mjs";',
@@ -340,6 +350,48 @@ export function spawnSync(command, args, options) {
 
         settlement_source = """
 globalThis.__cmuxAmpSpawnCalls = [];
+const platformSetTimeout = globalThis.setTimeout;
+const platformClearTimeout = globalThis.clearTimeout;
+const controlledTimers = new Set();
+globalThis.setTimeout = (callback, delay = 0, ...args) => {
+  const timer = {
+    callback,
+    delay: Number(delay) || 0,
+    args,
+    cancelled: false,
+    handle: null
+  };
+  const handle = {
+    timer,
+    unref() { return handle; }
+  };
+  timer.handle = handle;
+  controlledTimers.add(timer);
+  return handle;
+};
+globalThis.clearTimeout = (handle) => {
+  const timer = handle?.timer;
+  if (!timer) return;
+  timer.cancelled = true;
+  controlledTimers.delete(timer);
+};
+const dispatchControlledTimers = async (delay) => {
+  let dispatched = 0;
+  for (let pass = 0; pass < 100; pass += 1) {
+    await Promise.resolve();
+    const due = Array.from(controlledTimers).filter(
+      (timer) => !timer.cancelled && timer.delay === delay
+    );
+    if (due.length === 0) return dispatched;
+    for (const timer of due) {
+      controlledTimers.delete(timer);
+      if (timer.cancelled) continue;
+      dispatched += 1;
+      timer.callback(...timer.args);
+    }
+  }
+  throw new Error(`Amp controlled timer queue did not quiesce for ${delay}ms`);
+};
 const extensionPath = process.env.CMUX_TEST_AMP_INSTRUMENTED_PATH;
 const mod = await import(extensionPath);
 const handlers = new Map();
@@ -372,7 +424,7 @@ const waitFor = async (predicate, description, timeout = 4000) => {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     if (predicate()) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await new Promise((resolve) => platformSetTimeout(resolve, 5));
   }
   throw new Error(
     `${description}: ${JSON.stringify(globalThis.__cmuxAmpSpawnCalls)}`
@@ -433,6 +485,7 @@ await waitFor(
     && attentionCalls("identify")[0].closedWith === 1,
   "Amp did not observe the transient process-identity failure"
 );
+await dispatchControlledTimers(250);
 await waitFor(
   () => attentionCalls("identify").length === 2
     && attentionCalls("begin").length === 1
@@ -441,6 +494,11 @@ await waitFor(
 );
 thread.setState("running");
 thread.setState("running");
+await waitFor(
+  () => attentionCalls("end").length === 1,
+  "Amp did not start the first approval conclusion"
+);
+await dispatchControlledTimers(2_000);
 await waitFor(
   () => attentionCalls("end").length === 2
     && attentionCalls("end")[1].closedWith === 0,
@@ -515,6 +573,11 @@ if (
 }
 thread.setState("running");
 await waitFor(
+  () => attentionCalls("end").length === 3,
+  "Amp did not start the second approval conclusion"
+);
+await dispatchControlledTimers(2_000);
+await waitFor(
   () => attentionCalls("end").length === 4
     && attentionCalls("end")[3].closedWith === 0,
   "Amp did not conclude the second approval episode"
@@ -542,6 +605,7 @@ await waitFor(
 );
 const unacknowledgedBegin = attentionCalls("begin")[2].args;
 thread.setState("running");
+await dispatchControlledTimers(2_000);
 await waitFor(
   () => attentionCalls("end").length === 5
     && attentionCalls("end")[4].closedWith === 0,
@@ -608,6 +672,11 @@ if (statusCalls().length !== statusCountDuringApproval) {
 const aggregateApprovalEndCount = attentionCalls("end").length;
 approvalStatusThread.setState("running");
 await waitFor(
+  () => attentionCalls("end").length === aggregateApprovalEndCount + 1,
+  "Amp did not start the aggregate-status approval conclusion"
+);
+await dispatchControlledTimers(2_000);
+await waitFor(
   () => attentionCalls("end").length === aggregateApprovalEndCount + 2
     && attentionCalls("end").at(-1).closedWith === 0,
   "Amp did not conclude the aggregate-status approval"
@@ -659,6 +728,7 @@ await handlers.get("session.start")(
   { thread: discardedAttentionThread },
   discardedAttentionCtx
 );
+await dispatchControlledTimers(2_000);
 await waitFor(
   () => discardedBeginCall.killedWith === "SIGKILL",
   "Amp did not finish the abandoned approval subprocess deadline"
@@ -798,13 +868,10 @@ if (
   );
 }
 thread.setState("idle");
-if (stopCalls().length !== finalCompletionCount + 2) {
-  throw new Error(
-    `Amp did not settle the final thread after every thread drained: ${
-      JSON.stringify(globalThis.__cmuxAmpSpawnCalls)
-    }`
-  );
-}
+await waitFor(
+  () => stopCalls().length === finalCompletionCount + 2,
+  "Amp did not settle the final thread after every thread drained"
+);
 const finalSettlement = JSON.parse(stopCalls().at(-1).stdin);
 if (
   finalSettlement.cmux_turn_boundary !== "settled" ||
@@ -852,12 +919,6 @@ if (raceSettled.cmux_turn_boundary !== "settled") {
     `Amp native-state race did not settle: ${JSON.stringify(raceSettled)}`
   );
 }
-const originalSetTimeout = globalThis.setTimeout;
-globalThis.setTimeout = (callback, delay, ...args) => originalSetTimeout(
-  callback,
-  Math.min(Number(delay) || 0, 5),
-  ...args
-);
 try {
   const hangingThread = makeThread(
     "T-amp-native-state-hang",
@@ -870,16 +931,8 @@ try {
     message: "native state never resolves",
     id: "msg-hang"
   }, hangingCtx);
-  const startOutcome = await Promise.race([
-    hangingStart.then(() => "returned"),
-    new Promise((resolve) => originalSetTimeout(
-      () => resolve("timed-out"),
-      100
-    ))
-  ]);
-  if (startOutcome !== "returned") {
-    throw new Error("a hanging native get() blocked agent.start indefinitely");
-  }
+  await dispatchControlledTimers(1_000);
+  await hangingStart;
 
   const beforeHangingEnd = stopCalls().length;
   const hangingEnd = handlers.get("agent.end")({
@@ -889,21 +942,12 @@ try {
     status: "done",
     messages: []
   }, hangingCtx);
-  const endOutcome = await Promise.race([
-    hangingEnd.then(() => "returned"),
-    new Promise((resolve) => originalSetTimeout(
-      () => resolve("timed-out"),
-      100
-    ))
-  ]);
-  if (endOutcome !== "returned") {
-    throw new Error("a hanging native get() blocked agent.end indefinitely");
-  }
+  await hangingEnd;
   if (stopCalls().length !== beforeHangingEnd + 1) {
     throw new Error("the hanging native state emitted a false settled boundary");
   }
 
-  await new Promise((resolve) => originalSetTimeout(resolve, 25));
+  await dispatchControlledTimers(30 * 60 * 1_000);
   if (hangingThread.observerCount() !== 1) {
     throw new Error(
       "a pending turn lost its event-driven native-state observer"
@@ -911,9 +955,10 @@ try {
   }
   const beforeNativeIdle = stopCalls().length;
   hangingThread.setState("idle");
-  if (stopCalls().length !== beforeNativeIdle + 1) {
-    throw new Error("a late native idle event did not settle the pending turn");
-  }
+  await waitFor(
+    () => stopCalls().length === beforeNativeIdle + 1,
+    "a late native idle event did not settle the pending turn"
+  );
   const hangingSettlement = JSON.parse(stopCalls().at(-1).stdin);
   if (hangingSettlement.cmux_turn_boundary !== "settled") {
     throw new Error(
@@ -944,7 +989,7 @@ try {
     "Amp did not publish the lease-retention approval"
   );
   const approvalEndCount = attentionCalls("end").length;
-  await new Promise((resolve) => originalSetTimeout(resolve, 25));
+  await dispatchControlledTimers(30 * 60 * 1_000);
   if (approvalLeaseThread.observerCount() !== 1) {
     throw new Error("a confirmed approval expired on the observation lease");
   }
@@ -952,6 +997,11 @@ try {
     throw new Error("the observation lease cleared a confirmed approval");
   }
   approvalLeaseThread.setState("running");
+  await waitFor(
+    () => attentionCalls("end").length === approvalEndCount + 1,
+    "Amp did not start the lease-retention approval conclusion"
+  );
+  await dispatchControlledTimers(2_000);
   await waitFor(
     () => attentionCalls("end").length === approvalEndCount + 2
       && attentionCalls("end").at(-1).closedWith === 0,
@@ -966,9 +1016,10 @@ try {
     messages: []
   }, approvalLeaseCtx);
   approvalLeaseThread.setState("idle");
-  if (stopCalls().length !== beforeApprovalLeaseEnd + 2) {
-    throw new Error("the approval-retention turn did not settle normally");
-  }
+  await waitFor(
+    () => stopCalls().length === beforeApprovalLeaseEnd + 2,
+    "the approval-retention turn did not settle normally"
+  );
 
   const maximumRetainedTurnStateCount = 128;
   const boundedThreads = [];
@@ -979,11 +1030,13 @@ try {
       true
     );
     const boundedCtx = { thread: boundedThread };
-    await handlers.get("agent.start")({
+    const boundedStart = handlers.get("agent.start")({
       thread: boundedThread,
       message: "bounded pending native state",
       id: `msg-bounded-${index}`
     }, boundedCtx);
+    await dispatchControlledTimers(1_000);
+    await boundedStart;
     await handlers.get("agent.end")({
       thread: boundedThread,
       message: "bounded pending native state",
@@ -1015,11 +1068,69 @@ try {
     throw new Error("an evicted Amp turn retained settlement ownership");
   }
   boundedThreads.at(-1).setState("idle");
-  if (stopCalls().length !== beforeEvictedIdle + 1) {
-    throw new Error("the most recent bounded Amp turn lost settlement ownership");
-  }
+  await waitFor(
+    () => stopCalls().length === beforeEvictedIdle + 1,
+    "the most recent bounded Amp turn lost settlement ownership"
+  );
+
+  const failedConclusionThread = makeThread(
+    "T-amp-failed-attention-conclusion",
+    "running"
+  );
+  const failedConclusionCtx = { thread: failedConclusionThread };
+  await handlers.get("agent.start")({
+    thread: failedConclusionThread,
+    message: "release ownership after failed conclusion",
+    id: "msg-failed-attention-conclusion"
+  }, failedConclusionCtx);
+  const failedConclusionBeginCount = attentionCalls("begin").length;
+  failedConclusionThread.setState("awaiting-approval");
+  await waitFor(
+    () => attentionCalls("begin").length === failedConclusionBeginCount + 1
+      && attentionCalls("begin").at(-1).closedWith === 0,
+    "Amp did not publish the approval used by the failed-conclusion regression"
+  );
+  globalThis.__cmuxAmpHangNextEndAttempts = 2;
+  const failedConclusionEndCount = attentionCalls("end").length;
+  failedConclusionThread.setState("running");
+  await waitFor(
+    () => attentionCalls("end").length === failedConclusionEndCount + 1,
+    "Amp did not start the first failed approval conclusion"
+  );
+  await dispatchControlledTimers(2_000);
+  await waitFor(
+    () => attentionCalls("end").length === failedConclusionEndCount + 2
+      && attentionCalls("end").slice(-2).every(
+        (call) => call.killedWith === "SIGKILL"
+      ),
+    "Amp did not exhaust both failed approval conclusion attempts"
+  );
+
+  const statusCountAfterFailedConclusion = statusCalls().length;
+  const statusProbeThread = makeThread(
+    "T-amp-failed-attention-status-probe",
+    "running"
+  );
+  const statusProbeCtx = { thread: statusProbeThread };
+  await handlers.get("agent.start")({
+    thread: statusProbeThread,
+    message: "publish after failed conclusion",
+    id: "msg-failed-attention-status-probe"
+  }, statusProbeCtx);
+  await handlers.get("tool.call")({
+    thread: statusProbeThread,
+    toolUseID: "tool-failed-attention-status-probe",
+    tool: "Task",
+    input: { prompt: "prove failed attention released aggregate status" }
+  }, statusProbeCtx);
+  await waitFor(
+    () => statusCalls().length > statusCountAfterFailedConclusion
+      && statusCalls().at(-1)?.args[2] === "subagent",
+    "failed Amp attention conclusion retained aggregate status ownership"
+  );
 } finally {
-  globalThis.setTimeout = originalSetTimeout;
+  globalThis.setTimeout = platformSetTimeout;
+  globalThis.clearTimeout = platformClearTimeout;
 }
 """
         settlement_script = root / "settlement-check.mjs"
@@ -1052,7 +1163,10 @@ try {
                 and "hooks amp prompt-submit" in args_log
                 and "hooks amp stop" in args_log
                 and '"session_id":"T-amp-session-test"' in stdin_log
-                and "argv=" in env_log
+                and any(
+                    line.startswith("argv=") and line != "argv="
+                    for line in env_log.splitlines()
+                )
             ):
                 break
             time.sleep(0.05)

@@ -79,7 +79,7 @@ struct ControlCommandCoordinatorSidebarV1Tests {
 
         #expect(
             response
-                == "ERROR: Agent process generation is required for 'codex'"
+                == "ERROR: Agent process generation is required for this agent"
         )
         #expect(context.agentPIDRecordCall == nil)
     }
@@ -98,7 +98,7 @@ struct ControlCommandCoordinatorSidebarV1Tests {
 
         #expect(
             response
-                == "ERROR: Agent process generation is required for 'codex'"
+                == "ERROR: Agent process generation is required for this agent"
         )
         #expect(context.statusUpsertCall == nil)
     }
@@ -160,7 +160,7 @@ struct ControlCommandCoordinatorSidebarV1Tests {
 
         #expect(
             response
-                == "ERROR: Agent process generation is required for 'codex'"
+                == "ERROR: Agent process generation is required for this agent"
         )
         #expect(context.agentLifecycleCall == nil)
     }
