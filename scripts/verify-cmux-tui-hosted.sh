@@ -187,7 +187,7 @@ gh run download \
   --name cmux-tui-aarch64-apple-darwin \
   --dir "$temp_dir"
 
-downloaded_binary="$(find "$temp_dir" -type f -name cmux-tui-aarch64-apple-darwin -print -quit)"
+downloaded_binary="$(find "$temp_dir" -type f -name cmux-tui-aarch64-apple-darwin -print | sed -n '1p')"
 if [[ -z "$downloaded_binary" ]]; then
   echo "error: the macOS arm64 artifact did not contain cmux-tui" >&2
   exit 1
