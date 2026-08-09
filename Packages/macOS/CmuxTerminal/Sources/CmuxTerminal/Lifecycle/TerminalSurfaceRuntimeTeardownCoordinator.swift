@@ -41,6 +41,8 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     private let isolatedHibernationQueues: [DispatchQueue]
     private nonisolated let beginSurfaceTeardown:
         @Sendable (ghostty_surface_t) -> Void
+    private nonisolated let screenTailReader =
+        TerminalSurfaceRuntimeScreenTailReader()
     private nonisolated let isolatedHibernationAdmission =
         TerminalSurfaceRuntimeTeardownAdmission()
 
@@ -98,18 +100,12 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         request.nativeAccessGate.acquireBorrow()
     }
 
-    /// Reads a bounded screen tail away from the main actor under an admitted borrow.
-#if compiler(>=6.2)
-    @concurrent
-#else
-    @Sendable
-#endif
+    /// Reads a bounded screen tail under globally serialized native admission.
     nonisolated func readScreenTailVT(
         _ request: TerminalSurfaceRuntimeScreenTailRequest,
         borrow: TerminalSurfaceRuntimeNativeAccessBorrow
     ) async -> String? {
-        defer { borrow.release() }
-        return request.read()
+        await screenTailReader.read(request, borrow: borrow)
     }
 
     /// Queues a native-surface free from any isolation (the surface model's
