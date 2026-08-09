@@ -1,4 +1,5 @@
 import CoreGraphics
+import CMUXAgentLaunch
 import CmuxCore
 import Foundation
 import Bonsplit
@@ -266,6 +267,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         case name, kind, command, cwd, checkpointId, source
         case environment, autoResume, approvalPolicy, approvalRecordId
         case launchCommand, permissionMode, launchFlavor, updatedAt
+        case restoreWorkingDirectorySelection
     }
 
     var name: String?
@@ -277,6 +279,8 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     var environment: [String: String]?
     var launchCommand: AgentLaunchCommandSnapshot?
     var permissionMode: String?
+    /// Persisted cwd trust boundary for agent-hook restore bindings.
+    var restoreWorkingDirectorySelection: AgentRestoreWorkingDirectorySelection?
     var autoResume: Bool?
     var approvalPolicy: SurfaceResumeApprovalPolicy?
     var approvalRecordId: String?
@@ -295,6 +299,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         environment: [String: String]? = nil,
         launchCommand: AgentLaunchCommandSnapshot? = nil,
         permissionMode: String? = nil,
+        restoreWorkingDirectorySelection: AgentRestoreWorkingDirectorySelection? = nil,
         autoResume: Bool? = nil,
         approvalPolicy: SurfaceResumeApprovalPolicy? = nil,
         approvalRecordId: String? = nil,
@@ -317,6 +322,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         self.environment = Self.normalizedEnvironment(environment)
         self.launchCommand = Self.normalizedLaunchCommand(launchCommand)
         self.permissionMode = Self.normalized(permissionMode)
+        self.restoreWorkingDirectorySelection = restoreWorkingDirectorySelection
         self.autoResume = autoResume
         self.approvalPolicy = approvalPolicy
         self.approvalRecordId = Self.normalized(approvalRecordId)
@@ -340,6 +346,10 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
                 forKey: .launchCommand
             ),
             permissionMode: try container.decodeIfPresent(String.self, forKey: .permissionMode),
+            restoreWorkingDirectorySelection: try container.decodeIfPresent(
+                AgentRestoreWorkingDirectorySelection.self,
+                forKey: .restoreWorkingDirectorySelection
+            ),
             autoResume: try container.decodeIfPresent(Bool.self, forKey: .autoResume),
             approvalPolicy: try container.decodeIfPresent(SurfaceResumeApprovalPolicy.self, forKey: .approvalPolicy),
             approvalRecordId: try container.decodeIfPresent(String.self, forKey: .approvalRecordId),

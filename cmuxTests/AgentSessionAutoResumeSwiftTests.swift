@@ -2046,6 +2046,25 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         #expect(!startupInput.contains(firstRemoteDirectory), Comment(rawValue: startupInput))
         #expect(!startupInput.contains(localDirectory), Comment(rawValue: startupInput))
         #expect(restoredPanel.requestedWorkingDirectory == latestRemoteDirectory)
+
+        let newerRemoteDirectory = "/repo-c"
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
+        #expect(restored.updateRemotePanelDirectory(
+            panelId: restoredPanelId,
+            directory: newerRemoteDirectory
+        ))
+        let secondSnapshot = restored.sessionSnapshot(includeScrollback: false)
+        let secondRestore = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { secondRestore.teardownAllPanels() }
+        let secondPanelIds = secondRestore.restoreSessionSnapshot(secondSnapshot)
+        let secondPanelId = try #require(secondPanelIds[restoredPanelId])
+        let secondPanel = try #require(secondRestore.terminalPanel(for: secondPanelId))
+        let secondStartupInput = try #require(secondPanel.surface.initialInput)
+        let secondAgent = try #require(secondRestore.restoredAgentSnapshotsByPanelId[secondPanelId])
+
+        #expect(secondAgent.restoreWorkingDirectorySelection == .exact(newerRemoteDirectory))
+        #expect(secondStartupInput.contains(newerRemoteDirectory), Comment(rawValue: secondStartupInput))
+        #expect(!secondStartupInput.contains(latestRemoteDirectory), Comment(rawValue: secondStartupInput))
     }
 
     @MainActor
@@ -2191,6 +2210,25 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         #expect(!startupInput.contains(localDirectory), Comment(rawValue: startupInput))
         #expect(restoredPanel.requestedWorkingDirectory == nil)
         #expect(restored.remoteDirectoryTrustRequiredPanelIds.contains(restoredPanelId))
+
+        let newlyReportedRemoteDirectory = "/repo-b"
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
+        #expect(restored.updateRemotePanelDirectory(
+            panelId: restoredPanelId,
+            directory: newlyReportedRemoteDirectory
+        ))
+        let secondSnapshot = restored.sessionSnapshot(includeScrollback: false)
+        let secondRestore = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { secondRestore.teardownAllPanels() }
+        let secondPanelIds = secondRestore.restoreSessionSnapshot(secondSnapshot)
+        let secondPanelId = try #require(secondPanelIds[restoredPanelId])
+        let secondPanel = try #require(secondRestore.terminalPanel(for: secondPanelId))
+        let secondStartupInput = try #require(secondPanel.surface.initialInput)
+        let secondAgent = try #require(secondRestore.restoredAgentSnapshotsByPanelId[secondPanelId])
+
+        #expect(secondAgent.restoreWorkingDirectorySelection == .exact(newlyReportedRemoteDirectory))
+        #expect(secondStartupInput.contains(newlyReportedRemoteDirectory), Comment(rawValue: secondStartupInput))
+        #expect(!secondStartupInput.contains(untrustedRecordedDirectory), Comment(rawValue: secondStartupInput))
     }
 
     @MainActor
@@ -2277,15 +2315,82 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         #expect(!attachCommand.contains(capturedDirectory), Comment(rawValue: attachCommand))
 
         let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(attachCommand).map(\.value)
-        if let commandIndex = words.firstIndex(of: "--command-b64"),
-           commandIndex + 1 < words.count,
-           let remoteCommandData = Data(base64Encoded: words[commandIndex + 1]),
-           let remoteCommand = String(data: remoteCommandData, encoding: .utf8) {
-            let unsafeStartupInput = try #require(binding.remoteStartupInput())
-            let unsafeStartupPayload = Data(unsafeStartupInput.utf8).base64EncodedString()
-            #expect(!remoteCommand.contains(unsafeStartupPayload), Comment(rawValue: remoteCommand))
-            #expect(!remoteCommand.contains(capturedDirectory), Comment(rawValue: remoteCommand))
-        }
+        let commandIndex = try #require(words.firstIndex(of: "--command-b64"))
+        let commandPayloadIndex = words.index(after: commandIndex)
+        try #require(words.indices.contains(commandPayloadIndex))
+        let commandPayload = words[commandPayloadIndex]
+        let remoteCommandData = try #require(Data(base64Encoded: commandPayload))
+        let remoteCommand = try #require(String(data: remoteCommandData, encoding: .utf8))
+        let unsafeStartupInput = try #require(binding.remoteStartupInput())
+        let unsafeStartupPayload = Data(unsafeStartupInput.utf8).base64EncodedString()
+        #expect(!remoteCommand.contains(unsafeStartupPayload), Comment(rawValue: remoteCommand))
+        #expect(!remoteCommand.contains(capturedDirectory), Comment(rawValue: remoteCommand))
+    }
+
+    @MainActor
+    @Test func persistentSSHExactSelectionEmbedsOnlyConstrainedAgentStartupInput() throws {
+        let capturedDirectory = "/Users/alice/persistent-agent-cwd"
+        let trustedRemoteDirectory = "/home/remote/persistent-project"
+        let sessionId = "persistent-codex-session"
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        workspace.configureRemoteConnection(
+            remoteWorkspaceConfiguration(
+                command: SSHPTYAttachStartupCommandBuilder.command(),
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "remote-exact-cwd-policy"
+            ),
+            autoConnect: false
+        )
+        let panelId = try #require(workspace.focusedPanelId)
+        let persistentSessionID = Workspace.defaultSSHPTYSessionID(
+            workspaceId: workspace.id,
+            panelId: panelId
+        )
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionId,
+            workingDirectory: capturedDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "codex",
+                arguments: ["codex", "-C", capturedDirectory],
+                workingDirectory: capturedDirectory
+            )
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume \(sessionId) -C '\(capturedDirectory)'",
+            cwd: capturedDirectory,
+            checkpointId: sessionId,
+            source: "agent-hook",
+            launchCommand: agent.launchCommand,
+            autoResume: true,
+            launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                workspaceID: workspace.id,
+                surfaceID: panelId,
+                persistentPTYSessionID: persistentSessionID
+            ))
+        )
+        let constrainedBinding = binding.applyingRestoreWorkingDirectorySelection(
+            .exact(trustedRemoteDirectory),
+            from: agent
+        )
+        let constrainedStartupInput = try #require(constrainedBinding.remoteStartupInput())
+        let remoteCommand = try #require(workspace.persistentSSHResumeCommand(
+            for: constrainedBinding,
+            expectedWorkspaceID: workspace.id,
+            expectedSurfaceID: panelId,
+            persistentPTYSessionID: persistentSessionID
+        ))
+        let constrainedPayload = Data(constrainedStartupInput.utf8).base64EncodedString()
+        let unsafeStartupInput = try #require(binding.remoteStartupInput())
+        let unsafePayload = Data(unsafeStartupInput.utf8).base64EncodedString()
+
+        #expect(constrainedStartupInput.contains(trustedRemoteDirectory))
+        #expect(!constrainedStartupInput.contains(capturedDirectory))
+        #expect(remoteCommand.contains(constrainedPayload), Comment(rawValue: remoteCommand))
+        #expect(!remoteCommand.contains(unsafePayload), Comment(rawValue: remoteCommand))
     }
 
     @MainActor
@@ -2340,6 +2445,29 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             ),
             panelId: sourcePanelId
         )
+        #expect(source.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: kind.rawValue,
+                command: "\(executable) resume \(sessionId) \(cwdOption) '\(capturedArgumentDirectory)'",
+                cwd: capturedAgentDirectory,
+                checkpointId: sessionId,
+                source: "agent-hook",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: executable,
+                    executablePath: "/usr/local/bin/\(executable)",
+                    arguments: [
+                        "/usr/local/bin/\(executable)",
+                        cwdOption,
+                        capturedArgumentDirectory,
+                        "--model",
+                        "test-model",
+                    ],
+                    workingDirectory: capturedLaunchDirectory
+                ),
+                autoResume: true
+            ),
+            panelId: sourcePanelId
+        ))
 
         let snapshot = source.sessionSnapshot(includeScrollback: false)
         try withRestoredRemoteSurface(
@@ -2376,6 +2504,23 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             #expect(!resumeCommand.contains(capturedAgentDirectory), Comment(rawValue: resumeCommand))
             #expect(!resumeCommand.contains(capturedLaunchDirectory), Comment(rawValue: resumeCommand))
             #expect(!resumeCommand.contains(capturedArgumentDirectory), Comment(rawValue: resumeCommand))
+
+            workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+            #expect(workspace.restoredAgentSnapshotsByPanelId[panelId] == nil)
+            let retainedBinding = try #require(
+                workspace.sessionSnapshot(includeScrollback: false)
+                    .panels.first(where: { $0.id == panelId })?
+                    .terminal?.resumeBinding
+            )
+            let retainedInput = try #require(
+                retainedBinding.inlineStartupInput(repairPortableAgentExecutable: false)
+            )
+            #expect(retainedBinding.restoreWorkingDirectorySelection == .exact(trustedRemoteDirectory))
+            #expect(retainedBinding.autoResume == false)
+            #expect(retainedInput.contains(trustedRemoteDirectory), Comment(rawValue: retainedInput))
+            #expect(!retainedInput.contains(capturedAgentDirectory), Comment(rawValue: retainedInput))
+            #expect(!retainedInput.contains(capturedLaunchDirectory), Comment(rawValue: retainedInput))
+            #expect(!retainedInput.contains(capturedArgumentDirectory), Comment(rawValue: retainedInput))
         }
     }
 
@@ -2507,17 +2652,13 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             _ resumeSnapshot: ControlSurfaceResumeSnapshot
         ) throws -> T
     ) throws -> T {
-        let defaults = UserDefaults.standard
-        let defaultsKey = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
-        let previousDefault = defaults.object(forKey: defaultsKey)
-        defaults.set(autoResumeAgentSessions, forKey: defaultsKey)
-        defer {
-            if let previousDefault {
-                defaults.set(previousDefault, forKey: defaultsKey)
-            } else {
-                defaults.removeObject(forKey: defaultsKey)
-            }
-        }
+        let defaultsName = "cmux-remote-restore-helper-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(
+            autoResumeAgentSessions,
+            forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+        )
 
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
@@ -2532,7 +2673,10 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             defer: false
         )
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
-        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            agentSessionAutoResumeDefaults: defaults
+        )
         app.registerMainWindow(
             window,
             windowId: windowId,

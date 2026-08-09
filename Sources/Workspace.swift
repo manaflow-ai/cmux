@@ -1036,11 +1036,10 @@ extension Workspace {
             let selection = restorableAgent.effectiveRestoreWorkingDirectorySelection(
                 storedSelection
             )
-            let workingDirectory = selection.resolved(
-                snapshotWorkingDirectory: restorableAgent.workingDirectory,
-                launchWorkingDirectory: restorableAgent.launchCommand?.workingDirectory
+            return binding.applyingRestoreWorkingDirectorySelection(
+                selection,
+                from: restorableAgent
             )
-            return binding.retargetingWorkingDirectory(workingDirectory)
         }
 
         // Restore has no live hook cwd; use the snapshot's derived restorable cwd
@@ -1392,7 +1391,7 @@ extension Workspace {
             }()
             let retainedRestorableAgent: SessionRestorableAgentSnapshot? =
                 if let remoteRestoreWorkingDirectorySelection {
-                    restorableAgent?.applyingRestoreWorkingDirectorySelection(
+                    restorableAgent?.refreshingAuthoritativeRestoreWorkingDirectorySelection(
                         remoteRestoreWorkingDirectorySelection
                     )
                 } else {
@@ -1444,8 +1443,7 @@ extension Workspace {
                     for: effectiveResumeBindingForStartup,
                     expectedWorkspaceID: restoredResumeSnapshotWorkspaceID,
                     expectedSurfaceID: snapshot.id,
-                    persistentPTYSessionID: restoredRemotePTYSessionID,
-                    includeStoredStartupInput: remoteRestoreWorkingDirectorySelection == nil
+                    persistentPTYSessionID: restoredRemotePTYSessionID
                 )
             } else {
                 nil
@@ -5242,19 +5240,37 @@ final class Workspace: Identifiable, ObservableObject {
             by: binding,
             panelId: panelId
         )
+        let previousBinding = surfaceResumeBindingsByPanelId[panelId]
+        let constrainedBinding: SurfaceResumeBindingSnapshot = if let restoredAgent =
+            restoredAgentSnapshotsByPanelId[panelId],
+           let selection = restoredAgent.restoreWorkingDirectorySelection,
+           Self.restorableAgentForSessionRestore(
+               restoredAgent,
+               resumeBinding: binding
+           ) != nil {
+            binding.applyingRestoreWorkingDirectorySelection(
+                selection,
+                from: restoredAgent
+            )
+        } else if let previousBinding,
+                  previousBinding.isSameManagedSession(as: binding) {
+            binding.inheritingRestoreWorkingDirectorySelection(from: previousBinding)
+        } else {
+            binding
+        }
         // This transient cwd belongs to the binding restored at launch. Let a
         // same-session hook refresh keep its cwd rescue, but never let it
         // override a replacement session's structured restore record.
-        if let previous = surfaceResumeBindingsByPanelId[panelId],
-           previous.kind != binding.kind
-            || previous.checkpointId != binding.checkpointId
-            || previous.cwd != binding.cwd
-            || previous.launchCommand?.workingDirectory != binding.launchCommand?.workingDirectory
-            || (previous.launchCommand == nil && binding.launchCommand == nil
-                && previous.command != binding.command) {
+        if let previous = previousBinding,
+           previous.kind != constrainedBinding.kind
+            || previous.checkpointId != constrainedBinding.checkpointId
+            || previous.cwd != constrainedBinding.cwd
+            || previous.launchCommand?.workingDirectory != constrainedBinding.launchCommand?.workingDirectory
+            || (previous.launchCommand == nil && constrainedBinding.launchCommand == nil
+                && previous.command != constrainedBinding.command) {
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         }
-        surfaceResumeBindingsByPanelId[panelId] = binding
+        surfaceResumeBindingsByPanelId[panelId] = constrainedBinding
         return true
     }
 

@@ -81,6 +81,18 @@ extension SessionRestorableAgentSnapshot {
         return constrained
     }
 
+    /// Returns a copy refreshed from a provenance-validated remote snapshot selection.
+    func refreshingAuthoritativeRestoreWorkingDirectorySelection(
+        _ proposedSelection: AgentRestoreWorkingDirectorySelection
+    ) -> SessionRestorableAgentSnapshot {
+        let selection = restoreWorkingDirectorySelection?.refreshedByAuthoritativeRemoteSelection(
+            proposedSelection
+        ) ?? proposedSelection
+        var refreshable = self
+        refreshable.restoreWorkingDirectorySelection = nil
+        return refreshable.applyingRestoreWorkingDirectorySelection(selection)
+    }
+
     /// Resolves an entrypoint request against the stricter policy retained on the snapshot.
     func effectiveRestoreWorkingDirectorySelection(
         _ proposedSelection: AgentRestoreWorkingDirectorySelection
@@ -221,5 +233,57 @@ extension SessionRestorableAgentSnapshot {
             return name
         }
         return kind.displayName
+    }
+}
+
+extension SurfaceResumeBindingSnapshot {
+    /// Carries an agent snapshot's cwd trust boundary onto its persisted hook binding.
+    func applyingRestoreWorkingDirectorySelection(
+        _ selection: AgentRestoreWorkingDirectorySelection,
+        from agent: SessionRestorableAgentSnapshot
+    ) -> SurfaceResumeBindingSnapshot {
+        var constrained = self
+        constrained.restoreWorkingDirectorySelection = selection
+
+        guard selection.permitsResume else {
+            constrained.cwd = nil
+            constrained.launchCommand = nil
+            return constrained
+        }
+
+        var bindingAgent = agent
+        bindingAgent.launchCommand = launchCommand ?? agent.launchCommand
+        bindingAgent.permissionMode = permissionMode ?? agent.permissionMode
+        let constrainedAgent = bindingAgent.applyingRestoreWorkingDirectorySelection(selection)
+        guard let command = constrainedAgent.resumeCommand(
+            includeWorkingDirectoryPrefix: true,
+            workingDirectorySelection: selection
+        ) else {
+            constrained.restoreWorkingDirectorySelection = .unavailable
+            constrained.cwd = nil
+            constrained.launchCommand = nil
+            return constrained
+        }
+
+        constrained.command = command
+        constrained.cwd = selection.resolved(
+            snapshotWorkingDirectory: constrainedAgent.workingDirectory,
+            launchWorkingDirectory: constrainedAgent.launchCommand?.workingDirectory
+        )
+        constrained.launchCommand = constrainedAgent.launchCommand
+        return constrained
+    }
+
+    /// Preserves a same-session binding's already-constrained restart recipe.
+    func inheritingRestoreWorkingDirectorySelection(
+        from previous: SurfaceResumeBindingSnapshot
+    ) -> SurfaceResumeBindingSnapshot {
+        guard let selection = previous.restoreWorkingDirectorySelection else { return self }
+        var constrained = self
+        constrained.restoreWorkingDirectorySelection = selection
+        constrained.command = previous.command
+        constrained.cwd = previous.cwd
+        constrained.launchCommand = previous.launchCommand
+        return constrained
     }
 }

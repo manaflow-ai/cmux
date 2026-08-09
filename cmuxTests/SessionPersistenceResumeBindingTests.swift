@@ -10,6 +10,26 @@ import Testing
 #endif
 
 @Suite struct SessionPersistenceResumeBindingTests {
+    @Test func restoreWorkingDirectorySelectionRoundTripsAndFailsClosed() throws {
+        let unsafeDirectory = "/Users/alice/captured-cwd"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "grok",
+            command: "grok --resume session --cwd '\(unsafeDirectory)'",
+            cwd: unsafeDirectory,
+            checkpointId: "session",
+            source: "agent-hook",
+            restoreWorkingDirectorySelection: .unavailable,
+            autoResume: true
+        )
+
+        let encoded = try JSONEncoder().encode(binding)
+        let decoded = try JSONDecoder().decode(SurfaceResumeBindingSnapshot.self, from: encoded)
+
+        #expect(decoded.restoreWorkingDirectorySelection == .unavailable)
+        #expect(decoded.inlineStartupInput(repairPortableAgentExecutable: false) == nil)
+        #expect(decoded.remoteStartupInput() == nil)
+    }
+
     @Test func structuredLaunchCaptureRoundTripsAdditively() throws {
         let binding = SurfaceResumeBindingSnapshot(
             name: "Codex",

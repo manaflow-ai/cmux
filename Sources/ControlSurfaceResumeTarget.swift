@@ -342,6 +342,30 @@ extension TerminalController {
         guard let binding else { return nil }
         let trimmedKind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedKind = trimmedKind.flatMap { $0.isEmpty ? nil : $0 } ?? "command"
+        let bindingSelection = binding.restoreWorkingDirectorySelection
+        guard bindingSelection?.permitsResume != false else { return nil }
+        let workingDirectory = bindingSelection?.resolved(
+            snapshotWorkingDirectory: binding.cwd,
+            launchWorkingDirectory: binding.launchCommand?.workingDirectory
+        ) ?? (
+            target.restoredResumeWorkingDirectory
+                ?? binding.cwd
+                ?? binding.launchCommand?.workingDirectory
+        )
+        let launchCommand: AgentLaunchCommandSnapshot? = if let bindingSelection,
+                                                            bindingSelection.discardsRecordedCwdOptions,
+                                                            var command = binding.launchCommand {
+            command.arguments = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: command.arguments,
+                workingDirectory: nil,
+                agentKind: normalizedKind,
+                removeAllWorkingDirectoryOptions: true
+            )
+            command.workingDirectory = nil
+            command
+        } else {
+            binding.launchCommand
+        }
         let mode: AgentRestoreRequestMode = binding.isAgentHookBinding
             ? .resumeAgent
             : .direct
@@ -350,17 +374,15 @@ extension TerminalController {
             kind: normalizedKind,
             checkpointID: binding.checkpointId,
             source: binding.source,
-            workingDirectory: target.restoredResumeWorkingDirectory
-                ?? binding.cwd
-                ?? binding.launchCommand?.workingDirectory,
+            workingDirectory: workingDirectory,
             environment: binding.environment ?? [:],
-            launchCommand: binding.launchCommand.map {
+            launchCommand: launchCommand.map {
                 controlAgentLaunchCommand(
                     $0,
                     replaySafeEnvironmentFor: normalizedKind
                 )
             },
-            preparedArguments: mode == .direct ? binding.launchCommand?.arguments : nil,
+            preparedArguments: mode == .direct ? launchCommand?.arguments : nil,
             preparedArgumentsWorkingDirectory: nil,
             permissionMode: binding.permissionMode,
             legacyCommand: compatibilityBinding?.inlineStartupInput

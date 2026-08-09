@@ -50,4 +50,23 @@ struct AgentRestoreWorkingDirectorySelectionTests {
             ) == nil
         )
     }
+
+    @Test("A newer authoritative exact selection refreshes an older exact value")
+    func refreshesAuthoritativeExactSelection() {
+        let initial = AgentRestoreWorkingDirectorySelection.exact("/repo-a")
+        #expect(
+            initial.refreshedByAuthoritativeRemoteSelection(.exact("/repo-b")) ==
+                .exact("/repo-b")
+        )
+        #expect(
+            AgentRestoreWorkingDirectorySelection.exact(nil)
+                .refreshedByAuthoritativeRemoteSelection(.exact("/repo-b")) ==
+                .exact("/repo-b")
+        )
+        #expect(
+            AgentRestoreWorkingDirectorySelection.unavailable
+                .refreshedByAuthoritativeRemoteSelection(.exact("/repo-b")) ==
+                .unavailable
+        )
+    }
 }

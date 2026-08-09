@@ -733,4 +733,20 @@ struct AgentLaunchSanitizerTests {
             ) == ["custom-agent", "-Color", "always"]
         )
     }
+
+    @Test(
+        "Matches cwd option semantics without agent-kind case sensitivity",
+        arguments: ["Codex", "KIMI", "QoDeR"]
+    )
+    func matchesCaseInsensitiveAgentKinds(agentKind: String) {
+        let option = agentKind.lowercased() == "codex" ? "-C/local/repo" : "-w/local/repo"
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: [agentKind, option, "--model", "test"],
+                workingDirectory: nil,
+                agentKind: agentKind,
+                removeAllWorkingDirectoryOptions: true
+            ) == [agentKind, "--model", "test"]
+        )
+    }
 }

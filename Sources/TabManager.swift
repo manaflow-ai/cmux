@@ -431,6 +431,7 @@ class TabManager: ObservableObject {
     private var currentWindowTabBarLeadingInset: CGFloat?
     private var closeConfirmationInFlight = false
     let closeTabWarningDefaults: UserDefaults
+    let agentSessionAutoResumeDefaults: UserDefaults
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
     private var agentPIDSweepTimer: DispatchSourceTimer?
 #if DEBUG
@@ -491,7 +492,8 @@ class TabManager: ObservableObject {
         },
         workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
-        closeTabWarningDefaults: UserDefaults = .standard
+        closeTabWarningDefaults: UserDefaults = .standard,
+        agentSessionAutoResumeDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
@@ -507,6 +509,7 @@ class TabManager: ObservableObject {
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
+        self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceGrouping = WorkspaceGroupCoordinator(model: workspaces)
 #if DEBUG
@@ -1002,6 +1005,7 @@ class TabManager: ObservableObject {
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
             settings: settings,
             closeTabWarningDefaults: closeTabWarningDefaults,
+            agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults,
             nativeSSHConnectionBroker: nativeSSHConnectionBroker
         )
     }
@@ -1020,6 +1024,7 @@ class TabManager: ObservableObject {
             configTemplate: configTemplate,
             settings: settings,
             closeTabWarningDefaults: closeTabWarningDefaults,
+            agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults,
             initialDetachedSurface: detachedSurface,
             nativeSSHConnectionBroker: nativeSSHConnectionBroker
         )
@@ -1031,7 +1036,8 @@ class TabManager: ObservableObject {
             scope: .global,
             baseDirectoryProvider: { nil },
             remoteBrowserSettingsProvider: { .local },
-            settings: settings
+            settings: settings,
+            agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults
         )
     }
 
@@ -6244,6 +6250,7 @@ extension TabManager {
                 portOrdinal: ordinal,
                 settings: settings,
                 closeTabWarningDefaults: closeTabWarningDefaults,
+                agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             workspace.owningTabManager = self
@@ -6272,6 +6279,7 @@ extension TabManager {
                 portOrdinal: ordinal,
                 settings: settings,
                 closeTabWarningDefaults: closeTabWarningDefaults,
+                agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             fallback.owningTabManager = self

@@ -80,4 +80,22 @@ public enum AgentRestoreWorkingDirectorySelection: Codable, Equatable, Hashable,
             return .unavailable
         }
     }
+
+    /// Applies a new authoritative remote observation without weakening an unavailable policy.
+    ///
+    /// Ordinary restore entrypoints use ``restricted(by:)`` so captured or caller-provided
+    /// directories cannot replace a stored exact value. The remote snapshot owner uses this
+    /// method only after provenance validation, allowing a later exact report to replace an
+    /// earlier exact value (including exact `nil`).
+    ///
+    /// - Parameter proposed: A provenance-validated selection from the latest remote snapshot.
+    /// - Returns: The refreshed selection, preserving `unavailable` as terminal.
+    public func refreshedByAuthoritativeRemoteSelection(
+        _ proposed: AgentRestoreWorkingDirectorySelection
+    ) -> Self {
+        if case .unavailable = self { return .unavailable }
+        if case .unavailable = proposed { return .unavailable }
+        if case .exact = proposed { return proposed }
+        return restricted(by: proposed)
+    }
 }

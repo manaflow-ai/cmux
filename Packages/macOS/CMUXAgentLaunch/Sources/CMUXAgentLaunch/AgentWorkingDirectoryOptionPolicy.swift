@@ -13,7 +13,7 @@ public struct AgentWorkingDirectoryOptionPolicy: Sendable {
     /// An unknown kind retains legacy split `-C <cwd>` matching, but does not interpret an
     /// arbitrary token beginning with `-C` as an attached cwd value.
     ///
-    /// - Parameter agentKind: The normalized agent kind, when known.
+    /// - Parameter agentKind: The agent kind, when known.
     public init(agentKind: String? = nil) {
         var valueOptions: Set<String> = [
             "--cd",
@@ -23,7 +23,7 @@ public struct AgentWorkingDirectoryOptionPolicy: Sendable {
         ]
         var attachedShortValueOptions: Set<String> = []
 
-        switch agentKind?.trimmingCharacters(in: .whitespacesAndNewlines) {
+        switch agentKind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "codex":
             valueOptions.insert("-C")
             attachedShortValueOptions.insert("-C")

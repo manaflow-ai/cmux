@@ -24,6 +24,9 @@ extension SurfaceResumeBindingSnapshot {
         repairPortableAgentExecutable: Bool,
         includeWorkingDirectoryPrefix: Bool = true
     ) -> String? {
+        guard restoreWorkingDirectorySelection?.permitsResume != false else {
+            return nil
+        }
         let resolvedCommand = resolvedStartupCommand(
             repairPortableAgentExecutable: repairPortableAgentExecutable
         )
