@@ -34,6 +34,7 @@ extension SimulatorWorkerCoordinator {
         if !succeeded {
             sendUnavailableFailure(action: name, detail: "The Simulator action is unavailable.")
         }
+        publishCurrentFrameAfterInput(if: succeeded)
         emitAction(name, summary: summary, succeeded: succeeded)
         return succeeded
     }
