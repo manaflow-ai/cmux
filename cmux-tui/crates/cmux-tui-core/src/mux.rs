@@ -8280,10 +8280,10 @@ impl Mux {
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
         let surfaces = unique_surface_runtimes(&self.state.lock().unwrap());
-        for surface in &surfaces {
-            surface.shutdown_for_daemon();
-        }
         let terminal_reader_deadline = Instant::now() + TERMINAL_READER_SHUTDOWN_TIMEOUT;
+        for surface in &surfaces {
+            surface.shutdown_for_daemon(terminal_reader_deadline);
+        }
         for surface in surfaces {
             surface.finish_terminal_reader(terminal_reader_deadline);
         }
@@ -15070,8 +15070,9 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 impl Drop for Mux {
     fn drop(&mut self) {
         if let Ok(state) = self.state.get_mut() {
+            let deadline = Instant::now() + TERMINAL_READER_SHUTDOWN_TIMEOUT;
             for surface in unique_surface_runtimes(state) {
-                surface.shutdown_for_daemon();
+                surface.shutdown_for_daemon(deadline);
             }
         }
         if let Ok(runtime) = self.browser_runtime.get_mut()

@@ -128,6 +128,7 @@ indexes are fatal.
 | 19 | `KittyGraphicsLimitsAck` | host to client | response | four little-endian `u64` limits |
 | 20 | `LaunchFailed` | host to parent | private pipe | versioned launch failure |
 | 21 | `TerminateAck` | host to client | response | empty; confirms the authoritative host received `Terminate` |
+| 22 | `DetachAck` | host to client | response | empty; final source-ordered frame for this client |
 | 100 | `Input` | client to host | `INPUT` | raw PTY bytes |
 | 101 | `Paste` | client to host | `INPUT` | raw bytes; host applies DEC 2004 wrapping |
 | 102 | `ViewerSize` | client to host | `RESIZE` | `cols:u16, rows:u16` |
@@ -139,6 +140,7 @@ indexes are fatal.
 | 108 | `SetCellPixelSize` | client to host | `RESIZE` | `width_px:u16, height_px:u16` |
 | 109 | `SetKittyGraphicsLimits` | client to host | `MINT_CAPABILITY` | four little-endian `u64` limits |
 | 110 | `Activate` | launch owner to host | `ADMIN` | empty |
+| 111 | `Detach` | daemon owner to host | `ADMIN` | empty |
 
 `ResizeAck.result_flags & 1` means the request changed canonical geometry;
 other bits are invalid. Acknowledgements require negotiated
@@ -304,6 +306,10 @@ A renderer applies every live sequence exactly once. A gap, duplicate, flagged f
 
 The launch barrier orders the first exact `Output` after the durable topology
 projection. The mux's terminal-output path remains asynchronous and bounded.
+Before a daemon shutdown closes a persistent-host socket, `Detach` removes that
+client from future publication under the host source-order lock and queues
+`DetachAck` after all prior live frames. The daemon drains and journals those
+frames through the receipt before it closes the socket.
 When `Exit` arrives, the mux fences that ingress queue before committing exit
 and detaching topology, so every preceding output record retains the terminal,
 tab, pane, screen, and workspace subjects.
@@ -374,7 +380,7 @@ rights, malformed control payload, unknown flags, invalid sequence, or queue
 overflow closes or rejects the connection. A client reconnects, authenticates
 again, and consumes a fresh `Snapshot` plus same-boundary `Colors`.
 
-Discovery records use JSON `record_version:3`. Terminal and incarnation are
+Discovery records use JSON `record_version:4`. Terminal and incarnation are
 32-character lowercase UUIDv4 hex, owner token and process nonce are
 64-character lowercase hex, the Unix-socket path is canonical, and the host
 PID is nonzero. Record directories are mode `0700`; records and sockets are
@@ -387,10 +393,11 @@ tap. A host `Snapshot` preserves renderable terminal state across daemon
 replacement, and the exit sidecar preserves the final process outcome, but the
 host does not currently retain an acknowledged raw-output spool. Bytes emitted
 while no daemon tap exists can therefore be recovered visually from a snapshot
-but cannot be reconstructed as exact historical `terminal.output` records. A
-future crash-window guarantee requires a host-side bounded durable spool with
-daemon acknowledgements, or an equivalent journal sidecar protocol. Consumers
-must not claim byte-exact replay across that boundary until it exists.
+but cannot be reconstructed as exact historical `terminal.output` records. The
+mux commits a replacement checkpoint after it applies such a reconnect snapshot
+and before it accepts the new live boundary. Restoration starts from that
+durable terminal state, but consumers must not claim byte-exact output history
+across an unplanned no-tap interval until a durable host spool exists.
 
 ## Version compatibility
 

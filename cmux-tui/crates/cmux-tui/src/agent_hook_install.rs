@@ -13,10 +13,10 @@ use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
-use serde_json::{Map, Value, json};
-use wait_timeout::ChildExt;
 #[cfg(unix)]
 use cmux_tui_core::unix_process_scope::UnixProcessScope;
+use serde_json::{Map, Value, json};
+use wait_timeout::ChildExt;
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 #[cfg(windows)]
@@ -623,10 +623,7 @@ fn resume_hermes_child(child: &std::process::Child) -> io::Result<()> {
 }
 
 #[cfg(unix)]
-fn read_hermes_output(
-    mut pipe: impl Read + AsRawFd,
-    deadline: Instant,
-) -> io::Result<Vec<u8>> {
+fn read_hermes_output(mut pipe: impl Read + AsRawFd, deadline: Instant) -> io::Result<Vec<u8>> {
     let fd = pipe.as_raw_fd();
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
     if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
@@ -655,15 +652,10 @@ fn read_hermes_output(
                         "Hermes output pipe did not close before the command deadline",
                     ));
                 }
-                let timeout_ms = remaining
-                    .as_millis()
-                    .max(1)
-                    .min(libc::c_int::MAX as u128) as libc::c_int;
-                let mut descriptor = libc::pollfd {
-                    fd,
-                    events: libc::POLLIN | libc::POLLHUP,
-                    revents: 0,
-                };
+                let timeout_ms =
+                    remaining.as_millis().max(1).min(libc::c_int::MAX as u128) as libc::c_int;
+                let mut descriptor =
+                    libc::pollfd { fd, events: libc::POLLIN | libc::POLLHUP, revents: 0 };
                 let ready = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
                 if ready < 0 {
                     let error = io::Error::last_os_error();
@@ -732,9 +724,14 @@ fn run_hermes_command_with_timeout(
     let stderr = std::thread::Builder::new()
         .name("hermes-command-stderr".into())
         .spawn(move || read_hermes_output(stderr, deadline))?;
-    let status = child.wait_timeout(timeout)?;
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    let status = if remaining.is_zero() {
+        None
+    } else {
+        child.wait_timeout(remaining)?
+    };
     #[cfg(unix)]
-    tree.terminate();
+    tree.terminate_until(deadline);
     #[cfg(windows)]
     job.terminate();
     if status.is_none() {

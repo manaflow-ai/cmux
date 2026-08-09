@@ -37,7 +37,7 @@ use crate::terminal_host_protocol::{
     write_frame,
 };
 
-const HOST_RECORD_VERSION: u32 = 3;
+const HOST_RECORD_VERSION: u32 = 4;
 const LEGACY_PROTOCOL_VERSION: u16 = 1;
 const SMART_RENDERER_PROTOCOL_VERSION: u16 = 3;
 const HOST_EXIT_RECORD_VERSION: u32 = 1;
@@ -1446,6 +1446,30 @@ mod unix {
             let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
         }
 
+        /// Remove this daemon from host publication only after the reader has
+        /// consumed every source frame admitted before the request. Record-v4
+        /// hosts implement the source fence; older hosts cannot make this
+        /// shutdown guarantee.
+        pub(crate) fn detach_for_daemon_shutdown_until(
+            &self,
+            deadline: Instant,
+        ) -> anyhow::Result<()> {
+            anyhow::ensure!(
+                self.record.record_version >= HOST_RECORD_VERSION,
+                "terminal host does not support a source-ordered detach fence"
+            );
+            let response = self
+                .send_control_request_until(
+                    MessageKind::Detach,
+                    MessageKind::DetachAck,
+                    Vec::new(),
+                    deadline,
+                )
+                .map_err(ClearHistoryFailure::into_error)?;
+            anyhow::ensure!(response.is_empty(), "terminal host returned a malformed detach fence");
+            Ok(())
+        }
+
         /// Commit the launch ownership handoff after every fallible Surface
         /// setup step succeeds. Until then, dropping this attachment exact-
         /// kills and waits the child process through SpawnedHostProcess.
@@ -1865,7 +1889,7 @@ mod unix {
             .validate()
             .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
         let connect = |record: TerminalHostRecord, record_path: PathBuf| {
-            if record.supports_terminate_ack {
+            if record.record_version >= HOST_RECORD_VERSION {
                 // Current records guarantee the current smart protocol. Keep
                 // startup and reconnect head-of-line blocking to one bounded
                 // handshake; only legacy records need version probing.
@@ -1899,7 +1923,7 @@ mod unix {
         record_path: &Path,
         record: &TerminalHostRecord,
     ) -> anyhow::Result<TerminalHostIdentity> {
-        if !matches!(record.record_version, 1 | 2 | HOST_RECORD_VERSION) {
+        if !matches!(record.record_version, 1 | 2 | 3 | HOST_RECORD_VERSION) {
             anyhow::bail!("unsupported terminal-host record version {}", record.record_version);
         }
         let terminal_id = TerminalId::from_hex(&record.terminal_id)
@@ -2330,8 +2354,8 @@ mod unix {
         record_path: PathBuf,
         handshake_timeout: Duration,
     ) -> anyhow::Result<HostAttachment> {
-        if record.supports_terminate_ack {
-            // Receipt-capable records are emitted only by the current smart
+        if record.record_version >= HOST_RECORD_VERSION {
+            // Fence-capable records are emitted only by the current smart
             // protocol. After an existing owner connection fails, probing
             // every legacy version can outlive the control request while the
             // already-terminating host removes its socket. One current
@@ -2765,6 +2789,18 @@ mod unix {
             // writer's local HostTap still owns a sender. Enqueue one private
             // sentinel so an input-side EOF always releases an otherwise-idle
             // writer. Socket shutdown releases a writer blocked in write_frame.
+            let wake = Frame::new(MessageKind::ResyncRequired, Vec::new());
+            let retained = crate::terminal_host_protocol::HEADER_LEN;
+            self.queued_bytes.fetch_add(retained, Ordering::AcqRel);
+            if self.sender.send(wake).is_err() {
+                self.queued_bytes.fetch_sub(retained, Ordering::AcqRel);
+            }
+        }
+
+        fn wake_writer(&self) {
+            // The source-ordered DetachAck is already queued. This private
+            // sentinel closes the writer loop after it writes that receipt,
+            // without shutting the socket before the receipt is drained.
             let wake = Frame::new(MessageKind::ResyncRequired, Vec::new());
             let retained = crate::terminal_host_protocol::HEADER_LEN;
             self.queued_bytes.fetch_add(retained, Ordering::AcqRel);
@@ -3563,6 +3599,15 @@ mod unix {
                 },
                 |desired| self.apply_viewer_minimum(desired, false, None).map(|_| ()),
             );
+        }
+
+        fn fence_client_detach(&self, client: u64, request_id: u64, target: &HostTap) -> bool {
+            let mut response = Frame::new(MessageKind::DetachAck, Vec::new());
+            response.request_id = request_id;
+            let _source_order = self.source_order_lock.lock().unwrap();
+            self.taps.lock().unwrap().remove(&client);
+            self.smart.remove(client);
+            target.try_send(response)
         }
 
         fn set_viewer_size(
@@ -5294,6 +5339,7 @@ mod unix {
         let mut command_stream = stream.try_clone()?;
         let command_host = host.clone();
         thread::Builder::new().name("terminal-host-client-input".into()).spawn(move || {
+            let mut detached = false;
             while let Ok(Some(frame)) = read_frame(&mut command_stream, MAX_FRAME_PAYLOAD) {
                 // Client-to-host messages currently define no flags and never
                 // participate in the host live-stream sequence.
@@ -5386,6 +5432,23 @@ mod unix {
                         if !receipt_queued {
                             break;
                         }
+                    }
+                    MessageKind::Detach => {
+                        if !granted_rights.contains(CapabilityRights::TERMINATE)
+                            || frame.request_id == 0
+                        {
+                            break;
+                        }
+                        if !command_host.fence_client_detach(
+                            client,
+                            frame.request_id,
+                            &command_sender,
+                        ) {
+                            break;
+                        }
+                        command_sender.wake_writer();
+                        detached = true;
+                        break;
                     }
                     MessageKind::SetDefaults => {
                         if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY) {
@@ -5495,7 +5558,9 @@ mod unix {
             // Wake a writer that is waiting on an otherwise-empty live-frame
             // channel. The socket is shut down first, so this private wakeup
             // frame can never be mistaken for a sequenced host transition.
-            command_sender.close_and_wake_writer();
+            if !detached {
+                command_sender.close_and_wake_writer();
+            }
             command_host.remove_client(client);
         })?;
         client_setup.disarm();

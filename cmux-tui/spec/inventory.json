@@ -464,6 +464,7 @@
         "KittyGraphicsLimitsAck": 19,
         "LaunchFailed": 20,
         "TerminateAck": 21,
+        "DetachAck": 22,
         "Input": 100,
         "Paste": 101,
         "ViewerSize": 102,
@@ -474,7 +475,8 @@
         "ClearHistory": 107,
         "SetCellPixelSize": 108,
         "SetKittyGraphicsLimits": 109,
-        "Activate": 110
+        "Activate": 110,
+        "Detach": 111
       }
     },
     "machine_provider_v1": {

@@ -2881,6 +2881,7 @@ impl Surface {
                                 | MessageKind::KittyGraphicsLimitsAck
                                 | MessageKind::ClearHistoryAck
                                 | MessageKind::TerminateAck
+                                | MessageKind::DetachAck
                         ) && frame.request_id != 0
                         {
                             if frame.version != protocol_version
@@ -3305,6 +3306,7 @@ impl Surface {
                         let replacement_protocol_version = replacement.protocol_version();
                         let replacement_smart_renderer = replacement.is_smart_renderer();
                         let replacement_snapshot = replacement.snapshot.clone();
+                        let replacement_sequence_boundary = replacement_snapshot.sequence_boundary;
                         let replacement_control_responses = replacement.control_responses();
                         let installed = {
                             let mut runtime = pty.runtime.lock().unwrap();
@@ -3483,6 +3485,42 @@ impl Surface {
                                 return;
                             }
                             continue;
+                        }
+                        if reconnect_mux.terminal_journal_enabled() {
+                            let checkpoint_key = format!(
+                                "host-reconnect:{}:{}:{}",
+                                identity.terminal_id,
+                                identity.incarnation,
+                                replacement_sequence_boundary
+                            );
+                            if let Err(error) = reconnect_mux.create_journal_checkpoint(
+                                "terminal_host_reconnect",
+                                &checkpoint_key,
+                            ) {
+                                reconnect_mux.emit(MuxEvent::Status(format!(
+                                    "could not checkpoint terminal {} reconnect: {error:#}",
+                                    identity.terminal_id
+                                )));
+                                replacement_control_responses.fail_all();
+                                if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
+                                    && host.identity() == identity
+                                {
+                                    host.disconnect();
+                                }
+                                pty.host_connection_state.store(
+                                    TerminalHostConnectionState::Reconnecting as u8,
+                                    Ordering::Release,
+                                );
+                                if !reconnect_mux
+                                    .terminal_host_connection_lost(surface.id, &identity)
+                                {
+                                    return;
+                                }
+                                if !retry.wait_or_fail(pty) {
+                                    return;
+                                }
+                                continue;
+                            }
                         }
                         reconnect_mux.reconcile_deferred_cell_pixel_ack(
                             surface.id,
@@ -5425,10 +5463,28 @@ impl Surface {
         }
     }
 
-    pub(crate) fn shutdown_for_daemon(&self) {
+    pub(crate) fn shutdown_for_daemon(&self, deadline: Instant) {
         if self.as_pty().is_some_and(|pty| pty.lifetime == PtyLifetime::DaemonOwned) {
             self.kill();
             return;
+        }
+        #[cfg(unix)]
+        if let Some(pty) = self.as_pty() {
+            let runtime = pty.runtime.lock().unwrap();
+            if let PtyRuntime::Hosted(host) = &*runtime {
+                pty.owner_detaching.store(true, Ordering::Release);
+                if let Err(error) = host.detach_for_daemon_shutdown_until(deadline) {
+                    eprintln!(
+                        "cmux-tui: terminal host {} detach fence failed: {error:#}",
+                        pty.event_surface_id
+                    );
+                }
+                host.disconnect();
+                return;
+            }
+            if matches!(&*runtime, PtyRuntime::ExitedHosted) {
+                return;
+            }
         }
         self.disconnect_for_daemon_shutdown();
     }

@@ -385,6 +385,10 @@ pub enum MessageKind {
     /// Targeted confirmation that `Terminate` reached the authoritative host.
     /// The PTY group shutdown continues asynchronously after this receipt.
     TerminateAck = 21,
+    /// Targeted source fence for a daemon that will detach from a persistent
+    /// host. Every live frame admitted before this receipt is queued before it,
+    /// and this client is removed from live publication before the receipt.
+    DetachAck = 22,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
@@ -409,6 +413,9 @@ pub enum MessageKind {
     /// reader behind a bounded kernel-buffer barrier until the daemon has
     /// durably committed the terminal's public topology.
     Activate = 110,
+    /// Admin request for a final source-ordered receipt before a daemon closes
+    /// its persistent-host connection.
+    Detach = 111,
 }
 
 impl TryFrom<u16> for MessageKind {
@@ -437,6 +444,7 @@ impl TryFrom<u16> for MessageKind {
             19 => Ok(Self::KittyGraphicsLimitsAck),
             20 => Ok(Self::LaunchFailed),
             21 => Ok(Self::TerminateAck),
+            22 => Ok(Self::DetachAck),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),
@@ -448,6 +456,7 @@ impl TryFrom<u16> for MessageKind {
             108 => Ok(Self::SetCellPixelSize),
             109 => Ok(Self::SetKittyGraphicsLimits),
             110 => Ok(Self::Activate),
+            111 => Ok(Self::Detach),
             other => Err(ProtocolError::UnknownMessageKind(other)),
         }
     }

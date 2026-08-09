@@ -1596,9 +1596,8 @@ mod tests {
             Arc::downgrade(&mux),
         )
         .unwrap();
-        let mut reservation = surface
-            .begin_terminal_journal_update_for_test()
-            .expect("journal capture must be open");
+        let mut reservation =
+            surface.begin_terminal_journal_update_for_test().expect("journal capture must be open");
         let finishing_surface = surface.clone();
         let (finished, finished_receiver) = sync_channel(1);
         let finisher = std::thread::spawn(move || {
