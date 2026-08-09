@@ -7,6 +7,7 @@ final class TerminalScrollViewController: UIViewController {
 
     private let surfaceDelegate = TerminalSurfaceDelegate()
     private let terminalView: GhosttySurfaceView
+    private let terminalViewportView = UIView()
     private let mechanicsView = UIScrollView()
     private let metricsLabel = UILabel()
     private let titleLabel = UILabel()
@@ -72,6 +73,8 @@ final class TerminalScrollViewController: UIViewController {
         header.layoutMargins = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
         header.isLayoutMarginsRelativeArrangement = true
 
+        terminalViewportView.translatesAutoresizingMaskIntoConstraints = false
+        terminalViewportView.clipsToBounds = true
         terminalView.translatesAutoresizingMaskIntoConstraints = false
         terminalView.isUserInteractionEnabled = false
         terminalView.accessibilityIdentifier = "ghosttyTerminal"
@@ -79,23 +82,29 @@ final class TerminalScrollViewController: UIViewController {
         mechanicsView.accessibilityIdentifier = "nativeScrollView"
 
         view.addSubview(header)
-        view.addSubview(terminalView)
-        view.addSubview(mechanicsView)
+        view.addSubview(terminalViewportView)
+        terminalViewportView.addSubview(terminalView)
+        terminalViewportView.addSubview(mechanicsView)
 
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             header.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             header.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 
-            terminalView.topAnchor.constraint(equalTo: header.bottomAnchor),
-            terminalView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            terminalView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            terminalView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            terminalViewportView.topAnchor.constraint(equalTo: header.bottomAnchor),
+            terminalViewportView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            terminalViewportView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            terminalViewportView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-            mechanicsView.topAnchor.constraint(equalTo: terminalView.topAnchor),
-            mechanicsView.leadingAnchor.constraint(equalTo: terminalView.leadingAnchor),
-            mechanicsView.trailingAnchor.constraint(equalTo: terminalView.trailingAnchor),
-            mechanicsView.bottomAnchor.constraint(equalTo: terminalView.bottomAnchor),
+            terminalView.topAnchor.constraint(equalTo: terminalViewportView.topAnchor),
+            terminalView.leadingAnchor.constraint(equalTo: terminalViewportView.leadingAnchor),
+            terminalView.trailingAnchor.constraint(equalTo: terminalViewportView.trailingAnchor),
+            terminalView.bottomAnchor.constraint(equalTo: terminalViewportView.bottomAnchor),
+
+            mechanicsView.topAnchor.constraint(equalTo: terminalViewportView.topAnchor),
+            mechanicsView.leadingAnchor.constraint(equalTo: terminalViewportView.leadingAnchor),
+            mechanicsView.trailingAnchor.constraint(equalTo: terminalViewportView.trailingAnchor),
+            mechanicsView.bottomAnchor.constraint(equalTo: terminalViewportView.bottomAnchor),
         ])
     }
 
