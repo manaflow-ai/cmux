@@ -1,5 +1,6 @@
 import XCTest
 import Darwin
+import SQLite3
 
 extension CLINotifyProcessIntegrationRegressionTests {
     struct GenericHookPersistenceScenario {
@@ -769,6 +770,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let sessionId = "20260808_155500_hermes-session"
 
         try FileManager.default.createDirectory(at: tuiTempDirectory, withIntermediateDirectories: true)
+        try writeHermesStateDatabase(
+            homeDirectory: root,
+            sessionID: sessionId,
+            cwd: root.path,
+            startedAt: 100
+        )
         let activeSessionURL = tuiTempDirectory
             .appendingPathComponent("hermes-tui-active-session-test.json", isDirectory: false)
         try Data(#"{"session_id":"\#(sessionId)"}"#.utf8).write(to: activeSessionURL)
@@ -862,6 +869,103 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         XCTAssertEqual(resumeParams["checkpoint_id"] as? String, sessionId)
         XCTAssertNotEqual(resumeParams["checkpoint_id"] as? String, surfaceId)
+    }
+
+    func testHermesTransientTransportIDCannotReplaceDurableResumeBinding() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("hermes-transient-resume")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-transient-resume-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let transportId = "96dd0dcc"
+        let durableSessionId = "20260807_185008_923dfc"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try writeHermesStateDatabase(
+            homeDirectory: root,
+            sessionID: durableSessionId,
+            cwd: root.path,
+            startedAt: 110
+        )
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_HERMES_AGENT_PID": String(getpid()),
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            let serverHandled = startAgentHookMockServer(
+                listenerFD: listenerFD,
+                state: state,
+                surfaceId: surfaceId
+            )
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "hermes-agent", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        let startCommandIndex = state.commands.count
+        let start = runHermesHook(
+            "session-start",
+            input: #"{"session_id":"\#(transportId)","cwd":"\#(root.path)","hook_event_name":"session.create"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        let startRequests = Array(state.commands.dropFirst(startCommandIndex)).compactMap(jsonObject)
+        XCTAssertFalse(
+            startRequests.contains {
+                $0["method"] as? String == "surface.resume.set"
+                    && (($0["params"] as? [String: Any])?["checkpoint_id"] as? String) == transportId
+            },
+            "A transient Hermes transport ID must never become the saved resume checkpoint: \(startRequests)"
+        )
+        let clearRequest = try XCTUnwrap(startRequests.first {
+            $0["method"] as? String == "surface.resume.clear"
+        })
+        let clearParams = try XCTUnwrap(clearRequest["params"] as? [String: Any])
+        XCTAssertNil(
+            clearParams["checkpoint_id"],
+            "A missing Hermes database identity must clear the stale agent-hook binding without claiming checkpoint ownership"
+        )
+
+        let promptCommandIndex = state.commands.count
+        let prompt = runHermesHook(
+            "prompt-submit",
+            input: #"{"session_id":"\#(durableSessionId)","cwd":"\#(root.path)","hook_event_name":"pre_llm_call","extra":{"turn_id":"turn-1"}}"#
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let promptRequests = Array(state.commands.dropFirst(promptCommandIndex)).compactMap(jsonObject)
+        XCTAssertTrue(
+            promptRequests.contains {
+                $0["method"] as? String == "surface.resume.set"
+                    && (($0["params"] as? [String: Any])?["checkpoint_id"] as? String) == durableSessionId
+            },
+            "The later durable Hermes identity must publish the resume binding: \(promptRequests)"
+        )
     }
 
     func testHermesAgentSessionEndIsTurnBoundaryButFinalizeTearsDown() throws {
@@ -3847,6 +3951,69 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertNil(
                 env?["CODEX_HOME"],
                 "non-restorable codex exec must not persist an env-only CODEX_HOME record; launchCommand=\(persisted["launchCommand"] ?? "nil")"
+            )
+        }
+    }
+
+    private func writeHermesStateDatabase(
+        homeDirectory: URL,
+        sessionID: String,
+        cwd: String,
+        startedAt: Double
+    ) throws {
+        let hermesHome = homeDirectory.appendingPathComponent(".hermes", isDirectory: true)
+        try FileManager.default.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        let databaseURL = hermesHome.appendingPathComponent("state.db", isDirectory: false)
+        var database: OpaquePointer?
+        guard sqlite3_open(databaseURL.path, &database) == SQLITE_OK, let database else {
+            throw NSError(
+                domain: "CLIGenericHookPersistenceTests.SQLite",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Unable to open Hermes state database"]
+            )
+        }
+        defer { sqlite3_close(database) }
+
+        let schema = """
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          source TEXT NOT NULL,
+          model TEXT,
+          started_at REAL NOT NULL,
+          ended_at REAL,
+          title TEXT,
+          cwd TEXT
+        );
+        """
+        guard sqlite3_exec(database, schema, nil, nil, nil) == SQLITE_OK else {
+            throw NSError(
+                domain: "CLIGenericHookPersistenceTests.SQLite",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Unable to create Hermes sessions table"]
+            )
+        }
+
+        var statement: OpaquePointer?
+        let sql = "INSERT INTO sessions (id, source, model, started_at, title, cwd) VALUES (?, 'tui', 'test-model', ?, 'Durable', ?)"
+        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            sqlite3_finalize(statement)
+            throw NSError(
+                domain: "CLIGenericHookPersistenceTests.SQLite",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "Unable to prepare Hermes session insert"]
+            )
+        }
+        defer { sqlite3_finalize(statement) }
+        let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        guard sqlite3_bind_text(statement, 1, sessionID, -1, transient) == SQLITE_OK,
+              sqlite3_bind_double(statement, 2, startedAt) == SQLITE_OK,
+              sqlite3_bind_text(statement, 3, cwd, -1, transient) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_DONE else {
+            throw NSError(
+                domain: "CLIGenericHookPersistenceTests.SQLite",
+                code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "Unable to insert Hermes session"]
             )
         }
     }

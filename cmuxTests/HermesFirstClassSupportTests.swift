@@ -34,6 +34,106 @@ struct HermesFirstClassSupportTests {
         }
     }
 
+    @Test("Automatic restore repairs a transient Hermes TUI transport ID before launch policy")
+    func automaticRestoreRepairsTransientHermesTUIIdentity() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let corruptSessionID = "96dd0dcc"
+        let recoveredSessionID = "20260807_192611_076701"
+        let workingDirectory = "/tmp/hermes automatic restore"
+        let launchCommand = AgentLaunchCommandSnapshot(
+            launcher: "hermes-agent",
+            executablePath: "/Users/example/.local/bin/hermes",
+            arguments: [
+                "/Users/example/.local/bin/hermes",
+                "--tui",
+                "--provider",
+                "xai",
+                "--model",
+                "grok-4.5",
+            ],
+            workingDirectory: workingDirectory,
+            environment: nil,
+            capturedAt: 42,
+            source: "environment"
+        )
+        let corruptAgent = SessionRestorableAgentSnapshot(
+            kind: .hermesAgent,
+            sessionId: corruptSessionID,
+            workingDirectory: workingDirectory,
+            launchCommand: launchCommand,
+            registration: CmuxVaultAgentRegistration.builtInHermes
+        )
+        let corruptBinding = SurfaceResumeBindingSnapshot(
+            name: "Hermes Agent",
+            kind: "hermes-agent",
+            command: "'/Users/example/.local/bin/hermes' '--tui' '--resume' '\(corruptSessionID)'",
+            cwd: workingDirectory,
+            checkpointId: corruptSessionID,
+            source: "agent-hook",
+            launchCommand: launchCommand,
+            autoResume: false,
+            approvalPolicy: .auto
+        )
+        let panel = SessionPanelSnapshot(
+            id: surfaceID,
+            type: .terminal,
+            title: "Hermes",
+            customTitle: nil,
+            directory: workingDirectory,
+            isPinned: false,
+            isManuallyUnread: false,
+            gitBranch: nil,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: SessionTerminalPanelSnapshot(
+                workingDirectory: workingDirectory,
+                agent: corruptAgent,
+                resumeBinding: corruptBinding,
+                wasAgentRunning: false
+            ),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil,
+            project: nil
+        )
+        let recoveredAgent = SessionRestorableAgentSnapshot(
+            kind: .hermesAgent,
+            sessionId: recoveredSessionID,
+            workingDirectory: workingDirectory,
+            launchCommand: launchCommand,
+            registration: CmuxVaultAgentRegistration.builtInHermes
+        )
+
+        let repaired = Workspace.repairedLegacyHermesSessionPanelSnapshot(
+            panel,
+            workspaceId: workspaceID,
+            recover: { requestedWorkspaceID, requestedSurfaceID, requestedSessionID in
+                #expect(requestedWorkspaceID == workspaceID)
+                #expect(requestedSurfaceID == surfaceID)
+                #expect(requestedSessionID == corruptSessionID)
+                return recoveredAgent
+            }
+        )
+
+        let terminal = try #require(repaired.terminal)
+        #expect(terminal.agent?.sessionId == recoveredSessionID)
+        #expect(terminal.resumeBinding?.checkpointId == recoveredSessionID)
+        #expect(terminal.resumeBinding?.command.contains(recoveredSessionID) == true)
+        #expect(terminal.resumeBinding?.command.contains(corruptSessionID) == false)
+        #expect(terminal.wasAgentRunning == true)
+
+        let compatibleAgent = try #require(Workspace.restorableAgentForSessionRestore(
+            terminal.agent,
+            resumeBinding: terminal.resumeBinding
+        ))
+        #expect(
+            compatibleAgent.resumeStartupInput()
+                == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore hermes-agent \(recoveredSessionID)\n"
+        )
+    }
+
     @Test("A bare Hermes process does not claim an uncorrelated active state.db session")
     func bareProcessRejectsUncorrelatedActiveSession() throws {
         let fixture = try makeFixture { repo in

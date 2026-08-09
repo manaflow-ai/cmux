@@ -41,6 +41,106 @@ struct HermesAgentIndexTests {
         #expect(result.sessions.first?.modified == Date(timeIntervalSince1970: 22))
     }
 
+    @Test("Loads a checkpointed WAL database after Hermes removes its sidecars")
+    func loadsCheckpointedWALDatabaseWithoutSidecars() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+
+        try exec(dbURL, "PRAGMA journal_mode = WAL;")
+        try makeHermesStateDB(at: dbURL)
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, model, started_at, title)
+        VALUES ('wal-session', 'tui', 'model-a', 10, 'WAL session');
+        PRAGMA wal_checkpoint(TRUNCATE);
+        """)
+
+        for sidecar in ["-wal", "-shm"] {
+            let sidecarURL = URL(fileURLWithPath: dbURL.path + sidecar)
+            if FileManager.default.fileExists(atPath: sidecarURL.path) {
+                try FileManager.default.removeItem(at: sidecarURL)
+            }
+        }
+
+        #expect(!FileManager.default.fileExists(atPath: dbURL.path + "-wal"))
+        #expect(!FileManager.default.fileExists(atPath: dbURL.path + "-shm"))
+
+        let result = HermesAgentIndex.loadSessions(
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 10,
+            stateDBPath: dbURL.path
+        )
+
+        #expect(result.errors.isEmpty)
+        #expect(result.sessions.map(\.sessionId) == ["wal-session"])
+    }
+
+    @Test("Recovers a transient Hermes TUI transport ID from the durable state database")
+    func recoversTransientTUITransportID() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hermesHome = root.appendingPathComponent(".hermes", isDirectory: true)
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        let dbURL = hermesHome.appendingPathComponent("state.db", isDirectory: false)
+        try makeHermesStateDB(at: dbURL)
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, model, started_at, title, cwd)
+        VALUES
+          ('20260807_185008_923dfc', 'tui', 'model-a', 116, 'Recovered', '\(repo.path)'),
+          ('20260807_185500_too-late', 'tui', 'model-a', 250, 'Next process', '\(repo.path)');
+        """)
+
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let transportID = "96dd0dcc"
+        let hookStoreURL = root.appendingPathComponent("hermes-agent-hook-sessions.json")
+        let hookStore = try JSONSerialization.data(
+            withJSONObject: [
+                "version": 1,
+                "sessions": [
+                    transportID: [
+                        "sessionId": transportID,
+                        "workspaceId": workspaceID.uuidString,
+                        "surfaceId": surfaceID.uuidString,
+                        "cwd": repo.path,
+                        "pid": 12_345,
+                        "pidStartSeconds": 100,
+                        "pidStartMicroseconds": 200,
+                        "startedAt": 100.0,
+                        "updatedAt": 101.0,
+                    ],
+                    "next-transport": [
+                        "sessionId": "next-transport",
+                        "workspaceId": workspaceID.uuidString,
+                        "surfaceId": surfaceID.uuidString,
+                        "cwd": repo.path,
+                        "pid": 67_890,
+                        "pidStartSeconds": 300,
+                        "pidStartMicroseconds": 400,
+                        "startedAt": 200.0,
+                        "updatedAt": 201.0,
+                    ],
+                ],
+            ],
+            options: [.sortedKeys]
+        )
+        try hookStore.write(to: hookStoreURL)
+
+        let recovered = HermesLegacySessionIdentityRecovery().recover(
+            surfaceID: surfaceID,
+            corruptSessionID: transportID,
+            expectedWorkspaceID: workspaceID,
+            hookStateFileURL: hookStoreURL,
+            environment: ["HOME": root.path]
+        )
+
+        #expect(recovered?.sessionID == "20260807_185008_923dfc")
+    }
+
     @Test("Searches messages and scopes sessions by directory")
     func searchesMessagesAndScopesSessionsByDirectory() throws {
         let root = try temporaryDirectory()
