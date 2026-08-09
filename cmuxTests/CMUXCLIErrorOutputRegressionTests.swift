@@ -413,6 +413,104 @@ import Testing
         XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
     }
 
+    @Test func testRestoreRepairsLegacyHermesSurfaceUUIDCheckpoint() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux hermes restore recovery \(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("fake-hermes", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        for argument in "$@"; do
+          printf 'arg=%s\\n' "$argument"
+        done
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: executable.path
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let realSessionID = "20260808_155500_real-hermes-session"
+        let commonRecord: [String: Any] = [
+            "workspaceId": workspaceID,
+            "surfaceId": surfaceID,
+            "pid": 12_345,
+            "pidStartSeconds": 678,
+            "pidStartMicroseconds": 901,
+            "startedAt": 100.0,
+        ]
+        var realRecord = commonRecord
+        realRecord["sessionId"] = realSessionID
+        realRecord["updatedAt"] = 200.0
+        realRecord["launchCommand"] = [
+            "launcher": "hermes-agent",
+            "arguments": [executable.path],
+            "executablePath": executable.path,
+            "workingDirectory": root.path,
+        ]
+        var corruptRecord = commonRecord
+        corruptRecord["sessionId"] = surfaceID
+        corruptRecord["updatedAt"] = 201.0
+        let stateData = try JSONSerialization.data(
+            withJSONObject: [
+                "version": 1,
+                "sessions": [
+                    realSessionID: realRecord,
+                    surfaceID: corruptRecord,
+                ],
+            ],
+            options: [.sortedKeys]
+        )
+        try stateData.write(
+            to: root.appendingPathComponent("hermes-agent-hook-sessions.json", isDirectory: false)
+        )
+
+        let response = try restoreResponse(result: [
+            "restore_record": [
+                "mode": "resumeAgent",
+                "kind": "hermes-agent",
+                "checkpoint_id": surfaceID,
+                "working_directory": root.path,
+                "environment": [:],
+                "launch_command": [
+                    "launcher": "hermes-agent",
+                    "arguments": [executable.path],
+                    "executable_path": executable.path,
+                    "working_directory": root.path,
+                ],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-hermes-restore-recovery-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = surfaceID
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["HOME"] = root.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "hermes-agent", surfaceID],
+            environment: environment,
+            timeout: 10
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertTrue(result.stdout.contains("arg=--resume\n"), result.diagnostics)
+        XCTAssertTrue(result.stdout.contains("arg=\(realSessionID)\n"), result.diagnostics)
+        XCTAssertFalse(result.stdout.contains("arg=\(surfaceID)\n"), result.diagnostics)
+    }
+
     @Test func testRestorePreflightIsQuietAndTimesOut() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory

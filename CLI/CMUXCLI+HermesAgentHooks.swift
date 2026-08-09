@@ -3,6 +3,9 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
+    private static let hermesTUIActiveSessionFilePrefix = "hermes-tui-active-session-"
+    private static let hermesTUIActiveSessionMaximumBytes: Int64 = 4_096
+
     private func updateHermesAgentAllowlist(
         atPath allowlistPath: String,
         transform: (Data?) throws -> Data
@@ -56,6 +59,121 @@ extension CMUXCLI {
     ) -> String? {
         guard let payload = hermesAgentApprovalPayload(def: def, input: input) else { return nil }
         return normalizedHookValue(firstString(in: payload.extra, keys: ["session_key", "sessionKey"]))
+    }
+
+    /// Hermes 0.20's TUI approval gateway omits both the top-level session id
+    /// and `extra.session_key`. The cmux wrapper gives each TUI invocation a
+    /// private TMPDIR containing the same active-session file consumed by its
+    /// lifecycle watcher, so missing-id callbacks can still use Hermes's own
+    /// conversation identity instead of mistaking the cmux surface UUID for it.
+    func hermesAgentTUIActiveSessionId(
+        def: AgentHookDef,
+        env: [String: String]
+    ) -> String? {
+        guard def.name == "hermes-agent",
+              env["CMUX_HERMES_TUI_HOOK_BOOTSTRAP"] == "1",
+              let temporaryDirectory = normalizedHookValue(env["TMPDIR"]),
+              temporaryDirectory.hasPrefix("/") else {
+            return nil
+        }
+
+        let directoryURL = URL(
+            fileURLWithPath: temporaryDirectory,
+            isDirectory: true
+        ).standardizedFileURL
+        guard Self.isHermesTUIInvocationDirectoryName(directoryURL.lastPathComponent),
+              Self.isRegularFileWithoutFollowingSymbolicLinks(
+                  atPath: directoryURL.path,
+                  expectedType: S_IFDIR
+              ),
+              let names = try? FileManager.default.contentsOfDirectory(atPath: directoryURL.path) else {
+            return nil
+        }
+
+        let candidates = names.filter {
+            $0.hasPrefix(Self.hermesTUIActiveSessionFilePrefix) && $0.hasSuffix(".json")
+        }
+        guard candidates.count == 1 else { return nil }
+
+        let activeSessionURL = directoryURL.appendingPathComponent(
+            candidates[0],
+            isDirectory: false
+        )
+        guard let data = Self.readHermesTUIActiveSessionFile(atPath: activeSessionURL.path),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let sessionId = normalizedHookValue(object["session_id"] as? String),
+              Self.isValidHermesTUISessionId(sessionId) else {
+            return nil
+        }
+        return sessionId
+    }
+
+    private static func isHermesTUIInvocationDirectoryName(_ name: String) -> Bool {
+        let prefix = "cmux-hermes-tui."
+        guard name.hasPrefix(prefix) else { return false }
+        let suffix = name.dropFirst(prefix.count)
+        return suffix.utf8.count == 6 && suffix.utf8.allSatisfy(Self.isASCIIAlphaNumeric)
+    }
+
+    private static func isValidHermesTUISessionId(_ sessionId: String) -> Bool {
+        let bytes = Array(sessionId.utf8)
+        guard (1...128).contains(bytes.count),
+              let first = bytes.first,
+              isASCIIAlphaNumeric(first) else {
+            return false
+        }
+        return bytes.dropFirst().allSatisfy {
+            isASCIIAlphaNumeric($0) || $0 == 46 || $0 == 95 || $0 == 58 || $0 == 45
+        }
+    }
+
+    private static func isASCIIAlphaNumeric(_ byte: UInt8) -> Bool {
+        (48...57).contains(byte) || (65...90).contains(byte) || (97...122).contains(byte)
+    }
+
+    private static func isRegularFileWithoutFollowingSymbolicLinks(
+        atPath path: String,
+        expectedType: mode_t
+    ) -> Bool {
+        var metadata = stat()
+        return lstat(path, &metadata) == 0 && (metadata.st_mode & S_IFMT) == expectedType
+    }
+
+    private static func readHermesTUIActiveSessionFile(atPath path: String) -> Data? {
+        guard isRegularFileWithoutFollowingSymbolicLinks(atPath: path, expectedType: S_IFREG) else {
+            return nil
+        }
+        let descriptor = Darwin.open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        guard descriptor >= 0 else { return nil }
+        defer { _ = Darwin.close(descriptor) }
+
+        var metadata = stat()
+        guard fstat(descriptor, &metadata) == 0,
+              (metadata.st_mode & S_IFMT) == S_IFREG,
+              metadata.st_size > 0,
+              metadata.st_size <= hermesTUIActiveSessionMaximumBytes else {
+            return nil
+        }
+
+        var bytes = [UInt8](repeating: 0, count: Int(metadata.st_size))
+        var offset = 0
+        while offset < bytes.count {
+            let remaining = bytes.count - offset
+            let count = bytes.withUnsafeMutableBytes { buffer -> Int in
+                guard let baseAddress = buffer.baseAddress else { return -1 }
+                return Darwin.read(
+                    descriptor,
+                    baseAddress.advanced(by: offset),
+                    remaining
+                )
+            }
+            if count < 0, errno == EINTR {
+                continue
+            }
+            guard count > 0 else { return nil }
+            offset += count
+        }
+        return Data(bytes)
     }
 
     func isHermesAgentAutomaticApprovalObservation(

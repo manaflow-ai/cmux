@@ -80,7 +80,7 @@ extension CMUXCLI {
                 )
             )
         }
-        let record = try restoreRecord(from: rawRecord)
+        var record = try restoreRecord(from: rawRecord)
         if let expectedKind = selector.kind, expectedKind != record.kind {
             throw loggedRestoreError(
                 stage: "record.kind-mismatch",
@@ -100,6 +100,14 @@ extension CMUXCLI {
                     localized: "cli.restore.error.checkpointMismatch",
                     defaultValue: "restore: this command no longer matches the session. Run 'cmux restore --surface' to use the current record."
                 )
+            )
+        }
+
+        if let surfaceID = params["surface_id"] as? String {
+            record = recoveredHermesRestoreRecord(
+                record,
+                surfaceID: surfaceID,
+                processEnvironment: processEnvironment
             )
         }
 
@@ -185,6 +193,56 @@ extension CMUXCLI {
         try execRestoreInvocation(
             invocation,
             appliedWorkingDirectory: effectiveWorkingDirectory
+        )
+    }
+
+    /// Repairs records already persisted by the Hermes 0.20 approval bug. The
+    /// corrupt record and the preceding authoritative lifecycle record share
+    /// both a surface and a process-generation identity, making the recovery
+    /// deterministic without guessing from unrelated Hermes conversations.
+    private func recoveredHermesRestoreRecord(
+        _ record: RestoreRecord,
+        surfaceID: String,
+        processEnvironment: [String: String]
+    ) -> RestoreRecord {
+        guard record.kind == "hermes-agent",
+              let checkpointID = record.checkpointID,
+              let surfaceUUID = UUID(uuidString: surfaceID),
+              UUID(uuidString: checkpointID) == surfaceUUID else {
+            return record
+        }
+
+        var storeEnvironment = processEnvironment
+        storeEnvironment["CMUX_CLAUDE_HOOK_STATE_PATH"] = agentHookStatePath(
+            sessionStoreSuffix: "hermes-agent",
+            env: processEnvironment
+        )
+        let candidates = (try? ClaudeHookSessionStore(
+            processEnv: storeEnvironment
+        ).restoreRecoveryCandidates(
+            surfaceId: surfaceID,
+            corruptSessionId: checkpointID
+        )) ?? []
+        guard !candidates.isEmpty else { return record }
+
+        let persistedCandidate = candidates.first { candidate in
+            var hermesEnvironment = processEnvironment
+            if let launchEnvironment = candidate.launchCommand?.environment {
+                hermesEnvironment.merge(launchEnvironment) { _, captured in captured }
+            }
+            let stateDBPath = HermesAgentSessionResolver.stateDBPath(env: hermesEnvironment)
+            return HermesAgentIndex.loadSessions(
+                needle: candidate.sessionId,
+                cwdFilter: nil,
+                offset: 0,
+                limit: 20,
+                stateDBPath: stateDBPath
+            ).sessions.contains { $0.sessionId == candidate.sessionId }
+        }
+        let candidate = persistedCandidate ?? candidates[0]
+        return record.repairingHermesCheckpoint(
+            candidate.sessionId,
+            fallbackLaunchCommand: candidate.launchCommand
         )
     }
 
