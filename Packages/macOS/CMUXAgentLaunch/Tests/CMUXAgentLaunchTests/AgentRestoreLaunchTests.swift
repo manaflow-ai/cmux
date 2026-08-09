@@ -306,6 +306,44 @@ import Testing
         #expect(invocation.preflightInvocations.flatMap(\.arguments).contains("/bin/sh") == false)
     }
 
+    @Test func structuredHermesRestorePinsTheDefaultSessionStore() throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "hermes-agent",
+            checkpointID: "hermes-default-session",
+            source: "agent-hook",
+            workingDirectory: "/tmp/hermes",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "hermes-agent",
+                arguments: ["hermes", "--tui", "--provider", "anthropic"]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner(
+            executableFileResolver: AgentRestoreExecutableFileResolver()
+        ).invocation(
+            for: request,
+            ambientEnvironment: [
+                "HOME": "/Users/example",
+                "PATH": "/usr/bin:/bin",
+            ]
+        ))
+
+        #expect(invocation.environment["HERMES_HOME"] == "/Users/example/.hermes")
+        #expect(
+            invocation.arguments
+                == [
+                    "hermes",
+                    "--profile", "default",
+                    "--tui",
+                    "--provider", "anthropic",
+                    "--resume", "hermes-default-session",
+                ]
+        )
+    }
+
     @Test func structuredHermesRestoreUsesDefaultCodexBaseURLForPreflights() throws {
         let codexHome = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hermes-codex-\(UUID().uuidString)", isDirectory: true)
