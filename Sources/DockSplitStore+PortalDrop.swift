@@ -1,5 +1,6 @@
 import Bonsplit
 import CmuxTerminal
+import CmuxWorkspaces
 import Foundation
 
 /// Portal pane-drop routing for the Dock — the Dock equivalent of
@@ -92,5 +93,145 @@ extension DockSplitStore {
         case .top: return .split(targetPane: paneId, orientation: .vertical, insertFirst: true)
         case .bottom: return .split(targetPane: paneId, orientation: .vertical, insertFirst: false)
         }
+    }
+
+    /// Opens Finder files in the Dock-owned split tree. A file drop must never
+    /// escape into the currently selected workspace merely because the Dock is
+    /// presented alongside it.
+    func handleExternalFileDrop(
+        _ request: BonsplitController.ExternalFileDropRequest
+    ) -> Bool {
+        let filePaths = request.urls
+            .filter(\.isFileURL)
+            .map(\.path)
+        guard !filePaths.isEmpty else { return false }
+
+        switch request.destination {
+        case .insert(let paneId, let index):
+            return !openFilePreviewSurfaces(
+                inPane: paneId,
+                filePaths: filePaths,
+                focus: true,
+                targetIndex: index
+            ).isEmpty
+
+        case .split(let sourcePaneId, let orientation, let insertFirst):
+            guard let firstPath = filePaths.first,
+                  let firstPanel = splitPaneWithFilePreview(
+                      targetPane: sourcePaneId,
+                      orientation: orientation,
+                      insertFirst: insertFirst,
+                      filePath: firstPath
+                  ) else {
+                return false
+            }
+            let targetPane = paneId(forPanelId: firstPanel.id) ?? sourcePaneId
+            _ = openFilePreviewSurfaces(
+                inPane: targetPane,
+                filePaths: Array(filePaths.dropFirst()),
+                focus: true
+            )
+            return true
+        }
+    }
+
+    @discardableResult
+    func openFilePreviewSurfaces(
+        inPane paneId: PaneID,
+        filePaths: [String],
+        focus: Bool,
+        targetIndex: Int? = nil
+    ) -> [FilePreviewPanel] {
+        var nextIndex = targetIndex
+        var openedPanels: [FilePreviewPanel] = []
+        for filePath in filePaths {
+            guard let panel = newFilePreviewSurface(
+                inPane: paneId,
+                filePath: filePath,
+                focus: focus,
+                targetIndex: nextIndex
+            ) else {
+                continue
+            }
+            openedPanels.append(panel)
+            if let index = nextIndex {
+                nextIndex = index + 1
+            }
+        }
+        return openedPanels
+    }
+
+    @discardableResult
+    func newFilePreviewSurface(
+        inPane paneId: PaneID,
+        filePath: String,
+        focus: Bool,
+        targetIndex: Int? = nil
+    ) -> FilePreviewPanel? {
+        guard containsPane(paneId.id) else { return nil }
+        let previousFocus = focus ? nil : focusedDockPaneSelection()
+        let panel = FilePreviewPanel(workspaceId: workspaceId, filePath: filePath)
+        panels[panel.id] = panel
+        guard let tabId = bonsplitController.createTab(
+            title: panel.displayTitle,
+            icon: RenderableSystemSymbol.resolvedSurfaceTabIcon(panel.displayIcon),
+            kind: SurfaceKind.filePreview.rawValue,
+            isDirty: panel.isDirty,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            discardPanelOwnershipAndClose(panelId: panel.id)
+            return nil
+        }
+        surfaceIdToPanelId[tabId] = panel.id
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(tabId, toIndex: targetIndex)
+        }
+        installSubscription(for: panel, tracksTerminalTitle: false)
+        applyVisibility(to: panel)
+        recordExplicitPanelCreation()
+        if focus {
+            focusPanel(panel.id)
+        } else {
+            restoreDockPaneSelection(previousFocus)
+        }
+        return panel
+    }
+
+    @discardableResult
+    func splitPaneWithFilePreview(
+        targetPane paneId: PaneID,
+        orientation: SplitOrientation,
+        insertFirst: Bool,
+        filePath: String
+    ) -> FilePreviewPanel? {
+        guard containsPane(paneId.id) else { return nil }
+        let panel = FilePreviewPanel(workspaceId: workspaceId, filePath: filePath)
+        let tab = Bonsplit.Tab(
+            title: panel.displayTitle,
+            icon: RenderableSystemSymbol.resolvedSurfaceTabIcon(panel.displayIcon),
+            kind: SurfaceKind.filePreview.rawValue,
+            isDirty: panel.isDirty,
+            isPinned: false
+        )
+        panels[panel.id] = panel
+        surfaceIdToPanelId[tab.id] = panel.id
+        let newPane = withProgrammaticDockSplit {
+            bonsplitController.splitPane(
+                paneId,
+                orientation: orientation,
+                withTab: tab,
+                insertFirst: insertFirst
+            )
+        }
+        guard newPane != nil else {
+            discardPanelOwnershipAndClose(panelId: panel.id)
+            return nil
+        }
+        installSubscription(for: panel, tracksTerminalTitle: false)
+        applyVisibility(to: panel)
+        recordExplicitPanelCreation()
+        focusPanel(panel.id)
+        return panel
     }
 }

@@ -100,6 +100,18 @@ final class PaneDropTargetView: NSView {
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        performDragOperation(
+            sender,
+            modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags
+        )
+    }
+
+    /// Executes a drop against one modifier snapshot so policy resolution and
+    /// the resulting mutation cannot observe different keyboard states.
+    func performDragOperation(
+        _ sender: any NSDraggingInfo,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
         defer {
             dropRoutingRegistration.clear(sender)
             clearDragState(phase: "perform.clear")
@@ -112,55 +124,30 @@ final class PaneDropTargetView: NSView {
             return false
         }
 
-        // Dock panes route real live-surface tab drops to the Dock controller,
-        // unless the same payload should insert its file path as terminal text.
-        if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
-           transfer.isFromCurrentProcess,
-           let dock = AppDelegate.shared?.dockForPane(dropContext.paneId),
-           AppDelegate.shared?.canMoveSurfaceIntoDock(sourceTabId: transfer.tabId, destinationDock: dock) == true,
-           !DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
-               pasteboardTypes: sender.draggingPasteboard.types,
-               modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
-               canDropAsText: hostedView != nil
-           ) {
-            let proposed = PaneDropRouting.zone(for: convert(sender.draggingLocation, from: nil), in: bounds.size)
-            let zone = dock.portalPaneDropZone(
-                tabId: transfer.tabId,
-                sourcePaneId: transfer.sourcePaneId,
-                targetPane: dropContext.paneId,
-                proposedZone: proposed
-            )
-            let handled = dock.performPortalPaneDrop(
-                tabId: transfer.tabId,
-                sourcePaneId: transfer.sourcePaneId,
-                targetPane: dropContext.paneId,
-                zone: zone
-            )
+        guard let container = AppDelegate.shared?.paneDropContainer(for: dropContext) else {
 #if DEBUG
-            cmuxDebugLog(
-                "terminal.paneDrop.perform.dock panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(zone) handled=\(handled ? 1 : 0)"
-            )
-#endif
-            return handled
-        }
-
-        guard let workspace = AppDelegate.shared?.workspaceFor(tabId: dropContext.workspaceId) else {
-#if DEBUG
-            cmuxDebugLog("terminal.paneDrop.perform allowed=0 reason=missingWorkspace")
+            cmuxDebugLog("terminal.paneDrop.perform allowed=0 reason=missingContainer")
 #endif
             return false
         }
 
-        let textDestinationKind = fileDropTextDestinationKind(context: dropContext, workspace: workspace)
+        let textDestinationKind = container.fileDropTextDestinationKind(
+            in: dropContext.paneId,
+            hasHostedTerminal: hostedView != nil
+        )
         if DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
             pasteboardTypes: sender.draggingPasteboard.types,
-            modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
+            modifierFlags: modifierFlags,
             canDropAsText: textDestinationKind != nil
         ) {
             let urls = DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard)
             guard !urls.isEmpty else { return false }
-            let handled = handleFileDropAsText(urls, context: dropContext, workspace: workspace)
+            let handled = container.performFileDropAsText(
+                urls,
+                context: dropContext,
+                hostedView: hostedView,
+                window: window
+            )
 #if DEBUG
             cmuxDebugLog(
                 "terminal.paneDrop.performAsText panel=\(dropContext.panelId.uuidString.prefix(5)) " +
@@ -173,8 +160,16 @@ final class PaneDropTargetView: NSView {
 
         if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
            transfer.isFromCurrentProcess {
-            let zone = resolvedZone(for: sender, transfer: transfer, context: dropContext, workspace: workspace)
-            let handled = workspace.performPortalPaneDrop(
+            guard container.canPerformPortalPaneDrop(transfer) else {
+                return false
+            }
+            let zone = resolvedZone(
+                for: sender,
+                transfer: transfer,
+                context: dropContext,
+                container: container
+            )
+            let handled = container.performPortalPaneDrop(
                 tabId: transfer.tabId,
                 sourcePaneId: transfer.sourcePaneId,
                 targetPane: dropContext.paneId,
@@ -191,7 +186,10 @@ final class PaneDropTargetView: NSView {
         }
 
         let urls = DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard)
-        if let handled = workspace.handleSimulatorExternalFileDrop(urls: urls, panelId: dropContext.panelId) {
+        if let handled = container.performSimulatorFileDrop(
+            urls: urls,
+            panelId: dropContext.panelId
+        ) {
             return handled
         }
         guard !urls.isEmpty else {
@@ -205,7 +203,7 @@ final class PaneDropTargetView: NSView {
         }
 
         let zone = fileDropZone(for: sender)
-        let handled = workspace.handleExternalFileDrop(BonsplitController.ExternalFileDropRequest(
+        let handled = container.handleExternalFileDrop(BonsplitController.ExternalFileDropRequest(
             urls: urls,
             destination: PaneDropRouting.filePreviewDestination(
                 targetPane: dropContext.paneId,
@@ -234,33 +232,15 @@ final class PaneDropTargetView: NSView {
             return []
         }
 
-        // Dock pane target: preview the Dock route unless this is file-drop-as-text.
-        if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
-           transfer.isFromCurrentProcess,
-           let dock = AppDelegate.shared?.dockForPane(dropContext.paneId),
-           AppDelegate.shared?.canMoveSurfaceIntoDock(sourceTabId: transfer.tabId, destinationDock: dock) == true,
-           !DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
-               pasteboardTypes: sender.draggingPasteboard.types,
-               modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
-               canDropAsText: hostedView != nil
-           ) {
-            let proposed = PaneDropRouting.zone(for: location, in: bounds.size)
-            let zone = dock.portalPaneDropZone(
-                tabId: transfer.tabId,
-                sourcePaneId: transfer.sourcePaneId,
-                targetPane: dropContext.paneId,
-                proposedZone: proposed
-            )
-            setActiveDropZone(zone)
-            return .move
-        }
-
-        guard let workspace = AppDelegate.shared?.workspaceFor(tabId: dropContext.workspaceId) else {
+        guard let container = AppDelegate.shared?.paneDropContainer(for: dropContext) else {
             clearDragState(phase: "\(phase).reject")
             return []
         }
 
-        let textDestinationKind = fileDropTextDestinationKind(context: dropContext, workspace: workspace)
+        let textDestinationKind = container.fileDropTextDestinationKind(
+            in: dropContext.paneId,
+            hasHostedTerminal: hostedView != nil
+        )
         if DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
             pasteboardTypes: sender.draggingPasteboard.types,
             modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
@@ -277,11 +257,15 @@ final class PaneDropTargetView: NSView {
 
         if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
            transfer.isFromCurrentProcess {
+            guard container.canPerformPortalPaneDrop(transfer) else {
+                clearDragState(phase: "\(phase).reject")
+                return []
+            }
             let zone = resolvedZone(
                 for: sender,
                 transfer: transfer,
                 context: dropContext,
-                workspace: workspace
+                container: container
             )
             setActiveDropZone(zone)
 #if DEBUG
@@ -299,9 +283,8 @@ final class PaneDropTargetView: NSView {
         }
 
         let urls = DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard)
-        if let operation = Self.simulatorFileDropOperation(
+        if let operation = container.simulatorFileDropOperation(
             urls: urls,
-            workspace: workspace,
             panelId: dropContext.panelId
         ) {
             clearDragState(phase: "\(phase).simulator")
@@ -342,59 +325,16 @@ final class PaneDropTargetView: NSView {
         for sender: any NSDraggingInfo,
         transfer: PaneDragTransfer,
         context: PaneDropContext,
-        workspace: Workspace
+        container: any PaneDropContainer
     ) -> DropZone {
         let location = convert(sender.draggingLocation, from: nil)
         let proposedZone = PaneDropRouting.zone(for: location, in: bounds.size)
-        return workspace.portalPaneDropZone(
+        return container.portalPaneDropZone(
             tabId: transfer.tabId,
             sourcePaneId: transfer.sourcePaneId,
             targetPane: context.paneId,
             proposedZone: proposedZone
         )
-    }
-
-    private func handleFileDropAsText(
-        _ urls: [URL],
-        context: PaneDropContext,
-        workspace: Workspace
-    ) -> Bool {
-        if let hostedView {
-            return FileDropTextDropController.performTerminalFileDrop(
-                workspace: workspace,
-                panelId: context.panelId,
-                hostedView: hostedView,
-                urls: urls,
-                window: window
-            )
-        }
-
-        guard let tabId = workspace.bonsplitController.selectedTab(inPane: context.paneId)?.id,
-              let panelId = workspace.panelIdFromSurfaceId(tabId),
-              let panel = workspace.panels[panelId] else {
-            return false
-        }
-        if let terminalPanel = panel as? TerminalPanel {
-            return FileDropTextDropController.performTerminalFileDrop(
-                workspace: workspace,
-                panelId: panelId,
-                hostedView: terminalPanel.hostedView,
-                urls: urls,
-                window: window ?? terminalPanel.surface.uiWindow
-            )
-        }
-        if let filePreviewPanel = panel as? FilePreviewPanel {
-            return FileDropTextDropController.performPanelTextDrop(
-                workspace: workspace,
-                panelId: panelId,
-                focusIntent: .filePreview(.textEditor),
-                window: window,
-                insert: {
-                    filePreviewPanel.handleDroppedFileURLsAsText(urls)
-                }
-            )
-        }
-        return false
     }
 
     func shouldDeferToPaneTabBar(at point: NSPoint) -> Bool {

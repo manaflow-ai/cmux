@@ -3,13 +3,14 @@ import Bonsplit
 import CMUXAgentLaunch
 import CmuxTerminal
 import CmuxTerminalCore
+import CmuxWorkspaces
 import Darwin
 
 /// Cross-container surface transfer for the Dock.
 ///
 /// Mirrors `Workspace.detachSurface`/`attachDetachedSurface` so a *live* panel
-/// (a running terminal or browser, not a copy) can move between the main split
-/// area and a Dock, or between Docks, reusing the same `DetachedSurfaceTransfer`
+/// (rather than a copy) can move between the main split area and a Dock, or
+/// between Docks, reusing the same `DetachedSurfaceTransfer`
 /// currency the workspace-to-workspace move already uses. The Dock keeps its
 /// own panel registry (`panels`/`surfaceIdToPanelId`), so these methods manage
 /// that registry directly rather than going through the workspace pane tree.
@@ -100,7 +101,8 @@ extension DockSplitStore {
         let preservedResumeBinding = surfaceResumeBindingsByPanelId[panelId]
         let preservedResumeSessionDirectory = restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
             ?? preservedTransfer?.restoredResumeSessionWorkingDirectory
-        let kind = (panel.panelType == .browser) ? "browser" : "terminal"
+        let kind = bonsplitController.tab(tabId)?.kind
+            ?? Self.surfaceKind(for: panel)
         let icon = panel.displayIcon
         let browser = panel as? BrowserPanel
         let iconImageData = browser?.faviconPNGData
@@ -336,7 +338,7 @@ extension DockSplitStore {
         // read is unavailable.
         setDetachedSurfaceTransfer(detached, forPanelID: detached.panelId)
         adoptSessionRestoreState(from: detached)
-        let kind = detached.kind ?? ((panel.panelType == .browser) ? "browser" : "terminal")
+        let kind = detached.kind ?? Self.surfaceKind(for: panel)
         let restoredIconImageData = detached.panel is TerminalPanel ? nil : detached.iconImageData
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,
@@ -419,7 +421,7 @@ extension DockSplitStore {
             browser.updateWorkspaceId(workspaceId)
         }
 
-        let kind = detached.kind ?? ((panel.panelType == .browser) ? "browser" : "terminal")
+        let kind = detached.kind ?? Self.surfaceKind(for: panel)
         let tab = Bonsplit.Tab(
             title: detached.title,
             icon: detached.icon,
@@ -509,6 +511,19 @@ extension DockSplitStore {
             }
         }
         scheduleDockPortalReconcile(reason: reconcileReason)
+    }
+
+    static func surfaceKind(for panel: any Panel) -> String {
+        switch panel.panelType {
+        case .terminal:
+            return SurfaceKind.terminal.rawValue
+        case .browser:
+            return SurfaceKind.browser.rawValue
+        case .filePreview:
+            return SurfaceKind.filePreview.rawValue
+        default:
+            return panel.panelType.rawValue
+        }
     }
 }
 

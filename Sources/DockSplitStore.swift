@@ -933,6 +933,39 @@ final class DockSplitStore: BonsplitDelegate {
                 )
             }
             panelCancellables[panel.id] = cancellable
+        } else if let filePreview = panel as? FilePreviewPanel {
+            let titleAndDirty = Publishers.CombineLatest(
+                filePreview.$displayTitle.removeDuplicates(),
+                filePreview.$isDirty.removeDuplicates()
+            )
+            let cancellable = Publishers.CombineLatest(
+                titleAndDirty,
+                filePreview.$displayIcon.removeDuplicates()
+            )
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak filePreview] titleAndDirty, displayIcon in
+                guard let self, let filePreview,
+                      let tabId = self.surfaceId(forPanelId: filePreview.id),
+                      let existing = self.bonsplitController.tab(tabId) else {
+                    return
+                }
+                let (title, isDirty) = titleAndDirty
+                let icon = RenderableSystemSymbol.resolvedSurfaceTabIcon(displayIcon)
+                let titleUpdate: String? =
+                    existing.hasCustomTitle || existing.title == title ? nil : title
+                let iconUpdate: String?? = existing.icon == icon ? nil : .some(icon)
+                let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
+                guard titleUpdate != nil || iconUpdate != nil || dirtyUpdate != nil else {
+                    return
+                }
+                self.bonsplitController.updateTab(
+                    tabId,
+                    title: titleUpdate,
+                    icon: iconUpdate,
+                    isDirty: dirtyUpdate
+                )
+            }
+            panelCancellables[panel.id] = cancellable
         } else if tracksTerminalTitle, let terminal = panel as? TerminalPanel {
             let cancellable = terminal.$title
                 .removeDuplicates()

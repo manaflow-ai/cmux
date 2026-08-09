@@ -177,6 +177,7 @@ extension DockSplitStore {
 
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
+        let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminal = panel as? TerminalPanel else { return nil }
@@ -285,6 +286,7 @@ extension DockSplitStore {
                 wasAgentRunning: agentWasRunning
             )
             browserSnapshot = nil
+            filePreviewSnapshot = nil
         case .browser:
             guard let browser = panel as? BrowserPanel, browser.shouldPersistSessionSnapshot() else {
                 return nil
@@ -306,6 +308,16 @@ extension DockSplitStore {
                 diffViewerToken: diffViewer?.token,
                 diffViewerRequestPath: diffViewer?.requestPath
             )
+            filePreviewSnapshot = nil
+        case .filePreview:
+            guard let filePreview = panel as? FilePreviewPanel else {
+                return nil
+            }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            filePreviewSnapshot = SessionFilePreviewPanelSnapshot(
+                filePath: filePreview.filePath
+            )
         default:
             return nil
         }
@@ -326,7 +338,7 @@ extension DockSplitStore {
             terminal: terminalSnapshot,
             browser: browserSnapshot,
             markdown: nil,
-            filePreview: nil,
+            filePreview: filePreviewSnapshot,
             rightSidebarTool: nil
         )
     }

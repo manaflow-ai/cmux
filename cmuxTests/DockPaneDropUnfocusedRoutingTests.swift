@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxTerminal
 import Foundation
 import Testing
 
@@ -327,9 +328,24 @@ struct DockPaneDropUnfocusedRoutingTests {
     @MainActor
     func plainFinderFileDropIntoGlobalDockTerminalInsertsPath() async throws {
         try await withGlobalDockTerminalFileDrop(defaultBehavior: .text) {
-            target, draggingInfo, dock, terminalPanel, _ in
+            target, draggingInfo, dock, terminalPanel, fileURL, terminalInputs in
             #expect(target.draggingEntered(draggingInfo) == .copy)
             #expect(target.performDragOperation(draggingInfo))
+
+            var inputIterator = terminalInputs.makeAsyncIterator()
+            let nextInput = await inputIterator.next()
+            let input = try #require(nextInput)
+            let inputText: String
+            switch input {
+            case .bytes(let data):
+                inputText = String(decoding: data, as: UTF8.self)
+            case .namedKey(let name):
+                inputText = name
+            }
+            let expectedPathText = TerminalImageTransferPlanner.insertedText(
+                forFileURLs: [fileURL]
+            )
+            #expect(inputText.contains(expectedPathText))
             #expect(dock.panels.count == 1)
             #expect(dock.panels[terminalPanel.id] === terminalPanel)
             #expect(dock.focusedPanelId == terminalPanel.id)
@@ -345,13 +361,13 @@ struct DockPaneDropUnfocusedRoutingTests {
             defaultBehavior: .text
         ) == .preview)
 
-        // Preview-default without Shift resolves to the same downstream action as
-        // the normal text-default with Shift, while keeping this AppKit unit test
-        // independent of the process-wide physical keyboard modifier state.
-        try await withGlobalDockTerminalFileDrop(defaultBehavior: .preview) {
-            target, draggingInfo, dock, terminalPanel, fileURL in
+        try await withGlobalDockTerminalFileDrop(defaultBehavior: .text) {
+            target, draggingInfo, dock, terminalPanel, fileURL, _ in
             #expect(target.draggingEntered(draggingInfo) == .copy)
-            #expect(target.performDragOperation(draggingInfo))
+            #expect(target.performDragOperation(
+                draggingInfo,
+                modifierFlags: [.shift]
+            ))
             #expect(dock.bonsplitController.allPaneIds.count == 2)
 
             let previewPanels = dock.panels.values.compactMap { $0 as? FilePreviewPanel }
@@ -512,8 +528,9 @@ struct DockPaneDropUnfocusedRoutingTests {
             DockPaneDropMockDraggingInfo,
             DockSplitStore,
             TerminalPanel,
-            URL
-        ) throws -> Void
+            URL,
+            AsyncStream<TerminalManualInput>
+        ) async throws -> Void
     ) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let previousAppDelegate = AppDelegate.shared
@@ -549,10 +566,22 @@ struct DockPaneDropUnfocusedRoutingTests {
 
             let dock = appDelegate.windowDock(forWindowId: windowId)
             let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+            let (terminalInputs, terminalInputContinuation) =
+                AsyncStream<TerminalManualInput>.makeStream()
+            defer { terminalInputContinuation.finish() }
+            let terminalSurface = TerminalSurface(
+                tabId: dock.workspaceId,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: nil,
+                focusPlacement: .rightSidebarDock,
+                ioMode: .manualMirror,
+                manualInputHandler: { input in
+                    _ = terminalInputContinuation.yield(input)
+                }
+            )
             let terminalPanel = TerminalPanel(
                 workspaceId: dock.workspaceId,
-                focusPlacement: .rightSidebarDock,
-                runtimeSpawnPolicy: .deferred
+                surface: terminalSurface
             )
             dock.panels[terminalPanel.id] = terminalPanel
             let terminalTab = try #require(dock.bonsplitController.createTab(
@@ -606,7 +635,14 @@ struct DockPaneDropUnfocusedRoutingTests {
             #expect(dock.scope == .global)
             #expect(dock.workspaceId == windowId)
             #expect(appDelegate.workspaceFor(tabId: dock.workspaceId) == nil)
-            try assertions(target, draggingInfo, dock, terminalPanel, fileURL)
+            try await assertions(
+                target,
+                draggingInfo,
+                dock,
+                terminalPanel,
+                fileURL,
+                terminalInputs
+            )
         }
     }
 
