@@ -32,6 +32,9 @@
          location = "group:CMUXMobileCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxSentryTelemetry">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSyncStore">
       </FileRef>
    </Group>
@@ -49,6 +52,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxMobileBrowser">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileBrowserStream">
       </FileRef>
       <FileRef
          location = "group:CmuxMobileCamera">
@@ -125,6 +131,9 @@
       </FileRef>
       <FileRef
          location = "group:CMUXDebugLog">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxDiffComments">
       </FileRef>
       <FileRef
          location = "group:CmuxExtensionKit">

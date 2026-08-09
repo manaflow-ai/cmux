@@ -230,10 +230,12 @@ public protocol ControlWorkspaceContext: AnyObject {
     /// - Parameters:
     ///   - workspaceID: The resolved workspace id.
     ///   - foregroundAuthToken: The trimmed token, if any.
+    ///   - resolvedControlPath: Exact cmux-owned socket authenticated by SSH.
     /// - Returns: The remote resolution.
     func controlWorkspaceRemoteForegroundAuthReady(
         workspaceID: UUID,
-        foregroundAuthToken: String?
+        foregroundAuthToken: String?,
+        resolvedControlPath: String?
     ) -> ControlWorkspaceRemoteResolution
 
     /// Reads remote status for `workspace.remote.status`.
@@ -269,6 +271,54 @@ public protocol ControlWorkspaceContext: AnyObject {
         sessionID: String
     ) -> ControlWorkspaceRemotePTYAttachEndResolution
 
+    /// Reads the broker-owned attachment for a persistent wrapper generation.
+    ///
+    /// This requirement is nonisolated so worker-lane readiness validation
+    /// completes before the command's single main-actor mutation hop.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    /// - Returns: The current owner, or `nil` for an unknown or stale generation.
+    nonisolated func controlCurrentRemotePTYLifecycleOwner(
+        sessionID: String,
+        lifecycleID: String
+    ) -> ControlRemotePTYLifecycleOwner?
+
+    /// Records the start of one SSH wrapper attempt for
+    /// `workspace.remote.terminal_session_launching`.
+    ///
+    /// A later attempt supersedes an earlier attempt for the same terminal
+    /// lifecycle, so delayed readiness from the earlier attempt is rejected.
+    func controlWorkspaceRemoteTerminalSessionLaunching(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        terminalLifecycleID: UUID,
+        attemptID: UUID
+    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution
+
+    /// Records an authoritative terminal handshake for
+    /// `workspace.remote.terminal_session_connected`.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The workspace id captured when the terminal launched.
+    ///   - surfaceID: The connected terminal surface id.
+    ///   - authority: The relay or broker transport authority already validated
+    ///     on the socket worker.
+    ///   - attemptID: The registered reconnect generation claiming readiness.
+    ///   - commitLease: The persistent broker lease. The context must hold it
+    ///     only across the bounded model mutation, retain it if configuration
+    ///     has not reached the workspace yet, and perform presentation effects
+    ///     after releasing it.
+    /// - Returns: The connected-session resolution.
+    func controlWorkspaceRemoteTerminalSessionConnected(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        authority: ControlWorkspaceRemoteTerminalAuthority,
+        attemptID: UUID,
+        commitLease: (any ControlRemotePTYLifecycleCommitLease)?
+    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution
+
     /// Records a remote terminal session-end for
     /// `workspace.remote.terminal_session_end`.
     ///
@@ -276,6 +326,7 @@ public protocol ControlWorkspaceContext: AnyObject {
     ///   - workspaceID: The workspace id.
     ///   - surfaceID: The surface id.
     ///   - relayPort: The validated relay port, omitted for lifecycle-only retirement.
+    ///   - terminalLifecycleID: The terminal process generation for a full end.
     ///   - sessionID: The persistent PTY session, when this wrapper owns one.
     ///   - lifecycleID: The wrapper-owned PTY lifecycle generation, when present.
     ///   - lifecycleOnly: Whether to retire the generation without ending the shared terminal session.
@@ -284,6 +335,7 @@ public protocol ControlWorkspaceContext: AnyObject {
         workspaceID: UUID,
         surfaceID: UUID,
         relayPort: Int?,
+        terminalLifecycleID: UUID?,
         sessionID: String?,
         lifecycleID: String?,
         lifecycleOnly: Bool

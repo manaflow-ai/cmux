@@ -16,7 +16,9 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     case connect = 1
     /// Pairing / attach completed successfully.
     case pairOk = 2
-    /// Pairing / attach failed.
+    /// Pairing / attach failed. `a`, when present, is
+    /// ``DiagnosticTransportKind``; `b`, when present, is
+    /// ``DiagnosticFailureKind``.
     case pairFail = 3
     /// The render-grid stream lagged behind (a bounded render-lag counter tick).
     ///
@@ -180,6 +182,37 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// Device reachability changed. `a` is 1 when a usable network path
     /// exists, else 0. Correlates drops with WiFi/cellular transitions.
     case reachabilityChanged = 53
+    /// The Iroh boundary reported why a shared QUIC connection closed. `a` is
+    /// the stable close-initiator kind (0 unknown, 1 local, 2 remote, 3 timed
+    /// out), `b` is ``DiagnosticFailureKind``, `ms` is the application error
+    /// code clamped to the nonnegative `Int32` range when parseable, and `c` is
+    /// the matching positive, process-local session correlation ID.
+    case transportCloseAttribution = 54
+    /// One Iroh path opened, closed, became selected, or reported lag. `a` is
+    /// the stable path-event kind (1 opened, 2 closed, 3 selected, 4 lagged),
+    /// `b` is ``DiagnosticPathKind`` for the affected path, and `c` is the
+    /// matching positive, process-local session correlation ID.
+    case transportPathEvent = 55
+    /// A phone-driven browser stream session changed lifecycle state on the
+    /// Mac. `a` is the stage (1 started, 2 replaced an existing session,
+    /// 3 stopped, 4 first frame emitted), and `c` is the positive browser
+    /// panel correlation ID derived from the panel UUID.
+    case browserStreamLifecycle = 56
+    /// Replayed phone input reached a streamed browser panel. `a` is the
+    /// input kind (1 pointer, 2 key, 3 text, 4 suppressed no-editable
+    /// backspace), `b` is the click count for pointers, 1 for keys, or the
+    /// inserted character count for text, and `c` is the panel correlation ID.
+    case browserInputReplayed = 57
+    /// The streamed page's editable-focus state changed or a replayed click's
+    /// focus assist resolved. `a` is 1 when an editable has focus (else 0),
+    /// `b` is the focus-assist outcome (0 no editable at the point, 1 focus
+    /// moved, 2 already focused, 3 beacon-reported transition), and `c` is
+    /// the panel correlation ID.
+    case browserEditableFocus = 58
+    /// A phone-initiated `mobile.browser.create` request resolved on the Mac.
+    /// `a` is 1 on success else 0, and `c` is the panel correlation ID of the
+    /// created panel (absent on failure).
+    case browserPanelCreateResolved = 59
 }
 
 /// Scene phase carried by ``DiagnosticEventCode/appLifecycleChanged``.

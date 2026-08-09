@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSentryReporting
 import Darwin
 import Foundation
 

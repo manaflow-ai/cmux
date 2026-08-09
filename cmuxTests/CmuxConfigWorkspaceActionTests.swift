@@ -296,15 +296,8 @@ struct CmuxConfigWorkspaceActionTests {
 
     @MainActor
     @Test func inlineWorkspaceActionCreatesWorkspace() throws {
-        let suiteName = "CmuxConfigWorkspaceActionTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defaults.removePersistentDomain(forName: suiteName)
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let store = WorkspaceDirectoryCustomizationStore(defaults: defaults, storageKey: "test.customizations")
-        store.setCustomTitle("Sticky Label", for: NSTemporaryDirectory())
         let manager = TabManager(
-            initialWorkingDirectory: NSTemporaryDirectory(),
-            workspaceDirectoryCustomizationStore: store
+            initialWorkingDirectory: NSTemporaryDirectory()
         )
         let action = try #require(CmuxResolvedConfigAction.fromDefinition(
             id: "dev-setup",
@@ -327,8 +320,6 @@ struct CmuxConfigWorkspaceActionTests {
         #expect(manager.tabs.count == 2)
         #expect(manager.selectedWorkspace?.customTitle == "Dev Setup")
         #expect(manager.selectedWorkspace?.effectiveCustomTitleSource == .auto)
-        #expect(manager.selectedWorkspace?.customizationDirectory == nil)
-        #expect(store.customization(for: NSTemporaryDirectory())?.customTitle == "Sticky Label")
     }
 
     @MainActor

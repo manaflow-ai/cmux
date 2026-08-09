@@ -186,6 +186,23 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @MainActor
+    @Test("Tailscale Pairing button defaults hidden without a flag value")
+    func tailscalePairingButtonDefaultsHidden() throws {
+        let suiteName = "cmux.feature.flags.mobile-connect.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { _ in nil }
+        )
+
+        #expect(!flags.isMobileConnectButtonEnabled)
+    }
+
+    @MainActor
     @Test("remote-controlled flags reject new local override writes")
     func remoteControlledFlagsRejectNewLocalOverrideWrites() throws {
         let flag = try #require(CmuxFeatureFlags.allFlags.first {

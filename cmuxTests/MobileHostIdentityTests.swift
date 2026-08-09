@@ -72,6 +72,145 @@ struct MobileHostIdentityTests {
         #expect(payload["terminal_theme_revision_epoch"] == nil)
     }
 
+    @Test func authenticatedStatusReportsLivePhoneForwardingGateAndOrigin() throws {
+        let suiteName = "mobile-host-push-status-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: PhonePushSettings.forwardEnabledKey)
+        defaults.set(
+            PhoneForwardingMode.onlyWhenAway.rawValue,
+            forKey: PhonePushSettings.forwardModeKey
+        )
+
+        let payload = MobileHostService.identityStatusPayload(
+            routes: [],
+            phonePushDefaults: defaults,
+            phonePushAdmission: .suppressedMacActive,
+            phonePushQueuePersistenceStatus: .saveFailed,
+            phonePushAPIBaseURL: URL(string: "https://cmux-staging.vercel.app")!
+        )
+        let phonePush = try #require(payload["phone_push"] as? [String: Any])
+
+        #expect(phonePush["forwarding_enabled"] as? Bool == true)
+        #expect(phonePush["mode"] as? String == "onlyWhenAway")
+        #expect(phonePush["admission"] as? String == "suppressed_mac_active")
+        #expect(phonePush["queue_persistence"] as? String == "save_failed")
+        #expect(phonePush["hide_content"] as? Bool == false)
+        #expect(phonePush["api_origin"] as? String == "https://cmux-staging.vercel.app")
+        #expect(phonePush["account_scope"] as? String == "verified_same_account")
+    }
+
+    @Test func publicStatusNeverDisclosesPhoneForwardingState() {
+        let payload = MobileHostService.publicStatusPayload(routes: [])
+        #expect(payload["phone_push"] == nil)
+        #expect(!String(describing: payload).contains("api_origin"))
+    }
+
+    #if DEBUG
+    @Test func debugSuppressionAlsoHidesAuthenticatedPhoneCapabilities() throws {
+        let previous = ProcessInfo.processInfo.environment[
+            "CMUX_DEBUG_SUPPRESS_MOBILE_CAPS"
+        ]
+        setenv(
+            "CMUX_DEBUG_SUPPRESS_MOBILE_CAPS",
+            MobileHostService.phonePushStatusCapability,
+            1
+        )
+        defer {
+            if let previous {
+                setenv("CMUX_DEBUG_SUPPRESS_MOBILE_CAPS", previous, 1)
+            } else {
+                unsetenv("CMUX_DEBUG_SUPPRESS_MOBILE_CAPS")
+            }
+        }
+
+        let payload = MobileHostService.identityStatusPayload(routes: [])
+        let capabilities = try #require(payload["capabilities"] as? [String])
+        #expect(!capabilities.contains(
+            MobileHostService.phonePushStatusCapability
+        ))
+    }
+    #endif
+
+    @Test func authenticatedPhoneSettingsMutationUpdatesTheSharedStatusSource() throws {
+        let suiteName = "mobile-host-push-mutation-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let result = TerminalController.shared.v2MobilePhonePushSettingsUpdate(
+            params: [
+                "forwarding_enabled": true,
+                "mode": "always",
+                "hide_content": true,
+            ],
+            defaults: defaults
+        )
+        guard case .ok = result else {
+            Issue.record("Expected phone push settings mutation to succeed")
+            return
+        }
+
+        let payload = MobileHostService.identityStatusPayload(
+            routes: [],
+            phonePushDefaults: defaults,
+            phonePushAPIBaseURL: URL(string: "https://cmux.com")!
+        )
+        let phonePush = try #require(payload["phone_push"] as? [String: Any])
+        #expect(phonePush["forwarding_enabled"] as? Bool == true)
+        #expect(phonePush["mode"] as? String == "always")
+        #expect(phonePush["hide_content"] as? Bool == true)
+    }
+
+    @Test func phoneSettingsMutationUsesTheSameAccountAuthorizationGate() async {
+        let request = MobileHostRPCRequest(
+            id: "push-settings",
+            method: "phone_push.settings.update",
+            params: ["forwarding_enabled": true],
+            auth: nil
+        )
+        let denied = await MobileHostService.connectionAuthorizationError(
+            for: request,
+            authorization: .stackBearer,
+            stackAuthorization: { _ in
+                .failure(MobileHostRPCError(
+                    code: "unauthorized",
+                    message: "Mobile sync authorization failed."
+                ))
+            }
+        )
+
+        guard case let .failure(error) = denied else {
+            Issue.record("Expected unauthenticated mutation to fail")
+            return
+        }
+        #expect(error.code == "unauthorized")
+    }
+
+    @Test func phoneStatusReadUsesTheSameAccountAuthorizationGate() async {
+        let request = MobileHostRPCRequest(
+            id: "push-status",
+            method: "phone_push.status.get",
+            params: [:],
+            auth: nil
+        )
+        let denied = await MobileHostService.connectionAuthorizationError(
+            for: request,
+            authorization: .stackBearer,
+            stackAuthorization: { _ in
+                .failure(MobileHostRPCError(
+                    code: "unauthorized",
+                    message: "Mobile sync authorization failed."
+                ))
+            }
+        )
+
+        guard case let .failure(error) = denied else {
+            Issue.record("Expected unauthenticated status read to fail")
+            return
+        }
+        #expect(error.code == "unauthorized")
+    }
+
     @Test func taggedDebugBuildSuffixesPairingDisplayName() throws {
         let suiteName = "mobile-host-display-name-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -174,6 +313,28 @@ struct MobileHostIdentityTests {
 
         #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == sharedID.lowercased())
         #expect(defaults.string(forKey: "mobileHost.deviceID") == sharedID.lowercased())
+    }
+
+    @Test func canonicalEquivalentSharedDeviceIDDoesNotRewriteDefaults() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sharedIDURL = directory.appendingPathComponent("mobile-host-device-id")
+        let sharedID = "3D56C547-271C-47D8-84F6-5C79C9394A37".lowercased()
+        try sharedID.write(to: sharedIDURL, atomically: true, encoding: .utf8)
+
+        let suiteName = "mobile-host-identity-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let legacyStoredID = "  \(sharedID.uppercased())\n"
+        defaults.set(legacyStoredID, forKey: "mobileHost.deviceID")
+
+        #expect(MobileHostIdentity.deviceID(
+            defaults: defaults,
+            sharedIDURL: sharedIDURL
+        ) == sharedID)
+        #expect(defaults.string(forKey: "mobileHost.deviceID") == legacyStoredID)
     }
 
     @Test func migratesExistingBundleIDToSharedFile() throws {

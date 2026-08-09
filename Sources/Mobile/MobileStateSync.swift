@@ -97,6 +97,13 @@ final class MobileStateSyncHost {
             removedIDs: change.removedIDs
         )
         guard let payload = try? MobileSyncFrameCoder().jsonObject(from: event) else { return }
+        #if DEBUG
+        HostLatencyTrace.stamp(
+            "host.sync.emit",
+            "coll=\(collection.rawValue) rev=\(change.toRev) " +
+                "rows=\(change.records.count + change.removedIDs.count)"
+        )
+        #endif
         MobileHostService.shared.emitEvent(topic: Self.deltaTopic, payload: payload)
     }
 
@@ -127,6 +134,11 @@ final class MobileStateSyncHost {
         for summary in app.listMainWindowSummaries() {
             guard seenWindowIDs.insert(summary.windowId).inserted else { continue }
             guard let windowTabManager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+            let tabs = windowTabManager.tabs
+            let currentDirectoryByWorkspaceID = Dictionary(
+                uniqueKeysWithValues: tabs.map { ($0.id, $0.currentDirectory) }
+            )
+            let configStore = app.mainWindowContext(for: windowTabManager)?.cmuxConfigStore
             for group in windowTabManager.workspaceGroups where seenGroupIDs.insert(group.id).inserted {
                 groupRows.append(
                     GroupSyncRecord(
@@ -134,12 +146,19 @@ final class MobileStateSyncHost {
                         name: group.name,
                         isCollapsed: group.isCollapsed,
                         isPinned: group.isPinned,
+                        iconSymbol: controller.mobileWorkspaceGroupEffectiveIconSymbol(
+                            group,
+                            anchorCwd: currentDirectoryByWorkspaceID[
+                                group.anchorWorkspaceId
+                            ] ?? nil,
+                            configStore: configStore
+                        ),
                         anchorWorkspaceID: group.anchorWorkspaceId.uuidString,
                         sortIndex: groupRows.count
                     )
                 )
             }
-            for workspace in windowTabManager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
+            for workspace in tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
                 liveWorkspaceIDs.insert(workspace.id)
                 liveWorkspaceObjectIDs[workspace.id] = ObjectIdentifier(workspace)
                 workspaceRows.append(
@@ -182,7 +201,7 @@ final class MobileStateSyncHost {
                 title: workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
                 currentDirectory: terminalDirectory,
                 isReady: terminal.surface.surface != nil,
-                isFocused: terminal.id == workspace.focusedPanelId
+                isFocused: workspace.isFocusedTerminalInputSurface(terminal.id)
             )
         }
         let latestNotification = notificationStore?.latestNotification(forTabId: workspace.id)

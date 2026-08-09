@@ -304,7 +304,7 @@ final class RemoteTmuxController {
             title: sessionName, titleSource: .auto,
             select: false,
             autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationMode: .disabled
+            applyCreationTitleAsCustomTitle: false
         )
         workspace.isRemoteTmuxMirror = true
         workspace.remoteTmuxWindowOrderSync = { [weak self, weak workspace] orderedPanelIds, verification in
@@ -323,7 +323,9 @@ final class RemoteTmuxController {
             tabManager: tabManager,
             workspace: workspace,
             onControlPaneRemoved: TerminalController.remoteTmuxControlPaneRemovalHandler(),
-            onControlSurfaceRemoved: TerminalController.remoteTmuxControlSurfaceRemovalHandler()
+            onControlSurfaceRemoved: TerminalController.remoteTmuxControlSurfaceRemovalHandler(
+                workspaceID: workspace.id
+            )
         )
         return true
     }

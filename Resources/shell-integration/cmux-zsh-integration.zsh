@@ -169,10 +169,11 @@ _cmux_report_tty_via_relay() {
     local workspace_id=""
     workspace_id="$(_cmux_relay_workspace_id)" || return 1
     [[ -n "$_CMUX_TTY_NAME" ]] || return 1
+    [[ -n "$CMUX_TERMINAL_LIFECYCLE_ID" && -n "$CMUX_SSH_ATTEMPT_ID" ]] || return 1
 
     local tty_name_json params
     tty_name_json="$(_cmux_json_escape "$_CMUX_TTY_NAME")"
-    params="{\"workspace_id\":\"$workspace_id\",\"tty_name\":\"$tty_name_json\""
+    params="{\"workspace_id\":\"$workspace_id\",\"tty_name\":\"$tty_name_json\",\"terminal_lifecycle_id\":\"$CMUX_TERMINAL_LIFECYCLE_ID\",\"attempt_id\":\"$CMUX_SSH_ATTEMPT_ID\""
     if [[ -n "$CMUX_PANEL_ID" ]]; then
         params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
     fi
@@ -317,7 +318,12 @@ _cmux_path_prepend_unique_directory() {
 _cmux_install_cli_command_shim() {
     local command_name="$1"
     local wrapper_path="$2"
-    local shim_root="${TMPDIR:-/tmp}/cmux-cli-shims/${CMUX_SURFACE_ID:-$$}"
+    local surface_component="${CMUX_SURFACE_ID:-$$}"
+    local shim_root="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}"
+    local shim_parent="${shim_root%/*}"
+    if [[ -z "$shim_root" || "${shim_root##*/}" != "$surface_component" || "${shim_parent##*/}" != "cmux-cli-shims" ]]; then
+        shim_root="${TMPDIR:-/tmp}/cmux-cli-shims/$surface_component"
+    fi
     local shim_path="$shim_root/$command_name"
     local escaped_wrapper="$wrapper_path"
 
@@ -498,8 +504,10 @@ typeset -ga _CMUX_TMUX_SYNC_KEYS=(
     CMUX_SOCKET_ENABLE
     CMUX_SOCKET_MODE
     CMUX_SOCKET_PATH
+    CMUX_SSH_ATTEMPT_ID
     CMUX_TAB_ID
     CMUX_TAG
+    CMUX_TERMINAL_LIFECYCLE_ID
     CMUX_WORKSPACE_ID
 )
 typeset -ga _CMUX_TMUX_SURFACE_SCOPED_KEYS=(
@@ -1363,7 +1371,7 @@ _cmux_report_pr_for_path() {
                 "${gh_repo_args[@]}" \
                 --json number,state,url \
                 --jq '[.number, .state, .url] | @tsv' \
-                2>"$err_file"
+                2>|"$err_file"
     )"
     gh_status=$?
     if [[ -f "$err_file" ]]; then

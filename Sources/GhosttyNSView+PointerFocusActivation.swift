@@ -20,15 +20,12 @@ extension GhosttyNSView {
         guard let terminalSurface else { return false }
         guard desiredFocus else { return false }
 
-        let policy = TerminalPointerFocusActivationPolicy()
         switch terminalSurface.focusPlacement {
         case .workspace:
-            return policy.shouldForwardToTerminal(
-                currentPanelId: terminalSurface.id,
-                focusedPanelId: terminalSurface.owningWorkspace()?.focusedPanelId
-            )
+            guard let workspace = terminalSurface.owningWorkspace() else { return false }
+            return workspace.isFocusedTerminalInputSurface(terminalSurface.id)
         case .rightSidebarDock:
-            return policy.shouldForwardToTerminal(
+            return TerminalPointerFocusActivationPolicy().shouldForwardToTerminal(
                 currentPanelId: terminalSurface.id,
                 focusedPanelId: DockSplitStore.liveStore(containingPanel: terminalSurface.id)?.focusedPanelId
             )

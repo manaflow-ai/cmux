@@ -1,6 +1,40 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "mobile.workspaces.statusLine.notConnected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not Connected"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未接続"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.statusLine.reconnecting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reconnecting…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "再接続中…"
+          }
+        }
+      }
+    },
     "^[%lld file](inflect: true)" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -755,6 +789,27 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "キャンセル" } }
       }
     },
+    "mobile.computers.forget" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Forget" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "登録解除" } }
+      }
+    },
+    "mobile.computers.forget.confirmMessage" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "It's removed from all your devices. If it's still online, it reappears the next time it connects." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべてのデバイスから削除されます。オンラインのままの場合は、次回接続時に再表示されます。" } }
+      }
+    },
+    "mobile.computers.forget.confirmTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Forget this computer?" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このコンピュータの登録を解除しますか？" } }
+      }
+    },
     "mobile.common.edit" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1084,6 +1139,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "安全なチャネルの確立に失敗" } }
       }
     },
+    "mobile.iroh.diagnostics.failure.routeGated" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Route Gated" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "経路が一時的に制限されています" } }
+      }
+    },
     "mobile.iroh.diagnostics.failure.sendQueueOverflow" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1103,6 +1165,13 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "No Route Available" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "利用可能な経路がありません" } }
+      }
+    },
+    "mobile.iroh.diagnostics.failure.routeGated" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Route Gated" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "経路が制限されています" } }
       }
     },
     "mobile.iroh.diagnostics.failure.credentialUnavailable" : {

@@ -16,188 +16,178 @@ final class GotoSplitCycleUITests: XCTestCase {
         try? FileManager.default.removeItem(atPath: dataPath)
     }
 
+    override func tearDown() {
+        try? FileManager.default.removeItem(atPath: dataPath)
+        super.tearDown()
+    }
+
     // MARK: - Tests
 
     func testGotoSplitNextCyclesAllPanes() {
-        // Uses the Ghostty trigger loaded by the app for goto_split:next.
-        let (app, configCleanup) = launchWithThreePaneLayout()
-        defer { configCleanup() }
-
-        XCTAssertTrue(
-            waitForData(
-                keys: ["setupComplete", "allPaneIds", "focusedPaneId", "ghosttyGotoSplitNextShortcut"],
-                timeout: 10.0
-            ),
-            "Expected three-pane setup data to be written"
+        verifyCycleNavigation(
+            shortcutKey: "ghosttyGotoSplitNextShortcut",
+            directionName: "next",
+            step: 1
         )
-
-        guard let setup = loadData() else {
-            XCTFail("Missing setup data")
-            return
-        }
-        XCTAssertEqual(setup["paneCount"], "3", "Expected 3 panes")
-
-        let allPaneIds = Set(setup["allPaneIds"]!.split(separator: ",").map(String.init))
-        XCTAssertEqual(allPaneIds.count, 3, "Expected 3 distinct pane IDs")
-
-        let startPane = setup["focusedPaneId"]!
-        XCTAssertTrue(allPaneIds.contains(startPane), "Start pane should be in allPaneIds")
-        let nextShortcut = setup["ghosttyGotoSplitNextShortcut"] ?? ""
-        XCTAssertFalse(nextShortcut.isEmpty, "Expected Ghostty goto_split:next shortcut")
-
-        // Send goto_split:next 3 times — should visit all panes and wrap.
-        var visited = [startPane]
-        for i in 0..<3 {
-            typeShortcut(nextShortcut, in: app)
-
-            XCTAssertTrue(
-                waitForDataMatch(timeout: 3.0) { data in
-                    guard let focused = data["focusedPaneId"], !focused.isEmpty else { return false }
-                    return focused != visited.last
-                },
-                "Focus did not change after goto_split:next #\(i + 1)"
-            )
-
-            guard let data = loadData(), let focused = data["focusedPaneId"] else {
-                XCTFail("Missing focusedPaneId after goto_split:next #\(i + 1)")
-                return
-            }
-            visited.append(focused)
-        }
-
-        let visitedSet = Set(visited.prefix(3))
-        XCTAssertEqual(visitedSet, allPaneIds, "goto_split:next should visit all 3 panes")
-        XCTAssertEqual(visited[3], visited[0], "goto_split:next should wrap back to start")
     }
 
     func testGotoSplitPreviousCyclesAllPanes() {
-        // Uses the Ghostty trigger loaded by the app for goto_split:previous.
+        verifyCycleNavigation(
+            shortcutKey: "ghosttyGotoSplitPreviousShortcut",
+            directionName: "previous",
+            step: -1
+        )
+    }
+
+    private func verifyCycleNavigation(
+        shortcutKey: String,
+        directionName: String,
+        step: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        // Uses the Ghostty trigger loaded by the app for goto_split:previous/next.
         let (app, configCleanup) = launchWithThreePaneLayout()
         defer { configCleanup() }
 
         XCTAssertTrue(
             waitForData(
-                keys: ["setupComplete", "allPaneIds", "focusedPaneId", "ghosttyGotoSplitPreviousShortcut"],
+                keys: ["setupComplete", "allPaneIds", "focusedPaneId", shortcutKey],
                 timeout: 10.0
             ),
-            "Expected three-pane setup data to be written"
+            "Expected three-pane setup data to be written",
+            file: file,
+            line: line
         )
 
         guard let setup = loadData() else {
-            XCTFail("Missing setup data")
+            XCTFail("Missing setup data", file: file, line: line)
             return
         }
-        XCTAssertEqual(setup["paneCount"], "3", "Expected 3 panes")
+        XCTAssertEqual(setup["paneCount"], "3", "Expected 3 panes", file: file, line: line)
 
-        let allPaneIds = Set(setup["allPaneIds"]!.split(separator: ",").map(String.init))
-        XCTAssertEqual(allPaneIds.count, 3, "Expected 3 distinct pane IDs")
+        guard let allPaneIdsRaw = setup["allPaneIds"] else {
+            XCTFail("Missing allPaneIds in setup data", file: file, line: line)
+            return
+        }
+        let orderedPaneIds = allPaneIdsRaw.split(separator: ",").map(String.init)
+        let allPaneIds = Set(orderedPaneIds)
+        XCTAssertEqual(allPaneIds.count, 3, "Expected 3 distinct pane IDs", file: file, line: line)
 
-        let startPane = setup["focusedPaneId"]!
-        let previousShortcut = setup["ghosttyGotoSplitPreviousShortcut"] ?? ""
-        XCTAssertFalse(previousShortcut.isEmpty, "Expected Ghostty goto_split:previous shortcut")
+        guard let startPane = setup["focusedPaneId"] else {
+            XCTFail("Missing focusedPaneId in setup data", file: file, line: line)
+            return
+        }
+        XCTAssertTrue(allPaneIds.contains(startPane), "Start pane should be in allPaneIds", file: file, line: line)
+        guard let startIndex = orderedPaneIds.firstIndex(of: startPane) else {
+            XCTFail("Start pane missing from ordered pane IDs", file: file, line: line)
+            return
+        }
+        let shortcut = setup[shortcutKey] ?? ""
+        XCTAssertFalse(shortcut.isEmpty, "Expected Ghostty goto_split:\(directionName) shortcut", file: file, line: line)
 
+        let expectedVisited = (0...3).map { offset in
+            let rawIndex = startIndex + (step * offset)
+            let wrappedIndex = (rawIndex % orderedPaneIds.count + orderedPaneIds.count) % orderedPaneIds.count
+            return orderedPaneIds[wrappedIndex]
+        }
+
+        // Send the shortcut 3 times: visit all panes once, then wrap to the start.
         var visited = [startPane]
         for i in 0..<3 {
-            typeShortcut(previousShortcut, in: app)
+            guard typeShortcut(shortcut, in: app, file: file, line: line) else { return }
+            let expectedPane = expectedVisited[i + 1]
 
             XCTAssertTrue(
-                waitForDataMatch(timeout: 3.0) { data in
-                    guard let focused = data["focusedPaneId"], !focused.isEmpty else { return false }
-                    return focused != visited.last
+                waitForDataMatch(timeout: 10.0) { data in
+                    data["focusedPaneId"] == expectedPane
                 },
-                "Focus did not change after goto_split:previous #\(i + 1)"
+                "goto_split:\(directionName) #\(i + 1) did not focus expected pane \(shortPaneId(expectedPane))",
+                file: file,
+                line: line
             )
 
             guard let data = loadData(), let focused = data["focusedPaneId"] else {
-                XCTFail("Missing focusedPaneId after goto_split:previous #\(i + 1)")
+                XCTFail("Missing focusedPaneId after goto_split:\(directionName) #\(i + 1)", file: file, line: line)
                 return
             }
             visited.append(focused)
         }
 
-        let visitedSet = Set(visited.prefix(3))
-        XCTAssertEqual(visitedSet, allPaneIds, "goto_split:previous should visit all 3 panes")
-        XCTAssertEqual(visited[3], visited[0], "goto_split:previous should wrap back to start")
+        XCTAssertEqual(visited, expectedVisited, "goto_split:\(directionName) should cycle in ordered panes", file: file, line: line)
+        XCTAssertEqual(Set(visited.prefix(3)), allPaneIds, "goto_split:\(directionName) should visit all 3 panes", file: file, line: line)
+        XCTAssertEqual(visited[3], visited[0], "goto_split:\(directionName) should wrap back to start", file: file, line: line)
     }
 
     // MARK: - Launch Helpers
 
     private func launchWithThreePaneLayout() -> (XCUIApplication, () -> Void) {
         let fileManager = FileManager.default
-        guard let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            XCTFail("Missing Application Support directory")
-            return (XCUIApplication(), {})
-        }
-
-        let ghosttyDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-        let nativeConfigURL = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
-        let cmuxConfigURLs = [
-            appSupport
-                .appendingPathComponent("com.cmuxterm.app.debug.goto.split.cycle", isDirectory: true)
-                .appendingPathComponent("config.ghostty", isDirectory: false),
-            appSupport
-                .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
-                .appendingPathComponent("config.ghostty", isDirectory: false),
-        ]
-        let configURLs = [nativeConfigURL] + cmuxConfigURLs
+        let isolatedHome = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ui-test-goto-split-cycle-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let ghosttyDir = isolatedHome
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
+            .appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
+        let configURL = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
 
         do {
             try fileManager.createDirectory(at: ghosttyDir, withIntermediateDirectories: true)
-            for url in cmuxConfigURLs {
-                try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            }
         } catch {
-            XCTFail("Failed to create Ghostty config dir: \(error)")
+            XCTFail("Failed to create isolated Ghostty config directory: \(error)")
             return (XCUIApplication(), {})
         }
 
-        let originalConfigData = configURLs.map { url in
-            (url, try? Data(contentsOf: url))
-        }
-        let cleanup: () -> Void = {
-            for (url, data) in originalConfigData {
-                if let data {
-                    try? data.write(to: url, options: .atomic)
-                } else {
-                    try? fileManager.removeItem(at: url)
-                }
-            }
-        }
-
-        let home = fileManager.homeDirectoryForCurrentUser
         let configContents = """
         # cmux goto_split cycle UI test
-        working-directory = \(home.path)
+        working-directory = \(isolatedHome.path)
+        # Keep the imported Ghostty fallbacks distinct from cmux's configured
+        # focus-history defaults; this test owns the fallback behavior only.
+        keybind = cmd+ctrl+p=goto_split:previous
+        keybind = cmd+ctrl+n=goto_split:next
 
         """
 
         do {
-            for url in configURLs {
-                try configContents.write(to: url, atomically: true, encoding: .utf8)
-            }
+            try configContents.write(to: configURL, atomically: true, encoding: .utf8)
         } catch {
-            XCTFail("Failed to write Ghostty config: \(error)")
+            XCTFail("Failed to write isolated Ghostty config: \(error)")
+            try? fileManager.removeItem(at: isolatedHome)
             return (XCUIApplication(), {})
         }
 
         let app = XCUIApplication()
+        app.launchEnvironment["HOME"] = isolatedHome.path
+        app.launchEnvironment["CFFIXED_USER_HOME"] = isolatedHome.path
+        app.launchEnvironment["XDG_CONFIG_HOME"] =
+            isolatedHome.appendingPathComponent(".config", isDirectory: true).path
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_LAYOUT"] = "three_pane_terminal"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_USE_GHOSTTY_CONFIG"] = "1"
         launchAndEnsureForeground(app)
 
-        return (app, cleanup)
+        return (app, {
+            app.terminate()
+            try? fileManager.removeItem(at: isolatedHome)
+        })
     }
 
     // MARK: - Data Polling
 
+    @discardableResult
     private func typeShortcut(
         _ shortcut: String,
         in app: XCUIApplication,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) {
+    ) -> Bool {
+        guard ensureForeground(app, timeout: 20.0) else {
+            XCTFail("App failed to enter foreground before shortcut. state=\(app.state.rawValue)", file: file, line: line)
+            return false
+        }
+
         var flags: XCUIElement.KeyModifierFlags = []
         if shortcut.contains("⌘") { flags.insert(.command) }
         if shortcut.contains("⌃") { flags.insert(.control) }
@@ -219,10 +209,11 @@ final class GotoSplitCycleUITests: XCTestCase {
             key = "p"
         } else {
             XCTFail("Unsupported goto_split shortcut: \(shortcut)", file: file, line: line)
-            return
+            return false
         }
 
         app.typeKey(key, modifierFlags: flags)
+        return true
     }
 
     private func waitForData(keys: [String], timeout: TimeInterval) -> Bool {
@@ -262,7 +253,27 @@ final class GotoSplitCycleUITests: XCTestCase {
         }
 
         if app.state == .runningForeground { return }
-        if app.state == .runningBackground { return }
+        if ensureForeground(app, timeout: timeout) {
+            return
+        }
         XCTFail("App failed to start. state=\(app.state.rawValue)")
+    }
+
+    private func ensureForeground(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if app.state == .runningForeground {
+                return true
+            }
+            if app.state == .runningBackground {
+                app.activate()
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        } while Date() < deadline
+        return app.state == .runningForeground
+    }
+
+    private func shortPaneId(_ paneId: String) -> String {
+        String(paneId.prefix(5))
     }
 }

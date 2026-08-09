@@ -4,12 +4,13 @@ import SwiftUI
 
 struct TaskComposerButton: View {
     let action: () -> Void
+    var diameter: CGFloat = 52
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "plus")
-                .font(.system(size: 18, weight: .semibold))
-                .frame(width: 52, height: 52)
+            Image(systemName: "square.and.pencil")
+                .font(.system(size: 22, weight: .semibold))
+                .frame(width: diameter, height: diameter)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)

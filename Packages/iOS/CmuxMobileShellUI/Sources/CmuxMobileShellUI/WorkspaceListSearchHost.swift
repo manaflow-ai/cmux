@@ -35,29 +35,6 @@ struct WorkspaceListSearchHost<Content: View>: View {
     private var iOSContent: some View {
         if #available(iOS 26.0, *) {
             content(searchText)
-                .toolbar {
-                    if let taskComposerAction {
-                        ToolbarSpacer(.flexible, placement: .bottomBar)
-                        ToolbarItem(placement: .bottomBar) {
-                            Button(action: taskComposerAction) {
-                                Image(systemName: "sparkles")
-                            }
-                            .accessibilityLabel(
-                                L10n.string(
-                                    "mobile.taskComposer.button.accessibilityLabel",
-                                    defaultValue: "New Task"
-                                )
-                            )
-                            .accessibilityHint(
-                                L10n.string(
-                                    "mobile.taskComposer.button.accessibilityHint",
-                                    defaultValue: "Opens the task composer."
-                                )
-                            )
-                            .accessibilityIdentifier("MobileTaskComposerButton")
-                        }
-                    }
-                }
         } else {
             content(searchText)
                 .searchable(
@@ -65,6 +42,13 @@ struct WorkspaceListSearchHost<Content: View>: View {
                     placement: .navigationBarDrawer(displayMode: .always)
                 )
                 .searchFocused($searchIsFocused)
+                .overlay(alignment: .bottomTrailing) {
+                    if let taskComposerAction {
+                        TaskComposerButton(action: taskComposerAction)
+                            .padding(.trailing, 20)
+                            .padding(.bottom, 6)
+                    }
+                }
         }
     }
     #endif

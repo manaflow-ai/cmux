@@ -1,41 +1,44 @@
 public import CmuxCore
 public import CmuxRemoteWorkspace
 internal import CmuxFoundation
-internal import Darwin
 internal import Foundation
-
-private enum NativeSSHCleanupPolicy {
-    static let processTimeoutMilliseconds = 5_000
-    static let forcedTerminationDelayMilliseconds = 1_000
-    static let retryDelayMilliseconds = 31_000
-}
 
 /// Owns cmux-native SSH master lifetimes and serializes reconnect attempts per endpoint.
 ///
-/// Workspace ownership is reference-counted by `ownerWorkspaceID`. Only the
-/// last workspace using a cmux-owned `ControlPath` may request `ssh -O exit`;
-/// custom control paths remain entirely user-managed. Connection attempts for
-/// the same `(destination, port)` run one at a time, while different endpoints
-/// remain independent.
+/// Workspace ownership is reference-counted by `ownerWorkspaceID`. Ordinary
+/// cleanup exits a cmux-owned master only for its last workspace; authenticated
+/// inherited-forward recovery may reap an exclusively owned master and
+/// invalidates every sharing workspace. Custom control paths remain entirely
+/// user-managed. Connection attempts for the same `(destination, port)` run
+/// one at a time, while different endpoints remain independent.
 @MainActor
 public final class NativeSSHConnectionBroker {
-    private let sharingOptions: SSHConnectionSharingOptions
-    private let clock: any RemoteProxyRetryClock
+    nonisolated let sharingOptions: SSHConnectionSharingOptions
+    let clock: any RemoteProxyRetryClock
     private let jitterMilliseconds: @MainActor @Sendable () -> Int
-    private let cleanupLauncherOverride: (@MainActor @Sendable (NativeSSHControlMasterCleanupRequest) -> Void)?
+    let cleanupLauncherOverride: (@MainActor @Sendable (NativeSSHControlMasterCleanupRequest) -> Void)?
+    private nonisolated let inheritedMasterReapEventHub:
+        NativeSSHControlMasterReapEventHub
+    nonisolated let controlMasterOwnershipRegistry:
+        any NativeSSHControlMasterOwnershipTracking
+    private let inheritedMasterReapCoordinator:
+        NativeSSHControlMasterReapCoordinator
 
-    private var ownerLeases: [UUID: [NativeSSHControlMasterKey: WorkspaceRemoteConfiguration]] = [:]
-    private var ownersByControlMaster: [NativeSSHControlMasterKey: Set<UUID>] = [:]
+    var ownerLeases: [UUID: [NativeSSHControlMasterKey: WorkspaceRemoteConfiguration]] = [:]
+    var ownersByControlMaster: [NativeSSHControlMasterKey: Set<UUID>] = [:]
     var attemptStates: [NativeSSHConnectionKey: NativeSSHConnectionAttemptState] = [:]
-    private var cleanupRequestsByControlMaster: [
-        NativeSSHControlMasterKey: NativeSSHControlMasterCleanupRequest
+    var pendingCleanupsByControlMaster: [
+        NativeSSHControlMasterKey: NativeSSHControlMasterPendingCleanup
     ] = [:]
-    private var cleanupRetryTasks: [NativeSSHControlMasterKey: Task<Void, Never>] = [:]
-    private var cleanupProcesses: [UUID: Process] = [:]
-    private var cleanupControlMasterKeysByProcessID: [UUID: NativeSSHControlMasterKey] = [:]
-    private var cleanupProcessIDByControlMaster: [NativeSSHControlMasterKey: UUID] = [:]
-    private var cleanupTimeoutTasks: [UUID: Task<Void, Never>] = [:]
-    private var cleanupTerminationRequested: Set<UUID> = []
+    var cleanupRetryTasks: [NativeSSHControlMasterKey: Task<Void, Never>] = [:]
+    var cleanupProcesses: [UUID: Process] = [:]
+    var cleanupControlMasterKeysByProcessID: [UUID: NativeSSHControlMasterKey] = [:]
+    var cleanupProcessIDByControlMaster: [NativeSSHControlMasterKey: UUID] = [:]
+    var cleanupTimeoutTasks: [UUID: Task<Void, Never>] = [:]
+    var cleanupTerminationRequested: Set<UUID> = []
+    var cleanupAuthorizations: [
+        UUID: NativeSSHControlMasterExclusiveUseAuthorization
+    ] = [:]
 
     /// Creates the process-wide broker with continuous-clock jitter and local cleanup launching.
     ///
@@ -45,6 +48,20 @@ public final class NativeSSHConnectionBroker {
         self.clock = clock
         self.jitterMilliseconds = { Int.random(in: 100...350) }
         self.cleanupLauncherOverride = nil
+        let eventHub = NativeSSHControlMasterReapEventHub()
+        let ownershipRegistry =
+            NativeSSHControlMasterOwnershipRegistry(
+                sharingOptions: sharingOptions
+            )
+        self.inheritedMasterReapEventHub = eventHub
+        self.controlMasterOwnershipRegistry = ownershipRegistry
+        self.inheritedMasterReapCoordinator =
+            NativeSSHControlMasterReapCoordinator(
+                sharingOptions: sharingOptions,
+                processRunner: RemoteSessionProcessRunner(),
+                eventHub: eventHub,
+                ownershipRegistry: ownershipRegistry
+            )
     }
 
     /// Creates a broker with an injected cleanup launcher.
@@ -63,18 +80,47 @@ public final class NativeSSHConnectionBroker {
         self.clock = clock
         self.jitterMilliseconds = { Int.random(in: 100...350) }
         self.cleanupLauncherOverride = cleanupLauncher
+        let eventHub = NativeSSHControlMasterReapEventHub()
+        let ownershipRegistry =
+            NativeSSHControlMasterOwnershipRegistry(
+                sharingOptions: sharingOptions
+            )
+        self.inheritedMasterReapEventHub = eventHub
+        self.controlMasterOwnershipRegistry = ownershipRegistry
+        self.inheritedMasterReapCoordinator =
+            NativeSSHControlMasterReapCoordinator(
+                sharingOptions: sharingOptions,
+                processRunner: RemoteSessionProcessRunner(),
+                eventHub: eventHub,
+                ownershipRegistry: ownershipRegistry
+            )
     }
 
     nonisolated init(
         sharingOptions: SSHConnectionSharingOptions,
         clock: any RemoteProxyRetryClock,
         jitterMilliseconds: @escaping @MainActor @Sendable () -> Int,
-        cleanupLauncher: @escaping @MainActor @Sendable (NativeSSHControlMasterCleanupRequest) -> Void
+        cleanupLauncher:
+            (@MainActor @Sendable (NativeSSHControlMasterCleanupRequest) -> Void)?,
+        inheritedMasterReapRunner: any RemoteSessionProcessRunning =
+            RemoteSessionProcessRunner(),
+        controlMasterOwnershipRegistry:
+            any NativeSSHControlMasterOwnershipTracking
     ) {
         self.sharingOptions = sharingOptions
         self.clock = clock
         self.jitterMilliseconds = jitterMilliseconds
         self.cleanupLauncherOverride = cleanupLauncher
+        let eventHub = NativeSSHControlMasterReapEventHub()
+        self.inheritedMasterReapEventHub = eventHub
+        self.controlMasterOwnershipRegistry = controlMasterOwnershipRegistry
+        self.inheritedMasterReapCoordinator =
+            NativeSSHControlMasterReapCoordinator(
+                sharingOptions: sharingOptions,
+                processRunner: inheritedMasterReapRunner,
+                eventHub: eventHub,
+                ownershipRegistry: controlMasterOwnershipRegistry
+            )
     }
 
     /// Retains the cmux-owned master used by a configured workspace.
@@ -87,13 +133,44 @@ public final class NativeSSHConnectionBroker {
     @discardableResult
     public func retainWorkspace(_ configuration: WorkspaceRemoteConfiguration) -> WorkspaceRemoteConfiguration {
         guard let ownerWorkspaceID = configuration.ownerWorkspaceID else { return configuration }
+        guard configuration.transport == .ssh else { return configuration }
+        let effectiveOptions = sharingOptions.mergingDefaults(
+            into: configuration.sshOptions
+        )
+        guard sharingOptions.cmuxOwnedControlPath(
+            in: effectiveOptions
+        ) != nil else {
+            return configuration
+        }
+        let leasedConfiguration =
+            configuration.withSSHControlMasterLeaseGeneration(UUID())
+        if let reapKey = NativeSSHControlMasterReapLeaseKey(
+            configuration: leasedConfiguration,
+            sharingOptions: sharingOptions
+        ) {
+            inheritedMasterReapCoordinator.retainWorkspace(
+                leasedConfiguration,
+                ownerWorkspaceID: ownerWorkspaceID,
+                key: reapKey
+            )
+        }
         let nextKey = NativeSSHControlMasterKey(
-            configuration: configuration,
+            configuration: leasedConfiguration,
             sharingOptions: sharingOptions
         )
-        guard let nextKey else { return configuration }
+        // An unresolved `%C` template still needs a generation so the
+        // coordinator can retain its exact resolved socket before reuse.
+        // Lifecycle ownership remains exact-path-only.
+        guard let nextKey else { return leasedConfiguration }
+        if let lease = NativeSSHControlMasterLeaseIdentity(
+            configuration: leasedConfiguration
+        ) {
+            _ = controlMasterOwnershipRegistry.retain(
+                controlPath: nextKey.controlPath,
+                lease: lease
+            )
+        }
         cancelCleanup(for: nextKey)
-        let leasedConfiguration = configuration.withSSHControlMasterLeaseGeneration(UUID())
         var leases = ownerLeases[ownerWorkspaceID] ?? [:]
         let isNewMaster = leases[nextKey] == nil
         leases[nextKey] = leasedConfiguration
@@ -112,15 +189,77 @@ public final class NativeSSHConnectionBroker {
     /// - Parameter configuration: Exact owner-scoped configuration being released.
     public func releaseWorkspace(_ configuration: WorkspaceRemoteConfiguration) {
         guard let ownerWorkspaceID = configuration.ownerWorkspaceID,
-              let generation = configuration.sshControlMasterLeaseGeneration,
-              let key = NativeSSHControlMasterKey(
-                configuration: configuration,
-                sharingOptions: sharingOptions
-              ),
+              let generation = configuration.sshControlMasterLeaseGeneration else {
+            return
+        }
+        if let lease = NativeSSHControlMasterLeaseIdentity(
+            configuration: configuration
+        ) {
+            controlMasterOwnershipRegistry.release(lease: lease)
+        }
+        if let reapKey = NativeSSHControlMasterReapLeaseKey(
+            configuration: configuration,
+            sharingOptions: sharingOptions
+        ) {
+            inheritedMasterReapCoordinator.releaseWorkspace(
+                ownerWorkspaceID: ownerWorkspaceID,
+                generation: generation,
+                key: reapKey
+            )
+        }
+        guard let key = NativeSSHControlMasterKey(
+            configuration: configuration,
+            sharingOptions: sharingOptions
+        ),
               ownerLeases[ownerWorkspaceID]?[key]?.sshControlMasterLeaseGeneration == generation else {
             return
         }
         removeLease(ownerWorkspaceID: ownerWorkspaceID, key: key)
+    }
+
+    /// Registers this process before a coordinator adopts an exact socket.
+    nonisolated func retainResolvedControlMasterLease(
+        for configuration: WorkspaceRemoteConfiguration,
+        controlPath: String
+    ) -> Bool {
+        guard let lease = NativeSSHControlMasterLeaseIdentity(
+            configuration: configuration
+        ) else {
+            return false
+        }
+        return controlMasterOwnershipRegistry.retain(
+            controlPath: controlPath,
+            lease: lease
+        )
+    }
+
+    /// Reaps an exclusively owned inherited master after remote metadata proof.
+    func reapInheritedControlMaster(
+        for configuration: WorkspaceRemoteConfiguration,
+        resolvedControlPath: String,
+        metadataProbeCommand: String
+    ) async -> NativeSSHControlMasterReapOutcome {
+        await inheritedMasterReapCoordinator.reap(
+            for: configuration,
+            resolvedControlPath: resolvedControlPath,
+            metadataProbeCommand: metadataProbeCommand
+        )
+    }
+
+    /// Observes successful reaps for one exact cmux-owned control socket.
+    nonisolated func controlMasterReapEvents(
+        controlPath: String
+    ) async -> AsyncStream<UUID>? {
+        guard !controlPath.contains("%"),
+              sharingOptions.cmuxOwnedControlPath(in: [
+                  "ControlMaster=auto",
+                  "ControlPath=\(controlPath)",
+              ]) == controlPath else {
+            return nil
+        }
+        return await inheritedMasterReapEventHub.events(
+            controlPath: controlPath
+        )
     }
 
     /// Runs one connection attempt after acquiring the endpoint's FIFO permit.
@@ -153,64 +292,6 @@ public final class NativeSSHConnectionBroker {
             releaseConnectionAttempt(permit)
             throw error
         }
-    }
-
-    private func removeLease(ownerWorkspaceID: UUID, key: NativeSSHControlMasterKey) {
-        guard var leases = ownerLeases[ownerWorkspaceID],
-              let previousConfiguration = leases.removeValue(forKey: key) else {
-            return
-        }
-        if leases.isEmpty {
-            ownerLeases.removeValue(forKey: ownerWorkspaceID)
-        } else {
-            ownerLeases[ownerWorkspaceID] = leases
-        }
-        var owners = ownersByControlMaster[key] ?? []
-        owners.remove(ownerWorkspaceID)
-        guard owners.isEmpty else {
-            ownersByControlMaster[key] = owners
-            return
-        }
-        ownersByControlMaster.removeValue(forKey: key)
-        let arguments = RemoteControlMasterCleanup().cleanupArguments(
-            configuration: previousConfiguration
-        )
-        let authenticationLockPath = sharingOptions.foregroundAuthenticationLockPath(
-            destination: previousConfiguration.destination,
-            port: previousConfiguration.port,
-            options: previousConfiguration.sshOptions
-        )
-        let request = NativeSSHControlMasterCleanupRequest(
-            arguments: arguments,
-            environment: previousConfiguration.sshProcessEnvironment,
-            authenticationLockPath: authenticationLockPath
-        )
-        beginCleanup(request, for: key)
-    }
-
-    private func beginCleanup(
-        _ request: NativeSSHControlMasterCleanupRequest,
-        for key: NativeSSHControlMasterKey
-    ) {
-        if let cleanupLauncherOverride {
-            cleanupLauncherOverride(request)
-            cleanupRequestsByControlMaster.removeValue(forKey: key)
-        } else {
-            cleanupRequestsByControlMaster[key] = request
-            launchCleanup(request, for: key)
-        }
-    }
-
-    private func cancelCleanup(for key: NativeSSHControlMasterKey) {
-        cleanupRequestsByControlMaster.removeValue(forKey: key)
-        cleanupRetryTasks.removeValue(forKey: key)?.cancel()
-        guard let cleanupID = cleanupProcessIDByControlMaster[key],
-              let process = cleanupProcesses[cleanupID],
-              process.isRunning else {
-            return
-        }
-        cleanupTerminationRequested.insert(cleanupID)
-        process.terminate()
     }
 
     private func acquireConnectionAttempt(
@@ -305,113 +386,4 @@ public final class NativeSSHConnectionBroker {
         }
     }
 
-    private func launchCleanup(
-        _ request: NativeSSHControlMasterCleanupRequest,
-        for key: NativeSSHControlMasterKey
-    ) {
-        guard cleanupRequestsByControlMaster[key] != nil,
-              ownersByControlMaster[key]?.isEmpty != false,
-              cleanupProcessIDByControlMaster[key] == nil else {
-            return
-        }
-        let cleanupID = UUID()
-        let process = Process()
-        let invocation = request.processInvocation
-        process.executableURL = invocation.executableURL
-        process.arguments = invocation.arguments
-        process.environment = request.environment
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        process.terminationHandler = { [weak self] _ in
-            Task { @MainActor in
-                self?.cleanupProcessDidTerminate(cleanupID)
-            }
-        }
-        do {
-            try process.run()
-        } catch {
-            scheduleCleanupRetry(for: key)
-            return
-        }
-        cleanupProcesses[cleanupID] = process
-        cleanupControlMasterKeysByProcessID[cleanupID] = key
-        cleanupProcessIDByControlMaster[key] = cleanupID
-        scheduleCleanupTimeout(
-            cleanupID,
-            afterMilliseconds: NativeSSHCleanupPolicy.processTimeoutMilliseconds
-        )
-    }
-
-    private func scheduleCleanupRetry(for key: NativeSSHControlMasterKey) {
-        guard cleanupRequestsByControlMaster[key] != nil,
-              ownersByControlMaster[key]?.isEmpty != false,
-              cleanupRetryTasks[key] == nil else {
-            return
-        }
-        let clock = self.clock
-        cleanupRetryTasks[key] = Task { @MainActor [weak self] in
-            guard (try? await clock.sleep(
-                forMilliseconds: NativeSSHCleanupPolicy.retryDelayMilliseconds
-            )) != nil,
-                  !Task.isCancelled else {
-                return
-            }
-            self?.retryCleanup(for: key)
-        }
-    }
-
-    private func retryCleanup(for key: NativeSSHControlMasterKey) {
-        cleanupRetryTasks.removeValue(forKey: key)
-        guard let request = cleanupRequestsByControlMaster[key],
-              ownersByControlMaster[key]?.isEmpty != false else {
-            cleanupRequestsByControlMaster.removeValue(forKey: key)
-            return
-        }
-        launchCleanup(request, for: key)
-    }
-
-    private func scheduleCleanupTimeout(_ cleanupID: UUID, afterMilliseconds delay: Int) {
-        let clock = self.clock
-        cleanupTimeoutTasks[cleanupID] = Task { @MainActor [weak self] in
-            guard (try? await clock.sleep(forMilliseconds: delay)) != nil else { return }
-            self?.cleanupProcessTimedOut(cleanupID)
-        }
-    }
-
-    private func cleanupProcessTimedOut(_ cleanupID: UUID) {
-        guard let process = cleanupProcesses[cleanupID], process.isRunning else {
-            cleanupProcessDidTerminate(cleanupID)
-            return
-        }
-        if cleanupTerminationRequested.insert(cleanupID).inserted {
-            process.terminate()
-            scheduleCleanupTimeout(
-                cleanupID,
-                afterMilliseconds: NativeSSHCleanupPolicy.forcedTerminationDelayMilliseconds
-            )
-        } else {
-            _ = Darwin.kill(process.processIdentifier, SIGKILL)
-        }
-    }
-
-    private func cleanupProcessDidTerminate(_ cleanupID: UUID) {
-        cleanupTimeoutTasks.removeValue(forKey: cleanupID)?.cancel()
-        let terminationWasRequested = cleanupTerminationRequested.remove(cleanupID) != nil
-        let process = cleanupProcesses.removeValue(forKey: cleanupID)
-        guard let key = cleanupControlMasterKeysByProcessID.removeValue(forKey: cleanupID) else { return }
-        if cleanupProcessIDByControlMaster[key] == cleanupID {
-            cleanupProcessIDByControlMaster.removeValue(forKey: key)
-        }
-        guard cleanupRequestsByControlMaster[key] != nil,
-              ownersByControlMaster[key]?.isEmpty != false else {
-            return
-        }
-        if terminationWasRequested ||
-            process?.terminationStatus == NativeSSHControlMasterCleanupRequest.retryExitStatus {
-            scheduleCleanupRetry(for: key)
-        } else {
-            cleanupRequestsByControlMaster.removeValue(forKey: key)
-        }
-    }
 }

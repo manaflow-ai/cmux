@@ -55,10 +55,11 @@ extension AppDelegate {
 
     private func tabManagerHasRegisteredTerminalSurface(_ manager: TabManager) -> Bool {
         for workspace in manager.tabs {
-            for panel in workspace.panels.values {
-                guard let terminalPanel = panel as? TerminalPanel else { continue }
-                if GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface {
-                    return true
+            for panelID in workspace.panels.keys {
+                for terminalPanel in workspace.terminalPanels(projectedFromPanelID: panelID) {
+                    if GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface {
+                        return true
+                    }
                 }
             }
         }

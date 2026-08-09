@@ -395,7 +395,7 @@ public final class ComposerDictationController {
         request: SFSpeechAudioBufferRecognitionRequest
     ) -> @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void {
         // `nonisolated(unsafe)`-safe: `append(_:)` is thread-safe, weak, never outlives the request.
-        nonisolated(unsafe) weak let weakRequest: SFSpeechAudioBufferRecognitionRequest? = request
+        nonisolated(unsafe) weak var weakRequest: SFSpeechAudioBufferRecognitionRequest? = request
         return { buffer, _ in
             weakRequest?.append(buffer)
         }
