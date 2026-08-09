@@ -7188,39 +7188,6 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
     }
 
-    private static func installPortalAnchorView(_ anchorView: NSView, in host: NSView) {
-        // SwiftUI can keep transient replacement hosts alive off-window during split
-        // reparenting. Never let those hosts steal the shared portal anchor, or the
-        // portal will bind against an anchor with no real window and WKWebView will
-        // fall into a hidden/unrendered state.
-        guard host.window != nil else { return }
-        var didInstallConstraints = false
-        if anchorView.superview !== host {
-            anchorView.removeFromSuperview()
-            anchorView.translatesAutoresizingMaskIntoConstraints = false
-            host.addSubview(anchorView)
-            NSLayoutConstraint.activate([
-                anchorView.topAnchor.constraint(equalTo: host.topAnchor),
-                anchorView.bottomAnchor.constraint(equalTo: host.bottomAnchor),
-                anchorView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-                anchorView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
-            ])
-            didInstallConstraints = true
-        } else if anchorView.translatesAutoresizingMaskIntoConstraints {
-            anchorView.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                anchorView.topAnchor.constraint(equalTo: host.topAnchor),
-                anchorView.bottomAnchor.constraint(equalTo: host.bottomAnchor),
-                anchorView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-                anchorView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
-            ])
-            didInstallConstraints = true
-        }
-        if didInstallConstraints {
-            host.needsLayout = true
-        }
-    }
-
     private func schedulePortalLifecycleVisibilityUpdate(
         coordinator: Coordinator,
         generation: Int,
@@ -7507,7 +7474,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 #endif
         if host.window != nil, portalHostAccepted {
-            Self.installPortalAnchorView(portalAnchorView, in: host)
+            portalAnchorView.install(in: host)
         }
         let activeOmnibarSuggestions = coordinator.desiredPortalVisibleInUI ? omnibarSuggestions : nil
 
@@ -7523,7 +7490,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 reason: "didMoveToWindow"
             ) else { return }
             guard host.window != nil else { return }
-            Self.installPortalAnchorView(portalAnchorView, in: host)
+            portalAnchorView.install(in: host)
             BrowserWindowPortalRegistry.bind(
                 webView: webView,
                 to: portalAnchorView,
@@ -7558,7 +7525,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             ) else { return }
             guard host.window != nil else { return }
             let hostId = ObjectIdentifier(host)
-            Self.installPortalAnchorView(portalAnchorView, in: host)
+            portalAnchorView.install(in: host)
             if coordinator.lastPortalHostId != hostId ||
                !BrowserWindowPortalRegistry.isWebView(webView, boundTo: portalAnchorView) {
                 BrowserWindowPortalRegistry.bind(
@@ -7603,7 +7570,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 previousVisible != shouldAttachWebView ||
                 previousZPriority != portalZPriority
             if shouldBindNow {
-                Self.installPortalAnchorView(portalAnchorView, in: host)
+                portalAnchorView.install(in: host)
                 BrowserWindowPortalRegistry.bind(
                     webView: webView,
                     to: portalAnchorView,

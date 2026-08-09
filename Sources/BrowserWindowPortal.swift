@@ -3110,13 +3110,12 @@ final class WindowBrowserPortal: NSObject {
         pruneDeadEntries()
     }
 
-    func synchronizeWebViewForAnchor(_ anchorView: NSView) {
+    @discardableResult
+    func synchronizeWebViewForAnchor(_ anchorView: NSView) -> Bool {
         pruneDeadEntries()
         let anchorId = ObjectIdentifier(anchorView)
-        let primaryWebViewId = webViewByAnchorId[anchorId]
-        if let primaryWebViewId {
-            synchronizeWebView(withId: primaryWebViewId, source: "anchorPrimary")
-        }
+        guard let primaryWebViewId = webViewByAnchorId[anchorId] else { return false }
+        synchronizeWebView(withId: primaryWebViewId, source: "anchorPrimary")
 
         // During rapid geometry changes (e.g. divider drag), syncing every web view
         // on every frame is expensive and causes stuttering.  Each panel's
@@ -3124,6 +3123,7 @@ final class WindowBrowserPortal: NSObject {
         // will sync themselves.  Defer the all-sync to coalesce with the next
         // run-loop turn instead.
         scheduleDeferredFullSynchronizeAll()
+        return true
     }
 
     private func scheduleDeferredFullSynchronizeAll() {
@@ -3958,6 +3958,14 @@ enum BrowserWindowPortalRegistry {
         guard let window = anchorView.window else { return }
         let portal = portal(for: window)
         portal.synchronizeWebViewForAnchor(anchorView)
+    }
+
+    /// Synchronizes an existing anchor binding without creating an empty window portal.
+    @discardableResult
+    static func synchronizeIfBoundForAnchor(_ anchorView: NSView) -> Bool {
+        guard let window = anchorView.window,
+              let portal = portalsByWindowId[ObjectIdentifier(window)] else { return false }
+        return portal.synchronizeWebViewForAnchor(anchorView)
     }
 
     static func scheduleExternalGeometrySynchronize(for window: NSWindow) {
