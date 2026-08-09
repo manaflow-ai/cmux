@@ -412,20 +412,12 @@ extension AppDelegate {
             )
         }
 
-        if let windowId = mainWindowId(from: window),
-           let snapshot = recoverableMainWindowRouteSnapshot(windowId: windowId) {
-            return ScriptableMainWindowState(
-                windowId: snapshot.windowId,
-                tabManager: snapshot.tabManager,
-                window: snapshot.window
-            )
-        }
-
-        let windowNumber = window.windowNumber
-        guard windowNumber >= 0 else { return nil }
+        // AppKit identifiers and window numbers are lookup hints, not route
+        // authority. A recoverable owner can only route through its exact,
+        // still-live cached window.
         for snapshot in recoverableMainWindowRouteSnapshots() {
             guard let routeWindow = snapshot.window,
-                  routeWindow === window || routeWindow.windowNumber == windowNumber else {
+                  routeWindow === window else {
                 continue
             }
             return ScriptableMainWindowState(

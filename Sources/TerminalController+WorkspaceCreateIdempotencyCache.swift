@@ -7,6 +7,7 @@ extension TerminalController {
         private struct AcceptanceRollbackEntry {
             let operationID: UUID
             let workspaceID: UUID?
+            let chronology: UInt64
         }
 
         private struct AcceptanceReleasePlan {
@@ -30,6 +31,10 @@ extension TerminalController {
         private var pendingMutation: (id: UUID, task: Task<Bool, any Error>)?
         private var unassociatedReservationIDs: Set<UUID> = []
         private var rollbackChainsByOperationID: [UUID: [AcceptanceRollbackEntry]] = [:]
+        // Independent reservations can be released in any order. Stable keys
+        // merge their restored tombstones back into the original FIFO order.
+        private var chronologyByOperationID: [UUID: UInt64] = [:]
+        private var nextChronology: UInt64 = 0
 
         convenience init(capacity: Int) {
             self.init(
@@ -83,6 +88,7 @@ extension TerminalController {
 
             insertionOrder = retained
             completedOperationIDs = Set(retained)
+            resetChronology(to: retained)
         }
 
         /// Compatibility seam for tests that need to observe or reject writes.
@@ -268,9 +274,16 @@ extension TerminalController {
             let evictedIDs = completedOperationIDs.subtracting(nextOrder)
             for evictedID in evictedIDs {
                 workspaceIDs.removeValue(forKey: evictedID)
+                chronologyByOperationID.removeValue(forKey: evictedID)
                 if !unassociatedReservationIDs.contains(evictedID) {
                     rollbackChainsByOperationID.removeValue(forKey: evictedID)
                 }
+            }
+            for rollbackEntry in rollbackEntries {
+                chronologyByOperationID[rollbackEntry.operationID] = rollbackEntry.chronology
+            }
+            for operationID in nextOrder where chronologyByOperationID[operationID] == nil {
+                chronologyByOperationID[operationID] = issueChronology()
             }
             insertionOrder = nextOrder
             completedOperationIDs = Set(nextOrder)
@@ -298,7 +311,8 @@ extension TerminalController {
             }
             let evictedEntry = AcceptanceRollbackEntry(
                 operationID: evictedOperationID,
-                workspaceID: workspaceIDs[evictedOperationID]
+                workspaceID: workspaceIDs[evictedOperationID],
+                chronology: chronology(for: evictedOperationID)
             )
             guard unassociatedReservationIDs.contains(evictedOperationID) else {
                 return [evictedEntry]
@@ -318,7 +332,22 @@ extension TerminalController {
             }
             let restoreCount = min(capacity - nextOrder.count, eligibleEntries.count)
             let restoredEntries = Array(eligibleEntries.prefix(restoreCount))
-            nextOrder = restoredEntries.reversed().map(\.operationID) + nextOrder
+            var orderedEntries = nextOrder.map { operationID in
+                (
+                    operationID: operationID,
+                    chronology: chronology(for: operationID)
+                )
+            }
+            orderedEntries.append(contentsOf: restoredEntries.map {
+                (operationID: $0.operationID, chronology: $0.chronology)
+            })
+            orderedEntries.sort { lhs, rhs in
+                if lhs.chronology != rhs.chronology {
+                    return lhs.chronology < rhs.chronology
+                }
+                return lhs.operationID.uuidString < rhs.operationID.uuidString
+            }
+            nextOrder = orderedEntries.map(\.operationID)
             return AcceptanceReleasePlan(
                 nextOrder: nextOrder,
                 restoredEntries: restoredEntries,
@@ -408,8 +437,29 @@ extension TerminalController {
 
         private func reconcileReloadedOperationIDs(_ loaded: [UUID]) {
             let retained = Self.uniqueSuffix(loaded + insertionOrder, capacity: capacity)
+            resetChronology(to: retained)
             commitInMemory(retained)
             loadFailure = nil
+        }
+
+        private func chronology(for operationID: UUID) -> UInt64 {
+            guard let chronology = chronologyByOperationID[operationID] else {
+                preconditionFailure("Accepted operation is missing its chronology")
+            }
+            return chronology
+        }
+
+        private func issueChronology() -> UInt64 {
+            defer { nextChronology &+= 1 }
+            return nextChronology
+        }
+
+        private func resetChronology(to operationIDs: [UUID]) {
+            chronologyByOperationID.removeAll(keepingCapacity: true)
+            nextChronology = 0
+            for operationID in operationIDs {
+                chronologyByOperationID[operationID] = issueChronology()
+            }
         }
 
         private static func uniqueSuffix(_ operationIDs: [UUID], capacity: Int) -> [UUID] {

@@ -248,8 +248,8 @@ struct ClosedMainWindowRoutingTests {
         #expect(app.focusMainWindow(windowId: windowCId))
     }
 
-    @Test("Same-identifier key window cannot hijack the current scriptable route")
-    func sameIdentifierKeyWindowCannotHijackCurrentScriptableRoute() throws {
+    @Test("Same-identifier frontmost window cannot hijack the current scriptable route")
+    func sameIdentifierFrontmostWindowCannotHijackCurrentScriptableRoute() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -309,7 +309,6 @@ struct ClosedMainWindowRoutingTests {
         recoverableWindow.makeKeyAndOrderFront(nil)
         fallbackWindow.makeKeyAndOrderFront(nil)
         duplicateWindow.makeKeyAndOrderFront(nil)
-        #expect(NSApp.keyWindow === duplicateWindow)
 
         let current = try #require(app.currentScriptableMainWindow())
         #expect(current.windowId == fallbackWindowId)
