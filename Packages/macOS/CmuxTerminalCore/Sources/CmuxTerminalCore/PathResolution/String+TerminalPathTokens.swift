@@ -426,7 +426,7 @@ extension String {
     /// physical right edge"). `nil` for non-ASCII rows (fail-closed, same
     /// convention as the other wrap-continuation extractors) or a row
     /// that's empty/entirely whitespace.
-    var lastNonWhitespaceColumn: Int? {
+    public var lastNonWhitespaceColumn: Int? {
         guard unicodeScalars.allSatisfy(\.isASCII) else { return nil }
         let characters = Array(self)
         var index = characters.count - 1

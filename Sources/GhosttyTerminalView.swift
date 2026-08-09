@@ -7446,7 +7446,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let seed = resolver.wrappedPathSeed(
             in: clickedRow, column: cell.column, cwd: cwd, columns: snapshot.columns
         ) else {
-            let seedAbsenceReason = resolver.diagnoseSeedAbsence(in: clickedRow, column: cell.column, cwd: cwd)
+            let seedAbsenceReason = resolver.diagnoseSeedAbsence(
+                in: clickedRow, column: cell.column, cwd: cwd, columns: snapshot.columns
+            )
             cmuxDebugLog(
                 "link.wrappedPath.prepare noSeed detail reason=\(seedAbsenceReason) " +
                 "row=\(cell.row) column=\(cell.column) gridColumns=\(snapshot.columns) cwd=\(cwd)"

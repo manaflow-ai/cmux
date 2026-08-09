@@ -129,7 +129,7 @@ public enum TerminalWrappedCandidateDirectionOutcome: Sendable, Equatable {
 /// (``TerminalPathResolver/resolveWrappedCandidate(seed:rows:clickedIndex:columns:cwd:purpose:)``)
 /// inspects this directly, to decide whether its own narrow, click-only
 /// text-only fallback may even be attempted.
-enum TerminalWrappedResolutionOutcome: Sendable, Equatable {
+public enum TerminalWrappedResolutionOutcome: Sendable, Equatable {
     case resolved(TerminalWrappedPathResolution)
     /// The evaluator judged at least one structurally-eligible span and
     /// said no (or rejected the click outright, e.g. a row-local
@@ -145,6 +145,15 @@ enum TerminalWrappedResolutionOutcome: Sendable, Equatable {
     /// than trusting this case alone (see
     /// ``TerminalPathResolver``'s `resolveTextOnlyPreviousFallback`).
     case notEvaluable(TerminalWrappedNotEvaluableReason)
+
+    /// Stable, raw-text-free label for DEBUG diagnostics.
+    public var diagnosticName: String {
+        switch self {
+        case .resolved: return "resolved"
+        case .rejected(let reason): return reason.diagnosticName
+        case .notEvaluable(let reason): return reason.diagnosticName
+        }
+    }
 }
 
 /// See ``TerminalWrappedResolutionOutcome/rejected(_:)``'s own doc — every
@@ -154,7 +163,7 @@ enum TerminalWrappedResolutionOutcome: Sendable, Equatable {
 /// vocabulary. **None of these are ever grounds for falling back to a
 /// looser resolution path** (design-decision-b1-fallback-policy.md rule
 /// 1's "rejected" bucket).
-enum TerminalWrappedRejectionReason: Sendable, Equatable {
+public enum TerminalWrappedRejectionReason: Sendable, Equatable {
     /// A boundary the span needed doesn't reach the strict physical right
     /// edge (final-spec §4.2) — the load-bearing guard B1 exists to
     /// protect.
@@ -186,15 +195,39 @@ enum TerminalWrappedRejectionReason: Sendable, Equatable {
     /// all (an ASCII row with nothing there to join) — distinct from
     /// every reason above.
     case fragmentNotExtractable
+
+    /// Stable, raw-text-free label for DEBUG diagnostics.
+    public var diagnosticName: String {
+        switch self {
+        case .fullnessGuardRejected: return "fullnessGuardRejected"
+        case .spanAmbiguous: return "spanAmbiguous"
+        case .candidateDoesNotExist: return "candidateDoesNotExist"
+        case .fragmentAloneExists: return "fragmentAloneExists"
+        case .leadingPieceNotPathPrefixShaped: return "leadingPieceNotPathPrefixShaped"
+        case .candidateNotPathShaped: return "candidateNotPathShaped"
+        case .probeBudgetExceeded: return "probeBudgetExceeded"
+        case .candidateTooLong: return "candidateTooLong"
+        case .rowCountExceeded: return "rowCountExceeded"
+        case .rowLocalPriorityBypass: return "rowLocalPriorityBypass"
+        case .fragmentNotExtractable: return "fragmentNotExtractable"
+        }
+    }
 }
 
 /// design-decision-b1-fallback-policy.md rule 1's "評価不能" bucket.
-enum TerminalWrappedNotEvaluableReason: Sendable, Equatable {
+public enum TerminalWrappedNotEvaluableReason: Sendable, Equatable {
     /// A row the search needed is non-ASCII, so terminal-cell columns for
     /// it can't be computed at all — the same reason every ASCII guard in
     /// `String+TerminalPathTokens.swift` exists. No fullness, shape, or
     /// existence judgment could even be attempted for that row.
     case nonASCIIRowPreventsCellColumns
+
+    /// Stable, raw-text-free label for DEBUG diagnostics.
+    public var diagnosticName: String {
+        switch self {
+        case .nonASCIIRowPreventsCellColumns: return "nonASCIIRowPreventsCellColumns"
+        }
+    }
 }
 
 /// Which surface is asking the shared, multi-row resolution entry point
@@ -486,6 +519,15 @@ public struct TerminalWrappedPathResolution: Sendable, Equatable {
 /// file system; tests inject a fake probe. This mirrors
 /// ``TerminalLinkRouter``'s injected `BrowserHostNormalizing` seam.
 public struct TerminalPathResolver: Sendable {
+#if DEBUG
+    /// Test-only events for proving that each resolver entry prepares one
+    /// physical window and invokes the geometry evaluator once.
+    enum DebugResolutionStep: Sendable {
+        case windowPrepared
+        case evaluatorInvoked
+    }
+#endif
+
     /// Maximum characters in a wrapped-path token or adjacent-row fragment.
     /// Mirrors POSIX `PATH_MAX` so a pathological row can't make
     /// tokenization unbounded.
@@ -495,6 +537,9 @@ public struct TerminalPathResolver: Sendable {
     private static let maxContinuationIndentation = 16
 
     private let fileExists: @Sendable (String) -> Bool
+#if DEBUG
+    private var debugResolutionObserver: (@Sendable (DebugResolutionStep) -> Void)?
+#endif
 
     /// Creates a resolver that probes candidate paths through `fileExists`.
     ///
@@ -504,7 +549,19 @@ public struct TerminalPathResolver: Sendable {
         fileExists: @escaping @Sendable (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
     ) {
         self.fileExists = fileExists
+#if DEBUG
+        self.debugResolutionObserver = nil
+#endif
     }
+
+#if DEBUG
+    /// Test-only observer; compiled out of Release builds.
+    mutating func debugSetResolutionObserver(
+        _ observer: (@Sendable (DebugResolutionStep) -> Void)?
+    ) {
+        debugResolutionObserver = observer
+    }
+#endif
 
     /// Resolves raw terminal text to an existing file path for QuickLook.
     ///
@@ -691,7 +748,7 @@ public struct TerminalPathResolver: Sendable {
     /// called by ``wrappedPathSeed(in:column:cwd:)`` itself and never
     /// changes what it decides. Buckets are checked in the same order
     /// ``wrappedPathSeed(in:column:cwd:)`` itself would hit them.
-    public func diagnoseSeedAbsence(in clickedRow: String, column: Int, cwd: String) -> String {
+    public func diagnoseSeedAbsence(in clickedRow: String, column: Int, cwd: String, columns: Int? = nil) -> String {
         let characters = Array(clickedRow)
         guard !characters.isEmpty, column >= 0, column < characters.count else {
             return "columnOutOfBounds"
@@ -709,6 +766,14 @@ public struct TerminalPathResolver: Sendable {
             return "tokenTooLong"
         }
         if resolveVisibleLinePath(clickedRow, column: column, cwd: cwd) != nil {
+            let hasExplicitSlashSeam = match.directions.contains(.next) && match.token.hasSuffix("/")
+            if !hasExplicitSlashSeam,
+               let columns, columns > 0,
+               let lastColumn = clickedRow.lastNonWhitespaceColumn,
+               lastColumn < columns - 1 {
+                let fullnessMargin = columns - 1 - lastColumn
+                return "rowLocalHitMirrorSeamNotFull gridColumns=\(columns) clickedLastCol=\(lastColumn) fullnessMargin=\(fullnessMargin)"
+            }
             return "rowLocalHitNotExplicitSlashSeam"
         }
         return "unknown"
@@ -899,8 +964,46 @@ public struct TerminalPathResolver: Sendable {
         cwd: String,
         purpose: TerminalWrappedResolutionPurpose
     ) -> TerminalWrappedPathResolution? {
-        resolveWrappedCandidateSharedEntry(
+        resolveWrappedCandidateWithOutcome(
             seed: seed, rows: rows, clickedIndex: clickedIndex, columns: columns, cwd: cwd, purpose: purpose,
+        ).candidate
+    }
+
+    /// Shared resolution entry with the geometry evaluator's structured
+    /// outcome retained for DEBUG diagnostics. The candidate is exactly the
+    /// value returned by ``resolveWrappedCandidate(seed:rows:clickedIndex:columns:cwd:purpose:)``;
+    /// `evaluatorOutcome` is additional reporting data and never changes the
+    /// purpose-specific fallback decision.
+    public func resolveWrappedCandidateWithOutcome(
+        seed: TerminalWrappedPathSeed,
+        rows: [String],
+        clickedIndex: Int,
+        columns: Int,
+        cwd: String,
+        purpose: TerminalWrappedResolutionPurpose
+    ) -> (candidate: TerminalWrappedPathResolution?, evaluatorOutcome: TerminalWrappedResolutionOutcome?) {
+        resolveWrappedCandidateSharedEntryWithOutcome(
+            seed: seed, rows: rows, clickedIndex: clickedIndex, columns: columns, cwd: cwd, purpose: purpose,
+            probeBudget: TerminalWrapProbeBudget()
+        ) ?? (candidate: nil, evaluatorOutcome: nil)
+    }
+
+    /// DEBUG diagnostics for the geometry-aware window evaluator. This is the
+    /// evaluator's structured result before the purpose-specific click-only
+    /// fallback is applied, so a caller can distinguish a judged rejection
+    /// such as ``TerminalWrappedRejectionReason/fullnessGuardRejected`` from
+    /// an unevaluable non-ASCII row. It does not make or alter a production
+    /// resolution decision; the shared entry point below still owns that
+    /// decision and its `purpose` handling.
+    public func evaluateWrappedCandidateOutcome(
+        seed: TerminalWrappedPathSeed,
+        rows: [String],
+        clickedIndex: Int,
+        columns: Int,
+        cwd: String
+    ) -> TerminalWrappedResolutionOutcome? {
+        evaluateWrappedCandidateOutcome(
+            seed: seed, rows: rows, clickedIndex: clickedIndex, columns: columns, cwd: cwd,
             probeBudget: TerminalWrapProbeBudget()
         )
     }
@@ -938,6 +1041,70 @@ public struct TerminalPathResolver: Sendable {
         purpose: TerminalWrappedResolutionPurpose,
         probeBudget: TerminalWrapProbeBudget
     ) -> TerminalWrappedPathResolution? {
+        resolveWrappedCandidateSharedEntryWithOutcome(
+            seed: seed, rows: rows, clickedIndex: clickedIndex, columns: columns, cwd: cwd, purpose: purpose,
+            probeBudget: probeBudget
+        )?.candidate
+    }
+
+    private func resolveWrappedCandidateSharedEntryWithOutcome(
+        seed: TerminalWrappedPathSeed,
+        rows: [String],
+        clickedIndex: Int,
+        columns: Int,
+        cwd: String,
+        purpose: TerminalWrappedResolutionPurpose,
+        probeBudget: TerminalWrapProbeBudget
+    ) -> (candidate: TerminalWrappedPathResolution?, evaluatorOutcome: TerminalWrappedResolutionOutcome)? {
+        guard let (window, geometry) = wrappedCandidateEvaluationInput(
+            rows: rows, clickedIndex: clickedIndex, columns: columns
+        ) else { return nil }
+        let outcome = evaluateContiguousSpans(
+            seed: seed, window: window, cwd: cwd, geometry: geometry, probeBudget: probeBudget
+        )
+
+        switch outcome {
+        case .resolved(let resolution):
+            return (candidate: resolution, evaluatorOutcome: outcome)
+        case .rejected:
+            // design-decision-b1-fallback-policy.md rule 5 — a judged
+            // rejection (fullness, ambiguity, absence, budget, shape,
+            // row-local priority, ...) is a DECISION. Never a reason to
+            // fall through to the legacy overload.
+            return (candidate: nil, evaluatorOutcome: outcome)
+        case .notEvaluable:
+            // rule 2 condition 2 — hover structurally cannot reach the
+            // fallback below; only `purpose == .click` may even attempt
+            // it, and even then that attempt re-derives its own
+            // eligibility rather than trusting this case alone.
+            guard purpose == .click else { return (candidate: nil, evaluatorOutcome: outcome) }
+            guard let fallback = resolveTextOnlyPreviousFallback(seed: seed, window: window, cwd: cwd) else {
+                return (candidate: nil, evaluatorOutcome: outcome)
+            }
+            return (candidate: fallback, evaluatorOutcome: outcome)
+        }
+    }
+
+    private func evaluateWrappedCandidateOutcome(
+        seed: TerminalWrappedPathSeed,
+        rows: [String],
+        clickedIndex: Int,
+        columns: Int,
+        cwd: String,
+        probeBudget: TerminalWrapProbeBudget
+    ) -> TerminalWrappedResolutionOutcome? {
+        guard let (window, geometry) = wrappedCandidateEvaluationInput(
+            rows: rows, clickedIndex: clickedIndex, columns: columns
+        ) else { return nil }
+
+        return evaluateContiguousSpans(seed: seed, window: window, cwd: cwd, geometry: geometry, probeBudget: probeBudget)
+    }
+
+    private func wrappedCandidateEvaluationInput(
+        rows: [String],
+        clickedIndex: Int,
+        columns: Int
+    ) -> (window: TerminalPhysicalRowWindow, geometry: TerminalWrapGeometry)? {
         guard rows.indices.contains(clickedIndex) else { return nil }
 
         let windowStart = max(0, clickedIndex - (Self.maxWrappedRows - 1))
@@ -951,24 +1118,10 @@ public struct TerminalPathResolver: Sendable {
         else {
             return nil
         }
-
-        switch evaluateContiguousSpans(seed: seed, window: window, cwd: cwd, geometry: geometry, probeBudget: probeBudget) {
-        case .resolved(let resolution):
-            return resolution
-        case .rejected:
-            // design-decision-b1-fallback-policy.md rule 5 — a judged
-            // rejection (fullness, ambiguity, absence, budget, shape,
-            // row-local priority, ...) is a DECISION. Never a reason to
-            // fall through to the legacy overload.
-            return nil
-        case .notEvaluable:
-            // rule 2 condition 2 — hover structurally cannot reach the
-            // fallback below; only `purpose == .click` may even attempt
-            // it, and even then that attempt re-derives its own
-            // eligibility rather than trusting this case alone.
-            guard purpose == .click else { return nil }
-            return resolveTextOnlyPreviousFallback(seed: seed, window: window, cwd: cwd)
-        }
+#if DEBUG
+        debugResolutionObserver?(.windowPrepared)
+#endif
+        return (window, geometry)
     }
 
     /// design-decision-b1-fallback-policy.md rule 2/6 — the ONE, narrowly-
@@ -1646,6 +1799,9 @@ public struct TerminalPathResolver: Sendable {
         geometry: TerminalWrapGeometry,
         probeBudget: TerminalWrapProbeBudget = TerminalWrapProbeBudget()
     ) -> TerminalWrappedResolutionOutcome {
+#if DEBUG
+        debugResolutionObserver?(.evaluatorInvoked)
+#endif
         let clickedIndex = window.clickedIndex
         let oracle: any WrapBoundaryOracle = TextHeuristicWrapBoundaryOracle(fullnessTolerance: geometry.fullnessTolerance)
         var probeBudget = probeBudget

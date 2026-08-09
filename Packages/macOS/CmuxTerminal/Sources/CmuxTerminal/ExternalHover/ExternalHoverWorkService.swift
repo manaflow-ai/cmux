@@ -98,6 +98,15 @@ public actor ExternalHoverWorkService {
     /// of a source-shape inspection of `resolveFully` itself.
     public typealias ReadMetricsCalculator = @Sendable (String) -> ExternalHoverReadMetrics
 
+#if DEBUG
+    /// Test-only seam for proving that the diagnostics gate selects the
+    /// intended resolver API. This is compiled out of Release builds.
+    enum DebugResolutionPath: Sendable {
+        case candidateOnly
+        case structuredOutcome
+    }
+#endif
+
     /// Bounded per-drain capacity — matches the Zig ring's own fixed
     /// capacity (64), so one drain call always empties the ring in a
     /// single round-trip under normal (non-pathological) hover rates.
@@ -166,6 +175,9 @@ public actor ExternalHoverWorkService {
     private let surfaceSerialRegistry: ExternalHoverSurfaceSerialRegistry
 
     private var cachesByLifetime: [RuntimeSurfaceLifetimeID: ExternalHoverCandidateCache] = [:]
+#if DEBUG
+    private var debugResolutionPathObserver: (@Sendable (DebugResolutionPath) -> Void)?
+#endif
     /// The highest `requestGeneration` seen for each lifetime, updated
     /// unconditionally at the START of every `process(_:)` call — this is
     /// an ADDITIONAL defense against an out-of-order actor-queue arrival
@@ -194,6 +206,15 @@ public actor ExternalHoverWorkService {
     func debugPreviousDroppedCount(for lifetimeID: RuntimeSurfaceLifetimeID) -> UInt64? {
         droppedCountTracker.debugPreviousDroppedCount(for: lifetimeID)
     }
+
+#if DEBUG
+    /// Test-only observer for the resolver path selected by `resolveFully`.
+    func debugSetResolutionPathObserver(
+        _ observer: (@Sendable (DebugResolutionPath) -> Void)?
+    ) {
+        debugResolutionPathObserver = observer
+    }
+#endif
 
     public init(
         teardownCoordinator: TerminalSurfaceRuntimeTeardownCoordinator,
@@ -471,12 +492,23 @@ public actor ExternalHoverWorkService {
         // gate internally.
         func logResolve(
             outcome: String, reason: String? = nil, spanCount: Int = 0,
-            candidateLength: Int = 0, directionsTried: Int = 0
+            candidateLength: Int = 0, directionsTried: Int = 0,
+            gridColumns: Int? = nil, clickedLastCol: Int? = nil,
+            prevLastCol: Int? = nil, nextLastCol: Int? = nil,
+            evaluatorReason: String? = nil
         ) {
+            let geometryFields: String
+            if let gridColumns, let clickedLastCol, let prevLastCol, let nextLastCol {
+                geometryFields = "gridColumns=\(gridColumns) clickedLastCol=\(clickedLastCol) " +
+                    "prevLastCol=\(prevLastCol) nextLastCol=\(nextLastCol) "
+            } else {
+                geometryFields = ""
+            }
             logDebugEvent(
                 "link.externalHover stage=resolve surfaceSerial=\(request.surfaceSerial) event=\(request.requestGeneration) " +
                 "spanCount=\(spanCount) candidateLength=\(candidateLength) directionsTried=\(directionsTried) " +
-                "outcome=\(outcome)" + (reason.map { " reason=\($0)" } ?? "")
+                geometryFields + "outcome=\(outcome)" + (reason.map { " reason=\($0)" } ?? "") +
+                (evaluatorReason.map { " evaluatorReason=\($0)" } ?? "")
             )
         }
 #endif
@@ -588,13 +620,47 @@ public actor ExternalHoverWorkService {
             // with `purpose: .hover` so it can never reach the conservative
             // click-only fallback.
             directionsTried = seed.directions.count
-            guard let candidate = resolver.resolveWrappedCandidate(
+            var candidate: TerminalWrappedPathResolution?
+#if DEBUG
+            var evaluatorOutcome: TerminalWrappedResolutionOutcome?
+            if diagnosticsOn {
+                debugResolutionPathObserver?(.structuredOutcome)
+                let resolution = resolver.resolveWrappedCandidateWithOutcome(
+                    seed: seed, rows: lines, clickedIndex: clickedIndex, columns: snapshot.columns, cwd: request.cwd,
+                    purpose: .hover
+                )
+                candidate = resolution.candidate
+                evaluatorOutcome = resolution.evaluatorOutcome
+            } else {
+                debugResolutionPathObserver?(.candidateOnly)
+                candidate = resolver.resolveWrappedCandidate(
+                    seed: seed, rows: lines, clickedIndex: clickedIndex, columns: snapshot.columns, cwd: request.cwd,
+                    purpose: .hover
+                )
+            }
+#else
+            candidate = resolver.resolveWrappedCandidate(
                 seed: seed, rows: lines, clickedIndex: clickedIndex, columns: snapshot.columns, cwd: request.cwd,
                 purpose: .hover
-            ) else {
+            )
+#endif
+            guard let candidate else {
 #if DEBUG
                 if diagnosticsOn {
-                    logResolve(outcome: "rejected", reason: "noCandidate", directionsTried: directionsTried)
+                    let previousLastCol = clickedIndex > 0
+                        ? (lines[clickedIndex - 1].lastNonWhitespaceColumn ?? -1)
+                        : -1
+                    let nextLastCol = clickedIndex + 1 < lines.count
+                        ? (lines[clickedIndex + 1].lastNonWhitespaceColumn ?? -1)
+                        : -1
+                    logResolve(
+                        outcome: "rejected", reason: "noCandidate", directionsTried: directionsTried,
+                        gridColumns: snapshot.columns,
+                        clickedLastCol: clickedLine.lastNonWhitespaceColumn ?? -1,
+                        prevLastCol: previousLastCol,
+                        nextLastCol: nextLastCol,
+                        evaluatorReason: evaluatorOutcome?.diagnosticName ?? "unavailable"
+                    )
                 }
 #endif
                 return nil
