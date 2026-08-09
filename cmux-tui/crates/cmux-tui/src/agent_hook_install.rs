@@ -729,11 +729,7 @@ fn run_hermes_command_with_timeout(
         .name("hermes-command-stderr".into())
         .spawn(move || read_hermes_output(stderr, deadline))?;
     let remaining = deadline.saturating_duration_since(Instant::now());
-    let status = if remaining.is_zero() {
-        None
-    } else {
-        child.wait_timeout(remaining)?
-    };
+    let status = if remaining.is_zero() { None } else { child.wait_timeout(remaining)? };
     #[cfg(unix)]
     tree.terminate_until(deadline);
     #[cfg(windows)]
@@ -744,11 +740,9 @@ fn run_hermes_command_with_timeout(
         // Reaping must not extend the command's absolute deadline. The
         // process scope or Windows job has already issued exact termination;
         // a detached reaper owns the blocking wait.
-        let _ = std::thread::Builder::new()
-            .name("hermes-command-reaper".into())
-            .spawn(move || {
-                let _ = child.wait();
-            });
+        let _ = std::thread::Builder::new().name("hermes-command-reaper".into()).spawn(move || {
+            let _ = child.wait();
+        });
     }
     let stdout = stdout.join().map_err(|_| anyhow::anyhow!("Hermes stdout reader panicked"))?;
     let stderr = stderr.join().map_err(|_| anyhow::anyhow!("Hermes stderr reader panicked"))?;

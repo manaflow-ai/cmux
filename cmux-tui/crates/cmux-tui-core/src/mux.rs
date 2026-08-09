@@ -4690,8 +4690,7 @@ impl Mux {
         entered: std::sync::mpsc::SyncSender<()>,
         release: std::sync::mpsc::Receiver<()>,
     ) {
-        self.journal_ingress
-            .install_nonretryable_failure_hook_for_test(entered, release);
+        self.journal_ingress.install_nonretryable_failure_hook_for_test(entered, release);
     }
 
     pub(crate) fn terminal_journal_enabled(&self) -> bool {

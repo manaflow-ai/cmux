@@ -4137,8 +4137,7 @@ impl Surface {
 
     #[cfg(test)]
     pub(crate) fn wait_for_terminal_reader_for_test(&self, deadline: Instant) -> bool {
-        self.as_pty()
-            .is_some_and(|pty| pty.reader_completion.wait_until(deadline))
+        self.as_pty().is_some_and(|pty| pty.reader_completion.wait_until(deadline))
     }
 
     #[cfg(test)]

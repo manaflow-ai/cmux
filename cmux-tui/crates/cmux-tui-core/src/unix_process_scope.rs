@@ -12,9 +12,9 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::OpenOptions;
 use std::io;
-use std::os::fd::{AsRawFd, OwnedFd};
 #[cfg(target_os = "linux")]
 use std::os::fd::FromRawFd;
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::process::Command;
@@ -98,8 +98,7 @@ impl UnixProcessScope {
         unsafe {
             command.pre_exec(move || {
                 let flags = libc::fcntl(marker_fd, libc::F_GETFD);
-                if flags < 0
-                    || libc::fcntl(marker_fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0
+                if flags < 0 || libc::fcntl(marker_fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0
                 {
                     return Err(io::Error::last_os_error());
                 }
@@ -159,9 +158,8 @@ impl UnixProcessScope {
         let tracked = self.tracked.clone();
         let tracked_changed = self.tracked_changed.clone();
         let (stop, stopped) = sync_channel(1);
-        std::thread::Builder::new()
-            .name("cmux-process-scope".into())
-            .spawn(move || loop {
+        std::thread::Builder::new().name("cmux-process-scope".into()).spawn(move || {
+            loop {
                 let holders = marker_processes(&marker, file_marker);
                 #[cfg(target_os = "linux")]
                 {
@@ -205,7 +203,8 @@ impl UnixProcessScope {
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
                     Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                 }
-            })?;
+            }
+        })?;
         self.tracker = Some(ScopeTracker { stop });
         Ok(())
     }
@@ -390,9 +389,8 @@ fn marker_processes(marker: &str, file_marker: FileMarker) -> Vec<ProcessIdentit
         else {
             continue;
         };
-        let environment_match = std::fs::read(process.path().join("environ"))
-            .ok()
-            .is_some_and(|environment| {
+        let environment_match =
+            std::fs::read(process.path().join("environ")).ok().is_some_and(|environment| {
                 environment.split(|byte| *byte == 0).any(|entry| entry == expected)
             });
         let file_match = std::fs::read_dir(process.path().join("fd")).ok().is_some_and(|fds| {
@@ -474,9 +472,8 @@ struct VnodeFdInfo {
 fn mac_process_holds_file_marker(pid: u32, marker: FileMarker) -> bool {
     const PROC_PIDFDVNODEINFO: libc::c_int = 1;
     let Ok(pid_int) = libc::c_int::try_from(pid) else { return false };
-    let bytes = unsafe {
-        libc::proc_pidinfo(pid_int, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0)
-    };
+    let bytes =
+        unsafe { libc::proc_pidinfo(pid_int, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
     let Ok(bytes) = usize::try_from(bytes) else { return false };
     let mut fds = Vec::<libc::proc_fdinfo>::with_capacity(
         bytes / std::mem::size_of::<libc::proc_fdinfo>() + 8,

@@ -1052,14 +1052,11 @@ fn journal_subscription_sigint_exits_immediately_and_cleanly() {
     let started = Instant::now();
     let pid = libc::pid_t::try_from(child.id()).unwrap();
     assert_eq!(unsafe { libc::kill(pid, libc::SIGINT) }, 0);
-    let status = child
-        .wait_timeout(Duration::from_millis(100))
-        .unwrap()
-        .unwrap_or_else(|| {
-            let _ = child.kill();
-            let _ = child.wait();
-            panic!("journal subscriber did not exit within 100 ms of SIGINT");
-        });
+    let status = child.wait_timeout(Duration::from_millis(100)).unwrap().unwrap_or_else(|| {
+        let _ = child.kill();
+        let _ = child.wait();
+        panic!("journal subscriber did not exit within 100 ms of SIGINT");
+    });
     let elapsed = started.elapsed();
     let mut stderr = String::new();
     child.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();

@@ -1793,10 +1793,7 @@ mod tests {
 
         let (failure_observed, failure_observed_receiver) = sync_channel(1);
         let (retry, retry_receiver) = sync_channel(1);
-        mux.install_journal_nonretryable_failure_hook_for_test(
-            failure_observed,
-            retry_receiver,
-        );
+        mux.install_journal_nonretryable_failure_hook_for_test(failure_observed, retry_receiver);
         let terminal_id = Arc::new(public_id("term", 11, TerminalPublicId::parse));
         mux.journal_terminal_output(
             terminal_id.clone(),
