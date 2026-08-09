@@ -377,7 +377,7 @@ class GhosttyApp {
     /// namespace enum).
     static let terminalPasteboard = TerminalPasteboardService()
 
-    /// The process-wide serialized native-surface free queue (was the
+    /// The process-wide bounded native-surface free queue (was the
     /// `TerminalSurfaceRuntimeTeardownCoordinator.shared` actor singleton).
     static let terminalSurfaceRuntimeTeardown = TerminalSurfaceRuntimeTeardownCoordinator()
 
