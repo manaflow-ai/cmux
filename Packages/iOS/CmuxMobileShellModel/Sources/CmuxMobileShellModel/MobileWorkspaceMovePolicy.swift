@@ -1,7 +1,7 @@
 import Foundation
 
 /// Host-style workspace move normalization shared by iOS intent resolution and optimistic ordering.
-struct MobileWorkspaceMovePolicy {
+public struct MobileWorkspaceMovePolicy {
     let workspaces: [MobileWorkspacePreview]
     let groups: [MobileWorkspaceGroupPreview]
     // One synchronous drop runs the policy across per-workspace filters,
@@ -10,14 +10,25 @@ struct MobileWorkspaceMovePolicy {
     private let groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview]
     private let groupByAnchorID: [MobileWorkspacePreview.ID: MobileWorkspaceGroupPreview]
 
-    init(workspaces: [MobileWorkspacePreview], groups: [MobileWorkspaceGroupPreview]) {
+    /// Creates a move policy for one authoritative or optimistic workspace snapshot.
+    ///
+    /// - Parameters:
+    ///   - workspaces: The workspace order against which to validate and predict a move.
+    ///   - groups: The known workspace groups and their anchor metadata.
+    public init(workspaces: [MobileWorkspacePreview], groups: [MobileWorkspaceGroupPreview]) {
         self.workspaces = workspaces
         self.groups = groups
         groupsByID = Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         groupByAnchorID = Dictionary(groups.map { ($0.anchorWorkspaceID, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
-    func normalizedIntent(
+    /// Validates and canonicalizes a proposed host move for one workspace.
+    ///
+    /// - Parameters:
+    ///   - proposed: The proposed group membership and relative ordering.
+    ///   - movedWorkspaceID: The workspace being moved, or a group's anchor for a group move.
+    /// - Returns: A canonical move intent, or `nil` when the proposal is invalid or a no-op.
+    public func normalizedIntent(
         _ proposed: MobileWorkspaceMoveIntent,
         movedWorkspaceID: MobileWorkspacePreview.ID
     ) -> MobileWorkspaceMoveIntent? {

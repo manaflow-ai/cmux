@@ -7,7 +7,6 @@ struct VerifiedReplayFrozenPresentation {
     let layer: CALayer
     let backgroundLayer: CALayer
     let contentLayer: CALayer?
-    let cursorLayer: CALayer?
     let image: CGImage?
     let viewportRect: CGRect
 }
@@ -29,6 +28,7 @@ nonisolated struct PendingVerifiedReplayPresentation: @unchecked Sendable {
     let read: VerifiedReplaySurfaceRead?
     var fence: VerifiedReplayPresentationFence
     var observedFrame: MobileTerminalRenderGridFrame?
+    var rearmReadyFenceOnPresent: Bool = false
     let continuation: CheckedContinuation<VerifiedReplayPresentedSubmission?, Never>
 }
 #endif

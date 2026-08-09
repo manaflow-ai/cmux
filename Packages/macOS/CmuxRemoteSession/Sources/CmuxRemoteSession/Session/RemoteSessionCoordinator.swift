@@ -58,6 +58,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     let connectionBroker: NativeSSHConnectionBroker
     let manifestRepository: RemoteDaemonManifestRepository
     let processRunner: any RemoteSessionProcessRunning
+    let reverseRelayLauncher: any RemoteReverseRelayLaunching
     let reachabilityProbe: any RemoteHostReachabilityProbing
     let relayCommandRewriter: any RemoteRelayCommandRewriting
     let buildInfo: any RemoteSessionBuildInfoProviding
@@ -71,7 +72,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     //
     // Every var below is confined to `queue` (see the isolation essay).
     // Internal so the coordinator's same-module extension files can reach them.
-
     var isStopping = false
     var proxyLease: RemoteProxyLease?
     var proxyLeaseGeneration: UInt64 = 0
@@ -79,8 +79,11 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var daemonReady = false
     var daemonBootstrapVersion: String?
     var daemonRemotePath: String?
-    var reverseRelayProcess: Process?
+    var readyDaemonStatus: WorkspaceRemoteDaemonStatus?
+    var controlMasterReapState = ControlMasterReapState()
+    var reverseRelayProcess: (any RemoteReverseRelayProcess)?
     var reverseRelayControlMasterForwardSpec: String?
+    var resolvedControlMasterSSHOptions: [String]?
     var cliRelayServer: RemoteCLIRelayServer?
     var remotePortScanTTYNames: [UUID: String] = [:]
     /// Stable publication state for best-effort remote TTY attribution scans.
@@ -108,10 +111,8 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var bootstrapRemoteTTYRetryToken: UUID?
     var bootstrapRemoteTTYFetchInFlight = false
     var bootstrapRemoteTTYRetryCount = 0
-    var reverseRelayStderrPipe: Pipe?
     var reverseRelayRestartTask: Task<Void, Never>?
     var reverseRelayRestartToken: UUID?
-    var reverseRelayStderrBuffer = ""
     var reconnectRetryCount = 0
     var reconnectTask: Task<Void, Never>?
     var reconnectToken: UUID?
@@ -130,11 +131,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     /// `.some(nil)` = computed and unavailable (legacy process-wide
     /// `static let` cache, made per-coordinator with the build-info seam).
     var remoteDaemonSourceFingerprintCache: String??
-    /// Grace period the relay-startup failure probe waits for an `ssh -N -R`
-    /// transport that may exit immediately (public because it is the default
-    /// argument of the test-pinned ``reverseRelayStartupFailureDetail(process:stderrPipe:gracePeriod:)``).
-    public static let reverseRelayStartupGracePeriod: TimeInterval = 0.5
-
     /// Creates a coordinator for one remote-workspace connection attempt.
     ///
     /// - Parameters:
@@ -147,6 +143,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     ///     connection-attempt broker.
     ///   - manifestRepository: cmuxd-remote manifest/binary-cache repository.
     ///   - processRunner: Blocking subprocess seam (ssh/scp/dev go build).
+    ///   - reverseRelayLauncher: Standalone SSH reverse-relay launch seam.
     ///   - reachabilityProbe: SSH endpoint reachability seam for the
     ///     reconnect-suspend policy.
     ///   - relayCommandRewriter: Alias-aware CLI relay command rewriter.
@@ -162,6 +159,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         connectionBroker: NativeSSHConnectionBroker,
         manifestRepository: RemoteDaemonManifestRepository,
         processRunner: any RemoteSessionProcessRunning,
+        reverseRelayLauncher: any RemoteReverseRelayLaunching = RemoteReverseRelayLauncher(),
         reachabilityProbe: any RemoteHostReachabilityProbing,
         relayCommandRewriter: any RemoteRelayCommandRewriting,
         buildInfo: any RemoteSessionBuildInfoProviding,
@@ -175,6 +173,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         self.connectionBroker = connectionBroker
         self.manifestRepository = manifestRepository
         self.processRunner = processRunner
+        self.reverseRelayLauncher = reverseRelayLauncher
         self.reachabilityProbe = reachabilityProbe
         self.relayCommandRewriter = relayCommandRewriter
         self.buildInfo = buildInfo
@@ -245,7 +244,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
 
     func beginConnectionAttemptLocked() {
         guard !isStopping else { return }
-
         Self.killOrphanedRemoteSSHProcesses(
             destination: configuration.destination,
             relayPort: configuration.relayPort,
@@ -279,6 +277,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         publishState(connectionState, detail: connectDetail)
         publishDaemonStatus(.bootstrapping, detail: bootstrapDetail)
         do {
+            try prepareControlMasterOwnershipLocked()
             let requiredCapabilities = requiredDaemonCapabilities
             let hello: DaemonHello
             if configuration.skipDaemonBootstrap {
@@ -473,7 +472,16 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             capabilities: capabilities,
             remotePath: remotePath
         )
+        if state == .ready {
+            readyDaemonStatus = status
+        }
         host.publishDaemonStatus(status)
+    }
+
+    /// Re-publishes the daemon hello snapshot after relay recovery succeeds.
+    func restoreReadyDaemonStatusLocked() {
+        guard daemonReady, let readyDaemonStatus else { return }
+        host.publishDaemonStatus(readyDaemonStatus)
     }
 
     func publishProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {
@@ -508,11 +516,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
 
     var bakedDaemonPreflightRequiredCapabilities: [String] {
         requiredDaemonCapabilities.filter {
-            $0 != RemoteDaemonRPCClient.requiredPTYSessionCapability &&
-                $0 != RemoteDaemonRPCClient.requiredPTYSessionTokenCapability &&
-                $0 != RemoteDaemonRPCClient.requiredPTYPersistentDaemonCapability &&
-                $0 != RemoteDaemonRPCClient.requiredPTYWriteNotificationCapability &&
-                $0 != RemoteDaemonRPCClient.requiredPTYResizeNotificationCapability
+            !RemoteDaemonCapability.persistentPTYFamily.contains($0)
         }
     }
 

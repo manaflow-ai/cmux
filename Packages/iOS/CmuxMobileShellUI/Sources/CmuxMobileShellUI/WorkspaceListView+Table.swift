@@ -18,7 +18,9 @@ extension WorkspaceListView {
             items.append(.chrome(.recoveryBanner))
         case .macStatusRow:
             items.append(.chrome(.macStatusRow))
-        case .none:
+        case .statusLine, .none:
+            // The status line renders under the computers picker in the
+            // toolbar, not as a list row; content stays uncovered.
             break
         }
 
@@ -84,8 +86,6 @@ extension WorkspaceListView {
             workspaceChangeChipsByWorkspaceID: workspaceChangeChipsByWorkspaceID,
             openWorkspaceChanges: openChanges,
             connectionRequiresReauth: store?.connectionRequiresReauth ?? false,
-            connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
-            isRecoveringConnection: store?.isRecoveringConnection ?? false,
             connectionError: store?.connectionError,
             host: host,
             isInitialConnectionLoading: isInitialConnectionLoading,
@@ -106,8 +106,19 @@ extension WorkspaceListView {
                     moveFlatRows(from: sourceOffsets, to: destination)
                 }
             } : nil,
+            canDropIntoGroup: enablesReorder && grouped ? { workspaceID, groupID in
+                canJoinGroupAtEnd(workspaceID: workspaceID, groupID: groupID)
+            } : nil,
+            dropIntoGroup: enablesReorder && grouped ? { workspaceID, groupID in
+                joinGroupAtEnd(workspaceID: workspaceID, groupID: groupID)
+            } : nil,
+            groupMoveMenu: enablesReorder && grouped ? { workspaceID in
+                groupMoveMenu(for: workspaceID)
+            } : nil,
+            moveToGroup: enablesReorder && grouped ? { workspaceID, groupID in
+                joinGroupAtEnd(workspaceID: workspaceID, groupID: groupID)
+            } : nil,
             selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
-            requestWorkspaceClose: requestWorkspaceClose,
             closeWorkspace: closeWorkspace,
             setUnread: setUnread,
             setPinned: setPinned,
@@ -115,16 +126,16 @@ extension WorkspaceListView {
             customizeRequest: requestWorkspaceCustomization,
             createWorkspaceInGroup: canCreateWorkspaceInGroups ? createWorkspaceInGroup : nil,
             renameWorkspaceGroup: renameWorkspaceGroup,
+            renameWorkspaceGroupRequest: requestWorkspaceGroupRename,
             setGroupPinned: setGroupPinned,
             ungroupWorkspaceGroup: ungroupWorkspaceGroup,
+            ungroupWorkspaceGroupRequest: requestWorkspaceGroupUngroup,
             deleteWorkspaceGroup: deleteWorkspaceGroup,
+            deleteWorkspaceGroupRequest: requestWorkspaceGroupDelete,
             toggleGroupCollapsed: toggleGroupCollapsed,
             showAll: {
                 filter = .all
                 macSelection = .all
-            },
-            retryConnectionRecovery: store.map { store in
-                { store.retryMobileConnection() }
             },
             signOut: signOut,
             retryInitialConnection: initialConnectionTimedOut ? retryInitialConnection : nil,

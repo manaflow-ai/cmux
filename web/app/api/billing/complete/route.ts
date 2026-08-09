@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
 
-import { validatedNativeCallbackScheme } from "../../../lib/native-callback";
+import {
+  trustedNativeCallbackScheme,
+  validatedNativeCallbackScheme,
+} from "../../../lib/native-callback";
 import { captureBillingError } from "../../../../services/errors";
 import {
   isCmuxCheckoutSession,
@@ -47,7 +50,7 @@ export function makeBillingCompleteHandler(
         return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
       }
 
-      const scheme = validatedNativeCallbackScheme(
+      const requestedScheme = validatedNativeCallbackScheme(
         request.nextUrl.searchParams.get("cmux_scheme"),
         request,
       );
@@ -58,6 +61,9 @@ export function makeBillingCompleteHandler(
         if (!isCmuxCheckoutSession(session)) {
           return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
         }
+        const scheme =
+          trustedNativeCallbackScheme(session.metadata?.nativeCallbackScheme) ??
+          requestedScheme;
         if (
           session.payment_status === "paid" ||
           session.payment_status === "no_payment_required"

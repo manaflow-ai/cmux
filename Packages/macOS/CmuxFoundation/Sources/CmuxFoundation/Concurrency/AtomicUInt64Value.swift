@@ -43,4 +43,20 @@ public final class AtomicUInt64Value: @unchecked Sendable {
     public func wrappingIncrementRelaxed() -> UInt64 {
         CmuxAtomicUInt64IncrementRelaxed(storage)
     }
+
+    /// Atomically increments the value when it is below `upperBound`.
+    ///
+    /// - Returns: `true` when this call claimed one count below the bound.
+    @inline(__always)
+    public func incrementIfBelow(_ upperBound: UInt64) -> Bool {
+        CmuxAtomicUInt64IncrementIfBelow(storage, upperBound)
+    }
+
+    /// Atomically decrements a positive value.
+    ///
+    /// - Returns: `true` when this call released one existing count.
+    @inline(__always)
+    public func decrementIfPositive() -> Bool {
+        CmuxAtomicUInt64DecrementIfPositive(storage)
+    }
 }

@@ -91,16 +91,32 @@ public actor MobileDebugLogSink {
     /// file logging is configured, the same line is also appended to disk before
     /// this method returns.
     public func append(_ message: String) {
+        appendMessages(CollectionOfOne(message))
+    }
+
+    /// Append a batch while holding actor ownership across the whole write.
+    ///
+    /// Latency tracing uses this internal path so its single consumer can
+    /// forward a drained batch without spawning one task per trace line.
+    func appendBatch(_ messages: [String]) {
+        appendMessages(messages)
+    }
+
+    private func appendMessages<Messages: Collection>(_ messages: Messages)
+    where Messages.Element == String {
+        guard !messages.isEmpty else { return }
         let elapsed = String(format: "%9.3f", now().timeIntervalSince(startedAt))
-        let line = "[\(elapsed)] \(message)"
-        buffer.append(line)
+        let lines = messages.map { "[\(elapsed)] \($0)" }
+        buffer.append(contentsOf: lines)
         if buffer.count > capacity {
             buffer.removeFirst(buffer.count - capacity)
         }
-        for continuation in continuations.values {
-            continuation.yield(line)
+        for line in lines {
+            for continuation in continuations.values {
+                continuation.yield(line)
+            }
+            appendToFile(line)
         }
-        appendToFile(line)
     }
 
     /// The full buffer as newline-joined text, newest last.

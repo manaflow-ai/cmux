@@ -661,6 +661,7 @@ import Testing
             port: 59137
         )
         let session = MobileCoreRPCSession(
+            connectAttemptKey: MobileRPCConnectAttemptKey(route: route),
             makeTransport: { try factory.makeTransport(for: route) }
         )
 
@@ -695,9 +696,9 @@ import Testing
                     + 500_000_000
             )
             Issue.record("Expected connection creation to wait for close capacity")
-        } catch MobileShellConnectionError.connectionClosed {
+        } catch MobileShellConnectionError.routeCleanupBlocked {
         } catch {
-            Issue.record("Expected connectionClosed, got \(error)")
+            Issue.record("Expected routeCleanupBlocked, got \(error)")
         }
         #expect(factory.createdTransportCount() == 2)
 

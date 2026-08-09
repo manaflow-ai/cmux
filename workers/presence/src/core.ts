@@ -81,19 +81,15 @@ export type PresenceEvent =
    * trip. */
   | { type: "routes"; instance: PresenceInstance };
 
-/** A directed wake-up frame for one device's own `?deviceScope=` stream:
- * "server-side state for you changed, re-check now" (e.g. the device's iroh
- * broker binding was revoked or replaced). Deliberately NOT part of
- * `PresenceEvent`: legacy presence decoders throw on unknown event types, so
- * nudges are only ever sent to sockets that opted in by subscribing
- * device-scoped, mirroring how sync frames are gated on `sync.hello`. */
-export interface NudgeEvent {
-  type: "nudge";
-  deviceId: string;
-  /** Restricts the wake-up to one app instance (build tag); absent = whole device. */
-  tag?: string;
-  kind: string;
-  /** Epoch ms the nudge was accepted by the DO. */
+/** Account-scoped route invalidation.
+ *
+ * This deliberately carries no route material. Clients use `revision` only to
+ * decide whether to reconcile through the authoritative connectivity v2 API.
+ * Missing or reordered frames therefore affect latency, never correctness. */
+export interface ConnectivityInvalidationEvent {
+  type: "connectivity.invalidate";
+  protocolVersion: 1;
+  revision: number;
   at: number;
 }
 
@@ -281,79 +277,23 @@ export function checkDeviceOwner(
   return { ok: false, error: "device_owner_mismatch" };
 }
 
-/** The per-socket facts the nudge delivery decision reads, extracted from the
- * socket's hibernation attachment by the DO. */
-export interface NudgeSocketView {
-  /** Device id this socket is directed at; null for a normal presence/sync
-   * subscriber. */
-  deviceScope: string | null;
-  /** Verified Stack user id pinned on the socket; null for a legacy
-   * connection that predates user-id forwarding. */
-  userId: string | null;
-  /** Token-derived stream deadline (epoch ms). */
+/** Combined WebSocket + SSE presence/sync subscriber cap per team. */
+export const MAX_SUBSCRIBERS_PER_TEAM = 64;
+/** Quiet invalidation sockets are isolated in one DO per verified account. */
+export const MAX_CONNECTIVITY_SUBSCRIBERS_PER_ACCOUNT = 32;
+
+export interface ConnectivitySocketView {
+  accountId: string | null;
   expiresAt: number;
 }
 
-/** Combined WebSocket + SSE presence/sync subscriber cap per team. */
-export const MAX_SUBSCRIBERS_PER_TEAM = 64;
-/** Directed (device-scoped) nudge sockets draw from their OWN pool, never the
- * presence pool above: every enabled Mac instance holds one, so counting them
- * against the shared 64 would let a fleet of Macs (trivially reached with
- * tagged dev builds) 429 the phones' presence streams. Directed sockets are
- * silent and hibernation-friendly, so the pool is wide; it exists only to
- * bound a runaway client, not to ration a scarce resource. */
-export const MAX_DIRECTED_SUBSCRIBERS_PER_TEAM = 256;
-/** Per-user slice of the directed pool. Directed subscribe deliberately
- * admits UNPINNED devices (a Mac subscribes before its first heartbeat), so
- * without this a single member could park sockets on arbitrary fresh UUIDs
- * until the team pool is full and legitimate owners get 429. One user's
- * ceiling is far above real use (32 concurrent Mac app instances) yet leaves
- * 7/8 of the team pool out of any one member's reach. */
-export const MAX_DIRECTED_SUBSCRIBERS_PER_USER = 32;
-
-export type SubscriberAdmission =
-  | { ok: true }
-  | { ok: false; error: "too_many_subscribers" };
-
-/** Admission decision for one incoming subscription, given the split counts
- * of already-connected subscribers. Each pool only ever rejects its own kind,
- * so directed Mac sockets can never starve presence subscribers and vice
- * versa; the per-user directed cap keeps one member from starving
- * co-members' wake-up channels. Pure for tests. */
-export function checkSubscriberAdmission(input: {
-  directed: boolean;
-  /** Connected device-scoped (nudge) WebSockets, team-wide. */
-  directedCount: number;
-  /** Of those, connected sockets held by the requesting user. */
-  userDirectedCount: number;
-  /** Connected presence/sync subscribers (WebSocket + SSE). */
-  presenceCount: number;
-}): SubscriberAdmission {
-  const overCap = input.directed
-    ? input.directedCount >= MAX_DIRECTED_SUBSCRIBERS_PER_TEAM
-      || input.userDirectedCount >= MAX_DIRECTED_SUBSCRIBERS_PER_USER
-    : input.presenceCount >= MAX_SUBSCRIBERS_PER_TEAM;
-  return overCap ? { ok: false, error: "too_many_subscribers" } : { ok: true };
-}
-
-/** Owner-only delivery filter for directed nudges. A frame goes to a socket
- * only when ALL hold: the socket is device-scoped to exactly the nudged
- * device (normal presence subscribers never receive nudges), the socket's
- * verified user is the device's CURRENT pinned owner, and the stream deadline
- * has not passed. The owner is re-checked here — not just at subscribe time —
- * because an unpinned device may accept a scoped subscription from a user who
- * then LOSES the first-heartbeat pin race; that stale socket must not receive
- * owner-only frames. A legacy socket without a user id can never match the
- * pinned owner. Pure for tests. */
-export function shouldDeliverNudge(
-  socket: NudgeSocketView,
-  deviceId: string,
-  pinnedOwner: string,
+/** Delivery boundary for the account-scoped connectivity channel. */
+export function shouldDeliverConnectivityInvalidation(
+  socket: ConnectivitySocketView,
+  accountId: string,
   nowMs: number,
 ): boolean {
-  if (socket.deviceScope !== deviceId) return false;
-  if (socket.userId !== pinnedOwner) return false;
-  return socket.expiresAt > nowMs;
+  return socket.accountId === accountId && socket.expiresAt > nowMs;
 }
 
 export interface ExpiryResult {

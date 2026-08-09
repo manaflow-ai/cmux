@@ -60,3 +60,36 @@ uint64_t CmuxAtomicUInt64AdvanceRelaxed(CmuxAtomicUInt64Storage *storage) {
     }
     return UINT64_MAX;
 }
+
+bool CmuxAtomicUInt64IncrementIfBelow(
+    CmuxAtomicUInt64Storage *storage,
+    uint64_t upperBound
+) {
+    uint64_t current = atomic_load_explicit(&storage->value, memory_order_relaxed);
+    while (current < upperBound) {
+        if (atomic_compare_exchange_weak_explicit(
+                &storage->value,
+                &current,
+                current + 1,
+                memory_order_acq_rel,
+                memory_order_acquire)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool CmuxAtomicUInt64DecrementIfPositive(CmuxAtomicUInt64Storage *storage) {
+    uint64_t current = atomic_load_explicit(&storage->value, memory_order_relaxed);
+    while (current > 0) {
+        if (atomic_compare_exchange_weak_explicit(
+                &storage->value,
+                &current,
+                current - 1,
+                memory_order_acq_rel,
+                memory_order_acquire)) {
+            return true;
+        }
+    }
+    return false;
+}

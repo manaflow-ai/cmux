@@ -1,0 +1,347 @@
+name: sdk bootstrap npm
+
+on:
+  repository_dispatch:
+    types: [sdk-bootstrap-npm]
+
+permissions: {}
+
+concurrency:
+  group: sdk-bootstrap-npm
+  cancel-in-progress: false
+
+env:
+  BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"
+
+jobs:
+  build:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      artifact_sha256: ${{ steps.package.outputs.artifact_sha256 }}
+    steps:
+      - name: Require explicit bootstrap confirmation
+        if: github.event.client_payload.confirm_bootstrap != true
+        run: |
+          echo "Refusing to reserve cmux-sdk without confirm_bootstrap=true." >&2
+          exit 1
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require current protected main
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+            echo "Dispatch sdk-bootstrap-npm.yml from main, found $GITHUB_REF." >&2
+            exit 1
+          }
+          git fetch --force origin main
+          main_sha="$(git rev-parse origin/main)"
+          [[ "$GITHUB_SHA" == "$main_sha" ]] || {
+            echo "workflow commit $GITHUB_SHA is not current main $main_sha" >&2
+            exit 1
+          }
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          package-manager-cache: false
+
+      - name: Install pinned npm
+        run: npm install --global --ignore-scripts npm@11.5.1
+
+      - name: Build, test, and pack the bootstrap prerelease
+        id: package
+        working-directory: cmux-tui/bindings/typescript
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm version "$BOOTSTRAP_VERSION" --no-git-tag-version
+          npm test
+          mkdir -p "$RUNNER_TEMP/cmux-npm-bootstrap"
+          npm pack --pack-destination "$RUNNER_TEMP/cmux-npm-bootstrap"
+          shopt -s nullglob
+          packages=("$RUNNER_TEMP"/cmux-npm-bootstrap/*.tgz)
+          [[ "${#packages[@]}" == 1 ]] || {
+            echo "expected one bootstrap artifact, found ${#packages[@]}" >&2
+            exit 1
+          }
+          CMUX_NPM_PACKAGE="${packages[0]}" \
+            node scripts/verify-packaged-consumer.mjs
+          artifact_sha256="$(sha256sum "${packages[0]}" | cut -d ' ' -f 1)"
+          [[ "$artifact_sha256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "bootstrap package digest is malformed" >&2
+            exit 1
+          }
+          echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-npm-bootstrap-package
+          path: ${{ runner.temp }}/cmux-npm-bootstrap/*.tgz
+          if-no-files-found: error
+          overwrite: true
+
+  preflight:
+    needs: build
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      need_publish: ${{ steps.decision.outputs.need_publish }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-npm-bootstrap-package
+          path: bootstrap-package
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          package-manager-cache: false
+
+      - name: Install pinned npm
+        run: npm install --global --ignore-scripts npm@11.5.1
+
+      - name: Inspect the npm bootstrap state
+        id: project
+        run: |
+          set -euo pipefail
+          metadata="$RUNNER_TEMP/cmux-sdk-bootstrap-registry.json"
+          status="$(
+            curl \
+              --silent \
+              --show-error \
+              --location \
+              --retry 5 \
+              --retry-all-errors \
+              --output "$metadata" \
+              --write-out '%{http_code}' \
+              https://registry.npmjs.org/cmux-sdk
+          )"
+          case "$status" in
+            404)
+              echo "cmux-sdk is unclaimed; bootstrap may continue."
+              project_status=missing
+              ;;
+            200)
+              echo "cmux-sdk exists; bootstrap bytes and provenance must match."
+              project_status=exists
+              ;;
+            *)
+              echo "npm registry returned HTTP $status; refusing to infer availability." >&2
+              exit 1
+              ;;
+          esac
+          echo "status=$project_status" >> "$GITHUB_OUTPUT"
+
+      - name: Reconcile an existing npm ownership bootstrap
+        if: steps.project.outputs.status == 'exists'
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          packages=(bootstrap-package/*.tgz)
+          [[ "${#packages[@]}" == 1 ]] || {
+            echo "expected one tested npm artifact, found ${#packages[@]}" >&2
+            exit 1
+          }
+          python3 cmux-tui/bindings/verify_npm_provenance.py \
+            --package cmux-sdk \
+            --version "$BOOTSTRAP_VERSION" \
+            --repository-url git+https://github.com/manaflow-ai/cmux.git \
+            --repository-directory cmux-tui/bindings/typescript \
+            --owner lawrencechen \
+            --workflow .github/workflows/sdk-bootstrap-npm.yml \
+            --workflow-ref refs/heads/main \
+            --dist-tag bootstrap \
+            --require-dist-tag latest \
+            --publisher owner \
+            --artifact "${packages[0]}"
+
+      - name: Request publication for an unclaimed project
+        id: decision
+        if: steps.project.outputs.status == 'missing'
+        run: echo "need_publish=true" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs:
+      - build
+      - preflight
+    if: needs.preflight.outputs.need_publish == 'true'
+    runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+    environment:
+      name: npm-bootstrap
+      url: https://www.npmjs.com/package/cmux-sdk
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-npm-bootstrap-package
+          path: bootstrap-package
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Install pinned npm
+        run: npm install --global --ignore-scripts npm@11.5.1
+
+      - name: Verify protected source and the exact tested package
+        env:
+          EXPECTED_SHA256: ${{ needs.build.outputs.artifact_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "manaflow-ai/cmux" ]] || {
+            echo "bootstrap repository must be manaflow-ai/cmux" >&2
+            exit 1
+          }
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+            echo "bootstrap credential job must run from main" >&2
+            exit 1
+          }
+          main_sha="$(
+            git ls-remote \
+              https://github.com/manaflow-ai/cmux.git \
+              refs/heads/main |
+              awk 'NR == 1 { print $1 }'
+          )"
+          [[ "$main_sha" == "$GITHUB_SHA" ]] || {
+            echo "workflow commit $GITHUB_SHA is not current main $main_sha" >&2
+            exit 1
+          }
+          [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "validated npm artifact digest is malformed" >&2
+            exit 1
+          }
+          shopt -s nullglob
+          packages=(bootstrap-package/*.tgz)
+          [[ "${#packages[@]}" == 1 ]] || {
+            echo "expected one tested npm artifact, found ${#packages[@]}" >&2
+            exit 1
+          }
+          actual_sha256="$(sha256sum "${packages[0]}" | cut -d ' ' -f 1)"
+          [[ "$actual_sha256" == "$EXPECTED_SHA256" ]] || {
+            echo "downloaded npm bootstrap artifact digest mismatch" >&2
+            exit 1
+          }
+
+      - name: Publish the exact tested prerelease artifact
+        continue-on-error: true
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$NODE_AUTH_TOKEN" ]] || {
+            echo "npm-bootstrap environment secret NPM_BOOTSTRAP_TOKEN is required." >&2
+            exit 1
+          }
+          shopt -s nullglob
+          packages=(bootstrap-package/*.tgz)
+          [[ "${#packages[@]}" == 1 ]] || {
+            echo "expected one tested npm artifact, found ${#packages[@]}" >&2
+            exit 1
+          }
+          echo "npm lifecycle scripts are disabled in the credentialed publisher"
+          npm publish "$(realpath "${packages[0]}")" \
+            --ignore-scripts \
+            --tag bootstrap \
+            --provenance \
+            --access public
+
+  verify:
+    needs:
+      - build
+      - preflight
+      - publish
+    if: >-
+      always() &&
+      needs.build.result == 'success' &&
+      needs.preflight.result == 'success' &&
+      (needs.publish.result == 'success' || needs.publish.result == 'skipped')
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-npm-bootstrap-package
+          path: bootstrap-package
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          package-manager-cache: false
+
+      - name: Install pinned npm
+        run: npm install --global --ignore-scripts npm@11.5.1
+
+      - name: Verify npm-required bootstrap tags
+        run: |
+          set -euo pipefail
+          tags="$RUNNER_TEMP/cmux-sdk-bootstrap-tags.json"
+          deadline=$((SECONDS + 300))
+          until npm view cmux-sdk dist-tags --json > "$tags"; do
+            (( SECONDS < deadline )) || {
+              echo "cmux-sdk bootstrap tags did not become visible within 300 seconds." >&2
+              exit 1
+            }
+            sleep 15
+          done
+          node - "$tags" "$BOOTSTRAP_VERSION" <<'NODE'
+          const fs = require("node:fs");
+          const [path, expected] = process.argv.slice(2);
+          const tags = JSON.parse(fs.readFileSync(path, "utf8"));
+          if (
+            tags.bootstrap !== expected ||
+            typeof tags.latest !== "string" ||
+            tags.latest.length === 0
+          ) {
+            console.error("cmux-sdk dist-tag validation failed.");
+            process.exit(1);
+          }
+          NODE
+
+      - name: Verify the npm ownership bootstrap
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          packages=(bootstrap-package/*.tgz)
+          [[ "${#packages[@]}" == 1 ]] || {
+            echo "expected one tested npm artifact, found ${#packages[@]}" >&2
+            exit 1
+          }
+          python3 cmux-tui/bindings/verify_npm_provenance.py \
+            --package cmux-sdk \
+            --version "$BOOTSTRAP_VERSION" \
+            --repository-url git+https://github.com/manaflow-ai/cmux.git \
+            --repository-directory cmux-tui/bindings/typescript \
+            --owner lawrencechen \
+            --workflow .github/workflows/sdk-bootstrap-npm.yml \
+            --workflow-ref refs/heads/main \
+            --dist-tag bootstrap \
+            --require-dist-tag latest \
+            --publisher owner \
+            --artifact "${packages[0]}"

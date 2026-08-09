@@ -97,6 +97,44 @@ public struct UITestConfig {
         #endif
     }
 
+    /// When `CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW=1`, the root view renders a
+    /// static Hidden Computers list with fixture rows so UI tests can exercise
+    /// the rows' swipe actions (the confirm-first Forget flow) without sign-in
+    /// or Mac pairing. DEBUG-only.
+    public static var hiddenComputersPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW"] == "1"
+            || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW=1")
+        #else
+        return false
+        #endif
+    }
+
+    /// Push readiness preview state selected by
+    /// `CMUX_UITEST_PUSH_READINESS_PREVIEW`. A set value routes the root view
+    /// to the readiness preview and names its fixture state. DEBUG-only.
+    public static var pushReadinessPreviewState: String? {
+        pushReadinessPreviewState(
+            from: ProcessInfo.processInfo.environment,
+            arguments: ProcessInfo.processInfo.arguments
+        )
+    }
+
+    /// Resolves the push-readiness preview fixture from explicit process inputs.
+    public static func pushReadinessPreviewState(
+        from env: [String: String],
+        arguments: [String] = []
+    ) -> String? {
+        #if DEBUG
+        return env["CMUX_UITEST_PUSH_READINESS_PREVIEW"]
+            ?? arguments.first(where: {
+                $0.hasPrefix("CMUX_UITEST_PUSH_READINESS_PREVIEW=")
+            })?.split(separator: "=", maxSplits: 1).last.map(String.init)
+        #else
+        return nil
+        #endif
+    }
+
     /// Changes preview mode selected by `CMUX_UITEST_CHANGES_PREVIEW`.
     ///
     /// Supported DEBUG-only values are `1`, `diff`, `empty`, and `states`.

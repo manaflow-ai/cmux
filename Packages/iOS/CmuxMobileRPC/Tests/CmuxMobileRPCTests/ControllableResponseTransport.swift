@@ -65,6 +65,10 @@ actor ControllableResponseTransport: CmxByteTransport {
         await withCheckedContinuation { sendCountWaiters.append((count, $0)) }
     }
 
+    func sentIDs() -> [String] {
+        sentRequestIDs
+    }
+
     func releaseFirstSend() {
         firstSendReleased = true
         firstSendContinuation?.resume()

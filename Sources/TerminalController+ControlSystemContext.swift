@@ -16,6 +16,14 @@ import Foundation
 /// `drag_surface_to_split`), so their witnesses bridge.
 extension TerminalController: ControlSystemContext {
 
+    func controlSystemSurfaceNotFoundMessage() -> String {
+        String(localized: "socket.tabAction.error.surfaceNotFound", defaultValue: "Surface not found")
+    }
+
+    func controlSystemTabNotFoundMessage() -> String {
+        String(localized: "socket.tabAction.error.tabNotFound", defaultValue: "Tab not found")
+    }
+
     // MARK: - identify (bridge to the still-shared v2Identify)
 
     func controlSystemIdentify(params: [String: JSONValue]) -> JSONValue {

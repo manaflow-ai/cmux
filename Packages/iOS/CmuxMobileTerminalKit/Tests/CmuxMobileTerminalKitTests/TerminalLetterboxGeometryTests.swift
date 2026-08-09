@@ -393,4 +393,50 @@ struct TerminalLetterboxGeometryTests {
             viewportMinY: 0, renderHeight: 397, holdsProvisionalPin: true
         ) == 714)
     }
+
+    @Test("render pin: provisional shrink anchors the cursor, not the screen bottom")
+    func renderPinProvisionalShrinkCursorAnchor() {
+        // Keyboard rising over a prompt in the upper half (cursor bottom
+        // 400 of a 714pt render): the blank rows below the prompt absorb
+        // the keyboard, so the content must not move at all. The legacy
+        // screen-bottom ride gave 500 - 714 = -214 (all rows pushed up).
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 500, targetViewportMaxY: 403,
+            viewportMinY: 0, renderHeight: 714,
+            holdsProvisionalPin: true, cursorBottomInRender: 400
+        ) == 714)
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 403, targetViewportMaxY: 403,
+            viewportMinY: 0, renderHeight: 714,
+            holdsProvisionalPin: true, cursorBottomInRender: 400
+        ) == 714)
+        // Once the keyboard would cover the cursor row itself, the render
+        // slides exactly enough to keep it visible: cursor at 600, live at
+        // 500 -> bottom edge 500 + (714-600) = 614, cursor lands on the
+        // live bottom edge.
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 500, targetViewportMaxY: 403,
+            viewportMinY: 0, renderHeight: 714,
+            holdsProvisionalPin: true, cursorBottomInRender: 600
+        ) == 614)
+        // Full-screen content (cursor on the last row) keeps the legacy
+        // ride so the prompt never hides under the keyboard.
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 500, targetViewportMaxY: 403,
+            viewportMinY: 0, renderHeight: 714,
+            holdsProvisionalPin: true, cursorBottomInRender: 714
+        ) == 500)
+        // Unknown cursor falls back to the legacy ride.
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 500, targetViewportMaxY: 403,
+            viewportMinY: 0, renderHeight: 714,
+            holdsProvisionalPin: true, cursorBottomInRender: nil
+        ) == 500)
+        // Settled shrink (no provisional pin) is unchanged by the cursor.
+        #expect(TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: 500, targetViewportMaxY: 403,
+            viewportMinY: 0, renderHeight: 714,
+            holdsProvisionalPin: false, cursorBottomInRender: 400
+        ) == 500)
+    }
 }

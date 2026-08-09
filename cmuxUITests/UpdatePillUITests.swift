@@ -183,6 +183,31 @@ final class UpdatePillUITests: XCTestCase {
         XCTAssertFalse(app.buttons["SidebarUpdateBannerAction"].exists)
     }
 
+    /// Regression for https://github.com/manaflow-ai/cmux/issues/9262: running "Attempt Update"
+    /// from the command palette while no update is available must report the normal up-to-date
+    /// result, not the red "Update Didn't Start / check your internet connection" error.
+    ///
+    /// A DEV build short-circuits its manual check to `.notFound`, which is the same terminal a
+    /// release build reaches when the feed publishes nothing newer, so this exercises the real
+    /// palette entry point end to end without a mock feed.
+    func testAttemptUpdateWithNoUpdateAvailableDoesNotShowError() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        launchAndActivate(app)
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
+
+        app.typeKey("p", modifierFlags: [.command, .shift])
+        app.typeText("Attempt Update")
+        app.typeKey(.return, modifierFlags: [])
+
+        let upToDatePill = pillButton(app: app, expectedLabel: "No Updates Available")
+        XCTAssertTrue(upToDatePill.waitForExistence(timeout: 10.0))
+        attachScreenshot(name: "attempt-update-no-update")
+        XCTAssertFalse(pillButton(app: app, expectedLabel: "Update Didn’t Start").exists)
+    }
+
     func testNoSparklePermissionDialogIsShown() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()

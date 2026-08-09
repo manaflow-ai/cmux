@@ -53,6 +53,7 @@ extension MobileShellComposite {
             return
         }
         let result: MobileSyncApplyResult
+        let appliedRevision: UInt64
         let changesSummaryRefreshScope: WorkspaceChangesSummaryRefreshScope
         let removedWorkspaceIDs: [String]
         switch header.collection {
@@ -67,6 +68,7 @@ extension MobileShellComposite {
                 return
             }
             result = stateSyncMirror.workspaces.apply(delta: delta)
+            appliedRevision = delta.toRev
             changesSummaryRefreshScope = .workspaceDelta(delta.records.map(\.id))
             removedWorkspaceIDs = delta.removedIDs
         case .groups:
@@ -77,6 +79,7 @@ extension MobileShellComposite {
                 return
             }
             result = stateSyncMirror.groups.apply(delta: delta)
+            appliedRevision = delta.toRev
             changesSummaryRefreshScope = .groupOnlyDelta
             removedWorkspaceIDs = []
         default:
@@ -86,6 +89,12 @@ extension MobileShellComposite {
         }
         switch result {
         case .applied:
+            #if DEBUG
+            MobileLatencyTrace.stamp(
+                "sync.applied",
+                "coll=\(header.collection.rawValue) rev=\(appliedRevision)"
+            )
+            #endif
             evictWorkspaceChangesSummaryState(workspaceIDs: removedWorkspaceIDs)
             applyStateSyncProjection(
                 changesSummaryRefreshScope: changesSummaryRefreshScope
@@ -365,6 +374,7 @@ extension MobileShellComposite {
                 name: record.name,
                 isCollapsed: record.isCollapsed,
                 isPinned: record.isPinned,
+                iconSymbol: record.iconSymbol,
                 anchorWorkspaceID: record.anchorWorkspaceID
             )
         }

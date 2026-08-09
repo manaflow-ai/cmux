@@ -1,11 +1,9 @@
-import { cloudDb } from "../../../../../../db/client";
 import { readSubrouterAccountInput } from "../../../../../../services/subrouter/accountInput";
 import { resolveSubrouterRequestContext } from "../../../../../../services/subrouter/requestContext";
 import {
   normalizeAccountId,
   subrouterErrorResponse,
 } from "../../../../../../services/subrouter/routeHelpers";
-import { getTenantForTeam } from "../../../../../../services/subrouter/tenants";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
 
 export const runtime = "nodejs";
@@ -36,12 +34,7 @@ export async function POST(
     return jsonResponse({ error: "invalid_request" }, input.status);
   }
   try {
-    const tenant = await getTenantForTeam(
-      cloudDb(),
-      context.team.teamId,
-      { tenantKeySecret: context.config.tenantKeySecret },
-    );
-    if (!tenant) return jsonResponse({ error: "account_not_found" }, 404);
+    const tenant = await context.client.exchangeTeam(context.accessToken, context.team);
     const account = await context.client.repairAccount(
       tenant.tenantKey,
       accountId,

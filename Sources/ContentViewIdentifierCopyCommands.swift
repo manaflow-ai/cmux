@@ -158,17 +158,15 @@ extension ContentView {
     }
 
     private func copyFocusedSurfaceLink() {
-        guard let panelContext = focusedPanelContext else {
+        guard let panelContext = focusedPanelContext,
+              let link = WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
+                workspace: panelContext.workspace,
+                panelId: panelContext.panelId
+              ) else {
             NSSound.beep()
             return
         }
-        // Links encode the restart-stable ids so they survive an app relaunch.
-        WorkspaceSurfaceIdentifierClipboardText.copy(
-            WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
-                workspaceId: panelContext.workspace.stableId,
-                surfaceId: panelContext.panel.stableSurfaceId
-            )
-        )
+        WorkspaceSurfaceIdentifierClipboardText.copy(link)
     }
 
     private func copyFocusedWorkspacePaneSurfaceIdentifiers() {

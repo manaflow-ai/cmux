@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, lt, lte, sql } from "drizzle-orm";
 import type { cloudDb } from "../../db/client";
-import { accountAnalyticsForwardLeases, accountDeletionTombstones } from "../../db/schema";
+import {
+  accountAnalyticsForwardLeases,
+  accountDeletionTombstones,
+  accountMutationLeases,
+} from "../../db/schema";
 
 type CloudDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
 type AccountDeletionQueryExecutor = Pick<CloudDbTransaction, "select">;
@@ -9,6 +13,10 @@ type AccountDeletionQueryExecutor = Pick<CloudDbTransaction, "select">;
 export type AccountDeletionIdentityOperationResult<T> =
   | { readonly kind: "blocked" }
   | { readonly kind: "completed"; readonly value: T };
+
+export type AccountDeletionUserMutationLease = {
+  readonly refresh: () => Promise<void>;
+};
 
 export class AccountDeletionMutationBlockedError extends Error {
   constructor(readonly userId: string) {
@@ -24,6 +32,13 @@ export class AccountDeletionAnalyticsForwardInProgressError extends Error {
   }
 }
 
+export class AccountDeletionUserMutationInProgressError extends Error {
+  constructor(readonly userId: string) {
+    super("Another account mutation is still in progress.");
+    this.name = "AccountDeletionUserMutationInProgressError";
+  }
+}
+
 export function accountDeletionUserHash(userId: string): string {
   return createHash("sha256").update(userId).digest("hex");
 }
@@ -34,6 +49,7 @@ export function accountDeletionAdvisoryLockKey(userId: string): string {
 
 export const ACCOUNT_DELETION_TOMBSTONE_LEASE_MS = 15 * 60 * 1000;
 export const ACCOUNT_ANALYTICS_FORWARD_LEASE_MS = 30 * 1000;
+export const ACCOUNT_USER_MUTATION_LEASE_MS = 15 * 60 * 1000;
 
 export function isBlockingAccountDeletionStatus(status: string): boolean {
   return status !== "failed";
@@ -230,4 +246,147 @@ export async function assertAccountDeletionUserMutationAllowed(
     !isBlockingAccountDeletionTombstone(deletion)
   ) return;
   throw new AccountDeletionMutationBlockedError(userId);
+}
+
+/**
+ * Reserves an account mutation under the deletion advisory lock, commits the
+ * lease, and then runs external work without holding a database connection.
+ * Account deletion and other user mutations reject the active lease. A crashed
+ * worker leaves a bounded lease instead of holding the account forever.
+ */
+export async function withAccountDeletionUserMutation<T>(
+  db: ReturnType<typeof cloudDb>,
+  userId: string,
+  operation: (lease: AccountDeletionUserMutationLease) => Promise<T>,
+  now: () => Date = () => new Date(),
+): Promise<T> {
+  const operationId = randomUUID();
+  await db.transaction(async (tx) => {
+    await assertAccountDeletionUserMutationAllowed(tx, userId);
+    const reservedAt = now();
+    const userIdHash = accountDeletionUserHash(userId);
+    await tx
+      .delete(accountMutationLeases)
+      .where(and(
+        eq(accountMutationLeases.userIdHash, userIdHash),
+        lte(accountMutationLeases.expiresAt, reservedAt),
+      ));
+    const [active] = await tx
+      .select({ operationId: accountMutationLeases.operationId })
+      .from(accountMutationLeases)
+      .where(and(
+        eq(accountMutationLeases.userIdHash, userIdHash),
+        gt(accountMutationLeases.expiresAt, reservedAt),
+      ))
+      .limit(1);
+    if (active) {
+      throw new AccountDeletionUserMutationInProgressError(userId);
+    }
+    await tx.insert(accountMutationLeases).values({
+      userIdHash,
+      operationId,
+      expiresAt: new Date(
+        reservedAt.getTime() + ACCOUNT_USER_MUTATION_LEASE_MS,
+      ),
+      updatedAt: reservedAt,
+    });
+  });
+
+  const refresh = async () => {
+    await refreshAccountDeletionUserMutationLease(
+      db,
+      userId,
+      operationId,
+      now(),
+    );
+  };
+  try {
+    return await operation({ refresh });
+  } finally {
+    await releaseAccountDeletionUserMutationLease(
+      db,
+      userId,
+      operationId,
+    ).catch(() => undefined);
+  }
+}
+
+export async function assertNoAccountDeletionUserMutationInProgress(
+  tx: CloudDbTransaction,
+  userId: string,
+  now: Date = new Date(),
+): Promise<void> {
+  const userIdHash = accountDeletionUserHash(userId);
+  await tx
+    .delete(accountMutationLeases)
+    .where(and(
+      eq(accountMutationLeases.userIdHash, userIdHash),
+      lte(accountMutationLeases.expiresAt, now),
+    ));
+  const [active] = await tx
+    .select({ operationId: accountMutationLeases.operationId })
+    .from(accountMutationLeases)
+    .where(and(
+      eq(accountMutationLeases.userIdHash, userIdHash),
+      gt(accountMutationLeases.expiresAt, now),
+    ))
+    .limit(1);
+  if (active) {
+    throw new AccountDeletionUserMutationInProgressError(userId);
+  }
+}
+
+async function refreshAccountDeletionUserMutationLease(
+  db: ReturnType<typeof cloudDb>,
+  userId: string,
+  operationId: string,
+  refreshedAt: Date,
+): Promise<void> {
+  const userIdHash = accountDeletionUserHash(userId);
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`,
+    );
+    const [lease] = await tx
+      .select({ operationId: accountMutationLeases.operationId })
+      .from(accountMutationLeases)
+      .where(eq(accountMutationLeases.userIdHash, userIdHash))
+      .limit(1);
+    if (lease?.operationId !== operationId) {
+      throw new AccountDeletionUserMutationInProgressError(userId);
+    }
+    await tx
+      .update(accountMutationLeases)
+      .set({
+        updatedAt: refreshedAt,
+        expiresAt: new Date(
+          refreshedAt.getTime() + ACCOUNT_USER_MUTATION_LEASE_MS,
+        ),
+      })
+      .where(and(
+        eq(accountMutationLeases.userIdHash, userIdHash),
+        eq(accountMutationLeases.operationId, operationId),
+      ));
+  });
+}
+
+async function releaseAccountDeletionUserMutationLease(
+  db: ReturnType<typeof cloudDb>,
+  userId: string,
+  operationId: string,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`,
+    );
+    await tx
+      .delete(accountMutationLeases)
+      .where(and(
+        eq(
+          accountMutationLeases.userIdHash,
+          accountDeletionUserHash(userId),
+        ),
+        eq(accountMutationLeases.operationId, operationId),
+      ));
+  });
 }

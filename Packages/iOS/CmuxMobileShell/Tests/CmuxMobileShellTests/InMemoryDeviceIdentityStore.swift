@@ -24,7 +24,10 @@ final class InMemoryDeviceIdentityStore: DeviceIdentityStoring, @unchecked Senda
     func read() -> DeviceIdentityReadResult {
         if isUnavailable { return .unavailable }
         return lock.withLock {
-            guard let value, !value.isEmpty else { return .absent }
+            // Mirror the Keychain store: a stored value that is blank after
+            // trimming is corrupt and classifies as `.absent` so the caller
+            // re-mints and overwrites it.
+            guard let value, !Self.isBlank(value) else { return .absent }
             return .found(value)
         }
     }
@@ -32,11 +35,24 @@ final class InMemoryDeviceIdentityStore: DeviceIdentityStoring, @unchecked Senda
     func createOrAdopt(_ desired: String) -> String? {
         if isUnavailable || writeAlwaysFails { return nil }
         return lock.withLock {
-            // Adopt an already-persisted winner instead of overwriting it, so
-            // racing callers converge on one id.
-            if let value, !value.isEmpty { return value }
+            // Adopt an already-persisted USABLE winner instead of overwriting
+            // it, so racing callers converge on one id. A corrupt (blank)
+            // existing value is overwritten, mirroring the Keychain store's
+            // duplicate-item repair path.
+            if let value, !Self.isBlank(value) { return value }
             value = desired
             return desired
         }
     }
+
+    private static func isBlank(_ value: String) -> Bool {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+/// Fixed-answer same-device-evidence probe for tests.
+struct StaticEvidenceProbe: SameDeviceEvidenceProbing {
+    private let answer: SameDeviceEvidence
+    init(_ answer: SameDeviceEvidence) { self.answer = answer }
+    func probe() -> SameDeviceEvidence { answer }
 }

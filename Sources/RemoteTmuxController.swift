@@ -304,7 +304,7 @@ final class RemoteTmuxController {
             title: sessionName, titleSource: .auto,
             select: false,
             autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationMode: .disabled
+            applyCreationTitleAsCustomTitle: false
         )
         workspace.isRemoteTmuxMirror = true
         workspace.remoteTmuxWindowOrderSync = { [weak self, weak workspace] orderedPanelIds, verification in

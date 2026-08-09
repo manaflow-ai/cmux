@@ -3,11 +3,10 @@ import Foundation
 import Testing
 @testable import CmuxIrohTransport
 
-/// A credential source that rotates its snapshot the moment the access token is
-/// read through the LEGACY two-closure path, so reading access then refresh
-/// separately yields a mismatched (old-access, new-refresh) pair. The atomic
-/// `pair()` reader returns one snapshot's tokens together and never rotates, so
-/// a request built from it is always consistent.
+/// A credential source whose snapshots rotate between pair reads. The atomic
+/// `pair()` reader returns one snapshot's tokens together, so a request built
+/// from it is always consistent; the count proves how many captures a request
+/// performed.
 private final class RotatingCredentialBox: @unchecked Sendable {
     private let lock = NSLock()
     private let snapshots: [(access: String, refresh: String)]
@@ -18,26 +17,13 @@ private final class RotatingCredentialBox: @unchecked Sendable {
         self.snapshots = snapshots
     }
 
-    /// Legacy path: return the current access token, then advance so a following
-    /// refresh read observes the NEXT (rotated) snapshot.
-    func nextAccess() -> String {
-        lock.withLock {
-            let value = snapshots[min(index, snapshots.count - 1)].access
-            index = min(index + 1, snapshots.count - 1)
-            return value
-        }
-    }
-
-    /// Legacy path: return the refresh token of whatever snapshot is current now.
-    func currentRefresh() -> String {
-        lock.withLock { snapshots[min(index, snapshots.count - 1)].refresh }
-    }
-
-    /// Atomic path: both tokens from ONE snapshot, no rotation.
+    /// Both tokens from ONE snapshot; the NEXT read observes the next snapshot,
+    /// modeling a force refresh landing between two captures.
     func pair() -> CmxIrohBrokerCredentials {
         lock.withLock {
             pairReads += 1
             let snapshot = snapshots[min(index, snapshots.count - 1)]
+            index = min(index + 1, snapshots.count - 1)
             return CmxIrohBrokerCredentials(
                 accessToken: snapshot.access,
                 refreshToken: snapshot.refresh
@@ -50,9 +36,11 @@ private final class RotatingCredentialBox: @unchecked Sendable {
 
 /// Regression coverage for the broker assembling one request from a single
 /// credential snapshot. The broker must not read the access and refresh tokens
-/// through two independent snapshot calls: a force refresh between them can pair
-/// an old access token with a rotated refresh token (or vice versa), which the
-/// server rejects. `credentialPair` supplies both tokens from one capture.
+/// through two independent captures: a force refresh between them can pair an
+/// old access token with a rotated refresh token (or vice versa), which the
+/// server rejects. `credentialPair` — the token source's ONLY construction
+/// input — supplies both tokens from one capture, and each request must
+/// perform exactly one capture.
 @Suite(.serialized)
 struct CmxIrohBrokerCredentialPairTests {
     @Test
@@ -76,8 +64,6 @@ struct CmxIrohBrokerCredentialPairTests {
             (access: "access-1", refresh: "refresh-1"),
         ])
         let tokenSource = CmxIrohBrokerTokenSource(
-            accessToken: { box.nextAccess() },
-            refreshToken: { box.currentRefresh() },
             credentialPair: { box.pair() }
         )
         let transport = RecordingBrokerTransport(responses: [
@@ -94,7 +80,7 @@ struct CmxIrohBrokerCredentialPairTests {
 
         try await client.revoke(bindingID: "123e4567-e89b-42d3-a456-426614174010")
 
-        // The request must be built from the atomic pair reader, exactly once.
+        // The request performed exactly ONE atomic capture.
         #expect(box.pairReadCount == 1)
         let captured = try #require(await transport.requests().first)
         // Both header values come from the SAME snapshot (index 0), so an old

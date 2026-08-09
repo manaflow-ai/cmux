@@ -593,10 +593,20 @@ private struct IrohDiagnosticsReportRows: View {
                 localized: "settings.networking.diagnostics.failure.sendQueueOverflow",
                 defaultValue: "Send Queue Overflow"
             )
+        case .some(.routeGated):
+            String(
+                localized: "settings.networking.diagnostics.failure.routeGated",
+                defaultValue: "Connection Attempt Held"
+            )
         case .some(.superseded):
             String(
                 localized: "settings.networking.diagnostics.failure.superseded",
                 defaultValue: "Replaced by a Newer Attempt"
+            )
+        case .some(.routeGated):
+            String(
+                localized: "settings.networking.diagnostics.failure.routeGated",
+                defaultValue: "Connection Attempt Held"
             )
         case .some(.cancelled):
             String(localized: "settings.networking.diagnostics.failure.cancelled", defaultValue: "Cancelled")

@@ -1,4 +1,5 @@
 import CmuxMobileBrowser
+import CmuxMobileBrowserStream
 import CmuxMobileShell
 import SwiftUI
 #if os(iOS)
@@ -16,6 +17,8 @@ public struct CMUXMobileAppView: View {
     /// state lives here (not in the shell store) because, unlike terminals, it
     /// has no Mac-side counterpart and must survive `workspace.updated` re-syncs.
     @State private var browserStore: BrowserSurfaceStore
+    /// Mac browser stream state kept beside the shell store for the app lifetime.
+    @State private var browserStreamStore: BrowserStreamStore
     /// App-lifetime owner for the initial explicit-attach versus saved-Mac
     /// reconnect decision. Root view lifecycle callbacks share this instance.
     @State private var startupConnectionCoordinator = MobileStartupConnectionCoordinator()
@@ -30,32 +33,45 @@ public struct CMUXMobileAppView: View {
     ///   - store: The shell store backing the workspace UI.
     ///   - browserStore: The phone-local browser surface store injected into the
     ///     environment for workspace detail browser panes.
+    ///   - browserStreamStore: The Mac browser stream store injected beside the shell store.
     ///   - onboardingStore: The first-run onboarding progress store. Defaults to
     ///     a `.standard`-backed store forced complete, so SwiftUI previews and
     ///     ad-hoc construction never present onboarding.
+    ///   - signOutHook: The action invoked when the mobile shell signs out.
     public init(
         store: CMUXMobileShellStore = .preview(),
         browserStore: BrowserSurfaceStore = BrowserSurfaceStore(),
+        browserStreamStore: BrowserStreamStore = BrowserStreamStore(),
         onboardingStore: MobileOnboardingStore = MobileOnboardingStore(defaults: .standard, forceComplete: true),
         signOutHook: MobileSignOutHook = MobileSignOutHook()
     ) {
         _store = State(initialValue: store)
         _browserStore = State(initialValue: browserStore)
+        _browserStreamStore = State(initialValue: browserStreamStore)
         self.onboardingStore = onboardingStore
         self.signOutHook = signOutHook
     }
     #else
+    /// Creates the app view on non-iOS platforms.
+    /// - Parameters:
+    ///   - store: The shell store backing the workspace UI.
+    ///   - browserStore: The phone-local browser surface store.
+    ///   - browserStreamStore: The Mac browser stream store.
+    ///   - signOutHook: The action invoked when the mobile shell signs out.
     public init(
         store: CMUXMobileShellStore = .preview(),
         browserStore: BrowserSurfaceStore = BrowserSurfaceStore(),
+        browserStreamStore: BrowserStreamStore = BrowserStreamStore(),
         signOutHook: MobileSignOutHook = MobileSignOutHook()
     ) {
         _store = State(initialValue: store)
         _browserStore = State(initialValue: browserStore)
+        _browserStreamStore = State(initialValue: browserStreamStore)
         self.signOutHook = signOutHook
     }
     #endif
 
+    /// Renders the platform root view with app-lifetime browser stores injected.
     public var body: some View {
         #if os(iOS)
         CMUXMobileRootView(
@@ -65,6 +81,7 @@ public struct CMUXMobileAppView: View {
             startupConnectionCoordinator: startupConnectionCoordinator
         )
             .environment(browserStore)
+            .environment(browserStreamStore)
         #else
         CMUXMobileRootView(
             store: store,
@@ -72,6 +89,7 @@ public struct CMUXMobileAppView: View {
             startupConnectionCoordinator: startupConnectionCoordinator
         )
             .environment(browserStore)
+            .environment(browserStreamStore)
         #endif
     }
 }

@@ -27,6 +27,8 @@ export const englishFallbackContentLocales = [
 
 const fallbackContentRoutes = [
   { path: "/pricing", locales: fallbackContentLocales },
+  { path: "/tui", locales: fallbackContentLocales },
+  { path: "/docs/tui", locales: fallbackContentLocales },
   {
     path: "/docs/agent-integrations/oh-my-pi",
     locales: fallbackContentLocales,

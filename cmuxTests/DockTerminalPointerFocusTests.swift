@@ -24,6 +24,17 @@ struct DockTerminalPointerFocusTests {
 #endif
     }
 
+    @Test("Dock selection and restoration keep first responder on the selected terminal")
+    func dockSelectionAndRestorationKeepSelectedTerminalFirstResponder() async throws {
+#if DEBUG
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try exerciseDockSelectionAndRestoration()
+        }
+#else
+        Issue.record("Ghostty Dock focus coverage is only available in DEBUG")
+#endif
+    }
+
 #if DEBUG
     private func exercisePointerDownActivation() throws {
         let previousAppDelegate = AppDelegate.shared
@@ -121,6 +132,126 @@ struct DockTerminalPointerFocusTests {
         #expect(window.firstResponder === surfaceView)
         #expect(appDelegate.focusedDockStoreForShortcut(preferredWindow: window) === dock)
         #expect(secondPanel.hostedView.debugRenderStats().isActive)
+    }
+
+    private func exerciseDockSelectionAndRestoration() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let fileExplorerState = FileExplorerState()
+        let windowId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: fileExplorerState
+        )
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            window.orderOut(nil)
+            window.close()
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let dock = appDelegate.windowDock(forWindowId: windowId)
+        dock.setVisibleInUI(true)
+        defer { dock.setVisibleInUI(false) }
+
+        let topPanel = TerminalPanel(
+            workspaceId: windowId,
+            focusPlacement: .rightSidebarDock
+        )
+        let bottomPanel = TerminalPanel(
+            workspaceId: windowId,
+            focusPlacement: .rightSidebarDock
+        )
+        try seedSplitDock(dock, firstPanel: topPanel, secondPanel: bottomPanel)
+        dock.focusPanel(topPanel.id)
+
+        let mainWorkspace = try #require(manager.selectedWorkspace)
+        let mainPanel = try #require(mainWorkspace.focusedTerminalPanel)
+        mainWorkspace.focusPanel(mainPanel.id)
+
+        let contentView = try #require(window.contentView)
+        let halfWidth = contentView.bounds.width / 2
+        let halfHeight = contentView.bounds.height / 2
+        mainPanel.hostedView.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: halfWidth,
+            height: contentView.bounds.height
+        )
+        bottomPanel.hostedView.frame = NSRect(
+            x: halfWidth,
+            y: 0,
+            width: halfWidth,
+            height: halfHeight
+        )
+        topPanel.hostedView.frame = NSRect(
+            x: halfWidth,
+            y: halfHeight,
+            width: halfWidth,
+            height: halfHeight
+        )
+        contentView.addSubview(mainPanel.hostedView)
+        contentView.addSubview(topPanel.hostedView)
+        contentView.addSubview(bottomPanel.hostedView)
+        mainPanel.hostedView.setVisibleInUI(true)
+        mainPanel.hostedView.setActive(true)
+        topPanel.hostedView.setVisibleInUI(true)
+        topPanel.hostedView.setActive(false)
+        bottomPanel.hostedView.setVisibleInUI(true)
+        bottomPanel.hostedView.setActive(false)
+
+        let dockFocusHost = DockKeyboardFocusView(
+            frame: NSRect(x: 0, y: 0, width: 1, height: 1)
+        )
+        dockFocusHost.focusFirstControl = { dock.focusFirstControl() }
+        contentView.addSubview(dockFocusHost)
+        dockFocusHost.registerWithKeyboardFocusCoordinatorIfNeeded()
+        defer { dockFocusHost.removeFromSuperview() }
+
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        mainPanel.hostedView.layoutSubtreeIfNeeded()
+        topPanel.hostedView.layoutSubtreeIfNeeded()
+        bottomPanel.hostedView.layoutSubtreeIfNeeded()
+
+        let mainSurfaceView = try #require(waitForSurfaceView(in: mainPanel.hostedView))
+        let bottomSurfaceView = try #require(waitForSurfaceView(in: bottomPanel.hostedView))
+        #expect(window.makeFirstResponder(mainSurfaceView))
+        appDelegate.noteMainPanelKeyboardFocusIntent(
+            workspaceId: mainWorkspace.id,
+            panelId: mainPanel.id,
+            in: window
+        )
+
+        dock.focusPanelFromDockInteraction(bottomPanel.id, window: window)
+
+        #expect(dock.focusedPanelId == bottomPanel.id)
+        #expect(window.firstResponder === bottomSurfaceView)
+
+        #expect(window.makeFirstResponder(nil))
+        let focusController = try #require(appDelegate.keyboardFocusCoordinator(for: window))
+        #expect(focusController.restoreTargetAfterWindowBecameKey())
+
+        #expect(dock.focusedPanelId == bottomPanel.id)
+        #expect(window.firstResponder === bottomSurfaceView)
     }
 #endif
 

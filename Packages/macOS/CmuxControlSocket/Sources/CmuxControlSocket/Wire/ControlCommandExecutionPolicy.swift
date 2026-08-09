@@ -95,6 +95,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.delete",
         "browser.import.cookies",
         "mobile.attach_ticket.create",
+        // Provider discovery may read configuration or run `opencode models`;
+        // it must never hold the main actor while waiting for process I/O.
+        "mobile.task.models.list",
         // `mobile.terminal.set_font` only validates params and emits a push
         // event via thread-safe MobileHostService statics, so it runs on the worker
         // like the other mobile data-plane verbs. Without this entry the policy
@@ -126,6 +129,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",
         "workspace.remote.pty_resize",
+        // Persistent readiness authenticates against broker-owned lifecycle
+        // state. The broker serializes that state on its own queue, so this
+        // command must never make the main actor wait behind tunnel work.
+        // Parsing and authentication run here; the final workspace/Dock
+        // mutation takes one synchronous controlResolveOnMain hop.
+        "workspace.remote.terminal_session_launching",
+        "workspace.remote.terminal_session_connected",
         "remote.tmux.sessions",
         "remote.tmux.attach",
         "remote.tmux.detach",
@@ -135,12 +145,20 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "sidebar.custom.reload",
         "sidebar.custom.select",
         "sidebar.custom.open",
+        // Window screenshot capture waits for ScreenCaptureKit's async
+        // compositor before falling back to AppKit. Keep that wait on the
+        // socket worker so WebKit-backed panels can render on the main actor.
+        "debug.window.screenshot",
         // debug.sidebar.simulate_drag intentionally runs on the socket worker
         // so its Thread.sleep between drag-state ticks doesn't block the main
         // actor (which still owns the SidebarDragState mutations via
         // v2MainSync). Running on .mainActor would deadlock the UI for the
         // entire simulation, defeating the profiling workload.
         "debug.sidebar.simulate_drag",
+        // DEBUG builds close the selected mobile transport through its normal
+        // connection-owned shutdown path, which awaits asynchronous writers.
+        // Keep that wait off the main actor.
+        "debug.mobile.transport.disconnect",
         // Browser automation methods that wait on page JavaScript, WebKit
         // cookies, or capture callbacks run on the socket worker: on the main
         // actor they block SwiftUI updates for their full duration, and on a
@@ -424,11 +442,19 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "send_workspace",
     ]
 
+    /// Configuration commands that block their socket worker until the main
+    /// actor commits the requested runtime update.
+    static let configurationMutationV1Commands: Set<String> = [
+        "reload_config",
+    ]
+
     /// v1 commands that run on the socket-worker thread instead of the main
-    /// actor: `ping` (the dispatcher's former hard-coded fast path) plus the
-    /// sidebar telemetry, notification, terminal-read, resolution-read, and
-    /// terminal-send families. Internal (not private) so the package tests
-    /// can pin the exact set.
+    /// actor: `ping` (the dispatcher's former hard-coded fast path),
+    /// `screenshot` (which waits for ScreenCaptureKit's async compositor),
+    /// plus the blocking configuration mutations and the sidebar telemetry,
+    /// notification, terminal-read, resolution-read, and terminal-send
+    /// families. Internal (not private) so the package tests can pin the exact
+    /// set.
     static let socketWorkerV1Commands: Set<String> =
         sidebarTelemetryV1Commands
             .union(notificationV1Commands)
@@ -436,7 +462,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
             .union(diagnosticReadV1Commands)
             .union(resolutionReadV1Commands)
             .union(terminalSendV1Commands)
-            .union(["ping"])
+            .union(configurationMutationV1Commands)
+            .union(["ping", "screenshot"])
 
     /// Worker-lane v1 commands that are also safe to invoke from the main
     /// thread. Must be a subset of ``socketWorkerV1Commands``, and is

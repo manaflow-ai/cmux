@@ -49,6 +49,9 @@ extension AppDelegate {
         action != .showHideAllWindows
             && action != .globalSearch
             && action != .clearScreenKeepScrollback
+            && action != .increaseWorkspaceTerminalFontSize
+            && action != .decreaseWorkspaceTerminalFontSize
+            && action != .resetWorkspaceTerminalFontSize
             && action != .fileExplorerOpenSelection
             && action != .fileExplorerOpenSelectionFinderAlias
             && !KeyboardShortcutSettings.Action.simulatorActions.contains(action)
