@@ -114,8 +114,8 @@ import Testing
     return 0
 
 
-def check_runtime_parameterized_tests_are_isolated() -> int:
-    """A runtime-expanded parameter collection must not share an app host."""
+def check_runtime_parameterized_tests_fail_closed() -> int:
+    """An unknown parameter expansion must not bypass the hard process cap."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp_root = Path(tmp)
         test_root = tmp_root / "cmuxTests"
@@ -163,30 +163,103 @@ import Testing
             capture_output=True,
             check=False,
         )
-        if result.returncode != 0:
-            print(result.stdout, end="")
-            print(result.stderr, end="", file=sys.stderr)
-            print(f"FAIL: runtime-parameterized batching exited {result.returncode}")
-            return 1
-        batches = [
-            path.read_text(encoding="utf-8").splitlines()
-            for path in sorted(output_directory.glob("batch-*.args"))
-        ]
+    selector = "cmuxTests/RuntimeParameterizedTests/runtimeExpandedCase"
+    if (
+        result.returncode == 0
+        or selector not in result.stderr
+        or "runtime-expanded test count" not in result.stderr
+    ):
+        print(result.stdout, end="")
+        print(result.stderr, end="", file=sys.stderr)
+        print("FAIL: runtime-expanded parameterized tests must fail closed")
+        return 1
 
-    parameterized_selector = (
-        "-only-testing:cmuxTests/RuntimeParameterizedTests/runtimeExpandedCase"
+    print("PASS: runtime-expanded parameterized tests cannot bypass the process cap")
+    return 0
+
+
+def check_nested_swift_testing_suites_keep_umbrella_selectors() -> int:
+    """Nested suites must retain their recursively selecting umbrella type."""
+    nested_methods = "\n".join(
+        f"    @Test func nestedCase{index:02d}() {{}}" for index in range(1, 42)
     )
-    containing_batches = [
-        batch for batch in batches if parameterized_selector in batch
-    ]
-    if containing_batches != [[parameterized_selector]]:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        test_root = tmp_root / "cmuxTests"
+        test_root.mkdir()
+        (test_root / "BehaviorUmbrellaTests.swift").write_text(
+            f"""
+import Testing
+
+@Suite(.serialized)
+struct BehaviorUmbrellaTests {{}}
+
+extension BehaviorUmbrellaTests {{
+    @Suite struct NestedBehaviorTests {{
+{nested_methods}
+    }}
+}}
+""".lstrip(),
+            encoding="utf-8",
+        )
+        (test_root / "SharedStateSuites.swift").write_text(
+            """
+import Testing
+
+@Suite(.serialized)
+enum SharedStateSuites {}
+
+extension SharedStateSuites {
+    @Suite struct FirstSharedStateTests {
+        @Test func firstCase() {}
+    }
+
+    @Suite struct SecondSharedStateTests {
+        @Test func secondCase() {}
+    }
+}
+""".lstrip(),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(HELPER),
+                "--root",
+                str(tmp_root),
+                "--list",
+                "--timings",
+                str(tmp_root / "no-manifest.json"),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    if result.returncode != 0:
+        print(result.stdout, end="")
+        print(result.stderr, end="", file=sys.stderr)
+        print(f"FAIL: nested-suite discovery exited {result.returncode}")
+        return 1
+
+    selectors = {
+        fields[0]: int(fields[1])
+        for line in result.stdout.splitlines()
+        if len(fields := line.split("\t", 2)) == 3
+    }
+    expected = {
+        "cmuxTests/BehaviorUmbrellaTests": 41 * 200,
+        "cmuxTests/SharedStateSuites": 2 * 200,
+    }
+    if selectors != expected:
+        print(result.stdout, end="")
         print(
-            "FAIL: runtime-expanded parameterized test must have a fresh app host: "
-            f"{batches}"
+            "FAIL: nested Swift Testing suites must stay under their recursively "
+            f"selecting umbrella with exact counts, got {selectors}"
         )
         return 1
 
-    print("PASS: runtime-expanded parameterized tests get a fresh app host")
+    print("PASS: nested Swift Testing suites retain umbrella selectors and counts")
     return 0
 
 
@@ -727,8 +800,10 @@ def main() -> int:
     if (rc := check_parameterized_swift_testing_counts()) != 0:
         return rc
 
-    if (rc := check_runtime_parameterized_tests_are_isolated()) != 0:
-        return rc
+    nested_suite_rc = check_nested_swift_testing_suites_keep_umbrella_selectors()
+    runtime_parameter_rc = check_runtime_parameterized_tests_fail_closed()
+    if nested_suite_rc != 0 or runtime_parameter_rc != 0:
+        return 1
 
     if (rc := check_parameterized_method_fallback_weight()) != 0:
         return rc
