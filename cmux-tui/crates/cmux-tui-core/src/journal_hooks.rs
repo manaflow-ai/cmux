@@ -1159,67 +1159,85 @@ mod tests {
     fn unix_hook_tree_kills_a_descendant_that_created_a_new_session() {
         const HELPER: &str = "CMUX_TEST_DETACHED_JOURNAL_HOOK";
         const PID_PATH: &str = "CMUX_TEST_DETACHED_JOURNAL_HOOK_PID";
-        if std::env::var_os(HELPER).is_some() {
-            // A normal daemon closes inherited descriptors before it creates a
-            // new session. Scope ownership must not depend on an open marker FD.
-            for fd in 3..1024 {
-                unsafe {
-                    libc::close(fd);
+        if let Some(mode) = std::env::var_os(HELPER) {
+            let pid_path = std::env::var_os(PID_PATH).unwrap();
+            match mode.to_str().unwrap() {
+                "close-fds" => {
+                    // A normal daemon closes inherited descriptors before it
+                    // creates a new session.
+                    for fd in 3..1024 {
+                        unsafe {
+                            libc::close(fd);
+                        }
+                    }
                 }
+                "clear-environment" => unsafe {
+                    // A daemon can replace its environment after exec. The
+                    // scope must retain an independent ownership marker.
+                    std::env::remove_var("CMUX_TUI_PROCESS_SCOPE");
+                },
+                other => panic!("unexpected detached hook helper mode {other}"),
             }
             let session = unsafe { libc::setsid() };
             assert!(session > 0, "detached hook helper could not create a session");
-            std::fs::write(std::env::var_os(PID_PATH).unwrap(), std::process::id().to_string())
-                .unwrap();
+            std::fs::write(pid_path, std::process::id().to_string()).unwrap();
             std::thread::sleep(Duration::from_secs(30));
             return;
         }
 
-        let root = std::env::temp_dir().join(format!(
-            "cmux-detached-journal-hook-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        let pid_path = root.join("detached.pid");
-        let executable = std::env::current_exe().unwrap();
-        let test_name =
-            "journal_hooks::tests::unix_hook_tree_kills_a_descendant_that_created_a_new_session";
-        let mut command = Command::new("/bin/sh");
-        command
-            .args(["-c", "\"$1\" --exact \"$2\" --nocapture & wait", "cmux-journal-hook-test"])
-            .arg(&executable)
-            .arg(test_name)
-            .env(HELPER, "1")
-            .env(PID_PATH, &pid_path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .process_group(0);
-        let mut tree = UnixProcessScope::prepare().unwrap();
-        tree.configure(&mut command);
-        let mut child = command.spawn().unwrap();
-        tree.bind(child.id());
-        let deadline = Instant::now() + Duration::from_secs(5);
-        let detached = loop {
-            if let Ok(pid) = std::fs::read_to_string(&pid_path)
-                && let Ok(pid) = pid.trim().parse::<libc::pid_t>()
-            {
-                break pid;
-            }
-            assert!(Instant::now() < deadline, "detached hook did not publish its pid");
-            std::thread::sleep(Duration::from_millis(10));
-        };
+        for mode in ["close-fds", "clear-environment"] {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-detached-journal-hook-{}-{mode}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&root).unwrap();
+            let pid_path = root.join("detached.pid");
+            let executable = std::env::current_exe().unwrap();
+            let test_name = "journal_hooks::tests::unix_hook_tree_kills_a_descendant_that_created_a_new_session";
+            let mut command = Command::new("/bin/sh");
+            command
+                .args(["-c", "\"$1\" --exact \"$2\" --nocapture & wait", "cmux-journal-hook-test"])
+                .arg(&executable)
+                .arg(test_name)
+                .env(HELPER, mode)
+                .env(PID_PATH, &pid_path)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .process_group(0);
+            let mut tree = UnixProcessScope::prepare().unwrap();
+            tree.configure(&mut command);
+            let mut child = command.spawn().unwrap();
+            tree.bind(child.id());
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let detached = loop {
+                if let Ok(pid) = std::fs::read_to_string(&pid_path)
+                    && let Ok(pid) = pid.trim().parse::<libc::pid_t>()
+                {
+                    break pid;
+                }
+                assert!(Instant::now() < deadline, "detached hook did not publish its pid");
+                std::thread::sleep(Duration::from_millis(10));
+            };
 
-        tree.terminate();
-        let _ = child.kill();
-        let _ = child.wait();
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while unsafe { libc::kill(detached, 0) } == 0 && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
+            tree.terminate();
+            let _ = child.kill();
+            let _ = child.wait();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while unsafe { libc::kill(detached, 0) } == 0 && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let _ = std::fs::remove_dir_all(root);
+            assert_ne!(
+                unsafe { libc::kill(detached, 0) },
+                0,
+                "detached hook survived {mode} cleanup"
+            );
         }
-        let _ = std::fs::remove_dir_all(root);
-        assert_ne!(unsafe { libc::kill(detached, 0) }, 0, "detached hook survived cleanup");
     }
 
     #[cfg(windows)]
