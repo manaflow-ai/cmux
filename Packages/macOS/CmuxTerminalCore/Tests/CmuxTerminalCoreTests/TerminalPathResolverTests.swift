@@ -1,6 +1,11 @@
 import Foundation
 import Testing
-import CmuxTerminalCore
+// design-decision-b1-fallback-policy.md rule 6 — the legacy 2-row
+// `resolveWrappedCandidate(seed:previousRow:nextRow:cwd:)` overload is
+// `internal`, not `public` (no cross-module production caller may reach
+// it directly); this file's white-box fixtures exercise it anyway, so
+// this needs `@testable`.
+@testable import CmuxTerminalCore
 
 // Two `.unavailableNonASCIIRow` values compare `==` to each other, so a
 // bare `cellSpans == cellSpans` equality check can't tell "both sides
@@ -1735,5 +1740,344 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(previousDiagnostic.candidateIsPathShaped == nil)
         #expect(previousDiagnostic.fragmentAloneExists == nil)
         #expect(previousDiagnostic.candidateExists == nil)
+    }
+}
+
+// cmux-shared-behavior policy — the shared `resolveWrappedCandidate(seed:
+// rows:clickedIndex:columns:cwd:purpose:)` entry point both the click and
+// hover production call sites now go through, instead of each choosing
+// its own overload independently.
+@Suite struct TerminalSharedResolutionEntryPointTests {
+    // design-decision-b1-fallback-policy.md rule 2 — bug B's non-ASCII
+    // `.previous` row IS the narrow, click-only fallback exception: the
+    // geometry-aware evaluator can't judge it at all (row30 is
+    // non-ASCII), and every one of rule 2's other conditions holds (a
+    // 2-row `.previous`-only join, ASCII clicked row), so `purpose:
+    // .click` reaches `resolveTextOnlyPreviousFallback` and resolves it —
+    // required test 2 from design-decision-b1-fallback-policy.md.
+    @Test func clickResolvesTheBugBTextOnlyFixtureViaTheNarrowFallback() throws {
+        let cwd = "/tmp/bugB"
+        let row30 = "\u{25CF} research/docs/notes/2026-07-31_key_cost_volume_price_and_probab"
+        let row31 = "  ility_floor.md"
+        let row32 = "  research/docs/notes/2026-07-31_scaffold_kl_foundations_and_meas"
+        let mdFile = cwd + "/research/docs/notes/2026-07-31_key_cost_volume_price_and_probability_floor.md"
+        let htmlFile = cwd + "/research/docs/notes/2026-07-31_scaffold_kl_foundations_and_measurement_limits.html"
+        let resolver = TerminalPathResolver(fileExists: existsIn([mdFile, htmlFile]))
+        let rows = [row30, row31, row32]
+
+        let seed = try #require(resolver.wrappedPathSeed(in: row31, column: 12, cwd: cwd, columns: 65))
+        let candidate = try #require(
+            resolver.resolveWrappedCandidate(
+                seed: seed, rows: rows, clickedIndex: 1, columns: 65, cwd: cwd, purpose: .click
+            )
+        )
+        #expect(candidate.path == mdFile)
+        #expect(candidate.cellSpans == .unavailableNonASCIIRow)
+    }
+
+    // design-decision-b1-fallback-policy.md rule 2 condition 2 — required
+    // test 3: hover can NEVER reach the fallback, even for the identical
+    // fixture click just resolved above.
+    @Test func hoverNeverResolvesTheBugBTextOnlyFixtureEvenThoughClickDoes() throws {
+        let cwd = "/tmp/bugB"
+        let row30 = "\u{25CF} research/docs/notes/2026-07-31_key_cost_volume_price_and_probab"
+        let row31 = "  ility_floor.md"
+        let row32 = "  research/docs/notes/2026-07-31_scaffold_kl_foundations_and_meas"
+        let mdFile = cwd + "/research/docs/notes/2026-07-31_key_cost_volume_price_and_probability_floor.md"
+        let htmlFile = cwd + "/research/docs/notes/2026-07-31_scaffold_kl_foundations_and_measurement_limits.html"
+        let resolver = TerminalPathResolver(fileExists: existsIn([mdFile, htmlFile]))
+        let rows = [row30, row31, row32]
+
+        let seed = try #require(resolver.wrappedPathSeed(in: row31, column: 12, cwd: cwd, columns: 65))
+        let candidate = resolver.resolveWrappedCandidate(
+            seed: seed, rows: rows, clickedIndex: 1, columns: 65, cwd: cwd, purpose: .hover
+        )
+        #expect(candidate == nil)
+    }
+
+    // design-decision-b1-fallback-policy.md rule 5/B1's own regression —
+    // required test 1, THE most load-bearing test in this whole set: a
+    // fullness-rejected, ALL-ASCII 2-row pair whose joined candidate
+    // exists on disk must NEVER open, through EITHER purpose, even though
+    // the (now internal) legacy overload alone would happily resolve it.
+    // Without this test, B1 could regress silently and nobody would
+    // notice until a coincidental adjacent-text match opened the wrong
+    // file in production.
+    @Test func fullnessRejectedAllASCIICandidateNeverFallsBackForEitherPurpose() throws {
+        let cwd = "/tmp"
+        let clickedRow = "short"
+        let nextRow = "tail.md"
+        let coincidental = "/tmp/shorttail.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([coincidental]))
+        let rows = [clickedRow, nextRow]
+
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
+        // A wide grid (80 columns) makes `short`'s 5 characters nowhere
+        // near the physical edge — the fullness guard rejects this
+        // outright; the legacy 2-row overload alone (no fullness concept
+        // at all) would still resolve it, which is exactly the bug B1
+        // fixed.
+        #expect(
+            resolver.resolveWrappedCandidate(
+                seed: seed, rows: rows, clickedIndex: 0, columns: 80, cwd: cwd, purpose: .click
+            ) == nil
+        )
+        #expect(
+            resolver.resolveWrappedCandidate(
+                seed: seed, rows: rows, clickedIndex: 0, columns: 80, cwd: cwd, purpose: .hover
+            ) == nil
+        )
+    }
+
+    // design-decision-b1-fallback-policy.md rule 2 condition 4 — required
+    // test 4: even where a real 3-row-spanning file DOES exist, the
+    // narrow fallback can only ever attempt an immediate 2-row join
+    // (structurally — it calls the legacy 2-row evaluator, never
+    // anything wider), so it must return `nil` here rather than somehow
+    // reaching past the non-ASCII adjacent row to the real answer.
+    @Test func nonASCIIPreviousRowNeedingAThreeRowSpanNeverFallsBackToATwoRowJoin() throws {
+        let cwd = "/tmp/case4"
+        let rowFar = "docs/"
+        let rowNear = "\u{25CF} deep/tail"
+        let rowClicked = "report.md"
+        // The REAL file exists only at the full 3-row join — genuinely
+        // unreachable by this click today (a known, accepted gap per
+        // design-decision-b1-fallback-policy.md's closing note: retired
+        // once native boundary provenance lands). What matters here is
+        // that the coincidental 2-row-only join (`rowNear`'s own trailing
+        // fragment + the clicked token) is NOT registered as existing.
+        let realThreeRowFile = cwd + "/docs/deep/tailreport.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([realThreeRowFile]))
+        let rows = [rowFar, rowNear, rowClicked]
+
+        let seed = try #require(resolver.wrappedPathSeed(in: rowClicked, column: 0, cwd: cwd))
+        let candidate = resolver.resolveWrappedCandidate(
+            seed: seed, rows: rows, clickedIndex: 2, columns: 5, cwd: cwd, purpose: .click
+        )
+        #expect(candidate == nil)
+    }
+
+    // design-decision-b1-fallback-policy.md rule 2 condition 3 (via
+    // resolveSingleDirection's own `.next`-never-text-only rule) —
+    // required test 8: an absolute, `.next`-only token whose continuation
+    // row is non-ASCII must never fall back, since the winning direction
+    // would have to be `.next`, which the narrow fallback never accepts.
+    @Test func nextDirectionNonASCIIContinuationRowNeverFallsBack() throws {
+        let cwd = "/tmp/case8"
+        let clickedRow = "/research/"
+        let nextRow = "\u{25CF} docs/report.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([cwd + "/research/docs/report.md"]))
+        let rows = [clickedRow, nextRow]
+
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
+        #expect(seed.directions == [.next])
+        let candidate = resolver.resolveWrappedCandidate(
+            seed: seed, rows: rows, clickedIndex: 0, columns: 80, cwd: cwd, purpose: .click
+        )
+        #expect(candidate == nil)
+    }
+
+    // review R2-B1/design-decision-b1-fallback-policy.md rule 2
+    // condition 6 — non-ASCII must be CONFINED to the previous row.
+    // `row32` here is a DIFFERENT non-ASCII row (not the original bug-B
+    // fixture's ASCII `row32`) with no candidate registered for it at
+    // all — `.next` independently fails (a non-ASCII row's guarded
+    // extractor returns nil, same as if it had no fragment), which
+    // looks identical, from `evaluation.outcomes[.next]` alone, to
+    // "there simply wasn't a `.next` candidate." Without the explicit
+    // "every non-previous row is ASCII" guard, the narrow fallback would
+    // still accept the `.previous`-only success here — exactly the
+    // regression review caught.
+    @Test func nonASCIINextRowAlongsideANonASCIIPreviousRowNeverFallsBack() throws {
+        let cwd = "/tmp/bugB"
+        let row30 = "\u{25CF} research/docs/notes/2026-07-31_key_cost_volume_price_and_probab"
+        let row31 = "  ility_floor.md"
+        let row32 = "\u{25CF} unrelated"
+        let mdFile = cwd + "/research/docs/notes/2026-07-31_key_cost_volume_price_and_probability_floor.md"
+        // Only the previous+clicked join is registered — `row32` names
+        // no candidate anywhere, unlike the original bug-B fixture whose
+        // ASCII `row32` had its own `.next`-direction candidate.
+        let resolver = TerminalPathResolver(fileExists: existsIn([mdFile]))
+        let rows = [row30, row31, row32]
+
+        let seed = try #require(resolver.wrappedPathSeed(in: row31, column: 12, cwd: cwd, columns: 65))
+        #expect(
+            resolver.resolveWrappedCandidate(
+                seed: seed, rows: rows, clickedIndex: 1, columns: 65, cwd: cwd, purpose: .click
+            ) == nil
+        )
+        #expect(
+            resolver.resolveWrappedCandidate(
+                seed: seed, rows: rows, clickedIndex: 1, columns: 65, cwd: cwd, purpose: .hover
+            ) == nil
+        )
+    }
+
+    // The 3-row mirror fixture, clicked from row0: the geometry-aware
+    // evaluator DOES resolve this (once `wrappedPathSeed` reaches the
+    // row0 disposition), so this entry point must return that result
+    // directly, without ever reaching the legacy fallback.
+    @Test func resolvesThroughTheGeometryAwareEvaluatorForTheMirrorFixture() throws {
+        let cwd = "/tmp"
+        let rows = ["foo", "/bar/", "baz.md"]
+        let expectedCandidate = "/tmp/foo/bar/baz.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn(["/tmp/foo", expectedCandidate]))
+
+        let seed = try #require(resolver.wrappedPathSeed(in: rows[0], column: 0, cwd: cwd, columns: 3))
+        let candidate = try #require(
+            resolver.resolveWrappedCandidate(
+                seed: seed, rows: rows, clickedIndex: 0, columns: 3, cwd: cwd, purpose: .click
+            )
+        )
+        #expect(candidate.path == expectedCandidate)
+    }
+
+    // A caller (click) may hand this a window far larger than the
+    // evaluator needs (e.g. its whole viewport capture) — this must
+    // slice down to the shared ±3-row policy itself rather than reject
+    // it or hand `TerminalPhysicalRowWindow` more than its own
+    // `maxSnapshotRows` (7) cap allows.
+    @Test func slicesAnOversizedRowsArrayDownToTheSharedWindowPolicy() throws {
+        let cwd = "/tmp"
+        let previousRow = "/Users/dev/project/research/docs/"
+        let clickedRow = "notes/report.md"
+        let joinedFile = previousRow + clickedRow
+        let resolver = TerminalPathResolver(fileExists: existsIn([previousRow, joinedFile]))
+
+        // 12 rows total (far past `maxSnapshotRows`), clicked row at
+        // index 6 — the real previous/next rows sit right next to it.
+        var rows = (0..<12).map { "padding\($0)" }
+        rows[5] = previousRow
+        rows[6] = clickedRow
+
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
+        let candidate = try #require(
+            resolver.resolveWrappedCandidate(
+                seed: seed, rows: rows, clickedIndex: 6, columns: previousRow.count, cwd: cwd, purpose: .click
+            )
+        )
+        #expect(candidate.path == joinedFile)
+    }
+
+    // design-decision-b1-fallback-policy.md rule 2 condition 5 — required
+    // test 5: a non-ASCII CLICKED row never even produces a seed at all
+    // (`wrapContinuationToken`'s own ASCII guard, `String+TerminalPathTokens.
+    // swift`), so there is nothing to hand this entry point in the first
+    // place — pinning that this invariant (clicked row ASCII) continues
+    // to hold upstream of the whole shared-entry/fallback pipeline.
+    @Test func nonASCIIClickedRowNeverProducesASeedAtAll() {
+        let cwd = "/tmp/case5"
+        let clickedRow = "\u{25CF} report.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([cwd + "/report.md"]))
+        #expect(resolver.wrappedPathSeed(in: clickedRow, column: 2, cwd: cwd) == nil)
+    }
+
+    // design-decision-b1-fallback-policy.md rule 1 — required test 6: two
+    // genuinely incomparable (neither containing the other) ASCII 2-row
+    // successes on either side of the clicked row must reject, not guess
+    // — and, being all-ASCII, must never be confused with the
+    // click-only, non-ASCII fallback either.
+    @Test func genuinelyAmbiguousSpansNeverFallBackForEitherPurpose() throws {
+        let cwd = "/tmp/case6"
+        let previousRow = "a/pre"
+        let clickedRow = "mid/x.txt"
+        let nextRow = "y/z.md"
+        let previousCandidate = cwd + "/a/premid/x.txt"
+        let nextCandidate = cwd + "/mid/x.txty/z.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([previousCandidate, nextCandidate]))
+        let rows = [previousRow, clickedRow, nextRow]
+
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
+        #expect(seed.directions == [.previous, .next])
+        // columns: 5 — both `previousRow` (index 4) and `clickedRow`
+        // (index 8, already past it) reach the strict right edge, so
+        // BOTH the (previous, clicked) and (clicked, next) 2-row spans
+        // are independently eligible and independently resolve — neither
+        // contains the other's row range.
+        #expect(
+            resolver.resolveWrappedCandidate(
+                seed: seed, rows: rows, clickedIndex: 1, columns: 5, cwd: cwd, purpose: .click
+            ) == nil
+        )
+        #expect(
+            resolver.resolveWrappedCandidate(
+                seed: seed, rows: rows, clickedIndex: 1, columns: 5, cwd: cwd, purpose: .hover
+            ) == nil
+        )
+    }
+
+    // review R2-B2/design-decision-b1-fallback-policy.md rule 1 —
+    // required test 7: an all-ASCII, multi-row fixture where the REAL
+    // winning candidate exists on disk, but a small INJECTED probe
+    // budget (`resolveWrappedCandidateForTesting`'s `maxProbes`, review
+    // R2-B2's test-only seam) is exhausted by two earlier, genuinely-
+    // nonexistent candidates before the search ever reaches it — the
+    // evaluator must never fall back to the legacy overload for either
+    // purpose in that case, and the recorder confirms the winning
+    // candidate's own `fileExists` call never happened at all (not that
+    // it happened and returned false).
+    //
+    // `re/sea.x` (unlike the plain `re/sea` used elsewhere) carries its
+    // own `.` so every prefix join from `spanStart == 0` is
+    // `isWrappedPathCandidateShaped`-eligible regardless of how far the
+    // span extends — the ORIGINAL fixture's shorter joins failed that
+    // shape guard before ever calling `probe`, which is exactly why it
+    // never spent more than a handful of probes.
+    @Test func probeBudgetExhaustionNeverFallsBackForEitherPurpose() throws {
+        let cwd = "/tmp/case7"
+        let rows = ["re/sea.x", "rch/do", "cs/rep", "ort.md"]
+        let realWinningCandidate = cwd + "/re/sea.xrch/docs/report.md"
+
+        final class ProbeRecorder: @unchecked Sendable {
+            private(set) var probedPaths: [String] = []
+            private let existingPaths: Set<String>
+            init(existingPaths: Set<String>) { self.existingPaths = existingPaths }
+            func fileExists(_ path: String) -> Bool {
+                probedPaths.append(path)
+                return existingPaths.contains((path as NSString).standardizingPath)
+            }
+        }
+        // Seed built through a separate, non-recording resolver — its
+        // own row-local probe must never count against this budget.
+        let seedResolver = TerminalPathResolver(fileExists: existsIn([]))
+        let seed = try #require(seedResolver.wrappedPathSeed(in: rows[1], column: 0, cwd: cwd))
+
+        let maxProbes = 2
+
+        let clickRecorder = ProbeRecorder(existingPaths: [realWinningCandidate])
+        let clickResolver = TerminalPathResolver(fileExists: clickRecorder.fileExists)
+        #expect(
+            clickResolver.resolveWrappedCandidateForTesting(
+                seed: seed, rows: rows, clickedIndex: 1, columns: 6, cwd: cwd, purpose: .click, maxProbes: maxProbes
+            ) == nil
+        )
+        // The injected budget was spent EXACTLY (not under, not over) —
+        // confirming the search genuinely ran out, rather than finding
+        // its own nil answer within a budget that happened not to bind.
+        #expect(clickRecorder.probedPaths.count == maxProbes)
+        // The strongest assertion: the real winning candidate's own
+        // `fileExists` call is simply absent — exhaustion denied it
+        // before the probe could even run, not after a false result.
+        #expect(!clickRecorder.probedPaths.contains(realWinningCandidate))
+
+        let hoverRecorder = ProbeRecorder(existingPaths: [realWinningCandidate])
+        let hoverResolver = TerminalPathResolver(fileExists: hoverRecorder.fileExists)
+        #expect(
+            hoverResolver.resolveWrappedCandidateForTesting(
+                seed: seed, rows: rows, clickedIndex: 1, columns: 6, cwd: cwd, purpose: .hover, maxProbes: maxProbes
+            ) == nil
+        )
+        #expect(hoverRecorder.probedPaths.count == maxProbes)
+
+        // Sanity: with the REAL 15-probe budget (production's default,
+        // no override), this exact fixture resolves normally — proving
+        // the `nil` above is caused by the injected small budget, not by
+        // some other property of the fixture.
+        let sanityResolver = TerminalPathResolver(fileExists: existsIn([realWinningCandidate]))
+        #expect(
+            sanityResolver.resolveWrappedCandidate(
+                seed: seed, rows: rows, clickedIndex: 1, columns: 6, cwd: cwd, purpose: .click
+            )?.path == realWinningCandidate
+        )
     }
 }

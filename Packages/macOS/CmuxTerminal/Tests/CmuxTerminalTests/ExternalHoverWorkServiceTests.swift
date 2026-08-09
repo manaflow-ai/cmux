@@ -12,10 +12,62 @@ import CmuxTerminalCore
     // offset shape review Blocking 6 flagged as at risk of a 1-row
     // conflation). previousRow (row 4) supplies the `.previous` fragment;
     // nextRow (row 6) is empty, so only `.previous` resolves.
-    private static let existingPath = "/Users/dev/project/very-long-directory-name/file.txt"
-    private static let previousRowText = "/Users/dev/project/very-long-directory-name/"
+    //
+    // design-decision-b1-fallback-policy.md rule 5 — `previousRowText` is
+    // padded to exactly `makeRequest`'s default `gridColumns` (80) so it
+    // genuinely reaches the strict physical right edge: a row that does
+    // NOT reach the edge in an 80-column grid isn't a real hard wrap at
+    // all, and B1 correctly stopped admitting it via legacy fallback.
+    // Every test below now exercises the geometry-aware evaluator's own
+    // success path (not a fallback) for this fixture — the SAME final
+    // candidate/ranges either way, since 2-row extraction is identical
+    // between the two paths.
+    private static let previousRowText = "/Users/dev/project/very-long-directory-name-padded-to-reach-full-eighty-columns/"
     private static let clickedRowText = "file.txt"
-    private static let physicalRowsText = previousRowText + "\n" + clickedRowText + "\n"
+    private static let existingPath = previousRowText + clickedRowText
+
+    // #8810 widened the read window from clicked±1 (3 rows) to clicked±3
+    // (7 rows) — `previousRowText`/`clickedRowText` always sit at
+    // ABSOLUTE rows 4/5 regardless of how wide a window the caller
+    // requests, so every fixture below builds its text from whatever
+    // `topRow`/`rowCount` the service actually asks for instead of
+    // returning one fixed string that only happened to line up with the
+    // OLD, narrower window.
+    // review B3 — every fixture below that wants a COHERENT read (no
+    // metrics mismatch) routes through this, mirroring production's own
+    // `coherentPhysicalRowsSnapshot` contract: build a snapshot from
+    // `physicalRowsText`'s deterministic text, at exactly the columns the
+    // request expects (so `metricsBefore == metricsAfter == expected`
+    // holds trivially for every "normal" test that isn't itself testing
+    // the mismatch path).
+    private static func coherentSnapshot(
+        topRow: UInt32, rowCount: UInt32, columns: Int
+    ) -> TerminalPhysicalRowsSnapshot? {
+        TerminalPhysicalRowsSnapshot(
+            rawText: physicalRowsText(topRow: topRow, rowCount: rowCount),
+            topRow: topRow, expectedRowCount: rowCount, columns: columns
+        )
+    }
+
+    // review B4 — the strict-full 4-row fixture's own row-to-text
+    // mapping (absolute rows 4-7, matching `TerminalWrapGeometryTests`'
+    // `exactThreeAndFourRowNormalCasesResolveFromAnyClickedRow`), shared
+    // between the reader closure and the setter-text assertion so
+    // neither can silently drift from the other.
+    private static func fourRowFixtureRawText(topRow: UInt32, rowCount: UInt32) -> String {
+        let fixtureRows: [UInt32: String] = [4: "re/sea", 5: "rch/do", 6: "cs/rep", 7: "ort.md"]
+        return (0..<Int(rowCount)).map { fixtureRows[topRow + UInt32($0)] ?? "" }.joined(separator: "\n") + "\n"
+    }
+
+    private static func physicalRowsText(topRow: UInt32, rowCount: UInt32) -> String {
+        (0..<Int(rowCount)).map { offset -> String in
+            switch Int(topRow) + offset {
+            case 4: return previousRowText
+            case 5: return clickedRowText
+            default: return ""
+            }
+        }.joined(separator: "\n") + "\n"
+    }
 
     private static func makeLifetime(_ generation: UInt64 = 1) -> RuntimeSurfaceLifetimeID {
         .init(surfaceID: UUID(), runtimeSurfaceGeneration: generation)
@@ -44,6 +96,11 @@ import CmuxTerminalCore
         // and a later render-triggered drain were attributed to the
         // SAME event.
         var setterHostEventIDs: [UInt64] = []
+        // review B4 — the exact raw bytes/ranges the LAST `callSetter`
+        // invocation received, so a test can assert them directly
+        // instead of only counting the call.
+        var lastSetterText: String?
+        var lastSetterRanges: [ExternalHoverCellRangeValue]?
         var drainCalls = 0
         var drainedLifetimeSurfaces: [RuntimeSurfaceLifetimeID] = []
         // Review round3 B3: how many times the injected
@@ -62,6 +119,12 @@ import CmuxTerminalCore
         surface: ghostty_surface_t,
         cell: ExternalHoverGridCell,
         requestGeneration: UInt64,
+        // 80 — far wider than any fixture row in this file, so the
+        // geometry-aware evaluator's fullness guard fails closed on
+        // every boundary and every existing test keeps exercising the
+        // legacy 2-row fallback exactly as it did before #8810's shared
+        // entry point existed.
+        gridColumns: Int = 80,
         surfaceSerial: UInt64 = 0
     ) -> ExternalHoverWorkRequest {
         .init(
@@ -70,6 +133,7 @@ import CmuxTerminalCore
             requestGeneration: requestGeneration,
             cell: cell,
             viewportRowCount: 10,
+            gridColumns: gridColumns,
             cwd: "/tmp",
             mirror: mirror,
             coordinator: coordinator,
@@ -109,10 +173,10 @@ import CmuxTerminalCore
         ExternalHoverWorkService(
             teardownCoordinator: teardownCoordinator,
             resolver: TerminalPathResolver(fileExists: { $0 == Self.existingPath }),
-            readPhysicalRows: { _, _, _ in
+            readPhysicalRows: { _, topRow, rowCount, expectedColumns, _ in
                 counts.reads += 1
                 onRead?()
-                return Self.physicalRowsText
+                return Self.coherentSnapshot(topRow: topRow, rowCount: rowCount, columns: expectedColumns)
             },
             callSetter: { _, _, _, _, _, hostEventID in
                 counts.setterCalls += 1
@@ -174,10 +238,12 @@ import CmuxTerminalCore
         mirror.publish(.init(lifetimeID: lifetimeID, hoverEventID: 1, eligible: true, visible: true))
         let mailboxCoordinator = Self.makeCoordinator()
 
-        // Clicked row is 5 (nonzero, and the read window's topRow=4 !=
+        // Clicked row is 5 (nonzero, and the read window's topRow=2 !=
         // clickedRow — the exact shape review Blocking 6 flagged as at
         // risk of a 1-row conflation for the `.previous` direction, whose
-        // fragment lives on the row ABOVE the clicked one).
+        // fragment lives on the row ABOVE the clicked one). #8810 widened
+        // the read window to clicked±3, so topRow is now 2 (not the old
+        // clicked±1 window's 4) and rowCount is 7 (not 3).
         let request = makeRequest(
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
@@ -186,8 +252,8 @@ import CmuxTerminalCore
 
         #expect(mailboxCoordinator.currentMailbox.pending?.path == Self.existingPath)
         let cache = await service.debugCache(for: lifetimeID)
-        #expect(cache?.topRow == 4)
-        #expect(cache?.rowCount == 3)
+        #expect(cache?.topRow == 2)
+        #expect(cache?.rowCount == 7)
         // Absolute viewport ranges: the clicked token ("file.txt") at row 5
         // (the clicked row itself, offset 0), and the winning `.previous`
         // fragment at row 4 — ONE ROW ABOVE, never row 5 or row 6, which is
@@ -219,7 +285,11 @@ import CmuxTerminalCore
         let row32 = "  research/docs/notes/2026-07-31_scaffold_kl_foundations_and_meas"
         let mdFile = cwd + "/research/docs/notes/2026-07-31_key_cost_volume_price_and_probability_floor.md"
         let htmlFile = cwd + "/research/docs/notes/2026-07-31_scaffold_kl_foundations_and_measurement_limits.html"
-        let physicalRowsText = row30 + "\n" + row31 + "\n" + row32 + "\n"
+        // #8810 widened the read window to clicked±3 (7 rows) — clicked
+        // row 5, topRow 2, so this fixture's 3 real rows sit at absolute
+        // 4/5/6 (local 2/3/4), padded with empty rows on both sides to
+        // fill the full 7-row read the service now always requests.
+        let physicalRowsText = ["", "", row30, row31, row32, "", ""].joined(separator: "\n") + "\n"
 
         let lifetimeID = Self.makeLifetime()
         let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
@@ -231,9 +301,11 @@ import CmuxTerminalCore
         let service = ExternalHoverWorkService(
             teardownCoordinator: teardownCoordinator,
             resolver: TerminalPathResolver(fileExists: { $0 == mdFile || $0 == htmlFile }),
-            readPhysicalRows: { _, _, _ in
+            readPhysicalRows: { _, topRow, rowCount, expectedColumns, _ in
                 counts.reads += 1
-                return physicalRowsText
+                return TerminalPhysicalRowsSnapshot(
+                    rawText: physicalRowsText, topRow: topRow, expectedRowCount: rowCount, columns: expectedColumns
+                )
             },
             callSetter: { _, _, _, _, _, hostEventID in
                 counts.setterCalls += 1
@@ -252,10 +324,12 @@ import CmuxTerminalCore
         )
 
         // row31 (clicked) at absolute row 5, matching this file's own
-        // "nonzero viewport offset" convention (topRow=4 != clickedRow).
+        // "nonzero viewport offset" convention (topRow != clickedRow).
+        // gridColumns: 65 — matches design-gate-release-bugB.md §4.1's
+        // real observed shape (row30/row32 both reach column 65).
         let request = ExternalHoverWorkRequest(
             lifetimeID: lifetimeID, surface: surface, requestGeneration: 1,
-            cell: ExternalHoverGridCell(row: 5, column: 12), viewportRowCount: 10, cwd: cwd,
+            cell: ExternalHoverGridCell(row: 5, column: 12), viewportRowCount: 10, gridColumns: 65, cwd: cwd,
             mirror: mirror, coordinator: mailboxCoordinator, surfaceSerial: 0
         )
         await service.submit(request).value
@@ -363,9 +437,14 @@ import CmuxTerminalCore
         let service = ExternalHoverWorkService(
             teardownCoordinator: coordinator,
             resolver: TerminalPathResolver(fileExists: { $0 == Self.existingPath }),
-            readPhysicalRows: { _, _, _ in
+            readPhysicalRows: { _, topRow, rowCount, expectedColumns, _ in
                 counts.reads += 1
-                return returnResolvable.withLock { $0 } ? Self.physicalRowsText : "\n\n\n"
+                let rawText = returnResolvable.withLock { $0 }
+                    ? Self.physicalRowsText(topRow: topRow, rowCount: rowCount)
+                    : Array(repeating: "", count: Int(rowCount)).joined(separator: "\n") + "\n"
+                return TerminalPhysicalRowsSnapshot(
+                    rawText: rawText, topRow: topRow, expectedRowCount: rowCount, columns: expectedColumns
+                )
             },
             callSetter: { _, _, _, _, _, hostEventID in
                 counts.setterCalls += 1
@@ -561,8 +640,17 @@ import CmuxTerminalCore
             Issue.record("expected a wrapped-path seed for the click-only fixture")
             return
         }
+        // review B4/design-decision-b1-fallback-policy.md rule 6 — the
+        // shared entry point with `purpose: .click`, not the (now
+        // module-internal) legacy 2-row overload directly: this is the
+        // SAME composition production's click path calls.
+        // columns: `previousRowText.count` — it must reach the strict
+        // right edge for the geometry-aware evaluator's fullness guard to
+        // accept this 2-row join at all (a too-wide grid would reject it
+        // outright, defeating the test before it exercises anything).
         let resolution = clickResolver.resolveWrappedCandidate(
-            seed: seed, previousRow: previousRowText, nextRow: nil, cwd: "/tmp"
+            seed: seed, rows: [previousRowText, clickedRowText], clickedIndex: 1, columns: previousRowText.count,
+            cwd: "/tmp", purpose: .click
         )
 
         #expect(resolution?.path == clickOnlyPath)
@@ -876,9 +964,9 @@ import CmuxTerminalCore
         let service = ExternalHoverWorkService(
             teardownCoordinator: teardownCoordinator,
             resolver: TerminalPathResolver(fileExists: { $0 == Self.existingPath }),
-            readPhysicalRows: { _, _, _ in
+            readPhysicalRows: { _, topRow, rowCount, expectedColumns, _ in
                 counts.reads += 1
-                return Self.physicalRowsText
+                return Self.coherentSnapshot(topRow: topRow, rowCount: rowCount, columns: expectedColumns)
             },
             callSetter: { _, _, _, _, _, hostEventID in
                 counts.setterCalls += 1
@@ -936,11 +1024,16 @@ import CmuxTerminalCore
         let mirror = HoverCallbackMirror()
         let mailboxCoordinator = Self.makeCoordinator()
 
-        // `Self.physicalRowsText` is `previousRowText + "\n" + clickedRowText
-        // + "\n"` — exactly 2 newlines, so a bare `omittingEmptySubsequences:
-        // false` split would yield 3 raw entries.
-        let expectedNewlineCount = 2
-        let expectedRawEntryCount = 3
+        // Clicked row 5 with the default `viewportRowCount: 10` reads
+        // `topRow: 2, rowCount: 7` (clicked±3) — `Self.physicalRowsText`
+        // built for that window is 7 lines joined by `\n` (6 separators)
+        // plus a trailing sentinel newline: 7 newlines, so a bare
+        // `omittingEmptySubsequences: false` split would yield 8 raw
+        // entries.
+        let readTopRow: UInt32 = 2
+        let readRowCount: UInt32 = 7
+        let expectedNewlineCount = 7
+        let expectedRawEntryCount = 8
 
         func run(diagnosticsOn: Bool, surfaceSerial: UInt64, requestGeneration: UInt64) async {
             let lifetimeID = Self.makeLifetime()
@@ -998,7 +1091,7 @@ import CmuxTerminalCore
             "rawEntryCount must be newlineCount + 1, derived without allocating an array"
         )
         #expect(
-            onLine.contains("textBytes=\(Self.physicalRowsText.utf8.count)"),
+            onLine.contains("textBytes=\(Self.physicalRowsText(topRow: readTopRow, rowCount: readRowCount).utf8.count)"),
             "textBytes must be the real read text's byte count"
         )
         #expect(
@@ -1117,7 +1210,9 @@ import CmuxTerminalCore
         )).value
         #expect(counts.metricsCalls == 1, "gate ON must compute read metrics exactly once for one request")
         #expect(
-            counts.lastMetrics == ExternalHoverWorkService.defaultReadMetrics(Self.physicalRowsText),
+            counts.lastMetrics == ExternalHoverWorkService.defaultReadMetrics(
+                Self.physicalRowsText(topRow: 2, rowCount: 7)
+            ),
             "the computed metrics must be the REAL values for this fixture's text, not a stand-in"
         )
         #expect(teardownCoordinator.surfaceSerialRegistry.serial(for: onLifetime) == 222)
@@ -1521,5 +1616,207 @@ import CmuxTerminalCore
         await service.withdrawCurrentCandidate(request: staleRequest, reason: "test.stale")
 
         #expect(counts.clearCalls == 0)
+    }
+
+    // MARK: - review B3: coherentPhysicalRowsSnapshot A-B-A contract
+
+    // design-decision B3/final-spec §2.3/§9 — the SAME function
+    // production's `readPhysicalRows` closure calls
+    // (`GhosttyApp.externalHoverWorkService`'s implementation), tested
+    // directly here as the pure decision it is.
+
+    @Test func coherentSnapshotRejectsAMetricsBeforeMismatch() {
+        let snapshot = ExternalHoverWorkService.coherentPhysicalRowsSnapshot(
+            rawText: "a\nb\n", topRow: 0, expectedRowCount: 2, expectedColumns: 80, expectedViewportRows: 24,
+            metricsBefore: (columns: 79, rows: 24), // stale — a resize raced the read
+            metricsAfter: (columns: 80, rows: 24)
+        )
+        #expect(snapshot == nil)
+    }
+
+    @Test func coherentSnapshotRejectsAMetricsAfterMismatch() {
+        let snapshot = ExternalHoverWorkService.coherentPhysicalRowsSnapshot(
+            rawText: "a\nb\n", topRow: 0, expectedRowCount: 2, expectedColumns: 80, expectedViewportRows: 24,
+            metricsBefore: (columns: 80, rows: 24),
+            metricsAfter: (columns: 80, rows: 25) // rows changed mid-read
+        )
+        #expect(snapshot == nil)
+    }
+
+    @Test func coherentSnapshotRejectsAViewportRowCountMismatch() {
+        let snapshot = ExternalHoverWorkService.coherentPhysicalRowsSnapshot(
+            rawText: "a\nb\n", topRow: 0, expectedRowCount: 2, expectedColumns: 80, expectedViewportRows: 24,
+            metricsBefore: (columns: 80, rows: 24),
+            metricsAfter: (columns: 80, rows: 24)
+        )
+        #expect(snapshot != nil, "sanity: identical, matching metrics on both sides must succeed")
+
+        let mismatched = ExternalHoverWorkService.coherentPhysicalRowsSnapshot(
+            rawText: "a\nb\n", topRow: 0, expectedRowCount: 2, expectedColumns: 80, expectedViewportRows: 24,
+            metricsBefore: (columns: 80, rows: 23), // reflow shrank the viewport before the read even started
+            metricsAfter: (columns: 80, rows: 23)
+        )
+        #expect(mismatched == nil)
+    }
+
+    @Test func coherentSnapshotPreservesRawTextByteForByteIncludingATrailingNewlineSentinel() throws {
+        let rawText = "line0\nline1\n" // trailing-newline sentinel for a 2-row read
+        let snapshot = try #require(ExternalHoverWorkService.coherentPhysicalRowsSnapshot(
+            rawText: rawText, topRow: 3, expectedRowCount: 2, expectedColumns: 40, expectedViewportRows: 24,
+            metricsBefore: (columns: 40, rows: 24),
+            metricsAfter: (columns: 40, rows: 24)
+        ))
+        // Forwarded EXACTLY as given — never reconstructed from `rows`
+        // (which would drop the sentinel newline `rows.joined` could
+        // never reproduce byte-for-byte), matching
+        // `TerminalPhysicalRowsSnapshot`'s own "byte-for-byte" contract.
+        #expect(snapshot.rawText == rawText)
+        #expect(snapshot.rows == ["line0", "line1"])
+        #expect(snapshot.columns == 40)
+        #expect(snapshot.topRow == 3)
+    }
+
+    // MARK: - review B4: production-shared composition, strict-full multi-row
+
+    // review §B4 — every other hover test in this file uses
+    // `gridColumns: 80` specifically so the geometry-aware evaluator
+    // fails closed and legacy fallback exercises the tested behavior
+    // instead (see this file's own fixture doc). This one deliberately
+    // does NOT: a genuinely strict-full 4-row fixture (identical in
+    // shape to `TerminalWrapGeometryTests.
+    // exactThreeAndFourRowNormalCasesResolveFromAnyClickedRow`), read
+    // through the SAME `coherentPhysicalRowsSnapshot`-based reader
+    // composition production uses, must reach the setter with the exact
+    // raw bytes, every winning cell range, and the resolved path —
+    // exactly once.
+    @Test func strictFullFourRowFixtureReachesTheSetterExactlyOnceThroughTheSharedSnapshotComposition() async {
+        let teardownCoordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let counts = CallCounts()
+        let cwd = "/tmp"
+        let expectedCandidate = "/tmp/re/search/docs/report.md"
+        // Absolute rows 4,5,6,7 — clicked row 5 (local index 3 once
+        // read at topRow 2) is the SAME "rch/do" clicked token
+        // `TerminalWrapGeometryTests`' own 4-row fixture clicks, so this
+        // exercises the identical evaluator success path, just reached
+        // through the real hover request/read pipeline instead of a
+        // bare resolver call.
+        let lifetimeID = Self.makeLifetime()
+        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+        let mirror = HoverCallbackMirror()
+        mirror.publish(.init(lifetimeID: lifetimeID, hoverEventID: 1, eligible: true, visible: true))
+        let mailboxCoordinator = Self.makeCoordinator()
+
+        let service = ExternalHoverWorkService(
+            teardownCoordinator: teardownCoordinator,
+            resolver: TerminalPathResolver(fileExists: { $0 == expectedCandidate }),
+            // review B4 — the SAME `coherentPhysicalRowsSnapshot`
+            // composition production's closure delegates to, not a
+            // fixed/pre-baked snapshot: this reader still does its own
+            // (trivially matching, since nothing races in a test)
+            // before/read/after sequence.
+            readPhysicalRows: { _, topRow, rowCount, expectedColumns, expectedViewportRows in
+                counts.reads += 1
+                return ExternalHoverWorkService.coherentPhysicalRowsSnapshot(
+                    rawText: Self.fourRowFixtureRawText(topRow: topRow, rowCount: rowCount),
+                    topRow: topRow, expectedRowCount: rowCount, expectedColumns: expectedColumns,
+                    expectedViewportRows: expectedViewportRows,
+                    metricsBefore: (columns: expectedColumns, rows: expectedViewportRows),
+                    metricsAfter: (columns: expectedColumns, rows: expectedViewportRows)
+                )
+            },
+            callSetter: { _, topRow, rowCount, text, ranges, hostEventID in
+                counts.setterCalls += 1
+                counts.setterHostEventIDs.append(hostEventID)
+                counts.lastSetterText = text
+                counts.lastSetterRanges = ranges
+                return HoverActivationTokenValue(bits: (1, 1, 1, 1))
+            },
+            callClear: { _, token in
+                counts.clearCalls += 1
+                counts.clearedTokens.append(token)
+            },
+            drainDiagnostics: { lease, capacity in
+                counts.drainCalls += 1
+                counts.drainedLifetimeSurfaces.append(lease.lifetimeID)
+                return (entries: [], droppedCountCumulative: 0)
+            }
+        )
+
+        let request = ExternalHoverWorkRequest(
+            lifetimeID: lifetimeID, surface: surface, requestGeneration: 1,
+            cell: ExternalHoverGridCell(row: 5, column: 0), viewportRowCount: 10, gridColumns: 6, cwd: cwd,
+            mirror: mirror, coordinator: mailboxCoordinator, surfaceSerial: 0
+        )
+        await service.submit(request).value
+
+        #expect(counts.setterCalls == 1)
+        #expect(counts.lastSetterText == Self.fourRowFixtureRawText(topRow: 2, rowCount: 7))
+        #expect(counts.lastSetterRanges?.sorted { $0.row < $1.row } == [
+            ExternalHoverCellRangeValue(row: 4, startColumn: 0, endColumn: 6),
+            ExternalHoverCellRangeValue(row: 5, startColumn: 0, endColumn: 6),
+            ExternalHoverCellRangeValue(row: 6, startColumn: 0, endColumn: 6),
+            ExternalHoverCellRangeValue(row: 7, startColumn: 0, endColumn: 6),
+        ])
+        let cache = await service.debugCache(for: lifetimeID)
+        #expect(cache?.path == expectedCandidate)
+    }
+
+    // review §B4 — the identical fixture, but with `gridColumns: 80`
+    // (none of the 6-character rows remotely reach an 80-column strict
+    // right edge): the geometry evaluator correctly rejects every span
+    // for fullness, and design-decision-b1-fallback-policy.md rule 5
+    // forbids falling back — the setter must never be called at all.
+    @Test func nonFullFourRowFixtureNeverReachesTheSetter() async {
+        let teardownCoordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let counts = CallCounts()
+        let cwd = "/tmp"
+        let expectedCandidate = "/tmp/re/search/docs/report.md"
+
+        let lifetimeID = Self.makeLifetime()
+        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+        let mirror = HoverCallbackMirror()
+        mirror.publish(.init(lifetimeID: lifetimeID, hoverEventID: 1, eligible: true, visible: true))
+        let mailboxCoordinator = Self.makeCoordinator()
+
+        let service = ExternalHoverWorkService(
+            teardownCoordinator: teardownCoordinator,
+            resolver: TerminalPathResolver(fileExists: { $0 == expectedCandidate }),
+            readPhysicalRows: { _, topRow, rowCount, expectedColumns, expectedViewportRows in
+                counts.reads += 1
+                return ExternalHoverWorkService.coherentPhysicalRowsSnapshot(
+                    rawText: Self.fourRowFixtureRawText(topRow: topRow, rowCount: rowCount),
+                    topRow: topRow, expectedRowCount: rowCount, expectedColumns: expectedColumns,
+                    expectedViewportRows: expectedViewportRows,
+                    metricsBefore: (columns: expectedColumns, rows: expectedViewportRows),
+                    metricsAfter: (columns: expectedColumns, rows: expectedViewportRows)
+                )
+            },
+            callSetter: { _, _, _, _, _, hostEventID in
+                counts.setterCalls += 1
+                counts.setterHostEventIDs.append(hostEventID)
+                return HoverActivationTokenValue(bits: (1, 1, 1, 1))
+            },
+            callClear: { _, token in
+                counts.clearCalls += 1
+                counts.clearedTokens.append(token)
+            },
+            drainDiagnostics: { lease, capacity in
+                counts.drainCalls += 1
+                counts.drainedLifetimeSurfaces.append(lease.lifetimeID)
+                return (entries: [], droppedCountCumulative: 0)
+            }
+        )
+
+        let request = ExternalHoverWorkRequest(
+            lifetimeID: lifetimeID, surface: surface, requestGeneration: 1,
+            cell: ExternalHoverGridCell(row: 5, column: 0), viewportRowCount: 10, gridColumns: 80, cwd: cwd,
+            mirror: mirror, coordinator: mailboxCoordinator, surfaceSerial: 0
+        )
+        await service.submit(request).value
+
+        #expect(counts.reads == 1, "the read itself must still happen — only the resolved candidate is rejected")
+        #expect(counts.setterCalls == 0)
     }
 }

@@ -1,6 +1,8 @@
 import Foundation
 import Testing
-import CmuxTerminalCore
+// design-decision-b1-fallback-policy.md rule 6 — see
+// `TerminalPathResolverTests.swift`'s identical import comment.
+@testable import CmuxTerminalCore
 
 private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Bool {
     let standardized = Set(existingPaths.map { ($0 as NSString).standardizingPath })
@@ -167,6 +169,44 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
         let candidate = resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry)
         #expect(candidate?.path == joinedTwoRow)
+    }
+
+    // review §B2 — the test above doesn't actually enter
+    // `.explicitTrailingSlashSeamBypass` at all (its clicked token has no
+    // trailing `/` and isn't a row-local hit, so the seed lands in
+    // `.noRowLocalHit` instead). This fixture genuinely does: `docs/`
+    // itself row-locally resolves AND ends with `/`, so `wrappedPathSeed`
+    // produces `.explicitTrailingSlashSeamBypass`. Both the 2-row
+    // (adjacent) and a longer, DOMINATING 3-row candidate exist on disk
+    // with both internal boundaries full — final-spec §3.1 requires the
+    // disposition alone to keep this adjacent-only, never letting the
+    // longer span override it.
+    @Test("`.explicitTrailingSlashSeamBypass` stays adjacent-only even when a dominating 3-row candidate also exists")
+    func explicitTrailingSlashSeamBypassRejectsADominatingThreeRowCandidate() throws {
+        let cwd = "/tmp/b2"
+        let rowDocs = "docs/"
+        let rowReport = "report.part"
+        let rowTwo = "two.md"
+        let rowLocalHitTarget = cwd + "/docs"
+        let adjacentCandidate = cwd + "/docs/report.part"
+        let dominatingThreeRowCandidate = cwd + "/docs/report.parttwo.md"
+        let resolver = TerminalPathResolver(
+            fileExists: existsIn([rowLocalHitTarget, adjacentCandidate, dominatingThreeRowCandidate])
+        )
+        let geometry = try #require(TerminalWrapGeometry(fullnessTolerance: 0))
+
+        let seed = try #require(resolver.wrappedPathSeed(in: rowDocs, column: 0, cwd: cwd))
+        #expect(seed.disposition == .explicitTrailingSlashSeamBypass)
+
+        let rows = [rowDocs, rowReport, rowTwo]
+        // columns: 5 — `rowDocs` (index 4) reaches the strict right edge,
+        // and `rowReport` (index 10, already past it) trivially does
+        // too, so BOTH internal boundaries (0,1) and (1,2) are full —
+        // the 3-row span would dominate the 2-row one on fullness alone
+        // if the disposition didn't bound the search first.
+        let window = try #require(TerminalPhysicalRowWindow(rows: rows, clickedIndex: 0, columns: 5))
+        let candidate = resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry)
+        #expect(candidate?.path == adjacentCandidate)
     }
 
     // design-next-round-bundle-8810.md §1 rule 2 — the click-only
@@ -487,6 +527,75 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
     }
 
     private static let maxProbeBudget = 15
+
+    // review §B5 — the evaluator's probe cache must key on the
+    // STANDARDIZED path, not the raw candidate/fragment spelling. This
+    // fixture makes the SAME real target reachable via two genuinely
+    // different raw spellings within ONE search: `previousRow`'s own
+    // tilde-form fragment (probed alone, span(0,1)'s leading-endpoint
+    // check) and `nextRow`'s pre-expanded absolute form of that SAME
+    // path (probed alone, span(1,2)'s trailing-endpoint check) — two
+    // different `String`s that `probeExists` standardizes to the exact
+    // same value.
+    @Test("A fragment's tilde spelling and another endpoint's pre-expanded absolute spelling of the same path probe exactly once")
+    func standardizedPathDedupeCollapsesDifferentRawSpellingsToOneProbe() {
+        let cwd = "/tmp/b5"
+        let previousRow = "~/b5shared"
+        let clickedToken = "y/x.md"
+        let absoluteShared = (previousRow as NSString).expandingTildeInPath
+        let nextRow = absoluteShared
+        let rows = [previousRow, clickedToken, nextRow]
+
+        func standardized(_ raw: String) -> String {
+            let expanded = (raw as NSString).expandingTildeInPath
+            let path = expanded.hasPrefix("/") ? expanded : (cwd as NSString).appendingPathComponent(expanded)
+            return (path as NSString).standardizingPath
+        }
+        // The shared collision target — reached via `previousRow`'s
+        // tilde spelling alone AND `nextRow`'s already-expanded absolute
+        // spelling alone.
+        let sharedTarget = standardized(previousRow)
+        #expect(sharedTarget == standardized(nextRow), "the fixture's own premise: two spellings, one target")
+        // The two spans' FULL joined candidates — unrelated to the
+        // collision, but must exist for the search to reach either
+        // endpoint's fragment-alone check at all (probed once each,
+        // trivially, since each is requested only once).
+        let span01Candidate = standardized(previousRow + clickedToken)
+        let span12Candidate = standardized(clickedToken + nextRow)
+
+        final class ProbeRecorder: @unchecked Sendable {
+            private(set) var probedPaths: [String] = []
+            private let existingPaths: Set<String>
+            init(existingPaths: Set<String>) { self.existingPaths = existingPaths }
+            func fileExists(_ path: String) -> Bool {
+                probedPaths.append(path)
+                return existingPaths.contains(path)
+            }
+        }
+        let seedResolver = TerminalPathResolver(fileExists: existsIn([]))
+        guard let seed = seedResolver.wrappedPathSeed(in: clickedToken, column: 0, cwd: cwd) else {
+            Issue.record("Expected a seed for the clicked row")
+            return
+        }
+        #expect(seed.directions == [.previous, .next])
+        let recorder = ProbeRecorder(existingPaths: [sharedTarget, span01Candidate, span12Candidate])
+        let resolver = TerminalPathResolver(fileExists: recorder.fileExists)
+        // columns: 6 — both `previousRow` (index 9, already past it) and
+        // `clickedToken` (index 5) reach the strict right edge, so both
+        // internal boundaries (0,1) and (1,2) are full and both spans
+        // are attempted.
+        guard let window = TerminalPhysicalRowWindow(rows: rows, clickedIndex: 1, columns: 6) else {
+            Issue.record("Expected a valid window")
+            return
+        }
+        _ = resolver.resolveWrappedCandidate(
+            seed: seed, window: window, cwd: cwd, geometry: TerminalWrapGeometry(fullnessTolerance: 0)
+        )
+        // The real point of this test: `sharedTarget` reached the real
+        // `fileExists` exactly once, despite two differently-spelled raw
+        // probes targeting it.
+        #expect(recorder.probedPaths.filter { $0 == sharedTarget }.count == 1)
+    }
 
     // MARK: - snapshot
 
