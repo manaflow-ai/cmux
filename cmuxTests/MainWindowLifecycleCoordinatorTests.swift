@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -116,6 +117,68 @@ struct MainWindowLifecycleCoordinatorTests {
         #expect(coordinator.orphanedRoute(windowId: windowId) == nil)
     }
 
+    @Test("Hidden orphan window does not block replacement registration")
+    func hiddenOrphanWindowDoesNotBlockReplacementRegistration() {
+        let coordinator = MainWindowLifecycleCoordinator()
+        let windowId = UUID()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let originalWindow = makeWindow()
+        let replacementWindow = makeWindow()
+        defer {
+            originalWindow.close()
+            replacementWindow.close()
+            tearDown(manager)
+        }
+
+        let original = AppDelegate.MainWindowContext(
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: nil,
+            cmuxConfigStore: nil,
+            window: originalWindow,
+            workspaceTerminalFontSizeArbiter:
+                WorkspaceTerminalFontSizeArbiter()
+        )
+        coordinator.register(
+            original,
+            lookupKey: ObjectIdentifier(originalWindow)
+        )
+        let route = RecoverableMainWindowRoute(
+            windowId: windowId,
+            tabManager: manager,
+            window: originalWindow,
+            sidebar: original.sidebarState,
+            sidebarSelection: original.sidebarSelectionState,
+            frozenWindowDockSnapshot: nil,
+            retainTabManager: true
+        )
+        #expect(coordinator.transitionToOrphaned(route, from: original))
+        #expect(!originalWindow.isVisible)
+        #expect(!originalWindow.isMiniaturized)
+
+        let replacement = AppDelegate.MainWindowContext(
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: original.sidebarState,
+            sidebarSelectionState: original.sidebarSelectionState,
+            fileExplorerState: nil,
+            cmuxConfigStore: nil,
+            window: replacementWindow,
+            workspaceTerminalFontSizeArbiter:
+                WorkspaceTerminalFontSizeArbiter()
+        )
+        let registered = coordinator.register(
+            replacement,
+            lookupKey: ObjectIdentifier(replacementWindow)
+        )
+
+        #expect(registered === original)
+        #expect(coordinator.registeredContext(windowId: windowId) === original)
+        #expect(coordinator.orphanedRoute(windowId: windowId) == nil)
+    }
+
     @Test("Frozen orphan retention keeps only the newest configured records")
     func frozenOrphanRetentionKeepsNewestRecords() {
         let coordinator = MainWindowLifecycleCoordinator(
@@ -196,6 +259,15 @@ struct MainWindowLifecycleCoordinatorTests {
             window: nil,
             workspaceTerminalFontSizeArbiter:
                 WorkspaceTerminalFontSizeArbiter()
+        )
+    }
+
+    private func makeWindow() -> NSWindow {
+        NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
         )
     }
 
