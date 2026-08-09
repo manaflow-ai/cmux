@@ -5,7 +5,7 @@ import Foundation
 extension AppDelegate {
     enum NotificationSurfaceContainer {
         case workspace
-        case windowDock(DockSplitStore)
+        case dock(DockSplitStore)
     }
 
     /// Resolves the current notification owner for a surface across every
@@ -32,7 +32,7 @@ extension AppDelegate {
                 ? tabManagerFor(windowId: dock.workspaceId)
                 : tabManagerFor(tabId: dock.workspaceId)
             guard let manager else { return nil }
-            return (dock.workspaceId, surfaceID, manager, .windowDock(dock))
+            return (dock.workspaceId, surfaceID, manager, .dock(dock))
         }
         guard let owner = workspaceContainingPanel(
             panelId: surfaceID,

@@ -485,18 +485,33 @@ extension AppDelegate {
 
     func openWindowDockUnread(_ target: WindowDockUnreadTarget) -> Bool {
         guard let dock = windowDockForRegisteredOwner(target.windowId),
-              dock.containsPanel(target.surfaceId),
               let manager = tabManagerForWindowDockOwner(target.windowId) else {
             return false
         }
+        return focusAndRevealNotificationDock(
+            dock,
+            surfaceId: target.surfaceId,
+            fallback: manager
+        )
+    }
+
+    /// Shared reveal transaction for an exact live Dock. The store retains its
+    /// own workspace/window scope, so callers do not need to reinterpret its
+    /// namespace before focusing the destination.
+    func focusAndRevealNotificationDock(
+        _ dock: DockSplitStore,
+        surfaceId: UUID,
+        fallback manager: TabManager
+    ) -> Bool {
+        guard dock.containsPanel(surfaceId) else { return false }
         guard TerminalController.shared.focusAndRevealWindowDock(
             for: dock,
             fallback: manager
         ) else {
             return false
         }
-        dock.focusPanel(target.surfaceId)
-        return dock.focusedPanelId == target.surfaceId
+        dock.focusPanel(surfaceId)
+        return dock.focusedPanelId == surfaceId
     }
 
     func tabTitle(forTabId tabId: UUID) -> String? {
