@@ -10,10 +10,14 @@ pub(crate) use resource_content::ResourceEffectProjection;
 use public_projections::{RestoredPublicProjections, restore_public_projections};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
+use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, Weak};
+use std::sync::{
+    Arc, Condvar, LockResult, Mutex, MutexGuard, OnceLock, PoisonError, TryLockError,
+    TryLockResult, Weak,
+};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
@@ -69,6 +73,100 @@ use crate::{
 };
 
 pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) + Send + Sync>;
+
+struct SignaledMutex<T> {
+    value: Mutex<T>,
+    release_epoch: Mutex<u64>,
+    released: Condvar,
+}
+
+impl<T> SignaledMutex<T> {
+    fn new(value: T) -> Self {
+        Self { value: Mutex::new(value), release_epoch: Mutex::new(0), released: Condvar::new() }
+    }
+
+    fn lock(&self) -> LockResult<SignaledMutexGuard<'_, T>> {
+        match self.value.lock() {
+            Ok(value) => Ok(SignaledMutexGuard { value: Some(value), owner: self }),
+            Err(error) => Err(PoisonError::new(SignaledMutexGuard {
+                value: Some(error.into_inner()),
+                owner: self,
+            })),
+        }
+    }
+
+    fn try_lock(&self) -> TryLockResult<SignaledMutexGuard<'_, T>> {
+        match self.value.try_lock() {
+            Ok(value) => Ok(SignaledMutexGuard { value: Some(value), owner: self }),
+            Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
+            Err(TryLockError::Poisoned(error)) => {
+                Err(TryLockError::Poisoned(PoisonError::new(SignaledMutexGuard {
+                    value: Some(error.into_inner()),
+                    owner: self,
+                })))
+            }
+        }
+    }
+
+    fn lock_until(&self, deadline: Instant) -> anyhow::Result<SignaledMutexGuard<'_, T>> {
+        loop {
+            match self.try_lock() {
+                Ok(value) => return Ok(value),
+                Err(TryLockError::Poisoned(_)) => anyhow::bail!("mutex is poisoned"),
+                Err(TryLockError::WouldBlock) => {}
+            }
+
+            let observed = *self.release_epoch.lock().unwrap();
+            match self.try_lock() {
+                Ok(value) => return Ok(value),
+                Err(TryLockError::Poisoned(_)) => anyhow::bail!("mutex is poisoned"),
+                Err(TryLockError::WouldBlock) => {}
+            }
+
+            let mut epoch = self.release_epoch.lock().unwrap();
+            if *epoch != observed {
+                continue;
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                anyhow::bail!("mutex deadline expired");
+            }
+            let (next, result) = self.released.wait_timeout(epoch, remaining).unwrap();
+            epoch = next;
+            if result.timed_out() && *epoch == observed {
+                anyhow::bail!("mutex deadline expired");
+            }
+        }
+    }
+}
+
+struct SignaledMutexGuard<'a, T> {
+    value: Option<MutexGuard<'a, T>>,
+    owner: &'a SignaledMutex<T>,
+}
+
+impl<T> Deref for SignaledMutexGuard<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.value.as_deref().expect("signaled mutex guard has a value")
+    }
+}
+
+impl<T> DerefMut for SignaledMutexGuard<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.value.as_deref_mut().expect("signaled mutex guard has a value")
+    }
+}
+
+impl<T> Drop for SignaledMutexGuard<'_, T> {
+    fn drop(&mut self) {
+        drop(self.value.take());
+        let mut epoch = self.owner.release_epoch.lock().unwrap();
+        *epoch = epoch.wrapping_add(1);
+        self.owner.released.notify_all();
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DaemonIdentity {
@@ -1735,7 +1833,7 @@ pub struct Mux {
     /// Serializes durable workspace commits, their in-memory projection, and
     /// publication of revisioned workspace deltas. Lock order is always
     /// registry, then state.
-    workspace_registry: Mutex<WorkspaceRegistry>,
+    workspace_registry: SignaledMutex<WorkspaceRegistry>,
     session_public_id: SessionPublicId,
     state: Mutex<State>,
     subscribers: MuxEventBroadcaster,
@@ -2088,7 +2186,7 @@ impl Mux {
         surface_options.browser_session_name = session.clone();
         Self::rebuild_split_screen_index(&mut state);
         let mux = Arc::new(Mux {
-            workspace_registry: Mutex::new(registry),
+            workspace_registry: SignaledMutex::new(registry),
             session_public_id,
             state: Mutex::new(state),
             subscribers: MuxEventBroadcaster::default(),
@@ -4538,7 +4636,7 @@ impl Mux {
         generation: Arc<str>,
         occurred_at_ms: u64,
         bytes: Vec<u8>,
-    ) -> Result<Option<Vec<u8>>, String> {
+    ) -> Result<Option<(Vec<u8>, u64)>, String> {
         if bytes.is_empty() {
             return Ok(None);
         }
@@ -4551,14 +4649,15 @@ impl Mux {
             },
         ) {
             Ok(()) => Ok(None),
-            Err(crate::journal_ingress::JournalIngressTrySendError::Full(event)) => {
-                Ok(match *event {
-                    crate::journal_ingress::JournalIngressEvent::TerminalOutput {
-                        bytes, ..
-                    } => Some(bytes),
-                    _ => None,
-                })
-            }
+            Err(crate::journal_ingress::JournalIngressTrySendError::Full {
+                event,
+                space_epoch,
+            }) => Ok(match *event {
+                crate::journal_ingress::JournalIngressEvent::TerminalOutput { bytes, .. } => {
+                    Some((bytes, space_epoch))
+                }
+                _ => None,
+            }),
             Err(crate::journal_ingress::JournalIngressTrySendError::Failed { event, error }) => {
                 debug_assert!(matches!(
                     *event,
@@ -4567,6 +4666,10 @@ impl Mux {
                 Err(error)
             }
         }
+    }
+
+    pub(crate) fn wait_for_terminal_journal_space(&self, observed: u64) -> Result<(), String> {
+        self.journal_ingress.wait_for_queue_space(observed)
     }
 
     pub(crate) fn flush_terminal_journal(&self) -> anyhow::Result<()> {
@@ -4631,23 +4734,10 @@ impl Mux {
     where
         F: FnOnce() -> anyhow::Result<()>,
     {
-        let mut registry = loop {
-            match self.workspace_registry.try_lock() {
-                Ok(registry) => break registry,
-                Err(std::sync::TryLockError::WouldBlock) => {
-                    let remaining = deadline.saturating_duration_since(Instant::now());
-                    if remaining.is_zero() {
-                        anyhow::bail!(
-                            "timed out waiting for the workspace registry journal writer"
-                        );
-                    }
-                    std::thread::sleep(remaining.min(Duration::from_millis(10)));
-                }
-                Err(std::sync::TryLockError::Poisoned(_)) => {
-                    anyhow::bail!("workspace registry journal writer lock is poisoned");
-                }
-            }
-        };
+        let mut registry = self
+            .workspace_registry
+            .lock_until(deadline)
+            .context("waiting for the workspace registry journal writer")?;
         let remaining = deadline.saturating_duration_since(Instant::now());
         anyhow::ensure!(!remaining.is_zero(), "session journal commit deadline expired");
         let commits = registry.append_journal_ingress_events_with_deadline(
@@ -5332,7 +5422,7 @@ impl Mux {
 
     fn emit_committed_workspace_delta(
         &self,
-        _registry: &MutexGuard<'_, WorkspaceRegistry>,
+        _registry: &WorkspaceRegistry,
         delta: TreeDelta,
         selection_resync: bool,
     ) {

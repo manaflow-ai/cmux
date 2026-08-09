@@ -1223,12 +1223,57 @@ impl Deref for PtySurface {
 }
 
 pub(crate) struct TerminalJournalUpdateGuard<'a> {
-    epoch: &'a AtomicU64,
+    owner: &'a PtyTerminalRuntime,
 }
 
 impl Drop for TerminalJournalUpdateGuard<'_> {
     fn drop(&mut self) {
-        self.epoch.fetch_add(1, Ordering::Release);
+        let _gate = self.owner.journal_capture_gate.lock().unwrap();
+        self.owner.journal_capture_epoch.fetch_add(1, Ordering::Release);
+        self.owner.journal_capture_idle.notify_all();
+    }
+}
+
+#[derive(Default)]
+struct ReaderCompletion {
+    finished: Mutex<bool>,
+    changed: Condvar,
+}
+
+impl ReaderCompletion {
+    #[cfg(test)]
+    fn reset(&self) {
+        *self.finished.lock().unwrap() = false;
+    }
+
+    fn complete(&self) {
+        let mut finished = self.finished.lock().unwrap();
+        *finished = true;
+        self.changed.notify_all();
+    }
+
+    fn wait_until(&self, deadline: Instant) -> bool {
+        let mut finished = self.finished.lock().unwrap();
+        while !*finished {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            let (next, result) = self.changed.wait_timeout(finished, remaining).unwrap();
+            finished = next;
+            if result.timed_out() && !*finished {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+struct ReaderCompletionGuard(Arc<ReaderCompletion>);
+
+impl Drop for ReaderCompletionGuard {
+    fn drop(&mut self) {
+        self.0.complete();
     }
 }
 
@@ -1240,12 +1285,12 @@ impl PtyTerminalRuntime {
         }
         let previous = self.journal_capture_epoch.fetch_add(1, Ordering::AcqRel);
         debug_assert_eq!(previous & 1, 0, "terminal journal updates must not overlap");
-        Some(TerminalJournalUpdateGuard { epoch: &self.journal_capture_epoch })
+        Some(TerminalJournalUpdateGuard { owner: self })
     }
 
     fn close_terminal_journal_capture_when_idle(&self, deadline: Instant) {
+        let mut gate = self.journal_capture_gate.lock().unwrap();
         loop {
-            let gate = self.journal_capture_gate.lock().unwrap();
             if self.journal_capture_epoch.load(Ordering::Acquire) & 1 == 0 {
                 self.journal_capture_open.store(false, Ordering::Release);
                 return;
@@ -1257,8 +1302,9 @@ impl PtyTerminalRuntime {
                 );
                 return;
             }
-            drop(gate);
-            std::thread::sleep(Duration::from_millis(1));
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let (next, _) = self.journal_capture_idle.wait_timeout(gate, remaining).unwrap();
+            gate = next;
         }
     }
 }
@@ -1279,11 +1325,13 @@ pub struct PtyTerminalRuntime {
     /// output frame has updated one side but not yet reached the other.
     journal_capture_epoch: AtomicU64,
     journal_capture_gate: Mutex<()>,
+    journal_capture_idle: Condvar,
     journal_capture_open: AtomicBool,
     /// Owned reader join fence. Shutdown gives this reader a bounded drain
     /// interval, then closes journal capture before it inserts the final
     /// journal barrier.
     reader_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    reader_completion: Arc<ReaderCompletion>,
     term: Mutex<Box<Terminal>>,
     stream_progress: Box<TerminalStreamProgress>,
     mouse_encoders: Mutex<Box<MouseEncoders>>,
@@ -2210,8 +2258,10 @@ impl Surface {
                 )),
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
+                journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
                 reader_thread: Mutex::new(None),
+                reader_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -2278,6 +2328,13 @@ impl Surface {
             std::thread::Builder::new().name(format!("surface-{id}-reader")).spawn({
                 let surface = surface.clone();
                 move || {
+                    let _reader_completion = ReaderCompletionGuard(
+                        surface
+                            .as_pty()
+                            .expect("local PTY reader owns a PTY surface")
+                            .reader_completion
+                            .clone(),
+                    );
                     let mut buf = [0u8; 64 * 1024];
                     loop {
                         let n = match reader.read(&mut buf) {
@@ -2650,8 +2707,10 @@ impl Surface {
                 journal_generation,
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
+                journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
                 reader_thread: Mutex::new(None),
+                reader_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -2720,6 +2779,13 @@ impl Surface {
             let mux = mux.clone();
             let scrollback = opts.scrollback;
             move || {
+                let _reader_completion = ReaderCompletionGuard(
+                    surface
+                        .as_pty()
+                        .expect("host reader owns a PTY surface")
+                        .reader_completion
+                        .clone(),
+                );
                 let mut sequence_boundary = sequence_boundary;
                 let mut protocol_version = protocol_version;
                 let mut smart_renderer = smart_renderer;
@@ -3619,8 +3685,10 @@ impl Surface {
                 journal_generation,
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
+                journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
                 reader_thread: Mutex::new(None),
+                reader_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -3838,8 +3906,10 @@ impl Surface {
                 journal_generation: Arc::from(format!("test-{id}")),
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
+                journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
                 reader_thread: Mutex::new(None),
+                reader_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -3914,10 +3984,7 @@ impl Surface {
             return;
         };
         if let Some(reader) = pty.reader_thread.lock().unwrap().take() {
-            while !reader.is_finished() && Instant::now() < deadline {
-                std::thread::sleep(Duration::from_millis(1));
-            }
-            if reader.is_finished() {
+            if pty.reader_completion.wait_until(deadline) {
                 if reader.join().is_err() {
                     eprintln!("cmux-tui: terminal reader thread panicked during shutdown");
                 }
@@ -3937,6 +4004,13 @@ impl Surface {
     #[cfg(test)]
     pub(crate) fn install_terminal_reader_for_test(&self, reader: std::thread::JoinHandle<()>) {
         let pty = self.as_pty().expect("test reader requires a PTY surface");
+        pty.reader_completion.reset();
+        let completion = pty.reader_completion.clone();
+        let reader = std::thread::spawn(move || {
+            let result = reader.join();
+            completion.complete();
+            result.expect("installed test terminal reader panicked");
+        });
         let previous = pty.reader_thread.lock().unwrap().replace(reader);
         assert!(previous.is_none(), "test PTY already owns a reader thread");
     }
@@ -5794,7 +5868,7 @@ impl PtySurface {
         for chunk in bytes.chunks(crate::journal_ingress::TERMINAL_OUTPUT_INGRESS_BYTES) {
             let mut pending = chunk.to_vec();
             loop {
-                {
+                let space_epoch = {
                     let _gate = self.journal_capture_gate.lock().unwrap();
                     if !self.journal_capture_open.load(Ordering::Acquire) {
                         return;
@@ -5815,10 +5889,18 @@ impl PtySurface {
                             return;
                         }
                     };
-                    let Some(retry) = retry else { break };
+                    let Some((retry, space_epoch)) = retry else { break };
                     pending = retry;
+                    space_epoch
+                };
+                if let Err(error) = mux.wait_for_terminal_journal_space(space_epoch) {
+                    self.journal_capture_open.store(false, Ordering::Release);
+                    mux.request_daemon_shutdown();
+                    eprintln!(
+                        "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
+                    );
+                    return;
                 }
-                std::thread::sleep(Duration::from_millis(1));
             }
         }
     }
