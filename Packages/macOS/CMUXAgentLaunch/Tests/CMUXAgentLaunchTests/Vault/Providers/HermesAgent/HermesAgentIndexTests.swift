@@ -1,4 +1,4 @@
-import CMUXAgentLaunch
+@testable import CMUXAgentLaunch
 import Foundation
 import SQLite3
 import Testing
@@ -139,6 +139,108 @@ struct HermesAgentIndexTests {
         )
 
         #expect(recovered?.sessionID == "20260807_185008_923dfc")
+    }
+
+    @Test("Inspects one Hermes database snapshot for every unique candidate path")
+    func recoveryBatchesCandidatesByDatabasePath() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let transportID = "96dd0dcc"
+        let durableID = "20260807_185008_923dfc"
+        let rejectedIDs = ["20260807_185009_rejected", "20260807_185010_rejected"]
+        let hookStoreURL = root.appendingPathComponent("hermes-agent-hook-sessions.json")
+
+        var sessions: [String: [String: Any]] = [:]
+        for (offset, sessionID) in ([transportID, durableID] + rejectedIDs).enumerated() {
+            sessions[sessionID] = [
+                "sessionId": sessionID,
+                "workspaceId": workspaceID.uuidString,
+                "surfaceId": surfaceID.uuidString,
+                "cwd": root.path,
+                "pid": 12_345,
+                "pidStartSeconds": 100,
+                "pidStartMicroseconds": 200,
+                "startedAt": 100.0,
+                "updatedAt": 101.0 + Double(offset),
+            ]
+        }
+        let hookStore = try JSONSerialization.data(
+            withJSONObject: ["version": 1, "sessions": sessions],
+            options: [.sortedKeys]
+        )
+        try hookStore.write(to: hookStoreURL)
+
+        var inspectedPaths: [String] = []
+        let recovered = HermesLegacySessionIdentityRecovery().recover(
+            surfaceID: surfaceID,
+            corruptSessionID: transportID,
+            expectedWorkspaceID: workspaceID,
+            hookStateFileURL: hookStoreURL,
+            environment: ["HOME": root.path],
+            databaseInspector: { sessionIDs, _, _, _, stateDBPath in
+                inspectedPaths.append(stateDBPath)
+                #expect(sessionIDs == Set([transportID, durableID] + rejectedIDs))
+                return HermesAgentIndex.RecoveryInspection(
+                    existingSessionIDs: [durableID],
+                    evidence: []
+                )
+            }
+        )
+
+        #expect(recovered?.sessionID == durableID)
+        #expect(inspectedPaths.count == 1)
+    }
+
+    @Test("Unavailable Hermes databases never guess a legacy restore identity")
+    func unavailableDatabaseFailsClosed() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let corruptID = surfaceID.uuidString
+        let durableID = "20260807_185008_923dfc"
+        let hookStoreURL = root.appendingPathComponent("hermes-agent-hook-sessions.json")
+        let commonRecord: [String: Any] = [
+            "workspaceId": workspaceID.uuidString,
+            "surfaceId": surfaceID.uuidString,
+            "cwd": root.path,
+            "pid": 12_345,
+            "pidStartSeconds": 100,
+            "pidStartMicroseconds": 200,
+            "startedAt": 100.0,
+        ]
+        var corruptRecord = commonRecord
+        corruptRecord["sessionId"] = corruptID
+        corruptRecord["updatedAt"] = 101.0
+        var durableRecord = commonRecord
+        durableRecord["sessionId"] = durableID
+        durableRecord["updatedAt"] = 102.0
+        let hookStore = try JSONSerialization.data(
+            withJSONObject: [
+                "version": 1,
+                "sessions": [corruptID: corruptRecord, durableID: durableRecord],
+            ],
+            options: [.sortedKeys]
+        )
+        try hookStore.write(to: hookStoreURL)
+
+        var inspectionCount = 0
+        let recovered = HermesLegacySessionIdentityRecovery().recover(
+            surfaceID: surfaceID,
+            corruptSessionID: corruptID,
+            expectedWorkspaceID: workspaceID,
+            hookStateFileURL: hookStoreURL,
+            environment: ["HOME": root.path],
+            databaseInspector: { _, _, _, _, _ in
+                inspectionCount += 1
+                return nil
+            }
+        )
+
+        #expect(recovered == nil)
+        #expect(inspectionCount == 1)
     }
 
     @Test("Searches messages and scopes sessions by directory")

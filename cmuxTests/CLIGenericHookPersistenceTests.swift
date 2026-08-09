@@ -755,6 +755,45 @@ extension CLINotifyProcessIntegrationRegressionTests {
             finalCommands.contains { $0.contains("set_status hermes-agent Idle") },
             "Hermes must become idle only after the final response, saw \(finalCommands)"
         )
+
+        let replayCommandStart = state.commands.count
+        let replay = runHermesHook(
+            "agent-response",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"post_llm_call","extra":{"turn_id":"turn-2","user_message":"4+4","assistant_response":"\#(finalResponse)","model":"grok-4.5","platform":"cli"}}"#
+        )
+        XCTAssertFalse(replay.timedOut, replay.stderr)
+        XCTAssertEqual(replay.status, 0, replay.stderr)
+
+        let replayCommands = Array(state.commands.dropFirst(replayCommandStart))
+        XCTAssertFalse(
+            replayCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Replaying one Hermes completion hook must remain deduplicated, saw \(replayCommands)"
+        )
+
+        let nextPrompt = runHermesHook(
+            "prompt-submit",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"pre_llm_call","extra":{"turn_id":"turn-3","user_message":"repeat"}}"#
+        )
+        XCTAssertFalse(nextPrompt.timedOut, nextPrompt.stderr)
+        XCTAssertEqual(nextPrompt.status, 0, nextPrompt.stderr)
+
+        let nextCompletionStart = state.commands.count
+        let nextCompletion = runHermesHook(
+            "agent-response",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"post_llm_call","extra":{"turn_id":"turn-3","user_message":"repeat","assistant_response":"\#(finalResponse)","model":"grok-4.5","platform":"cli"}}"#
+        )
+        XCTAssertFalse(nextCompletion.timedOut, nextCompletion.stderr)
+        XCTAssertEqual(nextCompletion.status, 0, nextCompletion.stderr)
+
+        let nextCompletionCommands = Array(state.commands.dropFirst(nextCompletionStart))
+        XCTAssertEqual(
+            nextCompletionCommands.filter {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Hermes Agent|Completed in ")
+                    && $0.contains("|\(finalResponse)")
+            }.count,
+            1,
+            "A later Hermes turn with an identical body must notify exactly once, saw \(nextCompletionCommands)"
+        )
     }
 
     func testHermesTUIApprovalWithoutSessionKeyKeepsActiveConversationResumeIdentity() throws {
@@ -945,9 +984,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             $0["method"] as? String == "surface.resume.clear"
         })
         let clearParams = try XCTUnwrap(clearRequest["params"] as? [String: Any])
-        XCTAssertNil(
-            clearParams["checkpoint_id"],
-            "A missing Hermes database identity must clear the stale agent-hook binding without claiming checkpoint ownership"
+        XCTAssertEqual(
+            clearParams["checkpoint_id"] as? String,
+            transportId,
+            "A missing Hermes database identity may clear only the transient checkpoint it owns"
         )
 
         let promptCommandIndex = state.commands.count
