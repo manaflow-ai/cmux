@@ -8240,6 +8240,8 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private var lastFlashStyle: FlashStyle = .navigation
+    private var workspaceAttentionColor = WorkspaceAttentionColor(configuredHex: nil)
+    private var workspaceAttentionNSColor = NSColor.systemBlue
     private let keyboardCopyModeBadgeContainerView: GhosttyFlashOverlayView
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
     private let keyboardCopyModeBadgeIconView: NSImageView
@@ -8540,7 +8542,7 @@ final class GhosttySurfaceScrollView: NSView {
         notificationRingOverlayView.layer?.masksToBounds = false
         notificationRingOverlayView.autoresizingMask = [.width, .height]
         let notificationRingStyle = WorkspaceAttentionCoordinator.notificationRingStyle
-        let notificationRingColor = notificationRingStyle.accent.strokeColor
+        let notificationRingColor = NSColor.systemBlue
         notificationRingLayer.fillColor = NSColor.clear.cgColor
         notificationRingLayer.strokeColor = notificationRingColor.cgColor
         notificationRingLayer.lineWidth = NotificationRingMetrics.lineWidth
@@ -8559,7 +8561,7 @@ final class GhosttySurfaceScrollView: NSView {
         flashOverlayView.layer?.masksToBounds = false
         flashOverlayView.autoresizingMask = [.width, .height]
         let flashStyle = WorkspaceAttentionCoordinator.flashStyle(for: .navigation)
-        let flashColor = flashStyle.accent.strokeColor
+        let flashColor = NSColor.systemBlue
         flashLayer.fillColor = NSColor.clear.cgColor
         flashLayer.strokeColor = flashColor.cgColor
         flashLayer.lineWidth = NotificationRingMetrics.lineWidth
@@ -9388,6 +9390,19 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.setDisableActions(true)
         notificationRingOverlayView.isHidden = targetHidden
         notificationRingLayer.opacity = targetOpacity
+        CATransaction.commit()
+    }
+
+    func setWorkspaceAttentionColor(_ color: WorkspaceAttentionColor) {
+        guard color != workspaceAttentionColor else { return }
+        workspaceAttentionColor = color
+        workspaceAttentionNSColor = color.nsColor
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        notificationRingLayer.strokeColor = workspaceAttentionNSColor.cgColor
+        notificationRingLayer.shadowColor = workspaceAttentionNSColor.cgColor
+        updateFlashAppearance(style: lastFlashStyle)
         CATransaction.commit()
     }
 
@@ -11269,8 +11284,8 @@ final class GhosttySurfaceScrollView: NSView {
 
     /// Create a CGImage from the terminal's IOSurface-backed layer contents.
     ///
-    /// This avoids Screen Recording permissions (unlike CGWindowListCreateImage) and is therefore
-    /// suitable for debug socket tests running in headless/VM contexts.
+    /// This avoids the Screen Recording permission required by legacy window-list capture, making
+    /// it suitable for debug socket tests running in headless/VM contexts.
     func debugCopyIOSurfaceCGImage() -> CGImage? {
         guard let modelLayer = surfaceView.layer else { return nil }
         let layer = modelLayer.presentation() ?? modelLayer
@@ -11509,9 +11524,8 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func updateFlashAppearance(style: FlashStyle) {
         let presentation = Self.flashPresentation(for: style)
-        let strokeColor = presentation.accent.strokeColor
-        flashLayer.strokeColor = strokeColor.cgColor
-        flashLayer.shadowColor = strokeColor.cgColor
+        flashLayer.strokeColor = workspaceAttentionNSColor.cgColor
+        flashLayer.shadowColor = workspaceAttentionNSColor.cgColor
         flashLayer.shadowOpacity = Float(presentation.glowOpacity)
         flashLayer.shadowRadius = presentation.glowRadius
     }
@@ -12213,6 +12227,7 @@ extension GhosttyNSView: NSTextInputClient {
 // MARK: - SwiftUI Wrapper
 
 struct GhosttyTerminalView: NSViewRepresentable {
+    @Environment(\.workspaceAttentionColor) private var workspaceAttentionColor
     @Environment(\.paneDropZone) var paneDropZone
 
     let terminalSurface: TerminalSurface
@@ -12414,6 +12429,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         let hostedView = terminalSurface.hostedView
         let coordinator = context.coordinator
+        let workspaceAttentionColorSnapshot = workspaceAttentionColor
         let previousDesiredIsActive = coordinator.desiredIsActive
         let previousDesiredIsVisibleInUI = coordinator.desiredIsVisibleInUI
         let previousDesiredPortalZPriority = coordinator.desiredPortalZPriority
@@ -12467,6 +12483,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         // Keep the surface lifecycle and handlers updated even if we defer re-parenting.
         hostedView.attachSurface(terminalSurface)
         if hostOwnsPortalNow {
+            hostedView.setWorkspaceAttentionColor(workspaceAttentionColorSnapshot)
             hostedView.setSessionContentWidthPresentation(sessionContentWidthPresentation)
             hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
             hostedView.setTriggerFlashHandler(onTriggerFlash)
@@ -12536,6 +12553,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 ) else { return }
                 guard host.window != nil else { return }
                 guard portalBindingStillLive() else { return }
+                hostedView.setWorkspaceAttentionColor(workspaceAttentionColorSnapshot)
                 TerminalWindowPortalRegistry.bind(
                     hostedView: hostedView,
                     to: host,
@@ -12568,6 +12586,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             let vacancyIsCurrentPaneOwner = isCurrentPaneOwner
             let vacancyPaneId = paneId
             let vacancyOwnershipGeneration = ownershipGeneration
+            let vacancyWorkspaceAttentionColor = workspaceAttentionColorSnapshot
             let vacancySessionContentWidthPresentation = sessionContentWidthPresentation
             let vacancyOnFocus = onFocus
             let vacancyOnTriggerFlash = onTriggerFlash
@@ -12597,6 +12616,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     allowsAuthorityAcquisition: true,
                     reason: "hostVacated"
                 ) else { return }
+                hostedView.setWorkspaceAttentionColor(vacancyWorkspaceAttentionColor)
                 TerminalWindowPortalRegistry.bind(
                     hostedView: hostedView,
                     to: host,
@@ -12681,6 +12701,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     reason: "geometryChanged"
                 ) else { return }
                 guard portalBindingStillLive() else { return }
+                hostedView.setWorkspaceAttentionColor(workspaceAttentionColorSnapshot)
                 let hostId = ObjectIdentifier(host)
                 if host.window != nil,
                    (coordinator.lastBoundHostId != hostId ||

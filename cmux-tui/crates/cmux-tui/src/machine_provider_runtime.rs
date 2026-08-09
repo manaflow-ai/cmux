@@ -3878,7 +3878,11 @@ mod tests {
         let listener = socket.listener();
         let mut catalog = snapshot(1, "Existing", protocol::MachineStatus::Running);
         catalog.capabilities.connect_external_machine = true;
+        let mut enrolled = catalog.clone();
+        enrolled.revision = 2;
+        enrolled.machines[0].connectable = true;
         let server_catalog = catalog;
+        let (finish, finished) = mpsc::channel();
         let server = thread::spawn(move || {
             let first_mutation_id = {
                 let (mut stream, mut reader) = serve_initial_snapshot_with_capabilities(
@@ -3916,12 +3920,13 @@ mod tests {
                     request.id,
                     protocol::ConnectExternalMachineResult {
                         machine_id: id("machine-1"),
-                        revision: server_catalog.revision,
+                        revision: enrolled.revision,
                         notice: None,
                     },
                 ),
             );
-            serve_runtime_refresh(&mut stream, &mut reader, &server_catalog, None);
+            serve_runtime_refresh(&mut stream, &mut reader, &enrolled, None);
+            finished.recv().unwrap();
         });
 
         let provider = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
@@ -3957,7 +3962,10 @@ mod tests {
         controller.provider.reconnect_control().unwrap();
         let result = controller.perform_request(provider_connect("PAIR 4J7K")).unwrap();
 
-        assert!(result.ui.request.is_some());
+        let connected =
+            result.ui.snapshot.machines.iter().find(|machine| machine.id == "machine-1").unwrap();
+        assert_eq!(result.ui.request, Some(MachineRequest::Switch(connected.key)));
+        finish.send(()).unwrap();
         controller.close();
         server.join().unwrap();
     }

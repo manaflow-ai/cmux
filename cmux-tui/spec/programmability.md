@@ -2,8 +2,8 @@
 
 This inventory audits both the private frontend protocol and secondary
 implementation boundaries. Public application completeness is defined by
-[`cmux.protocol/1`](resource-api-v1.md), its
-[operation catalog](resource-operations-v1.json), the
+[`cmux.protocol/2`](resource-api-v2.md), its
+[operation catalog](resource-operations-v2.json), the
 [noun-first CLI](cli.md), and the [SDK contract](bindings.md).
 
 A feature is complete only when its authoritative state and side effects have a typed protocol route, observable results, compatibility metadata, and conformance coverage. A raw JSON escape hatch does not count as typed SDK support.

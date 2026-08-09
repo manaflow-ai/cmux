@@ -110,6 +110,919 @@ fn interrupted_staged_workspace_keeps_reserved_public_id_without_early_publicati
     fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_keeps_selected_session_guard_file() {
+    let root = temp_root("reset-keeps-session-guard");
+    let session = "reset-keeps-session-guard";
+    drop(WorkspaceRegistry::open(&root, session).unwrap());
+    let guard_path = session_guard_lock_path(&root.join(SESSION_GUARD_DIR), session);
+    assert!(guard_path.exists(), "open did not create a session guard");
+
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let preview = resetter.preview(session).unwrap();
+    assert_eq!(preview.state_root, root);
+    assert_eq!(preview.session_dir, resetter.session_dir(session));
+    assert_eq!(resetter.state_root(), root.as_path());
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(reset.removed_session_state);
+    assert!(guard_path.exists(), "reset removed an unpreviewed session guard");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_manifest_path_key_preserves_invalid_utf8_bytes() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let first = Path::new(std::ffi::OsStr::from_bytes(b"\xff"));
+    let second = Path::new(std::ffi::OsStr::from_bytes(b"\xfe"));
+
+    assert_eq!(first.display().to_string(), second.display().to_string());
+    assert_ne!(reset_manifest_path_key(first), reset_manifest_path_key(second));
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_does_not_restrict_supplied_state_root() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_root("reset-preserves-state-root-mode");
+    let session = "reset-preserves-state-root-mode";
+    fs::create_dir_all(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::write(session_dir.join(SESSION_WRITER_LOCK_FILE), b"").unwrap();
+    let before_mode = fs::metadata(&root).unwrap().permissions().mode() & 0o777;
+
+    let preview = resetter.preview(session).unwrap();
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(reset.removed_session_state);
+    assert_eq!(before_mode, 0o755);
+    assert_eq!(fs::metadata(&root).unwrap().permissions().mode() & 0o777, before_mode);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_accepts_restored_session_without_writer_lock() {
+    let root = temp_root("reset-restored-without-writer-lock");
+    let session = "reset-restored-without-writer-lock";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    let writer_lock = session_dir.join(SESSION_WRITER_LOCK_FILE);
+    assert!(!writer_lock.exists());
+
+    let preview = resetter.preview(session).unwrap();
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(reset.removed_session_state);
+    assert!(!session_dir.exists(), "reset left restored session state behind");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_refuses_restored_session_when_legacy_writer_lock_is_busy() {
+    let root = temp_root("reset-restored-writer-lock-busy");
+    let session = "reset-restored-writer-lock-busy";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    let writer_lock = session_dir.join(SESSION_WRITER_LOCK_FILE);
+    assert!(!writer_lock.exists());
+    let preview = resetter.preview(session).unwrap();
+    let _legacy_owner = SessionLease::acquire(&writer_lock).unwrap();
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(error.to_string().contains("already owned by another daemon"), "{error:#}");
+    assert!(session_dir.exists(), "reset deleted state owned by a legacy writer");
+    assert!(writer_lock.exists(), "reset removed the busy writer lock");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_rejects_session_dir_recreated_after_staging() {
+    let root = temp_root("reset-recreated-after-staging");
+    let session = "reset-recreated-after-staging";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_RECREATE_SESSION_DIR_AFTER_STAGING.lock().unwrap() = Some(session_dir.clone());
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(error.to_string().contains("reset path changed during reset"), "{error:#}");
+    assert!(session_dir.exists(), "reset removed recreated session state");
+    assert_eq!(fs::read(session_dir.join("recreated-sidecar")).unwrap(), b"new");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_accepts_partial_session_without_registry() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_root("reset-partial-without-registry");
+    let session = "reset-partial-without-registry";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join("partial-sidecar"), b"partial").unwrap();
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(host_root.join("stale-host-sidecar"), b"stale").unwrap();
+
+    let preview = resetter.preview(session).unwrap();
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(reset.removed_session_state);
+    assert!(reset.removed_terminal_hosts);
+    assert!(!session_dir.exists());
+    assert!(!host_root.exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_keeps_staged_dir_when_private_rename_sync_fails() {
+    let root = temp_root("reset-rename-sync-fails");
+    let session = "reset-rename-sync-fails";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::write(session_dir.join("sidecar"), b"previewed").unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_RENAME_SYNC_FAILURE_ROOT.lock().unwrap() = Some(root.clone());
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(error.to_string().contains("private reset rename sync failure"), "{error:#}");
+    assert!(!session_dir.exists(), "sync failure should leave the staged private path");
+    let pending = pending_session_reset_dirs(&root, session).unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].kind, PendingSessionResetKind::Session);
+    assert!(pending[0].path.join(WORKSPACE_REGISTRY_FILE).exists());
+    assert_eq!(fs::read(pending[0].path.join("sidecar")).unwrap(), b"previewed");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_delete_rejects_file_added_after_manifest_check() {
+    let root = temp_root("reset-delete-rejects-late-file");
+    let session = "reset-delete-rejects-late-file";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    let expected_fingerprint =
+        session_reset_target_fingerprint(&session_dir, &mut ResetFingerprintBudget::default())
+            .unwrap();
+    let late = session_dir.join("aaa-late");
+    *RESET_DELETE_AFTER_MANIFEST_FILE.lock().unwrap() = Some((session_dir.clone(), late.clone()));
+
+    let error = remove_reset_dir_all(
+        &session_dir,
+        "workspace session state",
+        "session",
+        &expected_fingerprint,
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("reset path changed during reset"), "{error:#}");
+    assert_eq!(fs::read(late).unwrap(), b"late");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_delete_rejects_child_replaced_after_verification() {
+    let root = temp_root("reset-delete-rejects-replaced-child");
+    let session = "reset-delete-rejects-replaced-child";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    let target = session_dir.join("replace-after-verify");
+    fs::write(&target, b"previewed").unwrap();
+    let expected_fingerprint =
+        session_reset_target_fingerprint(&session_dir, &mut ResetFingerprintBudget::default())
+            .unwrap();
+    *RESET_DELETE_AFTER_CHILD_VERIFY_FILE.lock().unwrap() = Some(target.clone());
+
+    let error = remove_reset_dir_all(
+        &session_dir,
+        "workspace session state",
+        "session",
+        &expected_fingerprint,
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("reset path changed during reset"), "{error:#}");
+    assert_eq!(fs::read(&target).unwrap(), b"replacement");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_dir_child_names_rewinds_between_scans() {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let root = temp_root("reset-child-name-rewind");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("child"), b"confirmed").unwrap();
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(&root)
+        .unwrap();
+
+    let first = reset_dir_child_names(&directory, &root, "workspace session state").unwrap();
+    let second = reset_dir_child_names(&directory, &root, "workspace session state").unwrap();
+
+    assert_eq!(first, vec![std::ffi::OsString::from("child")]);
+    assert_eq!(second, vec![std::ffi::OsString::from("child")]);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn unsupported_checked_reset_deletion_does_not_mutate_tree() {
+    let root = temp_root("reset-unsupported-platform-delete");
+    let target = root.join("session");
+    let child = target.join("child");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(&child, b"must-remain").unwrap();
+
+    let error = unsupported_checked_reset_deletion(&target, "workspace session state").unwrap_err();
+
+    assert!(error.to_string().contains("safe saved-state reset is not supported"), "{error:#}");
+    assert_eq!(fs::read(&child).unwrap(), b"must-remain");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_unsupported_checked_deletion_fails_before_staging_session_dir() {
+    let root = temp_root("reset-unsupported-before-staging");
+    let session = "reset-unsupported-before-staging";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_UNSUPPORTED_CHECKED_DELETION_ROOT.lock().unwrap() = Some(root.clone());
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(error.to_string().contains("safe saved-state reset is not supported"), "{error:#}");
+    assert!(session_dir.exists(), "reset moved the session dir before platform support failed");
+    assert!(session_dir.join(WORKSPACE_REGISTRY_FILE).exists());
+    assert!(pending_session_reset_dirs(&root, session).unwrap().is_empty());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_device_boundary_rejects_nested_device_change() {
+    let error = ensure_reset_device_boundary(Path::new("nested"), Some(1), Some(2)).unwrap_err();
+
+    assert!(error.to_string().contains("filesystem boundary"));
+    ensure_reset_device_boundary(Path::new("nested"), Some(1), Some(1)).unwrap();
+    ensure_reset_device_boundary(Path::new("nested"), None, Some(2)).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_retries_previous_private_deletion_dir() {
+    let root = temp_root("reset-retries-private-delete");
+    let session = "reset-retries-private-delete";
+    fs::create_dir_all(&root).unwrap();
+    let pending_reset_dir = root.join(format!(
+        ".reset-{}-session-{}.deleting",
+        session_storage_component(session),
+        new_uuid_v4()
+    ));
+    fs::create_dir_all(pending_reset_dir.join("nested")).unwrap();
+    fs::write(pending_reset_dir.join("nested").join("saved-state"), b"old").unwrap();
+
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let preview = resetter.preview(session).unwrap();
+    assert_eq!(preview.pending_reset_dirs, vec![pending_reset_dir.clone()]);
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(reset.removed_session_state);
+    assert!(!pending_reset_dir.exists(), "reset left a private deletion dir behind");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_retries_previous_terminal_host_deletion_dir_as_terminal_hosts() {
+    let root = temp_root("reset-retries-terminal-host-private-delete");
+    let session = "reset-retries-terminal-host-private-delete";
+    fs::create_dir_all(&root).unwrap();
+    let pending_reset_dir = root.join(format!(
+        ".reset-{}-terminal-hosts-{}.deleting",
+        session_storage_component(session),
+        new_uuid_v4()
+    ));
+    fs::create_dir_all(pending_reset_dir.join("nested")).unwrap();
+    fs::write(pending_reset_dir.join("nested").join("terminal-host-state"), b"old").unwrap();
+
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let preview = resetter.preview(session).unwrap();
+    assert_eq!(preview.pending_reset_dirs, vec![pending_reset_dir.clone()]);
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(!reset.removed_session_state);
+    assert!(reset.removed_terminal_hosts);
+    assert!(!pending_reset_dir.exists(), "reset left a terminal-host deletion dir behind");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_preserves_invalid_lookalike_private_deletion_dir() {
+    let root = temp_root("reset-preserves-invalid-private-delete");
+    let session = "reset-preserves-invalid-private-delete";
+    fs::create_dir_all(&root).unwrap();
+    let lookalike = root
+        .join(format!(".reset-{}-session-not-a-uuid.deleting", session_storage_component(session)));
+    fs::create_dir_all(&lookalike).unwrap();
+    fs::write(lookalike.join("unrelated"), b"keep").unwrap();
+
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let preview = resetter.preview(session).unwrap();
+    assert!(preview.pending_reset_dirs.is_empty());
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(!reset.removed_session_state);
+    assert!(!reset.removed_terminal_hosts);
+    assert!(lookalike.join("unrelated").exists(), "reset removed an invalid look-alike path");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_rejects_same_file_rewrite_with_restored_mtime() {
+    let root = temp_root("reset-restored-mtime");
+    let session = "reset-restored-mtime";
+    drop(WorkspaceRegistry::open(&root, session).unwrap());
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let target = session_dir.join("sidecar");
+    fs::write(&target, b"expected").unwrap();
+    let before = fs::metadata(&target).unwrap();
+    let before_modified = before.modified().unwrap();
+    let preview = resetter.preview(session).unwrap();
+
+    let mut file = OpenOptions::new().write(true).truncate(true).open(&target).unwrap();
+    file.write_all(b"mutated!").unwrap();
+    file.sync_all().unwrap();
+    file.set_times(fs::FileTimes::new().set_modified(before_modified)).unwrap();
+    let after = file.metadata().unwrap();
+    assert_eq!(metadata_identity(&after), metadata_identity(&before));
+    drop(file);
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(error.to_string().contains("reset confirmation is required"));
+    assert_eq!(fs::read(&target).unwrap(), b"mutated!");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_errors_when_state_root_cannot_be_inspected() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_root("reset-inaccessible-root");
+    let blocked_parent = root.join("blocked");
+    let state_root = blocked_parent.join("state");
+    fs::create_dir_all(&state_root).unwrap();
+    fs::set_permissions(&blocked_parent, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let resetter = PersistentSessionStateResetter::new(state_root);
+    let error = resetter.reset("reset-inaccessible-root", Some("unused")).unwrap_err();
+
+    fs::set_permissions(&blocked_parent, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(error.to_string().contains("inspect workspace state root"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_rejects_symlinked_state_root() {
+    use std::os::unix::fs::symlink;
+
+    let real_root = temp_root("reset-symlink-real-root");
+    let linked_root = temp_root("reset-symlink-linked-root");
+    let session = "reset-symlinked-state-root";
+    let resetter = PersistentSessionStateResetter::new(linked_root.clone());
+    let session_dir = real_root.join(session_storage_component(session));
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    symlink(&real_root, &linked_root).unwrap();
+
+    let preview_error = resetter.preview(session).unwrap_err();
+    let reset_error = resetter.reset(session, Some("unused")).unwrap_err();
+
+    assert!(preview_error.to_string().contains("workspace state root must not be a symbolic link"));
+    assert!(reset_error.to_string().contains("workspace state root must not be a symbolic link"));
+    assert!(session_dir.exists(), "reset touched the symlink target");
+    fs::remove_file(linked_root).unwrap();
+    fs::remove_dir_all(real_root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn terminal_host_reset_holds_structured_live_marker_lock() {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let root = temp_root("terminal-host-reset-holds-live-lock");
+    fs::create_dir_all(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+    let uid = fs::metadata(&root).unwrap().uid();
+    let terminal_id = TERMINAL_ONE;
+    let incarnation = INCARNATION_ONE;
+    let host_start_nonce = "02".repeat(32);
+    let record = crate::terminal_host_runtime::TerminalHostRecord {
+        record_version: 2,
+        terminal_id: terminal_id.to_string(),
+        incarnation: incarnation.to_string(),
+        endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
+        owner_token: "01".repeat(32),
+        host_pid: std::process::id(),
+        host_start_nonce,
+        workspace_key: String::new(),
+        supports_set_defaults: true,
+        supports_clear_history: true,
+    };
+    let record_path = record.record_path(&root);
+    let live_path = terminal_host_live_marker_path(&record_path, &record);
+    let _live_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_path)
+        .unwrap();
+    let mut record_file =
+        OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record_path).unwrap();
+    record_file.write_all(&serde_json::to_vec(&record).unwrap()).unwrap();
+    record_file.sync_all().unwrap();
+
+    let leases = prepare_terminal_host_root_for_reset(&root).unwrap();
+    assert_eq!(
+        crate::terminal_host_runtime::terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Live,
+        "reset must hold the structured live-marker lock until directory removal"
+    );
+    drop(leases);
+    assert_eq!(
+        crate::terminal_host_runtime::terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Dead
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn terminal_host_reset_refuses_busy_live_marker() {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let root = temp_root("terminal-host-reset-refuses-busy-live-marker");
+    fs::create_dir_all(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+    let uid = fs::metadata(&root).unwrap().uid();
+    let live_path = root.join("orphan.live");
+    let live_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_path)
+        .unwrap();
+    // SAFETY: flock only changes the advisory lock on this valid test file descriptor.
+    assert_eq!(unsafe { libc::flock(live_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+
+    assert!(matches!(
+        lock_verified_dead_live_marker(&root.join("missing.live"), uid).unwrap(),
+        TerminalHostLiveMarkerLock::Missing
+    ));
+    assert!(matches!(
+        lock_verified_dead_live_marker(&live_path, uid).unwrap(),
+        TerminalHostLiveMarkerLock::Unsafe
+    ));
+    let error = match prepare_terminal_host_root_for_reset(&root) {
+        Ok(_) => panic!("reset accepted a busy live marker"),
+        Err(error) => error,
+    };
+
+    assert!(error.to_string().contains("live or unverified hosts"), "{error:#}");
+    assert!(live_path.exists(), "reset removed a busy live marker");
+    drop(live_file);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn terminal_host_reset_checks_legacy_live_marker_as_orphan() {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let root = temp_root("terminal-host-reset-legacy-marker");
+    fs::create_dir_all(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+    let uid = fs::metadata(&root).unwrap().uid();
+    let terminal_id = TERMINAL_ONE;
+    let record = crate::terminal_host_runtime::TerminalHostRecord {
+        record_version: 1,
+        terminal_id: terminal_id.to_string(),
+        incarnation: INCARNATION_ONE.to_string(),
+        endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
+        owner_token: "01".repeat(32),
+        host_pid: 0,
+        host_start_nonce: String::new(),
+        workspace_key: String::new(),
+        supports_set_defaults: false,
+        supports_clear_history: false,
+    };
+    let record_path = record.record_path(&root);
+    let live_path = terminal_host_live_marker_path(&record_path, &record);
+    let live_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_path)
+        .unwrap();
+    // SAFETY: flock only changes the advisory lock on this valid test file descriptor.
+    assert_eq!(unsafe { libc::flock(live_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let mut record_file =
+        OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record_path).unwrap();
+    record_file.write_all(&serde_json::to_vec(&record).unwrap()).unwrap();
+    record_file.sync_all().unwrap();
+    *RESET_REMOVE_LEGACY_HOST_RECORD_BEFORE_LIVENESS.lock().unwrap() = Some(record_path.clone());
+
+    let error = match prepare_terminal_host_root_for_reset(&root) {
+        Ok(_) => panic!("reset ignored a busy legacy live marker"),
+        Err(error) => error,
+    };
+    *RESET_REMOVE_LEGACY_HOST_RECORD_BEFORE_LIVENESS.lock().unwrap() = None;
+
+    assert!(error.to_string().contains("live or unverified hosts"), "{error:#}");
+    assert!(record_path.exists(), "reset reached the liveness hook before checking the marker");
+    assert!(live_path.exists(), "reset removed a busy legacy live marker");
+    drop(live_file);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_rejects_unpublished_terminal_host_publication() {
+    let root = temp_root("reset-rejects-unpublished-terminal-host");
+    let session = "reset-rejects-unpublished-terminal-host";
+    drop(WorkspaceRegistry::open(&root, session).unwrap());
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    crate::terminal_host_runtime::prepare_terminal_host_publication_lock(&host_root).unwrap();
+    let _publication =
+        crate::terminal_host_runtime::acquire_terminal_host_publication_lock(&host_root).unwrap();
+
+    let preview = resetter.preview(session).unwrap();
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(error.to_string().contains("live or unverified hosts"), "{error:#}");
+    assert!(session_dir.exists(), "reset removed session state during host publication");
+    assert!(host_root.exists(), "reset removed terminal-host state during host publication");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_refuses_unparseable_terminal_host_record() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_root("reset-refuses-unparseable-terminal-host-record");
+    let session = "reset-refuses-unparseable-terminal-host-record";
+    drop(WorkspaceRegistry::open(&root, session).unwrap());
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    crate::terminal_host_runtime::prepare_terminal_host_publication_lock(&host_root).unwrap();
+    let record_path = host_root.join(format!("{TERMINAL_ONE}.json"));
+    fs::write(&record_path, b"{").unwrap();
+
+    let preview = resetter.preview(session).unwrap();
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(format!("{error:#}").contains("live or unverified hosts"), "{error:#}");
+    assert!(session_dir.exists(), "reset removed the registry before host verification");
+    assert!(record_path.exists(), "reset removed an unverified terminal-host record");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let root = temp_root("reset-dead-v2-host-without-marker");
+    let session = "reset-dead-v2-host-without-marker";
+    drop(WorkspaceRegistry::open(&root, session).unwrap());
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    crate::terminal_host_runtime::prepare_terminal_host_publication_lock(&host_root).unwrap();
+    let uid = fs::metadata(&host_root).unwrap().uid();
+    let terminal_id = TERMINAL_ONE;
+    let record = crate::terminal_host_runtime::TerminalHostRecord {
+        record_version: 2,
+        terminal_id: terminal_id.to_string(),
+        incarnation: INCARNATION_ONE.to_string(),
+        endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
+        owner_token: "01".repeat(32),
+        host_pid: u32::MAX,
+        host_start_nonce: "02".repeat(32),
+        workspace_key: String::new(),
+        supports_set_defaults: true,
+        supports_clear_history: true,
+    };
+    let record_path = record.record_path(&host_root);
+    let live_path = terminal_host_live_marker_path(&record_path, &record);
+    let mut record_file =
+        OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record_path).unwrap();
+    record_file.write_all(&serde_json::to_vec(&record).unwrap()).unwrap();
+    record_file.sync_all().unwrap();
+
+    let preview = resetter.preview(session).unwrap();
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(reset.removed_session_state);
+    assert!(reset.removed_terminal_hosts);
+    assert!(!live_path.exists(), "reset created a live marker before deletion");
+    assert!(!host_root.exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_terminal_host_only_state_reports_only_terminal_hosts() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_root("reset-terminal-host-only");
+    let session = "reset-terminal-host-only";
+    fs::create_dir_all(&root).unwrap();
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(host_root.join("stale-sidecar"), b"stale").unwrap();
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+
+    let preview = resetter.preview(session).unwrap();
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(!reset.removed_session_state);
+    assert!(reset.removed_terminal_hosts);
+    assert!(!host_root.exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_preview_rejects_confirmation_manifest_path_budget() {
+    let root = temp_root("reset-manifest-path-budget");
+    let session = "reset-manifest-path-budget";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    for index in 0..MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES {
+        fs::write(session_dir.join(format!("extra-{index}")), b"x").unwrap();
+    }
+
+    let error = resetter.preview(session).unwrap_err();
+
+    assert!(error.to_string().contains("reset confirmation scan exceeds"), "{error:#}");
+    assert!(error.to_string().contains("paths"), "{error:#}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_preview_rejects_confirmation_manifest_byte_budget() {
+    let root = temp_root("reset-manifest-byte-budget");
+    let session = "reset-manifest-byte-budget";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(
+        session_dir.join(WORKSPACE_REGISTRY_FILE),
+        vec![0_u8; usize::try_from(MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES).unwrap() + 1],
+    )
+    .unwrap();
+
+    let error = resetter.preview(session).unwrap_err();
+
+    assert!(error.to_string().contains("reset confirmation scan exceeds"), "{error:#}");
+    assert!(error.to_string().contains("bytes"), "{error:#}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_preview_rejects_confirmation_manifest_string_budget() {
+    let root = temp_root("reset-manifest-string-budget");
+    let session = "reset-manifest-string-budget";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let mut nested = session_dir;
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(nested.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    for index in 0..16 {
+        nested = nested.join(format!("long-reset-manifest-component-{index:02}"));
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join(format!("long-reset-manifest-leaf-{index:02}")), b"x").unwrap();
+    }
+
+    let error = resetter.preview(session).unwrap_err();
+
+    assert!(error.to_string().contains("reset confirmation scan exceeds"), "{error:#}");
+    assert!(error.to_string().contains("manifest bytes"), "{error:#}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_private_rename_rejects_replaced_directory_fingerprint() {
+    let root = temp_root("reset-rename-rejects-replacement");
+    let session = "reset-rename-rejects-replacement";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"old").unwrap();
+    let expected_fingerprint =
+        session_reset_target_fingerprint(&session_dir, &mut ResetFingerprintBudget::default())
+            .unwrap();
+
+    fs::remove_dir_all(&session_dir).unwrap();
+    fs::create_dir_all(&session_dir).unwrap();
+    let replacement = session_dir.join("replacement");
+    fs::write(&replacement, b"new").unwrap();
+
+    let error = rename_session_dir_for_reset(&root, session, &session_dir, &expected_fingerprint)
+        .unwrap_err();
+
+    assert!(error.to_string().contains("reset path changed during reset"));
+    assert!(replacement.exists(), "reset deleted the replacement directory");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_private_rename_rejects_late_nested_session_file() {
+    let root = temp_root("reset-rename-rejects-late-session-file");
+    let session = "reset-rename-rejects-late-session-file";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let nested = session_dir.join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::write(nested.join("previewed"), b"old").unwrap();
+    let expected_fingerprint =
+        session_reset_target_fingerprint(&session_dir, &mut ResetFingerprintBudget::default())
+            .unwrap();
+
+    let late = nested.join("late-sidecar");
+    fs::write(&late, b"new").unwrap();
+    let error = rename_session_dir_for_reset(&root, session, &session_dir, &expected_fingerprint)
+        .unwrap_err();
+
+    assert!(error.to_string().contains("reset path changed during reset"));
+    assert!(session_dir.exists(), "reset staged the changed session directory");
+    assert!(late.exists(), "reset deleted an unconfirmed nested session file");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_private_rename_rejects_late_terminal_host_file() {
+    let root = temp_root("reset-rename-rejects-late-terminal-host-file");
+    let session = "reset-rename-rejects-late-terminal-host-file";
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    let nested = host_root.join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(nested.join("previewed"), b"old").unwrap();
+    let expected_fingerprint =
+        reset_dir_fingerprint("terminal-hosts", &host_root, &mut ResetFingerprintBudget::default())
+            .unwrap();
+
+    let late = nested.join("late-sidecar");
+    fs::write(&late, b"new").unwrap();
+    let error =
+        rename_terminal_host_dir_for_reset(&root, session, &host_root, &expected_fingerprint)
+            .unwrap_err();
+
+    assert!(error.to_string().contains("reset path changed during reset"));
+    assert!(host_root.exists(), "reset staged the changed terminal-host directory");
+    assert!(late.exists(), "reset deleted an unconfirmed terminal-host file");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_exclusive_rename_preserves_an_existing_private_target() {
+    use std::ffi::OsStr;
+    use std::os::fd::AsRawFd;
+
+    let root = temp_root("reset-exclusive-rename-existing-target");
+    fs::create_dir_all(&root).unwrap();
+    let source = root.join("source");
+    let target = root.join("target");
+    fs::write(&source, b"source").unwrap();
+    fs::write(&target, b"target").unwrap();
+    let directory = File::open(&root).unwrap();
+
+    let error = reset_rename_child_exclusive(
+        directory.as_raw_fd(),
+        OsStr::new("source"),
+        OsStr::new("target"),
+        &source,
+        &target,
+    )
+    .unwrap_err();
+
+    assert!(format!("{error:#}").contains("move reset path"));
+    assert_eq!(fs::read(&source).unwrap(), b"source");
+    assert_eq!(fs::read(&target).unwrap(), b"target");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_directory_scan_clears_stale_errno_before_readdir() {
+    let root = temp_root("reset-readdir-clears-errno");
+    fs::create_dir_all(&root).unwrap();
+    let directory = File::open(&root).unwrap();
+    set_reset_readdir_errno(libc::EIO);
+
+    let names = reset_dir_child_names(&directory, &root, "saved state").unwrap();
+
+    assert!(names.is_empty());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_guard_rejects_symlinked_lock_directory() {
+    use std::os::unix::fs::symlink;
+
+    let root = temp_root("session-guard-symlink");
+    let outside = temp_root("session-guard-symlink-outside");
+    fs::create_dir_all(&root).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    symlink(&outside, root.join(SESSION_GUARD_DIR)).unwrap();
+
+    let error = WorkspaceRegistry::open(&root, "symlinked-lock-dir").unwrap_err();
+
+    assert!(error.to_string().contains("session lock directory is not a directory"));
+    assert!(fs::read_dir(&outside).unwrap().next().is_none());
+    fs::remove_dir_all(root).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[test]
+fn reset_session_guard_coordinator_busy_fails_without_waiting_forever() {
+    let root = temp_root("session-guard-coordinator-busy");
+    fs::create_dir_all(&root).unwrap();
+    let lock_dir = prepare_session_guard_dir(&root).unwrap();
+    let _held = SessionLease::acquire(&session_guard_coordinator_path(&lock_dir)).unwrap();
+    let started = std::time::Instant::now();
+
+    let error = match acquire_existing_session_reset_guard(&root, "blocked-by-coordinator") {
+        Ok(_) => panic!("reset acquired a busy session coordinator"),
+        Err(error) => error,
+    };
+
+    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    assert!(format!("{error:#}").contains("workspace session coordinator is busy"));
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn workspace_commit_publishes_one_normalized_resource_event() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
@@ -170,7 +1083,7 @@ fn terminal_resource(id: &str) -> TerminalPublicId {
 }
 
 fn agent_resource(terminal_id: &TerminalPublicId) -> crate::resource::AgentPublicId {
-    let digest = Sha256::digest(format!("cmux.protocol/1/agent/{terminal_id}").as_bytes());
+    let digest = Sha256::digest(format!("cmux.protocol/2/agent/{terminal_id}").as_bytes());
     let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
     crate::resource::AgentPublicId::parse(format!("agent_{payload}")).unwrap()
 }
@@ -648,6 +1561,194 @@ fn resource_patch_commits_terminal_and_topology_in_one_revision() {
             .unwrap(),
         1
     );
+}
+
+#[test]
+fn resource_tab_detach_preserves_exited_terminal_identity_and_outcome() {
+    let mut registry = WorkspaceRegistry::in_memory("terminal-detach").unwrap();
+    commit_terminal_topology(&mut registry, "create-terminal-detach");
+    let mut terminal = registry.terminal_record(TERMINAL_ONE).unwrap().unwrap();
+    terminal.lifecycle = TerminalLifecycle::Running;
+    terminal.incarnation = Some(INCARNATION_ONE.into());
+    registry
+        .commit_terminal(
+            &WorkspaceMutation::new("terminal-ready", "test").unwrap(),
+            &json!({"operation":"terminal-ready"}),
+            None,
+            Some(0),
+            "terminal-ready",
+            &terminal,
+            &json!({"terminal_id":TERMINAL_ONE}),
+        )
+        .unwrap();
+    let exit = json!({
+        "outcome":{"kind":"signal","signal":15,"core_dumped":false},
+        "exited_at":"7654321",
+        "revision":"1",
+    });
+    terminal.lifecycle = TerminalLifecycle::Exited;
+    terminal.exit = Some(exit.clone());
+    registry
+        .commit_terminal(
+            &WorkspaceMutation::new("terminal-exited", "test").unwrap(),
+            &json!({"operation":"terminal-exited"}),
+            None,
+            Some(1),
+            "terminal-exited",
+            &terminal,
+            &json!({"terminal_id":TERMINAL_ONE}),
+        )
+        .unwrap();
+    let terminal_public_id = terminal_resource(TERMINAL_ONE);
+
+    registry
+        .commit_resource_patch(
+            &WorkspaceMutation::new("detach-exited-tab", "cmux-tui-runtime").unwrap(),
+            "terminal.exit.detach",
+            &json!({"terminal":terminal_public_id}),
+            None,
+            Some(1),
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane_id(1),
+                        screen_id: screen_id(1),
+                        name: Some("Shell".into()),
+                        active_tab: None,
+                        creation_ordinal: 1,
+                    }),
+                    ResourceChange::TombstoneTab { tab_id: tab_id(1), close_content: false },
+                    ResourceChange::SetTabOrder { pane_id: pane_id(1), tab_ids: Vec::new() },
+                ],
+            },
+            &json!({"detached":true}),
+            &json!([
+                {"kind":"delete","sequence":0,"resource":"terminal","id":terminal_public_id},
+                {"kind":"delete","sequence":1,"resource":"tab","id":tab_id(1)},
+            ]),
+        )
+        .unwrap();
+
+    assert!(registry.resource_topology_snapshot().unwrap().tabs.is_empty());
+    assert_eq!(registry.terminal_resource_id(TERMINAL_ONE).unwrap(), Some(terminal_public_id));
+    let terminal = registry.terminal_record(TERMINAL_ONE).unwrap().unwrap();
+    assert_eq!(terminal.lifecycle, TerminalLifecycle::Exited);
+    assert_eq!(terminal.exit, Some(exit));
+    let transaction = registry.connection.unchecked_transaction().unwrap();
+    validate_resource_invariants(&transaction).unwrap();
+    transaction.commit().unwrap();
+}
+
+#[test]
+fn resource_tab_detach_rejects_live_terminal_content() {
+    let mut registry = WorkspaceRegistry::in_memory("terminal-detach-live").unwrap();
+    commit_terminal_topology(&mut registry, "create-terminal-detach-live");
+
+    let error = registry
+        .commit_resource_patch(
+            &WorkspaceMutation::new("detach-live-tab", "cmux-tui-runtime").unwrap(),
+            "terminal.exit.detach",
+            &json!({"terminal":terminal_resource(TERMINAL_ONE)}),
+            None,
+            Some(1),
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane_id(1),
+                        screen_id: screen_id(1),
+                        name: Some("Shell".into()),
+                        active_tab: None,
+                        creation_ordinal: 1,
+                    }),
+                    ResourceChange::TombstoneTab { tab_id: tab_id(1), close_content: false },
+                    ResourceChange::SetTabOrder { pane_id: pane_id(1), tab_ids: Vec::new() },
+                ],
+            },
+            &json!({"detached":true}),
+            &json!([]),
+        )
+        .unwrap_err();
+
+    assert!(error.to_string().contains("can detach only exited terminal content"));
+    let snapshot = registry.resource_topology_snapshot().unwrap();
+    assert_eq!(snapshot.revision, 1);
+    assert_eq!(snapshot.tabs.len(), 1);
+}
+
+#[test]
+fn resource_tab_detach_rejects_browser_content() {
+    let mut registry = WorkspaceRegistry::in_memory("browser-detach").unwrap();
+    commit_terminal_topology(&mut registry, "create-browser-detach");
+    let browser = RegistryBrowser::recreate(browser_id(1), "https://cmux.dev/docs".into(), 117, 43);
+    commit_browser_topology(&mut registry, "create-browser", browser.clone());
+
+    let error = registry
+        .commit_resource_patch(
+            &WorkspaceMutation::new("detach-browser-tab", "cmux-tui-runtime").unwrap(),
+            "tab.detach",
+            &json!({"browser":browser.public_id}),
+            None,
+            Some(2),
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane_id(2),
+                        screen_id: screen_id(1),
+                        name: Some("Docs".into()),
+                        active_tab: None,
+                        creation_ordinal: 2,
+                    }),
+                    ResourceChange::TombstoneTab { tab_id: tab_id(2), close_content: false },
+                    ResourceChange::SetTabOrder { pane_id: pane_id(2), tab_ids: Vec::new() },
+                ],
+            },
+            &json!({"detached":true}),
+            &json!([]),
+        )
+        .unwrap_err();
+
+    assert!(error.to_string().contains("cannot detach browser content"));
+    let snapshot = registry.resource_topology_snapshot().unwrap();
+    assert_eq!(snapshot.revision, 2);
+    assert!(snapshot.tabs.iter().any(|tab| tab.public_id == tab_id(2)));
+    assert_eq!(snapshot.browsers, vec![browser]);
+}
+
+#[test]
+fn resource_tab_close_tombstones_terminal_content_without_an_explicit_terminal_change() {
+    let mut registry = WorkspaceRegistry::in_memory("terminal-tab-close").unwrap();
+    commit_terminal_topology(&mut registry, "create-terminal-tab-close");
+
+    registry
+        .commit_resource_patch(
+            &WorkspaceMutation::new("close-terminal-tab", "cmux-tui-runtime").unwrap(),
+            "tab.close",
+            &json!({"tab":tab_id(1)}),
+            None,
+            Some(1),
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane_id(1),
+                        screen_id: screen_id(1),
+                        name: Some("Shell".into()),
+                        active_tab: None,
+                        creation_ordinal: 1,
+                    }),
+                    ResourceChange::TombstoneTab { tab_id: tab_id(1), close_content: true },
+                    ResourceChange::SetTabOrder { pane_id: pane_id(1), tab_ids: Vec::new() },
+                ],
+            },
+            &json!({"closed":true}),
+            &json!([]),
+        )
+        .unwrap();
+
+    assert!(registry.resource_topology_snapshot().unwrap().tabs.is_empty());
+    assert_eq!(registry.terminal_resource_id(TERMINAL_ONE).unwrap(), None);
+    let transaction = registry.connection.unchecked_transaction().unwrap();
+    validate_resource_invariants(&transaction).unwrap();
+    transaction.commit().unwrap();
 }
 
 #[test]
@@ -1307,7 +2408,7 @@ fn resource_tombstones_prevent_public_id_and_workspace_key_reuse() {
         )
         .unwrap();
     assert!(registry.resource_topology_snapshot().unwrap().screens.is_empty());
-    assert!(registry.terminal_snapshot().unwrap().terminals.is_empty());
+    assert_eq!(registry.terminal_snapshot().unwrap().terminals.len(), 1);
     let error = registry
         .commit_resource_patch(
             &WorkspaceMutation::new("recreate", "test").unwrap(),
@@ -1415,6 +2516,44 @@ fn resource_ids_survive_registry_restart() {
     assert_eq!(after.tabs, before.tabs);
     assert_eq!(after.browsers, before.browsers);
     assert_ne!(after.generation, before.generation);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn opening_legacy_workspaces_seeds_compatibility_active_workspace() {
+    let root = temp_root("legacy-active-workspace");
+    {
+        let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        registry
+            .connection
+            .execute_batch(
+                "INSERT INTO workspaces(
+                   workspace_key, numeric_id, name, group_key, position,
+                   tombstoned, created_revision, updated_revision, deleted_revision
+                 ) VALUES
+                   ('later', 2, 'Later', 'default', 1, 0, 1, 1, NULL),
+                   ('first', 1, 'First', 'default', 0, 0, 2, 2, NULL);
+                 UPDATE meta SET value = '2' WHERE key = 'revision';",
+            )
+            .unwrap();
+    }
+
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let workspaces = registry.snapshot().unwrap().workspaces;
+    let topology = registry.resource_topology_snapshot().unwrap();
+    assert_eq!(
+        workspaces.iter().map(|workspace| workspace.key.as_str()).collect::<Vec<_>>(),
+        ["first", "later"]
+    );
+    assert_eq!(topology.active_workspace.as_ref(), Some(&workspaces[0].public_id));
+    drop(registry);
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(
+        reopened.resource_topology_snapshot().unwrap().active_workspace,
+        Some(workspaces[0].public_id.clone())
+    );
+    drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -1690,7 +2829,7 @@ fn resource_identity_sql_check_rejects_non_hex_payload() {
 }
 
 #[test]
-fn deferred_terminal_foreign_keys_reject_orphans_at_commit() {
+fn resource_terminals_reject_orphans_while_terminal_hosts_are_session_owned() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     let public_id = terminal_resource(TERMINAL_TWO);
     {
@@ -1724,14 +2863,21 @@ fn deferred_terminal_foreign_keys_reject_orphans_at_commit() {
 
     let tx = registry.connection.transaction().unwrap();
     tx.execute(
-        "INSERT INTO terminal_placements(
+        "INSERT INTO terminal_hosts(
                terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
                exit_json, created_revision, updated_revision, deleted_revision
              ) VALUES(?1, 'missing', NULL, 'launching', '{}', NULL, 1, 1, NULL)",
         [TERMINAL_TWO],
     )
     .unwrap();
-    assert!(tx.commit().unwrap_err().to_string().contains("FOREIGN KEY constraint failed"));
+    tx.commit().unwrap();
+    assert_eq!(
+        registry
+            .connection
+            .query_row("SELECT COUNT(*) FROM terminal_hosts", [], |row| { row.get::<_, i64>(0) })
+            .unwrap(),
+        1
+    );
 }
 
 #[test]
@@ -2025,6 +3171,52 @@ fn frontend_projection_is_durable_cas_and_exactly_once() {
 }
 
 #[test]
+fn personal_and_shared_frontend_projections_coexist_and_restore_independently() {
+    let root = temp_root("projection-scopes");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        registry
+            .put_frontend_projection(
+                &WorkspaceMutation::new("personal-layout", "cmux-tui").unwrap(),
+                "cmux-tui",
+                "personal",
+                "profile-lawrence",
+                1,
+                Some(0),
+                &json!({"selected_workspace":"alpha","scroll":{"term-a":12}}),
+            )
+            .unwrap();
+        registry
+            .put_frontend_projection(
+                &WorkspaceMutation::new("shared-layout", "cmux-tui").unwrap(),
+                "cmux-tui",
+                "shared",
+                "pairing-room",
+                1,
+                Some(0),
+                &json!({"columns":["alpha","beta"]}),
+            )
+            .unwrap();
+    }
+
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let personal = registry
+        .get_frontend_projection("cmux-tui", "personal", "profile-lawrence")
+        .unwrap()
+        .unwrap();
+    let shared =
+        registry.get_frontend_projection("cmux-tui", "shared", "pairing-room").unwrap().unwrap();
+    assert_eq!(personal.projection["selected_workspace"], "alpha");
+    assert_eq!(personal.projection["scroll"]["term-a"], 12);
+    assert_eq!(shared.projection["columns"], json!(["alpha", "beta"]));
+    assert!(
+        registry.get_frontend_projection("cmux-tui", "personal", "pairing-room").unwrap().is_none(),
+        "scope participates in projection identity"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn terminal_lifecycle_is_exactly_once_and_has_an_independent_revision() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     seed_workspace(&mut registry, "one");
@@ -2187,7 +3379,7 @@ fn batch_terminal_close_rolls_back_every_tab_on_mid_transaction_failure() {
         .connection
         .execute_batch(&format!(
             "CREATE TEMP TRIGGER fail_second_terminal_close
-                 BEFORE UPDATE OF lifecycle ON terminal_placements
+                 BEFORE UPDATE OF lifecycle ON terminal_hosts
                  WHEN NEW.terminal_id = '{TERMINAL_TWO}'
                  BEGIN SELECT RAISE(ABORT, 'forced batch failure'); END;"
         ))
@@ -2288,7 +3480,7 @@ fn terminal_close_tombstones_before_kill_and_retries_safely() {
 }
 
 #[test]
-fn closing_workspace_atomically_tombstones_all_child_terminals() {
+fn closing_workspace_detaches_views_without_tombstoning_terminal_hosts() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     seed_workspace(&mut registry, "one");
     for (index, id) in [TERMINAL_ONE, TERMINAL_TWO].into_iter().enumerate() {
@@ -2320,17 +3512,15 @@ fn closing_workspace_atomically_tombstones_all_child_terminals() {
 
     assert!(registry.snapshot().unwrap().workspaces.is_empty());
     let terminals = registry.terminal_snapshot().unwrap();
-    assert_eq!(terminals.revision, 4);
-    assert!(terminals.terminals.is_empty());
+    assert_eq!(terminals.revision, 2);
+    assert_eq!(terminals.terminals.len(), 2);
     for id in [TERMINAL_ONE, TERMINAL_TWO] {
         assert_eq!(
             registry.terminal_record(id).unwrap().unwrap().lifecycle,
-            TerminalLifecycle::Tombstoned
+            TerminalLifecycle::Launching
         );
     }
-    let events = registry.terminal_events_after(2).unwrap();
-    assert_eq!(events.len(), 2);
-    assert!(events.iter().all(|event| event.result["reason"] == "workspace-closed"));
+    assert!(registry.terminal_events_after(2).unwrap().is_empty());
 }
 
 #[test]
@@ -2485,12 +3675,23 @@ fn schema_seven_resumes_interrupted_sensitive_receipt_cleanup() {
 }
 
 #[test]
-fn schema_seven_migrates_latest_live_agent_and_tombstones_without_resurrection() {
-    let root = temp_root("schema-seven-agent-projection");
+fn schema_seven_migrates_latest_agent_and_preserves_it_after_tombstone() {
+    assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(7);
+}
+
+#[test]
+fn schema_eight_migrates_latest_agent_and_preserves_it_after_tombstone() {
+    assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(8);
+}
+
+fn assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(legacy_schema: u32) {
+    let root = temp_root(&format!("schema-{legacy_schema}-agent-projection"));
     let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
     let terminal = terminal_resource(TERMINAL_ONE);
+    let pepper_id;
     {
         let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        pepper_id = required_meta(&registry.connection, RESOURCE_EFFECT_PEPPER_META_KEY).unwrap();
         commit_terminal_topology(&mut registry, "agent-migration-topology");
         let session = registry.session_id().clone();
         let agent = agent_resource(&terminal);
@@ -2535,11 +3736,11 @@ fn schema_seven_migrates_latest_live_agent_and_tombstones_without_resurrection()
     }
     Connection::open(&database)
         .unwrap()
-        .execute_batch(
-            "DROP TRIGGER resource_agent_projection_terminal_tombstone;
+        .execute_batch(&format!(
+            "DROP TRIGGER IF EXISTS resource_agent_projection_terminal_tombstone;
              DROP TABLE resource_agent_projections;
-             UPDATE meta SET value = '7' WHERE key = 'schema_version';",
-        )
+             UPDATE meta SET value = '{legacy_schema}' WHERE key = 'schema_version';"
+        ))
         .unwrap();
 
     let mut migrated = WorkspaceRegistry::open(&root, "session").unwrap();
@@ -2548,6 +3749,21 @@ fn schema_seven_migrates_latest_live_agent_and_tombstones_without_resurrection()
         SCHEMA_VERSION.to_string()
     );
     assert_eq!(migrated.resource_agent_projection_count_for_test().unwrap(), 1);
+    assert_eq!(
+        required_meta(&migrated.connection, RESOURCE_EFFECT_PEPPER_META_KEY).unwrap(),
+        pepper_id
+    );
+    let legacy_trigger_count: i64 = migrated
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'trigger'
+               AND name = 'resource_agent_projection_terminal_tombstone'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(legacy_trigger_count, 0);
     let agents = migrated.public_projections().unwrap().agents;
     assert_eq!(agents.len(), 1);
     assert_eq!(agents[0].terminal_id, terminal);
@@ -2571,7 +3787,7 @@ fn schema_seven_migrates_latest_live_agent_and_tombstones_without_resurrection()
                         active_tab: None,
                         creation_ordinal: 1,
                     }),
-                    ResourceChange::TombstoneTab { tab_id: tab_id(1) },
+                    ResourceChange::TombstoneTab { tab_id: tab_id(1), close_content: true },
                     ResourceChange::TombstoneTerminal {
                         public_id: terminal,
                         expected_incarnation: None,
@@ -2580,27 +3796,369 @@ fn schema_seven_migrates_latest_live_agent_and_tombstones_without_resurrection()
                 ],
             },
             &json!({"closed":true}),
-            &json!([{"kind":"delete","resource":"agent"}]),
+            &json!([]),
         )
         .unwrap();
-    assert_eq!(migrated.resource_agent_projection_count_for_test().unwrap(), 0);
-    assert!(migrated.public_projections().unwrap().agents.is_empty());
+    assert_eq!(migrated.resource_agent_projection_count_for_test().unwrap(), 1);
+    assert_eq!(migrated.public_projections().unwrap().agents.len(), 1);
     drop(migrated);
 
-    // Re-running the v7 migration against stale historical reports must not
-    // recreate state for a terminal that is already tombstoned.
+    // Re-running the legacy migration recovers the durable projection from the
+    // latest report even though its terminal is already tombstoned.
     Connection::open(&database)
         .unwrap()
-        .execute_batch(
-            "DROP TRIGGER resource_agent_projection_terminal_tombstone;
+        .execute_batch(&format!(
+            "DROP TRIGGER IF EXISTS resource_agent_projection_terminal_tombstone;
              DROP TABLE resource_agent_projections;
-             UPDATE meta SET value = '7' WHERE key = 'schema_version';",
-        )
+             UPDATE meta SET value = '{legacy_schema}' WHERE key = 'schema_version';"
+        ))
         .unwrap();
     let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
-    assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 0);
-    assert!(reopened.public_projections().unwrap().agents.is_empty());
+    assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 1);
+    assert_eq!(reopened.public_projections().unwrap().agents.len(), 1);
     drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn schema_eight_migrates_terminal_hosts_and_allows_multiple_durable_views() {
+    let root = temp_root("schema-eight-terminal-multiview");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "schema-eight-seed");
+    }
+    let legacy = Connection::open(&database).unwrap();
+    legacy
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             BEGIN IMMEDIATE;
+             DROP INDEX IF EXISTS live_resource_tab_position;
+             DROP INDEX IF EXISTS live_resource_browser_view;
+             CREATE TABLE resource_tabs_v8 (
+               public_id TEXT PRIMARY KEY NOT NULL REFERENCES resource_identities(public_id),
+               pane_id TEXT NOT NULL REFERENCES resource_panes(public_id)
+                 DEFERRABLE INITIALLY DEFERRED,
+               position INTEGER,
+               content_kind TEXT NOT NULL CHECK(content_kind IN ('terminal','browser')),
+               content_id TEXT NOT NULL REFERENCES resource_identities(public_id)
+                 DEFERRABLE INITIALLY DEFERRED,
+               name TEXT,
+               created_revision INTEGER NOT NULL,
+               updated_revision INTEGER NOT NULL,
+               deleted_revision INTEGER,
+               CHECK (
+                 (deleted_revision IS NULL AND position IS NOT NULL) OR
+                 (deleted_revision IS NOT NULL AND position IS NULL)
+               )
+             );
+             INSERT INTO resource_tabs_v8(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             )
+             SELECT public_id, pane_id, position, content_kind, content_id, name,
+                    created_revision, updated_revision, deleted_revision
+             FROM resource_tabs;
+             DROP TABLE resource_tabs;
+             ALTER TABLE resource_tabs_v8 RENAME TO resource_tabs;
+             CREATE UNIQUE INDEX live_resource_tab_position
+               ON resource_tabs(pane_id, position) WHERE deleted_revision IS NULL;
+             ALTER TABLE terminal_hosts RENAME TO terminal_placements;
+             UPDATE meta SET value = '8' WHERE key = 'schema_version';
+             COMMIT;
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let second_tab = tab_id(2);
+    legacy
+        .execute(
+            "INSERT INTO resource_identities(
+               public_id, kind, created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, 'tab', 1, 1, NULL)",
+            [second_tab.as_str()],
+        )
+        .unwrap();
+    legacy
+        .execute(
+            "INSERT INTO resource_tabs(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, ?2, 1, 'terminal', ?3, 'second view', 1, 1, NULL)",
+            params![second_tab.as_str(), pane_id(1).as_str(), terminal_id.as_str()],
+        )
+        .unwrap();
+    drop(legacy);
+
+    let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(
+        required_meta(&migrated.connection, "schema_version").unwrap(),
+        SCHEMA_VERSION.to_string()
+    );
+    for (table, expected) in [("terminal_hosts", 1_i64), ("terminal_placements", 0_i64)] {
+        let count = migrated
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                [table],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!(count, expected, "unexpected table state for {table}");
+    }
+    let browser_view_indexes = migrated
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'index' AND name = 'live_resource_browser_view'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(browser_view_indexes, 1);
+    let workspace_foreign_keys = migrated
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_foreign_key_list('terminal_hosts')
+             WHERE \"table\" = 'workspaces' AND \"from\" = 'workspace_key'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(workspace_foreign_keys, 0);
+    drop(migrated);
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let views = reopened
+        .resource_topology_snapshot()
+        .unwrap()
+        .tabs
+        .into_iter()
+        .filter(|tab| tab.content_id == ContentPublicId::Terminal(terminal_id.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(views.len(), 2);
+    assert_eq!(views[0].public_id, tab_id(1));
+    assert_eq!(views[1].public_id, second_tab);
+    assert!(
+        reopened
+            .connection
+            .query_row("PRAGMA foreign_key_check", [], |_| Ok(()))
+            .optional()
+            .unwrap()
+            .is_none()
+    );
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+fn rewrite_resource_tabs_with_legacy_single_view_schema(connection: &Connection) {
+    connection
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             BEGIN IMMEDIATE;
+             DROP INDEX IF EXISTS live_resource_tab_position;
+             DROP INDEX IF EXISTS live_resource_browser_view;
+             CREATE TABLE resource_tabs_legacy (
+               public_id TEXT PRIMARY KEY NOT NULL REFERENCES resource_identities(public_id),
+               pane_id TEXT NOT NULL REFERENCES resource_panes(public_id)
+                 DEFERRABLE INITIALLY DEFERRED,
+               position INTEGER,
+               content_kind TEXT NOT NULL CHECK(content_kind IN ('terminal','browser')),
+               content_id TEXT UNIQUE NOT NULL REFERENCES resource_identities(public_id)
+                 DEFERRABLE INITIALLY DEFERRED,
+               name TEXT,
+               created_revision INTEGER NOT NULL,
+               updated_revision INTEGER NOT NULL,
+               deleted_revision INTEGER,
+               CHECK (
+                 (deleted_revision IS NULL AND position IS NOT NULL) OR
+                 (deleted_revision IS NOT NULL AND position IS NULL)
+               )
+             );
+             INSERT INTO resource_tabs_legacy(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             )
+             SELECT public_id, pane_id, position, content_kind, content_id, name,
+                    created_revision, updated_revision, deleted_revision
+             FROM resource_tabs;
+             DROP TABLE resource_tabs;
+             ALTER TABLE resource_tabs_legacy RENAME TO resource_tabs;
+             CREATE UNIQUE INDEX live_resource_tab_position
+               ON resource_tabs(pane_id, position) WHERE deleted_revision IS NULL;
+             COMMIT;
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+}
+
+#[test]
+fn current_schema_normalizes_legacy_single_view_resource_tabs() {
+    let root = temp_root("current-schema-terminal-multiview");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "current-schema-seed");
+    }
+    let legacy = Connection::open(&database).unwrap();
+    rewrite_resource_tabs_with_legacy_single_view_schema(&legacy);
+    drop(legacy);
+
+    let mut reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let second_tab = tab_id(2);
+    reopened
+        .commit_resource_patch(
+            &WorkspaceMutation::new("current-schema-project", "test").unwrap(),
+            "terminal.project",
+            &json!({"operation":"terminal.project"}),
+            None,
+            Some(1),
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane_id(1),
+                        screen_id: screen_id(1),
+                        name: Some("Shell".into()),
+                        active_tab: Some(tab_id(1)),
+                        creation_ordinal: 1,
+                    }),
+                    ResourceChange::UpsertTab(RegistryTab {
+                        public_id: second_tab.clone(),
+                        pane_id: pane_id(1),
+                        position: 1,
+                        content_id: ContentPublicId::Terminal(terminal_resource(TERMINAL_ONE)),
+                        name: Some("second view".into()),
+                        browser_url: None,
+                        terminal_id: Some(TERMINAL_ONE.into()),
+                    }),
+                    ResourceChange::SetTabOrder {
+                        pane_id: pane_id(1),
+                        tab_ids: vec![tab_id(1), second_tab.clone()],
+                    },
+                ],
+            },
+            &json!({"tab_id":second_tab}),
+            &json!([]),
+        )
+        .unwrap();
+    assert_eq!(
+        reopened
+            .resource_topology_snapshot()
+            .unwrap()
+            .tabs
+            .into_iter()
+            .filter(|tab| {
+                tab.content_id == ContentPublicId::Terminal(terminal_resource(TERMINAL_ONE))
+            })
+            .count(),
+        2
+    );
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn schema_eight_rejects_multiple_live_views_for_one_browser() {
+    let root = temp_root("schema-eight-duplicate-browser-views");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "duplicate-browser-seed");
+    }
+    let legacy = Connection::open(&database).unwrap();
+    legacy
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             DROP INDEX live_resource_browser_view;
+             CREATE INDEX live_resource_browser_view ON resource_tabs(content_id);
+             UPDATE resource_tabs SET content_kind = 'browser';
+             UPDATE meta SET value = '8' WHERE key = 'schema_version';",
+        )
+        .unwrap();
+    let second_tab = tab_id(2);
+    legacy
+        .execute(
+            "INSERT INTO resource_identities(
+               public_id, kind, created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, 'tab', 1, 1, NULL)",
+            [second_tab.as_str()],
+        )
+        .unwrap();
+    legacy
+        .execute(
+            "INSERT INTO resource_tabs(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, ?2, 1, 'browser', ?3, NULL, 1, 1, NULL)",
+            params![
+                second_tab.as_str(),
+                pane_id(1).as_str(),
+                terminal_resource(TERMINAL_ONE).as_str()
+            ],
+        )
+        .unwrap();
+    drop(legacy);
+
+    let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("workspace registry contains multiple live views for one browser"),
+        "unexpected migration error: {error:#}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn schema_eight_rejects_both_terminal_storage_tables() {
+    let root = temp_root("schema-eight-duplicate-terminal-storage");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        drop(registry);
+    }
+    let legacy = Connection::open(&database).unwrap();
+    legacy
+        .execute_batch(
+            "CREATE TABLE terminal_placements AS SELECT * FROM terminal_hosts WHERE 0;
+             UPDATE meta SET value = '8' WHERE key = 'schema_version';",
+        )
+        .unwrap();
+    drop(legacy);
+
+    let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
+    assert!(
+        error.to_string().contains(
+            "workspace registry contains both legacy terminal placements and terminal hosts"
+        ),
+        "unexpected migration error: {error:#}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn saved_session_integrity_failure_has_actionable_public_copy() {
+    let root = temp_root("saved-session-integrity-public-copy");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "saved-session-integrity-seed");
+    }
+    let connection = Connection::open(database).unwrap();
+    connection.execute_batch("PRAGMA foreign_keys=OFF;").unwrap();
+    connection
+        .execute(
+            "UPDATE resource_tabs SET pane_id = ?1 WHERE public_id = ?2",
+            params![pane_id(99).as_str(), tab_id(1).as_str()],
+        )
+        .unwrap();
+    drop(connection);
+
+    let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "saved session data could not be loaded; start a new session or restore this session from a backup"
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -2683,7 +4241,7 @@ fn schema_one_migrates_transactionally_to_terminal_registry() {
             .execute_batch(
                 "DROP TABLE terminal_events;
                      DROP TABLE terminal_mutations;
-                     DROP TABLE terminal_placements;
+                     DROP TABLE terminal_hosts;
                      DELETE FROM meta WHERE key = 'terminal_revision';
                      UPDATE meta SET value = '1' WHERE key = 'schema_version';",
             )

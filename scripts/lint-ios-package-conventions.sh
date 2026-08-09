@@ -18,14 +18,24 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+BASELINE_FILE="scripts/lint-ios-package-conventions-baseline.txt"
 SCOPES=()
 for d in Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* Packages/Shared/CmuxAgentChat Packages/iOS/CmuxAgentChatUI Packages/Shared/CmuxSyncStore ios/cmuxPackage/Sources ios/cmux; do
   [ -d "$d" ] && SCOPES+=("$d")
 done
 
 fail=0
+baselined() { # rule, file, fingerprint
+  local key
+  [ -f "$BASELINE_FILE" ] || return 1
+  key="$(printf '%s\t%s\t%s' "$1" "$2" "$3")"
+  grep -Fxq "$key" "$BASELINE_FILE"
+}
+
 report() { # rule, severity, file, line, text
+  baselined "$1" "$3" "$5" && return 1
   printf '%-7s %-28s %s:%s  %s\n' "$2" "$1" "$3" "$4" "$5"
+  return 0
 }
 
 suppressed() { # file lineno
@@ -49,8 +59,9 @@ scan() { # rule severity pattern carveout(0/1) pathspec...
     echo "$text" | grep -qE '^[[:space:]]*//' && continue
     if [ "$carve" = 1 ]; then carveout_ok "$f" "$n" && continue
     else suppressed "$f" "$n" && continue; fi
-    report "$rule" "$sev" "$f" "$n" "$(echo "$text" | sed 's/^[[:space:]]*//' | cut -c1-90)"
-    [ "$sev" = ERROR ] && fail=1
+    if report "$rule" "$sev" "$f" "$n" "$(echo "$text" | sed 's/^[[:space:]]*//' | cut -c1-90)"; then
+      [ "$sev" = ERROR ] && fail=1
+    fi
   done < <(grep -rnE "$pat" "$@" --include='*.swift' 2>/dev/null)
 }
 
@@ -82,9 +93,17 @@ scan free-function ERROR '^(@[A-Za-z()_ ]+ )?(public |internal |package |private
 echo "== namespace-enums (caseless enum with static members) =="
 while IFS= read -r f; do
   case "$f" in */Tests/*|*Tests.swift|*/.build/*) continue ;; esac
-  python3 - "$f" <<'PY'
+  python3 - "$BASELINE_FILE" "$f" <<'PY'
+import os
 import re, sys
-path = sys.argv[1]
+baseline_path = sys.argv[1]
+path = sys.argv[2]
+baseline = set()
+if os.path.exists(baseline_path):
+    for raw in open(baseline_path, encoding="utf-8"):
+        entry = raw.rstrip("\n")
+        if entry and not entry.startswith("#"):
+            baseline.add(entry)
 src = open(path).read()
 for m in re.finditer(r'(?:public\s+|package\s+)?enum\s+(\w+)[^{]*\{', src):
     name = m.group(1)
@@ -109,6 +128,8 @@ for m in re.finditer(r'(?:public\s+|package\s+)?enum\s+(\w+)[^{]*\{', src):
         head = src[:m.start()]
         ctx = head[head.rfind('\n', 0, head.rfind('\n'))+1:]
         if 'lint:allow' in ctx:
+            continue
+        if f'namespace-enum\t{path}\t{name}' in baseline:
             continue
         line = head.count('\n') + 1
         print(f'ERROR   namespace-enum               {path}:{line}  enum {name} (caseless, static members) -> scope onto the owning type')
@@ -138,13 +159,14 @@ NS_TYPE_ROOTS=()
 for d in Packages/*/*/Sources ios/cmuxPackage/Sources ios/cmux; do
   [ -d "$d" ] && NS_TYPE_ROOTS+=("$d")
 done
-if ! python3 - scripts/lint-namespace-types-baseline.txt "${NS_TYPE_ROOTS[@]}" <<'PY'
+if ! python3 - scripts/lint-namespace-types-baseline.txt "$BASELINE_FILE" "${NS_TYPE_ROOTS[@]}" <<'PY'
 import os
 import re
 import sys
 
 baseline_path = sys.argv[1]
-roots = sys.argv[2:]
+general_baseline_path = sys.argv[2]
+roots = sys.argv[3:]
 
 baseline = set()
 if os.path.exists(baseline_path):
@@ -152,6 +174,13 @@ if os.path.exists(baseline_path):
         entry = raw.strip()
         if entry and not entry.startswith("#"):
             baseline.add(entry)
+
+general_baseline = set()
+if os.path.exists(general_baseline_path):
+    for raw in open(general_baseline_path, encoding="utf-8"):
+        entry = raw.rstrip("\n")
+        if entry and not entry.startswith("#"):
+            general_baseline.add(entry)
 
 DECL = re.compile(
     r"(?m)^(?P<indent>[ \t]*)(?P<head>(?:@\w+(?:\([^)]*\))?[ \t]+)*"
@@ -273,6 +302,8 @@ for root in roots:
                 if MARKER.search(ctx):
                     continue
                 if f"{path}:{m.group('name')}" in baseline:
+                    continue
+                if f"namespace-type\t{path}\t{m.group('name')}" in general_baseline:
                     continue
                 print(
                     f"ERROR   namespace-type               {path}:{line}  "

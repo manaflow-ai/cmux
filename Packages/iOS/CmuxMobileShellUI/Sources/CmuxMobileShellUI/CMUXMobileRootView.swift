@@ -123,6 +123,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowPushReadinessPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.pushReadinessPreviewState != nil
+        #else
+        return false
+        #endif
+    }
+
     #if os(iOS)
     /// A configured launch attach route (dev/UITest auto-pair) owns startup
     /// connections outright; background onboarding discovery must not race it.
@@ -167,6 +175,16 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    @ViewBuilder private var pushReadinessPreview: some View {
+        #if os(iOS) && DEBUG
+        MobilePushReadinessPreviewView(
+            state: UITestConfig.pushReadinessPreviewState ?? "healthy"
+        )
+        #else
+        EmptyView()
+        #endif
+    }
+
     @ViewBuilder private var hiddenComputersPreview: some View {
         #if os(iOS) && DEBUG
         HiddenComputersPreviewView()
@@ -199,7 +217,7 @@ struct CMUXMobileRootView: View {
             #endif
         }
         .onDisappear {
-            cancelInjectedAttachTask()
+            cancelInjectedAttachTask(retryLaunchRoute: true)
         }
         #if os(iOS)
         // A notification tap can arrive before the workspace (or terminal) it
@@ -308,7 +326,9 @@ struct CMUXMobileRootView: View {
 
     @ViewBuilder
     private var rootContent: some View {
-        if shouldShowChangesPreview {
+        if shouldShowPushReadinessPreview {
+            pushReadinessPreview
+        } else if shouldShowChangesPreview {
             changesPreview
         } else if shouldShowHideComputersVerifier {
             hideComputersVerifier
@@ -364,7 +384,10 @@ struct CMUXMobileRootView: View {
                     signOut: signOut,
                     showAddDevice: showAddDevice,
                     showPairingScanner: showPairingScanner,
-                    reconnectStoredMac: reconnectStoredMacIfNeeded
+                    reconnectStoredMac: reconnectStoredMacIfNeeded,
+                    workspaceListDidBecomeVisible: {
+                        await pushCoordinator.workspaceListDidBecomeVisible()
+                    }
                 )
             }
         }
@@ -504,6 +527,8 @@ struct CMUXMobileRootView: View {
             connectionPhase: UITestConfig.onboardingConnectionFallbackEnabled
                 ? .fallback
                 : .searching,
+            connectionMethod: connectionMethodStore?.method ?? .automatic,
+            onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: {},
@@ -780,31 +805,24 @@ struct CMUXMobileRootView: View {
         }
         injectedAttachTaskAttempt = startupAttempt
         injectedAttachTask = Task { @MainActor in
-            let result = await dogfoodAttachPreparation.run {
-                await store.connectPairingURLResult(attachURL)
+            let completion = await dogfoodAttachPreparation.run {
+                await startupConnectionCoordinator.connectInjectedAttach(
+                    startupAttempt,
+                    attachURL: attachURL
+                ) { rawURL in
+                    await store.connectPairingURLResult(rawURL)
+                }
             }
             guard !Task.isCancelled,
-                  injectedAttachTaskAttempt == startupAttempt else {
+                  injectedAttachTaskAttempt == startupAttempt,
+                  let completion else {
                 return
             }
-            let outcome: MobileStartupConnectionCoordinator.InjectedAttachOutcome =
-                switch result {
-                case .connected:
-                    .connected
-                case .needsUserApproval:
-                    .awaitingUserApproval
-                case .failed, .superseded:
-                    .failed
-                }
-            if result == .needsUserApproval {
+            if completion.result == .needsUserApproval {
                 showAddDevice()
             }
-            let shouldReconnect = startupConnectionCoordinator.finishInjectedAttach(
-                startupAttempt,
-                outcome: outcome
-            )
             clearInjectedAttachTask(ifCurrent: startupAttempt)
-            if shouldReconnect {
+            if completion.shouldReconnectStoredMac {
                 reconnectStoredMacIfNeeded()
             }
         }
@@ -814,12 +832,15 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
-    private func cancelInjectedAttachTask() {
+    private func cancelInjectedAttachTask(retryLaunchRoute: Bool = false) {
         guard let attempt = injectedAttachTaskAttempt else { return }
         let task = injectedAttachTask
         injectedAttachTask = nil
         injectedAttachTaskAttempt = nil
-        _ = startupConnectionCoordinator.cancelInjectedAttach(attempt)
+        _ = startupConnectionCoordinator.cancelInjectedAttach(
+            attempt,
+            retryLaunchRoute: retryLaunchRoute
+        )
         task?.cancel()
     }
 

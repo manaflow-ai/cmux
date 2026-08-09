@@ -130,7 +130,7 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
     assert "npm test" in bootstrap
     assert "npm pack --pack-destination" in bootstrap
     assert "CMUX_NPM_PACKAGE" in bootstrap
-    assert 'npm publish "${packages[0]}"' in bootstrap
+    assert 'npm publish "$(realpath "${packages[0]}")"' in bootstrap
     assert "--tag bootstrap" in bootstrap
     assert "--provenance" in bootstrap
     assert "--access public" in bootstrap

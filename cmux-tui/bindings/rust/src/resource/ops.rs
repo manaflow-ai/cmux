@@ -83,6 +83,7 @@ pub(crate) const TERMINAL_VIEWER_RESIZE: &str = "terminal.viewer.resize";
 pub(crate) const TERMINAL_VIEWER_RELEASE: &str = "terminal.viewer.release";
 pub(crate) const TERMINAL_VIEWPORT_SCROLL: &str = "terminal.viewport.scroll";
 pub(crate) const TERMINAL_MOVE: &str = "terminal.move";
+pub(crate) const TERMINAL_PROJECT: &str = "terminal.project";
 pub(crate) const TERMINAL_ATTACH: &str = "terminal.attach";
 pub(crate) const TERMINAL_RENDERER_GRANT_CREATE: &str = "terminal.renderer_grant.create";
 pub(crate) const TERMINAL_CLOSE: &str = "terminal.close";

@@ -1636,6 +1636,25 @@ impl Terminal {
         )
     }
 
+    pub fn project(&self, options: TerminalProjectOptions) -> Result<MutationResult<TabSnapshot>> {
+        self.project_with(options, MutationOptions::unique()?)
+    }
+
+    pub fn project_with(
+        &self,
+        options: TerminalProjectOptions,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<TabSnapshot>> {
+        mutation_snapshot(
+            self.session.client.mutate(
+                ops::TERMINAL_PROJECT,
+                self.params().extend(wire::terminal_project(options)),
+                mutation,
+            )?,
+            "tab",
+        )
+    }
+
     pub fn attach(&self, options: TerminalAttachOptions) -> Result<TerminalAttachment> {
         self.session
             .client

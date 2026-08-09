@@ -107,8 +107,56 @@ pub(crate) struct TerminalMessages {
     pub pty_input_too_large: &'static str,
     pub pty_input_queue_full: &'static str,
     pub pty_input_unavailable: &'static str,
+    pub pty_input_exited: &'static str,
     pub attach_outcome_unknown: &'static str,
     pub operation_failed: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct SessionMessages {
+    pub creation_reconciling: &'static str,
+    pub operation_reconciling: &'static str,
+    pub operation_failed: &'static str,
+    pub operation_canceled: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct SessionResetMessages {
+    pub help: &'static str,
+    pub exact_name_required: &'static str,
+    pub non_empty_name_required: &'static str,
+    pub no_state_root: &'static str,
+    pub confirmation_required: &'static str,
+    pub confirmation_recovery: &'static str,
+    routing_options_unsupported: &'static str,
+    reset_failed: &'static str,
+    pub reason_session_running: &'static str,
+    pub recovery_session_running: &'static str,
+    pub reason_terminal_hosts_live: &'static str,
+    pub recovery_terminal_hosts_live: &'static str,
+    pub reason_terminal_hosts_unsupported: &'static str,
+    pub recovery_terminal_hosts_unsupported: &'static str,
+    pub reason_reset_unsupported: &'static str,
+    pub recovery_reset_unsupported: &'static str,
+    pub reason_invalid_state_path: &'static str,
+    pub recovery_invalid_state_path: &'static str,
+    pub reason_state_changed: &'static str,
+    pub recovery_state_changed: &'static str,
+    pub reason_state_too_large: &'static str,
+    pub recovery_state_too_large: &'static str,
+    pub reason_filesystem: &'static str,
+    pub recovery_filesystem: &'static str,
+    pub retry_after_preview: &'static str,
+}
+
+impl SessionResetMessages {
+    pub(crate) fn routing_options_unsupported(&self, options: &str) -> String {
+        self.routing_options_unsupported.replace("{options}", options)
+    }
+
+    pub(crate) fn reset_failed(&self, session: &str) -> String {
+        self.reset_failed.replace("{session}", session)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -298,6 +346,7 @@ pub(crate) struct RuntimeMessages {
     pub unknown_panic: &'static str,
     renderer_panicked: &'static str,
     host_input_failed: &'static str,
+    signal_handlers_failed: &'static str,
     terminal_restore_also_failed: &'static str,
 }
 
@@ -308,6 +357,10 @@ impl RuntimeMessages {
 
     pub(crate) fn host_input_failed(&self, error: &str) -> String {
         self.host_input_failed.replace("{error}", error)
+    }
+
+    pub(crate) fn signal_handlers_failed(&self, error: &str) -> String {
+        self.signal_handlers_failed.replace("{error}", error)
     }
 
     pub(crate) fn terminal_restore_also_failed(&self, error: &str, restore_error: &str) -> String {
@@ -823,6 +876,8 @@ pub(crate) struct StartupMessages {
     pub session_socket: &'static str,
     pub stop_newer_server: &'static str,
     pub no_server_listening: &'static str,
+    pub reset_saved_state: &'static str,
+    pub reset_saved_state_unsupported: &'static str,
     pub forced_handoff_unsupported: &'static str,
     pub different_server: &'static str,
     pub server_not_verified: &'static str,
@@ -844,6 +899,8 @@ pub(crate) struct Catalog {
     pub foreign_viewport: ForeignViewportMessages,
     pub graphics: GraphicsMessages,
     pub terminal: TerminalMessages,
+    pub session: SessionMessages,
+    pub session_reset: SessionResetMessages,
     pub machine_agent: MachineAgentMessages,
     pub menu: MenuMessages,
     pub shortcuts: ShortcutMessages,
@@ -870,7 +927,9 @@ static ENGLISH: Catalog = Catalog {
         schema_too_new: "cannot open session \"{session}\" with cmux {version}: its saved state is incompatible with this build",
         session_socket: "session socket",
         stop_newer_server: "a newer cmux server owns this saved session; stop it before retrying:",
-        no_server_listening: "no server is listening on this socket; nothing needs to be stopped",
+        no_server_listening: "no server is listening on this socket",
+        reset_saved_state: "inspect this session's incompatible saved state reset plan:",
+        reset_saved_state_unsupported: "scoped saved-state reset is not supported on this platform; no reset command is shown",
         forced_handoff_unsupported: "this server cannot accept a safe forced shutdown command; use the newer cmux build that started it to stop the session",
         different_server: "this socket belongs to a different cmux session; no shutdown command is shown",
         server_not_verified: "cmux could not verify which session owns this socket; no shutdown command is shown",
@@ -920,8 +979,42 @@ static ENGLISH: Catalog = Catalog {
         pty_input_too_large: "Input exceeds the 4 MiB PTY buffer limit",
         pty_input_queue_full: "PTY input queue is full; input was not sent",
         pty_input_unavailable: "PTY input is unavailable after a transport failure",
+        pty_input_exited: "Terminal exited; input was not sent",
         attach_outcome_unknown: "Surface attach outcome is unknown. Detach and reconnect before sending more input",
         operation_failed: "Terminal input failed",
+    },
+    session: SessionMessages {
+        creation_reconciling: "Session creation may have completed; checking its receipt",
+        operation_reconciling: "Session operation may have completed; refreshing the layout",
+        operation_failed: "Session operation failed",
+        operation_canceled: "Session operation was canceled",
+    },
+    session_reset: SessionResetMessages {
+        help: "  cmux session <name> reset-state [--force --confirm-reset <token>] [--state <path>]\n    Preview or confirm a scoped saved-state reset",
+        exact_name_required: "session reset-state requires an exact session name",
+        non_empty_name_required: "session reset-state requires a non-empty name",
+        no_state_root: "cannot determine durable state directory; pass --state <path>",
+        confirmation_required: "session reset-state --force requires a confirmation token from preview",
+        confirmation_recovery: "rerun without --force, review the scoped targets, then retry with the printed --confirm-reset token",
+        routing_options_unsupported: "session reset-state does not accept global routing options: {options}; use --state <path> to select the saved-state root",
+        reset_failed: "could not complete saved-state reset for session \"{session}\"",
+        reason_session_running: "the session is still running",
+        recovery_session_running: "stop the running session before retrying the reset",
+        reason_terminal_hosts_live: "terminal hosts are still live or cannot be verified",
+        recovery_terminal_hosts_live: "reopen this session with a compatible cmux and stop it cleanly before retrying the reset",
+        reason_terminal_hosts_unsupported: "terminal-host liveness cannot be verified on this platform",
+        recovery_terminal_hosts_unsupported: "use a platform build that can verify terminal-host liveness, or start a separate session",
+        reason_reset_unsupported: "safe saved-state reset is not supported on this platform",
+        recovery_reset_unsupported: "use a supported platform build to reset this saved state, or start a separate session",
+        reason_invalid_state_path: "the state path is not a directory",
+        recovery_invalid_state_path: "rerun the preview with the intended --state path",
+        reason_state_changed: "the scoped session state changed during reset",
+        recovery_state_changed: "rerun the preview, then retry the reset if the targets are still correct",
+        reason_state_too_large: "the scoped session state is too large to confirm safely",
+        recovery_state_too_large: "reduce the scoped saved state or retry after a compatible cmux stops the session cleanly",
+        reason_filesystem: "the filesystem refused the scoped reset",
+        recovery_filesystem: "check permissions and available disk, then retry the reset",
+        retry_after_preview: "rerun without --force to inspect the scoped reset plan",
     },
     machine_agent: MachineAgentMessages {
         help: "\
@@ -1025,6 +1118,7 @@ edits shell files. Authenticate with the configured host before retrying.
         unknown_panic: "unknown panic",
         renderer_panicked: "terminal renderer panicked: {message}",
         host_input_failed: "host terminal input failed: {error}",
+        signal_handlers_failed: "failed to install signal handlers: {error}",
         terminal_restore_also_failed: "{error}; host terminal restoration also failed: {restore_error}",
     },
     remote_client: RemoteClientMessages {
@@ -1350,7 +1444,9 @@ static JAPANESE: Catalog = Catalog {
         schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",
         session_socket: "セッションソケット",
         stop_newer_server: "新しい cmux サーバーがこの保存済みセッションを所有しています。再試行する前に停止:",
-        no_server_listening: "このソケットを待ち受けているサーバーはありません。停止は不要です",
+        no_server_listening: "このソケットを待ち受けているサーバーはありません",
+        reset_saved_state: "このセッションの互換性のない保存状態のリセット計画を確認:",
+        reset_saved_state_unsupported: "このプラットフォームではスコープ付き保存状態リセットに対応していないため、リセットコマンドは表示しません",
         forced_handoff_unsupported: "このサーバーは安全な強制停止コマンドに対応していません。セッションを停止するには、起動に使用した新しい cmux ビルドを使用してください",
         different_server: "このソケットは別の cmux セッションに属しています。シャットダウンコマンドは表示しません",
         server_not_verified: "このソケットを所有するセッションを確認できませんでした。シャットダウンコマンドは表示しません",
@@ -1400,8 +1496,42 @@ static JAPANESE: Catalog = Catalog {
         pty_input_too_large: "入力が 4 MiB の PTY バッファ上限を超えています",
         pty_input_queue_full: "PTY 入力キューがいっぱいのため、入力は送信されませんでした",
         pty_input_unavailable: "転送エラー後のため PTY 入力を使用できません",
+        pty_input_exited: "ターミナルが終了したため、入力は送信されませんでした",
         attach_outcome_unknown: "サーフェスの接続結果を確認できません。入力を再開する前に切断して再接続してください",
         operation_failed: "ターミナル入力に失敗しました",
+    },
+    session: SessionMessages {
+        creation_reconciling: "セッションの作成が完了している可能性があります。結果を確認しています",
+        operation_reconciling: "セッション操作が完了している可能性があります。レイアウトを更新しています",
+        operation_failed: "セッション操作に失敗しました",
+        operation_canceled: "セッション操作はキャンセルされました",
+    },
+    session_reset: SessionResetMessages {
+        help: "  cmux session <name> reset-state [--force --confirm-reset <token>] [--state <path>]\n    スコープ付き保存状態のリセットをプレビューまたは確認実行",
+        exact_name_required: "session reset-state には正確なセッション名が必要です",
+        non_empty_name_required: "session reset-state には空でない名前が必要です",
+        no_state_root: "永続状態ディレクトリを特定できません。--state <path> を指定してください",
+        confirmation_required: "session reset-state --force にはプレビューで表示された確認トークンが必要です",
+        confirmation_recovery: "--force なしで再実行し、スコープ付き対象を確認してから、表示された --confirm-reset トークンを付けて再試行してください",
+        routing_options_unsupported: "session reset-state ではグローバルルーティングオプション {options} を使用できません。保存状態のルートを選択するには --state <path> を使用してください",
+        reset_failed: "セッション \"{session}\" の保存状態リセットを完了できませんでした",
+        reason_session_running: "セッションがまだ実行中です",
+        recovery_session_running: "実行中のセッションを停止してからリセットを再試行してください",
+        reason_terminal_hosts_live: "ターミナルホストがまだ動作中、または確認できません",
+        recovery_terminal_hosts_live: "互換性のある cmux でこのセッションを再度開き、正常に停止してからリセットを再試行してください",
+        reason_terminal_hosts_unsupported: "このプラットフォームではターミナルホストの生存確認ができません",
+        recovery_terminal_hosts_unsupported: "ターミナルホストの生存確認に対応したプラットフォームのビルドを使うか、別のセッションを開始してください",
+        reason_reset_unsupported: "このプラットフォームでは安全な保存状態リセットに対応していません",
+        recovery_reset_unsupported: "対応プラットフォームのビルドで保存状態をリセットするか、別のセッションを開始してください",
+        reason_invalid_state_path: "状態パスがディレクトリではありません",
+        recovery_invalid_state_path: "意図した --state パスでプレビューを再実行してください",
+        reason_state_changed: "スコープ付きセッション状態がリセット中に変更されました",
+        recovery_state_changed: "プレビューを再実行し、対象が正しければリセットを再試行してください",
+        reason_state_too_large: "スコープ付きセッション状態が大きすぎるため安全に確認できません",
+        recovery_state_too_large: "スコープ付き保存状態を減らすか、互換性のある cmux でセッションを正常に停止してから再試行してください",
+        reason_filesystem: "ファイルシステムがスコープ付きリセットを拒否しました",
+        recovery_filesystem: "権限と空きディスク容量を確認してからリセットを再試行してください",
+        retry_after_preview: "--force なしで再実行してスコープ付きリセット計画を確認してください",
     },
     machine_agent: MachineAgentMessages {
         help: "\
@@ -1505,6 +1635,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         unknown_panic: "不明なパニック",
         renderer_panicked: "ターミナル描画処理でパニックが発生しました: {message}",
         host_input_failed: "ホストターミナルの入力に失敗しました: {error}",
+        signal_handlers_failed: "シグナルハンドラーの設定に失敗しました: {error}",
         terminal_restore_also_failed: "{error}; ホストターミナルの復元にも失敗しました: {restore_error}",
     },
     remote_client: RemoteClientMessages {
@@ -1896,6 +2027,13 @@ mod tests {
             JAPANESE.terminal.deferred_input_queue_full,
             "セッション変更の保留中に入力キューのバイト上限に達しました"
         );
+        assert_eq!(ENGLISH.terminal.pty_input_exited, "Terminal exited; input was not sent");
+        assert_eq!(
+            JAPANESE.terminal.pty_input_exited,
+            "ターミナルが終了したため、入力は送信されませんでした"
+        );
+        assert_eq!(ENGLISH.session.operation_failed, "Session operation failed");
+        assert_eq!(JAPANESE.session.operation_failed, "セッション操作に失敗しました");
         assert_eq!(
             JAPANESE.attach.filtered_subscription_unavailable,
             "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください"
@@ -2126,6 +2264,10 @@ mod tests {
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").runtime.host_input_failed("切断"),
             "ホストターミナルの入力に失敗しました: 切断"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").runtime.signal_handlers_failed("権限がありません"),
+            "シグナルハンドラーの設定に失敗しました: 権限がありません"
         );
         assert_eq!(
             catalog_for_locale("en_US.UTF-8")
