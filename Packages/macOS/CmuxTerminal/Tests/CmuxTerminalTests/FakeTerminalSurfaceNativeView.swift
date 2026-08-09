@@ -17,6 +17,7 @@ final class FakeTerminalSurfaceNativeView: NSView {
     var deferredRuntimeInputs: [() -> Void] = []
     var deferredRuntimeInputBytes: [Int] = []
     var mobileMouseButtonEvents: [String] = []
+    private(set) var endedRuntimeLifetimeIds: [UUID?] = []
 
     func toggleKeyboardCopyMode() -> Bool { false }
     func cancelKeyboardCopyMode() {
@@ -26,7 +27,9 @@ final class FakeTerminalSurfaceNativeView: NSView {
     func applyWindowBackgroundIfActive() {}
     func forceRefreshSurface() -> Bool { true }
     func prepareForRuntimeSurfaceCreation(runtimeLifetimeId: UUID) {}
-    func runtimeSurfaceDidEnd(runtimeLifetimeId: UUID?) {}
+    func runtimeSurfaceDidEnd(runtimeLifetimeId: UUID?) {
+        endedRuntimeLifetimeIds.append(runtimeLifetimeId)
+    }
     func runtimeSurfaceDidBecomeReady() {}
 
     func deferRuntimeInputDuringClipboardRead(
