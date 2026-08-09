@@ -1,6 +1,7 @@
 import AppKit
 import CMUXAgentLaunch
 import Foundation
+import CmuxWorkspaces
 import SQLite3
 import Testing
 
@@ -32,6 +33,132 @@ struct HermesFirstClassSupportTests {
             self.startedAt = startedAt
             self.endedAt = endedAt
         }
+    }
+
+    @Test("A running Hermes agent keeps the primary app snapshot decodable")
+    func runningHermesAgentAppSnapshotRoundTrips() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-snapshot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let sessionID = "20260807_192611_076701"
+        let workingDirectory = "/tmp/hermes app snapshot"
+        let launchCommand = AgentLaunchCommandSnapshot(
+            launcher: "hermes-agent",
+            executablePath: "hermes",
+            arguments: ["hermes", "--profile", "default", "--tui", "--resume", sessionID],
+            workingDirectory: workingDirectory,
+            environment: ["HERMES_HOME": "/tmp/hermes-home"],
+            capturedAt: 42,
+            source: "environment"
+        )
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .hermesAgent,
+            sessionId: sessionID,
+            workingDirectory: workingDirectory,
+            launchCommand: launchCommand,
+            registration: .builtInHermes
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Hermes Agent",
+            kind: RestorableAgentKind.hermesAgent.rawValue,
+            command: "hermes --profile default --tui --resume \(sessionID)",
+            cwd: workingDirectory,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            environment: ["HERMES_HOME": "/tmp/hermes-home"],
+            launchCommand: launchCommand,
+            autoResume: true,
+            approvalPolicy: .auto
+        )
+        let panel = SessionPanelSnapshot(
+            id: panelID,
+            type: .terminal,
+            title: "Hermes",
+            customTitle: nil,
+            directory: workingDirectory,
+            isPinned: false,
+            isManuallyUnread: false,
+            gitBranch: nil,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: SessionTerminalPanelSnapshot(
+                workingDirectory: workingDirectory,
+                agent: agent,
+                resumeBinding: binding,
+                wasAgentRunning: true
+            ),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil,
+            project: nil
+        )
+        let blankWorkspace = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: nil,
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp",
+            focusedPanelId: nil,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            panels: [],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        let hermesWorkspace = SessionWorkspaceSnapshot(
+            workspaceId: workspaceID,
+            processTitle: "Hermes",
+            customTitle: nil,
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: workingDirectory,
+            focusedPanelId: panelID,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panelID], selectedPanelId: panelID)),
+            panels: [panel],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 42,
+            windows: [
+                SessionWindowSnapshot(
+                    frame: nil,
+                    display: nil,
+                    tabManager: SessionTabManagerSnapshot(
+                        selectedWorkspaceIndex: 1,
+                        workspaces: [blankWorkspace, hermesWorkspace]
+                    ),
+                    sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 240)
+                ),
+            ]
+        )
+        let store = SessionSnapshotRepository<AppSessionSnapshot>(
+            schemaVersion: SessionSnapshotSchema.currentVersion,
+            bundleIdentifier: "com.cmuxterm.tests.hermes-snapshot",
+            appSupportDirectory: root
+        )
+        let fileURL = try #require(store.defaultSnapshotFileURL())
+
+        #expect(store.save(snapshot, fileURL: fileURL))
+        let restored = try #require(store.load(fileURL: fileURL))
+        let restoredTerminal = try #require(
+            restored.windows.first?.tabManager.workspaces.last?.panels.first?.terminal
+        )
+        #expect(restoredTerminal.agent?.kind == .hermesAgent)
+        #expect(restoredTerminal.agent?.sessionId == sessionID)
+        #expect(restoredTerminal.agent?.registration == .builtInHermes)
+        #expect(restoredTerminal.resumeBinding?.checkpointId == sessionID)
+        #expect(restoredTerminal.resumeBinding?.autoResume == true)
+        #expect(restoredTerminal.wasAgentRunning == true)
     }
 
     @Test("Automatic restore repairs a transient Hermes TUI transport ID and retires a missing checkpoint")
