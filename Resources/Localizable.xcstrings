@@ -240913,6 +240913,40 @@
         }
       }
     },
+    "terminal.agentSleep.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleeping"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スリープ中"
+          }
+        }
+      }
+    },
+    "terminal.agentSleep.wake": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wake"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復帰"
+          }
+        }
+      }
+    },
     "terminal.notification.action.show": {
       "extractionState": "manual",
       "localizations": {
@@ -241269,6 +241303,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "重新連線窗格"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.sleepAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スリープ"
           }
         }
       }

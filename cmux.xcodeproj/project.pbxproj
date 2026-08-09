@@ -60,6 +60,7 @@
 		F65760100000000000000001 /* AgentHibernationController+Confirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760100000000000000002 /* AgentHibernationController+Confirmation.swift */; };
 		8740B0018740B0018740B001 /* AgentHibernationController+EvaluationScheduling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8740A0018740A0018740A001 /* AgentHibernationController+EvaluationScheduling.swift */; };
 		F65760110000000000000001 /* AgentHibernationController+InFlightTeardown.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760110000000000000002 /* AgentHibernationController+InFlightTeardown.swift */; };
+		A6AC73020000000000009003 /* AgentHibernationController+ManualSleep.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73020000000000009004 /* AgentHibernationController+ManualSleep.swift */; };
 		8997C0018997C0018997C001 /* AgentHibernationController+MemoryPressure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997D0018997D0018997D001 /* AgentHibernationController+MemoryPressure.swift */; };
 		8997C0068997C0068997C006 /* AgentHibernationController+PanelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997D0068997D0068997D006 /* AgentHibernationController+PanelLifecycle.swift */; };
 		F65760120000000000000001 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760120000000000000002 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift */; };
@@ -2487,6 +2488,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D7632B13A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7632B14A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift */; };
 		C0DE43000000000000000007 /* Workspace+AgentChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43000000000000000008 /* Workspace+AgentChat.swift */; };
 		A6AC73020000000000000001 /* Workspace+AgentLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */; };
+		A6AC73020000000000009001 /* Workspace+AgentSleep.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73020000000000009002 /* Workspace+AgentSleep.swift */; };
 		8777E0018777E0018777E001 /* Workspace+AttentionFlashRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8777E0028777E0028777E002 /* Workspace+AttentionFlashRouting.swift */; };
 		CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */; };
 		C54860020000000000000001 /* Workspace+CmuxNavigationDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */; };
@@ -2791,6 +2793,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F65760100000000000000002 /* AgentHibernationController+Confirmation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+Confirmation.swift"; sourceTree = "<group>"; };
 		8740A0018740A0018740A001 /* AgentHibernationController+EvaluationScheduling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+EvaluationScheduling.swift"; sourceTree = "<group>"; };
 		F65760110000000000000002 /* AgentHibernationController+InFlightTeardown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+InFlightTeardown.swift"; sourceTree = "<group>"; };
+		A6AC73020000000000009004 /* AgentHibernationController+ManualSleep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+ManualSleep.swift"; sourceTree = "<group>"; };
 		8997D0018997D0018997D001 /* AgentHibernationController+MemoryPressure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+MemoryPressure.swift"; sourceTree = "<group>"; };
 		8997D0068997D0068997D006 /* AgentHibernationController+PanelLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+PanelLifecycle.swift"; sourceTree = "<group>"; };
 		F65760120000000000000002 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+PostSnapshotValidationIndexTask.swift"; sourceTree = "<group>"; };
@@ -5121,6 +5124,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D7632B14A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/WKWebView+CmuxPrintOperation.swift"; sourceTree = "<group>"; };
 		C0DE43000000000000000008 /* Workspace+AgentChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentChat.swift"; sourceTree = "<group>"; };
 		A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentLifecycle.swift"; sourceTree = "<group>"; };
+		A6AC73020000000000009002 /* Workspace+AgentSleep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentSleep.swift"; sourceTree = "<group>"; };
 		8777E0028777E0028777E002 /* Workspace+AttentionFlashRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AttentionFlashRouting.swift"; sourceTree = "<group>"; };
 		CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CanvasLayout.swift"; sourceTree = "<group>"; };
 		C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CmuxNavigationDescriptor.swift"; sourceTree = "<group>"; };
@@ -5849,6 +5853,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				8740A0018740A0018740A001 /* AgentHibernationController+EvaluationScheduling.swift */,
 				F65760150000000000000002 /* AgentHibernationController+UnableToProtectMarker.swift */,
 				8997D0018997D0018997D001 /* AgentHibernationController+MemoryPressure.swift */,
+				A6AC73020000000000009004 /* AgentHibernationController+ManualSleep.swift */,
+				A6AC73020000000000009002 /* Workspace+AgentSleep.swift */,
 				8997D0028997D0028997D002 /* AgentHibernationMemoryPressureResponder.swift */,
 				D36A00010000000000000002 /* AgentHibernationController.swift */,
 				F65760160000000000000002 /* AgentHibernationPlanner.swift */,
@@ -8612,6 +8618,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F65760100000000000000001 /* AgentHibernationController+Confirmation.swift in Sources */,
 				8740B0018740B0018740B001 /* AgentHibernationController+EvaluationScheduling.swift in Sources */,
 				F65760110000000000000001 /* AgentHibernationController+InFlightTeardown.swift in Sources */,
+				A6AC73020000000000009003 /* AgentHibernationController+ManualSleep.swift in Sources */,
 				8997C0018997C0018997C001 /* AgentHibernationController+MemoryPressure.swift in Sources */,
 				8997C0068997C0068997C006 /* AgentHibernationController+PanelLifecycle.swift in Sources */,
 				F65760120000000000000001 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift in Sources */,
@@ -10150,6 +10157,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7632B13A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift in Sources */,
 				C0DE43000000000000000007 /* Workspace+AgentChat.swift in Sources */,
 				A6AC73020000000000000001 /* Workspace+AgentLifecycle.swift in Sources */,
+				A6AC73020000000000009001 /* Workspace+AgentSleep.swift in Sources */,
 				8777E0018777E0018777E001 /* Workspace+AttentionFlashRouting.swift in Sources */,
 				CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */,
 				C54860020000000000000001 /* Workspace+CmuxNavigationDescriptor.swift in Sources */,

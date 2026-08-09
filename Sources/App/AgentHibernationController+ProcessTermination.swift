@@ -350,7 +350,8 @@ extension AgentHibernationController {
                 )
                 terminalPanel?.beginAgentHibernationTermination(
                     agent: agent,
-                    lastActivityAt: lastActivityAt
+                    lastActivityAt: lastActivityAt,
+                    isManual: request.trigger.isManual
                 )
             }
         )

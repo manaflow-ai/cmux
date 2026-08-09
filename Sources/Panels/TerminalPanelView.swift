@@ -67,7 +67,18 @@ struct TerminalPanelView: View {
 
     @ViewBuilder
     private func hibernationBody(_ hibernationState: AgentHibernationPanelState) -> some View {
-        if isVisibleInUI {
+        if hibernationState.isManual {
+            // Explicit-wake: the user asked for this sleep, so becoming visible
+            // must not resume it. Waking goes through the same action as the
+            // context menu.
+            AgentHibernationPlaceholderView(
+                state: hibernationState,
+                appearance: appearance,
+                mode: AgentHibernationPlaceholderMode.sleeping,
+                onAction: onResumeAgentHibernation
+            )
+            .id("slept-\(panel.id.uuidString)")
+        } else if isVisibleInUI {
             Color(nsColor: appearance.contentBackgroundColor)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .id("hibernated-resuming-\(panel.id.uuidString)")
@@ -263,6 +274,11 @@ private struct AgentHibernationPlaceholderView: View {
                 localized: "terminal.agentHibernation.title",
                 defaultValue: "Agent hibernated"
             )
+        case .sleeping:
+            String(
+                localized: "terminal.agentSleep.title",
+                defaultValue: "Sleeping"
+            )
         case .recovering:
             String(
                 localized: "terminal.agentHibernation.finishing",
@@ -280,6 +296,8 @@ private struct AgentHibernationPlaceholderView: View {
         switch mode {
         case .hibernated:
             String(localized: "terminal.agentHibernation.resume", defaultValue: "Resume")
+        case .sleeping:
+            String(localized: "terminal.agentSleep.wake", defaultValue: "Wake")
         case .recovering:
             nil
         case .failed:
@@ -305,6 +323,9 @@ private struct AgentHibernationPlaceholderView: View {
                     .accessibilityIdentifier("AgentHibernationTerminationRecoveryProgress")
             case .hibernated:
                 CmuxSystemSymbolImage(magnified: "pause.circle", pointSize: 34, weight: .regular)
+                    .foregroundStyle(.secondary)
+            case .sleeping:
+                CmuxSystemSymbolImage(magnified: "moon.zzz", pointSize: 34, weight: .regular)
                     .foregroundStyle(.secondary)
             case .failed:
                 CmuxSystemSymbolImage(

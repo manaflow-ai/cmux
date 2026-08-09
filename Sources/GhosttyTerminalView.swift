@@ -5141,6 +5141,32 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
+    // MARK: - Sleep
+
+    /// Only offer Sleep on panels the hibernation path can actually reclaim, so
+    /// the item never appears on a plain shell that has no agent to resume.
+    private func canSleepThisAgentPanel() -> Bool {
+        guard let terminalSurface else { return false }
+        return AgentHibernationController.shared.canSleepPanel(
+            key: AgentHibernationPanelKey(
+                workspaceId: terminalSurface.tabId,
+                panelId: terminalSurface.id
+            )
+        )
+    }
+
+    @IBAction func sleepAgentPanel(_ sender: Any?) {
+        guard let terminalSurface else { return }
+        AgentHibernationController.shared.sleepPanels(
+            keys: [
+                AgentHibernationPanelKey(
+                    workspaceId: terminalSurface.tabId,
+                    panelId: terminalSurface.id
+                )
+            ]
+        )
+    }
+
     // MARK: - Clipboard paste
 
     @IBAction func paste(_ sender: Any?) {
@@ -7348,6 +7374,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             systemSymbolName: "rectangle.righthalf.inset.filled",
             accessibilityDescription: nil
         )
+        if canSleepThisAgentPanel() {
+            menu.addItem(.separator())
+            let sleepItem = menu.addItem(
+                withTitle: String(
+                    localized: "terminalContextMenu.sleepAgent",
+                    defaultValue: "Sleep"
+                ),
+                action: #selector(sleepAgentPanel(_:)),
+                keyEquivalent: ""
+            )
+            sleepItem.target = self
+            sleepItem.image = NSImage(
+                systemSymbolName: "moon.zzz",
+                accessibilityDescription: nil
+            )
+        }
         appendCurrentSurfaceContextMenuItems(to: menu)
         let resetTerminalItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.resetTerminal", defaultValue: "Reset Terminal"),

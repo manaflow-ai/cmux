@@ -21,6 +21,13 @@ extension TerminalPanel {
         agentHibernationPhase.state
     }
 
+    /// True while this panel is asleep because the user asked for it. Drives
+    /// explicit-wake rendering and keeps the panel out of the automatic
+    /// planner's live-terminal accounting.
+    var isManuallySlept: Bool {
+        agentHibernationPhase.state?.isManual ?? false
+    }
+
     @discardableResult
     func enterAgentHibernation(
         agent: SessionRestorableAgentSnapshot,
@@ -47,14 +54,16 @@ extension TerminalPanel {
     func beginAgentHibernationTermination(
         agent: SessionRestorableAgentSnapshot,
         lastActivityAt: Date,
-        committedAt: Date = .now
+        committedAt: Date = .now,
+        isManual: Bool = false
     ) -> Bool {
         guard case .live = agentHibernationPhase else { return false }
         onRequestAgentHibernationTerminationRetry = nil
         let state = AgentHibernationPanelState(
             agent: agent,
             hibernatedAt: committedAt,
-            lastActivityAt: lastActivityAt
+            lastActivityAt: lastActivityAt,
+            isManual: isManual
         )
         guard suspendRuntimeForAgentHibernation(
             reason: "agentHibernation.terminating"

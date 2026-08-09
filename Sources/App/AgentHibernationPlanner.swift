@@ -4,6 +4,15 @@ import Foundation
 enum AgentHibernationReclaimTrigger: Equatable, Sendable {
     case scheduled
     case systemMemoryPressure
+    /// User asked for these exact panels to sleep. Unlike the other triggers
+    /// this carries its own selection, so the planner does not choose victims:
+    /// it confirms the request is still safe to act on.
+    case manual(Set<AgentHibernationPanelKey>)
+
+    var isManual: Bool {
+        if case .manual = self { return true }
+        return false
+    }
 }
 
 enum AgentHibernationPlanner {
@@ -25,6 +34,19 @@ enum AgentHibernationPlanner {
                 liveRestorable.count,
                 TerminalSurfaceRuntimeTeardownCoordinator
                     .maximumIsolatedHibernationTeardownCount
+            )
+        case .manual(let requestedKeys):
+            // The user named these panels, so none of the routine gates apply:
+            // not the enabled flag, not `maxLiveTerminals`, not `idleSeconds`,
+            // and not `isProtected` (that means "currently visible", which is
+            // the common case when someone sleeps the pane in front of them).
+            // The transcript-protection marker is the one gate kept, because it
+            // signals cmux could not snapshot the agent transcript and tearing
+            // down anyway risks losing it.
+            return Set(
+                liveRestorable
+                    .filter { requestedKeys.contains($0.key) && !$0.isTemporarilyUnableToProtect }
+                    .map(\.key)
             )
         }
         guard excess > 0 else { return [] }

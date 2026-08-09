@@ -269,10 +269,10 @@ final class AgentHibernationController {
         now: TimeInterval,
         trigger: AgentHibernationReclaimTrigger
     ) -> ConfirmedTeardownRequest? {
-        guard record.lifecycle.allowsHibernation,
-              !record.hasUnconfirmedTerminalInput,
-              !record.isProtected,
-              (trigger == .systemMemoryPressure || !record.hasLiveProcess),
+        guard trigger.isManual || record.lifecycle.allowsHibernation,
+              trigger.isManual || !record.hasUnconfirmedTerminalInput,
+              trigger.isManual || !record.isProtected,
+              (trigger == .systemMemoryPressure || trigger.isManual || !record.hasLiveProcess),
               trigger != .systemMemoryPressure || record.hasPressureSafeProcessEvidence,
               record.terminalPanel.surface.hasLiveSurface,
               !record.terminalPanel.isAgentHibernated else {
@@ -281,6 +281,41 @@ final class AgentHibernationController {
             return nil
         }
         if teardownInFlightByPanel[record.key] != nil { confirmations.removeValue(forKey: record.key); return nil }
+
+        // Manual sleep skips the idle settle window. That window exists to
+        // catch an agent that only looks idle and is about to resume on its
+        // own; when the user asks for sleep, waiting ~60s before anything
+        // happens reads as a broken command. The transcript-protection marker
+        // below and the full teardown safety (process revalidation, transcript
+        // guard, safe commit) still apply.
+        if trigger.isManual {
+            guard let fingerprint = hibernationFingerprint(for: record) else { return nil }
+            if let marker = unableToProtectByPanel[record.key],
+               Self.unableToProtectMarkerStillApplies(
+                   marker,
+                   fingerprint: fingerprint,
+                   lastActivityAt: effectiveLastActivityAt,
+                   now: now
+               ) {
+                return nil
+            }
+            unableToProtectByPanel.removeValue(forKey: record.key)
+            confirmations.removeValue(forKey: record.key)
+            let requestID = UUID()
+            teardownInFlightByPanel[record.key] = InFlightTeardown(
+                requestID: requestID,
+                trigger: trigger
+            )
+            return ConfirmedTeardownRequest(
+                record: record,
+                confirmationFingerprint: fingerprint,
+                effectiveLastActivityAt: effectiveLastActivityAt,
+                requestID: requestID,
+                epoch: teardownValidationEpochByPanel[record.key] ?? 0,
+                generation: teardownValidationGeneration,
+                trigger: trigger
+            )
+        }
 
         if let confirmation = confirmations[record.key],
            confirmation.trigger == trigger {
