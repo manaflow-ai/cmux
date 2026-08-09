@@ -3475,7 +3475,7 @@ class GhosttyApp {
                 workingDirectory: surfaceView.currentDirectoryActionDispatcher.directorySnapshot()
             )
             return performOnMain {
-                TerminalLinkOpenCoordinator().open(request)
+                surfaceView.handleCommandClickOpenURLCallback(urlString: urlString, request: request)
             }
         default:
             return false
@@ -3881,6 +3881,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
     private var hasPendingLeftMouseRelease = false
+    private var pendingCommandClickContext: CommandClickContextState?
+    private var pendingLeftMouseDidDrag = false
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -5405,6 +5407,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func resignFirstResponder() -> Bool {
         let result = super.resignFirstResponder()
         if result {
+            resetCommandClickGestureState()
             imeConsumedKeyUps.removeAll()
             desiredFocus = false
             terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
@@ -6488,6 +6491,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseDown(with event: NSEvent) {
+        resetCommandClickGestureState()
         #if DEBUG
         let debugPoint = convert(event.locationInWindow, from: nil)
         cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
@@ -6518,21 +6522,240 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult
     func forwardPendingLeftMouseDrag(with event: NSEvent) -> Bool {
         guard hasPendingLeftMouseRelease, let surface else { return false }
+        pendingLeftMouseDidDrag = true
+        pendingCommandClickContext = nil
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
         ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, mouseModsFromEvent(event))
         return true
     }
 
+    private func resetCommandClickGestureState() {
+        pendingLeftMouseDidDrag = false
+        pendingCommandClickContext = nil
+    }
+
     @discardableResult
     func completePendingLeftMouseRelease(with event: NSEvent) -> Bool {
         guard hasPendingLeftMouseRelease else { return false }
         hasPendingLeftMouseRelease = false
-        guard let surface else { return false }
+        defer {
+            pendingCommandClickContext = nil
+            pendingLeftMouseDidDrag = false
+        }
+        guard surface != nil else { return false }
         let point = convert(event.locationInWindow, from: nil)
-        let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mouseModsFromEvent(event))
-        _ = handleCommandClickRelease(at: point, modifierFlags: event.modifierFlags, ghosttyConsumed: consumed)
+        _ = performCommandClickRelease(at: point, modifierFlags: event.modifierFlags)
         return true
+    }
+
+    /// Runs Ghostty's mouse-up release plus wrapped-path candidate
+    /// preparation as one unit, shared by the production release path and
+    /// the DEBUG command-click simulator so both exercise identical policy.
+    ///
+    /// `prepareCommandClickContext` (and the `ghostty_surface_read_text`
+    /// calls it makes) must run before `ghostty_surface_mouse_button`
+    /// RELEASE: Ghostty holds its renderer mutex across that call while it
+    /// walks `processLinks -> openUrl -> callback`, and re-entering
+    /// `ghostty_surface_read_text` during that window would deadlock.
+    @discardableResult
+    private func performCommandClickRelease(
+        at point: NSPoint,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> (consumed: Bool, resolution: WordPathResolution?) {
+        guard let surface else { return (false, nil) }
+        pendingCommandClickContext = prepareCommandClickContext(at: point, modifierFlags: modifierFlags)
+        let consumed = ghostty_surface_mouse_button(
+            surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mouseModsFromFlags(modifierFlags)
+        )
+        let finalState = pendingCommandClickContext
+        let resolution = handleCommandClickRelease(
+            at: point,
+            modifierFlags: modifierFlags,
+            ghosttyConsumed: consumed,
+            commandClickState: finalState
+        )
+        return (consumed, resolution)
+    }
+
+    private struct TerminalGridCell {
+        let row: Int
+        let column: Int
+    }
+
+    /// Maps a view-local point to a (row, column) grid cell, or `nil` when
+    /// the point falls outside the rendered grid.
+    private func gridCell(at point: NSPoint) -> TerminalGridCell? {
+        guard let surface else { return nil }
+        let size = ghostty_surface_size(surface)
+        let rows = max(Int(size.rows), 1)
+        let cols = max(Int(size.columns), 1)
+        let resolvedCellWidth = cellSize.width > 0 ? cellSize.width : CGFloat(size.cell_width_px)
+        let resolvedCellHeight = cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
+        guard resolvedCellWidth > 0, resolvedCellHeight > 0 else { return nil }
+
+        let xInset = max(0, (bounds.width - (CGFloat(cols) * resolvedCellWidth)) / 2)
+        let yInset = max(0, (bounds.height - (CGFloat(rows) * resolvedCellHeight)) / 2)
+
+        let yFromTop = bounds.height - point.y
+        guard yFromTop >= yInset, point.x >= xInset else { return nil }
+
+        let row = Int((yFromTop - yInset) / resolvedCellHeight)
+        let column = Int((point.x - xInset) / resolvedCellWidth)
+        guard row >= 0, row < rows, column >= 0, column < cols else { return nil }
+        return TerminalGridCell(row: row, column: column)
+    }
+
+    /// Reads exactly one physical row's text via a single-row selection.
+    ///
+    /// Ghostty's `selectionString` unwraps soft-wrapped lines by default,
+    /// so a selection spanning more than one row can silently join rows
+    /// together; bounding both pins to the same `y` keeps this to one
+    /// physical row regardless.
+    private func readSingleRow(_ row: Int) -> String? {
+        guard let surface, row >= 0 else { return nil }
+        let size = ghostty_surface_size(surface)
+        guard row < Int(size.rows) else { return nil }
+        let cols = max(Int(size.columns), 1)
+
+        let topLeft = ghostty_point_s(
+            tag: GHOSTTY_POINT_VIEWPORT,
+            coord: GHOSTTY_POINT_COORD_EXACT,
+            x: 0,
+            y: UInt32(row)
+        )
+        let bottomRight = ghostty_point_s(
+            tag: GHOSTTY_POINT_VIEWPORT,
+            coord: GHOSTTY_POINT_COORD_EXACT,
+            x: UInt32(cols - 1),
+            y: UInt32(row)
+        )
+        let selection = ghostty_selection_s(top_left: topLeft, bottom_right: bottomRight, rectangle: false)
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let ptr = text.text, text.text_len > 0 else { return "" }
+        return String(decoding: Data(bytes: ptr, count: Int(text.text_len)), as: UTF8.self)
+    }
+
+    /// Prepares a hard-wrapped-path command-click candidate, run just
+    /// before Ghostty's release call (see `performCommandClickRelease`).
+    ///
+    /// At most three row reads: the clicked row, the one adjacent row named
+    /// by the resolver's wrap direction, and a re-read of the clicked row
+    /// to catch it changing between the two (A-B-A). This reduces, but
+    /// doesn't eliminate, the TOCTOU window between this check and
+    /// Ghostty's release; the absolute-path requirement, single-candidate
+    /// result, and file-existence probe in
+    /// `TerminalPathResolver.resolveWrappedCandidate` bound the residual
+    /// risk.
+    private func prepareCommandClickContext(
+        at point: NSPoint,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> CommandClickContextState? {
+        guard !pendingLeftMouseDidDrag else { return nil }
+        guard modifierFlags.contains(.command) else { return nil }
+        guard !shouldSuppressCommandPathHover(for: modifierFlags) else { return nil }
+        guard let termSurface = terminalSurface,
+              let workspace = termSurface.owningWorkspace(),
+              workspace.canResolveTerminalPathsAgainstLocalFilesystem(
+                  surfaceID: termSurface.id
+              ) else { return nil }
+        guard let cwd = resolvedWordPathWorkingDirectory(workspace: workspace, terminalSurface: termSurface) else {
+            return nil
+        }
+        guard let cell = gridCell(at: point) else { return nil }
+
+        guard let clickedRow = readSingleRow(cell.row) else { return nil }
+
+        guard let seed = TerminalPathResolver().wrappedPathSeed(
+            in: clickedRow,
+            column: cell.column,
+            cwd: cwd
+        ) else {
+            return nil
+        }
+
+        let adjacentIndex = seed.direction == .next ? cell.row + 1 : cell.row - 1
+        guard let adjacentRow = readSingleRow(adjacentIndex) else { return nil }
+
+        guard readSingleRow(cell.row) == clickedRow else { return nil }
+
+        guard let candidate = TerminalPathResolver().resolveWrappedCandidate(
+            seed: seed,
+            adjacentRow: adjacentRow,
+            cwd: cwd
+        ) else {
+            return nil
+        }
+
+        return .prepared(candidate)
+    }
+
+    /// The only place a wrapped-path candidate gets opened, so a click on
+    /// either the leading or trailing wrapped row ends up opening exactly
+    /// once under the same policy as the existing word-under-cursor
+    /// fallback: prefer routing inside cmux, then the user's preferred
+    /// editor.
+    private func openWrappedCandidate(_ candidate: TerminalWrappedPathResolution) {
+        #if DEBUG
+        cmuxDebugLog("link.wrappedPath resolved=\(candidate.path)")
+        #endif
+        if let termSurface = terminalSurface,
+           let workspace = termSurface.owningWorkspace(),
+           workspace.canResolveTerminalPathsAgainstLocalFilesystem(
+               surfaceID: termSurface.id
+           ),
+           CommandClickFileOpenRouter.openInCmux(
+               workspace: workspace,
+               sourcePanelId: termSurface.id,
+               filePath: candidate.path
+           ) {
+            return
+        }
+        PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: candidate.path))
+    }
+
+    /// Handles Ghostty's `GHOSTTY_ACTION_OPEN_URL` callback for this
+    /// surface, deciding whether it belongs to Ghostty's own native link
+    /// handling or to a wrapped-path candidate prepared for this gesture.
+    ///
+    /// Any explicit scheme (including `file:`) always passes through to
+    /// `TerminalLinkOpenCoordinator` first: a wrapped-path candidate is
+    /// always a bare absolute path, so it never competes with a
+    /// scheme-qualified link. Otherwise, an exact match against a prepared
+    /// candidate's `nativeMatchKey` claims the callback (returning `true`
+    /// to suppress Ghostty's own `internal_os.open`) and defers the actual
+    /// open to the shared release-time helper; everything else passes
+    /// through.
+    @MainActor
+    func handleCommandClickOpenURLCallback(
+        urlString: String,
+        request: TerminalLinkOpenRequest
+    ) -> Bool {
+        let result = TerminalCommandClickArbitrator.openURLCallbackResult(
+            currentState: pendingCommandClickContext,
+            hasExplicitScheme: Self.hasExplicitScheme(urlString),
+            matchKey: Self.normalizedCommandClickMatchKey(for: urlString)
+        )
+        pendingCommandClickContext = result.nextState
+        if result.shouldClaim {
+            return true
+        }
+        return TerminalLinkOpenCoordinator().open(request)
+    }
+
+    private static func hasExplicitScheme(_ rawValue: String) -> Bool {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return URL(string: trimmed)?.scheme != nil
+    }
+
+    /// Normalizes a native `open_url` callback's raw URL string the same
+    /// way `TerminalWrappedPathResolution.nativeMatchKey` is derived, so
+    /// the two can be compared exactly.
+    private static func normalizedCommandClickMatchKey(for rawValue: String) -> String {
+        rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Attempt to open the word under the mouse cursor as a file path, resolved
@@ -6883,8 +7106,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func handleCommandClickRelease(
         at point: NSPoint,
         modifierFlags: NSEvent.ModifierFlags,
-        ghosttyConsumed: Bool
+        ghosttyConsumed: Bool,
+        commandClickState: CommandClickContextState? = nil
     ) -> WordPathResolution? {
+        switch commandClickState {
+        case .nativePassthrough:
+            return nil
+        case .overridePending(let candidate):
+            openWrappedCandidate(candidate)
+            return nil
+        case .prepared(let candidate):
+            if !ghosttyConsumed {
+                openWrappedCandidate(candidate)
+            }
+            return nil
+        case nil:
+            break
+        }
+
         guard let surface else { return nil }
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: modifierFlags)
         let cmdHeld = modifierFlags.contains(.command)
@@ -7124,12 +7363,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         window?.makeFirstResponder(self)
         ghostty_surface_mouse_pos(surface, clampedPoint.x, bounds.height - clampedPoint.y, mods)
         let pressHandled = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
-        let releaseConsumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
-        let resolution = handleCommandClickRelease(
-            at: clampedPoint,
-            modifierFlags: flags,
-            ghosttyConsumed: releaseConsumed
-        )
+        let (releaseConsumed, resolution) = performCommandClickRelease(at: clampedPoint, modifierFlags: flags)
+        pendingCommandClickContext = nil
+        pendingLeftMouseDidDrag = false
 
         var payload: [String: Any] = [
             "pressHandled": pressHandled ? "1" : "0",
@@ -7141,6 +7377,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             payload["rawToken"] = resolution.rawToken
         }
         return payload
+    }
+
+    /// Reads one physical grid row's raw text, for UI tests that need to
+    /// locate a hard-wrapped row without relying on the unwrapped-snapshot
+    /// text used elsewhere in this file (which joins soft-wrapped rows back
+    /// into one logical line).
+    func debugReadPhysicalRow(_ row: Int) -> String? {
+        readSingleRow(row)
     }
 
     func debugSimulateStationaryCommandClick(at point: NSPoint) -> [String: Any] {
@@ -7586,6 +7830,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }
+        resetCommandClickGestureState()
         terminalSurface = nil
     }
 
@@ -8394,6 +8639,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     func debugSimulateStationaryCommandClick(at point: NSPoint) -> [String: Any] {
         surfaceView.debugSimulateStationaryCommandClick(at: debugPointInSurface(point))
+    }
+
+    func debugReadPhysicalRow(_ row: Int) -> String? {
+        surfaceView.debugReadPhysicalRow(row)
     }
 #endif
 

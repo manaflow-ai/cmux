@@ -236,6 +236,114 @@ extension String {
     }
 }
 
+extension String {
+    /// The token touching `column` on a hard-wrapped row, plus the
+    /// direction of the row that would complete it.
+    ///
+    /// A token starting with `/` needs its continuation from the row
+    /// below and must touch the row's trailing boundary (nothing but
+    /// whitespace after it — the logical line end, not necessarily the
+    /// physical grid width). Any other token needs its continuation from
+    /// the row above and must touch the row's leading boundary: nothing
+    /// but `maxIndentation` or fewer ASCII spaces before it.
+    ///
+    /// Returns `nil` for non-ASCII rows (fail-closed: `column` is a
+    /// terminal-cell index, which only lines up with `String` character
+    /// indices when every character occupies exactly one cell), when the
+    /// clicked cell is itself a delimiter, or when the required boundary
+    /// isn't touched.
+    func wrapContinuationToken(
+        atColumn column: Int,
+        maxIndentation: Int
+    ) -> (token: String, direction: TerminalWrapDirection)? {
+        guard unicodeScalars.allSatisfy(\.isASCII) else { return nil }
+        let characters = Array(self)
+        guard !characters.isEmpty, column >= 0, column < characters.count else { return nil }
+        guard !characters.isHardPathDelimiter(at: column) else { return nil }
+
+        var start = column
+        while start > 0, !characters.isHardPathDelimiter(at: start - 1) {
+            start -= 1
+        }
+        var end = column
+        while (end + 1) < characters.count, !characters.isHardPathDelimiter(at: end + 1) {
+            end += 1
+        }
+
+        let token = String(characters[start...end])
+        guard !token.isEmpty else { return nil }
+
+        if token.hasPrefix("/") {
+            guard characters[(end + 1)...].allSatisfy(\.isWhitespace) else { return nil }
+            return (token, .next)
+        }
+
+        let leadingRun = characters[..<start]
+        guard leadingRun.count <= maxIndentation, leadingRun.allSatisfy({ $0 == " " }) else {
+            return nil
+        }
+        return (token, .previous)
+    }
+
+    /// The first token on a continuation row, provided it starts within
+    /// `maxIndentation` ASCII spaces of the row's start.
+    ///
+    /// - Returns: The leading token, or `nil` for non-ASCII rows or rows
+    ///   with no token within the indentation bound.
+    func leadingContinuationFragment(maxIndentation: Int) -> String? {
+        guard unicodeScalars.allSatisfy(\.isASCII) else { return nil }
+        let characters = Array(self)
+
+        var index = 0
+        while index < characters.count, characters[index] == " " {
+            index += 1
+        }
+        guard index <= maxIndentation,
+              index < characters.count,
+              !characters.isHardPathDelimiter(at: index) else {
+            return nil
+        }
+
+        var end = index
+        while (end + 1) < characters.count, !characters.isHardPathDelimiter(at: end + 1) {
+            end += 1
+        }
+        let fragment = String(characters[index...end])
+        return fragment.isEmpty ? nil : fragment
+    }
+
+    /// The last token on a continuation row, ignoring trailing grid
+    /// padding (physical rows are read unpadded-but-untrimmed, so the tail
+    /// of a shorter line is trailing ASCII spaces, not the wrapped text).
+    ///
+    /// - Returns: The trailing token, or `nil` for non-ASCII rows or rows
+    ///   with no trailing token.
+    func trailingContinuationFragment() -> String? {
+        guard unicodeScalars.allSatisfy(\.isASCII) else { return nil }
+        let characters = Array(self)
+        guard !characters.isEmpty else { return nil }
+
+        var end = characters.count - 1
+        while end >= 0, characters[end] == " " {
+            end -= 1
+        }
+        guard end >= 0, !characters.isHardPathDelimiter(at: end) else { return nil }
+
+        var start = end
+        while start > 0, !characters.isHardPathDelimiter(at: start - 1) {
+            start -= 1
+        }
+        let fragment = String(characters[start...end])
+        return fragment.isEmpty ? nil : fragment
+    }
+
+    /// The exact-match key used to correlate a wrapped-path candidate
+    /// against a native Ghostty `open_url` callback for the same click.
+    func normalizedTerminalWrapMatchKey() -> String {
+        trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 extension ArraySlice<Character> {
     /// Whether an opening `opener` earlier in the slice is still unmatched by
     /// a `closer`, meaning a trailing `closer` belongs to the path.
