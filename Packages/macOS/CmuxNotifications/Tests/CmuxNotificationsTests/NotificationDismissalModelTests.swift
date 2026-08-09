@@ -26,6 +26,7 @@ private final class FakeHost: NotificationDismissalHosting {
     var workspacesWithPendingNotifications: Set<UUID> = []
     var hasDismissibleState = true
     var hasDismissiblePanelState = false
+    var selectionLookupCount = 0
     var detailedLookupCount = 0
 
     var log: [String] = []
@@ -39,7 +40,8 @@ private final class FakeHost: NotificationDismissalHosting {
     }
 
     func isNotificationTargetSelected(workspaceId: UUID, surfaceId: UUID?) -> Bool {
-        selectedWorkspaceId == workspaceId
+        selectionLookupCount += 1
+        return selectedWorkspaceId == workspaceId
     }
 
     func focusedSurfaceId(in workspaceId: UUID) -> UUID? {
@@ -316,6 +318,7 @@ struct NotificationDismissalModelTests {
         host.hasDismissibleState = false
 
         #expect(!model.dismissNotificationOnTerminalInteraction(workspaceId: workspaceId, surfaceId: panelId))
+        #expect(host.selectionLookupCount == 0)
         #expect(host.detailedLookupCount == 0)
         #expect(host.log.isEmpty)
     }
