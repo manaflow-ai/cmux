@@ -478,6 +478,65 @@ struct ClaudeTaskSnapshotLoaderTests {
         #expect(resolver.resolveTeamsRoot() == logicalTeamsRoot.canonicalClaudeTaskStoreDirectoryURL)
     }
 
+    @Test("Task snapshots reject an oversized subject")
+    func rejectsOversizedSubject() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("claude-task-subject-overflow-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sessionDirectory = root.appendingPathComponent("subject-overflow", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        let subject = String(repeating: "x", count: 8 * 1024 + 1)
+        try writeTask(
+            #"{"id":"1","subject":"\#(subject)","status":"pending"}"#,
+            named: "1.json",
+            in: sessionDirectory
+        )
+
+        #expect(throws: (any Error).self) {
+            try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(sessionID: "subject-overflow")
+        }
+    }
+
+    @Test("Task snapshots reject an oversized active form")
+    func rejectsOversizedActiveForm() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("claude-task-active-form-overflow-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sessionDirectory = root.appendingPathComponent("active-form-overflow", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        let activeForm = String(repeating: "x", count: 8 * 1024 + 1)
+        try writeTask(
+            #"{"id":"1","subject":"Task","activeForm":"\#(activeForm)","status":"in_progress"}"#,
+            named: "1.json",
+            in: sessionDirectory
+        )
+
+        #expect(throws: (any Error).self) {
+            try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(sessionID: "active-form-overflow")
+        }
+    }
+
+    @Test("Task snapshots reject aggregate text beyond the snapshot byte boundary")
+    func rejectsAggregateTaskTextOverflow() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("claude-task-text-overflow-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sessionDirectory = root.appendingPathComponent("text-overflow", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        let subject = String(repeating: "x", count: 8 * 1024)
+        for taskID in 1...65 {
+            try writeTask(
+                #"{"id":"\#(taskID)","subject":"\#(subject)","status":"pending"}"#,
+                named: "\(taskID).json",
+                in: sessionDirectory
+            )
+        }
+
+        #expect(throws: (any Error).self) {
+            try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(sessionID: "text-overflow")
+        }
+    }
+
     @Test("Task snapshots accept the entry and file-size boundaries")
     func acceptsResourceBoundaries() throws {
         let root = FileManager.default.temporaryDirectory

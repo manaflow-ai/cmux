@@ -591,17 +591,19 @@ struct ClaudeAutomaticTeamTaskSyncHookTests {
         #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
         #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
         let rawReconcileRequests = context.state.snapshot().compactMap { line -> [String: Any]? in
-            guard let request = jsonObject(line),
+            guard let request = ClaudeHookLiveDeliveryHarness.jsonObject(line),
                   request["method"] as? String == "workspace.todo.reconcile" else {
                 return nil
             }
             return request["params"] as? [String: Any]
         }
         #expect(rawReconcileRequests.count == 1)
-        #expect(Set(rawReconcileRequests.first?["workspace_ids"] as? [String] ?? []) == [
+        let rawReconcileRequest = try #require(rawReconcileRequests.first)
+        let rawWorkspaceIDs = try #require(rawReconcileRequest["workspace_ids"] as? [String])
+        #expect(Set(rawWorkspaceIDs) == Set([
             closedWorkspaceId,
             currentWorkspaceId,
-        ])
+        ]))
         let destinations = reconcileRequests(in: context).compactMap {
             $0["workspace_id"] as? String
         }

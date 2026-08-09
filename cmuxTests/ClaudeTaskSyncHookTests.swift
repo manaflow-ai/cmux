@@ -104,6 +104,77 @@ struct ClaudeTaskSyncHookTests {
         ))
     }
 
+    @Test("A personal task list clears its prior workspace after its pane moves")
+    func movesPersonalTaskOwnerToTheCurrentWorkspace() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync-personal-move")
+        defer { context.cleanup() }
+        let previousWorkspaceId = "31313131-3131-3131-3131-313131313131"
+        let currentWorkspaceId = "32323232-3232-3232-3232-323232323232"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+        let sessionId = "moved-personal-session"
+        let tasksRoot = context.root.appendingPathComponent(".claude/tasks", isDirectory: true)
+        let taskDirectory = tasksRoot.appendingPathComponent(sessionId, isDirectory: true)
+        try FileManager.default.createDirectory(at: taskDirectory, withIntermediateDirectories: true)
+        try writeTask(
+            #"{"id":"1","subject":"Moved task","status":"pending"}"#,
+            named: "1.json",
+            in: taskDirectory
+        )
+        let taskStoreIdentity = ClaudeTaskStoreIdentity(tasksRootURL: tasksRoot)
+        try ClaudeHookLiveDeliveryHarness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: previousWorkspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path,
+            claudeTaskDirectoryName: sessionId,
+            claudeTaskStoreID: taskStoreIdentity.rawValue,
+            markActive: true
+        )
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: currentWorkspaceId,
+            surfaceId: surfaceId
+        )
+        var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = currentWorkspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let result = runHook(
+            context: context,
+            environment: environment,
+            sessionId: sessionId,
+            toolName: "TaskUpdate"
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        let reconciliations = reconcileRequests(in: context)
+        #expect(reconciliations.count == 2)
+        let previousReconciliation = try #require(reconciliations.first)
+        let currentReconciliation = try #require(reconciliations.dropFirst().first)
+        let ownerID = taskOwnerID(directoryName: sessionId, tasksRootURL: tasksRoot)
+        #expect(previousReconciliation["workspace_id"] as? String == previousWorkspaceId)
+        #expect(previousReconciliation["owner_id"] as? String == ownerID)
+        #expect((previousReconciliation["items"] as? [[String: Any]])?.isEmpty == true)
+        #expect(currentReconciliation["workspace_id"] as? String == currentWorkspaceId)
+        #expect(currentReconciliation["owner_id"] as? String == ownerID)
+        #expect(
+            (currentReconciliation["items"] as? [[String: Any]])?.compactMap {
+                $0["text"] as? String
+            } == ["Moved task"]
+        )
+        let persistedRecord = try #require(
+            try ClaudeHookLiveDeliveryHarness.sessionRecord(
+                in: context.storeURL,
+                sessionId: sessionId
+            )
+        )
+        #expect(persistedRecord["workspaceId"] as? String == currentWorkspaceId)
+        #expect(persistedRecord["surfaceId"] as? String == surfaceId)
+    }
+
     @Test("Namespaced delivery removes a legacy owner exactly once")
     func migratesLegacyChecklistOwnerBeforeDelivery() throws {
         let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync-owner-migration")

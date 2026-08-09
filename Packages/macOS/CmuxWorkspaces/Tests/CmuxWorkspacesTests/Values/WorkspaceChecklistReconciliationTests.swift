@@ -102,6 +102,27 @@ import Testing
         #expect(checklist == original)
     }
 
+    @Test func reconcileRejectsDuplicateUnrelatedExistingIDsAtomically() {
+        let duplicateID = UUID()
+        let original = [
+            WorkspaceChecklistItem(id: duplicateID, text: "User task"),
+            WorkspaceChecklistItem(
+                id: duplicateID,
+                text: "Other owner's task",
+                origin: .agent,
+                ownerID: "claude:session-b"
+            ),
+        ]
+        var checklist = original
+
+        let result = checklist.reconcileChecklist(ownerID: "claude:session-a", with: [
+            WorkspaceChecklistReplacementItem(text: "New agent task", origin: .agent),
+        ])
+
+        #expect(result == .failure(.duplicateId(index: 1)))
+        #expect(checklist == original)
+    }
+
     @Test func emptySnapshotRemovesOnlyMatchingOwner() throws {
         let userItem = WorkspaceChecklistItem(text: "User note")
         let owned = WorkspaceChecklistItem(

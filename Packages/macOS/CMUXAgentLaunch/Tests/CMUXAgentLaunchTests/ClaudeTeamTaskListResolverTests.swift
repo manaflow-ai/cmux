@@ -64,6 +64,19 @@ struct ClaudeTeamTaskListResolverTests {
         #expect(resolution.binding.taskListID == "Leader_Team")
     }
 
+    @Test("A binding without a leader session fails closed for session-only matches")
+    func rejectsMissingSessionIdentity() throws {
+        let binding = try #require(ClaudeTeamTaskListBinding(
+            taskListID: "Agent_Only_Team",
+            leaderSessionID: nil,
+            agentIDs: ["agent-teammate"]
+        ))
+
+        #expect(!binding.matches(sessionID: "", agentID: nil))
+        #expect(!binding.matches(sessionID: "unproven-session", agentID: nil))
+        #expect(binding.matches(sessionID: "", agentID: "agent-teammate"))
+    }
+
     @Test("Duplicate exact identities fail closed")
     func rejectsAmbiguousAgentMembership() throws {
         let root = temporaryTeamsRoot(named: "ambiguous")
