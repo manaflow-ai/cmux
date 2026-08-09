@@ -74,6 +74,8 @@ import UIKit
     if #available(iOS 26.0, *) {
         #expect(scrollView.leftEdgeEffect.isHidden)
         #expect(scrollView.rightEdgeEffect.isHidden)
+        #expect(scrollView.topEdgeEffect.isHidden)
+        #expect(scrollView.bottomEdgeEffect.isHidden)
     }
 }
 
