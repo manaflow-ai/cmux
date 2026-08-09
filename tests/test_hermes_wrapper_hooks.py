@@ -187,6 +187,9 @@ def run_wrapper(
                 "\n"
                 "def register_from_config(_config, *, accept_hooks=False):\n"
                 "    global _registered\n"
+                "    target = os.environ.get('CMUX_HERMES_TUI_TARGET_MODULE')\n"
+                "    if target not in {'tui_gateway.entry', 'tui_gateway.compute_host'}:\n"
+                "        raise RuntimeError(f'missing gateway target marker: {target!r}')\n"
                 "    _registered = True\n"
                 "\n"
                 "def emit_turn(runtime, turn):\n"
@@ -299,6 +302,19 @@ if [[ -n "${FAKE_INSTALLER_GATE:-}" ]]; then
   IFS= read -r _ < "$FAKE_INSTALLER_GATE"
 fi
 exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
+""",
+            )
+        else:
+            # A configured-but-missing bundled CLI must fail closed. Put a
+            # tempting fallback on PATH so the test does not depend on the
+            # developer or CI machine having another cmux installation.
+            make_executable(
+                real_dir / "cmux",
+                """#!/usr/bin/env bash
+set -euo pipefail
+printf '\\036' >> "$FAKE_CMUX_CALLS_LOG"
+printf '%s\\0' "$@" >> "$FAKE_CMUX_CALLS_LOG"
+exit 0
 """,
             )
 
@@ -771,6 +787,12 @@ def test_installer_failures_never_block_hermes(failures: list[str]) -> None:
         result = run_wrapper(["--continue"], **kwargs)
         expect(result.returncode == 0, f"{label}: wrapper exited {result.returncode}: {result.stderr}", failures)
         expect(result.real_argv == ["--continue"], f"{label}: argv changed: {result.real_argv}", failures)
+        if label == "installer-missing":
+            expect(
+                result.cmux_calls == [],
+                f"{label}: wrapper fell back to another cmux executable: {result.cmux_calls}",
+                failures,
+            )
 
 
 def test_stalled_installer_is_bounded(failures: list[str]) -> None:
