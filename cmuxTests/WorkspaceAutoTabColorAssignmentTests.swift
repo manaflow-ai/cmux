@@ -732,12 +732,50 @@ import Testing
         #expect(red.distance(to: blue) == blue.distance(to: red))
     }
 
+    /// One allocator reused across a run must hand out exactly what repeated
+    /// single-shot calls would, since reconciling now allocates in a batch to
+    /// avoid recounting the whole history for every workspace.
+    @Test
+    func batchedAllocationMatchesRepeatedSingleShotCalls() {
+        let manual = ["#FF00FF"]
+        var allocator = WorkspaceAutoTabColorAllocator(
+            palette: Self.palette,
+            usedHexes: manual
+        )
+        var batched: [String] = []
+        for _ in 0..<7 {
+            guard let hex = allocator.next() else { break }
+            batched.append(hex)
+        }
+
+        var used = manual
+        var oneAtATime: [String] = []
+        for _ in 0..<7 {
+            guard let hex = WorkspaceAutoTabColorAssignment.nextColorHex(
+                palette: Self.palette,
+                usedHexes: used
+            ) else { break }
+            oneAtATime.append(hex)
+            used.append(hex)
+        }
+
+        #expect(batched.count == 7)
+        #expect(batched == oneAtATime)
+        // Sanity: the run exhausts the 3-color palette twice over and recycles
+        // evenly rather than repeating one color.
+        #expect(Set(batched.prefix(3)).count == 3)
+    }
+
+    /// The parser accepts exactly what `WorkspaceTabColorSettings.normalizedHex`
+    /// produces, so a color that cannot be rendered cannot influence allocation.
     @Test
     func labColorRejectsMalformedHexes() {
         #expect(LabColor(hex: "") == nil)
         #expect(LabColor(hex: "#12345") == nil)
         #expect(LabColor(hex: "#GGGGGG") == nil)
-        #expect(LabColor(hex: "#ABC") != nil)
+        #expect(LabColor(hex: "#ABC") == nil)
+        #expect(LabColor(hex: "#AABBCC") != nil)
+        #expect(LabColor(hex: "AABBCC") != nil)
     }
 
     // MARK: - Rendering boundary

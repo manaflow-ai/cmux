@@ -120,16 +120,17 @@ struct WorkspaceAutoColorAssignmentStore {
             used.append(current)
         }
 
+        // One allocator for the whole pass. Rebuilding it per workspace would
+        // recount every used color and re-convert it to Lab, which is quadratic
+        // in the number of workspaces being assigned.
+        var allocator = WorkspaceAutoTabColorAllocator(
+            palette: palette,
+            usedHexes: used,
+            reservedHexes: reserved
+        )
         for key in pending {
-            guard let hex = WorkspaceAutoTabColorAssignment.nextColorHex(
-                palette: palette,
-                usedHexes: used,
-                reservedHexes: reserved
-            ) else {
-                continue
-            }
+            guard let hex = allocator.next() else { continue }
             stored[key] = hex
-            used.append(hex)
         }
 
         if stored != before {

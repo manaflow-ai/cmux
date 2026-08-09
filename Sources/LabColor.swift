@@ -34,12 +34,15 @@ struct LabColor: Equatable {
 
     // MARK: - Conversion
 
+    /// Parses the canonical `#RRGGBB` form produced by
+    /// `WorkspaceTabColorSettings.normalizedHex(_:)`.
+    ///
+    /// Shorthand `#RGB` is rejected on purpose: that helper rejects it too, so
+    /// a three-digit color can never reach the sidebar. Accepting it here would
+    /// let a color that cannot be rendered still pull allocation around.
     private static func sRGB(hex: String) -> (Double, Double, Double)? {
         var text = hex.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.hasPrefix("#") { text.removeFirst() }
-        if text.count == 3 {
-            text = text.map { "\($0)\($0)" }.joined()
-        }
         guard text.count == 6, let value = UInt32(text, radix: 16) else { return nil }
         return (
             Double((value >> 16) & 0xFF) / 255,

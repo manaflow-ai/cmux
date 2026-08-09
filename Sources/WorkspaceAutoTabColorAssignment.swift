@@ -29,6 +29,11 @@ import Foundation
 enum WorkspaceAutoTabColorAssignment {
     /// Picks the color for one newly assigned workspace.
     ///
+    /// A convenience over `WorkspaceAutoTabColorAllocator` for callers
+    /// assigning exactly one workspace. Assigning several in a row should build
+    /// one allocator and call `next()` repeatedly instead, so the palette
+    /// bookkeeping is not rebuilt per workspace.
+    ///
     /// - Parameters:
     ///   - palette: Ordered palette entries, normally
     ///     `WorkspaceTabColorSettings.palette()`.
@@ -48,61 +53,12 @@ enum WorkspaceAutoTabColorAssignment {
         usedHexes: [String],
         reservedHexes: [String] = []
     ) -> String? {
-        guard !palette.isEmpty else { return nil }
-
-        let paletteKeys = Set(palette.map { normalized($0.hex) })
-        var counts: [String: Int] = [:]
-        for hex in usedHexes {
-            let key = normalized(hex)
-            // A manual color outside the palette cannot use up a palette slot.
-            guard paletteKeys.contains(key) else { continue }
-            counts[key, default: 0] += 1
-        }
-
-        let minimumCount = palette.map { counts[normalized($0.hex)] ?? 0 }.min() ?? 0
-        let tied = palette.filter { (counts[normalized($0.hex)] ?? 0) == minimumCount }
-
-        // Spend a reservation only when nothing else is equally cheap. Counts
-        // still lead, so recycling stays balanced once the palette is
-        // exhausted and a reservation is not hoarded past that point.
-        let reservedKeys = Set(reservedHexes.map { normalized($0) })
-        let unreserved = tied.filter { !reservedKeys.contains(normalized($0.hex)) }
-        let candidates = unreserved.isEmpty ? tied : unreserved
-
-        // Among the least-used colors, take the one furthest from the colors
-        // already on screen. Straight palette order would hand out Red then
-        // Crimson to the first two workspaces (ΔE 7.7, indistinguishable on a
-        // 3pt rail); picking the furthest color gives ΔE 138.7 instead.
-        //
-        // Manual colors repel too, even when they are not palette entries, so
-        // an auto color does not land next to a color the user chose.
-        //
-        // Deduplicated first: distance folds with `min`, so a color that
-        // appears twice says nothing new. `reconcile` calls this once per
-        // pending workspace and appends each result to `usedHexes`, so without
-        // this the sRGB → Lab conversions grow quadratically with the number of
-        // workspaces being assigned. Deduplicated, the work per call is bounded
-        // by the palette plus the distinct manual colors.
-        var seenInUse: Set<String> = []
-        let inUse = usedHexes.compactMap { hex -> LabColor? in
-            guard seenInUse.insert(normalized(hex)).inserted else { return nil }
-            return LabColor(hex: hex)
-        }
-        guard !inUse.isEmpty else { return candidates.first?.hex }
-
-        var best: WorkspaceTabColorEntry?
-        var bestDistance = -1.0
-        for entry in candidates {
-            guard let lab = LabColor(hex: entry.hex) else { continue }
-            let distance = inUse.map { lab.distance(to: $0) }.min() ?? 0
-            // Strict `>` keeps palette order as the tie-break, so allocation
-            // stays deterministic.
-            if distance > bestDistance {
-                best = entry
-                bestDistance = distance
-            }
-        }
-        return (best ?? candidates.first)?.hex
+        var allocator = WorkspaceAutoTabColorAllocator(
+            palette: palette,
+            usedHexes: usedHexes,
+            reservedHexes: reservedHexes
+        )
+        return allocator.next()
     }
 
     /// Resolves the rail color for one workspace, applying the full enablement rule.
