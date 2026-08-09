@@ -322,6 +322,33 @@ import Testing
         #expect(first == second)
     }
 
+    /// Once colors repeat, deleting the only workspace using one color must
+    /// not reshuffle the surviving workspaces just to fill that newly empty
+    /// palette slot. Stability takes precedence; a future workspace can reuse
+    /// the released color.
+    @Test
+    func deletingAUniqueColorAfterExhaustionDoesNotRecolorSurvivors() throws {
+        let defaults = Self.suite()
+        let ids = (0..<(Self.palette.count + 2)).map { _ in UUID() }
+        let before = Self.assign(count: ids.count, defaults: defaults, ids: ids)
+        let counts = Dictionary(grouping: before.values, by: { $0 }).mapValues(\.count)
+        let uniqueColor = try #require(counts.first(where: { $0.value == 1 })?.key)
+        let deleted = try #require(ids.first(where: { before[$0] == uniqueColor }))
+        let survivors = ids.filter { $0 != deleted }
+
+        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+            needingAssignment: survivors,
+            liveIds: Set(survivors),
+            manualColorHexes: [],
+            palette: Self.palette,
+            defaults: defaults
+        )
+
+        for id in survivors {
+            #expect(after[id.uuidString] == before[id])
+        }
+    }
+
     /// An unavoidable duplicate still counts as a use of that color. Otherwise
     /// the next new workspace can reuse it again and skew a balanced 2/1/1
     /// distribution to 3/1/1.
