@@ -548,7 +548,11 @@ struct DockRuntimeParityTests {
                 surfaceId: panel.id
             ))
 
-            _ = destinationDock.closePanel(panel.id, force: true)
+            #expect(destinationDock.closePanel(panel.id, force: true))
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: destinationWindowID,
+                surfaceId: panel.id
+            ))
         }
     }
 

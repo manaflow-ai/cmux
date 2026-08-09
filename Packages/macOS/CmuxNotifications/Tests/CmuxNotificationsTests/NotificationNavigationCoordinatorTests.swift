@@ -206,15 +206,37 @@ struct NotificationNavigationCoordinatorTests {
     @Test("failed window Dock unread open falls through without clearing it")
     func failedWindowDockUnreadFallsThrough() {
         let store = FakeStore()
+        let windows = FakeWindows()
+        let unread = FakeUnreadTargeting()
         let openRouting = FakeOpenRouting()
         let target = WindowDockUnreadTarget(windowId: UUID(), surfaceId: UUID())
+        let workspaceID = UUID()
+        let workspacePanelID = UUID()
+        let workspaceWindowID = UUID()
         store.windowDockUnreadTargets = [target]
+        store.workspaceUnreadIndicatorIds = [workspaceID]
+        windows.orderedTargetsForUnreadJump = [
+            MainWindowTarget(
+                windowId: workspaceWindowID,
+                workspaceIds: [workspaceID]
+            ),
+        ]
+        unread.preferredPanelByWorkspace[workspaceID] = workspacePanelID
         openRouting.windowDockSucceeds = false
-        let coordinator = makeCoordinator(store: store, openRouting: openRouting)
+        let coordinator = makeCoordinator(
+            store: store,
+            windows: windows,
+            unreadTargeting: unread,
+            openRouting: openRouting
+        )
 
         _ = coordinator.jumpToLatestUnread()
 
         #expect(store.clearedWindowDockTargets.isEmpty)
+        #expect(openRouting.log == [
+            "windowDock(window=\(short(target.windowId)),surf=\(short(target.surfaceId)))",
+            "window(\(short(workspaceWindowID)),tab=\(short(workspaceID)),surf=\(short(workspacePanelID)),notif=nil,row=nil,total=nil)",
+        ])
     }
 
     // MARK: - Workspace-unread fallback + flash/clear
