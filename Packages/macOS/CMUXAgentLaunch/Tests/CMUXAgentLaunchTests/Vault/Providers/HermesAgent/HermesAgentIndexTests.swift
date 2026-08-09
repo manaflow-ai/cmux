@@ -243,6 +243,78 @@ struct HermesAgentIndexTests {
         #expect(inspectionCount == 1)
     }
 
+    @Test("Re-arms a durable Hermes checkpoint after its hook row moves to another pane")
+    func rearmDurableCheckpointAfterHookRecordReuse() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let originalWorkspaceID = UUID()
+        let originalSurfaceID = UUID()
+        let replacementWorkspaceID = UUID()
+        let replacementSurfaceID = UUID()
+        let durableID = "20260807_192611_076701"
+        let transientID = originalSurfaceID.uuidString
+        let hookStoreURL = root.appendingPathComponent("hermes-agent-hook-sessions.json")
+
+        let hookStore = try JSONSerialization.data(
+            withJSONObject: [
+                "version": 1,
+                "sessions": [
+                    durableID: [
+                        "sessionId": durableID,
+                        "workspaceId": replacementWorkspaceID.uuidString,
+                        "surfaceId": replacementSurfaceID.uuidString,
+                        "cwd": root.path,
+                        "pid": 67_890,
+                        "pidStartSeconds": 300,
+                        "pidStartMicroseconds": 400,
+                        "runtimeStatus": "idle",
+                        "agentLifecycle": "idle",
+                        "startedAt": 200.0,
+                        "updatedAt": 201.0,
+                    ],
+                    transientID: [
+                        "sessionId": transientID,
+                        "workspaceId": originalWorkspaceID.uuidString,
+                        "surfaceId": originalSurfaceID.uuidString,
+                        "cwd": root.path,
+                        "pid": 12_345,
+                        "pidStartSeconds": 100,
+                        "pidStartMicroseconds": 200,
+                        "runtimeStatus": "running",
+                        "agentLifecycle": "running",
+                        "startedAt": 100.0,
+                        "updatedAt": 101.0,
+                    ],
+                ],
+            ],
+            options: [.sortedKeys]
+        )
+        try hookStore.write(to: hookStoreURL)
+
+        var inspectedSessionIDs: [Set<String>] = []
+        let resolution = HermesLegacySessionIdentityRecovery().resolve(
+            surfaceID: originalSurfaceID,
+            corruptSessionID: durableID,
+            expectedWorkspaceID: originalWorkspaceID,
+            hookStateFileURL: hookStoreURL,
+            environment: ["HOME": root.path],
+            databaseInspector: { sessionIDs, _, _, _, _ in
+                inspectedSessionIDs.append(sessionIDs)
+                return HermesAgentIndex.RecoveryInspection(
+                    existingSessionIDs: [durableID],
+                    evidence: []
+                )
+            }
+        )
+
+        guard case .legacyRestore(let recovered) = resolution else {
+            Issue.record("Expected the original pane's durable checkpoint to be re-armed, got \(resolution)")
+            return
+        }
+        #expect(recovered.sessionID == durableID)
+        #expect(inspectedSessionIDs == [Set([durableID, transientID])])
+    }
+
     @Test("Searches messages and scopes sessions by directory")
     func searchesMessagesAndScopesSessionsByDirectory() throws {
         let root = try temporaryDirectory()
