@@ -82,39 +82,68 @@ struct AppDelegateSurfaceShortcutRoutingTests {
         }
     }
 
-    @Test func rightSidebarModeShortcutDoesNotClearTerminalUnread() async throws {
+    @Test func rightSidebarDockModeShortcutDoesNotClearTerminalUnread() async throws {
         try await withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
             let window = try #require(mainWindow(for: windowId))
-            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-            let workspace = try #require(manager.selectedWorkspace)
-            let panelId = try #require(workspace.focusedPanelId)
-            let terminalPanel = try #require(workspace.terminalPanel(for: panelId))
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            let paneId = try #require(dock.bonsplitController.allPaneIds.first)
+            let panelId = try #require(dock.newSurface(
+                kind: .terminal,
+                inPane: paneId,
+                focus: true
+            ))
+            let terminalPanel = try #require(dock.panels[panelId] as? TerminalPanel)
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
             let event = try #require(makeKeyDownEvent(
                 key: "1",
                 keyCode: 18,
                 windowNumber: window.windowNumber
             ))
+            defer {
+                notificationStore.clearWindowDockSurfaceUnread(
+                    windowId: windowId,
+                    surfaceId: panelId
+                )
+                appDelegate.notificationStore = previousNotificationStore
+                terminalPanel.hostedView.removeFromSuperview()
+            }
 
             window.makeKeyAndOrderFront(nil)
             window.displayIfNeeded()
+            window.contentView?.addSubview(terminalPanel.hostedView)
             terminalPanel.hostedView.setVisibleInUI(true)
             terminalPanel.hostedView.setActive(true)
             #expect(window.makeFirstResponder(terminalPanel.hostedView.surfaceView))
             await startAndWaitForLiveSurface(terminalPanel.surface)
+            #expect(window.makeFirstResponder(terminalPanel.hostedView.surfaceView))
             #expect(terminalPanel.hostedView.surfaceView.prepareSurfaceForPaste(
                 reason: "test.rightSidebarModeShortcut"
             ))
-            workspace.markPanelUnread(panelId)
-            #expect(workspace.manualUnreadPanelIds.contains(panelId))
+            notificationStore.clearWindowDockSurfaceUnread(
+                windowId: windowId,
+                surfaceId: panelId
+            )
+            appDelegate.notificationStore = notificationStore
+            dock.notificationStore = notificationStore
+            #expect(notificationStore.markWindowDockSurfaceUnread(
+                windowId: windowId,
+                surfaceId: panelId
+            ))
+            #expect(appDelegate.rightSidebarModeShortcut(for: event) == .files)
+            #expect(appDelegate.shouldRouteRightSidebarModeShortcut(in: window))
 
             terminalPanel.hostedView.surfaceView.keyDown(with: event)
 
             #expect(appDelegate.fileExplorerState?.mode == .files)
-            #expect(workspace.manualUnreadPanelIds.contains(panelId))
+            #expect(notificationStore.hasManualUnread(
+                forTabId: windowId,
+                surfaceId: panelId
+            ))
         }
     }
 
