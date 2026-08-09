@@ -214,6 +214,10 @@ final class SettingsWorkspaceColorsBehaviorUITests: SettingsUITestCase {
             poll(timeout: 4) { candidates.contains(where: \.exists) },
             "Expected workspace indicator menu item \(title)"
         )
-        candidates.first(where: \.exists)?.click()
+        for candidate in candidates where candidate.exists {
+            candidate.click()
+            return
+        }
+        XCTFail("Workspace indicator menu item \(title) disappeared before selection")
     }
 }
