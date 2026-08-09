@@ -243,36 +243,44 @@ extension SurfaceResumeBindingSnapshot {
         _ selection: AgentRestoreWorkingDirectorySelection,
         from agent: SessionRestorableAgentSnapshot
     ) -> SurfaceResumeBindingSnapshot {
+        let effectiveSelection = restoreWorkingDirectorySelection?.permitsResume == false
+            ? AgentRestoreWorkingDirectorySelection.unavailable
+            : selection
         var constrained = self
-        constrained.restoreWorkingDirectorySelection = selection
+        constrained.restoreWorkingDirectorySelection = effectiveSelection
 
-        guard selection.permitsResume else {
-            constrained.cwd = nil
-            constrained.launchCommand = nil
-            return constrained
+        guard effectiveSelection.permitsResume else {
+            return constrained.invalidatingAgentRestoreRecipe()
         }
 
         var bindingAgent = agent
         bindingAgent.launchCommand = launchCommand ?? agent.launchCommand
         bindingAgent.permissionMode = permissionMode ?? agent.permissionMode
-        let constrainedAgent = bindingAgent.applyingRestoreWorkingDirectorySelection(selection)
+        let constrainedAgent = bindingAgent.applyingRestoreWorkingDirectorySelection(effectiveSelection)
         guard let command = constrainedAgent.resumeCommand(
             includeWorkingDirectoryPrefix: true,
-            workingDirectorySelection: selection
+            workingDirectorySelection: effectiveSelection
         ) else {
-            constrained.restoreWorkingDirectorySelection = .unavailable
-            constrained.cwd = nil
-            constrained.launchCommand = nil
-            return constrained
+            return constrained.invalidatingAgentRestoreRecipe()
         }
 
         constrained.command = command
-        constrained.cwd = selection.resolved(
+        constrained.cwd = effectiveSelection.resolved(
             snapshotWorkingDirectory: constrainedAgent.workingDirectory,
             launchWorkingDirectory: constrainedAgent.launchCommand?.workingDirectory
         )
         constrained.launchCommand = constrainedAgent.launchCommand
         return constrained
+    }
+
+    /// Removes every persisted field that could reconstruct an unavailable agent restore.
+    func invalidatingAgentRestoreRecipe() -> SurfaceResumeBindingSnapshot {
+        var invalidated = self
+        invalidated.restoreWorkingDirectorySelection = .unavailable
+        invalidated.command = ""
+        invalidated.cwd = nil
+        invalidated.launchCommand = nil
+        return invalidated
     }
 
     /// Preserves a same-session binding's already-constrained restart recipe.

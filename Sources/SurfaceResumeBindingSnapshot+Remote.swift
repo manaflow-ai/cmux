@@ -1,10 +1,17 @@
 import Foundation
 
 extension SurfaceResumeBindingSnapshot {
-    /// Assigns trusted persistent-SSH ownership only to a legacy decoded binding.
+    /// Assigns persistent-SSH ownership and fails closed for legacy agent-hook cwd policy.
     func migratingLegacyPersistentSSH(_ context: SurfaceResumeRemoteContext) -> SurfaceResumeBindingSnapshot {
-        guard wasDecodedWithoutLaunchFlavor else { return self }
-        return replacingLaunchFlavor(.persistentSSH(context))
+        let migrated = wasDecodedWithoutLaunchFlavor
+            ? replacingLaunchFlavor(.persistentSSH(context))
+            : self
+        guard migrated.isAgentHookBinding,
+              migrated.restoreWorkingDirectorySelection == nil,
+              migrated.launchFlavor.remoteContext != nil else {
+            return migrated
+        }
+        return migrated.invalidatingAgentRestoreRecipe()
     }
 
     /// Persists authenticated relay ownership and the relay-reported cwd trust boundary.

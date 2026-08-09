@@ -275,6 +275,9 @@ extension TerminalController {
             Workspace.makeSessionRestorePolicyService()
                 .bindingForCompatibilityShellRestore($0)
         }
+        guard binding?.restoreWorkingDirectorySelection?.permitsResume != false else {
+            return nil
+        }
         // A hook can replace the live binding after this surface was restored,
         // while the restore-time agent snapshot still names the previous
         // conversation. Reuse the session-restore identity gate so the record
@@ -344,14 +347,16 @@ extension TerminalController {
         let normalizedKind = trimmedKind.flatMap { $0.isEmpty ? nil : $0 } ?? "command"
         let bindingSelection = binding.restoreWorkingDirectorySelection
         guard bindingSelection?.permitsResume != false else { return nil }
-        let workingDirectory = bindingSelection?.resolved(
-            snapshotWorkingDirectory: binding.cwd,
-            launchWorkingDirectory: binding.launchCommand?.workingDirectory
-        ) ?? (
+        let workingDirectory: String? = if let bindingSelection {
+            bindingSelection.resolved(
+                snapshotWorkingDirectory: binding.cwd,
+                launchWorkingDirectory: binding.launchCommand?.workingDirectory
+            )
+        } else {
             target.restoredResumeWorkingDirectory
                 ?? binding.cwd
                 ?? binding.launchCommand?.workingDirectory
-        )
+        }
         let launchCommand: AgentLaunchCommandSnapshot?
         if let bindingSelection,
            bindingSelection.discardsRecordedCwdOptions,

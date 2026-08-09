@@ -5997,6 +5997,7 @@ extension TabManager {
         hashOptionalString(snapshot.permissionMode, into: &hasher)
         hasher.combine(snapshot.allowsAutomaticResume)
         hasher.combine(snapshot.launchFlavor)
+        hasher.combine(snapshot.restoreWorkingDirectorySelection)
         if snapshot.isProcessDetected {
             hasher.combine(false)
         } else {

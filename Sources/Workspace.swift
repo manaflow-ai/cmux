@@ -5241,7 +5241,14 @@ final class Workspace: Identifiable, ObservableObject {
             panelId: panelId
         )
         let previousBinding = surfaceResumeBindingsByPanelId[panelId]
-        let constrainedBinding: SurfaceResumeBindingSnapshot = if let restoredAgent =
+        let constrainedBinding: SurfaceResumeBindingSnapshot = if binding.isAgentHookBinding,
+                                                                   binding.launchFlavor.remoteContext != nil,
+                                                                   binding.restoreWorkingDirectorySelection != nil {
+            // Persistent-SSH selections are introduced only after relay
+            // authentication or loaded from persisted remote state. A fresh
+            // authenticated report must replace stale same-session policy.
+            binding
+        } else if let restoredAgent =
             restoredAgentSnapshotsByPanelId[panelId],
            let selection = restoredAgent.restoreWorkingDirectorySelection,
            Self.restorableAgentForSessionRestore(
