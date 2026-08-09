@@ -494,18 +494,22 @@ final class RemoteTmuxViewConnection {
     }
 
 
+    /// Whether a reconcile query that produced no lines is worth sending again.
+    ///
+    /// Only silence is. A server that answers `%error` is talking to us, so the same command
+    /// would be rejected the same way — and the retry asks to reconnect on its timeout, which
+    /// would drop a healthy stream over one rejected command. `handleCommandResult` already
+    /// logs the `%error` text; the reconcile waits for the next notification instead.
+    static func shouldRetryReconcileQuery(after outcome: RemoteTmuxRawQueryOutcome) -> Bool {
+        if case .unanswered = outcome { return true }
+        return false
+    }
+
     private func reconcileListQuery(_ conn: RemoteTmuxControlConnection, _ command: String) async -> [String]? {
-        switch await conn.queryOutcomeWithTimeout(command, timeout: 15, reconnectOnTimeout: false) {
-        case let .lines(lines):
-            return lines
-        case .error:
-            // The server answered, so the stream is fine and a retry would only be
-            // rejected again. Skip this reconcile and wait for the next notification;
-            // handleCommandResult already logs the %error text.
-            return nil
-        case .unanswered:
-            return await conn.queryWithTimeout(command, timeout: 30, reconnectOnTimeout: true)
-        }
+        let outcome = await conn.queryOutcomeWithTimeout(command, timeout: 15, reconnectOnTimeout: false)
+        if let lines = outcome.lines { return lines }
+        guard Self.shouldRetryReconcileQuery(after: outcome) else { return nil }
+        return await conn.queryWithTimeout(command, timeout: 30, reconnectOnTimeout: true)
     }
 
     func reconcile() async {
