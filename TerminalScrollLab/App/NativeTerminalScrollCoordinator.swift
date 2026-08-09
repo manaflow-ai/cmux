@@ -168,8 +168,15 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
         }()
         let format = String(
             localized: "scroll.metrics.format",
-            defaultValue: "%@  offset %.1f pt  translation %.1f pt"
+            defaultValue: "%@  offset %.1f / %.1f pt  translation %.1f pt"
         )
-        metricsLabel.text = String(format: format, phase, rawOffsetY, translationY)
+        let maximumOffsetY = max(0, scrollView.contentSize.height - scrollView.bounds.height)
+        metricsLabel.text = String(
+            format: format,
+            phase,
+            rawOffsetY,
+            maximumOffsetY,
+            translationY
+        )
     }
 }

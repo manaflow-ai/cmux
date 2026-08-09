@@ -35,8 +35,6 @@ final class NativeScrollInteractionUITests: XCTestCase {
     func testBottomEdgeOverscrollReturnsToRest() throws {
         let metrics = app.staticTexts["nativeScrollMetrics"]
         XCTAssertTrue(metrics.waitForExistence(timeout: 5))
-        let restingMetrics = metrics.label
-
         let window = app.windows.firstMatch
         let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
         let end = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
@@ -48,9 +46,18 @@ final class NativeScrollInteractionUITests: XCTestCase {
         )
 
         let returned = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "label == %@", restingMetrics),
+            predicate: NSPredicate(
+                format: "label BEGINSWITH 'IDLE' AND label CONTAINS 'translation 0.0'"
+            ),
             object: metrics
         )
         wait(for: [returned], timeout: 3)
+
+        let values = metrics.label.matches(of: /-?\d+\.\d/).compactMap {
+            Double($0.output)
+        }
+        XCTAssertEqual(values.count, 3)
+        XCTAssertEqual(values[0], values[1], accuracy: 0.1)
+        XCTAssertEqual(values[2], 0, accuracy: 0.1)
     }
 }

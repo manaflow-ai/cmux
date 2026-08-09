@@ -15,8 +15,8 @@
     },
     "scroll.metrics.format" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@  offset %.1f pt  translation %.1f pt" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@  オフセット %.1f pt  移動 %.1f pt" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@  offset %.1f / %.1f pt  translation %.1f pt" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@  オフセット %.1f / %.1f pt  移動 %.1f pt" } }
       }
     },
     "scroll.phase.decelerating" : {
