@@ -458,15 +458,30 @@ final class MainWindowFocusController {
 
     @discardableResult
     func focusRightSidebar(mode requestedMode: RightSidebarMode? = nil, focusFirstItem: Bool = true) -> Bool {
-        guard let state = fileExplorerState else { return false }
-        let desiredMode = requestedMode ?? rememberedRightSidebarMode ?? state.mode
-        guard desiredMode.isAvailable() else {
-            guard requestedMode == nil else { return false }
-            return focusRightSidebar(mode: .files, focusFirstItem: focusFirstItem)
+        guard let mode = resolvedRightSidebarMode(requestedMode: requestedMode) else {
+            return false
         }
-        let mode = desiredMode
         let target = rightSidebarFocusTarget(mode: mode, focusFirstItem: focusFirstItem)
         return focusRightSidebar(mode: mode, target: target, terminalYieldReason: "rightSidebarFocus")
+    }
+
+    /// Whether a right-sidebar focus request has an available, window-owned
+    /// state target. This preflight is intentionally nonmutating so callers can
+    /// reject an unavailable request before activating or ordering its window.
+    func canFocusRightSidebar(mode requestedMode: RightSidebarMode? = nil) -> Bool {
+        resolvedRightSidebarMode(requestedMode: requestedMode) != nil
+    }
+
+    private func resolvedRightSidebarMode(requestedMode: RightSidebarMode?) -> RightSidebarMode? {
+        guard let state = fileExplorerState else { return nil }
+        let desiredMode = requestedMode ?? rememberedRightSidebarMode ?? state.mode
+        if desiredMode.isAvailable() {
+            return desiredMode
+        }
+        guard requestedMode == nil, RightSidebarMode.files.isAvailable() else {
+            return nil
+        }
+        return .files
     }
 
     @discardableResult

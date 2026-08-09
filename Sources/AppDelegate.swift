@@ -7085,6 +7085,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return false
         }
+        guard context.keyboardFocusCoordinator.canFocusRightSidebar(mode: requestedMode) else {
+#if DEBUG
+            dlog(
+                "rs.focus.app.abort reason=unavailable requested=\(requestedMode?.rawValue ?? "nil") " +
+                    "preferred={\(debugWindowToken(preferredWindow))} context={\(debugContextToken(context))}"
+            )
+#endif
+            return false
+        }
         let window = context.window ?? windowForMainWindowId(context.windowId)
 #if DEBUG
         let beforeResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"

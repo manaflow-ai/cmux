@@ -36,8 +36,8 @@ public final class FocusedNotificationMarker {
     /// The result of marking the focused notification oldest-unread, mirroring
     /// the app-target `FocusedNotificationMarkResult`.
     private enum MarkResult {
-        case deferredNotification(UUID)
-        case markedWorkspaceWithoutNotification(UUID)
+        case deferredNotification(id: UUID, excludedOwnerId: UUID?)
+        case markedOwnerWithoutNotification(UUID)
     }
 
     /// Toggles the focused notification's unread state, returning whether
@@ -49,40 +49,54 @@ public final class FocusedNotificationMarker {
               let target = resolver.focusedTarget(preferredWindowToken: preferredWindowToken) else {
             return false
         }
-        if let panel = resolver.focusedPanel(forTabId: target.tabId, surfaceId: target.surfaceId) {
+        switch target {
+        case .windowDock(let dockTarget):
+            if resolver.windowDockSurfaceIsUnread(dockTarget) {
+                resolver.clearWindowDockSurfaceUnread(dockTarget)
+            } else {
+                resolver.markWindowDockSurfaceUnread(dockTarget)
+            }
+            return true
+        case .workspace(let tabId, let surfaceId):
+            return toggleWorkspaceNotificationUnread(tabId: tabId, surfaceId: surfaceId)
+        }
+    }
+
+    private func toggleWorkspaceNotificationUnread(tabId: UUID, surfaceId: UUID?) -> Bool {
+        if let panel = resolver.focusedPanel(forTabId: tabId, surfaceId: surfaceId) {
             let focusedPanelHasRestoredUnread = resolver.panelHasRestoredUnread(panel)
             let hasWorkspaceOnlyRestoredUnread =
-                resolver.storeHasRestoredUnread(forTabId: target.tabId) &&
+                resolver.storeHasRestoredUnread(forTabId: tabId) &&
                 !focusedPanelHasRestoredUnread &&
                 !resolver.workspaceHasContributingRestoredUnread(panel)
-            if resolver.hasVisibleNotificationIndicator(forTabId: target.tabId, surfaceId: nil) ||
+            if resolver.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: nil) ||
                 hasWorkspaceOnlyRestoredUnread {
-                resolver.storeMarkRead(forTabId: target.tabId)
+                resolver.storeMarkRead(forTabId: tabId)
                 return true
             }
             let hasWorkspaceManualUnreadOnPanel =
-                resolver.storeHasManualUnread(forTabId: target.tabId) &&
+                resolver.storeHasManualUnread(forTabId: tabId) &&
                 resolver.panelIsRepresentativeForWorkspaceManualUnread(panel)
             let isPanelUnread =
                 resolver.panelIsManualUnread(panel) ||
                 focusedPanelHasRestoredUnread ||
-                resolver.hasVisibleNotificationIndicator(forTabId: target.tabId, surfaceId: panel.panelId) ||
+                resolver.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: panel.panelId) ||
                 hasWorkspaceManualUnreadOnPanel
             if isPanelUnread {
                 resolver.markPanelRead(panel)
                 if hasWorkspaceManualUnreadOnPanel {
-                    resolver.storeClearManualUnread(forTabId: target.tabId)
+                    resolver.storeClearManualUnread(forTabId: tabId)
                 }
                 return true
             }
             resolver.markPanelUnread(panel)
             return true
         }
-        if resolver.workspaceIsUnread(forTabId: target.tabId) {
-            resolver.storeMarkRead(forTabId: target.tabId)
+        if resolver.workspaceIsUnread(forTabId: tabId) {
+            resolver.storeMarkRead(forTabId: tabId)
             return true
         }
-        resolver.storeMarkUnread(forTabId: target.tabId)
+        resolver.storeMarkUnread(forTabId: tabId)
         return true
     }
 
@@ -98,10 +112,10 @@ public final class FocusedNotificationMarker {
             return nil
         }
         switch result {
-        case .deferredNotification(let notificationId):
-            return jumpToLatestUnread(notificationId, nil)
-        case .markedWorkspaceWithoutNotification(let tabId):
-            return jumpToLatestUnread(nil, tabId)
+        case .deferredNotification(let notificationId, let excludedOwnerId):
+            return jumpToLatestUnread(notificationId, excludedOwnerId)
+        case .markedOwnerWithoutNotification(let ownerId):
+            return jumpToLatestUnread(nil, ownerId)
         }
     }
 
@@ -111,28 +125,53 @@ public final class FocusedNotificationMarker {
               let target = resolver.focusedTarget(preferredWindowToken: preferredWindowToken) else {
             return nil
         }
+        switch target {
+        case .windowDock(let dockTarget):
+            return markFocusedWindowDockAsOldestUnread(dockTarget)
+        case .workspace(let tabId, let surfaceId):
+            return markFocusedWorkspaceAsOldestUnread(tabId: tabId, surfaceId: surfaceId)
+        }
+    }
+
+    private func markFocusedWindowDockAsOldestUnread(_ target: WindowDockUnreadTarget) -> MarkResult {
         if let notificationId = resolver.markLatestNotificationAsOldestUnread(
-            forTabId: target.tabId,
+            forTabId: target.windowId,
             surfaceId: target.surfaceId
         ) {
-            return .deferredNotification(notificationId)
+            return .deferredNotification(
+                id: notificationId,
+                excludedOwnerId: target.windowId
+            )
         }
-        if let panel = resolver.focusedPanel(forTabId: target.tabId, surfaceId: target.surfaceId) {
+        if !resolver.windowDockSurfaceIsUnread(target) {
+            resolver.markWindowDockSurfaceUnread(target)
+        }
+        return .markedOwnerWithoutNotification(target.windowId)
+    }
+
+    private func markFocusedWorkspaceAsOldestUnread(tabId: UUID, surfaceId: UUID?) -> MarkResult {
+        if let notificationId = resolver.markLatestNotificationAsOldestUnread(
+            forTabId: tabId,
+            surfaceId: surfaceId
+        ) {
+            return .deferredNotification(id: notificationId, excludedOwnerId: nil)
+        }
+        if let panel = resolver.focusedPanel(forTabId: tabId, surfaceId: surfaceId) {
             let panelAlreadyUnread =
                 resolver.panelIsManualUnread(panel) ||
                 resolver.panelHasRestoredUnread(panel) ||
-                resolver.hasVisibleNotificationIndicator(forTabId: target.tabId, surfaceId: panel.panelId)
+                resolver.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: panel.panelId)
             let hasWorkspaceOnlyRestoredUnread =
-                resolver.storeHasRestoredUnread(forTabId: target.tabId) &&
+                resolver.storeHasRestoredUnread(forTabId: tabId) &&
                 !resolver.workspaceHasContributingRestoredUnread(panel)
             if !panelAlreadyUnread &&
-                !resolver.storeHasManualUnread(forTabId: target.tabId) &&
+                !resolver.storeHasManualUnread(forTabId: tabId) &&
                 !hasWorkspaceOnlyRestoredUnread {
                 resolver.markPanelUnread(panel)
             }
-        } else if !resolver.workspaceIsUnread(forTabId: target.tabId) {
-            resolver.storeMarkUnread(forTabId: target.tabId)
+        } else if !resolver.workspaceIsUnread(forTabId: tabId) {
+            resolver.storeMarkUnread(forTabId: tabId)
         }
-        return .markedWorkspaceWithoutNotification(target.tabId)
+        return .markedOwnerWithoutNotification(tabId)
     }
 }

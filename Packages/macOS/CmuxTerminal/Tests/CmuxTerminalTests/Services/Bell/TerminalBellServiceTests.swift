@@ -17,27 +17,30 @@ struct TerminalBellServiceTests {
             }
         )
 
-        service.ring(
+        service.ring(presentation: TerminalBellPresentation(
             systemSoundEnabled: false,
             customAudioPath: nil,
-            customAudioVolume: 0.5
-        )
+            customAudioVolume: 0.5,
+            visualBellEnabled: true
+        ))
         #expect(systemBeepCount == 0)
         #expect(loadedPaths.isEmpty)
 
-        service.ring(
+        service.ring(presentation: TerminalBellPresentation(
             systemSoundEnabled: true,
             customAudioPath: nil,
-            customAudioVolume: 0.5
-        )
+            customAudioVolume: 0.5,
+            visualBellEnabled: false
+        ))
         #expect(systemBeepCount == 1)
         #expect(loadedPaths.isEmpty)
 
-        service.ring(
+        service.ring(presentation: TerminalBellPresentation(
             systemSoundEnabled: false,
             customAudioPath: "/tmp/cmux-terminal-bell.aiff",
-            customAudioVolume: 0.25
-        )
+            customAudioVolume: 0.25,
+            visualBellEnabled: false
+        ))
         #expect(systemBeepCount == 1)
         #expect(loadedPaths == ["/tmp/cmux-terminal-bell.aiff"])
     }

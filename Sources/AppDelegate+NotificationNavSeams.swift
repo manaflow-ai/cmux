@@ -199,6 +199,18 @@ final class NotificationNavSeamAdapter:
         owner?.focusedTarget(preferredWindowToken: preferredWindowToken) ?? nil
     }
 
+    func windowDockSurfaceIsUnread(_ target: WindowDockUnreadTarget) -> Bool {
+        owner?.windowDockSurfaceIsUnread(target) ?? false
+    }
+
+    func markWindowDockSurfaceUnread(_ target: WindowDockUnreadTarget) {
+        owner?.markWindowDockSurfaceUnread(target)
+    }
+
+    func clearWindowDockSurfaceUnread(_ target: WindowDockUnreadTarget) {
+        owner?.clearWindowDockSurfaceUnread(target)
+    }
+
     func focusedPanel(forTabId tabId: UUID, surfaceId: UUID?) -> FocusedPanel? {
         owner?.focusedPanel(forTabId: tabId, surfaceId: surfaceId) ?? nil
     }
@@ -522,14 +534,25 @@ extension AppDelegate {
     }
 
     func focusedTarget(preferredWindowToken: AnyObject?) -> FocusedNotificationTarget? {
+        let preferredWindow = preferredWindowToken as? NSWindow
+        if let dock = focusedDockStoreForShortcut(preferredWindow: preferredWindow),
+           let surfaceId = dock.focusedPanelId,
+           dock.containsPanel(surfaceId) {
+            return .windowDock(
+                WindowDockUnreadTarget(
+                    windowId: dock.workspaceId,
+                    surfaceId: surfaceId
+                )
+            )
+        }
+
         // The opaque resolver token is the preferred `NSWindow` the legacy
-        // `focusedNotificationTarget(preferredWindow:)` took. The resolution
-        // itself stays in `AppDelegate.swift` (it reaches the private
-        // first-responder/`FocusedTerminalShortcutContext` resolver).
-        guard let target = resolveFocusedNotificationTarget(preferredWindow: preferredWindowToken as? NSWindow) else {
+        // workspace resolver took. It reaches the private first-responder /
+        // `FocusedTerminalShortcutContext` resolver in `AppDelegate.swift`.
+        guard let target = resolveFocusedNotificationTarget(preferredWindow: preferredWindow) else {
             return nil
         }
-        return FocusedNotificationTarget(tabId: target.tabId, surfaceId: target.surfaceId)
+        return .workspace(tabId: target.tabId, surfaceId: target.surfaceId)
     }
 
 }

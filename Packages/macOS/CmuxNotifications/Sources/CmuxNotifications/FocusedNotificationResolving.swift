@@ -31,9 +31,22 @@ public protocol FocusedNotificationResolving: AnyObject {
     /// when the store was absent, even though most of their body never touched it.
     var hasNotificationStore: Bool { get }
 
-    /// The currently-focused workspace/surface, or `nil` when nothing is
-    /// focused. Mirrors `focusedNotificationTarget(preferredWindow:)`.
+    /// The currently-focused notification owner, or `nil` when nothing is
+    /// focused. Window-Dock ownership stays distinct from workspace ownership.
     func focusedTarget(preferredWindowToken: AnyObject?) -> FocusedNotificationTarget?
+
+    // MARK: Window-Dock predicates and mutations
+
+    /// Whether the exact per-window Dock surface shows notification or manual
+    /// unread attention.
+    func windowDockSurfaceIsUnread(_ target: WindowDockUnreadTarget) -> Bool
+
+    /// Marks the exact per-window Dock surface unread.
+    func markWindowDockSurfaceUnread(_ target: WindowDockUnreadTarget)
+
+    /// Clears notification, focused-read, and manual unread state from the exact
+    /// per-window Dock surface.
+    func clearWindowDockSurfaceUnread(_ target: WindowDockUnreadTarget)
 
     /// Resolves `surfaceId` to the owning panel within `tabId`'s workspace, or
     /// `nil` when there is no surface or no owning panel. Mirrors

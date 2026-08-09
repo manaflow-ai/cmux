@@ -28,27 +28,22 @@ public final class TerminalBellService {
         self.soundLoader = soundLoader
     }
 
-    /// Plays the audio effects enabled for a terminal bell.
+    /// Plays the audio effects in a terminal bell presentation.
     ///
-    /// - Parameters:
-    ///   - systemSoundEnabled: Whether to play the macOS system alert sound.
-    ///   - customAudioPath: The custom sound path, or `nil` when custom audio
-    ///     is disabled or has no configured file.
-    ///   - customAudioVolume: The pre-clamped playback volume for custom audio.
-    public func ring(
-        systemSoundEnabled: Bool,
-        customAudioPath: String?,
-        customAudioVolume: Float
-    ) {
-        if systemSoundEnabled {
+    /// Visual attention remains the terminal host's responsibility because it
+    /// must resolve the exact pane, workspace, or Dock owner.
+    ///
+    /// - Parameter presentation: The value-selected audio and visual effects.
+    public func ring(presentation: TerminalBellPresentation) {
+        if presentation.systemSoundEnabled {
             systemBeep()
         }
 
-        guard let customAudioPath,
+        guard let customAudioPath = presentation.customAudioPath,
               let sound = soundLoader(customAudioPath) else {
             return
         }
-        sound.volume = customAudioVolume
+        sound.volume = presentation.customAudioVolume
         activeSound = sound
         if !sound.play() {
             activeSound = nil

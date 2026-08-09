@@ -2771,12 +2771,27 @@ class GhosttyApp {
     private func ringBell(surface: TerminalSurface?) {
         let features = bellFeatures()
         let customAudioEnabled = (features & (1 << 1)) != 0
-        terminalBellService.ring(
-            systemSoundEnabled: (features & (1 << 0)) != 0,
-            customAudioPath: customAudioEnabled ? bellAudioPath() : nil,
-            customAudioVolume: customAudioEnabled ? bellAudioVolume() : 0.5
+        ringBell(
+            surface: surface,
+            presentation: TerminalBellPresentation(
+                systemSoundEnabled: (features & (1 << 0)) != 0,
+                customAudioPath: customAudioEnabled ? bellAudioPath() : nil,
+                customAudioVolume: customAudioEnabled ? bellAudioVolume() : 0.5,
+                visualBellEnabled: (features & (1 << 2)) != 0
+            )
         )
-        if (features & (1 << 2)) != 0 {
+    }
+
+    /// Presents one terminal bell without exposing process-level attention.
+    @MainActor
+    func ringBell(
+        surface: TerminalSurface?,
+        presentation: TerminalBellPresentation
+    ) {
+        terminalBellService.ring(
+            presentation: presentation
+        )
+        if presentation.visualBellEnabled {
             surface?.onVisualBell?()
         }
     }

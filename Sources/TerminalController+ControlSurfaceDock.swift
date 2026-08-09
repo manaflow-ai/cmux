@@ -304,7 +304,6 @@ extension TerminalController {
     @discardableResult
     func focusAndRevealWindowDock(for dock: DockSplitStore, fallback tabManager: TabManager) -> Bool {
         let owningTabManager = dockOwnerTabManager(for: dock, fallback: tabManager)
-        _ = AppDelegate.shared?.focusMainWindow(windowId: dock.workspaceId)
         guard revealDockForFocus(tabManager: owningTabManager) else { return false }
         setActiveTabManager(owningTabManager)
         return true
