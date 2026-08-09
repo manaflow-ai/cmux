@@ -298,6 +298,15 @@ extension TerminalController: ControlSurfaceContext {
         case .notRemote:
             break
         }
+        let isWorkspaceSurface = ws.panels[surfaceID] != nil
+        let isWorkspaceDockSurface = ws.containsDockPanel(surfaceID)
+        guard isWorkspaceSurface || isWorkspaceDockSurface else {
+            return .surfaceNotFound(surfaceID)
+        }
+        if isWorkspaceDockSurface,
+           !canRevealDockForFocus(tabManager: tabManager) {
+            return .dockUnavailable(message: dockUnavailableMessage())
+        }
         if let windowId = v2ResolveWindowId(tabManager: tabManager) {
             _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
             setActiveTabManager(tabManager)
@@ -305,15 +314,13 @@ extension TerminalController: ControlSurfaceContext {
         if tabManager.selectedTabId != ws.id {
             tabManager.selectWorkspace(ws)
         }
-        if ws.panels[surfaceID] != nil {
+        if isWorkspaceSurface {
             ws.focusPanel(surfaceID)
-        } else if ws.containsDockPanel(surfaceID) {
+        } else {
             guard revealDockForFocus(tabManager: tabManager) else {
                 return .dockUnavailable(message: dockUnavailableMessage())
             }
             ws.dockSplit.focusPanel(surfaceID)
-        } else {
-            return .surfaceNotFound(surfaceID)
         }
         return .focused(
             windowID: v2ResolveWindowId(tabManager: tabManager),

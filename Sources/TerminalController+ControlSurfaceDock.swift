@@ -59,6 +59,18 @@ extension TerminalController {
         return nil
     }
 
+    /// Checks Dock focus availability without activating a window or changing selection.
+    func canRevealDockForFocus(tabManager: TabManager) -> Bool {
+        let preferredWindow = v2ResolveWindowId(tabManager: tabManager)
+            .flatMap { AppDelegate.shared?.mainWindow(for: $0) }
+        guard let context = AppDelegate.shared?.preferredRegisteredMainWindowContext(
+            preferredWindow: preferredWindow
+        ) else {
+            return false
+        }
+        return context.keyboardFocusCoordinator.canFocusRightSidebar(mode: .dock)
+    }
+
     @discardableResult
     func revealDockForFocus(tabManager: TabManager) -> Bool {
         let preferredWindow = v2ResolveWindowId(tabManager: tabManager)
