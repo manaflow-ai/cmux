@@ -2154,6 +2154,15 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
         WorkspaceTabColorSettings.reset(defaults: defaults)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+        // Seed a different style first. Without this the assertion below passes
+        // whenever the machine running the test already has the automatic style
+        // selected, proving nothing about the settings file being applied.
+        let settingsClient = UserDefaultsSettingsClient(defaults: defaults)
+        settingsClient.set(.leftRail, for: WorkspaceColorsCatalogSection().indicatorStyle)
+        XCTAssertEqual(
+            settingsClient.value(for: WorkspaceColorsCatalogSection().indicatorStyle),
+            .leftRail
+        )
 
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -2184,9 +2193,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(palette.map(\.name), ["Blue", "Neon Mint"])
         XCTAssertEqual(palette.map(\.hex), ["#2244FF", "#00F5D4"])
         XCTAssertEqual(
-            UserDefaultsSettingsClient(defaults: defaults).value(
-                for: WorkspaceColorsCatalogSection().indicatorStyle
-            ),
+            settingsClient.value(for: WorkspaceColorsCatalogSection().indicatorStyle),
             .leftRailAuto
         )
     }

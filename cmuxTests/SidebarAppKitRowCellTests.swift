@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxSidebar
 import SwiftUI
 import Testing
@@ -13,6 +14,8 @@ struct SidebarAppKitRowCellTests {
         title: String = "Workspace",
         customDescription: String? = nil,
         isPinned: Bool = false,
+        customColorHex: String? = nil,
+        autoRailColorHex: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
         metadataBlocks: [SidebarMetadataBlock] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
@@ -24,8 +27,8 @@ struct SidebarAppKitRowCellTests {
             title: title,
             customDescription: customDescription,
             isPinned: isPinned,
-            customColorHex: nil,
-            autoRailColorHex: nil,
+            customColorHex: customColorHex,
+            autoRailColorHex: autoRailColorHex,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: "",
             remoteStateHelpText: "",
@@ -63,6 +66,8 @@ struct SidebarAppKitRowCellTests {
         canClose: Bool = true,
         settings: SidebarTabItemSettingsSnapshot? = nil,
         customDescription: String? = nil,
+        customColorHex: String? = nil,
+        autoRailColorHex: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
         metadataBlocks: [SidebarMetadataBlock] = [],
         shortcutHintText: String? = nil,
@@ -76,6 +81,8 @@ struct SidebarAppKitRowCellTests {
             snapshot: makeSnapshot(
                 customDescription: customDescription,
                 isPinned: isPinned,
+                customColorHex: customColorHex,
+                autoRailColorHex: autoRailColorHex,
                 metadataEntries: metadataEntries,
                 metadataBlocks: metadataBlocks
             ),
@@ -245,6 +252,41 @@ struct SidebarAppKitRowCellTests {
 
     fileprivate static func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
+    }
+
+    /// The rail the row cell paints comes straight from
+    /// `sidebarWorkspaceRowExplicitRailNSColor`, so this pins the snapshot
+    /// fields the cell feeds it: a manual color still wins under the automatic
+    /// style, and the assigned color only fills in for a workspace that has no
+    /// manual color of its own.
+    @Test
+    func automaticRailUsesTheAssignedColorAndYieldsToAManualColor() {
+        func rail(
+            _ style: WorkspaceIndicatorStyle,
+            manual: String?,
+            auto: String?
+        ) -> NSColor? {
+            let snapshot = Self.makeSnapshot(customColorHex: manual, autoRailColorHex: auto)
+            return sidebarWorkspaceRowExplicitRailNSColor(
+                activeTabIndicatorStyle: style,
+                customColorHex: snapshot.customColorHex,
+                autoRailColorHex: snapshot.autoRailColorHex,
+                colorScheme: .dark
+            )
+        }
+        let assigned = WorkspaceTabColorSettings.displayNSColor(hex: "#196F3D", colorScheme: .dark)
+        let chosen = WorkspaceTabColorSettings.displayNSColor(hex: "#C0392B", colorScheme: .dark)
+
+        #expect(rail(.leftRailAuto, manual: nil, auto: "#196F3D") == assigned)
+        #expect(rail(.leftRailAuto, manual: "#C0392B", auto: "#196F3D") == chosen)
+        // An empty manual color is no manual color, matching the allocator.
+        #expect(rail(.leftRailAuto, manual: "", auto: "#196F3D") == assigned)
+
+        // The assigned color exists on the snapshot whatever the style is, so
+        // the other two styles have to ignore it rather than start painting it.
+        #expect(rail(.leftRail, manual: nil, auto: "#196F3D") == nil)
+        #expect(rail(.leftRail, manual: "#C0392B", auto: "#196F3D") == chosen)
+        #expect(rail(.solidFill, manual: "#C0392B", auto: "#196F3D") == nil)
     }
 
     private static func textView(in cell: SidebarWorkspaceRowTableCellView, linkedTo url: URL) -> SidebarRowTextView? {
