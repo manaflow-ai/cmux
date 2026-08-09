@@ -198,6 +198,63 @@ struct ClaudeTaskSnapshotLoaderTests {
         #expect(snapshot.todos.map(\.content) == ["Team task"])
     }
 
+    @Test("Identity scans ignore oversized fields in nonmatching neighboring tasks")
+    func ignoresOversizedTextInNonmatchingNeighbors() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-bounded-neighbors-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let matchingDirectory = root.appendingPathComponent("matching-team", isDirectory: true)
+        let subjectOverflowDirectory = root.appendingPathComponent(
+            "subject-overflow-team",
+            isDirectory: true
+        )
+        let activeFormOverflowDirectory = root.appendingPathComponent(
+            "active-form-overflow-team",
+            isDirectory: true
+        )
+        for directory in [
+            matchingDirectory,
+            subjectOverflowDirectory,
+            activeFormOverflowDirectory,
+        ] {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+        }
+        try writeTask(
+            #"{"id":"1","subject":"Exact task","status":"pending"}"#,
+            named: "1.json",
+            in: matchingDirectory
+        )
+        let oversizedSubject = String(
+            repeating: "s",
+            count: ClaudeTaskSnapshotLoader.maximumTaskTextByteCount + 1
+        )
+        try writeTask(
+            #"{"id":"1","subject":"\#(oversizedSubject)","status":"pending"}"#,
+            named: "1.json",
+            in: subjectOverflowDirectory
+        )
+        let oversizedActiveForm = String(
+            repeating: "a",
+            count: ClaudeTaskSnapshotLoader.maximumTaskTextByteCount + 1
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Different task","activeForm":"\#(oversizedActiveForm)","status":"in_progress"}"#,
+            named: "1.json",
+            in: activeFormOverflowDirectory
+        )
+
+        let snapshot = try #require(try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(
+            sessionID: "unrelated-session",
+            taskIdentity: ClaudeTaskIdentity(id: "1", subject: "Exact task")
+        ))
+
+        #expect(snapshot.directoryName == "matching-team")
+        #expect(snapshot.todos.map(\.content) == ["Exact task"])
+    }
+
     @Test("Configured task-list identifiers resolve one canonical direct child")
     func resolvesConfiguredTaskListDirectory() throws {
         let root = FileManager.default.temporaryDirectory

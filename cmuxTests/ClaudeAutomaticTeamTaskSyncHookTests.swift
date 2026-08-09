@@ -614,6 +614,87 @@ struct ClaudeAutomaticTeamTaskSyncHookTests {
         #expect(binding["workspaceIDs"] as? [String] == [currentWorkspaceId])
     }
 
+    @Test("A team binding is removed when every destination is closed")
+    func removesTeamBindingWithNoLiveDestinations() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(
+            name: "task-sync-no-live-team-workspace"
+        )
+        defer { context.cleanup() }
+        let workspaceId = "90909090-9090-9090-9090-909090909090"
+        let surfaceId = "91909090-9090-9090-9090-909090909090"
+        let teamName = "Unavailable_Team"
+        let tasksRoot = context.root.appendingPathComponent(
+            ".claude/tasks",
+            isDirectory: true
+        )
+        let taskStoreIdentity = ClaudeTaskStoreIdentity(tasksRootURL: tasksRoot)
+        let bindingKey = "\(taskStoreIdentity.rawValue):\(teamName)"
+        let state: [String: Any] = [
+            "version": 1,
+            "sessions": [:],
+            "claudeTeamTaskBindings": [
+                bindingKey: [
+                    "binding": [
+                        "taskStoreIdentity": ["rawValue": taskStoreIdentity.rawValue],
+                        "taskListID": teamName,
+                        "leaderSessionID": "unavailable-leader",
+                        "agentIDs": ["unavailable-agent"],
+                    ],
+                    "workspaceIDs": [workspaceId],
+                    "updatedAt": 1,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(
+            withJSONObject: state,
+            options: [.prettyPrinted, .sortedKeys]
+        ).write(to: context.storeURL)
+
+        let teamDirectory = context.root
+            .appendingPathComponent(".claude/teams/unavailable-team", isDirectory: true)
+        let taskDirectory = tasksRoot.appendingPathComponent(teamName, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: teamDirectory,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: taskDirectory,
+            withIntermediateDirectories: true
+        )
+        try writeTeamConfig(
+            name: teamName,
+            leaderSessionID: "unavailable-leader",
+            agentID: "unavailable-agent",
+            to: teamDirectory
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Unavailable task","status":"pending"}"#,
+            to: taskDirectory
+        )
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            missingWorkspaceIDs: [workspaceId]
+        )
+        var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let result = runHook(
+            context: context,
+            environment: environment,
+            sessionId: "unavailable-session",
+            agentID: "unavailable-agent"
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        #expect(try teamBindingRecords(in: context.storeURL).isEmpty)
+    }
+
     @Test("The binding cap clears and replaces the oldest exact owner")
     func retiresOldestBindingAtCapacity() throws {
         let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync-binding-cap")
