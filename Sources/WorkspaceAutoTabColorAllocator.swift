@@ -25,6 +25,12 @@ struct WorkspaceAutoTabColorAllocator {
     private let paletteKeys: [String]
     private let paletteLabs: [LabColor?]
     private let paletteKeySet: Set<String>
+    /// Indices of the entries whose hex actually parses, so an entry that
+    /// could never be drawn also never influences allocation. A color that
+    /// cannot be converted is skipped when picking, so leaving it in the
+    /// running would pin the least-used count at zero forever and starve every
+    /// later pick.
+    private let renderableIndices: [Int]
     private let reservedKeys: Set<String>
 
     private var counts: [String: Int]
@@ -51,8 +57,10 @@ struct WorkspaceAutoTabColorAllocator {
     ) {
         self.palette = palette
         paletteKeys = palette.map { WorkspaceAutoTabColorAssignment.normalized($0.hex) }
-        paletteLabs = palette.map { LabColor(hex: $0.hex) }
+        let labs = palette.map { LabColor(hex: $0.hex) }
+        paletteLabs = labs
         paletteKeySet = Set(paletteKeys)
+        renderableIndices = palette.indices.filter { labs[$0] != nil }
         reservedKeys = Set(reservedHexes.map { WorkspaceAutoTabColorAssignment.normalized($0) })
 
         counts = [:]
@@ -63,15 +71,14 @@ struct WorkspaceAutoTabColorAllocator {
         }
     }
 
-    /// Picks the next color and records it as used, or returns `nil` for an
-    /// empty palette.
+    /// Picks the next color and records it as used, or returns `nil` when no
+    /// palette entry can be drawn.
     mutating func next() -> String? {
-        guard !palette.isEmpty else { return nil }
-
         var minimumCount = Int.max
-        for key in paletteKeys {
-            minimumCount = min(minimumCount, counts[key] ?? 0)
+        for index in renderableIndices {
+            minimumCount = min(minimumCount, counts[paletteKeys[index]] ?? 0)
         }
+        guard minimumCount != Int.max else { return nil }
 
         // Among the least-used colors, take the one furthest from the colors
         // already on screen. Straight palette order would hand out Red then
@@ -98,12 +105,9 @@ struct WorkspaceAutoTabColorAllocator {
     private func bestTied(minimumCount: Int, allowingReserved: Bool) -> Int? {
         var best: Int?
         var bestDistance = -1.0
-        for index in palette.indices {
+        for index in renderableIndices {
             guard (counts[paletteKeys[index]] ?? 0) == minimumCount else { continue }
             if !allowingReserved, reservedKeys.contains(paletteKeys[index]) { continue }
-            // A color that cannot be converted also cannot be drawn, so it is
-            // never worth handing out while a drawable color ties with it.
-            guard paletteLabs[index] != nil else { continue }
 
             // Strict `>` keeps palette order as the tie-break. Before anything
             // is on screen every entry sits at `greatestFiniteMagnitude`, so
@@ -124,7 +128,7 @@ struct WorkspaceAutoTabColorAllocator {
             counts[key, default: 0] += 1
         }
         guard seenInUse.insert(key).inserted, let lab = LabColor(hex: hex) else { return }
-        for index in palette.indices {
+        for index in renderableIndices {
             guard let entryLab = paletteLabs[index] else { continue }
             nearest[index] = min(nearest[index], entryLab.distance(to: lab))
         }

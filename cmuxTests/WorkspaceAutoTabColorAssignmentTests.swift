@@ -778,6 +778,11 @@ import Testing
 
         var allocator = WorkspaceAutoTabColorAllocator(palette: palette, usedHexes: [])
         #expect(allocator.next() == "#196F3D")
+        // The broken entry can never be picked, so it must not sit at zero and
+        // hold the least-used count down. Recycling has to fall back to the
+        // drawable color instead of running out of candidates.
+        #expect(allocator.next() == "#196F3D")
+        #expect(allocator.next() == "#196F3D")
 
         #expect(
             WorkspaceAutoTabColorAssignment.nextColorHex(palette: palette, usedHexes: []) == "#196F3D"
