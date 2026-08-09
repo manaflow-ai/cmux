@@ -1748,6 +1748,20 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
 // hover production call sites now go through, instead of each choosing
 // its own overload independently.
 @Suite struct TerminalSharedResolutionEntryPointTests {
+    @Test func verifiedNarrowScalarMembershipAndMeasurementMetadataStayPinned() {
+        let metadata = TerminalRowCellLayout.measuredNarrowScalarMetadata
+        #expect(metadata.map { $0.scalar.value } == [0x2022, 0x25CF, 0x25A0, 0x25CB, 0x2B24])
+        #expect(Set(metadata.map(\.ghosttyCommit)) == ["abcf5697d4fcd05e29a83ccfc090d6e234952849"])
+        #expect(Set(metadata.map(\.measuredOn)) == ["2026-08-09"])
+        #expect(Set(metadata.map(\.method)) == [
+            "ghostty/src/unicode/main.zig codepointWidth() via zig build test"
+        ])
+        #expect(TerminalRowCellLayout.verified(for: "•●■○⬤") != nil)
+        #expect(TerminalRowCellLayout.verified(for: "●︎") == nil)
+        #expect(TerminalRowCellLayout.verified(for: "●\tpath") == nil)
+        #expect(TerminalRowCellLayout.verified(for: "エラー: /tmp/path") == nil)
+    }
+
     @Test func clickResolvesBulletPrefixedLeadingRowThroughTextOnlyFallback() throws {
         let cwd = "/Users/yosuke/workspace/github.com/TMLlaboratory/s-code"
         let clickedRow = "● research/docs/notes/2026-07-31_key_cost_volume_price"
@@ -1765,25 +1779,49 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
             )
         )
         #expect(resolution.path == expectedPath)
-        #expect(resolution.cellSpans == .unavailableNonASCIIRow)
+        #expect(resolution.cellSpans == .available([
+            TerminalWrappedPathCellSpan(
+                rowOffsetFromClicked: 0,
+                startColumn: 2,
+                endColumn: clickedRow.count
+            ),
+            TerminalWrappedPathCellSpan(
+                rowOffsetFromClicked: 1,
+                startColumn: 0,
+                endColumn: nextRow.count
+            ),
+        ]))
     }
 
-    @Test func hoverNeverUsesTheLeadingRowTextOnlyFallback() {
+    @Test func hoverUsesTheVerifiedBulletLeadingRowFallbackWithExactCellSpans() throws {
         let cwd = "/tmp/leading-row"
         let clickedRow = "● research/docs/notes/2026-07-31_key_cost_volume_price"
         let nextRow = "_and_probability_floor.md"
         let expectedPath = cwd + "/research/docs/notes/2026-07-31_key_cost_volume_price_and_probability_floor.md"
         let resolver = TerminalPathResolver(fileExists: existsIn([expectedPath]))
 
-        #expect(
+        let resolution = try #require(
             resolver.resolveTextOnlyLeadingRowFallback(
                 clickedRow: clickedRow,
                 column: 12,
                 nextRow: nextRow,
                 cwd: cwd,
                 purpose: .hover
-            ) == nil
+            )
         )
+        #expect(resolution.path == expectedPath)
+        #expect(resolution.cellSpans == .available([
+            TerminalWrappedPathCellSpan(
+                rowOffsetFromClicked: 0,
+                startColumn: 2,
+                endColumn: clickedRow.count
+            ),
+            TerminalWrappedPathCellSpan(
+                rowOffsetFromClicked: 1,
+                startColumn: 0,
+                endColumn: nextRow.count
+            ),
+        ]))
     }
 
     @Test func leadingRowFallbackRejectsMultiplePathShapedBodyTokens() {
@@ -1855,6 +1893,93 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
                 nextRow: nextRow,
                 cwd: cwd,
                 purpose: .click
+            ) == nil
+        )
+    }
+
+    @Test func verifiedBulletWithVariationSelectorStaysConservativeAndClickOnly() throws {
+        let cwd = "/tmp/leading-row"
+        let clickedRow = "●︎ research/docs/price"
+        let nextRow = ".md"
+        let expectedPath = cwd + "/research/docs/price.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([expectedPath]))
+
+        let clickResolution = try #require(
+            resolver.resolveTextOnlyLeadingRowFallback(
+                clickedRow: clickedRow,
+                column: 4,
+                nextRow: nextRow,
+                cwd: cwd,
+                purpose: .click
+            )
+        )
+        #expect(clickResolution.path == expectedPath)
+        #expect(clickResolution.cellSpans == .unavailableNonASCIIRow)
+        #expect(
+            resolver.resolveTextOnlyLeadingRowFallback(
+                clickedRow: clickedRow,
+                column: 4,
+                nextRow: nextRow,
+                cwd: cwd,
+                purpose: .hover
+            ) == nil
+        )
+    }
+
+    @Test func CJKPrefixStaysConservativeAndClickOnly() throws {
+        let cwd = "/tmp/leading-row"
+        let clickedRow = "エラー: /tmp/foo"
+        let nextRow = ".md"
+        let expectedPath = "/tmp/foo.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([expectedPath]))
+
+        let clickResolution = try #require(
+            resolver.resolveTextOnlyLeadingRowFallback(
+                clickedRow: clickedRow,
+                column: 8,
+                nextRow: nextRow,
+                cwd: cwd,
+                purpose: .click
+            )
+        )
+        #expect(clickResolution.path == expectedPath)
+        #expect(clickResolution.cellSpans == .unavailableNonASCIIRow)
+        #expect(
+            resolver.resolveTextOnlyLeadingRowFallback(
+                clickedRow: clickedRow,
+                column: 8,
+                nextRow: nextRow,
+                cwd: cwd,
+                purpose: .hover
+            ) == nil
+        )
+    }
+
+    @Test func tabInBodyStaysConservativeAndClickOnly() throws {
+        let cwd = "/tmp/leading-row"
+        let clickedRow = "● research/docs/price\t"
+        let nextRow = ".md"
+        let expectedPath = cwd + "/research/docs/price.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([expectedPath]))
+
+        let clickResolution = try #require(
+            resolver.resolveTextOnlyLeadingRowFallback(
+                clickedRow: clickedRow,
+                column: 2,
+                nextRow: nextRow,
+                cwd: cwd,
+                purpose: .click
+            )
+        )
+        #expect(clickResolution.path == expectedPath)
+        #expect(clickResolution.cellSpans == .unavailableNonASCIIRow)
+        #expect(
+            resolver.resolveTextOnlyLeadingRowFallback(
+                clickedRow: clickedRow,
+                column: 2,
+                nextRow: nextRow,
+                cwd: cwd,
+                purpose: .hover
             ) == nil
         )
     }

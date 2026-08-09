@@ -134,16 +134,16 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(candidateFromRow1WiderGrid(row1: "/bar/", geometry: geometry) == nil)
 
         // No geometry at all — multi-row/mirror-seam behavior is
-        // unavailable regardless of shape (legacy adjacent-only fallback:
+        // unavailable regardless of shape (the legacy non-geometry path:
         // row0 alone, "foo", is never a valid `.previous` fragment source
         // reachable from row1's `.next`-seeking legacy path either).
         #expect(candidateFromRow1(row1: "/bar/", geometry: nil) == nil)
     }
 
-    // final-spec §3.1: the existing bug A exception must NOT extend to
-    // multiple rows even once a `geometry` value is passed — mixing the
-    // two dispositions is explicitly forbidden (§3.2's closing note).
-    @Test("The existing trailing-`/`-seam bug A exception stays adjacent-only even with geometry supplied")
+    // Existing 2-row bug A behavior remains unchanged for the ordinary
+    // non-explicit-slash fixture below; the explicit trailing-slash
+    // disposition has a separate multi-row rule pinned by the next test.
+    @Test("The existing two-row trailing-`/`-seam behavior stays unchanged with geometry supplied")
     func explicitTrailingSlashSeamBypassStaysAdjacentOnlyEvenWithGeometry() throws {
         let cwd = "/tmp"
         let previousRow = "/Users/dev/project/research/docs/"
@@ -178,11 +178,10 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
     // itself row-locally resolves AND ends with `/`, so `wrappedPathSeed`
     // produces `.explicitTrailingSlashSeamBypass`. Both the 2-row
     // (adjacent) and a longer, DOMINATING 3-row candidate exist on disk
-    // with both internal boundaries full — final-spec §3.1 requires the
-    // disposition alone to keep this adjacent-only, never letting the
-    // longer span override it.
-    @Test("`.explicitTrailingSlashSeamBypass` stays adjacent-only even when a dominating 3-row candidate also exists")
-    func explicitTrailingSlashSeamBypassRejectsADominatingThreeRowCandidate() throws {
+    // with both internal boundaries full — the revised rule permits the
+    // longer span when its leading boundary is the legacy slash seam.
+    @Test("`.explicitTrailingSlashSeamBypass` adopts a dominating 3-row candidate when its leading slash seam is valid")
+    func explicitTrailingSlashSeamBypassAdoptsADominatingThreeRowCandidate() throws {
         let cwd = "/tmp/b2"
         let rowDocs = "docs/"
         let rowReport = "report.part"
@@ -206,6 +205,130 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         // if the disposition didn't bound the search first.
         let window = try #require(TerminalPhysicalRowWindow(rows: rows, clickedIndex: 0, columns: 5))
         let candidate = resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry)
+        #expect(candidate?.path == dominatingThreeRowCandidate)
+    }
+
+    // R8 precondition from impl-request-bullet-width-and-slash-multirow-8810:
+    // the continuation-side click already resolves the exact four-row
+    // fixture before the leading-row bounds change. This test is intentionally
+    // present in the test-only commit and must pass before production code is
+    // changed; if it fails, the design requires stopping for clarification.
+    @Test("R8: the exact slash-terminated fixture resolves from its second row before the scope change")
+    func r8SlashTerminatedFixtureContinuationClickResolvesBeforeScopeChange() throws {
+        let rows = [
+            "- html: /Users/yosuke/workspace/github.com/",
+            "TMLlaboratory/s-code/research/docs/notes/20",
+            "26-07-31_scaffold_kl_foundations_and_measur",
+            "ement_limits.html",
+        ]
+        let expected = "/Users/yosuke/workspace/github.com/TMLlaboratory/s-code/research/docs/notes/2026-07-31_scaffold_kl_foundations_and_measurement_limits.html"
+        let resolver = TerminalPathResolver(fileExists: existsIn([expected]))
+        let seed = try #require(
+            resolver.wrappedPathSeed(in: rows[1], column: 0, cwd: "/tmp", columns: rows[0].count)
+        )
+        let window = try #require(
+            TerminalPhysicalRowWindow(rows: rows, clickedIndex: 1, columns: rows[0].count)
+        )
+        let candidate = resolver.resolveWrappedCandidate(
+            seed: seed, window: window, cwd: "/tmp", geometry: TerminalWrapGeometry(fullnessTolerance: 0)
+        )
+        #expect(candidate?.path == expected)
+        guard case .available(let spans) = candidate?.cellSpans else {
+            Issue.record("R8 continuation click should expose the full cell span")
+            return
+        }
+        #expect(Set(spans.map { 1 + $0.rowOffsetFromClicked }) == [0, 1, 2, 3])
+    }
+
+    @Test("The exact slash-terminated fixture resolves from every row and exposes the full leading hover span")
+    func exactSlashTerminatedFixtureResolvesFromEveryRowAndHover() throws {
+        let rows = [
+            "- html: /Users/yosuke/workspace/github.com/",
+            "TMLlaboratory/s-code/research/docs/notes/20",
+            "26-07-31_scaffold_kl_foundations_and_measur",
+            "ement_limits.html",
+        ]
+        let expected = "/Users/yosuke/workspace/github.com/TMLlaboratory/s-code/research/docs/notes/2026-07-31_scaffold_kl_foundations_and_measurement_limits.html"
+        let resolver = TerminalPathResolver(fileExists: existsIn([
+            "/Users/yosuke/workspace/github.com/",
+            expected,
+        ]))
+        let geometry = try #require(TerminalWrapGeometry(fullnessTolerance: 0))
+
+        func absoluteSpans(_ resolution: TerminalWrappedPathResolution, clickedIndex: Int) -> Set<[Int]> {
+            guard case .available(let spans) = resolution.cellSpans else {
+                Issue.record("Expected available spans for the exact slash fixture")
+                return []
+            }
+            return Set(spans.map { span in
+                [clickedIndex + span.rowOffsetFromClicked, span.startColumn, span.endColumn]
+            })
+        }
+
+        var clickResolutions: [TerminalWrappedPathResolution] = []
+        for clickedIndex in rows.indices {
+            let clickColumn = clickedIndex == 0 ? 8 : 0
+            let seed = try #require(
+                resolver.wrappedPathSeed(in: rows[clickedIndex], column: clickColumn, cwd: "/tmp", columns: 43)
+            )
+            let window = try #require(
+                TerminalPhysicalRowWindow(rows: rows, clickedIndex: clickedIndex, columns: 43)
+            )
+            let resolution = try #require(
+                resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: "/tmp", geometry: geometry)
+            )
+            #expect(resolution.path == expected)
+            clickResolutions.append(resolution)
+        }
+
+        let expectedSpans: Set<[Int]> = [
+            [0, 8, 43],
+            [1, 0, 43],
+            [2, 0, 43],
+            [3, 0, 17],
+        ]
+        for (clickedIndex, resolution) in clickResolutions.enumerated() {
+            #expect(absoluteSpans(resolution, clickedIndex: clickedIndex) == expectedSpans)
+        }
+
+        let leadingSeed = try #require(
+            resolver.wrappedPathSeed(in: rows[0], column: 8, cwd: "/tmp", columns: 43)
+        )
+        let hoverResolution = try #require(
+            resolver.resolveWrappedCandidate(
+                seed: leadingSeed,
+                rows: rows,
+                clickedIndex: 0,
+                columns: 43,
+                cwd: "/tmp",
+                purpose: .hover
+            )
+        )
+        #expect(hoverResolution.path == expected)
+        #expect(absoluteSpans(hoverResolution, clickedIndex: 0) == expectedSpans)
+    }
+
+    @Test("A slash-seam multi-row candidate is rejected when its trailing fragment is an independent existing path")
+    func slashSeamMultiRowRejectsAnLsStyleTrailingFragmentFalsePositive() throws {
+        let cwd = "/tmp"
+        let rows = ["/tmp/projx/", "report.part", "two.md"]
+        let rowLocalDirectory = "/tmp/projx"
+        let adjacentCandidate = "/tmp/projx/report.part"
+        let dominatingCandidate = "/tmp/projx/report.parttwo.md"
+        let trailingFragmentAlone = "/tmp/two.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([
+            rowLocalDirectory,
+            adjacentCandidate,
+            dominatingCandidate,
+            trailingFragmentAlone,
+        ]))
+        let seed = try #require(resolver.wrappedPathSeed(in: rows[0], column: 0, cwd: cwd, columns: 11))
+        #expect(seed.disposition == .explicitTrailingSlashSeamBypass)
+        let window = try #require(TerminalPhysicalRowWindow(rows: rows, clickedIndex: 0, columns: 11))
+
+        let candidate = resolver.resolveWrappedCandidate(
+            seed: seed, window: window, cwd: cwd, geometry: TerminalWrapGeometry(fullnessTolerance: 0)
+        )
         #expect(candidate?.path == adjacentCandidate)
     }
 

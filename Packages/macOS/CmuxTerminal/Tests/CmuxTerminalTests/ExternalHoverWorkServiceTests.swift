@@ -266,6 +266,70 @@ import CmuxTerminalCore
         ) == true)
     }
 
+    @Test func verifiedBulletLeadingRowUsesTheSharedHoverFallbackAndPublishesExactRanges() async {
+        let teardownCoordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let counts = CallCounts()
+        let cwd = "/tmp/leading-row"
+        let clickedRow = "● research/docs/notes/price"
+        let nextRow = ".md"
+        let expectedPath = cwd + "/research/docs/notes/price.md"
+        let lifetimeID = Self.makeLifetime()
+        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+        let mirror = HoverCallbackMirror()
+        mirror.publish(.init(lifetimeID: lifetimeID, hoverEventID: 1, eligible: true, visible: true))
+        let mailboxCoordinator = Self.makeCoordinator()
+
+        let service = ExternalHoverWorkService(
+            teardownCoordinator: teardownCoordinator,
+            resolver: TerminalPathResolver(fileExists: { $0 == expectedPath }),
+            readPhysicalRows: { _, topRow, rowCount, expectedColumns, _ in
+                let rows = (0..<Int(rowCount)).map { offset -> String in
+                    switch topRow + UInt32(offset) {
+                    case 5: return clickedRow
+                    case 6: return nextRow
+                    default: return ""
+                    }
+                }
+                return TerminalPhysicalRowsSnapshot(
+                    rawText: rows.joined(separator: "\n") + "\n",
+                    topRow: topRow,
+                    expectedRowCount: rowCount,
+                    columns: expectedColumns
+                )
+            },
+            callSetter: { _, _, _, _, ranges, _ in
+                counts.setterCalls += 1
+                counts.lastSetterRanges = ranges
+                return HoverActivationTokenValue(bits: (1, 1, 1, 1))
+            },
+            callClear: { _, _ in },
+            drainDiagnostics: { _, _ in (entries: [], droppedCountCumulative: 0) }
+        )
+
+        let request = ExternalHoverWorkRequest(
+            lifetimeID: lifetimeID,
+            surface: surface,
+            requestGeneration: 1,
+            cell: ExternalHoverGridCell(row: 5, column: 2),
+            viewportRowCount: 10,
+            gridColumns: 80,
+            cwd: cwd,
+            mirror: mirror,
+            coordinator: mailboxCoordinator,
+            surfaceSerial: 0
+        )
+        await service.submit(request).value
+
+        #expect(counts.setterCalls == 1)
+        #expect(counts.lastSetterRanges?.sorted { $0.row < $1.row } == [
+            ExternalHoverCellRangeValue(row: 5, startColumn: 2, endColumn: UInt16(clickedRow.count)),
+            ExternalHoverCellRangeValue(row: 6, startColumn: 0, endColumn: UInt16(nextRow.count)),
+        ])
+        let cache = await service.debugCache(for: lifetimeID)
+        #expect(cache?.path == expectedPath)
+    }
+
     // design-next-round-bundle-8810.md §1 rule 5 — the exact bug-B
     // bullet-prefixed fixture that NOW resolves on the click path (see
     // `TerminalPathResolverTests.swift`'s

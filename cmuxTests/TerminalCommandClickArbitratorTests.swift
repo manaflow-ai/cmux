@@ -287,7 +287,18 @@ struct TerminalCommandClickArbitratorTests {
             )
         )
         #expect(candidate.path == expectedPath)
-        #expect(candidate.cellSpans == .unavailableNonASCIIRow)
+        #expect(candidate.cellSpans == .available([
+            TerminalWrappedPathCellSpan(
+                rowOffsetFromClicked: 0,
+                startColumn: 2,
+                endColumn: clickedRow.count
+            ),
+            TerminalWrappedPathCellSpan(
+                rowOffsetFromClicked: 1,
+                startColumn: 0,
+                endColumn: nextRow.count
+            ),
+        ]))
     }
 
     // review §R2-B3/B4 closing requirement — connects this composition's
