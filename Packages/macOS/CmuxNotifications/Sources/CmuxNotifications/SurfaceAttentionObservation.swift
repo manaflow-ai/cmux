@@ -3,26 +3,25 @@ import Foundation
 /// Cancels one imperative surface-attention observation.
 @MainActor
 public final class SurfaceAttentionObservation {
-    private weak var model: SurfaceAttentionModel?
-    private let id: UUID
+    private var cancellation: (@MainActor @Sendable () -> Void)?
 
     init(model: SurfaceAttentionModel, id: UUID) {
-        self.model = model
-        self.id = id
+        cancellation = { [weak model] in
+            model?.removeObserver(id)
+        }
     }
 
     /// Stops delivering surface-attention changes.
     public func cancel() {
-        model?.removeObserver(id)
-        model = nil
+        let cancellation = self.cancellation
+        self.cancellation = nil
+        cancellation?()
     }
 
     deinit {
-        // This token's API and lifetime are MainActor-owned. Keep teardown
-        // synchronous so releasing it is the exact delivery boundary.
-        // `isolated deinit` cannot be used while cmux verifies with Xcode 16.4.
-        MainActor.assumeIsolated {
-            cancel()
+        guard let cancellation else { return }
+        Task { @MainActor in
+            cancellation()
         }
     }
 }

@@ -212,7 +212,7 @@ extension TerminalSurface {
                 return .alreadySatisfied
             }
             if runtimeSurface != nil {
-                guard performExplicitInputBindingAction(
+                guard performInternalBindingAction(
                     ghosttySetFontSizeBindingAction(
                         adjustedRuntimePoints
                     )
@@ -238,7 +238,7 @@ extension TerminalSurface {
                 ? "increase_font_size"
                 : "decrease_font_size"
             let action = "\(verb):\(abs(netRuntimePointDelta))"
-            guard performExplicitInputBindingAction(action) else {
+            guard performInternalBindingAction(action) else {
                 return .failed
             }
             followsConfiguredFontSize = false
@@ -444,7 +444,7 @@ extension TerminalSurface {
                     : .alreadySatisfied
             }
 
-            guard performExplicitInputBindingAction("reset_font_size") else {
+            guard performInternalBindingAction("reset_font_size") else {
                 return .failed
             }
             followsConfiguredFontSize = true

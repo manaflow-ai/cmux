@@ -7,6 +7,11 @@ extension AppDelegate {
         surfaceId: UUID?,
         panelId: UUID?
     ) -> TerminalNotificationScrollPosition? {
+        if let surfaceId,
+           let dock = existingWindowDock(forWindowId: tabId),
+           let panel = dock.panels[surfaceId] as? TerminalPanel {
+            return panel.notificationScrollPosition
+        }
         guard let workspace = workspaceFor(tabId: tabId) ?? tabManager?.tabs.first(where: { $0.id == tabId }) else {
             return nil
         }
