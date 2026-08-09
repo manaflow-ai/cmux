@@ -55,6 +55,10 @@ private extension NSApplication {
     }
 }
 
+private final class StageManagerRightSidebarResponder: NSView, FeedKeyboardFocusResponder {
+    override var acceptsFirstResponder: Bool { true }
+}
+
 @MainActor
 @Suite("Window activation", .serialized)
 struct GhosttyEnsureFocusWindowActivationTests {
@@ -406,6 +410,76 @@ struct GhosttyEnsureFocusWindowActivationTests {
             #expect(workspace.manualUnreadPanelIds == Set([panelID]))
             #expect(tabManager.selectedTabId == workspace.id)
             #expect(NSApp.keyWindow !== ownerWindow)
+        }
+    }
+
+    @Test
+    func terminalBellWhileRightSidebarOwnsInputMarksSelectedPaneUnread() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let previousFocusOverride = AppFocusState.overrideIsFocused
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let appDelegate = AppDelegate()
+            let tabManager = TabManager(autoWelcomeIfNeeded: false)
+            let fileExplorerState = FileExplorerState()
+            let windowID = UUID()
+            let ownerWindow = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            ownerWindow.isReleasedWhenClosed = false
+            ownerWindow.identifier = NSUserInterfaceItemIdentifier(
+                "cmux.main.\(windowID.uuidString)"
+            )
+            let contentView = NSView(frame: ownerWindow.contentRect(forFrameRect: ownerWindow.frame))
+            let rightSidebarResponder = StageManagerRightSidebarResponder(frame: contentView.bounds)
+            contentView.addSubview(rightSidebarResponder)
+            ownerWindow.contentView = contentView
+
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = tabManager
+            TerminalController.shared.setActiveTabManager(tabManager)
+            appDelegate.registerMainWindow(
+                ownerWindow,
+                windowId: windowID,
+                tabManager: tabManager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: fileExplorerState
+            )
+            AppFocusState.overrideIsFocused = true
+
+            let workspace = try #require(tabManager.selectedWorkspace)
+            let terminal = try #require(workspace.focusedTerminalPanel)
+            let panelID = terminal.id
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+                tabManager.tabs.forEach { $0.teardownAllPanels() }
+                ownerWindow.orderOut(nil)
+                ownerWindow.close()
+                appDelegate.tabManager = nil
+                AppFocusState.overrideIsFocused = previousFocusOverride
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            ownerWindow.makeKeyAndOrderFront(nil)
+            #expect(NSApp.keyWindow === ownerWindow)
+            #expect(ownerWindow.makeFirstResponder(rightSidebarResponder))
+            appDelegate.keyboardFocusCoordinator(for: ownerWindow)?
+                .noteRightSidebarInteraction(mode: .feed)
+
+            #expect(tabManager.selectedTabId == workspace.id)
+            #expect(workspace.isFocusedTerminalInputSurface(terminal.id))
+            #expect(workspace.manualUnreadPanelIds.isEmpty)
+
+            let visualBell = try #require(terminal.surface.onVisualBell)
+            visualBell()
+
+            #expect(workspace.manualUnreadPanelIds == Set([panelID]))
+            #expect(ownerWindow.firstResponder === rightSidebarResponder)
         }
     }
 }
