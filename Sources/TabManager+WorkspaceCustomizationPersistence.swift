@@ -96,6 +96,11 @@ extension TabManager {
             workspaces.first?.customColor,
             for: workspaces.map(\.stableId)
         )
+        // Manual colors are mutated on the workspace in place, so this never
+        // reaches the `tabs` observer. Setting one has to release the auto
+        // color it hides, and clearing one has to bring a rail back, so the
+        // reconcile is requested from the mutation itself.
+        scheduleAutoWorkspaceColorReconcile()
     }
 
     private func applyWorkspaceCustomization(

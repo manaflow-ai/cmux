@@ -1116,6 +1116,35 @@ import Testing
         #expect(!app.scheduledAutoWorkspaceColorReconciles.contains(store))
     }
 
+    /// Manual colors are set on the workspace object in place, so nothing
+    /// reaches the `tabs` observer and the settings fingerprint does not move.
+    /// Setting one still has to release the rail, and clearing one still has to
+    /// bring a rail back — including when there is no saved assignment left to
+    /// fall back on.
+    @MainActor
+    @Test
+    func clearingAManualColorBringsTheRailBackWithoutAnyOtherChange() async throws {
+        let defaults = Self.suite()
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        settings.set(.leftRailAuto, for: WorkspaceColorsCatalogSection().indicatorStyle)
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            settings: settings,
+            autoWorkspaceColorDefaults: defaults,
+            closeTabWarningDefaults: defaults
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        #expect(await Self.waitUntil { Self.railColor(for: workspace, defaults: defaults) != nil })
+
+        manager.applyWorkspaceColor("#ABCDEF", toWorkspaceIds: [workspace.id])
+        #expect(await Self.waitUntil { Self.railColor(for: workspace, defaults: defaults) == nil })
+
+        // No reservation to restore, so clearing has to allocate a new color.
+        WorkspaceAutoColorAssignmentStore(defaults: defaults).reset()
+        manager.applyWorkspaceColor(nil, toWorkspaceIds: [workspace.id])
+        #expect(await Self.waitUntil { Self.railColor(for: workspace, defaults: defaults) != nil })
+    }
+
     /// Polls `condition` until it holds or the deadline passes.
     ///
     /// Reconciling hops through `Task { @MainActor }`, so a single
