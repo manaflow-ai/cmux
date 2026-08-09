@@ -1,4 +1,5 @@
 import AppKit
+import CmuxControlSocket
 import CmuxCore
 import Darwin
 import Foundation
