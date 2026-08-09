@@ -106,35 +106,117 @@ private extension NSView {
     }
 }
 
+private extension NSSplitView {
+    @objc(cmux_portalAddArrangedSubview:)
+    func cmux_portalAddArrangedSubview(_ view: NSView) {
+        let mutationState = PortalViewHierarchyMutationTracker.arrangedSubviewsBeforeMutation(
+            splitView: self
+        )
+        cmux_portalAddArrangedSubview(view)
+        guard let mutationState else { return }
+        PortalViewHierarchyMutationTracker.recordArrangedSubviewsMutation(
+            splitView: self,
+            mutationState: mutationState
+        )
+    }
+
+    @objc(cmux_portalInsertArrangedSubview:atIndex:)
+    func cmux_portalInsertArrangedSubview(_ view: NSView, at index: Int) {
+        let mutationState = PortalViewHierarchyMutationTracker.arrangedSubviewsBeforeMutation(
+            splitView: self
+        )
+        cmux_portalInsertArrangedSubview(view, at: index)
+        guard let mutationState else { return }
+        PortalViewHierarchyMutationTracker.recordArrangedSubviewsMutation(
+            splitView: self,
+            mutationState: mutationState
+        )
+    }
+
+    @objc(cmux_portalRemoveArrangedSubview:)
+    func cmux_portalRemoveArrangedSubview(_ view: NSView) {
+        let mutationState = PortalViewHierarchyMutationTracker.arrangedSubviewsBeforeMutation(
+            splitView: self
+        )
+        cmux_portalRemoveArrangedSubview(view)
+        guard let mutationState else { return }
+        PortalViewHierarchyMutationTracker.recordArrangedSubviewsMutation(
+            splitView: self,
+            mutationState: mutationState
+        )
+    }
+
+    @objc(cmux_portalSetArrangesAllSubviews:)
+    func cmux_portalSetArrangesAllSubviews(_ arrangesAllSubviews: Bool) {
+        let mutationState = PortalViewHierarchyMutationTracker.arrangedSubviewsBeforeMutation(
+            splitView: self
+        )
+        cmux_portalSetArrangesAllSubviews(arrangesAllSubviews)
+        guard let mutationState else { return }
+        PortalViewHierarchyMutationTracker.recordArrangedSubviewsMutation(
+            splitView: self,
+            mutationState: mutationState
+        )
+    }
+}
+
 @MainActor
 final class PortalSplitDividerCacheInvalidator {
-    /// AppKit does not document `subviews` as KVO-compliant. Hook every public
-    /// hierarchy mutation entrypoint once so the window tracker can advance its
-    /// generation without a pointer-time tree walk.
+    /// AppKit does not document `subviews` as KVO-compliant, and an `NSSplitView`
+    /// can change its arranged panes without changing `subviews`. Hook both
+    /// authoritative mutation surfaces once so the window tracker can advance
+    /// its generation without a pointer-time tree walk.
     private static let hierarchyMutationHooksInstalled: Bool = {
-        let selectorPairs: [(original: Selector, replacement: Selector)] = [
-            (#selector(NSView.addSubview(_:)), #selector(NSView.cmux_portalAddSubview(_:))),
+        let selectorPairs: [(ownerClass: AnyClass, original: Selector, replacement: Selector)] = [
+            (NSView.self, #selector(NSView.addSubview(_:)), #selector(NSView.cmux_portalAddSubview(_:))),
             (
+                NSView.self,
                 #selector(NSView.addSubview(_:positioned:relativeTo:)),
                 #selector(NSView.cmux_portalAddSubview(_:positioned:relativeTo:))
             ),
-            (#selector(setter: NSView.subviews), #selector(NSView.cmux_portalSetSubviews(_:))),
-            (#selector(NSView.removeFromSuperview), #selector(NSView.cmux_portalRemoveFromSuperview)),
+            (NSView.self, #selector(setter: NSView.subviews), #selector(NSView.cmux_portalSetSubviews(_:))),
+            (NSView.self, #selector(NSView.removeFromSuperview), #selector(NSView.cmux_portalRemoveFromSuperview)),
             (
+                NSView.self,
                 #selector(NSView.removeFromSuperviewWithoutNeedingDisplay),
                 #selector(NSView.cmux_portalRemoveFromSuperviewWithoutNeedingDisplay)
             ),
             (
+                NSView.self,
                 #selector(NSView.replaceSubview(_:with:)),
                 #selector(NSView.cmux_portalReplaceSubview(_:with:))
             ),
-            (#selector(NSView.sortSubviews(_:context:)), #selector(NSView.cmux_portalSortSubviews(_:context:))),
+            (
+                NSView.self,
+                #selector(NSView.sortSubviews(_:context:)),
+                #selector(NSView.cmux_portalSortSubviews(_:context:))
+            ),
+            (
+                NSSplitView.self,
+                #selector(NSSplitView.addArrangedSubview(_:)),
+                #selector(NSSplitView.cmux_portalAddArrangedSubview(_:))
+            ),
+            (
+                NSSplitView.self,
+                #selector(NSSplitView.insertArrangedSubview(_:at:)),
+                #selector(NSSplitView.cmux_portalInsertArrangedSubview(_:at:))
+            ),
+            (
+                NSSplitView.self,
+                #selector(NSSplitView.removeArrangedSubview(_:)),
+                #selector(NSSplitView.cmux_portalRemoveArrangedSubview(_:))
+            ),
+            (
+                NSSplitView.self,
+                #selector(setter: NSSplitView.arrangesAllSubviews),
+                #selector(NSSplitView.cmux_portalSetArrangesAllSubviews(_:))
+            ),
         ]
 
         var methodPairs: [(original: Method, replacement: Method)] = []
         for selectors in selectorPairs {
-            guard let original = class_getInstanceMethod(NSView.self, selectors.original),
-                  let replacement = class_getInstanceMethod(NSView.self, selectors.replacement) else {
+            guard let original = class_getInstanceMethod(selectors.ownerClass, selectors.original),
+                  let replacement = class_getInstanceMethod(selectors.ownerClass, selectors.replacement) else {
                 assertionFailure("Unable to install portal view-hierarchy mutation hook for \(selectors.original)")
                 return false
             }

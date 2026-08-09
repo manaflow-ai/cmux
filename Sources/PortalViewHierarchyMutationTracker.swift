@@ -15,6 +15,11 @@ final class PortalViewHierarchyMutationTracker: NSObject {
         fileprivate let newSubviewWasInTrackedWindow: [Bool]
     }
 
+    struct ArrangedSubviewsBeforeMutation {
+        fileprivate let tracker: PortalViewHierarchyMutationTracker
+        fileprivate let arrangedSubviews: [NSView]
+    }
+
     private static let windowAssociationKey = NSObject()
     private static let nodeStateAssociationKey = NSObject()
 
@@ -131,6 +136,34 @@ final class PortalViewHierarchyMutationTracker: NSObject {
             newSubviews: newSubviews,
             newSubviewWasInTrackedWindow: replacementState.newSubviewWasInTrackedWindow
         )
+    }
+
+    static func arrangedSubviewsBeforeMutation(
+        splitView: NSSplitView
+    ) -> ArrangedSubviewsBeforeMutation? {
+        guard let window = splitView.window,
+              let tracker = tracker(for: window, createIfNeeded: false),
+              tracker.hasActiveCaches,
+              tracker.currentNodeState(for: splitView)?.containsSplitView == true else {
+            return nil
+        }
+        return ArrangedSubviewsBeforeMutation(
+            tracker: tracker,
+            arrangedSubviews: splitView.arrangedSubviews
+        )
+    }
+
+    static func recordArrangedSubviewsMutation(
+        splitView: NSSplitView,
+        mutationState: ArrangedSubviewsBeforeMutation
+    ) {
+        let tracker = mutationState.tracker
+        guard tracker.hasActiveCaches,
+              tracker.currentNodeState(for: splitView)?.containsSplitView == true,
+              !haveSameIdentityOrder(mutationState.arrangedSubviews, splitView.arrangedSubviews) else {
+            return
+        }
+        tracker.markDirty()
     }
 
     static func subviewOrderBeforeSort(
