@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 extension TerminalPasteboardService {
     /// Reserves a concrete managed pasteboard in process-wide operation order.

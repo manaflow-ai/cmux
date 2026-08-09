@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxTerminalCore
+public import GhosttyKit
 
 /// The inner terminal NSView a ``TerminalSurface`` renders into.
 ///

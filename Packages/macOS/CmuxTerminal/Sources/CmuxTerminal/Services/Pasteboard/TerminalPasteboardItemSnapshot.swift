@@ -1,4 +1,5 @@
 import AppKit
+public import Foundation
 
 /// A Sendable, eagerly materialized pasteboard item.
 public struct TerminalPasteboardItemSnapshot: Equatable, Sendable {

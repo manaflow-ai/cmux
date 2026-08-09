@@ -139,7 +139,7 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
             }
         }
 
-        #expect(context.registerRuntimeClipboardRequest(
+        let didRegisterRequest = context.registerRuntimeClipboardRequest(
             id: 17,
             onInvalidation: {
                 wasAdmitted,
@@ -156,7 +156,8 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
                 }
                 _ = invalidationCount.advanceRelaxed()
             }
-        ))
+        )
+        #expect(didRegisterRequest)
         #expect(context.commitRuntimeClipboardRequest(17))
         #expect(context.attachRuntimeClipboardTask(task, requestID: 17))
         #expect(
@@ -189,12 +190,13 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         #expect(context.bindRuntimeClipboardSurface(surface, generation: 9))
         let invalidationCount = AtomicUInt64Generation()
 
-        #expect(context.registerRuntimeClipboardRequest(
+        let didRegisterRequest = context.registerRuntimeClipboardRequest(
             id: 23,
             onInvalidation: { _, _, _, _ in
                 _ = invalidationCount.advanceRelaxed()
             }
-        ))
+        )
+        #expect(didRegisterRequest)
         #expect(context.commitRuntimeClipboardRequest(23))
         #expect(context.completeRuntimeClipboardRequest(23))
 
@@ -218,13 +220,14 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         let invalidationCount = AtomicUInt64Generation()
         let completedNativeRequest = AtomicBooleanGate(false)
 
-        #expect(context.registerRuntimeClipboardRequest(
+        let didRegisterRequest = context.registerRuntimeClipboardRequest(
             id: 25,
             onInvalidation: { _, completesNativeRequest, _, _ in
                 _ = invalidationCount.advanceRelaxed()
                 completedNativeRequest.storeRelease(completesNativeRequest)
             }
-        ))
+        )
+        #expect(didRegisterRequest)
         #expect(context.commitRuntimeClipboardRequest(25))
         let invalidate = context.makeRuntimeClipboardInvalidationHandler(
             for: 25,
@@ -252,12 +255,13 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         #expect(context.bindRuntimeClipboardSurface(surface, generation: 13))
         let completedNativeRequest = AtomicBooleanGate(true)
 
-        #expect(context.registerRuntimeClipboardRequest(
+        let didRegisterRequest = context.registerRuntimeClipboardRequest(
             id: 31,
             onInvalidation: { _, completesNativeRequest, _, _ in
                 completedNativeRequest.storeRelease(completesNativeRequest)
             }
-        ))
+        )
+        #expect(didRegisterRequest)
 
         context.invalidateRuntimeClipboardRequests(
             completingNativeRequests: true
@@ -298,7 +302,7 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
 
         let reservedAdmissionCount = AtomicUInt64Generation()
         var invalidatedSurfaceAddress: UInt?
-        #expect(context.withRuntimeClipboardPasteIntent {
+        let didRegisterRequest = context.withRuntimeClipboardPasteIntent {
             context.registerRuntimeClipboardRequest(
                 id: 37,
                 reservePasteInput: { epoch in
@@ -311,7 +315,8 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
                         .runtimeClipboardSurfaceAddress
                 }
             )
-        })
+        }
+        #expect(didRegisterRequest)
         #expect(context.commitRuntimeClipboardRequest(37))
         #expect(
             !context.bindRuntimeClipboardSurface(
@@ -336,7 +341,7 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         )
         let reservedAdmissionCount = AtomicUInt64Generation()
 
-        #expect(!context.withRuntimeClipboardPasteIntent {
+        let didRegisterRequest = context.withRuntimeClipboardPasteIntent {
             context.registerRuntimeClipboardRequest(
                 id: 39,
                 reservePasteInput: { _ in
@@ -345,7 +350,8 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
                 },
                 onInvalidation: { _, _, _, _ in }
             )
-        })
+        }
+        #expect(!didRegisterRequest)
 
         #expect(reservedAdmissionCount.loadRelaxed() == 0)
     }
@@ -358,10 +364,11 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         )
         let surface = try #require(ghostty_surface_t(bitPattern: 0x29))
         #expect(context.bindRuntimeClipboardSurface(surface, generation: 19))
-        #expect(context.registerRuntimeClipboardRequest(
+        let didRegisterRequest = context.registerRuntimeClipboardRequest(
             id: 40,
             onInvalidation: { _, _, _, _ in }
-        ))
+        )
+        #expect(didRegisterRequest)
         context.invalidateRuntimeClipboardRequests(
             completingNativeRequests: false
         )
@@ -392,7 +399,7 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         )
         let reservedAdmissionCount = AtomicUInt64Generation()
 
-        #expect(!context.withRuntimeClipboardPasteIntent {
+        let didRegisterRequest = context.withRuntimeClipboardPasteIntent {
             context.registerRuntimeClipboardRequest(
                 id: 41,
                 reservePasteInput: { _ in
@@ -401,7 +408,8 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
                 },
                 onInvalidation: { _, _, _, _ in }
             )
-        })
+        }
+        #expect(!didRegisterRequest)
 
         #expect(reservedAdmissionCount.loadRelaxed() == 0)
     }
@@ -429,14 +437,16 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         )
         let reservedAdmissionCount = AtomicUInt64Generation()
 
-        #expect(secondContext.registerRuntimeClipboardRequest(
-            id: 1,
-            reservePasteInput: { _ in
-                _ = reservedAdmissionCount.advanceRelaxed()
-                return true
-            },
-            onInvalidation: { _, _, _, _ in }
-        ))
+        let didRegisterInitialRequest = secondContext
+            .registerRuntimeClipboardRequest(
+                id: 1,
+                reservePasteInput: { _ in
+                    _ = reservedAdmissionCount.advanceRelaxed()
+                    return true
+                },
+                onInvalidation: { _, _, _, _ in }
+            )
+        #expect(didRegisterInitialRequest)
         #expect(secondContext.commitRuntimeClipboardRequest(1))
         #expect(
             secondContext.markRuntimeClipboardRequestAdmitted(1)
@@ -527,17 +537,21 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         let surface = try #require(ghostty_surface_t(bitPattern: 0x35))
         #expect(context.bindRuntimeClipboardSurface(surface, generation: 23))
 
-        #expect(!context.withRuntimeClipboardPasteIntent {
+        let didRegisterRejectedRequest =
+            context.withRuntimeClipboardPasteIntent {
+                context.registerRuntimeClipboardRequest(
+                    id: 1,
+                    reservePasteInput: { _ in false },
+                    onInvalidation: { _, _, _, _ in }
+                )
+            }
+        #expect(!didRegisterRejectedRequest)
+        let didRegisterReplacementRequest =
             context.registerRuntimeClipboardRequest(
-                id: 1,
-                reservePasteInput: { _ in false },
+                id: 2,
                 onInvalidation: { _, _, _, _ in }
             )
-        })
-        #expect(context.registerRuntimeClipboardRequest(
-            id: 2,
-            onInvalidation: { _, _, _, _ in }
-        ))
+        #expect(didRegisterReplacementRequest)
 
         context.invalidateRuntimeClipboardRequests(
             completingNativeRequests: false
