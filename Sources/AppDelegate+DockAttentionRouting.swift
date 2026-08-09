@@ -5,13 +5,12 @@ import Foundation
 extension AppDelegate {
     enum NotificationSurfaceContainer {
         case workspace
-        case dock(DockSplitStore)
+        case windowDock(DockSplitStore)
     }
 
-    /// Resolves the current notification owner for a surface across every
-    /// container. Dock IDs are stable notification namespaces (`workspaceId`
-    /// is the workspace ID for a workspace Dock and the window ID for a global
-    /// Dock); main-tree surfaces keep the existing workspace owner.
+    /// Resolves the current rendered notification owner for a surface.
+    /// Per-window Dock IDs use their window ID as a stable notification
+    /// namespace; main-tree surfaces keep the existing workspace owner.
     func notificationSurfaceOwner(
         surfaceID: UUID,
         preferredTabID: UUID? = nil
@@ -27,12 +26,17 @@ extension AppDelegate {
            let target = workspace.surfaceOwnershipTarget(for: surfaceID) {
             return (preferredTabID, target.surfaceID, manager, .workspace)
         }
-        if let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(surfaceID) }) {
-            let manager = dock.scope == .global
-                ? tabManagerFor(windowId: dock.workspaceId)
-                : tabManagerFor(tabId: dock.workspaceId)
-            guard let manager else { return nil }
-            return (dock.workspaceId, surfaceID, manager, .dock(dock))
+        // Only per-window Docks are rendered. Legacy workspace-scoped stores
+        // can still exist for restore/control compatibility, but treating one
+        // as an openable notification owner would reveal a different Dock and
+        // clear attention from an invisible panel.
+        if let dock = DockSplitStore.liveStores.first(where: {
+            $0.scope == .global && $0.containsPanel(surfaceID)
+        }) {
+            guard let manager = tabManagerFor(windowId: dock.workspaceId) else {
+                return nil
+            }
+            return (dock.workspaceId, surfaceID, manager, .windowDock(dock))
         }
         guard let owner = workspaceContainingPanel(
             panelId: surfaceID,
