@@ -123,10 +123,6 @@ struct NestedTopologyAssociationTests {
         let fixture = NestedTopologyTestFixture()
         let reducer = NestedTopologyReducer()
         let snapshot = try fixture.snapshot(
-            tabs: [
-                fixture.tab("tab-1", order: 0),
-                fixture.tab("tab-2", order: 1),
-            ],
             panes: [fixture.pane(
                 tabRawID: "tab-1",
                 sessionID: "session-old",
@@ -136,6 +132,7 @@ struct NestedTopologyAssociationTests {
         let newSessionGuess = fixture.pane(
             tabRawID: "tab-2",
             sessionID: "session-new",
+            title: NestedNodeTitle(value: "New session", authority: .provider),
             associationAuthority: .heuristic,
             heuristicAlreadySatisfied: true
         )
@@ -149,6 +146,7 @@ struct NestedTopologyAssociationTests {
         #expect(result.panes[0].association.tabID == fixture.id("tab-1", kind: .tab))
         #expect(result.panes[0].association.authority == .provider)
         #expect(!result.panes[0].association.heuristicAlreadySatisfied)
+        #expect(result.panes[0].title == newSessionGuess.title)
     }
 
     @Test("a successful heuristic association drives focus and close cascades")
