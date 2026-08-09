@@ -56,6 +56,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
+                    "simulator.frame", "simulator.state", "simulator.closed",
                 ]
             case .renderGrid:
                 return [
@@ -64,6 +65,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
+                    "simulator.frame", "simulator.state", "simulator.closed",
                 ]
             case .rawBytes:
                 return [
@@ -72,6 +74,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
+                    "simulator.frame", "simulator.state", "simulator.closed",
                 ]
             }
         }
@@ -112,6 +115,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let browserStreamViewportCapability = MobileBrowserStreamCapability.viewportIdentifier
     static let browserStreamDialogCapability = MobileBrowserStreamCapability.dialogIdentifier
     static let browserStreamCreateCapability = MobileBrowserStreamCapability.createIdentifier
+    static let simulatorStreamCapability = MobileSimulatorStreamCapability.current.identifier
+    static let simulatorInputCapability = MobileSimulatorStreamCapability.current.inputIdentifier
+    static let simulatorKeepaliveCapability = MobileSimulatorStreamCapability.current.keepaliveIdentifier
     static let terminalReplayCapability = "terminal.replay.v1"
     static let terminalInputOrderedCapability = "terminal.input.ordered.v1"
     static let maxTerminalReplayBarrierDroppedOutputBeforeFailOpen: UInt64 = 256
@@ -183,7 +189,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if connectionState == .connected {
                 restartTerminalLanesForMountedSurfaces()
                 browserStreamEvents?.setBrowserStreamConnectionStatus(.connected)
+                simulatorStreamStore?.setSimulatorStreamConnectionStatus(.connected)
                 restartActiveMobileBrowserStreams()
+                restartActiveMobileSimulatorStreams()
                 scheduleWorkspaceChangesSummaryRefresh()
                 #if DEBUG
                 startLatencyProbeIfReady()
@@ -192,7 +200,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             } else {
                 deactivateAllTerminalLanes()
                 startedMobileBrowserPanelIDs.removeAll()
+                startedMobileSimulatorPanelIDs.removeAll()
+                cancelMobileSimulatorStreamOperations()
                 browserStreamEvents?.setBrowserStreamConnectionStatus(
+                    macConnectionStatus == .reconnecting ? .reconnecting : .disconnected
+                )
+                simulatorStreamStore?.setSimulatorStreamConnectionStatus(
                     macConnectionStatus == .reconnecting ? .reconnecting : .disconnected
                 )
                 resetWorkspaceChangesState()
@@ -434,6 +447,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Mac, then phone-owned. `@ObservationIgnored` (views read `workspaceGroups`);
     /// injected so tests/previews can pass a suite-scoped `UserDefaults`.
     @ObservationIgnored var groupCollapseStore: MobileWorkspaceGroupCollapseStore
+    /// Device-local sort preference for the aggregated All Computers list
+    /// (mode + user computer order). `@ObservationIgnored`: views read the
+    /// observable ``workspaceSortMode`` / ``workspaceComputerPriority``
+    /// mirrors below; this store only persists. Injected so tests/previews can
+    /// pass a suite-scoped `UserDefaults`.
+    @ObservationIgnored var workspaceSortStore: MobileWorkspaceSortStore
+    /// Observable mirror of ``MobileWorkspaceSortStore/mode``. Change through
+    /// ``setWorkspaceSortMode(_:)`` so persistence and the derived list stay
+    /// in step.
+    public internal(set) var workspaceSortMode: MobileWorkspaceSortMode = .automatic
+    /// Observable mirror of ``MobileWorkspaceSortStore/computerPriority``.
+    /// Change through ``setWorkspaceComputerPriority(_:)``.
+    public internal(set) var workspaceComputerPriority: [String] = []
     /// Device-local task templates used by the iOS task composer.
     @ObservationIgnored public let taskTemplateStore: (any MobileTaskTemplateStoring)?
     /// Mac/provider model responses observed by the task composer.
@@ -482,8 +508,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Separate app-lifetime browser event sink; never stored in workspace preview state.
     @ObservationIgnored let browserStreamEvents: (any BrowserStreamEventReceiving)?
+    /// Separate app-lifetime simulator stream state; never stored in workspace preview state.
+    @ObservationIgnored let simulatorStreamStore: MobileSimulatorStreamStore?
     @ObservationIgnored let mobileBrowserStreamLifecycle = MobileBrowserStreamLifecycleCoordinator()
     @ObservationIgnored var startedMobileBrowserPanelIDs: Set<String> = []
+    @ObservationIgnored var startedMobileSimulatorPanelIDs: Set<String> = []
+    /// Per-panel simulator stream operation chains. Each start/stop awaits the
+    /// panel's previous operation, so a background stop and a foreground
+    /// restart can never interleave against the Mac's single-controller
+    /// ownership. Entries self-remove when their chain drains.
+    @ObservationIgnored var mobileSimulatorStreamOperationsByPanel: [String: Task<Void, Never>] = [:]
+    /// Clock behind the simulator stream staleness watchdog; injectable so
+    /// tests drive the threshold deterministically.
+    @ObservationIgnored let simulatorStreamStalenessClock: any Clock<Duration>
+    /// Fires when an active simulator stream produces no frame or keepalive
+    /// events for a full threshold, i.e. three missed Mac keepalives. Armed
+    /// only against Macs advertising `simulator.keepalive.v1`, so a static
+    /// screen on a keepalive-less host can never read as stale.
+    @ObservationIgnored private(set) lazy var simulatorStreamStalenessMonitor =
+        MobileSimulatorStreamStalenessMonitor(
+            clock: simulatorStreamStalenessClock,
+            threshold: Self.mobileSimulatorStreamStaleThreshold
+        ) { [weak self] panelID in
+            self?.handleStaleMobileSimulatorStream(panelID: panelID)
+        }
+    static let mobileSimulatorStreamStaleThreshold: Duration = .seconds(15)
     @ObservationIgnored var terminalThemeState = MobileTerminalThemeState()
     /// The selected surface's effective theme and iOS chrome source of truth.
     public internal(set) var activeTerminalTheme: TerminalTheme = .monokai
@@ -1440,6 +1489,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
         draftStore: (any TerminalDraftStoring)? = nil,
         groupCollapseStore: MobileWorkspaceGroupCollapseStore = MobileWorkspaceGroupCollapseStore(),
+        workspaceSortStore: MobileWorkspaceSortStore = MobileWorkspaceSortStore(),
         workspaceChangesHintDismissalStore: MobileWorkspaceChangesHintDismissalStore = MobileWorkspaceChangesHintDismissalStore(),
         workspaceChangesSchedulingClock: any Clock<Duration> = ContinuousClock(),
         controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock(),
@@ -1447,11 +1497,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalInputAckResubscribeClock: any Clock<Duration> = ContinuousClock(),
         taskTemplateStore: (any MobileTaskTemplateStoring)? = nil,
         browserStreamEvents: (any BrowserStreamEventReceiving)? = nil,
+        simulatorStreamStore: MobileSimulatorStreamStore? = nil,
+        simulatorStreamStalenessClock: any Clock<Duration> = ContinuousClock(),
         storedMacReconnectRestoringDeadlineSeconds: Double = 15
     ) {
         self.runtime = runtime
         self.draftStore = draftStore
         self.groupCollapseStore = groupCollapseStore
+        self.workspaceSortStore = workspaceSortStore
+        self.workspaceSortMode = workspaceSortStore.mode
+        self.workspaceComputerPriority = workspaceSortStore.computerPriority
         self.workspaceChangesHintDismissalStore = workspaceChangesHintDismissalStore
         self.workspaceChangesSchedulingClock = workspaceChangesSchedulingClock
         self.controlPlaneSchedulingClock = controlPlaneSchedulingClock
@@ -1460,6 +1515,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalInputAckResubscribeClock = terminalInputAckResubscribeClock
         self.taskTemplateStore = taskTemplateStore
         self.browserStreamEvents = browserStreamEvents
+        self.simulatorStreamStore = simulatorStreamStore
+        self.simulatorStreamStalenessClock = simulatorStreamStalenessClock
         self.storedMacReconnectRestoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
         self.pairedMacStore = pairedMacStore
         self.connectionMethodStore = connectionMethodStore
@@ -2766,6 +2823,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// active marker on its own).
     public private(set) var pairedMacs: [MobilePairedMac] = [] {
         didSet {
+            // The derived workspace list reads pairedMacs (Last Opened
+            // recency, per-Mac customization stamping), so a pairing refresh
+            // must rebuild it or the aggregate order goes stale until the next
+            // workspace event.
+            if oldValue != pairedMacs {
+                recomputeDerivedWorkspaceState()
+            }
             guard oldValue.count != pairedMacs.count else { return }
             analytics.setSuperProperties(["paired_mac_count": .int(pairedMacs.count)])
         }
@@ -6542,8 +6606,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Recompute the derived ``workspaces`` / ``workspaceGroups`` from the per-Mac
     /// source of truth. Pure and cheap; the only place those two are assigned,
-    /// called on any ``workspacesByMac`` or foreground change.
-    private func recomputeDerivedWorkspaceState() {
+    /// called on any ``workspacesByMac``, foreground, or sort-preference change.
+    func recomputeDerivedWorkspaceState() {
         updateStableMacColorSlots(); let previousSelection = selectedWorkspaceID.flatMap { id in
             workspaces.first { $0.id == id }
         }
@@ -6561,9 +6625,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let statesByAggregateKey = Dictionary(
             uniqueKeysWithValues: workspacesByMac.map { ($0.key.pairingID, $0.value) }
         )
+        // "Last Opened" recency for the automatic order, keyed by device id.
+        // The pairing's lastSeenAt is the closest device-local record of when
+        // this phone last used that computer; the live foreground check inside
+        // the aggregation still beats it.
+        var lastOpenedByDeviceID: [String: Date] = [:]
+        for mac in pairedMacs {
+            let existing = lastOpenedByDeviceID[mac.macDeviceID]
+            if existing == nil || mac.lastSeenAt > existing! {
+                lastOpenedByDeviceID[mac.macDeviceID] = mac.lastSeenAt
+            }
+        }
         let macIDsInDisplayOrder = workspaceAggregation.orderedMacIDs(
             statesByMac: statesByAggregateKey,
-            foregroundMacDeviceID: foregroundKey
+            foregroundMacDeviceID: foregroundKey,
+            computerPriority: workspaceSortMode == .computerPriority
+                ? expandedWorkspaceComputerPriority()
+                : [],
+            lastOpenedAt: lastOpenedByDeviceID
         )
         var derived = workspaceAggregation.derivedWorkspaces(
             statesByMac: statesByAggregateKey,
@@ -10475,6 +10554,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             supportedHostCapabilities = Set(payload.capabilities)
             phonePushMacStatus = payload.phonePush
             restartActiveMobileBrowserStreams()
+            restartActiveMobileSimulatorStreams()
             refreshVisibleMobileBrowserPanels()
             prepareTerminalThemeRevisionAuthority(
                 macInstanceTag: payload.macInstanceTag, producerEpoch: payload.terminalThemeRevisionEpoch,
@@ -10709,6 +10789,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     self.handleMobileBrowserDialogEvent(event)
                 } else if event.topic == "browser.dialog.resolved" {
                     self.handleMobileBrowserDialogResolvedEvent(event)
+                } else if event.topic == "simulator.frame" {
+                    self.handleMobileSimulatorFrameEvent(event)
+                } else if event.topic == "simulator.state" {
+                    self.handleMobileSimulatorStateEvent(event)
+                } else if event.topic == "simulator.closed" {
+                    self.handleMobileSimulatorClosedEvent(event)
                 }
             }
             guard let self else { return }

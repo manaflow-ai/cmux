@@ -28,8 +28,6 @@ import {
   isAllowedAnalyticsEvent,
 } from "../../../../services/analytics/iosEventPolicy";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const POSTHOG_CAPTURE_TIMEOUT_MS = 10_000;
 

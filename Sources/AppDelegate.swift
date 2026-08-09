@@ -715,11 +715,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     lazy var notificationDelivery = NotificationDeliveryCoordinator(
         center: TerminalNotificationStore.shared.userNotificationCenter,
         terminalNavigation: notificationNavigation,
+        terminalReplying: notificationDeliverySeams,
         feedReplying: notificationDeliverySeams,
         applicationActivation: notificationDeliverySeams,
         terminalIdentifiers: TerminalNotificationDeliveryIdentifiers(
             categoryIdentifier: TerminalNotificationStore.categoryIdentifier,
+            textReplyCategoryIdentifier: TerminalNotificationStore.textReplyCategoryIdentifier,
             showActionIdentifier: TerminalNotificationStore.actionShowIdentifier,
+            replyActionIdentifier: TerminalNotificationStore.actionReplyIdentifier,
             retargetsToLiveSurfaceOwnerUserInfoKey: TerminalNotificationStore.retargetsToLiveSurfaceOwnerUserInfoKey
         ),
         actionTitles: notificationDeliveryActionTitles
@@ -730,6 +733,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             show: String(
                 localized: "terminal.notification.action.show",
                 defaultValue: "Show"
+            ),
+            reply: String(
+                localized: "terminal.notification.action.reply",
+                defaultValue: "Reply"
+            ),
+            replySend: String(
+                localized: "terminal.notification.action.replySend",
+                defaultValue: "Send"
+            ),
+            replyPlaceholder: String(
+                localized: "terminal.notification.action.replyPlaceholder",
+                defaultValue: "Message the agent…"
             ),
             feedPermissionAllowOnce: String(
                 localized: "feed.notification.permission.allowOnce",
@@ -759,9 +774,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 localized: "feed.notification.exitPlan.autoAccept",
                 defaultValue: "Auto"
             ),
+            feedExitPlanRevise: String(
+                localized: "feed.notification.exitPlan.revise",
+                defaultValue: "Revise…"
+            ),
             feedQuestionReply: String(
                 localized: "feed.notification.question.reply",
                 defaultValue: "Reply"
+            ),
+            feedQuestionOther: String(
+                localized: "feed.notification.question.other",
+                defaultValue: "Other…"
             )
         )
     }
