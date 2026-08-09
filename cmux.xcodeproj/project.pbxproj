@@ -1959,6 +1959,7 @@
 		9007F0C19007F0C1907F0001 /* RemoteTmuxProjectedFocusInteractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9007F0C19007F0C1907F0002 /* RemoteTmuxProjectedFocusInteractionTests.swift */; };
 		7020C0DE7020C0DE7020A002 /* RemoteTmuxProxyTransportRetryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7020C0DE7020C0DE7020A001 /* RemoteTmuxProxyTransportRetryTests.swift */; };
 		C9BA962E6CB31C9FD62505BF /* RemoteTmuxRawLayoutParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5294B6A6144B22BD3FEB8160 /* RemoteTmuxRawLayoutParser.swift */; };
+		7C4AFEEE00000000000A0002 /* RemoteTmuxRawQueryOutcomeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C4AFEEE00000000000B0002 /* RemoteTmuxRawQueryOutcomeTests.swift */; };
 		6B14EBE2544B2139E2902453 /* RemoteTmuxRectPublicationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D8BD9A2D8B7F7A27B77B289 /* RemoteTmuxRectPublicationTests.swift */; };
 		A42DAD21BD502098E446999C /* RemoteTmuxSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 541716FF0D90CB510EE3004A /* RemoteTmuxSession.swift */; };
 		C0DE0000000000000000A005 /* RemoteTmuxSessionChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE0000000000000000A006 /* RemoteTmuxSessionChannel.swift */; };
@@ -5014,6 +5015,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		9007F0C19007F0C1907F0002 /* RemoteTmuxProjectedFocusInteractionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxProjectedFocusInteractionTests.swift; sourceTree = "<group>"; };
 		7020C0DE7020C0DE7020A001 /* RemoteTmuxProxyTransportRetryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxProxyTransportRetryTests.swift; sourceTree = "<group>"; };
 		5294B6A6144B22BD3FEB8160 /* RemoteTmuxRawLayoutParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxRawLayoutParser.swift; sourceTree = "<group>"; };
+		7C4AFEEE00000000000B0002 /* RemoteTmuxRawQueryOutcomeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxRawQueryOutcomeTests.swift; sourceTree = "<group>"; };
 		4D8BD9A2D8B7F7A27B77B289 /* RemoteTmuxRectPublicationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxRectPublicationTests.swift; sourceTree = "<group>"; };
 		541716FF0D90CB510EE3004A /* RemoteTmuxSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxSession.swift; sourceTree = "<group>"; };
 		C0DE0000000000000000A006 /* RemoteTmuxSessionChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxSessionChannel.swift; sourceTree = "<group>"; };
@@ -9085,6 +9087,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				180099E8D881C58A4546527D /* RemoteTmuxMirrorEnvironmentPushTests.swift */,
 				13FF2DD7517912EADFBE40C8 /* RemoteTmuxNotificationOSCFilterTests.swift */,
 				7990B0017990B0017990B001 /* RemoteTmuxPaneSeedTransportTests.swift */,
+				7C4AFEEE00000000000B0002 /* RemoteTmuxRawQueryOutcomeTests.swift */,
 				B1B1B1B1B1B1B1B1B1B10001 /* RemoteTmuxMirrorNewPaneKeyFocusTests.swift */,
 				B2B2B2B2B2B2B2B2B2B20002 /* RemoteTmuxMirrorPaneInputMappingTests.swift */,
 				9007F0C19007F0C1907F0002 /* RemoteTmuxProjectedFocusInteractionTests.swift */,
@@ -12559,6 +12562,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				7990A0017990A0017990A001 /* RemoteTmuxPaneSeedTransportTests.swift in Sources */,
 				9007F0C19007F0C1907F0001 /* RemoteTmuxProjectedFocusInteractionTests.swift in Sources */,
 				7020C0DE7020C0DE7020A002 /* RemoteTmuxProxyTransportRetryTests.swift in Sources */,
+				7C4AFEEE00000000000A0002 /* RemoteTmuxRawQueryOutcomeTests.swift in Sources */,
 				6B14EBE2544B2139E2902453 /* RemoteTmuxRectPublicationTests.swift in Sources */,
 				3AC9AB9046E742B93726A405 /* RemoteTmuxSessionListParserTests.swift in Sources */,
 				3AC9AB9046E742B93726A501 /* RemoteTmuxSessionRenameTitleTests.swift in Sources */,
