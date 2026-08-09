@@ -5,6 +5,7 @@ import CmuxSimulator
 final class HIDSendScript {
     private var outcomes: [Bool]
     private(set) var keyEvents: [SimulatorKeyEvent] = []
+    private(set) var buttons: [SimulatorConvenienceButton] = []
     private(set) var buttonDirections: [Bool] = []
 
     init(outcomes: [Bool]) {
@@ -17,6 +18,7 @@ final class HIDSendScript {
     }
 
     func send(button: SimulatorConvenienceButton, down: Bool) -> Bool {
+        buttons.append(button)
         buttonDirections.append(down)
         return nextOutcome()
     }

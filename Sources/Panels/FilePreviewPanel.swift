@@ -2337,6 +2337,7 @@ private final class FilePreviewPDFThumbnailItemView: NSView {
 
 final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate {
     private let visiblePageResolver = FilePreviewPDFVisiblePageResolver()
+    private let sharingPresenter: FilePreviewPDFSharingPresenter
     private enum Metrics {
         static let defaultSidebarWidth = FilePreviewPDFSizing.defaultSidebarWidth
         static let minimumSidebarWidth = FilePreviewPDFSizing.minimumSidebarWidth
@@ -2402,7 +2403,18 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     }
 
     override init(frame frameRect: NSRect) {
+        sharingPresenter = FilePreviewPDFSharingPresenter()
         super.init(frame: frameRect)
+        finishInitialization()
+    }
+
+    init(frame frameRect: NSRect, sharingPresenter: FilePreviewPDFSharingPresenter) {
+        self.sharingPresenter = sharingPresenter
+        super.init(frame: frameRect)
+        finishInitialization()
+    }
+
+    private func finishInitialization() {
         setupView()
         fontMagnificationObserver = GlobalFontMagnificationChangeObserver { [weak self] in
             self?.applyFloatingChromeFonts()
@@ -2454,6 +2466,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     }
 
     func close() {
+        sharingPresenter.close()
         removeFromSuperview()
         removePDFScrollObserver()
         NotificationCenter.default.removeObserver(self)
@@ -2485,6 +2498,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             refreshPDFSmartFitPreservingVisibleTop()
             return
         }
+        sharingPresenter.close()
         let isReload = currentURL == url
         if isReload, pendingReloadViewport == nil {
             preparePDFViewportSnapshot()
@@ -2526,6 +2540,17 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
                   self.loadGeneration == generation else { return }
             self.applyLoadedPDFDocument(result.document, for: loadURL)
         }
+    }
+
+    private func share(
+        from anchorView: NSView,
+        activation: FilePreviewPDFShareActivation
+    ) {
+        guard let anchorWindow = anchorView.window,
+              let window,
+              anchorWindow === window,
+              let currentURL else { return }
+        sharingPresenter.present(fileURL: currentURL, from: anchorView, activation: activation)
     }
 
     private func applyLoadedPDFDocument(_ document: PDFDocument?, for url: URL) {
@@ -2850,7 +2875,10 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             zoomToFit: { [weak self] in self?.zoomToFit() },
             rotateLeft: { [weak self] in self?.rotateLeft() },
             rotateRight: { [weak self] in self?.rotateRight() },
-            refresh: { [weak panel] in panel?.reloadFromDisk() }
+            refresh: { [weak panel] in panel?.reloadFromDisk() },
+            share: { [weak self] anchorView, activation in
+                self?.share(from: anchorView, activation: activation)
+            }
         ))
     }
 

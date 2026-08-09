@@ -770,6 +770,70 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testComputerVisibilitySwitchesKeepShownAndHiddenMacsInOneSection() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        func waitForValue(_ value: String, on toggle: XCUIElement) {
+            let expectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value == %@", value),
+                object: toggle
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 3), .completed)
+        }
+
+        func waitForLabel(_ label: String, on element: XCUIElement) {
+            let expectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "label == %@", label),
+                object: element
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 3), .completed)
+        }
+
+        func assertUnifiedRowsRemainVisible() {
+            XCTAssertTrue(app.navigationBars["Computers"].exists)
+            XCTAssertTrue(app.staticTexts["Studio Mac"].exists)
+            XCTAssertTrue(app.staticTexts["Preview Mac"].exists)
+            XCTAssertFalse(app.staticTexts["Hidden Computers"].exists)
+        }
+
+        let shownToggle = app.switches["MobileComputerVisibilityToggle-preview-mac-2"]
+        let hiddenToggle = app.switches["MobileComputerVisibilityToggle-preview-mac-1"]
+        let shownPersistence = app.staticTexts[
+            "MobileComputerVisibilityPersisted-preview-mac-2"
+        ]
+        let hiddenPersistence = app.staticTexts[
+            "MobileComputerVisibilityPersisted-preview-mac-1"
+        ]
+        XCTAssertTrue(shownToggle.waitForExistence(timeout: 8))
+        XCTAssertTrue(hiddenToggle.waitForExistence(timeout: 3))
+        XCTAssertTrue(shownPersistence.waitForExistence(timeout: 3))
+        XCTAssertTrue(hiddenPersistence.waitForExistence(timeout: 3))
+        waitForLabel("shown", on: shownPersistence)
+        waitForLabel("hidden", on: hiddenPersistence)
+        waitForValue("1", on: shownToggle)
+        waitForValue("0", on: hiddenToggle)
+        assertUnifiedRowsRemainVisible()
+
+        shownToggle.tap()
+        waitForLabel("hidden", on: shownPersistence)
+        waitForValue("0", on: shownToggle)
+        assertUnifiedRowsRemainVisible()
+
+        hiddenToggle.tap()
+        waitForLabel("shown", on: hiddenPersistence)
+        waitForValue("1", on: hiddenToggle)
+        assertUnifiedRowsRemainVisible()
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "computer-visibility-switches-unified-section"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
     func testHiddenComputersForgetSwipeConfirmsWithoutRemovingRow() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW": "1",
@@ -1146,19 +1210,68 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
 
+        // Selecting a result ends the search session (committing the query)
+        // and pushes the detail inside the search tab behind a system back
+        // control. Whether the system keeps its bottom search control over the
+        // pushed detail is platform chrome, deliberately not asserted.
         tap(docsRow, in: app)
         let workspaceDetail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
-        XCTAssertTrue(workspaceDetail.waitForExistence(timeout: 3))
-        XCTAssertTrue(minimizedSearch.waitForNonExistence(timeout: 3))
+        guard workspaceDetail.waitForExistence(timeout: 3) else {
+            return XCTFail("Search-stack detail never appeared after tapping the result")
+        }
 
-        let backButton = app.buttons["MobileWorkspaceBackButton"]
-        XCTAssertTrue(waitForHittable(backButton, timeout: 3))
-        tap(backButton, in: app)
-        XCTAssertNotNil(waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3))
-        XCTAssertTrue(minimizedSearch.waitForExistence(timeout: 3))
-        XCTAssertTrue(waitForKeyboardDismissal(in: app))
-        XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
-        XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
+        let systemBack = app.navigationBars.buttons.element(boundBy: 0)
+        guard waitForHittable(systemBack, timeout: 3) else {
+            return XCTFail("No hittable system back control on the search-stack detail")
+        }
+        tap(systemBack, in: app)
+        guard waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3) != nil else {
+            return XCTFail("Workspaces list did not return after popping the detail")
+        }
+        // Popping the detail finishes the search round on the Workspaces tab
+        // with the query cleared and the bottom search control collapsed.
+        guard waitForKeyboardDismissal(in: app) else {
+            return XCTFail("Keyboard stayed up after popping back from the search detail")
+        }
+        guard workspacesTab.waitForExistence(timeout: 3) else {
+            return XCTFail("Workspaces tab pill missing after popping the search detail")
+        }
+        XCTAssertTrue(
+            workspacesTab.isSelected,
+            "Popping the search-opened workspace must land on the Workspaces tab"
+        )
+        guard minimizedSearch.waitForExistence(timeout: 3) else {
+            return XCTFail("Minimized search control missing after finishing the search round")
+        }
+        guard waitForHittable(docsRow, timeout: 3) else {
+            return XCTFail("Workspaces list missing rows after finishing the search round")
+        }
+        guard waitForHittable(mainRow, timeout: 3) else {
+            return XCTFail("Query must be cleared after finishing the search round")
+        }
+
+        // An explicit submit still commits the query as the Workspaces filter;
+        // that committed filter must survive a list refresh.
+        tap(minimizedSearch, in: app)
+        guard waitForHittable(searchField, timeout: 3) else {
+            return XCTFail("Search field missing when reactivating search for submit")
+        }
+        guard focusTextInput(searchField, in: app) else {
+            return XCTFail("Could not focus the search field for submit")
+        }
+        searchField.typeText("Docs\n")
+        guard waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3) != nil else {
+            return XCTFail("Workspaces root list missing after submitting the query")
+        }
+        guard minimizedSearch.waitForExistence(timeout: 3) else {
+            return XCTFail("Minimized search control missing after submitting the query")
+        }
+        guard waitForHittable(docsRow, timeout: 3) else {
+            return XCTFail("Committed-filter match missing after submit")
+        }
+        guard waitForNotHittable(mainRow, timeout: 3) else {
+            return XCTFail("Committed query filter not applied after submit")
+        }
 
         let previewRefreshButtons = app.buttons.matching(
             NSPredicate(format: "identifier == %@", "MobileWorkspaceListPreviewRefresh")
@@ -1612,6 +1725,106 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
         XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
         XCTAssertEqual(searchMatches.count, 1)
+    }
+
+    /// Regression for the "stuck after selecting a search result" wedge (the
+    /// workspaces list stranded with no tab bar, no search field, and a stale
+    /// query filter): selecting a workspace from the search tab's results must
+    /// open the detail inside the search tab and pop back to the live results.
+    /// The old flow deactivated search, transitioned to the Workspaces tab, and
+    /// pushed onto that off-window stack mid search-dismissal, which could
+    /// record the push without performing it.
+    @MainActor
+    func testWorkspaceSearchSelectionOpensDetailInsideSearchTab() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The detached workspace search control requires iOS 26.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+        defer { app.terminate() }
+
+        let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
+
+        let searchButton = app.tabBars.buttons
+            .matching(NSPredicate(format: "label == %@", "Search"))
+            .firstMatch
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
+        tap(searchButton, in: app)
+
+        let searchField = app.searchFields["Search workspaces"]
+        XCTAssertTrue(waitForHittable(searchField, timeout: 3))
+        XCTAssertTrue(focusTextInput(searchField, in: app))
+        searchField.typeText("Docs")
+
+        let docsRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-docs"]
+        let mainRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
+        XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
+        tap(docsRow, in: app)
+
+        let workspaceDetail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
+        XCTAssertTrue(workspaceDetail.waitForExistence(timeout: 3))
+
+        // Pop back. The detail sits inside the search tab's stack behind the
+        // system back control; the old cross-tab flow used the custom
+        // workspaces back button, so accept either to keep the pop itself
+        // out of the regression's scope.
+        let customBack = app.buttons["MobileWorkspaceBackButton"]
+        if customBack.waitForExistence(timeout: 1) {
+            tap(customBack, in: app)
+        } else {
+            let systemBack = app.navigationBars.buttons.element(boundBy: 0)
+            XCTAssertTrue(waitForHittable(systemBack, timeout: 3))
+            tap(systemBack, in: app)
+        }
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
+
+        // Popping back finishes the search round on the Workspaces tab: the
+        // full unfiltered list, no query left silently applied, and no
+        // selected (tinted) search control suggesting a search is still live.
+        let workspacesTab = app.tabBars.buttons["Workspaces"]
+        XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            workspacesTab.isSelected,
+            "Popping the search-opened workspace must land on the Workspaces tab"
+        )
+        XCTAssertTrue(
+            waitForHittable(docsRow, timeout: 3),
+            "Workspaces list missing rows after finishing the search round"
+        )
+        XCTAssertTrue(
+            waitForHittable(mainRow, timeout: 3),
+            "Query must be cleared after finishing the search round, not left filtering the list"
+        )
+
+        // Any visible search affordance belongs to the bottom edge (the
+        // regression showed the field pinned to the top with the keyboard up).
+        let restoredSearchControl = app.tabBars.buttons
+            .matching(NSPredicate(format: "label == %@", "Search"))
+            .firstMatch
+        XCTAssertTrue(
+            restoredSearchControl.waitForExistence(timeout: 3),
+            "Bottom search control missing after popping the search detail"
+        )
+        if let controlFrame = waitForUsableFrame(of: restoredSearchControl, timeout: 3) {
+            XCTAssertGreaterThan(
+                controlFrame.midY,
+                app.frame.midY,
+                "Search control must sit at the bottom after popping, got \(controlFrame)"
+            )
+        } else {
+            XCTFail("Bottom search control had no usable frame after popping")
+        }
+        if searchField.exists, let fieldFrame = waitForUsableFrame(of: searchField, timeout: 1) {
+            XCTAssertGreaterThan(
+                fieldFrame.midY,
+                app.frame.midY,
+                "Search field must not re-present at the top after popping, got \(fieldFrame)"
+            )
+        }
     }
 
     @MainActor
@@ -2968,6 +3181,74 @@ final class cmuxUITests: XCTestCase {
         // or jumbled grid.
         assertTerminalRow(0, label: "$ cmux ios status", in: app)
         assertTerminalRow(1, label: "Mobile Core: connected", in: app)
+    }
+
+    /// A composer submission stays visibly in progress until the Mac responds,
+    /// then exposes a durable failure while preserving the draft for retry.
+    @MainActor
+    func testTerminalComposerShowsSendingAndFailureSettlement() async throws {
+        let server = try MobileSyncMockHostServer(
+            holdsTerminalPasteResponse: true,
+            rejectsTerminalPaste: true
+        )
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let field = app.textFields[Composer.field]
+        XCTAssertTrue(field.waitForExistence(timeout: 4))
+        field.tap()
+        field.typeText("Preserve this prompt")
+
+        let send = app.buttons["MobileComposerSend"]
+        XCTAssertTrue(send.waitForExistence(timeout: 3))
+        send.tap()
+        await server.awaitTerminalPasteRequestReached()
+
+        let sending = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Sending"),
+            object: send
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [sending], timeout: 2), .completed)
+        XCTAssertFalse(send.isEnabled)
+
+        server.releaseTerminalPasteResponse()
+        let failure = app.staticTexts["MobileComposerSendFailure"]
+        XCTAssertTrue(failure.waitForExistence(timeout: 4))
+        XCTAssertEqual(send.label, "Send failed")
+        XCTAssertEqual(field.value as? String, "Preserve this prompt")
+    }
+
+    /// A successful acknowledgement removes the in-flight treatment instead of
+    /// replacing Send with a persistent success glyph.
+    @MainActor
+    func testTerminalComposerReturnsToSendAfterAcknowledgement() async throws {
+        let server = try MobileSyncMockHostServer(holdsTerminalPasteResponse: true)
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let field = app.textFields[Composer.field]
+        XCTAssertTrue(field.waitForExistence(timeout: 4))
+        field.tap()
+        field.typeText("Acknowledge this prompt")
+
+        let send = app.buttons["MobileComposerSend"]
+        XCTAssertTrue(send.waitForExistence(timeout: 3))
+        send.tap()
+        await server.awaitTerminalPasteRequestReached()
+        let sending = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Sending"),
+            object: send
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [sending], timeout: 2), .completed)
+
+        server.releaseTerminalPasteResponse()
+        let normalSend = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Send"),
+            object: send
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [normalSend], timeout: 4), .completed)
     }
 
     /// Freeze fuzzing for the keyboard + layout interactions, modeled on
@@ -7295,6 +7576,92 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// Reversing a keyboard dismissal before it settles must keep the Shortcut and
+    /// Composer bars in one visual dock. The surface samples their presentation-layer
+    /// seam every display frame; any transient separation remains observable after the
+    /// animation settles through `dockMaxInternalPresentationGap`.
+    @MainActor
+    func testTerminalDockStaysUnifiedAcrossRapidKeyboardReversals() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(
+            composerField.waitForExistence(timeout: 4),
+            "Rapid reversal coverage requires the Composer bar to be mounted"
+        )
+        let initialDock = waitForDock(in: app, describe: "composer and shortcut bars are both visible") {
+            guard $0["composerActive"] == "1",
+                  let composerMinY = $0["composerMinY"].flatMap(Double.init),
+                  let composerMaxY = $0["composerMaxY"].flatMap(Double.init) else { return false }
+            return composerMaxY - composerMinY > 1
+        }
+        XCTAssertEqual(initialDock["composerActive"], "1")
+
+        surface.tap()
+        guard let initialKeyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            surfaceDock(in: app),
+            surface: surface,
+            keyboard: initialKeyboard,
+            context: "rapid-reversal baseline"
+        )
+        let composerKeyboardInset = initialKeyboard.frame.minY - composerField.frame.maxY
+
+        let hideKeyboardButton = app.buttons["terminal.inputAccessory.hideKeyboard"]
+        XCTAssertTrue(hideKeyboardButton.waitForExistence(timeout: 4))
+
+        for cycle in 1...10 {
+            hideKeyboardButton.tap()
+            if app.keyboards.firstMatch.exists {
+                XCTAssertEqual(
+                    app.keyboards.firstMatch.frame.minY - composerField.frame.maxY,
+                    composerKeyboardInset,
+                    accuracy: 2,
+                    "The whole dock detached while keyboard dismissal was still visible in cycle \(cycle)"
+                )
+            }
+            surface.tap()
+
+            guard let keyboard = waitForSoftwareKeyboardKeyPlane(
+                in: app,
+                minimumOverlap: 120,
+                timeout: 4
+            ) else { return }
+            let dock = surfaceDock(in: app)
+            XCTAssertEqual(
+                keyboard.frame.minY - composerField.frame.maxY,
+                composerKeyboardInset,
+                accuracy: 2,
+                "The whole dock detached from the keyboard after rapid reversal \(cycle)"
+            )
+            assertTerminalDockPinnedToSoftwareKeyboard(
+                dock,
+                surface: surface,
+                keyboard: keyboard,
+                context: "rapid reversal \(cycle)"
+            )
+            guard let maximumGap = dock["dockMaxInternalPresentationGap"].flatMap(Double.init) else {
+                XCTFail("Missing per-frame dock seam metric after rapid reversal \(cycle). dock=\(dock)")
+                return
+            }
+            XCTAssertLessThanOrEqual(
+                maximumGap,
+                1,
+                "Shortcut and Composer bars separated during rapid reversal \(cycle). dock=\(dock)"
+            )
+        }
+    }
+
     @MainActor
     private func waitForKeyboardDismissal(in app: XCUIApplication) -> Bool {
         let expectation = XCTNSPredicateExpectation(
@@ -7368,6 +7735,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let createdWorkspaceTerminalDelay: TimeInterval?
     private let supportsManualAttachTicket: Bool
     private let workspaceCreateSelectsCreatedWorkspace: Bool
+    private let holdsTerminalPasteResponse: Bool
+    private let rejectsTerminalPaste: Bool
     private let macInstanceTag: String
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
@@ -7377,6 +7746,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var replayCounts: [String: Int] = [:]
     private var terminalScrollRequestsReceived = 0
     private var streamOffset: UInt64 = 1
+    private var terminalPasteRequestReached = false
+    private var terminalPasteRequestReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var heldTerminalPasteResponse: (() -> Void)?
     private var workspaces: [Workspace] = [
         Workspace(
             id: "workspace-main",
@@ -7432,12 +7804,16 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         createdWorkspaceTerminalDelay: TimeInterval? = nil,
         supportsManualAttachTicket: Bool = false,
         workspaceCreateSelectsCreatedWorkspace: Bool = true,
+        holdsTerminalPasteResponse: Bool = false,
+        rejectsTerminalPaste: Bool = false,
         macInstanceTag: String = mockHostInstanceTag()
     ) throws {
         listener = try NWListener(using: .tcp, on: .any)
         self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
         self.supportsManualAttachTicket = supportsManualAttachTicket
         self.workspaceCreateSelectsCreatedWorkspace = workspaceCreateSelectsCreatedWorkspace
+        self.holdsTerminalPasteResponse = holdsTerminalPasteResponse
+        self.rejectsTerminalPaste = rejectsTerminalPaste
         self.macInstanceTag = macInstanceTag
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
@@ -7676,23 +8052,80 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private func respond(to payload: Data, on connection: NWConnection, remainingBuffer: Data) {
         do {
             let responseFrame = try makeResponseFrame(for: payload)
-            connection.send(
-                content: responseFrame,
-                contentContext: .defaultMessage,
-                isComplete: false,
-                completion: .contentProcessed { [weak self, weak connection] error in
-                    guard error == nil,
-                          let self,
-                          let connection else {
-                        connection?.cancel()
-                        return
-                    }
-                    self.receiveRequest(on: connection, buffer: remainingBuffer)
+            if Self.requestMethod(in: payload) == "terminal.paste",
+               holdsTerminalPasteResponse {
+                terminalPasteRequestReached = true
+                let waiters = terminalPasteRequestReachedWaiters
+                terminalPasteRequestReachedWaiters = []
+                for waiter in waiters { waiter.resume() }
+                heldTerminalPasteResponse = { [weak self, weak connection] in
+                    guard let self, let connection else { return }
+                    self.sendResponse(
+                        responseFrame,
+                        on: connection,
+                        remainingBuffer: remainingBuffer
+                    )
                 }
-            )
+            } else {
+                sendResponse(
+                    responseFrame,
+                    on: connection,
+                    remainingBuffer: remainingBuffer
+                )
+            }
         } catch {
             connection.cancel()
         }
+    }
+
+    func awaitTerminalPasteRequestReached() async {
+        await withCheckedContinuation { continuation in
+            queue.async { [weak self] in
+                guard let self else {
+                    continuation.resume()
+                    return
+                }
+                if terminalPasteRequestReached {
+                    continuation.resume()
+                } else {
+                    terminalPasteRequestReachedWaiters.append(continuation)
+                }
+            }
+        }
+    }
+
+    func releaseTerminalPasteResponse() {
+        queue.async { [weak self] in
+            let response = self?.heldTerminalPasteResponse
+            self?.heldTerminalPasteResponse = nil
+            response?()
+        }
+    }
+
+    private func sendResponse(
+        _ responseFrame: Data,
+        on connection: NWConnection,
+        remainingBuffer: Data
+    ) {
+        connection.send(
+            content: responseFrame,
+            contentContext: .defaultMessage,
+            isComplete: false,
+            completion: .contentProcessed { [weak self, weak connection] error in
+                guard error == nil,
+                      let self,
+                      let connection else {
+                    connection?.cancel()
+                    return
+                }
+                self.receiveRequest(on: connection, buffer: remainingBuffer)
+            }
+        )
+    }
+
+    private static func requestMethod(in payload: Data) -> String? {
+        let request = try? JSONSerialization.jsonObject(with: payload) as? [String: Any]
+        return request?["method"] as? String
     }
 
     private func makeResponseFrame(for payload: Data) throws -> Data {
@@ -7710,6 +8143,18 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 "error": [
                     "code": "method_not_found",
                     "message": "Unknown method",
+                ],
+            ]
+            let responsePayload = try JSONSerialization.data(withJSONObject: envelope)
+            return Self.frame(responsePayload)
+        }
+        if method == "terminal.paste", rejectsTerminalPaste {
+            let envelope: [String: Any] = [
+                "id": id,
+                "ok": false,
+                "error": [
+                    "code": "send_failed",
+                    "message": "Rejected terminal paste",
                 ],
             ]
             let responsePayload = try JSONSerialization.data(withJSONObject: envelope)

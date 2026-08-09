@@ -2302,11 +2302,15 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 private func openPhoneForwardingSettings(in window: NSWindow?) {
     guard let window,
           let appDelegate = AppDelegate.shared,
-          let context = appDelegate.contextForMainTerminalWindow(window) else {
+          let context = appDelegate.contextForMainTerminalWindow(window),
+          let workspace = context.tabManager.selectedWorkspace,
+          let paneId = workspace.bonsplitController.focusedPaneId
+            ?? workspace.bonsplitController.allPaneIds.first else {
         NSSound.beep()
         return
     }
-    context.sidebarSelectionState.selection = .notifications
+    context.sidebarSelectionState.selection = .tabs
+    _ = workspace.openOrFocusNotificationsSurface(inPane: paneId)
 }
 
 private struct NotificationsPopoverView: View {
