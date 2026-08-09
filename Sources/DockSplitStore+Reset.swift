@@ -14,7 +14,7 @@ extension DockSplitStore {
         for tabId in tabIds { _ = bonsplitController.closeTab(tabId) }
         collapseToSingleEmptyPane()
         reconcilePanels()
-        surfaceIdToPanelId.removeAll()
+        removeAllSurfaceMappings()
         for panelId in Array(panels.keys) {
             discardPanelStateAndClose(panelId: panelId)
         }

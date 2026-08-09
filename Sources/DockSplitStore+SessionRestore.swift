@@ -425,7 +425,7 @@ extension DockSplitStore {
             discardPanelOwnershipAndClose(panelId: panel.id)
             return nil
         }
-        surfaceIdToPanelId[tabId] = panel.id
+        bindSurface(tabId, toPanelId: panel.id)
         installSubscription(for: panel, tracksTerminalTitle: true)
         applyVisibility(to: panel)
         return tabId

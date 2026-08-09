@@ -4,12 +4,7 @@ import Foundation
 extension DockSplitStore {
     @discardableResult
     func discardPanelOwnershipAndClose(panelId: UUID) -> (any Panel)? {
-        let tabIDs = surfaceIdToPanelId.compactMap { tabID, ownedPanelID in
-            ownedPanelID == panelId ? tabID : nil
-        }
-        for tabID in tabIDs {
-            surfaceIdToPanelId.removeValue(forKey: tabID)
-        }
+        removeSurfaceMappings(forPanelId: panelId)
         return discardPanelStateAndClose(panelId: panelId)
     }
 

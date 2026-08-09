@@ -269,7 +269,7 @@ struct DockTerminalPointerFocusTests {
             inPane: firstPane
         ))
         dock.panels[firstPanel.id] = firstPanel
-        dock.surfaceIdToPanelId[firstTab] = firstPanel.id
+        dock.bindSurface(firstTab, toPanelId: firstPanel.id)
 
         let secondTab = Bonsplit.Tab(
             title: secondPanel.displayTitle,
@@ -278,7 +278,7 @@ struct DockTerminalPointerFocusTests {
             isDirty: false
         )
         dock.panels[secondPanel.id] = secondPanel
-        dock.surfaceIdToPanelId[secondTab.id] = secondPanel.id
+        dock.bindSurface(secondTab.id, toPanelId: secondPanel.id)
         let secondPane = dock.withProgrammaticDockSplit {
             dock.bonsplitController.splitPane(
                 firstPane,

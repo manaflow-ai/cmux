@@ -46,7 +46,7 @@ private extension DockSplitStore {
                 inPane: pane
             )
         )
-        surfaceIdToPanelId[tabID] = panel.id
+        bindSurface(tabID, toPanelId: panel.id)
         return panel
     }
 }

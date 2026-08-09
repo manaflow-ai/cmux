@@ -233,7 +233,7 @@ extension DockSplitStore {
         panelCancellables[panelId]?.cancel()
         panelCancellables.removeValue(forKey: panelId)
         filePreviewMetadataObservationTasks.removeValue(forKey: panelId)?.cancel()
-        surfaceIdToPanelId.removeValue(forKey: tabId)
+        removeSurfaceMapping(forSurfaceId: tabId)
         panels.removeValue(forKey: panelId)
 
         forceCloseDockTabIds.insert(tabId)
@@ -241,7 +241,7 @@ extension DockSplitStore {
         guard bonsplitController.closeTab(tabId) else {
             // Close rejected: re-take ownership so the Dock stays consistent.
             panels[panelId] = panel
-            surfaceIdToPanelId[tabId] = panelId
+            bindSurface(tabId, toPanelId: panelId)
             if let preservedTransfer {
                 setDetachedSurfaceTransfer(
                     preservedTransfer,
@@ -363,7 +363,7 @@ extension DockSplitStore {
             clearSessionRestoreState(panelId: detached.panelId)
             return nil
         }
-        surfaceIdToPanelId[newTabId] = detached.panelId
+        bindSurface(newTabId, toPanelId: detached.panelId)
         if let browser = panel as? BrowserPanel {
             configureBrowserPanel(browser)
         }
@@ -437,7 +437,7 @@ extension DockSplitStore {
         panels[detached.panelId] = panel
         setDetachedSurfaceTransfer(detached, forPanelID: detached.panelId)
         adoptSessionRestoreState(from: detached)
-        surfaceIdToPanelId[tab.id] = detached.panelId
+        bindSurface(tab.id, toPanelId: detached.panelId)
 
         let newPane = withProgrammaticDockSplit {
             bonsplitController.splitPane(
@@ -448,7 +448,7 @@ extension DockSplitStore {
             )
         }
         guard let newPane else {
-            surfaceIdToPanelId.removeValue(forKey: tab.id)
+            removeSurfaceMapping(forSurfaceId: tab.id)
             removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
             panels.removeValue(forKey: detached.panelId)
             clearSessionRestoreState(panelId: detached.panelId)

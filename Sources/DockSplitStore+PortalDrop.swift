@@ -218,7 +218,7 @@ extension DockSplitStore {
             discardPanelOwnershipAndClose(panelId: panel.id)
             return nil
         }
-        surfaceIdToPanelId[tabId] = panel.id
+        bindSurface(tabId, toPanelId: panel.id)
         if let targetIndex {
             _ = bonsplitController.reorderTab(tabId, toIndex: targetIndex)
         }
@@ -245,7 +245,7 @@ extension DockSplitStore {
             isPinned: false
         )
         panels[panel.id] = panel
-        surfaceIdToPanelId[tab.id] = panel.id
+        bindSurface(tab.id, toPanelId: panel.id)
         let newPane = withProgrammaticDockSplit {
             bonsplitController.splitPane(
                 paneId,

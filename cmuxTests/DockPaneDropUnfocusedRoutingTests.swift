@@ -590,7 +590,7 @@ struct DockPaneDropUnfocusedRoutingTests {
                 isDirty: false,
                 inPane: dockPane
             ))
-            dock.surfaceIdToPanelId[terminalTab] = terminalPanel.id
+            dock.bindSurface(terminalTab, toPanelId: terminalPanel.id)
 
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),

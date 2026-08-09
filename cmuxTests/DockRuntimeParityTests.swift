@@ -55,7 +55,7 @@ private extension DockSplitStore {
                 inPane: pane
             )
         )
-        surfaceIdToPanelId[tabID] = panel.id
+        bindSurface(tabID, toPanelId: panel.id)
         return pane
     }
 }
@@ -80,11 +80,12 @@ struct DockRuntimeParityTests {
                 inPane: paneID
             )
         )
-        dock.surfaceIdToPanelId[staleAliasID] = panel.id
+        dock.bindSurface(staleAliasID, toPanelId: panel.id)
 
         #expect(dock.bonsplitController.closeTab(staleAliasID))
 
         #expect(dock.panel(for: liveTabID) === panel)
+        #expect(dock.surfaceId(forPanelId: panel.id) == liveTabID)
         #expect(dock.surfaceIdToPanelId[staleAliasID] == nil)
         #expect(panel.closeCount == 0)
     }

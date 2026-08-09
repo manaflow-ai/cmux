@@ -40,7 +40,9 @@ final class DockSplitStore: BonsplitDelegate {
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
     var panels: [UUID: any Panel] = [:]
-    var surfaceIdToPanelId: [TabID: UUID] = [:]
+    private(set) var surfaceIdToPanelId: [TabID: UUID] = [:]
+    /// Reverse index for O(1) panel-owned tab lookups.
+    @ObservationIgnored private var panelIdToSurfaceId: [UUID: TabID] = [:]
     private var lastTerminalFontSizeLineage: TerminalFontSizeLineage?
     weak var terminalFontSizeChangeCoordinator:
         WorkspaceTerminalFontSizeCoordinator?
@@ -342,8 +344,45 @@ final class DockSplitStore: BonsplitDelegate {
         panels[panelId] as? BrowserPanel
     }
 
+    /// Binds a Dock tab to its panel and makes that tab the authoritative reverse lookup.
+    func bindSurface(_ surfaceId: TabID, toPanelId panelId: UUID) {
+        if let previousPanelId = surfaceIdToPanelId[surfaceId],
+           previousPanelId != panelId {
+            removeSurfaceMapping(forSurfaceId: surfaceId)
+        }
+        surfaceIdToPanelId[surfaceId] = panelId
+        panelIdToSurfaceId[panelId] = surfaceId
+    }
+
+    /// Removes one Dock tab mapping, promoting a remaining alias when necessary.
+    func removeSurfaceMapping(forSurfaceId surfaceId: TabID) {
+        guard let panelId = surfaceIdToPanelId.removeValue(forKey: surfaceId),
+              panelIdToSurfaceId[panelId] == surfaceId else {
+            return
+        }
+        panelIdToSurfaceId[panelId] = surfaceIdToPanelId.first {
+            $0.value == panelId
+        }?.key
+    }
+
+    /// Removes every Dock tab mapping for a panel.
+    func removeSurfaceMappings(forPanelId panelId: UUID) {
+        panelIdToSurfaceId.removeValue(forKey: panelId)
+        for surfaceId in surfaceIdToPanelId.compactMap({ entry in
+            entry.value == panelId ? entry.key : nil
+        }) {
+            surfaceIdToPanelId.removeValue(forKey: surfaceId)
+        }
+    }
+
+    /// Clears both directions of the Dock tab-to-panel registry.
+    func removeAllSurfaceMappings() {
+        surfaceIdToPanelId.removeAll()
+        panelIdToSurfaceId.removeAll()
+    }
+
     func surfaceId(forPanelId panelId: UUID) -> TabID? {
-        surfaceIdToPanelId.first { $0.value == panelId }?.key
+        panelIdToSurfaceId[panelId]
     }
 
     func paneId(forPanelId panelId: UUID) -> PaneID? {
@@ -558,7 +597,7 @@ final class DockSplitStore: BonsplitDelegate {
             isDirty: panel.isDirty,
             isPinned: false
         )
-        surfaceIdToPanelId[newTab.id] = panel.id
+        bindSurface(newTab.id, toPanelId: panel.id)
         let splitResult = withProgrammaticDockSplit {
             bonsplitController.splitPane(
                 sourcePaneId,
@@ -890,7 +929,7 @@ final class DockSplitStore: BonsplitDelegate {
             discardPanelOwnershipAndClose(panelId: panel.id)
             return nil
         }
-        surfaceIdToPanelId[tabId] = panel.id
+        bindSurface(tabId, toPanelId: panel.id)
         installSubscription(for: panel, tracksTerminalTitle: tracksTerminalTitle)
         applyVisibility(to: panel)
         return tabId
@@ -1001,7 +1040,9 @@ final class DockSplitStore: BonsplitDelegate {
         let live = Set(bonsplitController.allTabIds)
         let staleTabIds = surfaceIdToPanelId.keys.filter { !live.contains($0) }
         let stalePanelIds = Set(staleTabIds.compactMap { surfaceIdToPanelId[$0] })
-        surfaceIdToPanelId = surfaceIdToPanelId.filter { live.contains($0.key) }
+        for tabId in staleTabIds {
+            removeSurfaceMapping(forSurfaceId: tabId)
+        }
         let livePanelIds = Set(surfaceIdToPanelId.values)
         for panelId in stalePanelIds.subtracting(livePanelIds) {
             discardPanelStateAndClose(panelId: panelId)
@@ -1180,7 +1221,7 @@ final class DockSplitStore: BonsplitDelegate {
                     isDirty: panel.isDirty,
                     isPinned: false
                 )
-                surfaceIdToPanelId[newTab.id] = panel.id
+                bindSurface(newTab.id, toPanelId: panel.id)
                 let seedSplitResult = withProgrammaticDockSplit {
                     bonsplitController.splitPane(
                         sourcePaneId,

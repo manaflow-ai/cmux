@@ -254,11 +254,14 @@ extension AppDelegate {
     func paneDropContainer(
         for context: PaneDropContext
     ) -> (any PaneDropContainer)? {
-        if let dock = dockForPane(context.paneId) {
+        if let dock = DockSplitStore.liveStore(containingPanel: context.panelId),
+           let surfaceId = dock.surfaceId(forPanelId: context.panelId),
+           dock.bonsplitController.paneId(containing: surfaceId) == context.paneId {
             return dock
         }
         guard let workspace = workspaceFor(tabId: context.workspaceId),
-              workspace.bonsplitController.allPaneIds.contains(context.paneId) else {
+              let surfaceId = workspace.surfaceIdFromPanelId(context.panelId),
+              workspace.bonsplitController.paneId(containing: surfaceId) == context.paneId else {
             return nil
         }
         return workspace
