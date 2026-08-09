@@ -5,7 +5,7 @@ nonisolated struct NativeScrollState: Equatable, Sendable {
     /// One sampled scroll-view position and the work it produces.
     struct Sample: Equatable, Sendable {
         let effectiveOffsetY: CGFloat
-        let scrollLines: Double
+        let targetViewportRow: UInt64
         let presentationTranslationY: CGFloat
     }
 
@@ -27,9 +27,10 @@ nonisolated struct NativeScrollState: Equatable, Sendable {
         cellHeight: CGFloat
     ) -> Sample {
         let nextEffectiveOffsetY = min(max(rawOffsetY, 0), maximumOffsetY)
-        let deltaY = nextEffectiveOffsetY - effectiveOffsetY
-        let scrollLines = cellHeight > 0 ? -Double(deltaY / cellHeight) : 0
         effectiveOffsetY = nextEffectiveOffsetY
+        let targetViewportRow = cellHeight > 0
+            ? UInt64(max(0, floor(nextEffectiveOffsetY / cellHeight)))
+            : 0
         let rubberBandTranslation = -(rawOffsetY - nextEffectiveOffsetY)
         let translationLimit = cellHeight * 2
         let fractionalTranslation = min(
@@ -38,7 +39,7 @@ nonisolated struct NativeScrollState: Equatable, Sendable {
         )
         return Sample(
             effectiveOffsetY: nextEffectiveOffsetY,
-            scrollLines: scrollLines,
+            targetViewportRow: targetViewportRow,
             presentationTranslationY: rubberBandTranslation + fractionalTranslation
         )
     }

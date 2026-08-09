@@ -12,6 +12,7 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
     private var boundary: TerminalScrollBoundary?
     private var state: NativeScrollState?
     private var isConfiguring = false
+    private var lastRequestedViewportRow: UInt64?
 
     init(
         terminalView: GhosttySurfaceView,
@@ -65,12 +66,9 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
         )
         self.state = state
 
-        if sample.scrollLines != 0 {
-            terminalView.applyLocalScrollbackScroll(
-                lines: sample.scrollLines,
-                col: 0,
-                row: max(0, viewportRows / 2)
-            )
+        if sample.targetViewportRow != lastRequestedViewportRow {
+            lastRequestedViewportRow = sample.targetViewportRow
+            terminalView.applyLocalScrollbackViewport(row: sample.targetViewportRow)
         }
         terminalView.transform = CGAffineTransform(
             translationX: 0,

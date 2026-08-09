@@ -1831,12 +1831,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var pendingLocalScrollLines: Double = 0
     var pendingLocalScrollCell: (col: Int, row: Int) = (0, 0)
     var localScrollApplyInFlight = false
+    struct LocalViewportState {
+        var pendingRow: UInt64?
+        var applyInFlight = false
+    }
+    var localViewportState = LocalViewportState()
 
     /// Drops scroll work tied to a surface generation that will no longer run.
     func resetScrollStateForSurfaceReplacement() {
         pendingScrollLines = 0
         pendingLocalScrollLines = 0
         localScrollApplyInFlight = false
+        localViewportState = LocalViewportState()
     }
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
