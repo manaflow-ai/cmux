@@ -2,9 +2,9 @@ import AppKit
 public import Foundation
 
 /// A Sendable, eagerly materialized pasteboard item.
-public struct TerminalPasteboardItemSnapshot: Equatable, Sendable {
+public struct TerminalPasteboardItemSnapshot: Codable, Equatable, Sendable {
     /// One pasteboard flavor and its materialized bytes.
-    public struct Representation: Equatable, Sendable {
+    public struct Representation: Codable, Equatable, Sendable {
         /// The Uniform Type Identifier written to the pasteboard.
         public let typeIdentifier: String
 
@@ -76,7 +76,11 @@ extension TerminalPasteboardItemSnapshot {
             .filter { !$0.representations.isEmpty }
     }
 
-    static func captureContents(
+    /// Eagerly captures every materializable item up to a retained-byte cap.
+    ///
+    /// Callers resolving an external pasteboard must invoke this in the
+    /// killable paste worker because an item data provider may block.
+    public static func captureContents(
         of pasteboard: NSPasteboard,
         maximumByteCount: Int
     ) -> [TerminalPasteboardItemSnapshot]? {
@@ -107,5 +111,50 @@ extension TerminalPasteboardItemSnapshot {
             )
             total = overflowed ? .max : newTotal
         }
+    }
+}
+
+/// One bounded request to snapshot a stable generation of a named pasteboard.
+public struct TerminalPasteboardContentsCaptureRequest: Codable, Sendable {
+    /// The AppKit pasteboard name to open in the isolated worker.
+    public let pasteboardName: String
+
+    /// The generation that must remain current throughout materialization.
+    public let changeCount: Int
+
+    /// The maximum retained bytes allowed in the returned snapshot.
+    public let maximumByteCount: Int
+
+    /// Creates a stable-generation pasteboard capture request.
+    public init(
+        pasteboardName: String,
+        changeCount: Int,
+        maximumByteCount: Int
+    ) {
+        self.pasteboardName = pasteboardName
+        self.changeCount = changeCount
+        self.maximumByteCount = maximumByteCount
+    }
+}
+
+/// Fully materialized contents from one unchanged pasteboard generation.
+public struct TerminalPasteboardContentsSnapshot:
+    Codable,
+    Equatable,
+    Sendable
+{
+    /// The generation observed before and after materialization.
+    public let changeCount: Int
+
+    /// Every bounded, eagerly materialized pasteboard item.
+    public let contents: [TerminalPasteboardItemSnapshot]
+
+    /// Creates a stable pasteboard snapshot.
+    public init(
+        changeCount: Int,
+        contents: [TerminalPasteboardItemSnapshot]
+    ) {
+        self.changeCount = changeCount
+        self.contents = contents
     }
 }

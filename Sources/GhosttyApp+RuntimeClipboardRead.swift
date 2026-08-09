@@ -121,6 +121,7 @@ extension GhosttyApp {
                 }
             )
 
+            defer { pasteboardReadLease.finish() }
             guard await pasteboardReadLease.waitUntilReady(),
                   !Task.isCancelled else {
                 return

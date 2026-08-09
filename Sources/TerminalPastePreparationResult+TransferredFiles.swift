@@ -7,7 +7,7 @@ extension TerminalPastePreparationResult {
             return fileURLs
         case .composer(.attachments(let attachments)):
             return attachments.map(\.fileURL)
-        case .terminal, .composer:
+        case .terminal, .composer, .pasteboardSnapshot:
             return []
         }
     }
@@ -37,7 +37,7 @@ extension TerminalPastePreparationResult {
                     }
                 )
             )
-        case .terminal, .composer:
+        case .terminal, .composer, .pasteboardSnapshot:
             return self
         }
     }

@@ -101,12 +101,13 @@ extension TerminalPasteboardService {
         in pasteboard: NSPasteboard
     ) -> Bool {
         guard result.didWrite,
-              let previousContents = result.previousContents else {
+              let previousContents = result.previousContents,
+              let publishedChangeCount = result.publishedChangeCount else {
             return false
         }
         let mutation = TerminalPasteboardTransactionLane.Mutation(
             contents: previousContents,
-            condition: .contents(result.publishedContents),
+            condition: .changeCount(publishedChangeCount),
             capturesPreviousContents: false
         )
         guard let lane = managedPasteboardLane(for: pasteboard) else {

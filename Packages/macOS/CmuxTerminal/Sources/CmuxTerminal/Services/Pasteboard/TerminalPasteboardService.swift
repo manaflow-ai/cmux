@@ -22,6 +22,11 @@ public import GhosttyKit
 /// transaction-lane state are lock guarded, the sanctioned shape for state
 /// shared with synchronous callbacks.
 public final class TerminalPasteboardService: Sendable {
+    /// Resolves rollback contents outside the lane's synchronous caller.
+    public typealias PreviousContentsCapture = @Sendable (
+        TerminalPasteboardContentsCaptureRequest
+    ) async -> TerminalPasteboardContentsSnapshot?
+
     /// One-shot interception slot for ``captureNextStandardClipboardWrite(_:)``.
     final class ClipboardWriteCapture: Sendable {
         private let lock = NSLock()
@@ -93,10 +98,28 @@ public final class TerminalPasteboardService: Sendable {
         self.init(
             temporaryDirectory: temporaryDirectory,
             fileManager: fileManager,
+            previousContentsCapture: { _ in nil }
+        )
+    }
+
+    /// Creates the process pasteboard service with an isolated rollback
+    /// snapshot provider.
+    ///
+    /// The app injects its killable worker-backed provider. Package clients
+    /// that never reserve temporary mutations can use the simpler initializer.
+    public convenience init(
+        temporaryDirectory: URL? = nil,
+        fileManager: FileManager = .default,
+        previousContentsCapture: @escaping PreviousContentsCapture
+    ) {
+        self.init(
+            temporaryDirectory: temporaryDirectory,
+            fileManager: fileManager,
             standardPasteboard: .general,
             selectionPasteboard: NSPasteboard(
                 name: NSPasteboard.Name("com.mitchellh.ghostty.selection")
-            )
+            ),
+            previousContentsCapture: previousContentsCapture
         )
     }
 
@@ -108,7 +131,8 @@ public final class TerminalPasteboardService: Sendable {
         maximumQueuedClipboardOperations: Int = TerminalPasteboardTransactionLane
             .defaultMaximumQueuedOperations,
         maximumQueuedClipboardWriteBytes: Int = TerminalPasteboardTransactionLane
-            .defaultMaximumQueuedWriteBytes
+            .defaultMaximumQueuedWriteBytes,
+        previousContentsCapture: @escaping PreviousContentsCapture = { _ in nil }
     ) {
         self.fileManager = fileManager
         self.temporaryDirectory =
@@ -118,12 +142,14 @@ public final class TerminalPasteboardService: Sendable {
         self.standardPasteboardLane = TerminalPasteboardTransactionLane(
             pasteboard: standardPasteboard,
             maximumQueuedOperations: maximumQueuedClipboardOperations,
-            maximumQueuedWriteBytes: maximumQueuedClipboardWriteBytes
+            maximumQueuedWriteBytes: maximumQueuedClipboardWriteBytes,
+            previousContentsCapture: previousContentsCapture
         )
         self.selectionPasteboardLane = TerminalPasteboardTransactionLane(
             pasteboard: selectionPasteboard,
             maximumQueuedOperations: maximumQueuedClipboardOperations,
-            maximumQueuedWriteBytes: maximumQueuedClipboardWriteBytes
+            maximumQueuedWriteBytes: maximumQueuedClipboardWriteBytes,
+            previousContentsCapture: previousContentsCapture
         )
     }
 }

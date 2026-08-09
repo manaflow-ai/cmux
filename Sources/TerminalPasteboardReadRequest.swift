@@ -5,9 +5,16 @@ struct TerminalPasteboardReadRequest: Codable, Sendable {
     let pasteboardName: String
     let changeCount: Int
 
+    init(pasteboardName: String, changeCount: Int) {
+        self.pasteboardName = pasteboardName
+        self.changeCount = changeCount
+    }
+
     @MainActor
     init(pasteboard: NSPasteboard) {
-        self.pasteboardName = pasteboard.name.rawValue
-        self.changeCount = pasteboard.changeCount
+        self.init(
+            pasteboardName: pasteboard.name.rawValue,
+            changeCount: pasteboard.changeCount
+        )
     }
 }

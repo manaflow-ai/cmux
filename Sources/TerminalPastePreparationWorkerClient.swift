@@ -12,7 +12,7 @@ struct TerminalPastePreparationWorkerClient: Sendable {
     static let workingDirectoryPrefix = "cmux-paste-preparation-"
 
     private let executableURL: URL
-    private let pasteboardService: TerminalPasteboardService
+    private let pasteboardService: TerminalPasteboardService?
 
     init(
         executableURL: URL,
@@ -20,6 +20,11 @@ struct TerminalPastePreparationWorkerClient: Sendable {
     ) {
         self.executableURL = executableURL
         self.pasteboardService = pasteboardService
+    }
+
+    private init(executableURL: URL) {
+        self.executableURL = executableURL
+        pasteboardService = nil
     }
 
     static func reexecingCurrentBinary(
@@ -31,6 +36,27 @@ struct TerminalPastePreparationWorkerClient: Sendable {
             executableURL: binary,
             pasteboardService: pasteboardService
         )
+    }
+
+    static func snapshottingWithCurrentBinary()
+        -> TerminalPastePreparationWorkerClient
+    {
+        let binary = Bundle.main.executableURL
+            ?? URL(fileURLWithPath: CommandLine.arguments[0])
+        return TerminalPastePreparationWorkerClient(executableURL: binary)
+    }
+
+    @concurrent
+    func captureSnapshot(
+        _ request: TerminalPasteboardContentsCaptureRequest
+    ) async throws -> TerminalPasteboardContentsSnapshot? {
+        let result = try await prepare(
+            TerminalPastePreparationRequest(snapshot: request)
+        )
+        guard case .pasteboardSnapshot(let snapshot) = result else {
+            throw TerminalPastePreparationWorkerError.invalidWorkerResponse
+        }
+        return snapshot
     }
 
     @concurrent
@@ -96,10 +122,21 @@ struct TerminalPastePreparationWorkerClient: Sendable {
             from: response,
             workingDirectory: workingDirectory
         )
+        if case .pasteboardSnapshot = result {
+            guard response.ownedTemporaryImageNames.isEmpty else {
+                throw TerminalPastePreparationWorkerError
+                    .invalidWorkerResponse
+            }
+            return result
+        }
+        guard let pasteboardService else {
+            throw TerminalPastePreparationWorkerError.invalidWorkerResponse
+        }
         return try adoptWorkerFiles(
             in: result,
             ownedTemporaryImageNames: response.ownedTemporaryImageNames,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            pasteboardService: pasteboardService
         )
     }
 
@@ -135,7 +172,8 @@ struct TerminalPastePreparationWorkerClient: Sendable {
     private nonisolated func adoptWorkerFiles(
         in result: TerminalPastePreparationResult,
         ownedTemporaryImageNames: [String],
-        workingDirectory: URL
+        workingDirectory: URL,
+        pasteboardService: TerminalPasteboardService
     ) throws -> TerminalPastePreparationResult {
         // URLs outside this private directory are pre-existing pasteboard file
         // URLs and intentionally retain their identity. Every worker-created

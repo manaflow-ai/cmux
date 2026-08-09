@@ -207,10 +207,10 @@ struct MarkdownPanelView: View {
     // MARK: - Copy actions
 
     private func copyAsMarkdown() {
-        GhosttyApp.terminalPasteboard.writeString(
+        guard GhosttyApp.terminalPasteboard.writeString(
             panel.content,
             to: .general
-        )
+        ) else { return }
         flashCopyConfirmation(.markdown)
     }
 
@@ -223,10 +223,10 @@ struct MarkdownPanelView: View {
             let item = NSPasteboardItem()
             _ = item.setString(html, forType: .html)
             _ = item.setString(text, forType: .string)
-            _ = GhosttyApp.terminalPasteboard.replaceContents(
+            guard GhosttyApp.terminalPasteboard.replaceContents(
                 of: .general,
                 with: [item]
-            )
+            ) else { return }
             flashCopyConfirmation(.html)
         }
     }

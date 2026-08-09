@@ -73,6 +73,53 @@ struct TerminalImageTransferConcurrencyTests {
     }
 
     @MainActor
+    @Test("rollback snapshots cross the isolated worker boundary")
+    func rollbackSnapshotUsesIsolatedWorker() async throws {
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-tests-rollback-snapshot-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+
+        let mainThreadData = Data("resolved-on-main".utf8)
+        let backgroundThreadData = Data("resolved-off-main".utf8)
+        let provider = PasteboardThreadSignalingDataProvider(
+            mainThreadData: mainThreadData,
+            backgroundThreadData: backgroundThreadData
+        )
+        let item = NSPasteboardItem()
+        item.setDataProvider(provider, forTypes: [.png])
+        #expect(pasteboard.writeObjects([item]))
+
+        let request = TerminalPasteboardContentsCaptureRequest(
+            pasteboardName: pasteboard.name.rawValue,
+            changeCount: pasteboard.changeCount,
+            maximumByteCount: 4 * 1_048_576
+        )
+        let snapshot = try #require(
+            try await TerminalPastePreparationWorkerClient
+                .snapshottingWithCurrentBinary()
+                .captureSnapshot(request)
+        )
+        let pngData = try #require(
+            snapshot.contents
+                .flatMap(\.representations)
+                .first(where: {
+                    $0.typeIdentifier
+                        == NSPasteboard.PasteboardType.png.rawValue
+                })?
+                .data
+        )
+
+        #expect(snapshot.changeCount == request.changeCount)
+        #expect(pngData == mainThreadData || pngData == backgroundThreadData)
+        withExtendedLifetime(provider) {}
+    }
+
+    @MainActor
     @Test("existing file URLs bypass worker-file adoption")
     func existingFileURLSurvivesWorkerTransport() async throws {
         let fileURL = FileManager.default.temporaryDirectory

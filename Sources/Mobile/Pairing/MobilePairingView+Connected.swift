@@ -80,10 +80,10 @@ extension MobilePairingView {
 
     func copyButton(label: String, value: String) -> some View {
         Button {
-            GhosttyApp.terminalPasteboard.writeString(
+            guard GhosttyApp.terminalPasteboard.writeString(
                 value,
                 to: .general
-            )
+            ) else { return }
             flashCopied(value)
         } label: {
             HStack(spacing: 4) {

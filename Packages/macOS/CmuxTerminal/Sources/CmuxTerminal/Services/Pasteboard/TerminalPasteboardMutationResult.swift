@@ -19,6 +19,9 @@ public struct TerminalPasteboardMutationResult: Sendable {
     /// The contents the mutation attempted to publish.
     public let publishedContents: [TerminalPasteboardItemSnapshot]
 
+    /// The pasteboard generation immediately after successful publication.
+    public let publishedChangeCount: Int?
+
     /// Whether the requested contents were published.
     public var didWrite: Bool {
         status == .written
@@ -27,10 +30,12 @@ public struct TerminalPasteboardMutationResult: Sendable {
     init(
         status: Status,
         previousContents: [TerminalPasteboardItemSnapshot]? = nil,
-        publishedContents: [TerminalPasteboardItemSnapshot]
+        publishedContents: [TerminalPasteboardItemSnapshot],
+        publishedChangeCount: Int? = nil
     ) {
         self.status = status
         self.previousContents = previousContents
         self.publishedContents = publishedContents
+        self.publishedChangeCount = publishedChangeCount
     }
 }

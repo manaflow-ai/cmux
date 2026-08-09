@@ -5207,36 +5207,45 @@ final class TextBoxInputTextView: NSTextView {
             .filter { !$0.isEmpty }
             .joined(separator: " ")
 
-        let item = NSPasteboardItem()
-        var wroteContent = false
-        if !fileURLs.isEmpty {
-            if let firstURL = fileURLs.first {
-                wroteContent = item.setString(
-                    firstURL.absoluteString,
-                    forType: .fileURL
-                ) || wroteContent
+        var items: [NSPasteboardItem] = []
+        for fileURL in fileURLs {
+            let item = NSPasteboardItem()
+            guard item.setString(
+                fileURL.absoluteString,
+                forType: .fileURL
+            ) else {
+                return false
             }
-            wroteContent = item.setPropertyList(
+            items.append(item)
+        }
+        if items.isEmpty {
+            items.append(NSPasteboardItem())
+        }
+
+        let firstItem = items[0]
+        var wroteFirstItemContent = !fileURLs.isEmpty
+        if !fileURLs.isEmpty {
+            wroteFirstItemContent = firstItem.setPropertyList(
                 fileURLs.map(\.path),
                 forType: PasteboardFileURLReader.legacyFilenamesPboardType
-            ) || wroteContent
+            ) || wroteFirstItemContent
         }
 
         if !submissionText.isEmpty {
-            wroteContent = item.setString(
+            wroteFirstItemContent = firstItem.setString(
                 submissionText,
                 forType: .string
-            ) || wroteContent
+            ) || wroteFirstItemContent
         } else if let firstURL = fileURLs.first {
-            wroteContent = item.setString(
+            wroteFirstItemContent = firstItem.setString(
                 firstURL.path,
                 forType: .string
-            ) || wroteContent
+            ) || wroteFirstItemContent
         }
-        guard wroteContent else { return false }
+        guard wroteFirstItemContent else { return false }
         return GhosttyApp.terminalPasteboard.replaceContents(
             of: pasteboard,
-            with: [item]
+            with: items
         )
     }
 

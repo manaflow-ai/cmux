@@ -63,8 +63,9 @@ struct PasteboardRejectedHTMLFallbackTests {
             repeating: "<div>",
             count: 1_024
         ) + "rich" + String(repeating: "</div>", count: 1_024)
-        let rtf = try NSAttributedString(string: "RTF fallback").data(
-            from: NSRange(location: 0, length: 12),
+        let attributed = NSAttributedString(string: "RTF fallback")
+        let rtf = try attributed.data(
+            from: NSRange(location: 0, length: attributed.length),
             documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
         )
         pasteboard.declareTypes([.png, .html, .rtf], owner: nil)

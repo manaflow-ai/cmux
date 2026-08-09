@@ -16,23 +16,45 @@ struct TerminalPastePreparationOperation: Sendable {
         let pasteboard = NSPasteboard(
             name: NSPasteboard.Name(readRequest.pasteboardName)
         )
+        if let maximumByteCount = request.snapshotMaximumByteCount {
+            guard pasteboard.changeCount == readRequest.changeCount,
+                  let contents = TerminalPasteboardItemSnapshot
+                    .captureContents(
+                        of: pasteboard,
+                        maximumByteCount: maximumByteCount
+                    ),
+                  pasteboard.changeCount == readRequest.changeCount else {
+                return .pasteboardSnapshot(nil)
+            }
+            return .pasteboardSnapshot(
+                TerminalPasteboardContentsSnapshot(
+                    changeCount: readRequest.changeCount,
+                    contents: contents
+                )
+            )
+        }
+
+        guard let mode = request.mode,
+              let destination = request.destination else {
+            return .pasteboardSnapshot(nil)
+        }
         guard pasteboard.changeCount == readRequest.changeCount else {
-            return rejectedResult(for: request.destination)
+            return rejectedResult(for: destination)
         }
 
         let preparedContent = TerminalImageTransferPlanner.prepareSynchronously(
             pasteboard: pasteboard,
-            mode: request.mode,
+            mode: mode,
             pasteboardService: pasteboardService
         )
         guard pasteboard.changeCount == readRequest.changeCount else {
             preparedContent.cleanupTransferredTemporaryFiles(
                 using: pasteboardService
             )
-            return rejectedResult(for: request.destination)
+            return rejectedResult(for: destination)
         }
 
-        switch request.destination {
+        switch destination {
         case .terminal:
             return .terminal(preparedContent)
         case .composer:

@@ -58,12 +58,7 @@ public final class TerminalPasteboardMutationLease: @unchecked Sendable {
             finish()
         }
         guard let result else { return nil }
-        return state.withLock { state in
-            if case .applied(let currentResult) = state {
-                return currentResult
-            }
-            return nil
-        }
+        return result
     }
 
     /// Releases the lane after the owner has registered any dependent read.

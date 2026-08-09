@@ -37,6 +37,26 @@ private final class TransactionLanePasteboardDataProvider:
     }
 }
 
+private func captureTransactionLanePasteboardContents(
+    _ request: TerminalPasteboardContentsCaptureRequest
+) -> TerminalPasteboardContentsSnapshot? {
+    let pasteboard = NSPasteboard(
+        name: NSPasteboard.Name(request.pasteboardName)
+    )
+    guard pasteboard.changeCount == request.changeCount,
+          let contents = TerminalPasteboardItemSnapshot.captureContents(
+            of: pasteboard,
+            maximumByteCount: request.maximumByteCount
+          ),
+          pasteboard.changeCount == request.changeCount else {
+        return nil
+    }
+    return TerminalPasteboardContentsSnapshot(
+        changeCount: request.changeCount,
+        contents: contents
+    )
+}
+
 @MainActor
 @Suite("Terminal pasteboard transaction lane", .serialized)
 struct TerminalPasteboardTransactionLaneTests {
@@ -66,7 +86,7 @@ struct TerminalPasteboardTransactionLaneTests {
         )
 
         #expect(fixture.standard.string(forType: .string) == "old")
-        #expect(!second.isReadyForTesting)
+        #expect(!second.isReady)
 
         first.finish()
 
@@ -142,7 +162,7 @@ struct TerminalPasteboardTransactionLaneTests {
         )
 
         #expect(fixture.standard.string(forType: .string) == "old")
-        #expect(!second.isReadyForTesting)
+        #expect(!second.isReady)
 
         first.finish()
 
@@ -257,7 +277,8 @@ struct TerminalPasteboardTransactionLaneTests {
         fixture.standard.clearContents()
         fixture.standard.setString("user clipboard", forType: .string)
         let lane = TerminalPasteboardTransactionLane(
-            pasteboard: fixture.standard
+            pasteboard: fixture.standard,
+            previousContentsCapture: { _ in nil }
         )
 
         let result = lane.applyUnmanagedMutation(.init(
@@ -342,7 +363,10 @@ struct TerminalPasteboardTransactionLaneTests {
         let service = TerminalPasteboardService(
             standardPasteboard: standard,
             selectionPasteboard: selection,
-            maximumQueuedClipboardOperations: maximumQueuedOperations
+            maximumQueuedClipboardOperations: maximumQueuedOperations,
+            previousContentsCapture: { request in
+                captureTransactionLanePasteboardContents(request)
+            }
         )
         return (
             service,

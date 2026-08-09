@@ -4,6 +4,7 @@ import CmuxTerminal
 enum TerminalPastePreparationResult: Codable, Sendable {
     case terminal(TerminalImageTransferPreparedContent)
     case composer(TextBoxPastePreparedContent)
+    case pasteboardSnapshot(TerminalPasteboardContentsSnapshot?)
 
     func cleanupTransferredTemporaryFiles(
         using pasteboardService: TerminalPasteboardService
@@ -17,6 +18,8 @@ enum TerminalPastePreparationResult: Codable, Sendable {
             content.cleanupTransferredTemporaryFiles(
                 using: pasteboardService
             )
+        case .pasteboardSnapshot:
+            break
         }
     }
 }

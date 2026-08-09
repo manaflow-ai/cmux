@@ -24,4 +24,8 @@ final class PastePreparationFailureProbe {
     func record(_ failure: TerminalPastePreparationFailure) {
         continuation.yield(failure)
     }
+
+    deinit {
+        continuation.finish()
+    }
 }

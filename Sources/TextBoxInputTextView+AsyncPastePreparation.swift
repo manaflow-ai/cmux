@@ -39,6 +39,7 @@ extension TextBoxInputTextView {
         let validationToken = pendingAttachmentUploadValidationToken()
 
         let task = Task { @MainActor [weak self] in
+            defer { pasteboardReadLease?.finish() }
             if let pasteboardReadLease {
                 guard await pasteboardReadLease.waitUntilReady(),
                       !Task.isCancelled else {
@@ -52,7 +53,6 @@ extension TextBoxInputTextView {
                     return
                 }
             }
-            defer { pasteboardReadLease?.finish() }
             guard !Task.isCancelled else {
                 if let self {
                     activePastePreparationTasks[placeholderID] = nil

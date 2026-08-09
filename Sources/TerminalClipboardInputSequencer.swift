@@ -220,6 +220,9 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
                 }
                 guard hasRequestInFlight(for: epoch) else { return false }
                 buffer = buffersByEpoch[epoch] ?? EpochBuffer()
+                guard hasCapacity(in: buffer, forEventCost: eventCost) else {
+                    return false
+                }
             }
         }
         buffer.events.append(

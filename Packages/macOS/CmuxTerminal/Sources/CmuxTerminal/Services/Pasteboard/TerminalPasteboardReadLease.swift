@@ -81,7 +81,7 @@ public final class TerminalPasteboardReadLease: @unchecked Sendable {
         finishHandler()
     }
 
-    var isReadyForTesting: Bool {
+    var isReady: Bool {
         state.withLock { state in
             if case .ready = state { return true }
             return false

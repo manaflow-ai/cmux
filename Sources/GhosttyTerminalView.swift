@@ -375,7 +375,17 @@ class GhosttyApp {
 
     /// The process-wide pasteboard service (was the `GhosttyPasteboardHelper`
     /// namespace enum).
-    static let terminalPasteboard = TerminalPasteboardService()
+    static let terminalPasteboard = TerminalPasteboardService(
+        previousContentsCapture: { request in
+            do {
+                return try await TerminalPastePreparationWorkerClient
+                    .snapshottingWithCurrentBinary()
+                    .captureSnapshot(request)
+            } catch {
+                return nil
+            }
+        }
+    )
     /// The process-wide serialized native-surface free queue (was the
     /// `TerminalSurfaceRuntimeTeardownCoordinator.shared` actor singleton).
     static let terminalSurfaceRuntimeTeardown = TerminalSurfaceRuntimeTeardownCoordinator()
