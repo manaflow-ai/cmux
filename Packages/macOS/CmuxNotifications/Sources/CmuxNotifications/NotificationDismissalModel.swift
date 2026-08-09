@@ -101,6 +101,9 @@ public final class NotificationDismissalModel: NotificationDismissing {
         context: NotificationDismissalContext
     ) -> Bool {
         guard let host else { return false }
+        guard host.hasNotificationStore else { return false }
+        guard host.storeHasDismissibleState(workspaceId: workspaceId) ||
+            host.workspaceHasDismissiblePanelState(workspaceId: workspaceId) else { return false }
         guard host.isNotificationTargetSelected(
             workspaceId: workspaceId,
             surfaceId: surfaceId
@@ -124,9 +127,6 @@ public final class NotificationDismissalModel: NotificationDismissing {
                 return false
             }
         }
-        guard host.hasNotificationStore else { return false }
-        guard host.storeHasDismissibleState(workspaceId: workspaceId) ||
-            host.workspaceHasDismissiblePanelState(workspaceId: workspaceId) else { return false }
         let targetPanelId = surfaceId.flatMap {
             host.panelId(forSurfaceOrPanelId: $0, in: workspaceId)
         }

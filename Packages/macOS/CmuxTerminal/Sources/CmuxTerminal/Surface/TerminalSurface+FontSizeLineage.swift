@@ -507,6 +507,7 @@ extension TerminalSurface {
                 previousLineage: previousLineage,
                 magnificationPercent: magnificationPercent
             )
+            didAcceptExplicitInput()
             return .applied
         }
 
@@ -533,6 +534,7 @@ extension TerminalSurface {
                 isExplicitOverride: true
             )
         )
+        didAcceptExplicitInput()
         return .applied
     }
 
@@ -571,6 +573,7 @@ extension TerminalSurface {
         if !alreadyFollowsTarget {
             recordCurrentFontSizeLineage(targetLineage)
         }
+        didAcceptExplicitInput()
         return .applied
     }
 
