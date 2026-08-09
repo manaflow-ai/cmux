@@ -53,7 +53,8 @@ enum TerminalStartupWorkingDirectoryPrefix {
 
     static func replacingRequiredChangeDirectoryPrefix(
         in command: String,
-        workingDirectory: String?
+        workingDirectory: String?,
+        agentKind: String?
     ) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let workingDirectory = normalized(workingDirectory) else { return trimmed }
@@ -63,7 +64,8 @@ enum TerminalStartupWorkingDirectoryPrefix {
         )
         let command = strippedSavedWorkingDirectoryOptions(
             from: stripped,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            agentKind: agentKind
         )
         return prefix(command, workingDirectory: workingDirectory)
     }
@@ -71,18 +73,21 @@ enum TerminalStartupWorkingDirectoryPrefix {
     static func replacingRequiredChangeDirectoryPrefix(
         in command: String,
         previousWorkingDirectory: String?,
-        workingDirectory: String?
+        workingDirectory: String?,
+        agentKind: String?
     ) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         let stripped = normalized(previousWorkingDirectory).map {
             strippedSavedWorkingDirectoryOptions(
                 from: strippedRequiredChangeDirectoryPrefix(from: trimmed, workingDirectory: $0),
-                workingDirectory: $0
+                workingDirectory: $0,
+                agentKind: agentKind
             )
         } ?? trimmed
         return replacingRequiredChangeDirectoryPrefix(
             in: stripped,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            agentKind: agentKind
         )
     }
 
@@ -124,12 +129,14 @@ enum TerminalStartupWorkingDirectoryPrefix {
 
     private static func strippedSavedWorkingDirectoryOptions(
         from command: String,
-        workingDirectory: String
+        workingDirectory: String,
+        agentKind: String?
     ) -> String {
         let words = shellWordRanges(command)
         let ranges = savedWorkingDirectoryOptionRanges(
             in: words,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            agentKind: agentKind
         )
         guard !ranges.isEmpty else { return command }
         return removingRanges(removing: ranges, from: command)
@@ -225,9 +232,12 @@ enum TerminalStartupWorkingDirectoryPrefix {
 
     private static func savedWorkingDirectoryOptionRanges(
         in words: [ShellWordRange],
-        workingDirectory: String
+        workingDirectory: String,
+        agentKind: String?
     ) -> [Range<String.Index>] {
-        let valueOptions = AgentWorkingDirectoryOptionPolicy().valueOptions
+        let optionPolicy = AgentWorkingDirectoryOptionPolicy(agentKind: agentKind)
+        let valueOptions = optionPolicy.valueOptions
+        let attachedShortValueOptions = optionPolicy.attachedShortValueOptions
         let optionPrefixes = valueOptions.map { "\($0)=" }
         var ranges: [Range<String.Index>] = []
         var index = 0
@@ -245,6 +255,16 @@ enum TerminalStartupWorkingDirectoryPrefix {
             }
             if let prefix = optionPrefixes.first(where: { arg.hasPrefix($0) }) {
                 let value = String(arg.dropFirst(prefix.count))
+                if workingDirectoryValue(value, matches: workingDirectory) {
+                    ranges.append(words[index].range)
+                    index += 1
+                    continue
+                }
+            }
+            if let option = attachedShortValueOptions.first(where: {
+                arg.count > $0.count && arg.hasPrefix($0)
+            }) {
+                let value = String(arg.dropFirst(option.count))
                 if workingDirectoryValue(value, matches: workingDirectory) {
                     ranges.append(words[index].range)
                     index += 1

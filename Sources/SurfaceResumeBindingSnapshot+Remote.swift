@@ -4,11 +4,16 @@ extension SurfaceResumeBindingSnapshot {
     /// Assigns trusted persistent-SSH ownership only to a legacy decoded binding.
     func migratingLegacyPersistentSSH(_ context: SurfaceResumeRemoteContext) -> SurfaceResumeBindingSnapshot {
         guard wasDecodedWithoutLaunchFlavor else { return self }
-        return registeredForPersistentSSH(context)
+        return replacingLaunchFlavor(.persistentSSH(context))
     }
 
+    /// Persists authenticated relay ownership and the relay-reported cwd trust boundary.
     func registeredForPersistentSSH(_ context: SurfaceResumeRemoteContext) -> SurfaceResumeBindingSnapshot {
-        replacingLaunchFlavor(.persistentSSH(context))
+        var registered = replacingLaunchFlavor(.persistentSSH(context))
+        if registered.isAgentHookBinding {
+            registered.restoreWorkingDirectorySelection = .exact(registered.cwd)
+        }
+        return registered
     }
 
     func retargetingRemoteOwner(

@@ -10,13 +10,15 @@ extension SurfaceResumeBindingSnapshot {
     static func sanitizedStartupCommand(
         _ command: String,
         cwd: String?,
-        source: String?
+        source: String?,
+        agentKind: String?
     ) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard source == "agent-hook" else { return trimmed }
         return TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
             in: trimmed,
-            workingDirectory: cwd
+            workingDirectory: cwd,
+            agentKind: agentKind
         )
     }
 

@@ -66,7 +66,10 @@ extension Workspace {
             return nil
         }
         let startupInput: String?
-        if binding.restoreWorkingDirectorySelection?.permitsResume == false {
+        let mustOmitStoredStartupInput =
+            binding.restoreWorkingDirectorySelection?.permitsResume == false ||
+            (binding.isAgentHookBinding && binding.restoreWorkingDirectorySelection == nil)
+        if mustOmitStoredStartupInput {
             startupInput = nil
         } else {
             guard let input = binding.remoteStartupInput() else { return nil }

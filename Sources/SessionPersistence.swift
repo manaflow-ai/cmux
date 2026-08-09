@@ -314,7 +314,8 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         self.command = Self.sanitizedStartupCommand(
             command,
             cwd: normalizedCwd,
-            source: normalizedSource
+            source: normalizedSource,
+            agentKind: normalizedKind
         )
         self.cwd = normalizedCwd
         self.checkpointId = Self.normalized(checkpointId)
@@ -391,7 +392,8 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         retargeted.command = TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
             in: command,
             previousWorkingDirectory: cwd,
-            workingDirectory: normalizedCwd
+            workingDirectory: normalizedCwd,
+            agentKind: Self.normalized(kind)
         )
         retargeted.cwd = normalizedCwd
         if var launchCommand = retargeted.launchCommand {

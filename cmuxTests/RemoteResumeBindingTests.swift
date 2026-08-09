@@ -1054,7 +1054,8 @@ struct RemoteResumeBindingTests {
     }
 
     private func decodedInitialCommand(from bootstrap: String) throws -> String {
-        try #require(decodedInitialCommandIfPresent(from: bootstrap))
+        let initialCommand = try decodedInitialCommandIfPresent(from: bootstrap)
+        return try #require(initialCommand)
     }
 
     private func decodedInitialCommandIfPresent(from bootstrap: String) throws -> String? {
