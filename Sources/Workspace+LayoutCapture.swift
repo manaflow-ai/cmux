@@ -84,23 +84,32 @@ extension Workspace {
             unsupportedSurfaceCount += pane.tabs.count
             return []
         }
+        let paneId = PaneID(id: paneUUID)
+        let selectedTabId = bonsplitController.selectedTab(inPane: paneId)?.id
         var surfaces: [CmuxSurfaceDefinition] = []
         surfaces.reserveCapacity(max(pane.tabs.count, 1))
-        for tab in bonsplitController.tabs(inPane: PaneID(id: paneUUID)) {
+        for tab in bonsplitController.tabs(inPane: paneId) {
+            var definition: CmuxSurfaceDefinition
             guard let panelId = panelIdFromSurfaceId(tab.id),
                   let panel = panels[panelId] else {
                 unsupportedSurfaceCount += 1
-                surfaces.append(CmuxSurfaceDefinition(type: .terminal))
+                definition = CmuxSurfaceDefinition(type: .terminal)
+                if tab.id == selectedTabId {
+                    definition.selected = true
+                }
+                surfaces.append(definition)
                 continue
             }
-            surfaces.append(
-                captureSurfaceDefinition(
-                    panelId: panelId,
-                    panel: panel,
-                    baseCwd: baseCwd,
-                    unsupportedSurfaceCount: &unsupportedSurfaceCount
-                )
+            definition = captureSurfaceDefinition(
+                panelId: panelId,
+                panel: panel,
+                baseCwd: baseCwd,
+                unsupportedSurfaceCount: &unsupportedSurfaceCount
             )
+            if tab.id == selectedTabId {
+                definition.selected = true
+            }
+            surfaces.append(definition)
         }
         return surfaces
     }
@@ -156,11 +165,6 @@ extension Workspace {
             unsupportedSurfaceCount += 1
             definition = CmuxSurfaceDefinition(type: .terminal)
         }
-        // The declarative schema models only the single focused surface
-        // (`focus`); per-pane tab selection is not representable without a
-        // schema extension, so non-focused multi-tab panes reopen with their
-        // first tab selected (tracked in
-        // https://github.com/manaflow-ai/cmux/issues/7444).
         if focusedPanelId == panelId {
             definition.focus = true
         }

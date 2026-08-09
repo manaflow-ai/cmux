@@ -496,6 +496,7 @@ export default function CustomCommandsPage() {
         <li><code>cwd</code>: {t("surfaceCwd")}</li>
         <li><code>env</code>: {t("surfaceEnv")}</li>
         <li><code>url</code>: {t("surfaceUrl")}</li>
+        <li><code>selected</code>: {t("surfaceSelected")}</li>
         <li><code>focus</code>: {t("surfaceFocus")}</li>
       </ul>
 

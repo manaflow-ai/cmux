@@ -10,6 +10,11 @@ import Testing
 
 @MainActor
 @Suite(.serialized) struct WorkspaceCustomLayoutOrderTests {
+    enum CapturePath: Sendable {
+        case savedLayout
+        case configAction
+    }
+
     @Test(arguments: [0, 1, 2, 3])
     func allTerminalSurfacesPreserveDeclaredOrder(focusedIndex: Int) throws {
         let names = ["AAA", "BBB", "CCC", "DDD"]
@@ -91,10 +96,167 @@ import Testing
         #expect(workspace.bonsplitController.selectedTab(inPane: paneId)?.id == layoutTabIds[1])
     }
 
+    @Test func handwrittenLayoutRestoresFirstSelectedTabAfterGlobalFocus() throws {
+        let workspace = Workspace()
+        workspace.applyCustomLayout(
+            .split(CmuxSplitDefinition(
+                direction: .horizontal,
+                children: [
+                    .pane(CmuxPaneDefinition(surfaces: [
+                        CmuxSurfaceDefinition(type: .terminal, name: "Background A", selected: true),
+                        CmuxSurfaceDefinition(type: .terminal, name: "Background B"),
+                    ])),
+                    .pane(CmuxPaneDefinition(surfaces: [
+                        CmuxSurfaceDefinition(type: .terminal, name: "Focused A"),
+                        CmuxSurfaceDefinition(
+                            type: .terminal,
+                            name: "Focused B",
+                            selected: true,
+                            focus: true
+                        ),
+                    ])),
+                ]
+            )),
+            baseCwd: NSTemporaryDirectory()
+        )
+
+        try Self.expectTwoPaneSelection(
+            in: workspace,
+            first: "Background A",
+            second: "Focused B"
+        )
+    }
+
+    @Test func selectedOnlyBackgroundTabPreservesGlobalFocus() throws {
+        let workspace = Workspace()
+        let focusedPaneBefore = try #require(workspace.bonsplitController.focusedPaneId)
+        let focusedPanelBefore = try #require(workspace.focusedPanelId)
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        workspace.applyCustomLayout(
+            .split(CmuxSplitDefinition(
+                direction: .horizontal,
+                children: [
+                    .pane(CmuxPaneDefinition(surfaces: [
+                        CmuxSurfaceDefinition(type: .terminal, name: "Focused"),
+                    ])),
+                    .pane(CmuxPaneDefinition(surfaces: [
+                        CmuxSurfaceDefinition(type: .terminal, name: "Background A", selected: true),
+                        CmuxSurfaceDefinition(type: .terminal, name: "Background B"),
+                    ])),
+                ]
+            )),
+            baseCwd: NSTemporaryDirectory()
+        )
+
+        let panes = try Self.twoPaneIDs(in: workspace)
+        #expect(panes.first == focusedPaneBefore)
+        #expect(workspace.bonsplitController.selectedTab(inPane: panes.first)?.title == "Focused")
+        #expect(workspace.bonsplitController.selectedTab(inPane: panes.second)?.title == "Background A")
+        #expect(workspace.bonsplitController.focusedPaneId == focusedPaneBefore)
+        #expect(workspace.focusedPanelId == focusedPanelBefore)
+
+        let backgroundPaneId = panes.second.id.uuidString
+        let falseBackgroundFocusEvents = CmuxEventBus.shared.retainedSnapshot().filter { event in
+            guard event["pane_id"] as? String == backgroundPaneId else { return false }
+            switch event["name"] as? String {
+            case "pane.focused", "surface.focused":
+                return true
+            case "surface.selected":
+                let payload = event["payload"] as? [String: Any]
+                return payload?["focused"] as? Bool == true
+            default:
+                return false
+            }
+        }
+        #expect(falseBackgroundFocusEvents.isEmpty)
+    }
+
+    @Test(arguments: [CapturePath.savedLayout, .configAction])
+    func capturedLayoutsRestoreSelectedTabsInEveryPane(capturePath: CapturePath) throws {
+        let original = Workspace()
+        original.applyCustomLayout(
+            .split(CmuxSplitDefinition(
+                direction: .horizontal,
+                children: [
+                    .pane(CmuxPaneDefinition(surfaces: [
+                        CmuxSurfaceDefinition(type: .terminal, name: "Background A"),
+                        CmuxSurfaceDefinition(type: .terminal, name: "Background B"),
+                    ])),
+                    .pane(CmuxPaneDefinition(surfaces: [
+                        CmuxSurfaceDefinition(type: .terminal, name: "Focused A"),
+                        CmuxSurfaceDefinition(type: .terminal, name: "Focused B"),
+                    ])),
+                ]
+            )),
+            baseCwd: NSTemporaryDirectory()
+        )
+
+        let originalPanes = try Self.twoPaneIDs(in: original)
+        let originalBackgroundTabs = original.bonsplitController.tabs(inPane: originalPanes.first)
+        let originalFocusedTabs = original.bonsplitController.tabs(inPane: originalPanes.second)
+        try #require(originalBackgroundTabs.count == 2)
+        try #require(originalFocusedTabs.count == 2)
+
+        original.bonsplitController.selectTab(originalBackgroundTabs[1].id)
+        let originalFocusedPanelID = try #require(original.panelIdFromSurfaceId(originalFocusedTabs[0].id))
+        original.focusPanel(originalFocusedPanelID)
+
+        try Self.expectTwoPaneSelection(
+            in: original,
+            first: "Background B",
+            second: "Focused A"
+        )
+
+        let capturedLayout: CmuxLayoutNode
+        switch capturePath {
+        case .savedLayout:
+            capturedLayout = try #require(original.captureLayoutDefinition().workspace.layout)
+        case .configAction:
+            capturedLayout = try #require(original.captureConfigActionSnapshot().definition.layout)
+        }
+        let restored = Workspace()
+        restored.applyCustomLayout(capturedLayout, baseCwd: NSTemporaryDirectory())
+
+        try Self.expectTwoPaneSelection(
+            in: restored,
+            first: "Background B",
+            second: "Focused A"
+        )
+    }
+
+    private static func twoPaneIDs(in workspace: Workspace) throws -> (first: PaneID, second: PaneID) {
+        guard case .split(let root) = workspace.bonsplitController.treeSnapshot(),
+              case .pane(let firstPane) = root.first,
+              case .pane(let secondPane) = root.second,
+              let firstID = UUID(uuidString: firstPane.id),
+              let secondID = UUID(uuidString: secondPane.id) else {
+            Issue.record("Expected a two-pane workspace")
+            throw TestError.expectedTwoPaneWorkspace
+        }
+        return (PaneID(id: firstID), PaneID(id: secondID))
+    }
+
+    private static func expectTwoPaneSelection(
+        in workspace: Workspace,
+        first firstTitle: String,
+        second secondTitle: String
+    ) throws {
+        let panes = try twoPaneIDs(in: workspace)
+        #expect(workspace.bonsplitController.selectedTab(inPane: panes.first)?.title == firstTitle)
+        #expect(workspace.bonsplitController.selectedTab(inPane: panes.second)?.title == secondTitle)
+        #expect(workspace.bonsplitController.focusedPaneId == panes.second)
+    }
+
     private static func surfaceSnapshot(in workspace: Workspace) throws -> (titles: [String], selectedTitle: String?) {
         let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
         let titles = workspace.bonsplitController.tabs(inPane: paneId).map(\.title)
         let selectedTitle = workspace.bonsplitController.selectedTab(inPane: paneId)?.title
         return (titles, selectedTitle)
+    }
+
+    private enum TestError: Error {
+        case expectedTwoPaneWorkspace
     }
 }
