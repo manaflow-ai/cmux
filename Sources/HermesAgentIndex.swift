@@ -40,14 +40,9 @@ extension SessionIndexStore {
         }
     }
 
-    private nonisolated static func hermesHomeForResume(stateDBPath: String) -> String? {
+    private nonisolated static func hermesHomeForResume(stateDBPath: String) -> String {
         let stateDBURL = URL(fileURLWithPath: stateDBPath).standardizedFileURL
-        let homeURL = stateDBURL.deletingLastPathComponent()
-        let defaultStateDBURL = URL(
-            fileURLWithPath: HermesAgentIndex.defaultStateDBPath(env: ["HOME": NSHomeDirectory()])
-        ).standardizedFileURL
-        let defaultHomeURL = defaultStateDBURL.deletingLastPathComponent()
-        return homeURL == defaultHomeURL ? nil : homeURL.path
+        return stateDBURL.deletingLastPathComponent().path
     }
 
     #if DEBUG
@@ -75,6 +70,15 @@ extension SessionIndexStore {
 extension SessionEntry {
     static func hermesResumeCommand(sessionId: String, source: String?, model: String?, hermesHome: String?) -> String {
         var parts = ["hermes"]
+        let requestedHome = hermesHome?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pinnedHome = requestedHome.flatMap { $0.isEmpty ? nil : $0 }
+            ?? HermesAgentSessionResolver.hermesHome(env: ["HOME": NSHomeDirectory()])
+        // A root HERMES_HOME still follows Hermes's sticky active_profile. Select
+        // the default profile explicitly so the command opens the state.db that
+        // produced this Vault row. Named profile paths are already authoritative.
+        if URL(fileURLWithPath: pinnedHome).deletingLastPathComponent().lastPathComponent != "profiles" {
+            parts.append("--profile default")
+        }
         if source == "tui" {
             parts.append("--tui")
         }
@@ -83,9 +87,6 @@ extension SessionEntry {
             parts.append("--model \(Self.shellQuote(model))")
         }
         let command = parts.joined(separator: " ")
-        guard let hermesHome, !hermesHome.isEmpty else {
-            return command
-        }
-        return "env HERMES_HOME=\(Self.shellQuote(hermesHome)) \(command)"
+        return "env HERMES_HOME=\(Self.shellQuote(pinnedHome)) \(command)"
     }
 }

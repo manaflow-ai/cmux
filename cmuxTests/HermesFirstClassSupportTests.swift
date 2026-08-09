@@ -600,6 +600,11 @@ struct HermesFirstClassSupportTests {
         #expect(outcome.errors.isEmpty)
         #expect(entry.sessionId == "indexed-session")
         #expect(entry.cwd == fixture.repo.path)
+        let expectedHome = SessionEntry.shellQuote(fixture.hermesHome.path)
+        #expect(
+            entry.resumeCommand
+                == "env HERMES_HOME=\(expectedHome) hermes --profile default --resume indexed-session"
+        )
     }
 
     @Test("Default Hermes Vault resumes stay on the indexed profile")
@@ -659,6 +664,31 @@ struct HermesFirstClassSupportTests {
         #expect(result.output.split(separator: "\n").map(String.init) == [
             "--profile", "default", "--tui", "--resume", "indexed-session",
         ])
+    }
+
+    @Test("Named Hermes Vault resumes keep their indexed profile")
+    func namedHermesVaultResumeKeepsIndexedProfile() {
+        let entry = SessionEntry(
+            id: "hermes-agent:indexed-session",
+            agent: .hermesAgent,
+            sessionId: "indexed-session",
+            title: "Indexed session",
+            cwd: nil,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 0),
+            fileURL: nil,
+            specifics: .hermesAgent(
+                source: "tui",
+                model: nil,
+                hermesHome: "/tmp/hermes/profiles/coder"
+            )
+        )
+
+        #expect(
+            entry.resumeCommand
+                == "env HERMES_HOME=/tmp/hermes/profiles/coder hermes --tui --resume indexed-session"
+        )
     }
 
     @MainActor

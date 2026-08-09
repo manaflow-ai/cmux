@@ -91,7 +91,7 @@ extension SocketListenerAcceptPolicyTests {
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env HERMES_HOME='/tmp/hermes home' hermes --tui --resume hermes-session-123 --model gpt-5.4"
+            "env HERMES_HOME='/tmp/hermes home' hermes --profile default --tui --resume hermes-session-123 --model gpt-5.4"
         )
     }
 
