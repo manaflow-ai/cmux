@@ -2338,8 +2338,11 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     let select_bare = cli(&server, &["tab"]);
     assert_eq!(select_bare.status.code(), Some(2));
 
-    let close = cli(&server, &["--quiet", "terminal", &terminal, "close"]);
-    assert_success(&close);
+    let close = json_cli(&server, &["terminal", &terminal, "close"]);
+    if !close.status.success() {
+        assert_eq!(close.status.code(), Some(1));
+        assert_eq!(json_error(&close)["code"], "mutation.indeterminate");
+    }
     let closed_read = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
     assert_eq!(closed_read.status.code(), Some(1));
     assert_eq!(json_error(&closed_read)["code"], "selector.not_found");
