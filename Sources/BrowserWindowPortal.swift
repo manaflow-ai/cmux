@@ -2003,10 +2003,9 @@ final class WindowBrowserPortal: NSObject {
 
     private func synchronizeAllEntriesFromExternalGeometryChange() {
         guard ensureInstalled() else { return }
-        installedContainerView?.layoutSubtreeIfNeeded()
-        installedReferenceView?.layoutSubtreeIfNeeded()
-        hostView.superview?.layoutSubtreeIfNeeded()
-        hostView.layoutSubtreeIfNeeded()
+        // The reference hierarchy belongs to SwiftUI/AppKit. Consume its settled
+        // geometry snapshots here; forcing its layout can re-enter NSHostingView.
+        // Synchronous layout stays below this boundary in portal-owned WebKit views.
         synchronizeAllWebViews(excluding: nil, source: "externalGeometry")
 
         for entry in entriesByWebViewId.values {
