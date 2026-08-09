@@ -663,13 +663,19 @@ import Testing
 
     @Test func reconciliationDoesNotClaimUnownedRemotePanelTitle() throws {
         try withAutoNamingSetting(true) {
-            let harness = try RemoteTmuxMirrorRenameHarness(includeSecondWindow: true)
+            let harness = try RemoteTmuxMirrorRenameHarness()
             defer { harness.tearDown() }
 
             let surface = try #require(harness.surfaces().first)
             let panelId = try #require(
                 harness.workspace.remoteTmuxControlPane(surfaceID: surface.surfaceID)?.containerPanelID
             )
+            _ = try #require(harness.workspace.addRemoteTmuxDisplayPane(
+                remotePaneId: 6,
+                title: "logs",
+                onInput: { _ in }
+            ))
+            #expect(harness.workspace.panels.count == 2)
             #expect(harness.workspace.setCustomTitle("Earlier automatic topic", source: .auto))
             #expect(harness.workspace.panelCustomTitles[panelId] == nil)
 
