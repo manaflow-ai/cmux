@@ -13,6 +13,7 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
     private var state: NativeScrollState?
     private var isConfiguring = false
     private var lastRequestedViewportRow: UInt64?
+    private var hasObservedDeceleration = false
 
     init(
         terminalView: GhosttySurfaceView,
@@ -81,6 +82,7 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        hasObservedDeceleration = false
         updateMetrics(
             rawOffsetY: scrollView.contentOffset.y,
             translationY: terminalView.transform.ty,
@@ -92,6 +94,7 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
         _ scrollView: UIScrollView,
         willDecelerate decelerate: Bool
     ) {
+        hasObservedDeceleration = decelerate
         guard !decelerate else { return }
         updateMetrics(
             rawOffsetY: scrollView.contentOffset.y,
@@ -175,6 +178,29 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
             rawOffsetY,
             maximumOffsetY,
             translationY
+        )
+        let deceleration = hasObservedDeceleration
+            ? String(
+                localized: "scroll.deceleration.observed",
+                defaultValue: "Deceleration observed"
+            )
+            : String(
+                localized: "scroll.deceleration.not-observed",
+                defaultValue: "Deceleration not observed"
+            )
+        let targetRow = cellHeight > 0
+            ? UInt64(max(0, (min(max(rawOffsetY, 0), maximumOffsetY) / cellHeight).rounded()))
+            : 0
+        let renderedRow = boundary?.viewportOffsetRows ?? 0
+        let auditFormat = String(
+            localized: "scroll.audit.format",
+            defaultValue: "%@; target row %llu; rendered row %llu"
+        )
+        metricsLabel.accessibilityValue = String(
+            format: auditFormat,
+            deceleration,
+            targetRow,
+            renderedRow
         )
     }
 }

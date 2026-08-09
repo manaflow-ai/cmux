@@ -12,24 +12,15 @@ final class NativeScrollInteractionUITests: XCTestCase {
     func testFastDragUsesContinuousNativeDeceleration() throws {
         let metrics = app.staticTexts["nativeScrollMetrics"]
         XCTAssertTrue(metrics.waitForExistence(timeout: 5))
-        let initialMetrics = metrics.label
-
         let window = app.windows.firstMatch
-        let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
-        let end = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.82))
-        start.press(
-            forDuration: 0.05,
-            thenDragTo: end,
-            withVelocity: .fast,
-            thenHoldForDuration: 0
-        )
+        window.swipeDown(velocity: .fast)
 
-        let changed = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "label != %@", initialMetrics),
-            object: metrics
-        )
-        wait(for: [changed], timeout: 3)
         XCTAssertTrue(metrics.label.contains("IDLE"))
+        let audit = try XCTUnwrap(metrics.value as? String)
+        XCTAssertTrue(audit.contains("Deceleration observed"), audit)
+        let rows = audit.matches(of: /row (\d+)/).compactMap { UInt64($0.1) }
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[0], rows[1])
     }
 
     func testBottomEdgeOverscrollReturnsToRest() throws {

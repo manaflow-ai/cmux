@@ -14,7 +14,7 @@ struct NativeScrollStateTests {
             maximumOffsetY: 1_000,
             cellHeight: 20
         )
-        #expect(quarter.targetViewportRow == 49)
+        #expect(quarter.targetViewportRow == 50)
         #expect(quarter.presentationTranslationY == 5)
 
         let crossedRow = state.sample(
@@ -22,7 +22,7 @@ struct NativeScrollStateTests {
             maximumOffsetY: 1_000,
             cellHeight: 20
         )
-        #expect(crossedRow.targetViewportRow == 48)
+        #expect(crossedRow.targetViewportRow == 49)
         #expect(crossedRow.presentationTranslationY == 25)
 
         state.updateAuthoritativeOffsetY(980)
@@ -31,7 +31,7 @@ struct NativeScrollStateTests {
             maximumOffsetY: 1_000,
             cellHeight: 20
         )
-        #expect(reconciled.targetViewportRow == 48)
+        #expect(reconciled.targetViewportRow == 49)
         #expect(reconciled.presentationTranslationY == 5)
     }
 
@@ -55,7 +55,7 @@ struct NativeScrollStateTests {
         _ = state.sample(rawOffsetY: 987, maximumOffsetY: 1_000, cellHeight: 20)
         let reversed = state.sample(rawOffsetY: 993, maximumOffsetY: 1_000, cellHeight: 20)
 
-        #expect(reversed.targetViewportRow == 49)
+        #expect(reversed.targetViewportRow == 50)
         #expect(reversed.presentationTranslationY == 7)
     }
 

@@ -29,7 +29,7 @@ nonisolated struct NativeScrollState: Equatable, Sendable {
         let nextEffectiveOffsetY = min(max(rawOffsetY, 0), maximumOffsetY)
         effectiveOffsetY = nextEffectiveOffsetY
         let targetViewportRow = cellHeight > 0
-            ? UInt64(max(0, floor(nextEffectiveOffsetY / cellHeight)))
+            ? UInt64(max(0, (nextEffectiveOffsetY / cellHeight).rounded()))
             : 0
         let rubberBandTranslation = -(rawOffsetY - nextEffectiveOffsetY)
         let translationLimit = cellHeight * 2

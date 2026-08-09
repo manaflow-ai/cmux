@@ -13,6 +13,24 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "Ghostty を起動できませんでした" } }
       }
     },
+    "scroll.audit.format" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@; target row %llu; rendered row %llu" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@、目標行 %llu、描画行 %llu" } }
+      }
+    },
+    "scroll.deceleration.not-observed" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Deceleration not observed" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "減速未確認" } }
+      }
+    },
+    "scroll.deceleration.observed" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Deceleration observed" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "減速確認済み" } }
+      }
+    },
     "scroll.metrics.format" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "%@  offset %.1f / %.1f pt  translation %.1f pt" } },
