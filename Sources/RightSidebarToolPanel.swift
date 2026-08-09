@@ -284,12 +284,24 @@ struct RightSidebarToolPanelView: View {
                 onContainerChange: panel.attachFileExplorerContainer
             )
         case .sessions:
-            VaultPaneView(
-                store: panel.sessionIndexStore,
-                onResume: { entry in
-                    SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+            Group {
+                if let historyLog = tabManager.vaultHistoryEventLog {
+                    VaultPaneView(
+                        store: panel.sessionIndexStore,
+                        onResume: { entry in
+                            SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+                        },
+                        historyLog: historyLog
+                    )
+                } else {
+                    SessionIndexView(
+                        store: panel.sessionIndexStore,
+                        onResume: { entry in
+                            SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+                        }
+                    )
                 }
-            )
+            }
             .background(
                 RightSidebarToolFocusAnchor(onViewChange: panel.attachSessionIndexFocusAnchor)
                     .frame(width: 0, height: 0)

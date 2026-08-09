@@ -180,8 +180,9 @@ class TabManager: ObservableObject {
     /// The window that owns this TabManager. Set by AppDelegate.registerMainWindow().
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
-    /// Stable identifier of the owning macOS window. Used only for opt-in title
-    /// templates that expose a WM-matchable per-window token.
+    /// Stable identifier of the owning macOS window. Injected before the first
+    /// workspace is created when the caller already knows it, then reconciled by
+    /// `AppDelegate.registerMainWindow()`.
     var windowId: UUID?
 
     // Wave-4 sub-model (TabManager decomposition): the workspace list, the
@@ -431,6 +432,7 @@ class TabManager: ObservableObject {
     private var currentWindowTabBarLeadingInset: CGFloat?
     private var closeConfirmationInFlight = false
     let closeTabWarningDefaults: UserDefaults
+    let vaultHistoryEventLog: VaultHistoryEventLog?
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
     private var agentPIDSweepTimer: DispatchSourceTimer?
 #if DEBUG
@@ -491,7 +493,10 @@ class TabManager: ObservableObject {
         },
         workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
-        closeTabWarningDefaults: UserDefaults = .standard
+        closeTabWarningDefaults: UserDefaults = .standard,
+        windowId: UUID? = nil,
+        vaultHistoryEventLog: VaultHistoryEventLog? = nil,
+        initialWorkspaceHistoryContext: VaultHistoryWorkspaceCreationContext = .bootstrap
     ) {
         self.settings = settings
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
@@ -507,6 +512,8 @@ class TabManager: ObservableObject {
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
+        self.windowId = windowId
+        self.vaultHistoryEventLog = vaultHistoryEventLog
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceGrouping = WorkspaceGroupCoordinator(model: workspaces)
 #if DEBUG
@@ -565,7 +572,8 @@ class TabManager: ObservableObject {
             titleSource: .auto,
             workingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: autoWelcomeIfNeeded
+            autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+            vaultHistoryContext: initialWorkspaceHistoryContext
         )
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
@@ -1122,7 +1130,8 @@ class TabManager: ObservableObject {
         autoRefreshMetadata: Bool = true,
         normalizeWorkspaceGroupsAfterInsert: Bool = true,
         applyCreationTitleAsCustomTitle: Bool = true,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        vaultHistoryContext: VaultHistoryWorkspaceCreationContext = .semanticCreation
     ) -> Workspace {
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
@@ -1243,7 +1252,9 @@ class TabManager: ObservableObject {
             }
             publishCmuxWorkspaceCreated(newWorkspace, selected: select)
             publishCmuxInitialSurfaceCreated(newWorkspace, selected: select)
-            recordVaultHistoryWorkspaceCreated(newWorkspace)
+            if vaultHistoryContext.recordsCreationEvent {
+                recordVaultHistoryWorkspaceCreated(newWorkspace)
+            }
             if select {
 #if DEBUG
                 debugPrimeWorkspaceSwitchTrigger("create", to: newWorkspace.id)
@@ -2227,7 +2238,7 @@ class TabManager: ObservableObject {
 
         if tabs.isEmpty {
             // The UI assumes each window always has at least one workspace.
-            _ = addWorkspace()
+            _ = addWorkspace(vaultHistoryContext: .structuralReplacement)
             return removed
         }
 
@@ -4389,7 +4400,8 @@ class TabManager: ObservableObject {
             workingDirectory: entry.snapshot.currentDirectory,
             select: false,
             autoWelcomeIfNeeded: false,
-            applyCreationTitleAsCustomTitle: false
+            applyCreationTitleAsCustomTitle: false,
+            vaultHistoryContext: .restoration
         )
         let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: excludedStableIdentities)
         guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {

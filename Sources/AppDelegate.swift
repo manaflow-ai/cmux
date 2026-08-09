@@ -848,6 +848,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var browserWebViewFirstResponderObserver: NSObjectProtocol?
     let updateLog = UpdateLogStore()
     let focusLog = FocusLogStore()
+    private(set) var vaultHistoryEventLog: VaultHistoryEventLog?
     /// Process-wide identity of the workspace currently being sidebar-dragged in
     /// any window. Owned here (the composition root) and injected into every
     /// window's `SidebarDragState` so cross-window drops resolve a single drag.
@@ -1038,7 +1039,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private(set) var startupSessionSnapshot: AppSessionSnapshot?
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
-    var isApplyingSessionRestore = false
+    var isApplyingSessionRestore = false {
+        didSet {
+            guard isApplyingSessionRestore != oldValue else { return }
+            synchronizeVaultHistoryRecordingPhase()
+        }
+    }
     /// Durable navigation links that arrived before startup restore registered
     /// their target workspaces.
     var pendingStartupNavigationURLRequests: [CmuxNavigationURLRequest] = []
@@ -1081,7 +1087,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didScheduleInitialMainWindowBootstrap = false
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
     private var didBootstrapInitialMainWindow = false
-    var isTerminatingApp = false
+    var isTerminatingApp = false {
+        didSet {
+            guard isTerminatingApp != oldValue else { return }
+            synchronizeVaultHistoryRecordingPhase()
+        }
+    }
     private var closedWindowHistorySuppressedWindowIds: Set<UUID> = []
 #if DEBUG
     var closeMainWindowContainingTabIdObserverForTesting: ((UUID, Bool) -> Void)?
@@ -2197,7 +2208,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notificationStore: TerminalNotificationStore,
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
-        auth: MacAuthComposition
+        auth: MacAuthComposition,
+        vaultHistoryEventLog: VaultHistoryEventLog
     ) {
         self.tabManager = tabManager
         // SwiftUI constructs the initial TabManager before this delegate is
@@ -2207,6 +2219,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
+        self.vaultHistoryEventLog = vaultHistoryEventLog
+        synchronizeVaultHistoryRecordingPhase()
         VMClient.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
@@ -3469,10 +3483,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    private func synchronizeVaultHistoryRecordingPhase() {
+        let phase: VaultHistoryRecordingPhase
+        if isTerminatingApp {
+            phase = .terminating
+        } else if isApplyingSessionRestore {
+            phase = .restoring
+        } else if didAttemptStartupSessionRestore {
+            phase = .active
+        } else {
+            phase = .launching
+        }
+        vaultHistoryEventLog?.transition(to: phase)
+    }
+
     private func attemptStartupSessionRestoreAndSaveIfNeeded(primaryWindow: NSWindow) {
         let didApplyStartupSessionRestore = attemptStartupSessionRestoreIfNeeded(
             primaryWindow: primaryWindow
         )
+        synchronizeVaultHistoryRecordingPhase()
         if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
             isTerminatingApp: isTerminatingApp,
             didApplyStartupSessionRestore: didApplyStartupSessionRestore,
@@ -8347,6 +8376,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !didAttemptStartupSessionRestore {
             startupSessionSnapshot = nil
             didAttemptStartupSessionRestore = true
+            synchronizeVaultHistoryRecordingPhase()
             // Explicit open intent cancels restore; deferred links cannot gain targets.
             flushPendingStartupNavigationURLRequests()
         }
@@ -8944,7 +8974,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             pullRequestProbeService: pullRequestProbeService,
             workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore
                 ?? WorkspaceCustomizationStore(defaults: .standard),
-            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
+            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
+            windowId: windowId,
+            vaultHistoryEventLog: vaultHistoryEventLog,
+            initialWorkspaceHistoryContext: sessionWindowSnapshot == nil
+                ? .semanticCreation
+                : .restoration
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {

@@ -211,6 +211,9 @@
          location = "group:CmuxUpdaterUI">
       </FileRef>
       <FileRef
+         location = "group:CmuxVaultHistory">
+      </FileRef>
+      <FileRef
          location = "group:CmuxWindowing">
       </FileRef>
       <FileRef

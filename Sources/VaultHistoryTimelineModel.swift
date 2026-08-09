@@ -1,3 +1,4 @@
+import CmuxVaultHistory
 import Foundation
 import Observation
 
@@ -40,7 +41,7 @@ final class VaultHistoryTimelineModel {
         log: VaultHistoryEventLog,
         grouper: VaultHistoryGrouper = VaultHistoryGrouper(),
         defaults: UserDefaults = .standard,
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = { .now }
     ) {
         self.log = log
         self.grouper = grouper
@@ -66,10 +67,7 @@ final class VaultHistoryTimelineModel {
             // forces dropping the oldest events, so the common path pays
             // for a single sort per refresh.
             if merged.count > Self.maxTimelineEvents {
-                merged.sort {
-                    if $0.timestamp != $1.timestamp { return $0.timestamp > $1.timestamp }
-                    return $0.id > $1.id
-                }
+                merged.sort(by: VaultHistoryEvent.newestFirst)
                 merged.removeLast(merged.count - Self.maxTimelineEvents)
             }
             self.mergedEvents = merged

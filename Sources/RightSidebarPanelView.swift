@@ -393,7 +393,17 @@ struct RightSidebarPanelView: View {
                     presentation: .find
                 )
             case .sessions:
-                VaultPaneView(store: sessionIndexStore, onResume: onResumeSession)
+                Group {
+                    if let historyLog = tabManager.vaultHistoryEventLog {
+                        VaultPaneView(
+                            store: sessionIndexStore,
+                            onResume: onResumeSession,
+                            historyLog: historyLog
+                        )
+                    } else {
+                        SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
+                    }
+                }
                     .onAppear {
                         sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                     }

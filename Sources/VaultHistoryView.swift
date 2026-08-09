@@ -1,28 +1,21 @@
+import CmuxVaultHistory
 import CmuxFoundation
 import SwiftUI
 
-/// The Vault History tab: a unified timeline of workspace/window lifecycle
-/// events and agent sessions, grouped by the user's chosen dimension
-/// (date buckets by default, "Last 24 hours" first).
+/// The Vault History tab: a unified timeline of workspace, window, and session activity.
 struct VaultHistoryView: View {
     @ObservedObject var sessionStore: SessionIndexStore
-    /// Injected so previews/tests can point at an isolated log.
     let log: VaultHistoryEventLog
-    @State private var model: VaultHistoryTimelineModel?
+    @State private var model: VaultHistoryTimelineModel
+
+    init(sessionStore: SessionIndexStore, log: VaultHistoryEventLog) {
+        self.sessionStore = sessionStore
+        self.log = log
+        _model = State(initialValue: VaultHistoryTimelineModel(log: log))
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if let model {
-                VaultHistoryContentView(sessionStore: sessionStore, log: log, model: model)
-            } else {
-                Color.clear
-                    .onAppear {
-                        if model == nil {
-                            model = VaultHistoryTimelineModel(log: log)
-                        }
-                    }
-            }
-        }
+        VaultHistoryContentView(sessionStore: sessionStore, log: log, model: model)
     }
 }
 
@@ -86,7 +79,10 @@ private struct VaultHistoryContentView: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
-            .help(String(localized: "vaultHistory.groupPicker.tooltip", defaultValue: "Group history by"))
+            .help(String(
+                localized: "vaultHistory.groupPicker.tooltip",
+                defaultValue: "Group history by"
+            ))
             .accessibilityIdentifier("VaultHistoryGroupPicker")
             .titlebarInteractiveControl()
 
@@ -100,7 +96,10 @@ private struct VaultHistoryContentView: View {
                     .cmuxFont(size: 10, weight: .medium)
             }
             .buttonStyle(.borderless)
-            .help(String(localized: "vaultHistory.reload.tooltip", defaultValue: "Reload History"))
+            .help(String(
+                localized: "vaultHistory.reload.tooltip",
+                defaultValue: "Reload History"
+            ))
             .disabled(model.isLoading || sessionStore.isLoading)
             .titlebarInteractiveControl()
         }
@@ -111,18 +110,24 @@ private struct VaultHistoryContentView: View {
     private var loadingView: some View {
         VStack(spacing: 6) {
             ProgressView().controlSize(.small)
-            Text(String(localized: "vaultHistory.loading", defaultValue: "Loading history…"))
-                .cmuxFont(size: 11)
-                .foregroundColor(.secondary)
+            Text(String(
+                localized: "vaultHistory.loading",
+                defaultValue: "Loading history…"
+            ))
+            .cmuxFont(size: 11)
+            .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var emptyView: some View {
         VStack(spacing: 4) {
-            Text(String(localized: "vaultHistory.empty.title", defaultValue: "No history yet"))
-                .cmuxFont(size: 12)
-                .foregroundColor(.secondary)
+            Text(String(
+                localized: "vaultHistory.empty.title",
+                defaultValue: "No history yet"
+            ))
+            .cmuxFont(size: 12)
+            .foregroundColor(.secondary)
             Text(String(
                 localized: "vaultHistory.empty.subtitle",
                 defaultValue: "Workspace, window, and agent session activity will appear here."
@@ -136,8 +141,6 @@ private struct VaultHistoryContentView: View {
     }
 
     private var timelineList: some View {
-        // Snapshot value data before entering the lazy subtree: rows below
-        // the LazyVStack boundary receive plain values, never store refs.
         let groups = model.groups
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
@@ -153,125 +156,5 @@ private struct VaultHistoryContentView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-struct VaultHistoryGroupHeader: View, Equatable {
-    let title: String
-    let count: Int
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Text(title)
-                .cmuxFont(size: 11, weight: .semibold)
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-            Text("\(count)")
-                .cmuxFont(size: 10)
-                .foregroundColor(.secondary.opacity(0.6))
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.bar)
-    }
-}
-
-struct VaultHistoryEventRow: View, Equatable {
-    let event: VaultHistoryEvent
-
-    nonisolated static func == (lhs: VaultHistoryEventRow, rhs: VaultHistoryEventRow) -> Bool {
-        lhs.event == rhs.event
-    }
-
-    private static let relativeFormatter: RelativeDateTimeFormatter = {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter
-    }()
-
-    private static let absoluteFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        return formatter
-    }()
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Image(systemName: event.kind.symbolName)
-                .cmuxFont(size: 10, weight: .regular)
-                .foregroundColor(.secondary)
-                .frame(width: 14)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(displayTitle)
-                    .cmuxFont(size: 11.5)
-                    .foregroundColor(.primary.opacity(0.85))
-                    .lineLimit(1)
-                Text(subtitle)
-                    .cmuxFont(size: 10)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 4)
-            Text(Self.relativeFormatter.localizedString(for: event.timestamp, relativeTo: Date()))
-                .cmuxFont(size: 10)
-                .foregroundColor(.secondary.opacity(0.7))
-                .help(Self.absoluteFormatter.string(from: event.timestamp))
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-    }
-
-    private var displayTitle: String {
-        let trimmed = event.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.isEmpty else { return trimmed }
-        switch event.kind {
-        case .windowOpened, .windowClosed:
-            return String(localized: "vaultHistory.window", defaultValue: "Window")
-        default:
-            return String(localized: "vaultHistory.untitled", defaultValue: "Untitled")
-        }
-    }
-
-    private var subtitle: String {
-        var parts: [String] = []
-        if event.kind == .sessionActivity,
-           let raw = event.subject.agent,
-           let agent = SessionAgent(rawValue: raw) {
-            parts.append(agent.displayName)
-        } else {
-            parts.append(event.kind.label)
-        }
-        if event.kind == .workspaceRenamed, let previousTitle = event.previousTitle, !previousTitle.isEmpty {
-            parts.append(String(
-                format: String(localized: "vaultHistory.detail.renamedFrom", defaultValue: "was “%@”"),
-                previousTitle
-            ))
-        }
-        if let count = event.workspaceCount {
-            parts.append(Self.workspaceCountLabel(count))
-        }
-        if let directory = event.subject.directory, !directory.isEmpty {
-            // String-only path math: URL(fileURLWithPath:) would stat the path.
-            let component = (directory as NSString).lastPathComponent
-            if !component.isEmpty, component != "." {
-                parts.append(component)
-            }
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    private static func workspaceCountLabel(_ count: Int) -> String {
-        if count == 1 {
-            return String(localized: "vaultHistory.workspaceCount.one", defaultValue: "1 workspace")
-        }
-        return String.localizedStringWithFormat(
-            String(localized: "vaultHistory.workspaceCount.other", defaultValue: "%d workspaces"),
-            count
-        )
     }
 }

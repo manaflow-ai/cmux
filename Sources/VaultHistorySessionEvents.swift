@@ -1,3 +1,4 @@
+import CmuxVaultHistory
 import Foundation
 
 /// Projects Vault session index entries into history events at read time.

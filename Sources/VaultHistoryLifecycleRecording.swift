@@ -1,3 +1,4 @@
+import CmuxVaultHistory
 import Foundation
 
 /// Lifecycle hooks that feed the Vault History timeline. Call sites in
@@ -5,14 +6,13 @@ import Foundation
 /// suppression (session restore, app termination) and builds the event.
 extension TabManager {
     func recordVaultHistoryWorkspaceCreated(_ workspace: Workspace) {
-        guard !VaultHistoryEventLog.isRecordingSuppressed else { return }
-        VaultHistoryEventLog.shared.record(VaultHistoryEvent(
-            timestamp: Date(),
+        vaultHistoryEventLog?.record(VaultHistoryEvent(
+            timestamp: .now,
             kind: .workspaceCreated,
             title: resolvedWorkspaceDisplayTitle(for: workspace),
             subject: VaultHistorySubject(
                 workspaceId: workspace.id,
-                windowId: AppDelegate.shared?.windowId(for: self),
+                windowId: windowId,
                 directory: workspace.currentDirectory
             )
         ))
@@ -23,29 +23,27 @@ extension TabManager {
         previousTitle: String,
         currentTitle: String
     ) {
-        guard !VaultHistoryEventLog.isRecordingSuppressed else { return }
-        VaultHistoryEventLog.shared.record(VaultHistoryEvent(
-            timestamp: Date(),
+        vaultHistoryEventLog?.record(VaultHistoryEvent(
+            timestamp: .now,
             kind: .workspaceRenamed,
             title: currentTitle,
             previousTitle: previousTitle,
             subject: VaultHistorySubject(
                 workspaceId: workspace.id,
-                windowId: AppDelegate.shared?.windowId(for: self),
+                windowId: windowId,
                 directory: workspace.currentDirectory
             )
         ))
     }
 
     func recordVaultHistoryWorkspaceClosed(_ workspace: Workspace) {
-        guard !VaultHistoryEventLog.isRecordingSuppressed else { return }
-        VaultHistoryEventLog.shared.record(VaultHistoryEvent(
-            timestamp: Date(),
+        vaultHistoryEventLog?.record(VaultHistoryEvent(
+            timestamp: .now,
             kind: .workspaceClosed,
             title: resolvedWorkspaceDisplayTitle(for: workspace),
             subject: VaultHistorySubject(
                 workspaceId: workspace.id,
-                windowId: AppDelegate.shared?.windowId(for: self),
+                windowId: windowId,
                 directory: workspace.currentDirectory
             )
         ))
@@ -54,9 +52,8 @@ extension TabManager {
 
 extension AppDelegate {
     func recordVaultHistoryWindowOpened(windowId: UUID) {
-        guard !VaultHistoryEventLog.isRecordingSuppressed else { return }
-        VaultHistoryEventLog.shared.record(VaultHistoryEvent(
-            timestamp: Date(),
+        vaultHistoryEventLog?.record(VaultHistoryEvent(
+            timestamp: .now,
             kind: .windowOpened,
             title: "",
             subject: VaultHistorySubject(windowId: windowId)
@@ -75,8 +72,8 @@ extension AppDelegate {
                 return trimmed.isEmpty ? nil : trimmed
             }
             .first ?? ""
-        VaultHistoryEventLog.shared.record(VaultHistoryEvent(
-            timestamp: Date(),
+        vaultHistoryEventLog?.record(VaultHistoryEvent(
+            timestamp: .now,
             kind: .windowClosed,
             title: title,
             workspaceCount: workspaces.count,
