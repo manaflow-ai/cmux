@@ -109,6 +109,75 @@ struct GhosttyEnsureFocusWindowActivationTests {
     }
 
     @Test
+    func blockingAttentionKeepsExactWorkspaceDockPanelIdentity() throws {
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = tabManager.addWorkspace(select: true)
+        let mainPanelID = try #require(workspace.focusedPanelId)
+        let workspaceDock = workspace.dockSplit
+        let dockPane = try #require(workspaceDock.bonsplitController.allPaneIds.first)
+        let dockPanelID = try #require(workspaceDock.newSurface(
+            kind: .terminal,
+            inPane: dockPane,
+            focus: true
+        ))
+        var attentionTarget: FeedCoordinator.AttentionTarget?
+        defer {
+            if let attentionTarget {
+                FeedCoordinator.shared.concludeBlockingDecisionAttention(attentionTarget)
+            }
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+        }
+
+        attentionTarget = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+            event: WorkstreamEvent(
+                sessionId: "issue-9466-workspace-dock",
+                hookEventName: .permissionRequest,
+                source: "pi",
+                workspaceId: workspace.id.uuidString,
+                surfaceId: dockPanelID.uuidString,
+                requestId: "issue-9466-workspace-dock-request"
+            ),
+            resolved: (workspaceId: workspace.id, surfaceId: dockPanelID),
+            tabManager: tabManager
+        )
+
+        let target = try #require(attentionTarget)
+        #expect(target.panelId == dockPanelID)
+        #expect(workspace.agentLifecycleStatesByPanelId[dockPanelID]?["pi"] == .needsInput)
+        #expect(workspace.agentLifecycleStatesByPanelId[mainPanelID]?["pi"] != .needsInput)
+    }
+
+    @Test
+    func blockingAttentionRejectsUnownedSuppliedSurface() throws {
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = tabManager.addWorkspace(select: true)
+        let staleSurfaceID = UUID()
+        defer {
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+        }
+
+        let attentionTarget = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+            event: WorkstreamEvent(
+                sessionId: "issue-9466-stale-surface",
+                hookEventName: .permissionRequest,
+                source: "pi",
+                workspaceId: workspace.id.uuidString,
+                surfaceId: staleSurfaceID.uuidString,
+                requestId: "issue-9466-stale-surface-request"
+            ),
+            resolved: (workspaceId: workspace.id, surfaceId: staleSurfaceID),
+            tabManager: tabManager
+        )
+
+        #expect(attentionTarget == nil)
+        #expect(workspace.agentLifecycleStatesByPanelId.values.allSatisfy { $0["pi"] != .needsInput })
+    }
+
+    @Test
     func notificationFlashCoalescesWhileAnimationIsActive() throws {
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = tabManager.addWorkspace(select: true)

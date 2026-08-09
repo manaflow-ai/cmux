@@ -151,6 +151,44 @@ struct WindowDockRoutingSocketTests {
 #endif
     }
 
+    @Test("Hidden workspace Dock surfaces cannot focus through the visible window Dock")
+    @MainActor
+    func hiddenWorkspaceDockSurfaceFocusFailsClosed() throws {
+#if DEBUG
+        try withDockEnabled {
+            let fileExplorerState = FileExplorerState()
+            try withSocketAppContext(fileExplorerState: fileExplorerState) { _, workspace, _ in
+                let mainPanelID = try #require(workspace.focusedPanelId)
+                let workspaceDock = workspace.dockSplit
+                let pane = try #require(workspaceDock.bonsplitController.allPaneIds.first)
+                let originalDockSurfaceID = try #require(workspaceDock.newSurface(
+                    kind: .terminal,
+                    inPane: pane,
+                    focus: true
+                ))
+                let requestedDockSurfaceID = try #require(workspaceDock.newSurface(
+                    kind: .terminal,
+                    inPane: pane,
+                    focus: false
+                ))
+                workspaceDock.focusPanel(originalDockSurfaceID)
+
+                let envelope = try v2Envelope(method: "surface.focus", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": requestedDockSurfaceID.uuidString,
+                ])
+
+                #expect(envelope["ok"] as? Bool == false)
+                let error = try #require(envelope["error"] as? [String: Any])
+                #expect(error["code"] as? String == "unavailable")
+                #expect(workspaceDock.focusedPanelId == originalDockSurfaceID)
+                #expect(workspace.focusedPanelId == mainPanelID)
+                #expect(!fileExplorerState.isVisible)
+            }
+        }
+#endif
+    }
+
     @Test("Window Dock focus never falls back to a different live window")
     @MainActor
     func dockFocusDoesNotFallBackWhenOwnerWindowIsUnavailable() async throws {
@@ -196,6 +234,11 @@ struct WindowDockRoutingSocketTests {
                     inPane: pane,
                     focus: false
                 ))
+                let requestedBrowserSurfaceId = try #require(ownerDock.newSurface(
+                    kind: .browser,
+                    inPane: pane,
+                    focus: false
+                ))
                 ownerDock.focusPanel(originalSurfaceId)
                 #expect(!fallbackSidebarState.isVisible)
 
@@ -206,6 +249,18 @@ struct WindowDockRoutingSocketTests {
                 #expect(envelope["ok"] as? Bool == false)
                 let error = try #require(envelope["error"] as? [String: Any])
                 #expect(error["code"] as? String == "unavailable")
+                #expect(ownerDock.focusedPanelId == originalSurfaceId)
+                #expect(!fallbackSidebarState.isVisible)
+                #expect(
+                    TerminalController.shared.activeTabManagerForCallerNotification() === fallbackManager
+                )
+
+                let browserEnvelope = try v2Envelope(method: "browser.focus_webview", params: [
+                    "surface_id": requestedBrowserSurfaceId.uuidString,
+                ])
+                #expect(browserEnvelope["ok"] as? Bool == false)
+                let browserError = try #require(browserEnvelope["error"] as? [String: Any])
+                #expect(browserError["code"] as? String == "unavailable")
                 #expect(ownerDock.focusedPanelId == originalSurfaceId)
                 #expect(!fallbackSidebarState.isVisible)
                 #expect(
