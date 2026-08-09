@@ -89,6 +89,49 @@ import Testing
         ])
     }
 
+    @Test func outOfOrderReleasesPreserveRestoredTombstoneChronology() async throws {
+        let firstCompletedOperationID = UUID()
+        let secondCompletedOperationID = UUID()
+        let firstReservationID = UUID()
+        let secondReservationID = UUID()
+        let laterOperationID = UUID()
+        let persistence = TransientLoadFailurePersistence(failFirstLoad: false)
+        let cache = TerminalController.WorkspaceCreateIdempotencyCache(
+            capacity: 2,
+            persistence: persistence
+        )
+
+        try cache.accept(operationID: firstCompletedOperationID)
+        try cache.accept(operationID: secondCompletedOperationID)
+        #expect(try await cache.acceptAsynchronously(operationID: firstReservationID))
+        #expect(try await cache.acceptAsynchronously(operationID: secondReservationID))
+
+        #expect(
+            try await cache.releaseUnassociatedAcceptanceAsynchronously(
+                operationID: firstReservationID
+            )
+        )
+        #expect(
+            try await cache.releaseUnassociatedAcceptanceAsynchronously(
+                operationID: secondReservationID
+            )
+        )
+        #expect(persistence.savedOperationIDs == [
+            firstCompletedOperationID,
+            secondCompletedOperationID,
+        ])
+
+        try cache.accept(operationID: laterOperationID)
+
+        #expect(!cache.containsCompletedOperation(firstCompletedOperationID))
+        #expect(cache.containsCompletedOperation(secondCompletedOperationID))
+        #expect(cache.containsCompletedOperation(laterOperationID))
+        #expect(persistence.savedOperationIDs == [
+            secondCompletedOperationID,
+            laterOperationID,
+        ])
+    }
+
     @Test func nestedReleasesRestoreTheOriginalTombstone() async throws {
         let originalOperationID = UUID()
         let firstReservationID = UUID()

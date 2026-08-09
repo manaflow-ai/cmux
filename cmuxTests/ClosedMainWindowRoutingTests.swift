@@ -247,6 +247,75 @@ struct ClosedMainWindowRoutingTests {
         #expect(app.listMainWindowSummaries().contains { $0.windowId == windowCId })
         #expect(app.focusMainWindow(windowId: windowCId))
     }
+
+    @Test("Same-identifier key window cannot hijack the current scriptable route")
+    func sameIdentifierKeyWindowCannotHijackCurrentScriptableRoute() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let recoverableWindowId = UUID()
+        let fallbackWindowId = UUID()
+        let recoverableWindow = makeMainWindow(id: recoverableWindowId)
+        let fallbackWindow = makeMainWindow(id: fallbackWindowId)
+        let duplicateWindow = makeMainWindow(id: recoverableWindowId)
+        let recoverableManager = TabManager()
+        let fallbackManager = TabManager()
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: fallbackWindowId)
+            app.forgetRecoverableMainWindowRoute(windowId: recoverableWindowId)
+            if !recoverableManager.isFinalizedForWindowClose {
+                recoverableManager.finalizeAllWorkspacesForWindowClose()
+            }
+            if !fallbackManager.isFinalizedForWindowClose {
+                fallbackManager.finalizeAllWorkspacesForWindowClose()
+            }
+            recoverableWindow.orderOut(nil)
+            fallbackWindow.orderOut(nil)
+            duplicateWindow.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            recoverableWindow,
+            windowId: recoverableWindowId,
+            tabManager: recoverableManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            fallbackWindow,
+            windowId: fallbackWindowId,
+            tabManager: fallbackManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        let recoverableContext = try #require(
+            app.mainWindowContexts.values.first {
+                $0.windowId == recoverableWindowId
+            }
+        )
+        app.discardOrphanedMainWindowContext(recoverableContext)
+        #expect(
+            app.recoverableMainWindowRoute(windowId: recoverableWindowId)?.window
+                === recoverableWindow
+        )
+
+        recoverableWindow.makeKeyAndOrderFront(nil)
+        fallbackWindow.makeKeyAndOrderFront(nil)
+        duplicateWindow.makeKeyAndOrderFront(nil)
+        #expect(NSApp.keyWindow === duplicateWindow)
+
+        let current = try #require(app.currentScriptableMainWindow())
+        #expect(current.windowId == fallbackWindowId)
+        #expect(current.tabManager === fallbackManager)
+        #expect(current.window === fallbackWindow)
+    }
 }
 
 @MainActor
