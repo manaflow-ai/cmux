@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import tempfile
+import traceback
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
@@ -27,26 +28,18 @@ def main() -> int:
         dir="/tmp",
     ) as temporary_directory:
         root = Path(temporary_directory)
-        try:
-            test_codex_subagent_stop_replays_deferred_turn_settlement(
-                cli_path,
-                root,
-            )
-            test_codex_deferred_settlement_replay_requires_exact_acknowledgement(
-                cli_path,
-                root,
-            )
-            test_structured_background_work_bounds_and_generation_owned_clear(
-                cli_path,
-                root,
-            )
-            test_codex_deferred_settlement_has_single_live_replay_claim(
-                cli_path,
-                root,
-            )
-        except Exception as exc:
-            print(f"FAIL: {exc}")
-            return 1
+        for test in (
+            test_codex_subagent_stop_replays_deferred_turn_settlement,
+            test_codex_deferred_settlement_replay_requires_exact_acknowledgement,
+            test_structured_background_work_bounds_and_generation_owned_clear,
+            test_codex_deferred_settlement_has_single_live_replay_claim,
+        ):
+            try:
+                test(cli_path, root)
+            except Exception as exc:
+                print(f"FAIL: {test.__name__}: {exc}")
+                traceback.print_exc()
+                return 1
 
     print("PASS: Codex deferred settlement is durable and single-owner")
     return 0
