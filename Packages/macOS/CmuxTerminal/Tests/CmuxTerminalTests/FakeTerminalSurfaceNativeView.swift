@@ -25,6 +25,8 @@ final class FakeTerminalSurfaceNativeView: NSView {
     }
     func applyWindowBackgroundIfActive() {}
     func forceRefreshSurface() -> Bool { true }
+    func prepareForRuntimeSurfaceCreation() {}
+    func runtimeSurfaceDidEnd() {}
     func runtimeSurfaceDidBecomeReady() {}
 
     func deferRuntimeInputDuringClipboardRead(
