@@ -64,6 +64,20 @@ import UIKit
 }
 
 @MainActor
+@Test func accessoryShortcutScrollerDoesNotDrawSeparateChrome() throws {
+    let input = TerminalInputTextView()
+    let toolbar = input.toolbarView
+    let scrollView = try #require(toolbar.subviews.compactMap { $0 as? UIScrollView }.first)
+
+    #expect(scrollView.backgroundColor == UIColor.clear)
+    #expect(!scrollView.isOpaque)
+    if #available(iOS 26.0, *) {
+        #expect(scrollView.leftEdgeEffect.isHidden)
+        #expect(scrollView.rightEdgeEffect.isHidden)
+    }
+}
+
+@MainActor
 @Test func reverseModeOSCResetsUseRawConfigDefaults() async throws {
     let runtime = try GhosttyRuntime.shared()
     let delegate = ThemeTestSurfaceDelegate()
