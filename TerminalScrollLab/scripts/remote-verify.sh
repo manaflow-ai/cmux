@@ -4,9 +4,23 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
+source "$repo_root/scripts/ghostty-zig-version.sh"
+required_zig="$(ghostty_minimum_zig_version "$repo_root")"
+zig_binary="${CMUX_ZIG:-}"
+for candidate in "$zig_binary" /opt/homebrew/bin/zig /usr/local/bin/zig "$(command -v zig 2>/dev/null || true)"; do
+  if [[ -x "$candidate" ]] && ghostty_zig_version_is_compatible "$($candidate version)" "$required_zig"; then
+    zig_binary="$candidate"
+    break
+  fi
+done
+if [[ ! -x "$zig_binary" ]] || ! ghostty_zig_version_is_compatible "$($zig_binary version)" "$required_zig"; then
+  echo "Ghostty requires Zig $required_zig" >&2
+  exit 1
+fi
+
 (
   cd ghostty
-  zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
+  "$zig_binary" build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
 )
 if [[ ! -d GhosttyKit.xcframework ]]; then
   echo "GhosttyKit.xcframework was not produced" >&2
