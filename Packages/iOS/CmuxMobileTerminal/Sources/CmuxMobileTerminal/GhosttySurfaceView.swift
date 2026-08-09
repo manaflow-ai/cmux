@@ -584,7 +584,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         setKeyboardHeightOverrideForTesting(height)
         layoutRenderedTerminalForCurrentViewport()
         layoutBottomDock()
-        layoutIfNeeded()
+        layoutBottomDockHierarchyIfNeeded()
         syncSurfaceGeometry(shouldReassertNaturalSize: true)
     }
 
@@ -1188,7 +1188,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         updateDockedToolbarVisibility()
         layoutRenderedTerminalForCurrentViewport()
         layoutBottomDock()
-        layoutIfNeeded()
+        layoutBottomDockHierarchyIfNeeded()
         setNeedsGeometrySync()
         setNeedsLayout()
     }
@@ -1792,7 +1792,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             guard let self else { return }
             self.layoutRenderedTerminalForCurrentViewport()
             self.layoutBottomDock()
-            self.layoutIfNeeded()
+            self.layoutBottomDockHierarchyIfNeeded()
         }
         if animated {
             animateDockReflow(animations: apply, completion: completion)
@@ -1866,12 +1866,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         layoutArtifactChip(using: snapshot)
     }
 
+    /// Lays out the hierarchy that owns the dock constraints. Once the dock moves
+    /// into `GhosttySurfaceHostView`, laying out only the renderer cannot animate
+    /// composer or toolbar height changes because those constraints are siblings.
+    private func layoutBottomDockHierarchyIfNeeded() {
+        (bottomDockHostView ?? self).layoutIfNeeded()
+    }
+
     /// Animate the whole bottom dock to its current target frames.
     private func animateBottomDock() {
         animateDockReflow { [weak self] in
             guard let self else { return }
             self.layoutBottomDock()
-            self.layoutIfNeeded()
+            self.layoutBottomDockHierarchyIfNeeded()
             self.layoutRenderedTerminalForCurrentViewport()
         }
     }
