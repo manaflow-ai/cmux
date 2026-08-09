@@ -1256,6 +1256,73 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
     }
 
+    func testSurfaceRestoreRecordExactNilCwdDoesNotUseCapturedFallbacks() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let sessionID = UUID().uuidString.lowercased()
+        let capturedDirectory = "/Users/alice/captured-local-project"
+        let restoredFallbackDirectory = "/Users/alice/restored-local-project"
+        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: "codex",
+                command: "codex resume \(sessionID)",
+                cwd: capturedDirectory,
+                checkpointId: sessionID,
+                source: "agent-hook",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "codex",
+                    executablePath: "/usr/local/bin/codex",
+                    arguments: ["/usr/local/bin/codex", "resume", sessionID],
+                    workingDirectory: capturedDirectory
+                ),
+                restoreWorkingDirectorySelection: .exact(nil),
+                autoResume: true
+            ),
+            panelId: panelId
+        ))
+        workspace.restoredResumeSessionWorkingDirectoriesByPanelId[panelId] =
+            restoredFallbackDirectory
+
+        let result = try v2Result(
+            method: "surface.resume.get",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+            ]
+        )
+        let restoreRecord = try XCTUnwrap(result["restore_record"] as? [String: Any])
+        XCTAssertNil(restoreRecord["working_directory"] as? String)
+        let launchCommand = try XCTUnwrap(restoreRecord["launch_command"] as? [String: Any])
+        XCTAssertNil(launchCommand["working_directory"] as? String)
+    }
+
     func testSurfaceResumeSetCannotEnableAutoResumeFromSocket() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

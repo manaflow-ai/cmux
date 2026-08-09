@@ -30,6 +30,69 @@ import Testing
         #expect(decoded.remoteStartupInput() == nil)
     }
 
+    @Test func unavailableSelectionErasesPersistedAgentRestoreRecipe() {
+        let unsafeDirectory = "/Users/alice/captured-cwd"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "grok",
+            command: "grok --resume session --cwd '\(unsafeDirectory)'",
+            cwd: unsafeDirectory,
+            checkpointId: "session",
+            source: "agent-hook",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "grok",
+                executablePath: "/usr/local/bin/grok",
+                arguments: ["/usr/local/bin/grok", "--cwd", unsafeDirectory],
+                workingDirectory: unsafeDirectory
+            ),
+            autoResume: true
+        )
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .grok,
+            sessionId: "session",
+            workingDirectory: unsafeDirectory,
+            launchCommand: binding.launchCommand
+        )
+
+        let constrained = binding.applyingRestoreWorkingDirectorySelection(
+            .unavailable,
+            from: agent
+        )
+
+        #expect(constrained.restoreWorkingDirectorySelection == .unavailable)
+        #expect(constrained.command.isEmpty)
+        #expect(constrained.cwd == nil)
+        #expect(constrained.launchCommand == nil)
+    }
+
+    @MainActor
+    @Test func resumeBindingSelectionChangesAutosaveFingerprint() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        defer {
+            for workspace in manager.tabs {
+                workspace.teardownAllPanels()
+            }
+        }
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelID = try #require(workspace.focusedPanelId)
+        var binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume fingerprint-session",
+            cwd: "/srv/project",
+            checkpointId: "fingerprint-session",
+            source: "agent-hook",
+            restoreWorkingDirectorySelection: .exact("/srv/project"),
+            autoResume: true
+        )
+        workspace.surfaceResumeBindingsByPanelId[panelID] = binding
+        let exactFingerprint = manager.sessionAutosaveFingerprint()
+
+        binding.restoreWorkingDirectorySelection = .unavailable
+        workspace.surfaceResumeBindingsByPanelId[panelID] = binding
+        let unavailableFingerprint = manager.sessionAutosaveFingerprint()
+
+        #expect(exactFingerprint != unavailableFingerprint)
+    }
+
     @Test func structuredLaunchCaptureRoundTripsAdditively() throws {
         let binding = SurfaceResumeBindingSnapshot(
             name: "Codex",
