@@ -33,7 +33,8 @@ SUITE_RE = re.compile(
     r"(?:class|struct|actor)\s+([A-Za-z_][A-Za-z0-9_]*)\b"
 )
 EXTENSION_RE = re.compile(r"^extension\s+([A-Za-z_][A-Za-z0-9_]*)\b")
-TEST_TOKEN_RE = re.compile(r"(^|\s)(@Test\b|func\s+test[A-Za-z0-9_]*\s*\()")
+SWIFT_TEST_ATTRIBUTE_RE = re.compile(r"^\s*@Test\b")
+FUNCTION_DECLARATION_RE = re.compile(r"\bfunc\s+([A-Za-z_][A-Za-z0-9_]*)\b")
 XCTEST_METHOD_RE = re.compile(
     r"^\s*(?:(?:final|private|fileprivate|internal|public)\s+)*"
     r"func\s+(test[A-Za-z0-9_]*)\s*\("
@@ -93,24 +94,53 @@ class SuiteDeclaration:
     name: str
     path: str
     line: int
-    weight: int
+    test_count: int
     methods: tuple[TestSelector, ...]
 
 
-def xctest_methods(
+def test_methods(
     suite_identifier: str, relative_path: str, start_line: int, body: list[str]
 ) -> list[TestSelector]:
-    return [
-        TestSelector(
-            identifier=f"{suite_identifier}/{match.group(1)}",
-            path=relative_path,
-            line=start_line + offset,
-            weight=1,
-            test_count=1,
+    """Return directly declared XCTest and Swift Testing methods."""
+    methods: list[TestSelector] = []
+    pending_swift_test = False
+    pending_line = 0
+    for offset, body_line in enumerate(body):
+        indentation = len(body_line) - len(body_line.lstrip(" \t"))
+        if indentation > 4:
+            continue
+
+        if SWIFT_TEST_ATTRIBUTE_RE.match(body_line):
+            pending_swift_test = True
+            pending_line = start_line + offset
+
+        swift_test_match = (
+            FUNCTION_DECLARATION_RE.search(body_line)
+            if pending_swift_test
+            else None
         )
-        for offset, body_line in enumerate(body)
-        if (match := XCTEST_METHOD_RE.match(body_line))
-    ]
+        xctest_match = XCTEST_METHOD_RE.match(body_line)
+        method_match = swift_test_match or xctest_match
+        if method_match is None:
+            continue
+
+        methods.append(
+            TestSelector(
+                identifier=f"{suite_identifier}/{method_match.group(1)}",
+                path=relative_path,
+                line=start_line + offset,
+                weight=1,
+                test_count=1,
+            )
+        )
+        pending_swift_test = False
+
+    if pending_swift_test:
+        raise SystemExit(
+            f"Could not find function declaration for @Test at "
+            f"{relative_path}:{pending_line}"
+        )
+    return methods
 
 
 def discover_selectors(root: Path) -> list[TestSelector]:
@@ -145,9 +175,8 @@ def discover_selectors(root: Path) -> list[TestSelector]:
                 else len(lines) + 1
             )
             body = lines[line_number - 1 : next_line - 1]
-            weight = max(1, sum(1 for line in body if TEST_TOKEN_RE.search(line)))
             suite_identifier = f"cmuxTests/{name}"
-            methods = xctest_methods(suite_identifier, relative, line_number, body)
+            methods = test_methods(suite_identifier, relative, line_number, body)
             if kind == "extension":
                 extension_methods.setdefault(name, []).extend(methods)
                 continue
@@ -157,7 +186,7 @@ def discover_selectors(root: Path) -> list[TestSelector]:
                     name=name,
                     path=relative,
                     line=line_number,
-                    weight=weight,
+                    test_count=max(1, len(methods)),
                     methods=tuple(methods),
                 )
             )
@@ -178,16 +207,16 @@ def discover_selectors(root: Path) -> list[TestSelector]:
         suite_identifier = f"cmuxTests/{declaration.name}"
         extension_selectors = extension_methods.get(declaration.name, [])
         methods = [*declaration.methods, *extension_selectors]
-        weight = declaration.weight + len(extension_selectors)
+        test_count = declaration.test_count + len(extension_selectors)
 
         if suite_identifier in FOCUSED_GATE_SELECTORS:
             continue
 
-        # Very large XCTestCase classes dominate a shard when selected as a
-        # whole suite. Split those classes by XCTest method while keeping
-        # smaller suites grouped so xcodebuild still has a compact selector
-        # list and shared setup inside each suite. Include extension methods in
-        # the split so extension-declared regressions remain covered.
+        # Very large suites dominate a shard when selected as a whole. Split
+        # XCTest and Swift Testing suites by method while keeping smaller suites
+        # grouped so xcodebuild still has a compact selector list and shared
+        # setup. Include extension methods in the split so extension-declared
+        # regressions remain covered and count toward process limits.
         if len(methods) >= LARGE_SUITE_METHOD_THRESHOLD:
             selectors.extend(methods)
             continue
@@ -197,8 +226,8 @@ def discover_selectors(root: Path) -> list[TestSelector]:
                 identifier=suite_identifier,
                 path=declaration.path,
                 line=declaration.line,
-                weight=weight,
-                test_count=weight,
+                weight=test_count,
+                test_count=test_count,
             )
         )
 
