@@ -184,6 +184,82 @@ struct RecoverableMainWindowLifecycleTests {
         )
     }
 
+    @Test("Recovery freeze preserves a verified process-detected binding")
+    func recoveryFreezePreservesVerifiedProcessDetectedBinding() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        let manager = TabManager()
+        defer {
+            app.forgetRecoverableMainWindowRoute(windowId: windowId)
+            window.orderOut(nil)
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = unverifiedProcessDetectedResumeBinding()
+        workspace.surfaceResumeBindingsByPanelId[panelId] = binding
+
+        let context = try #require(
+            app.mainWindowContexts.values.first { $0.windowId == windowId }
+        )
+        window.orderOut(nil)
+        context.window = nil
+        window.identifier = NSUserInterfaceItemIdentifier(
+            "cmux.orphaned.\(windowId.uuidString)"
+        )
+        app.discardOrphanedMainWindowContext(context)
+
+        let route = try #require(app.recoverableMainWindowRoute(windowId: windowId))
+        #expect(route.window == nil)
+        #expect(route.tabManager === manager)
+        #expect(route.frozenWindowSnapshot == nil)
+
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(
+                workspaceId: workspace.id,
+                panelId: panelId
+            ): binding,
+        ])
+        let snapshot = try #require(
+            app.debugBuildSessionSnapshotForTesting(
+                includeScrollback: false,
+                surfaceResumeBindingIndex: bindingIndex
+            )
+        )
+        let restoredBinding = try #require(
+            snapshot.windows
+                .first(where: { $0.windowId == windowId })?
+                .tabManager.workspaces
+                .first(where: { $0.workspaceId == workspace.id })?
+                .panels.first(where: { $0.id == panelId })?
+                .terminal?.resumeBinding
+        )
+
+        #expect(restoredBinding.command == binding.command)
+        #expect(restoredBinding.checkpointId == binding.checkpointId)
+        #expect(restoredBinding.allowsAutomaticResume)
+        #expect(restoredBinding.approvalPolicy == .auto)
+        #expect(restoredBinding.approvalRecordId == binding.approvalRecordId)
+        #expect(
+            app.recoverableMainWindowRoute(windowId: windowId)?.frozenWindowSnapshot != nil
+        )
+    }
+
     @Test("Dismissed recovered window remains restorable and focusable")
     func dismissedRecoveredWindowRemainsRestorableAndFocusable() throws {
         _ = NSApplication.shared
