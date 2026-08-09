@@ -2338,6 +2338,13 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     let select_bare = cli(&server, &["tab"]);
     assert_eq!(select_bare.status.code(), Some(2));
 
+    // Keep terminal.close focused on its CLI contract; multiview close semantics have dedicated
+    // core coverage.
+    let close_projection = json_cli(&server, &["tab", projected_tab, "close"]);
+    assert_success(&close_projection);
+    let remaining_terminal = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
+    assert_success(&remaining_terminal);
+
     let mut terminal_closed = false;
     for attempt in 0..3 {
         let key = format!("matrix-terminal-close-{attempt}");
