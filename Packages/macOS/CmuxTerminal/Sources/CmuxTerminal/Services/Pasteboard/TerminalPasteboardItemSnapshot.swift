@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 public import Foundation
 
 /// A Sendable, eagerly materialized pasteboard item.
