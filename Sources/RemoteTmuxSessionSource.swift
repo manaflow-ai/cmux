@@ -155,6 +155,17 @@ protocol RemoteTmuxSessionSource: AnyObject {
     @discardableResult func sendWindowReorder(_ commands: [String], verification: ((Bool) -> Void)?) -> Bool
     /// Forwards typed input to a pane.
     @discardableResult func sendKeys(paneId: Int, data: Data) -> Bool
+    /// Forwards a named key (Enter, Escape, an arrow…) to a pane.
+    ///
+    /// Separate from ``sendKeys(paneId:data:)`` because tmux names these rather than taking
+    /// their bytes, so the caller passes a validated name and never a raw escape sequence.
+    @discardableResult func sendKey(paneId: Int, key: RemoteTmuxKeyName) -> Bool
+    /// Freezes the mirror and reconnects after an unusable control stream.
+    ///
+    /// Spelled without a default argument, unlike the concrete implementation: a protocol
+    /// requirement cannot carry one, so callers that want the common case pass `false`
+    /// explicitly. See the implementation for what `preservingBackoff` protects against.
+    func beginReconnecting(preservingBackoff: Bool)
     /// Replays a pane's captured contents into a freshly-mounted surface.
     @discardableResult
     func seedPane(paneId: Int, clearScrollback: Bool) -> UUID?
