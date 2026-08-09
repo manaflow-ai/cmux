@@ -21,6 +21,8 @@ public enum CmuxVaultAgentPersistedSessionStore: String, Codable, Hashable, Send
     ///
     /// Fresh sessions are correlated by agent hooks; the store is never searched by cwd because
     /// that cannot prove which live process owns a row.
+    /// Hermes accepts separated, equals-separated, and attached short resume values such as
+    /// `-r SESSION`, `-r=SESSION`, and `-rSESSION`.
     ///
     /// - Parameter arguments: The observed agent process arguments.
     /// - Returns: The explicit session ID, or `nil` when the launch is a fresh session.
@@ -44,12 +46,21 @@ public enum CmuxVaultAgentPersistedSessionStore: String, Codable, Hashable, Send
                 }
                 continue
             }
-            let prefix = option + "="
-            guard argument.hasPrefix(prefix) else { continue }
-            let value = String(argument.dropFirst(prefix.count))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !value.isEmpty, !value.hasPrefix("-") {
-                return value
+            let equalsPrefix = option + "="
+            if argument.hasPrefix(equalsPrefix) {
+                let value = String(argument.dropFirst(equalsPrefix.count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty, !value.hasPrefix("-") {
+                    return value
+                }
+                continue
+            }
+            if option.count == 2, argument.hasPrefix(option) {
+                let value = String(argument.dropFirst(option.count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty, !value.hasPrefix("-") {
+                    return value
+                }
             }
         }
         return nil
