@@ -69,6 +69,11 @@ struct WorkspaceListViewOptionsPopover: View {
             .padding(.vertical, 8)
         }
         .frame(minWidth: 300, maxWidth: 320)
+        // The popover inherits the presenting toolbar button's font
+        // environment; pin every row to regular body so nothing renders with
+        // the toolbar's weight. Tile labels re-set their own smaller font.
+        .font(.body)
+        .fontWeight(.regular)
         .presentationCompactAdaptation(.popover)
         .sheet(isPresented: $showingOrderEditor) {
             if let saveComputerOrder {
