@@ -131,26 +131,34 @@ public struct TerminalPointerStyleState {
                 return .columnResize(directions: .left)
             }
             return .resizeLeft
-        case GHOSTTY_MOUSE_SHAPE_NE_RESIZE,
-             GHOSTTY_MOUSE_SHAPE_NESW_RESIZE:
+        case GHOSTTY_MOUSE_SHAPE_NE_RESIZE:
+            if #available(macOS 15.0, *) {
+                return .frameResize(position: .topRight, directions: .outward)
+            }
+            return nil
+        case GHOSTTY_MOUSE_SHAPE_NESW_RESIZE:
             if #available(macOS 15.0, *) {
                 return .frameResize(position: .topRight, directions: .all)
             }
             return nil
-        case GHOSTTY_MOUSE_SHAPE_NW_RESIZE,
-             GHOSTTY_MOUSE_SHAPE_NWSE_RESIZE:
+        case GHOSTTY_MOUSE_SHAPE_NW_RESIZE:
+            if #available(macOS 15.0, *) {
+                return .frameResize(position: .topLeft, directions: .outward)
+            }
+            return nil
+        case GHOSTTY_MOUSE_SHAPE_NWSE_RESIZE:
             if #available(macOS 15.0, *) {
                 return .frameResize(position: .topLeft, directions: .all)
             }
             return nil
         case GHOSTTY_MOUSE_SHAPE_SE_RESIZE:
             if #available(macOS 15.0, *) {
-                return .frameResize(position: .bottomRight, directions: .all)
+                return .frameResize(position: .bottomRight, directions: .outward)
             }
             return nil
         case GHOSTTY_MOUSE_SHAPE_SW_RESIZE:
             if #available(macOS 15.0, *) {
-                return .frameResize(position: .bottomLeft, directions: .all)
+                return .frameResize(position: .bottomLeft, directions: .outward)
             }
             return nil
         case GHOSTTY_MOUSE_SHAPE_ZOOM_IN:
