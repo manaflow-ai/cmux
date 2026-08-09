@@ -280,6 +280,16 @@ jobs:
         working-directory: cmux-tui
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      - name: Build cmux-tui for attach smoke test
+        working-directory: cmux-tui
+        run: cargo build -p cmux-tui
+
+      - name: Detach/reattach smoke test
+        working-directory: cmux-tui
+        env:
+          SHELL: /bin/bash
+        run: python3 scripts/smoke-attach.py
+
       - name: cargo test
         working-directory: cmux-tui
         run: cargo test --workspace --locked
@@ -293,10 +303,6 @@ jobs:
         run: |
           cargo build -p cmux-tui
           python3 scripts/smoke-tui.py
-
-      - name: Detach/reattach smoke test
-        working-directory: cmux-tui
-        run: python3 scripts/smoke-attach.py
 
   bindings-e2e:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
