@@ -277,6 +277,8 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
         return true
     }
     @discardableResult func sendKeys(paneId: Int, data: Data) -> Bool { underlying.sendKeys(paneId: paneId, data: data) }
+    @discardableResult func sendKey(paneId: Int, key: RemoteTmuxKeyName) -> Bool { underlying.sendKey(paneId: paneId, key: key) }
+    func beginReconnecting(preservingBackoff: Bool) { underlying.beginReconnecting(preservingBackoff: preservingBackoff) }
     @discardableResult func sendTracked(_ command: String, completion: @escaping (Bool) -> Void) -> Bool {
         underlying.sendTracked(command, completion: completion)
     }
