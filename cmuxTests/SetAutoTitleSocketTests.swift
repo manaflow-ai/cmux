@@ -670,11 +670,12 @@ import Testing
             let panelId = try #require(
                 harness.workspace.remoteTmuxControlPane(surfaceID: surface.surfaceID)?.containerPanelID
             )
-            _ = try #require(harness.workspace.addRemoteTmuxDisplayPane(
+            let secondPanel = harness.workspace.addRemoteTmuxDisplayPane(
                 remotePaneId: 6,
                 title: "logs",
                 onInput: { _ in }
-            ))
+            )
+            _ = try #require(secondPanel)
             #expect(harness.workspace.panels.count == 2)
             #expect(harness.workspace.setCustomTitle("Earlier automatic topic", source: .auto))
             #expect(harness.workspace.panelCustomTitles[panelId] == nil)
