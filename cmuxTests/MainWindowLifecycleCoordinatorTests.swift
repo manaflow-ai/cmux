@@ -10,6 +10,112 @@ import Testing
 @MainActor
 @Suite("Main window lifecycle coordinator", .serialized)
 struct MainWindowLifecycleCoordinatorTests {
+    @Test("Closing window ids cannot be registered again")
+    func closingWindowIdsCannotBeRegisteredAgain() {
+        let coordinator = MainWindowLifecycleCoordinator()
+        let windowId = UUID()
+        let originalManager = TabManager(autoWelcomeIfNeeded: false)
+        let replacementManager = TabManager(autoWelcomeIfNeeded: false)
+        defer {
+            tearDown(originalManager)
+            tearDown(replacementManager)
+        }
+
+        let original = makeContext(windowId: windowId, manager: originalManager)
+        coordinator.register(original, lookupKey: ObjectIdentifier(originalManager))
+        let route = RecoverableMainWindowRoute(
+            windowId: windowId,
+            tabManager: originalManager,
+            window: nil,
+            sidebar: original.sidebarState,
+            sidebarSelection: original.sidebarSelectionState,
+            frozenWindowDockSnapshot: nil,
+            retainTabManager: false
+        )
+        #expect(coordinator.transitionToClosing(route, from: original))
+
+        let replacement = makeContext(windowId: windowId, manager: replacementManager)
+        coordinator.register(replacement, lookupKey: ObjectIdentifier(replacementManager))
+
+        #expect(coordinator.registeredContext(windowId: windowId) == nil)
+        #expect(coordinator.teardownRoute(windowId: windowId) === route)
+    }
+
+    @Test("Frozen orphan ids cannot be registered again")
+    func frozenOrphanIdsCannotBeRegisteredAgain() {
+        let app = AppDelegate()
+        let windowId = UUID()
+        let originalManager = TabManager(autoWelcomeIfNeeded: false)
+        let replacementManager = TabManager(autoWelcomeIfNeeded: false)
+        defer {
+            tearDown(originalManager)
+            tearDown(replacementManager)
+        }
+
+        let original = makeContext(windowId: windowId, manager: originalManager)
+        app.mainWindowLifecycleCoordinator.register(
+            original,
+            lookupKey: ObjectIdentifier(originalManager)
+        )
+        let route = RecoverableMainWindowRoute(
+            windowId: windowId,
+            frozenWindowSnapshot: emptyWindowSnapshot(windowId: windowId)
+        )
+        #expect(
+            app.mainWindowLifecycleCoordinator.transitionToOrphaned(
+                route,
+                from: original
+            )
+        )
+        #expect(app.availableWindowIdForNewMainWindow(preferredWindowId: windowId) == nil)
+
+        let replacement = makeContext(windowId: windowId, manager: replacementManager)
+        app.mainWindowLifecycleCoordinator.register(
+            replacement,
+            lookupKey: ObjectIdentifier(replacementManager)
+        )
+
+        #expect(app.mainWindowLifecycleCoordinator.registeredContext(windowId: windowId) == nil)
+        #expect(app.mainWindowLifecycleCoordinator.orphanedRoute(windowId: windowId) === route)
+    }
+
+    @Test("Live orphan registration reattaches the original context")
+    func liveOrphanRegistrationReattachesOriginalContext() {
+        let coordinator = MainWindowLifecycleCoordinator()
+        let windowId = UUID()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        defer { tearDown(manager) }
+
+        let original = makeContext(windowId: windowId, manager: manager)
+        coordinator.register(original, lookupKey: ObjectIdentifier(manager))
+        let route = RecoverableMainWindowRoute(
+            windowId: windowId,
+            tabManager: manager,
+            window: nil,
+            sidebar: original.sidebarState,
+            sidebarSelection: original.sidebarSelectionState,
+            frozenWindowDockSnapshot: nil,
+            retainTabManager: true
+        )
+        #expect(coordinator.transitionToOrphaned(route, from: original))
+
+        let replacement = AppDelegate.MainWindowContext(
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: original.sidebarState,
+            sidebarSelectionState: original.sidebarSelectionState,
+            fileExplorerState: nil,
+            cmuxConfigStore: nil,
+            window: nil,
+            workspaceTerminalFontSizeArbiter:
+                WorkspaceTerminalFontSizeArbiter()
+        )
+        coordinator.register(replacement, lookupKey: ObjectIdentifier(replacement))
+
+        #expect(coordinator.registeredContext(windowId: windowId) === original)
+        #expect(coordinator.orphanedRoute(windowId: windowId) == nil)
+    }
+
     @Test("Frozen orphan retention keeps only the newest configured records")
     func frozenOrphanRetentionKeepsNewestRecords() {
         let coordinator = MainWindowLifecycleCoordinator(
@@ -74,5 +180,30 @@ struct MainWindowLifecycleCoordinatorTests {
                 width: SessionPersistencePolicy.defaultSidebarWidth
             )
         )
+    }
+
+    private func makeContext(
+        windowId: UUID,
+        manager: TabManager
+    ) -> AppDelegate.MainWindowContext {
+        AppDelegate.MainWindowContext(
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: nil,
+            cmuxConfigStore: nil,
+            window: nil,
+            workspaceTerminalFontSizeArbiter:
+                WorkspaceTerminalFontSizeArbiter()
+        )
+    }
+
+    private func tearDown(_ manager: TabManager) {
+        for workspace in manager.tabs {
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            workspace.owningTabManager = nil
+        }
     }
 }

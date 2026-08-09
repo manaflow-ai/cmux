@@ -26,6 +26,8 @@ struct RecoverableMainWindowLifecycleTests {
         let previousNotificationStore = app.notificationStore
         let previousNotifications = notificationStore.notifications
         let unrelatedNotificationTabId = UUID()
+        let configFrameSignature = "issue-9666-windowless-freeze"
+        let snapshot: AppSessionSnapshot
         app.notificationStore = notificationStore
         defer {
             notificationStore.replaceNotificationsForTesting(previousNotifications)
@@ -76,6 +78,19 @@ struct RecoverableMainWindowLifecycleTests {
             ])
             workspace.surfaceResumeBindingsByPanelId[workspacePanelId] =
                 unverifiedProcessDetectedResumeBinding()
+            app.windowConfigFrames[windowId] = SessionConfigFrameRing(entries: [
+                SessionConfigFrameEntry(
+                    signature: configFrameSignature,
+                    frame: SessionRectSnapshot(
+                        x: 10,
+                        y: 20,
+                        width: 500,
+                        height: 320
+                    ),
+                    display: nil,
+                    lastUsedAt: 1_999_999_999
+                )
+            ])
 
             let workspaceDock = workspace.dockSplit
             let workspaceDockPanel = TerminalPanel(
@@ -117,25 +132,40 @@ struct RecoverableMainWindowLifecycleTests {
             #expect(!app.mainWindowContexts.values.contains { $0.windowId == windowId })
             let route = try #require(app.recoverableMainWindowRoute(windowId: windowId))
             #expect(route.window == nil)
-            #expect(route.tabManager == nil)
-            #expect(route.frozenWindowSnapshot != nil)
+            #expect(route.tabManager === liveManager)
+            #expect(route.frozenWindowSnapshot == nil)
             #expect(!app.recoverableMainWindowRoutes().contains { $0.windowId == windowId })
             #expect(app.tabManagerFor(windowId: windowId) == nil)
+            #expect(liveManager.tabs.contains { !$0.panels.isEmpty })
+            #expect(app.commandPaletteWindowStore.isPendingOpenRaw(windowId))
+            #expect(
+                app.commandPaletteWindowStore.isPendingOpenRaw(unrelatedNotificationTabId)
+            )
+            #expect(notificationStore.notifications.count == 3)
+
+            snapshot = try #require(app.sessionSnapshotForTesting())
+
+            let frozenRoute = try #require(
+                app.recoverableMainWindowRoute(windowId: windowId)
+            )
+            #expect(frozenRoute.tabManager == nil)
+            #expect(frozenRoute.frozenWindowSnapshot != nil)
             #expect(liveManager.tabs.allSatisfy { $0.panels.isEmpty })
             #expect(!app.commandPaletteWindowStore.isPendingOpenRaw(windowId))
             #expect(
                 app.commandPaletteWindowStore.isPendingOpenRaw(unrelatedNotificationTabId)
             )
             #expect(notificationStore.notifications.map(\.tabId) == [unrelatedNotificationTabId])
+            #expect(app.windowConfigFrames[windowId] == nil)
         }
 
         manager = nil
         #expect(releasedManager == nil)
 
-        let snapshot = try #require(app.sessionSnapshotForTesting())
         let restoredWindow = try #require(
             snapshot.windows.first { $0.windowId == windowId }
         )
+        #expect(restoredWindow.configFrames?.map(\.signature) == [configFrameSignature])
         let restoredWorkspace = try #require(
             restoredWindow.tabManager.workspaces.first { $0.workspaceId == workspaceId }
         )
