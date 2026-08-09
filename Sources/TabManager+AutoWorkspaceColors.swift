@@ -94,8 +94,12 @@ extension TabManager {
     ///
     /// Existing assignments are preserved, so deleting or reordering a
     /// workspace never recolors the survivors.
-    func reconcileAutoWorkspaceColorsNow(defaults explicitDefaults: UserDefaults? = nil) {
-        let defaults = explicitDefaults ?? autoWorkspaceColorDefaults
+    ///
+    /// The store is always the manager's own, because scheduling coalesces on
+    /// that store; reconciling a different one would write outside the key that
+    /// suppressed the duplicate passes.
+    func reconcileAutoWorkspaceColorsNow() {
+        let defaults = autoWorkspaceColorDefaults
         let keys = WorkspaceColorsCatalogSection()
         let settingsClient = UserDefaultsSettingsClient(defaults: defaults)
         guard settingsClient.value(for: keys.indicatorStyle)
