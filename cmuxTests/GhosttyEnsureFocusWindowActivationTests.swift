@@ -102,8 +102,35 @@ struct GhosttyEnsureFocusWindowActivationTests {
     }
 
     @Test
+    func notificationFlashCoalescesWhileAnimationIsActive() throws {
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = tabManager.addWorkspace(select: true)
+        defer {
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+        }
+
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        GhosttySurfaceScrollView.resetFlashCounts()
+
+        terminalPanel.hostedView.triggerFlash(style: .notification)
+        terminalPanel.hostedView.triggerFlash(style: .notification)
+        #expect(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id) == 1)
+
+        terminalPanel.hostedView.triggerFlash(style: .navigation)
+        #expect(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id) == 2)
+    }
+
+    @Test
     func backgroundTerminalBellMarksPaneUnreadWithoutFocusingIt() throws {
+        let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
+        defer {
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         appDelegate.tabManager = tabManager
         let targetWorkspace = tabManager.addWorkspace(select: true)
@@ -116,7 +143,6 @@ struct GhosttyEnsureFocusWindowActivationTests {
             if tabManager.tabs.contains(where: { $0.id == selectedWorkspace.id }) {
                 tabManager.closeWorkspace(selectedWorkspace)
             }
-            appDelegate.tabManager = nil
         }
 
         #expect(targetWorkspace.manualUnreadPanelIds.isEmpty)

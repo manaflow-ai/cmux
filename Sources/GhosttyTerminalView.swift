@@ -8171,6 +8171,8 @@ final class GhosttySurfaceScrollView: NSView {
         case notification
     }
 
+    private static let flashAnimationKey = "cmux.flash"
+
     static func flashStyle(for reason: WorkspaceAttentionFlashReason) -> FlashStyle {
         switch reason {
         case .navigation, .userInitiated:
@@ -9929,32 +9931,38 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
 
     func triggerFlash(style: FlashStyle = .navigation) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.lastFlashStyle = style
-            #if DEBUG
-            if let surfaceId = self.surfaceView.terminalSurface?.id {
-                Self.recordFlash(for: surfaceId)
-            }
-#endif
-            self.updateFlashPath(style: style)
-            self.updateFlashAppearance(style: style)
-            self.flashLayer.removeAllAnimations()
-            self.flashLayer.opacity = 0
-            let animation = CAKeyframeAnimation(keyPath: "opacity")
-            animation.values = FocusFlashPattern.values.map { NSNumber(value: $0) }
-            animation.keyTimes = FocusFlashPattern.keyTimes.map { NSNumber(value: $0) }
-            animation.duration = FocusFlashPattern.duration
-            animation.timingFunctions = FocusFlashPattern.curves.map { curve in
-                switch curve {
-                case .easeIn:
-                    return CAMediaTimingFunction(name: .easeIn)
-                case .easeOut:
-                    return CAMediaTimingFunction(name: .easeOut)
-                }
-            }
-            self.flashLayer.add(animation, forKey: "cmux.flash")
+        // Terminal BELs can arrive in bursts. Their persistent unread state is
+        // recorded separately, so one in-flight visual flash is sufficient.
+        // Navigation flashes remain restartable because they reflect explicit
+        // user intent.
+        if case .notification = style,
+           flashLayer.animation(forKey: Self.flashAnimationKey) != nil {
+            return
         }
+
+        lastFlashStyle = style
+        #if DEBUG
+        if let surfaceId = surfaceView.terminalSurface?.id {
+            Self.recordFlash(for: surfaceId)
+        }
+#endif
+        updateFlashPath(style: style)
+        updateFlashAppearance(style: style)
+        flashLayer.removeAllAnimations()
+        flashLayer.opacity = 0
+        let animation = CAKeyframeAnimation(keyPath: "opacity")
+        animation.values = FocusFlashPattern.values.map { NSNumber(value: $0) }
+        animation.keyTimes = FocusFlashPattern.keyTimes.map { NSNumber(value: $0) }
+        animation.duration = FocusFlashPattern.duration
+        animation.timingFunctions = FocusFlashPattern.curves.map { curve in
+            switch curve {
+            case .easeIn:
+                return CAMediaTimingFunction(name: .easeIn)
+            case .easeOut:
+                return CAMediaTimingFunction(name: .easeOut)
+            }
+        }
+        flashLayer.add(animation, forKey: Self.flashAnimationKey)
     }
 
     var isVisibleInUI: Bool { surfaceView.isVisibleInUI }
