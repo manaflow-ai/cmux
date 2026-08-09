@@ -101,6 +101,61 @@ struct WindowDockRoutingSocketTests {
         try body(manager, workspace, windowId)
     }
 
+    @Test("Dock focus commands fail when the owning Dock cannot be revealed")
+    @MainActor
+    func dockFocusCommandsFailWhenRevealIsUnavailable() throws {
+#if DEBUG
+        try withDockEnabled {
+            try withSocketAppContext(fileExplorerState: FileExplorerState()) { _, _, windowId in
+                let appDelegate = try #require(AppDelegate.shared)
+                let dock = appDelegate.windowDock(forWindowId: windowId)
+                let firstPane = try #require(dock.bonsplitController.allPaneIds.first)
+                let firstSurfaceID = try #require(dock.newSurface(
+                    kind: .terminal,
+                    inPane: firstPane,
+                    focus: true
+                ))
+                let secondSurfaceID = try #require(dock.newSplit(
+                    kind: .terminal,
+                    orientation: .vertical,
+                    insertFirst: false,
+                    sourcePanelId: firstSurfaceID,
+                    focus: false
+                ))
+                let secondPane = try #require(dock.paneId(forPanelId: secondSurfaceID))
+
+                dock.focusPanel(firstSurfaceID)
+                dock.bonsplitController.focusPane(firstPane)
+                #expect(dock.focusedPanelId == firstSurfaceID)
+                #expect(dock.bonsplitController.focusedPaneId == firstPane)
+
+                let defaults = UserDefaults.standard
+                let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
+                defaults.set(false, forKey: dockEnabledKey)
+                defer { defaults.set(true, forKey: dockEnabledKey) }
+
+                let surfaceEnvelope = try v2Envelope(method: "surface.focus", params: [
+                    "workspace_id": windowId.uuidString,
+                    "surface_id": secondSurfaceID.uuidString,
+                ])
+                #expect(surfaceEnvelope["ok"] as? Bool == false)
+                let surfaceError = try #require(surfaceEnvelope["error"] as? [String: Any])
+                #expect(surfaceError["code"] as? String == "unavailable")
+                #expect(dock.focusedPanelId == firstSurfaceID)
+
+                let paneEnvelope = try v2Envelope(method: "pane.focus", params: [
+                    "workspace_id": windowId.uuidString,
+                    "pane_id": secondPane.id.uuidString,
+                ])
+                #expect(paneEnvelope["ok"] as? Bool == false)
+                let paneError = try #require(paneEnvelope["error"] as? [String: Any])
+                #expect(paneError["code"] as? String == "unavailable")
+                #expect(dock.bonsplitController.focusedPaneId == firstPane)
+            }
+        }
+#endif
+    }
+
     @Test("Legacy global Dock alias workspace_id routes to the caller window's Dock")
     @MainActor
     func legacyDockAliasRoutesToCallerWindowDock() throws {

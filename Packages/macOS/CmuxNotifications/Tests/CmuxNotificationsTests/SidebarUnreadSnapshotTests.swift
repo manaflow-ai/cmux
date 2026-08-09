@@ -121,6 +121,78 @@ struct SidebarUnreadSnapshotTests {
 
     @Test
     @MainActor
+    func surfaceUnreadProjectionMutatesOnlyItsKeyAndOwnerCount() {
+        let existingWorkspaceID = UUID()
+        let existingSurfaceID = UUID()
+        let dockWindowID = UUID()
+        let dockSurfaceID = UUID()
+        let existingKey = SidebarSurfaceUnreadKey(
+            workspaceId: existingWorkspaceID,
+            surfaceId: existingSurfaceID
+        )
+        let dockKey = SidebarSurfaceUnreadKey(
+            workspaceId: dockWindowID,
+            surfaceId: dockSurfaceID
+        )
+        let summary = SidebarWorkspaceUnreadSummary(
+            unreadCount: 4,
+            latestNotificationText: "Existing notification",
+            hasLatestNotification: true
+        )
+        let focusedReadIndicators = [existingWorkspaceID: existingSurfaceID]
+        let manualUnreadWorkspaceIDs: Set<UUID> = [existingWorkspaceID]
+        let model = SidebarUnreadModel()
+        final class Recorder {
+            var snapshots: [SidebarUnreadSnapshot] = []
+        }
+        let recorder = Recorder()
+        let observation = model.observeChanges(owner: recorder) { recorder, snapshot in
+            recorder.snapshots.append(snapshot)
+        }
+        defer { observation.cancel() }
+
+        model.apply(
+            totalUnreadCount: 4,
+            summaries: [existingWorkspaceID: summary],
+            unreadSurfaceKeys: [existingKey],
+            focusedReadIndicatorByWorkspaceId: focusedReadIndicators,
+            manualUnreadWorkspaceIds: manualUnreadWorkspaceIDs
+        )
+        recorder.snapshots.removeAll()
+
+        model.applySurfaceUnreadProjection(
+            dockKey,
+            isUnread: true,
+            totalUnreadCount: 5
+        )
+
+        #expect(recorder.snapshots == [model.snapshot])
+        #expect(model.snapshot.totalUnreadCount == 5)
+        #expect(model.snapshot.unreadSurfaceKeys == [existingKey, dockKey])
+        #expect(model.snapshot.summaryByWorkspaceId == [existingWorkspaceID: summary])
+        #expect(model.snapshot.focusedReadIndicatorByWorkspaceId == focusedReadIndicators)
+        #expect(model.snapshot.manualUnreadWorkspaceIds == manualUnreadWorkspaceIDs)
+
+        model.applySurfaceUnreadProjection(
+            dockKey,
+            isUnread: true,
+            totalUnreadCount: 5
+        )
+        #expect(recorder.snapshots.count == 1, "An equivalent surface projection must not publish.")
+
+        model.applySurfaceUnreadProjection(
+            dockKey,
+            isUnread: false,
+            totalUnreadCount: 4
+        )
+        #expect(recorder.snapshots.count == 2)
+        #expect(model.snapshot.unreadSurfaceKeys == [existingKey])
+        #expect(model.snapshot.totalUnreadCount == 4)
+        #expect(model.snapshot.summaryByWorkspaceId == [existingWorkspaceID: summary])
+    }
+
+    @Test
+    @MainActor
     func reentrantPublicationsRemainOrderedForEveryObserver() {
         final class Recorder {
             var totals: [Int] = []
