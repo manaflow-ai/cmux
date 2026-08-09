@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::mem::size_of;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_channel};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -292,7 +292,7 @@ pub(crate) struct JournalIngressReceivers {
 }
 
 pub(crate) enum JournalIngressTrySendError {
-    Full(Box<JournalIngressEvent>),
+    Full { event: Box<JournalIngressEvent>, space_epoch: u64 },
     Failed { event: Box<JournalIngressEvent>, error: String },
 }
 
@@ -300,6 +300,8 @@ pub(crate) enum JournalIngressTrySendError {
 struct JournalIngressState {
     failure: Mutex<Option<String>>,
     commit_admission: Mutex<()>,
+    queue_space_epoch: Mutex<u64>,
+    queue_space_changed: Condvar,
 }
 
 impl JournalIngressState {
@@ -309,7 +311,55 @@ impl JournalIngressState {
 
     fn fail(&self, error: String) -> String {
         let mut failure = self.failure.lock().unwrap();
-        failure.get_or_insert(error).clone()
+        let failure = failure.get_or_insert(error).clone();
+        self.queue_space_changed.notify_all();
+        failure
+    }
+
+    fn queue_space_epoch(&self) -> u64 {
+        *self.queue_space_epoch.lock().unwrap()
+    }
+
+    fn publish_queue_space(&self) {
+        let mut epoch = self.queue_space_epoch.lock().unwrap();
+        *epoch = epoch.wrapping_add(1);
+        self.queue_space_changed.notify_all();
+    }
+
+    fn wait_for_queue_space_until(&self, observed: u64, deadline: Instant) -> Result<(), String> {
+        let mut epoch = self.queue_space_epoch.lock().unwrap();
+        while *epoch == observed {
+            if let Some(error) = self.failure() {
+                return Err(error);
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(format!(
+                    "timed out after {} ms waiting to queue a durable session journal event",
+                    JOURNAL_DURABLE_WAIT.as_millis()
+                ));
+            }
+            let (next, result) = self.queue_space_changed.wait_timeout(epoch, remaining).unwrap();
+            epoch = next;
+            if result.timed_out() && *epoch == observed {
+                return Err(format!(
+                    "timed out after {} ms waiting to queue a durable session journal event",
+                    JOURNAL_DURABLE_WAIT.as_millis()
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn wait_for_queue_space(&self, observed: u64) -> Result<(), String> {
+        let mut epoch = self.queue_space_epoch.lock().unwrap();
+        while *epoch == observed {
+            if let Some(error) = self.failure() {
+                return Err(error);
+            }
+            epoch = self.queue_space_changed.wait(epoch).unwrap();
+        }
+        Ok(())
     }
 }
 
@@ -380,6 +430,7 @@ impl JournalIngressSender {
         if let Some(error) = self.state.failure() {
             return Err(JournalIngressTrySendError::Failed { event: Box::new(event), error });
         }
+        let space_epoch = self.state.queue_space_epoch();
         match sender.try_send(QueuedJournalEvent { event, completion: None }) {
             Ok(()) => {
                 if let Some(wake) = &self.wake_sender {
@@ -391,7 +442,7 @@ impl JournalIngressSender {
                 Ok(())
             }
             Err(TrySendError::Full(queued)) => {
-                Err(JournalIngressTrySendError::Full(Box::new(queued.event)))
+                Err(JournalIngressTrySendError::Full { event: Box::new(queued.event), space_epoch })
             }
             Err(TrySendError::Disconnected(queued)) => Err(JournalIngressTrySendError::Failed {
                 event: Box::new(queued.event),
@@ -513,6 +564,7 @@ impl JournalIngressSender {
             if let Some(error) = self.state.failure() {
                 return Err(error);
             }
+            let space_epoch = self.state.queue_space_epoch();
             match sender.try_send(pending) {
                 Ok(()) => {
                     if let Some(wake) = &self.wake_sender {
@@ -526,15 +578,12 @@ impl JournalIngressSender {
                 Err(TrySendError::Full(event)) => pending = event,
                 Err(TrySendError::Disconnected(_)) => return Err(self.writer_error()),
             }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return Err(format!(
-                    "timed out after {} ms waiting to queue a durable session journal event",
-                    JOURNAL_DURABLE_WAIT.as_millis()
-                ));
-            }
-            std::thread::sleep(remaining.min(Duration::from_millis(10)));
+            self.state.wait_for_queue_space_until(space_epoch, deadline)?;
         }
+    }
+
+    pub(crate) fn wait_for_queue_space(&self, observed: u64) -> Result<(), String> {
+        self.state.wait_for_queue_space(observed)
     }
 
     fn writer_error(&self) -> String {
@@ -741,11 +790,17 @@ fn stop_writer_after_retry_deadline(
 }
 
 fn complete_queued_error(receivers: &JournalIngressReceivers, error: &str) {
+    let mut drained = false;
     while let Ok(queued) = receivers.terminal.try_recv() {
+        drained = true;
         complete_batch_error(std::slice::from_ref(&queued), error.to_string());
     }
     while let Ok(queued) = receivers.durable.try_recv() {
+        drained = true;
         complete_batch_error(std::slice::from_ref(&queued), error.to_string());
+    }
+    if drained {
+        receivers.state.publish_queue_space();
     }
 }
 
@@ -760,13 +815,17 @@ fn receive_batch(receivers: &JournalIngressReceivers) -> Option<Vec<QueuedJourna
         while receivers.wake.try_recv().is_ok() {}
         let mut batch =
             Vec::with_capacity(JOURNAL_TERMINAL_BATCH_CHUNKS + JOURNAL_DURABLE_QUEUE_CAPACITY);
-        drain_lane(&receivers.terminal, &mut batch, JOURNAL_TERMINAL_BATCH_CHUNKS, usize::MAX);
-        drain_lane(
+        let mut drained =
+            drain_lane(&receivers.terminal, &mut batch, JOURNAL_TERMINAL_BATCH_CHUNKS, usize::MAX);
+        drained |= drain_lane(
             &receivers.durable,
             &mut batch,
             JOURNAL_DURABLE_QUEUE_CAPACITY,
             JOURNAL_DURABLE_BATCH_BYTES,
         );
+        if drained {
+            receivers.state.publish_queue_space();
+        }
         if !batch.is_empty() {
             return Some(batch);
         }
@@ -781,7 +840,7 @@ fn drain_lane(
     batch: &mut Vec<QueuedJournalEvent>,
     limit: usize,
     byte_limit: usize,
-) {
+) -> bool {
     let mut drained = 0;
     let mut drained_bytes = 0_usize;
     while drained < limit && drained_bytes < byte_limit {
@@ -799,6 +858,7 @@ fn drain_lane(
             batch.push(next);
         }
     }
+    drained != 0
 }
 
 fn retryable_sqlite_error(error: &anyhow::Error) -> bool {
