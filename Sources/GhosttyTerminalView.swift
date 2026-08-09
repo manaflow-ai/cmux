@@ -5751,6 +5751,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
             keyboardCopyModeMs = (ProcessInfo.processInfo.systemUptime - keyboardCopyModeStart) * 1000.0
 #endif
+            terminalSurface?.didAcceptExplicitInput()
             keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
             return
         }
