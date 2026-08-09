@@ -12540,6 +12540,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 coordinator.vacancyParkedSurface?.removePortalVacancyRetry(hostId: ObjectIdentifier(host), instanceSerial: host.instanceSerial)
                 coordinator.vacancyParkedSurface = nil
             }
+#if DEBUG
+            let geometryLogSurfaceId = terminalSurface.id.uuidString.prefix(5)
+#endif
             host.onGeometryChanged = { [weak host, weak hostedView, weak coordinator] in
                 guard let host, let hostedView, let coordinator else { return }
                 guard coordinator.attachGeneration == generation else { return }
@@ -12552,7 +12555,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
 #if DEBUG
                 if bindingRequired {
                     cmuxDebugLog(
-                        "ws.hostState.rebindOnGeometry surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                        "ws.hostState.rebindOnGeometry surface=\(geometryLogSurfaceId) " +
                         "reason=portalEntryMissing visible=\(coordinator.desiredIsVisibleInUI ? 1 : 0) " +
                         "active=\(coordinator.desiredIsActive ? 1 : 0) z=\(coordinator.desiredPortalZPriority)"
                     )

@@ -50,9 +50,10 @@ struct SidebarWorkspaceSwitchLayoutFaultTests {
             Logger(subsystem: "com.cmuxterm.tests", category: "layout").notice(
                 "\(sentinel, privacy: .public)"
             )
-            try await waitForLogMessage(sentinel, since: logStart)
+            let observedSentinel = try await Self.waitForLogMessage(sentinel, since: logStart)
+            try #require(observedSentinel, "Timed out waiting for the unified-log completion sentinel")
 
-            let faults = try viewUpdateFaultMessages(since: logStart)
+            let faults = try await Self.viewUpdateFaultMessages(since: logStart)
             #expect(
                 faults.isEmpty,
                 """
@@ -75,7 +76,8 @@ struct SidebarWorkspaceSwitchLayoutFaultTests {
         }
     }
 
-    private func waitForLogMessage(_ expected: String, since startDate: Date) async throws {
+    @concurrent
+    private static func waitForLogMessage(_ expected: String, since startDate: Date) async throws -> Bool {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(5))
         while clock.now < deadline {
@@ -84,14 +86,15 @@ struct SidebarWorkspaceSwitchLayoutFaultTests {
             if entries.contains(where: { entry in
                 (entry as? OSLogEntryLog)?.composedMessage == expected
             }) {
-                return
+                return true
             }
             await Task.yield()
         }
-        Issue.record("Timed out waiting for the unified-log completion sentinel")
+        return false
     }
 
-    private func viewUpdateFaultMessages(since startDate: Date) throws -> [String] {
+    @concurrent
+    private static func viewUpdateFaultMessages(since startDate: Date) async throws -> [String] {
         let store = try OSLogStore(scope: .currentProcessIdentifier)
         let entries = try store.getEntries(at: store.position(date: startDate))
         let faultFragments = [

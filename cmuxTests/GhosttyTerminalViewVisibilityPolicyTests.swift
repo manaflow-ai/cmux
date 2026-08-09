@@ -263,8 +263,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         defer {
             TerminalWindowPortalRegistry.detach(hostedView: firstPanel.hostedView)
             TerminalWindowPortalRegistry.detach(hostedView: secondPanel.hostedView)
-            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
-            window.orderOut(nil)
+            window.close()
             firstPanel.surface.teardownSurface()
             secondPanel.surface.teardownSurface()
         }
@@ -294,12 +293,23 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             "Per-pane portal binds must consume committed geometry without forcing window layout"
         )
 
+        let widthBeforeDeferredPass = firstPanel.hostedView.frame.width
+        firstAnchor.setFrameSize(NSSize(width: 240, height: 360))
+        #expect(
+            firstPanel.hostedView.frame.width == widthBeforeDeferredPass,
+            "Anchor changes must wait for the queued portal convergence pass"
+        )
+
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             DispatchQueue.main.async {
                 continuation.resume()
             }
         }
         #expect(container.layoutCount > 0, "The coalesced window pass must still converge layout")
+        #expect(
+            firstPanel.hostedView.frame.width == 240,
+            "The queued portal convergence pass must apply the latest anchor geometry"
+        )
     }
 
     private func attentionStrokeHexes(in view: NSView) -> [String] {
