@@ -1,5 +1,7 @@
 import AppKit
+import Bonsplit
 import CMUXAgentLaunch
+import CmuxRemoteSession
 import Testing
 
 #if canImport(cmux_DEV)
@@ -217,6 +219,81 @@ struct GhosttyEnsureFocusWindowActivationTests {
         visualBell()
 
         #expect(targetWorkspace.manualUnreadPanelIds == Set([targetPanelID]))
+        #expect(tabManager.selectedTabId == selectedWorkspace.id)
+    }
+
+    @Test
+    func remoteTmuxMirrorBellRoutesThroughProjectedPaneOwnership() throws {
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let targetWorkspace = tabManager.addWorkspace(select: true)
+        let containerPanelID = try #require(targetWorkspace.focusedPanelId)
+        let paneIDs = [11: PaneID(), 22: PaneID()]
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "issue-9466-attention"
+        )
+        let layout = RemoteTmuxLayoutNode(
+            width: 80,
+            height: 24,
+            x: 0,
+            y: 0,
+            content: .horizontal([
+                RemoteTmuxLayoutNode(
+                    width: 40,
+                    height: 24,
+                    x: 0,
+                    y: 0,
+                    content: .pane(11)
+                ),
+                RemoteTmuxLayoutNode(
+                    width: 39,
+                    height: 24,
+                    x: 41,
+                    y: 0,
+                    content: .pane(22)
+                ),
+            ])
+        )
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 1,
+            panelId: containerPanelID,
+            connection: connection,
+            layout: layout,
+            controlPaneID: { [paneIDs] in paneIDs[$0] },
+            makePanel: { [targetWorkspace] _ in
+                targetWorkspace.makeRemoteTmuxPanePanel(onInput: { _ in })
+            }
+        )
+        mirror.noteRemoteActivePane(11)
+        targetWorkspace.isRemoteTmuxMirror = true
+        targetWorkspace.setRemoteTmuxWindowMirror(
+            mirror,
+            forPanelId: containerPanelID
+        )
+        let activeTerminal = try #require(mirror.panel(forPane: 11))
+        let backgroundTerminal = try #require(mirror.panel(forPane: 22))
+        let selectedWorkspace = tabManager.addWorkspace(select: true)
+        defer {
+            targetWorkspace.setRemoteTmuxWindowMirror(nil, forPanelId: containerPanelID)
+            targetWorkspace.isRemoteTmuxMirror = false
+            mirror.teardown()
+            if tabManager.tabs.contains(where: { $0.id == targetWorkspace.id }) {
+                tabManager.closeWorkspace(targetWorkspace)
+            }
+            if tabManager.tabs.contains(where: { $0.id == selectedWorkspace.id }) {
+                tabManager.closeWorkspace(selectedWorkspace)
+            }
+        }
+
+        #expect(targetWorkspace.isFocusedTerminalInputSurface(activeTerminal.id))
+        #expect(!targetWorkspace.isFocusedTerminalInputSurface(backgroundTerminal.id))
+        #expect(targetWorkspace.manualUnreadPanelIds.isEmpty)
+        #expect(tabManager.selectedTabId == selectedWorkspace.id)
+
+        let visualBell = try #require(backgroundTerminal.surface.onVisualBell)
+        visualBell()
+
+        #expect(targetWorkspace.manualUnreadPanelIds == Set([containerPanelID]))
         #expect(tabManager.selectedTabId == selectedWorkspace.id)
     }
 
