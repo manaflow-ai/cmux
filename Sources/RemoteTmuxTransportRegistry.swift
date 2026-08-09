@@ -219,6 +219,16 @@ protocol RemoteTmuxTransportProfile: Sendable {
     /// later. Stale clients accumulate one per closed mirror, and because a window's usable size
     /// is bounded by the smallest attached client, a stale narrow one can clamp a live mirror.
     var remoteHalfSurvivesLocalExit: Bool { get }
+
+    /// Whether cmux's interactive login can fix this transport's authentication failure.
+    ///
+    /// That login is one shape: open a terminal running `ssh <host> true`, and resume once the
+    /// shared ControlMaster socket appears. A transport that does not connect through that master
+    /// gets nothing from it — the login would authenticate a connection it never uses, the socket
+    /// the waiter watches would never appear, and the mirror would sit parked with its retries
+    /// stopped. Such a transport keeps retrying with backoff instead, which is what it did before
+    /// the login existed.
+    var authenticationIsSSHShaped: Bool { get }
 }
 
 extension RemoteTmuxTransportProfile {
@@ -227,6 +237,9 @@ extension RemoteTmuxTransportProfile {
         sessionName: String,
         mode: RemoteTmuxControlAttachMode
     ) -> (actual: Int, budget: Int)? { nil }
+
+    /// cmux's own ssh invocation is the default shape.
+    var authenticationIsSSHShaped: Bool { true }
 }
 
 /// What end-of-stream on the control connection means.
@@ -850,6 +863,14 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
     /// `etterminal` outlives the local client on purpose — that is what makes a resume possible —
     /// so the tmux client it holds has to be detached before the transport goes away.
     var remoteHalfSurvivesLocalExit: Bool { true }
+
+    /// The control stream's credentials are et's, not ssh's. Discovery still runs over ssh (see
+    /// ``oneShotArgv(host:remoteCommand:)``), so the shared master is not irrelevant to an et host —
+    /// but it is not what the control stream authenticates with, and its socket appearing says
+    /// nothing about whether et can now connect. Offering the login on a control-stream failure
+    /// would park the connection behind an edge that does not describe it, and with the master
+    /// already up that edge fires at once: park, resume, fail, park again, as fast as et can fail.
+    var authenticationIsSSHShaped: Bool { false }
 
     /// et types its command into a canonical-mode pty, so an over-long line is never delivered.
     /// Measured against real et: delivery stops between 1016 and 1080 bytes of total command line

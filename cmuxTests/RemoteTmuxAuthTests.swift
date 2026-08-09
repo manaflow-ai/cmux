@@ -58,6 +58,16 @@ import Testing
         #expect(!RemoteTmuxSSHTransport.indicatesAuthRequired(socketMissing))
     }
 
+    /// The login cmux offers is one shape — `ssh <host> true` into the shared ControlMaster — and
+    /// the wait that resumes the mirror ends when that master's socket appears. Only a transport
+    /// whose control stream goes through that master can be fixed by it. et's cannot: its stream
+    /// carries its own credentials, and with the master already up the socket edge fires at once,
+    /// so offering the login there would park and resume in a loop instead of backing off.
+    @Test func onlyTheSSHTransportDeclaresAnSSHShapedLogin() {
+        #expect(RemoteTmuxSSHTransportProfile().authenticationIsSSHShaped)
+        #expect(!RemoteTmuxETTransportProfile(port: 2022).authenticationIsSSHShaped)
+    }
+
     @Test func staleSSHAgentErrorDoesNotMaskPermissionDeniedAuthRequirement() {
         let stderr = """
         Error connecting to agent: No such file or directory
