@@ -1,4 +1,4 @@
-import Darwin
+import CmuxBrowser
 import Foundation
 import WebKit
 
@@ -10,105 +10,67 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "cmux-diff-viewer"
     static let shared = CmuxDiffViewerURLSchemeHandler()
     // Keep this aligned with Native/DiffSidecar's manifest validation limit.
-    static let maxRegisteredFiles = 4096
+    static let maxRegisteredFiles = CmuxDiffViewerSessionPreparer.defaultMaximumRegisteredFiles
 
     typealias RegisteredFile = CmuxDiffViewerRegisteredFile
-    private typealias Session = (
-        filesByPath: [String: RegisteredFile],
-        createdAt: Date,
-        lease: CmuxDiffViewerSessionLease
-    )
+    private typealias Session = CmuxDiffViewerPreparedSession
     private typealias ActiveSchemeTask = (
         generation: UUID,
         task: WKURLSchemeTask,
         operation: Task<Void, Never>?
     )
+    private typealias ManifestLoad = (
+        generation: UUID,
+        task: Task<Session?, Never>
+    )
 
     private var sessions: [String: Session] = [:]
     private var activeSchemeTasks: [ObjectIdentifier: ActiveSchemeTask] = [:]
-    private let assetReader = DiffViewerAssetReader()
+    private var manifestLoads: [String: ManifestLoad] = [:]
+    private let assetReader: DiffViewerAssetReader
     private let pickerCommandRunner: DiffViewerPickerCommandRunner
+    private let sessionPreparer: CmuxDiffViewerSessionPreparer
     private let maxSessionAge: TimeInterval = 24 * 60 * 60
-    private let trustedRootURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
-        .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
-        .standardizedFileURL
-        .resolvingSymlinksInPath()
 
     override init() {
+        assetReader = DiffViewerAssetReader()
         pickerCommandRunner = DiffViewerPickerCommandRunner()
+        sessionPreparer = CmuxDiffViewerSessionPreparer()
         super.init()
     }
 
-    init(pickerCommandRunner: DiffViewerPickerCommandRunner) {
+    init(
+        assetReader: DiffViewerAssetReader = DiffViewerAssetReader(),
+        pickerCommandRunner: DiffViewerPickerCommandRunner,
+        sessionPreparer: CmuxDiffViewerSessionPreparer = CmuxDiffViewerSessionPreparer()
+    ) {
+        self.assetReader = assetReader
         self.pickerCommandRunner = pickerCommandRunner
+        self.sessionPreparer = sessionPreparer
         super.init()
     }
 
-    func register(token: String, files: [RegisteredFile], now: Date = Date()) throws {
-        guard Self.isValidToken(token) else {
-            throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "Invalid diff viewer token"
-            ])
-        }
-        guard !files.isEmpty else {
-            throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "Diff viewer allowlist is empty"
-            ])
-        }
-        guard files.count <= Self.maxRegisteredFiles else {
-            throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 6, userInfo: [
-                NSLocalizedDescriptionKey: "Diff viewer allowlist is too large"
-            ])
-        }
-
-        var byPath: [String: RegisteredFile] = [:]
-        for file in files {
-            guard Self.isValidRequestPath(file.requestPath),
-                  Self.isAllowedMimeType(file.mimeType),
-                  Self.pathExtensionMatchesMimeType(path: file.requestPath, mimeType: file.mimeType) else {
-                throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 3, userInfo: [
-                    NSLocalizedDescriptionKey: "Invalid diff viewer allowlist entry"
-                ])
-            }
-
-            let standardizedURL = file.fileURL.standardizedFileURL.resolvingSymlinksInPath()
-            var isDirectory: ObjCBool = false
-            guard isTrustedDiffViewerFileURL(standardizedURL),
-                  FileManager.default.fileExists(atPath: standardizedURL.path, isDirectory: &isDirectory),
-                  !isDirectory.boolValue,
-                  FileManager.default.isReadableFile(atPath: standardizedURL.path) else {
-                throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 4, userInfo: [
-                    NSLocalizedDescriptionKey: "Diff viewer file is not readable"
-                ])
-            }
-            guard byPath[file.requestPath] == nil else {
-                throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 5, userInfo: [
-                    NSLocalizedDescriptionKey: "Duplicate diff viewer allowlist entry"
-                ])
-            }
-
-            byPath[file.requestPath] = RegisteredFile(
-                requestPath: file.requestPath,
-                fileURL: standardizedURL,
-                mimeType: file.mimeType
-            )
-        }
-
-        let lease = try CmuxDiffViewerSessionLease(root: trustedRootURL, token: token)
-        pruneExpiredSessions(now: now)
-        sessions[token] = (filesByPath: byPath, createdAt: now, lease: lease)
+    /// Prepares a caller-supplied allowlist off-main, then installs its value-only session.
+    func register(token: String, files: [RegisteredFile], now: Date = Date()) async throws {
+        let sessionPreparer = sessionPreparer
+        let prepared = try await Task.detached(priority: .userInitiated) {
+            try sessionPreparer.prepare(token: token, files: files, now: now)
+        }.value
+        install(prepared, now: now)
     }
 
-    /// Whether the token currently has a registered (or manifest-restorable)
-    /// session. Used to trust-gate native bridge calls from diff viewer pages.
+    /// Installs a session that was already validated on a socket worker.
+    func install(_ preparedSession: CmuxDiffViewerPreparedSession, now: Date = Date()) {
+        pruneExpiredSessions(now: now)
+        sessions[preparedSession.token] = preparedSession
+    }
+
+    /// Whether the token currently has a registered in-memory session.
+    /// Used to trust-gate native bridge calls after a page has begun loading.
     func hasActiveSession(token: String, now: Date = Date()) -> Bool {
         guard Self.isValidToken(token) else { return false }
         pruneExpiredSessions(now: now)
-        let isRegistered = sessions[token] != nil
-        if isRegistered {
-            return true
-        }
-        return registerFromManifest(token: token, now: now)
+        return sessions[token] != nil
     }
 
     func registeredFile(for url: URL, now: Date = Date()) -> RegisteredFile? {
@@ -124,23 +86,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
 
         pruneExpiredSessions(now: now)
-        let hasSession = sessions[token] != nil
-        let file = sessions[token]?.filesByPath[requestPath]
-        if let file {
-            return file
-        }
-
-        // Miss on an active session: the on-disk manifest may have grown
-        // out-of-band since the session was cached. The branch picker's
-        // regenerate route runs the bundled CLI in a CHILD process, which writes
-        // the new page and appends it to `.manifest-<token>.json` without
-        // updating this handler's in-memory allowlist; the redirect then targets
-        // a path this cache has never seen. Reload the manifest from disk once
-        // and retry so freshly regenerated pages resolve instead of 404ing.
-        guard hasSession, registerFromManifest(token: token, now: now) else {
-            return nil
-        }
-        return sessions[token]?.filesByPath[requestPath]
+        return sessions[token]?.registeredFile(forRequestPath: requestPath)
     }
 
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
@@ -149,31 +95,74 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             return
         }
 
-        // Mirror the HTTP server's branch picker routes so the picker works when
-        // a diff viewer surface is restored under the custom scheme (the local
-        // HTTP server is gone after an app restart). The token (request host)
-        // must have an active session before we run any git command.
-        if requestURL.scheme == Self.scheme,
-           let token = requestURL.host,
-           Self.isValidToken(token),
-           hasActiveSession(token: token) {
-            let path = (URLComponents(url: requestURL, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? requestURL.path)
-            if path == "/__cmux_diff_viewer_refs" {
-                handleDiffViewerRefsRoute(requestURL: requestURL, token: token, urlSchemeTask: urlSchemeTask)
-                return
-            }
-            if path == "/__cmux_diff_viewer_branch" {
-                handleDiffViewerBranchRoute(requestURL: requestURL, token: token, urlSchemeTask: urlSchemeTask)
+        let (taskID, generation) = beginSchemeTask(urlSchemeTask)
+        let operation = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.serve(
+                requestURL: requestURL,
+                taskID: taskID,
+                generation: generation
+            )
+        }
+        setSchemeTaskOperation(operation, taskID: taskID, generation: generation)
+    }
+
+    /// Restores a missing session asynchronously before routing a WebKit request.
+    private func serve(
+        requestURL: URL,
+        taskID: ObjectIdentifier,
+        generation: UUID
+    ) async {
+        guard requestURL.scheme == Self.scheme,
+              let token = requestURL.host,
+              Self.isValidToken(token) else {
+            failSchemeTask(taskID, generation: generation, code: NSURLErrorBadURL)
+            return
+        }
+        if !hasActiveSession(token: token) {
+            guard await registerFromManifest(token: token) else {
+                failSchemeTask(taskID, generation: generation, code: NSURLErrorFileDoesNotExist)
                 return
             }
         }
+        guard isSchemeTaskActive(taskID, generation: generation) else { return }
 
-        guard let file = registeredFile(for: requestURL) else {
-            urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: NSURLErrorFileDoesNotExist))
+        // Mirror the HTTP server's picker routes after the token is backed by a
+        // validated session. Ordinary file misses remain cache-only; only a
+        // successful branch regeneration explicitly reloads its manifest.
+        let path = URLComponents(
+            url: requestURL,
+            resolvingAgainstBaseURL: false
+        )?.percentEncodedPath ?? requestURL.path
+        if path == "/__cmux_diff_viewer_refs" {
+            await handleDiffViewerRefsRoute(
+                requestURL: requestURL,
+                token: token,
+                taskID: taskID,
+                generation: generation
+            )
+            return
+        }
+        if path == "/__cmux_diff_viewer_branch" {
+            await handleDiffViewerBranchRoute(
+                requestURL: requestURL,
+                token: token,
+                taskID: taskID,
+                generation: generation
+            )
             return
         }
 
-        startStreamingFile(file, requestURL: requestURL, urlSchemeTask: urlSchemeTask)
+        guard let file = registeredFile(for: requestURL) else {
+            failSchemeTask(taskID, generation: generation, code: NSURLErrorFileDoesNotExist)
+            return
+        }
+        await streamFile(
+            file,
+            requestURL: requestURL,
+            taskID: taskID,
+            generation: generation
+        )
     }
 
     private static func diffViewerQueryItems(from url: URL) -> [String: String] {
@@ -189,9 +178,9 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     private func handleDiffViewerRefsRoute(
         requestURL: URL,
         token: String,
-        urlSchemeTask: WKURLSchemeTask
-    ) {
-        let (taskID, generation) = beginSchemeTask(urlSchemeTask)
+        taskID: ObjectIdentifier,
+        generation: UUID
+    ) async {
         let query = Self.diffViewerQueryItems(from: requestURL)
         guard let repo = query["repo"], !repo.isEmpty else {
             failSchemeTask(taskID, generation: generation, code: NSURLErrorBadURL)
@@ -205,40 +194,37 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             arguments += ["--base", base]
         }
         let pickerCommandRunner = pickerCommandRunner
-        let operation = Task { @MainActor [weak self] in
-            let stdout = await pickerCommandRunner.run(arguments: arguments)
-            guard let self, !Task.isCancelled else { return }
-            guard let stdout else {
-                self.failSchemeTask(
-                    taskID,
-                    generation: generation,
-                    code: NSURLErrorCannotConnectToHost
-                )
-                return
-            }
-            self.respondScheme(
-                taskID: taskID,
+        let stdout = await pickerCommandRunner.run(arguments: arguments)
+        guard !Task.isCancelled else { return }
+        guard let stdout else {
+            failSchemeTask(
+                taskID,
                 generation: generation,
-                requestURL: requestURL,
-                statusCode: 200,
-                headers: [
-                    "Content-Type": "application/json; charset=utf-8",
-                    "Cache-Control": "no-store",
-                    "X-Content-Type-Options": "nosniff",
-                    "Cross-Origin-Resource-Policy": "same-origin"
-                ],
-                body: Data(stdout.utf8)
+                code: NSURLErrorCannotConnectToHost
             )
+            return
         }
-        setSchemeTaskOperation(operation, taskID: taskID, generation: generation)
+        respondScheme(
+            taskID: taskID,
+            generation: generation,
+            requestURL: requestURL,
+            statusCode: 200,
+            headers: [
+                "Content-Type": "application/json; charset=utf-8",
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+                "Cross-Origin-Resource-Policy": "same-origin"
+            ],
+            body: Data(stdout.utf8)
+        )
     }
 
     private func handleDiffViewerBranchRoute(
         requestURL: URL,
         token: String,
-        urlSchemeTask: WKURLSchemeTask
-    ) {
-        let (taskID, generation) = beginSchemeTask(urlSchemeTask)
+        taskID: ObjectIdentifier,
+        generation: UUID
+    ) async {
         let query = Self.diffViewerQueryItems(from: requestURL)
         guard let group = query["group"], !group.isEmpty,
               let repo = query["repo"], !repo.isEmpty,
@@ -254,58 +240,64 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             "--repo", repo, "--base", base, "--token", token
         ]
         let pickerCommandRunner = pickerCommandRunner
-        let operation = Task { @MainActor [weak self] in
-            let stdout = await pickerCommandRunner.run(arguments: arguments)
-            guard let self, !Task.isCancelled else { return }
-            guard let viewerURLString = stdout?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-                !viewerURLString.isEmpty else {
-                self.failSchemeTask(
-                    taskID,
-                    generation: generation,
-                    code: NSURLErrorCannotConnectToHost
-                )
-                return
-            }
-            // Defense in depth: the produced viewer URL must be a
-            // custom-scheme URL for this request's token.
-            guard let viewerURL = URL(string: viewerURLString),
-                  viewerURL.scheme == Self.scheme,
-                  viewerURL.host == token else {
-                self.failSchemeTask(
-                    taskID,
-                    generation: generation,
-                    code: NSURLErrorBadServerResponse
-                )
-                return
-            }
-
-            // WKURLSchemeTask cannot drive a top-level 302 the browser
-            // follows, so return a tiny document that navigates in place.
-            let metaEscaped = Self.htmlAttributeEscaped(viewerURLString)
-            let jsEscaped = viewerURLString
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "\"", with: "\\\"")
-            let html = """
-            <!doctype html><html><head><meta charset="utf-8">\
-            <meta http-equiv="refresh" content="0;url=\(metaEscaped)"></head>\
-            <body><script>window.location.replace("\(jsEscaped)");</script></body></html>
-            """
-            self.respondScheme(
-                taskID: taskID,
+        let stdout = await pickerCommandRunner.run(arguments: arguments)
+        guard !Task.isCancelled else { return }
+        guard let viewerURLString = stdout?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !viewerURLString.isEmpty else {
+            failSchemeTask(
+                taskID,
                 generation: generation,
-                requestURL: requestURL,
-                statusCode: 200,
-                headers: [
-                    "Content-Type": "text/html; charset=utf-8",
-                    "Cache-Control": "no-store",
-                    "X-Content-Type-Options": "nosniff",
-                    "Cross-Origin-Resource-Policy": "same-origin"
-                ],
-                body: Data(html.utf8)
+                code: NSURLErrorCannotConnectToHost
             )
+            return
         }
-        setSchemeTaskOperation(operation, taskID: taskID, generation: generation)
+        // Defense in depth: the produced viewer URL must be a custom-scheme URL
+        // for this request's token and a file in the freshly written manifest.
+        guard let viewerURL = URL(string: viewerURLString),
+              viewerURL.scheme == Self.scheme,
+              viewerURL.host == token,
+              await registerFromManifest(token: token),
+              registeredFile(for: viewerURL) != nil else {
+            failSchemeTask(
+                taskID,
+                generation: generation,
+                code: NSURLErrorBadServerResponse
+            )
+            return
+        }
+
+        // WKURLSchemeTask cannot drive a top-level 302 the browser follows, so
+        // return a tiny CSP-constrained document that navigates in place.
+        let metaEscaped = Self.htmlAttributeEscaped(viewerURLString)
+        let jsEscaped = viewerURLString
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "<", with: "\\u003C")
+        let html = """
+        <!doctype html><html><head><meta charset="utf-8">\
+        <meta http-equiv="refresh" content="0;url=\(metaEscaped)"></head>\
+        <body><script>window.location.replace("\(jsEscaped)");</script></body></html>
+        """
+        respondScheme(
+            taskID: taskID,
+            generation: generation,
+            requestURL: requestURL,
+            statusCode: 200,
+            headers: [
+                "Content-Type": "text/html; charset=utf-8",
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+                "Cross-Origin-Resource-Policy": "same-origin",
+                "Content-Security-Policy": [
+                    "default-src 'none'",
+                    "script-src 'unsafe-inline'",
+                    "base-uri 'none'",
+                    "form-action 'none'"
+                ].joined(separator: "; ")
+            ],
+            body: Data(html.utf8)
+        )
     }
 
     /// Responds to a registered scheme task on the main actor. A stale
@@ -357,7 +349,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         stopSchemeTask(taskID)
     }
 
-    static func registeredFile(from object: [String: Any]) -> RegisteredFile? {
+    nonisolated static func registeredFile(from object: [String: Any]) -> RegisteredFile? {
         guard let requestPath = object["request_path"] as? String,
               let filePath = object["file_path"] as? String,
               let mimeType = object["mime_type"] as? String else {
@@ -370,44 +362,33 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         )
     }
 
-    /// Re-registers a diff viewer token from its on-disk manifest so the surface
-    /// can be served again after an app restart (the in-memory registry is lost,
-    /// but the manifest + files persist in the trusted diff viewer directory).
-    /// Returns `true` when the token is registered and ready to serve.
-    func registerFromManifest(token: String, now: Date = Date()) -> Bool {
-        guard let files = localManifestFiles(token: token) else { return false }
-        do {
-            try register(token: token, files: files, now: now)
-            return true
-        } catch {
-            return false
-        }
-    }
-
-    /// Loads the registered files for a token's on-disk manifest, or `nil` when
-    /// the manifest is missing, empty, or references remote patch entries
-    /// (`remote_url` / empty `file_path`) that the local-file scheme handler
-    /// cannot serve. Streamed remote PR diffs fall into the latter case.
-    private func localManifestFiles(token: String) -> [RegisteredFile]? {
-        guard Self.isValidToken(token) else { return nil }
-        let manifestURL = trustedRootURL.appendingPathComponent(".manifest-\(token).json", isDirectory: false)
-        guard let data = try? Data(contentsOf: manifestURL),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let fileObjects = object["files"] as? [[String: Any]],
-              !fileObjects.isEmpty,
-              fileObjects.count <= Self.maxRegisteredFiles else {
-            return nil
-        }
-        var files: [RegisteredFile] = []
-        for fileObject in fileObjects {
-            let filePath = fileObject["file_path"] as? String ?? ""
-            if fileObject["remote_url"] is String || filePath.isEmpty {
-                return nil
+    /// Re-registers a token from its bounded on-disk manifest without blocking the main actor.
+    ///
+    /// Concurrent requests for the same missing token share one detached load. The
+    /// prepared session is installed only after all JSON, path, file, and lease
+    /// validation has completed.
+    func registerFromManifest(token: String, now: Date = Date()) async -> Bool {
+        guard Self.isValidToken(token) else { return false }
+        let load: ManifestLoad
+        if let existing = manifestLoads[token] {
+            load = existing
+        } else {
+            let generation = UUID()
+            let sessionPreparer = sessionPreparer
+            let task = Task.detached(priority: .userInitiated) {
+                try? sessionPreparer.prepareFromManifest(token: token, now: now)
             }
-            guard let file = Self.registeredFile(from: fileObject) else { return nil }
-            files.append(file)
+            load = (generation: generation, task: task)
+            manifestLoads[token] = load
         }
-        return files
+
+        let preparedSession = await load.task.value
+        if manifestLoads[token]?.generation == load.generation {
+            manifestLoads.removeValue(forKey: token)
+        }
+        guard let preparedSession else { return false }
+        install(preparedSession, now: now)
+        return true
     }
 
     /// Whether a diff viewer surface can be restored through the custom scheme.
@@ -416,20 +397,12 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     /// deferred-load wait endpoint, and redirect pages bounce to the original
     /// `http://127.0.0.1:<port>` URL; both only work against the local HTTP
     /// server, which is gone after restart, so they would fail under the
-    /// custom scheme.
+    /// custom scheme. This is a cache-only query; preparation classifies each
+    /// HTML entry off-main before the session is installed.
     func diffViewerRestorable(token: String, requestPath: String) -> Bool {
-        guard let files = localManifestFiles(token: token),
-              let entry = files.first(where: { $0.requestPath == requestPath }),
-              let handle = try? FileHandle(forReadingFrom: entry.fileURL) else {
-            return false
-        }
-        defer { try? handle.close() }
-        let head = (try? handle.read(upToCount: 1024)) ?? Data()
-        if let text = String(data: head, encoding: .utf8),
-           text.contains("data-cmux-diff-pending=\"true\"") || text.contains("data-cmux-diff-redirect") {
-            return false
-        }
-        return true
+        guard Self.isValidToken(token), Self.isValidRequestPath(requestPath) else { return false }
+        pruneExpiredSessions(now: Date())
+        return sessions[token]?.isRestorable(requestPath: requestPath) == true
     }
 
     /// Extracts the diff viewer `(token, requestPath)` from a live diff viewer
@@ -485,24 +458,12 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         return result
     }
 
-    static func isValidToken(_ token: String) -> Bool {
-        guard (16...80).contains(token.count) else { return false }
-        return token.unicodeScalars.allSatisfy { scalar in
-            CharacterSet.alphanumerics.contains(scalar) || scalar == "-"
-        }
+    nonisolated static func isValidToken(_ token: String) -> Bool {
+        CmuxDiffViewerSessionPreparer.isValidToken(token)
     }
 
-    static func isValidRequestPath(_ path: String) -> Bool {
-        guard path.hasPrefix("/"),
-              !path.contains("\\"),
-              !path.contains("//") else {
-            return false
-        }
-        let components = path.split(separator: "/", omittingEmptySubsequences: false).dropFirst()
-        guard !components.isEmpty else { return false }
-        return components.allSatisfy { component in
-            !component.isEmpty && component != "." && component != ".."
-        }
+    nonisolated static func isValidRequestPath(_ path: String) -> Bool {
+        CmuxDiffViewerSessionPreparer.isValidRequestPath(path)
     }
 
     static func requestPath(for url: URL) -> String? {
@@ -512,29 +473,13 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         return requestPath
     }
 
-    private static func isAllowedMimeType(_ mimeType: String) -> Bool {
-        mimeType == "text/html" || mimeType == "text/javascript" || mimeType == "text/x-diff"
-    }
-
-    private static func pathExtensionMatchesMimeType(path: String, mimeType: String) -> Bool {
-        if mimeType == "text/html" {
-            return path.hasSuffix(".html")
-        }
-        if mimeType == "text/javascript" {
-            return path.hasSuffix(".mjs") || path.hasSuffix(".js")
-        }
-        if mimeType == "text/x-diff" {
-            return path.hasSuffix(".patch")
-        }
-        return false
-    }
-
-    private func startStreamingFile(
+    /// Streams one prepared file while keeping every WebKit callback on the main actor.
+    private func streamFile(
         _ file: RegisteredFile,
         requestURL: URL,
-        urlSchemeTask: WKURLSchemeTask
-    ) {
-        let (taskID, generation) = beginSchemeTask(urlSchemeTask)
+        taskID: ObjectIdentifier,
+        generation: UUID
+    ) async {
         let response = HTTPURLResponse(
             url: requestURL,
             statusCode: 200,
@@ -543,59 +488,53 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         ) ?? URLResponse(
             url: requestURL,
             mimeType: file.mimeType,
-            expectedContentLength: Self.fileSize(for: file.fileURL),
+            expectedContentLength: file.fileSize ?? -1,
             textEncodingName: "utf-8"
         )
         let assetReader = assetReader
-
-        let operation = Task { @MainActor [weak self] in
-            guard let self else {
+        do {
+            guard performSchemeTaskCallback(taskID, generation: generation, {
+                $0.didReceive(response)
+            }) else {
                 await assetReader.close(streamID: generation)
                 return
             }
-            do {
-                guard self.performSchemeTaskCallback(taskID, generation: generation, {
-                    $0.didReceive(response)
+
+            while isSchemeTaskActive(taskID, generation: generation) {
+                try Task.checkCancellation()
+                let data = try await assetReader.read(
+                    streamID: generation,
+                    fileURL: file.fileURL,
+                    upToCount: 64 * 1024
+                )
+                guard isSchemeTaskActive(taskID, generation: generation) else {
+                    await assetReader.close(streamID: generation)
+                    return
+                }
+                if data.isEmpty {
+                    break
+                }
+                guard performSchemeTaskCallback(taskID, generation: generation, {
+                    $0.didReceive(data)
                 }) else {
                     await assetReader.close(streamID: generation)
                     return
                 }
+            }
 
-                while self.isSchemeTaskActive(taskID, generation: generation) {
-                    try Task.checkCancellation()
-                    let data = try await assetReader.read(
-                        streamID: generation,
-                        fileURL: file.fileURL,
-                        upToCount: 64 * 1024
-                    )
-                    guard self.isSchemeTaskActive(taskID, generation: generation) else {
-                        await assetReader.close(streamID: generation)
-                        return
-                    }
-                    if data.isEmpty {
-                        break
-                    }
-                    guard self.performSchemeTaskCallback(taskID, generation: generation, {
-                        $0.didReceive(data)
-                    }) else {
-                        await assetReader.close(streamID: generation)
-                        return
-                    }
-                }
-
-                await assetReader.close(streamID: generation)
-                guard self.performSchemeTaskCallback(taskID, generation: generation, {
-                    $0.didFinish()
-                }) else { return }
-                self.finishSchemeTask(taskID, generation: generation)
-            } catch is CancellationError {
-                await assetReader.close(streamID: generation)
-            } catch {
-                await assetReader.close(streamID: generation)
-                self.failSchemeTask(taskID, generation: generation, error: error)
+            await assetReader.close(streamID: generation)
+            guard performSchemeTaskCallback(taskID, generation: generation, {
+                $0.didFinish()
+            }) else { return }
+            finishSchemeTask(taskID, generation: generation)
+        } catch is CancellationError {
+            await assetReader.close(streamID: generation)
+        } catch {
+            await assetReader.close(streamID: generation)
+            if isSchemeTaskActive(taskID, generation: generation) {
+                failSchemeTask(taskID, generation: generation, error: error)
             }
         }
-        setSchemeTaskOperation(operation, taskID: taskID, generation: generation)
     }
 
     private func beginSchemeTask(_ urlSchemeTask: WKURLSchemeTask) -> (ObjectIdentifier, UUID) {
@@ -657,19 +596,6 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     private func stopSchemeTask(_ taskID: ObjectIdentifier) {
         let state = activeSchemeTasks.removeValue(forKey: taskID)
         state?.operation?.cancel()
-    }
-
-    private static func fileSize(for url: URL) -> Int {
-        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
-              let fileSize = values.fileSize else {
-            return -1
-        }
-        return fileSize
-    }
-
-    private func isTrustedDiffViewerFileURL(_ url: URL) -> Bool {
-        let rootPath = trustedRootURL.path
-        return url.isFileURL && url.path.hasPrefix(rootPath + "/")
     }
 
     private func pruneExpiredSessions(now: Date) {

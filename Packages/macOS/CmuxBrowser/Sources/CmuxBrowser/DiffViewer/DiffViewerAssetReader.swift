@@ -1,26 +1,44 @@
-import Foundation
+import Darwin
+public import Foundation
 import zlib
 
-/// Reads an allowlisted diff-viewer asset in chunks suitable for a URL scheme task.
-/// WebKit does not honor Content-Encoding for app-owned custom schemes, so `.deflate`
-/// assets must be inflated before they cross the scheme-handler boundary. One shared
-/// actor admits exactly one stream at a time so decoded bytes and file handles retain
-/// the same aggregate bound as the former serial stream queue.
-actor DiffViewerAssetReader {
-    private static let maxInflatedSize = 32 * 1024 * 1024
+/// Reads allowlisted diff-viewer assets in chunks suitable for a URL scheme task.
+///
+/// WebKit does not honor `Content-Encoding` for app-owned custom schemes, so
+/// `.deflate` assets are inflated before they cross the scheme-handler boundary.
+/// One actor admits exactly one stream at a time, bounding aggregate decoded data
+/// to one 32 MiB buffer. At most 64 additional streams wait by default, which
+/// makes the queue's linear cancellation/removal operations strictly bounded.
+public actor DiffViewerAssetReader {
+    private static let maximumCompressedSize = 32 * 1024 * 1024
+    private static let maximumInflatedSize = 32 * 1024 * 1024
 
+    private let maximumWaitingStreams: Int
     private var activeStreamID: UUID?
     private var activeFileURL: URL?
     private var decodedData: Data?
     private var decodedOffset = 0
     private var fileHandle: FileHandle?
-    private var waitingStreams: [(
-        id: UUID,
-        fileURL: URL,
-        continuation: CheckedContinuation<Void, Error>
-    )] = []
+    private var waitingStreams: [WaitingStream] = []
 
-    func read(streamID: UUID, fileURL: URL, upToCount count: Int) async throws -> Data {
+    /// Creates a single-flight reader with a bounded FIFO waiting queue.
+    ///
+    /// - Parameter maximumWaitingStreams: Maximum queued streams in addition to
+    ///   the active stream. `0` rejects every concurrent request immediately.
+    public init(maximumWaitingStreams: Int = 64) {
+        self.maximumWaitingStreams = max(0, maximumWaitingStreams)
+    }
+
+    /// Reads the next chunk for a stream, waiting for bounded FIFO admission when necessary.
+    ///
+    /// - Parameters:
+    ///   - streamID: Stable identity for one WebKit request generation.
+    ///   - fileURL: Validated local asset URL.
+    ///   - count: Maximum bytes to return; must be positive.
+    /// - Returns: The next chunk, or empty data at end of file.
+    /// - Throws: A cancellation, capacity, file I/O, or bounded-inflation error.
+    public func read(streamID: UUID, fileURL: URL, upToCount count: Int) async throws -> Data {
+        guard count > 0 else { throw CocoaError(.fileReadUnknown) }
         if activeStreamID != streamID {
             try await waitForTurn(streamID: streamID, fileURL: fileURL)
         }
@@ -39,7 +57,10 @@ actor DiffViewerAssetReader {
         return try fileHandle?.read(upToCount: count) ?? Data()
     }
 
-    func close(streamID: UUID) {
+    /// Closes an active stream or cancels a queued stream, then admits the next waiter.
+    ///
+    /// - Parameter streamID: Stable identity of the active or queued stream to close.
+    public func close(streamID: UUID) {
         guard activeStreamID == streamID else {
             cancelWaitingStream(streamID: streamID)
             return
@@ -66,15 +87,22 @@ actor DiffViewerAssetReader {
             activateStream(id: streamID, fileURL: fileURL)
             return
         }
+        guard waitingStreams.count < maximumWaitingStreams else {
+            throw DiffViewerAssetReaderError.capacityExceeded
+        }
 
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation {
-                (continuation: CheckedContinuation<Void, Error>) in
+                (continuation: CheckedContinuation<Void, any Error>) in
                 if Task.isCancelled {
                     continuation.resume(throwing: CancellationError())
                     return
                 }
-                waitingStreams.append((streamID, fileURL, continuation))
+                waitingStreams.append(WaitingStream(
+                    id: streamID,
+                    fileURL: fileURL,
+                    continuation: continuation
+                ))
             }
         } onCancel: {
             Task {
@@ -107,11 +135,35 @@ actor DiffViewerAssetReader {
         guard decodedData == nil, fileHandle == nil else { return }
         guard let activeFileURL else { throw CocoaError(.fileReadUnknown) }
         if activeFileURL.lastPathComponent.hasSuffix(".deflate") {
-            let compressed = try Data(contentsOf: activeFileURL, options: .mappedIfSafe)
+            let compressed = try Self.readCompressedAsset(at: activeFileURL)
             decodedData = try Self.inflateZlib(compressed)
         } else {
-            fileHandle = try FileHandle(forReadingFrom: activeFileURL)
+            let descriptor = Darwin.open(
+                activeFileURL.path,
+                O_RDONLY | O_CLOEXEC | O_NOFOLLOW
+            )
+            guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            fileHandle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         }
+    }
+
+    private static func readCompressedAsset(at fileURL: URL) throws -> Data {
+        let descriptor = Darwin.open(fileURL.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        defer { try? handle.close() }
+
+        var compressed = Data()
+        while compressed.count <= maximumCompressedSize {
+            let remaining = maximumCompressedSize + 1 - compressed.count
+            let chunk = try handle.read(upToCount: min(64 * 1024, remaining)) ?? Data()
+            if chunk.isEmpty { break }
+            compressed.append(chunk)
+        }
+        guard compressed.count <= maximumCompressedSize else {
+            throw CocoaError(.fileReadTooLarge)
+        }
+        return compressed
     }
 
     private static func inflateZlib(_ compressed: Data) throws -> Data {
@@ -141,7 +193,7 @@ actor DiffViewerAssetReader {
                 }
 
                 let produced = chunkSize - Int(stream.avail_out)
-                guard output.count <= maxInflatedSize - produced else {
+                guard output.count <= maximumInflatedSize - produced else {
                     throw CocoaError(.fileReadTooLarge)
                 }
                 output.append(chunk, count: produced)
@@ -154,5 +206,11 @@ actor DiffViewerAssetReader {
                 }
             }
         }
+    }
+
+    private struct WaitingStream {
+        let id: UUID
+        let fileURL: URL
+        let continuation: CheckedContinuation<Void, any Error>
     }
 }

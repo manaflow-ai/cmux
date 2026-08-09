@@ -4219,13 +4219,16 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
-        // Diff viewer surfaces re-register their token from the on-disk manifest
-        // and navigate via the app-owned custom scheme, so they restore even
-        // though the local HTTP server that originally served them is gone.
+        // Diff viewer surfaces navigate via the app-owned custom scheme, so they
+        // restore even though the original local HTTP server is gone. Manifest
+        // preparation is detached from the main actor; the scheme request also
+        // awaits the same deduplicated loader if it reaches the handler first.
         if let token = snapshot.diffViewerToken,
            let requestPath = snapshot.diffViewerRequestPath,
-           CmuxDiffViewerURLSchemeHandler.shared.registerFromManifest(token: token),
            let diffURL = CmuxDiffViewerURLSchemeHandler.diffViewerURL(token: token, requestPath: requestPath) {
+            Task { @MainActor in
+                _ = await CmuxDiffViewerURLSchemeHandler.shared.registerFromManifest(token: token)
+            }
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
             setMuted(snapshot.isMuted)
             setOmnibarVisible(snapshot.omnibarVisible ?? false)
@@ -4291,9 +4294,9 @@ final class BrowserPanel: Panel, ObservableObject {
             return false
         }
         // Diff viewer surfaces are otherwise treated as temporary. Persist them
-        // only when they can actually be restored via the custom scheme (a
-        // local-only, non-pending manifest); otherwise persisting would leave a
-        // blank panel on restart with no URL to fall back to.
+        // only when the off-main session preparation cache classified this exact
+        // path as local and non-pending. This cache-only query keeps session
+        // snapshotting free of filesystem reads and JSON parsing.
         if let components = diffViewerSessionComponents() {
             return CmuxDiffViewerURLSchemeHandler.shared.diffViewerRestorable(
                 token: components.token,

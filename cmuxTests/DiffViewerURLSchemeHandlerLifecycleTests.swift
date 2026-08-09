@@ -1,3 +1,4 @@
+import CmuxBrowser
 import Foundation
 import Testing
 import WebKit
@@ -12,7 +13,7 @@ import WebKit
 @Suite(.serialized)
 struct DiffViewerURLSchemeHandlerLifecycleTests {
     @Test(.timeLimit(.minutes(1)))
-    func sidecarMaximumManifestRemainsRestorable() throws {
+    func sidecarMaximumManifestRemainsRestorable() async throws {
         let token = UUID().uuidString.lowercased()
         let rootURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
@@ -40,8 +41,8 @@ struct DiffViewerURLSchemeHandlerLifecycleTests {
         try JSONSerialization.data(withJSONObject: manifest).write(to: manifestURL, options: .atomic)
 
         let handler = CmuxDiffViewerURLSchemeHandler()
+        #expect(await handler.registerFromManifest(token: token))
         #expect(handler.diffViewerRestorable(token: token, requestPath: "/index.html"))
-        #expect(handler.registerFromManifest(token: token))
 
         let oversizedFiles = files + [[
             "request_path": "/oversized.html",
@@ -51,11 +52,13 @@ struct DiffViewerURLSchemeHandlerLifecycleTests {
         let oversizedManifest: [String: Any] = ["token": token, "files": oversizedFiles]
         try JSONSerialization.data(withJSONObject: oversizedManifest)
             .write(to: manifestURL, options: .atomic)
-        #expect(!handler.diffViewerRestorable(token: token, requestPath: "/index.html"))
+        let freshHandler = CmuxDiffViewerURLSchemeHandler()
+        #expect(!(await freshHandler.registerFromManifest(token: token)))
+        #expect(!freshHandler.diffViewerRestorable(token: token, requestPath: "/index.html"))
     }
 
     @Test
-    func oversizedAllowlistIsRejectedAtRegistrationBoundary() {
+    func oversizedAllowlistIsRejectedAtRegistrationBoundary() async {
         let handler = CmuxDiffViewerURLSchemeHandler()
         let files = (0...CmuxDiffViewerURLSchemeHandler.maxRegisteredFiles).map { index in
             CmuxDiffViewerURLSchemeHandler.RegisteredFile(
@@ -66,17 +69,18 @@ struct DiffViewerURLSchemeHandlerLifecycleTests {
         }
 
         do {
-            try handler.register(token: UUID().uuidString.lowercased(), files: files)
+            try await handler.register(token: UUID().uuidString.lowercased(), files: files)
             Issue.record("Expected an oversized allowlist to be rejected")
-        } catch let error as NSError {
-            #expect(error.domain == "CmuxDiffViewerURLSchemeHandler")
-            #expect(error.code == 6)
+        } catch let error as CmuxDiffViewerSessionError {
+            #expect(error == .allowlistTooLarge)
+        } catch {
+            Issue.record("Unexpected registration error: \(error)")
         }
     }
 
     @Test(.timeLimit(.minutes(1)))
     func successfulStreamDeliversEveryCallbackOnMainThread() async throws {
-        let fixture = try makeFixture()
+        let fixture = try await makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
 
         let schemeTask = DiffViewerRecordingSchemeTask(
@@ -91,12 +95,27 @@ struct DiffViewerURLSchemeHandlerLifecycleTests {
         }
 
         #expect(callbacks.map(\.kind) == [.response, .data, .finish])
-        #expect(callbacks.allSatisfy(\.wasOnMainThread))
+        #expect(callbacks.allSatisfy { $0.wasOnMainThread })
+        let response = try #require(callbacks.first?.response as? HTTPURLResponse)
+        #expect(response.statusCode == 200)
+        #expect(response.value(forHTTPHeaderField: "Content-Security-Policy") == [
+            "default-src 'none'",
+            "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
+            "style-src 'unsafe-inline'",
+            "img-src 'self' data:",
+            "connect-src 'self'",
+            "font-src 'none'",
+            "object-src 'none'",
+            "base-uri 'none'",
+            "form-action 'none'",
+        ].joined(separator: "; "))
+        #expect(response.value(forHTTPHeaderField: "X-Content-Type-Options") == "nosniff")
+        #expect(response.value(forHTTPHeaderField: "Cross-Origin-Resource-Policy") == "same-origin")
     }
 
     @Test(.timeLimit(.minutes(1)))
     func streamFailureIsDeliveredOnMainThread() async throws {
-        let fixture = try makeFixture()
+        let fixture = try await makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
         try FileManager.default.removeItem(at: fixture.fileURL)
 
@@ -112,7 +131,7 @@ struct DiffViewerURLSchemeHandlerLifecycleTests {
         }
 
         #expect(callbacks.map(\.kind) == [.response, .failure])
-        #expect(callbacks.allSatisfy(\.wasOnMainThread))
+        #expect(callbacks.allSatisfy { $0.wasOnMainThread })
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -148,7 +167,7 @@ struct DiffViewerURLSchemeHandlerLifecycleTests {
             ))
         }
 
-        try handler.register(token: token, files: registeredFiles)
+        try await handler.register(token: token, files: registeredFiles)
         for request in requests {
             handler.webView(webView, start: request.task)
         }
@@ -168,14 +187,14 @@ struct DiffViewerURLSchemeHandlerLifecycleTests {
             #expect(callbacks.first?.kind == .response)
             #expect(callbacks.last?.kind == .finish)
             #expect(callbacks.dropFirst().dropLast().allSatisfy { $0.kind == .data })
-            #expect(callbacks.allSatisfy(\.wasOnMainThread))
+            #expect(callbacks.allSatisfy { $0.wasOnMainThread })
             #expect(body == request.expectedBody)
         }
     }
 
     @Test(.timeLimit(.minutes(1)))
     func stopNeverWaitsForOffMainCallbackDelivery() async throws {
-        let fixture = try makeFixture()
+        let fixture = try await makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
 
         let schemeTask = DiffViewerRecordingSchemeTask(
@@ -208,7 +227,7 @@ struct DiffViewerURLSchemeHandlerLifecycleTests {
         #expect(firstCallback.wasOnMainThread)
     }
 
-    private func makeFixture() throws -> (
+    private func makeFixture() async throws -> (
         handler: CmuxDiffViewerURLSchemeHandler,
         webView: WKWebView,
         rootURL: URL,
@@ -225,7 +244,7 @@ struct DiffViewerURLSchemeHandlerLifecycleTests {
             .write(to: fileURL, atomically: true, encoding: .utf8)
 
         let handler = CmuxDiffViewerURLSchemeHandler()
-        try handler.register(
+        try await handler.register(
             token: token,
             files: [.init(requestPath: "/index.html", fileURL: fileURL, mimeType: "text/html")]
         )
@@ -241,7 +260,7 @@ struct DiffViewerURLSchemeHandlerLifecycleTests {
 /// leaving a permanently wedged test process. A callback delivered off-main
 /// remains in flight for one second, so a blocking `stop` is deterministic.
 private final class DiffViewerRecordingSchemeTask: NSObject, WKURLSchemeTask {
-    struct Callback: Sendable {
+    struct Callback: @unchecked Sendable {
         enum Kind: Sendable, Equatable {
             case response
             case data
@@ -252,6 +271,7 @@ private final class DiffViewerRecordingSchemeTask: NSObject, WKURLSchemeTask {
         let kind: Kind
         let wasOnMainThread: Bool
         let data: Data?
+        let response: URLResponse?
     }
 
     enum BlockingHopExit: Sendable, Equatable {
@@ -288,7 +308,7 @@ private final class DiffViewerRecordingSchemeTask: NSObject, WKURLSchemeTask {
     }
 
     func didReceive(_ response: URLResponse) {
-        recordCallback(.response)
+        recordCallback(.response, response: response)
     }
 
     func didReceive(_ data: Data) {
@@ -309,12 +329,17 @@ private final class DiffViewerRecordingSchemeTask: NSObject, WKURLSchemeTask {
         blockingMainHopRelease.signal()
     }
 
-    private func recordCallback(_ kind: Callback.Kind, data: Data? = nil) {
+    private func recordCallback(
+        _ kind: Callback.Kind,
+        data: Data? = nil,
+        response: URLResponse? = nil
+    ) {
         let wasOnMainThread = Thread.isMainThread
         callbackContinuation.yield(Callback(
             kind: kind,
             wasOnMainThread: wasOnMainThread,
-            data: data
+            data: data,
+            response: response
         ))
         if simulatesBlockingMainHop, !wasOnMainThread {
             blockingHopEntryContinuation.yield(())

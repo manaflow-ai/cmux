@@ -98584,6 +98584,131 @@
         }
       }
     },
+    "diffViewer.error.allowlistTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قائمة السماح لعارض الفروق كبيرة جدًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lista dozvoljenih datoteka preglednika razlika je prevelika"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff-fremviserens tilladelsesliste er for stor"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Zulassungsliste des Diff-Viewers ist zu groß"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff viewer allowlist is too large"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La lista de archivos permitidos del visor de diferencias es demasiado grande"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La liste d’autorisation du visualiseur de différences est trop volumineuse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’elenco consentito del visualizzatore delle differenze è troppo grande"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分ビューアの許可リストが大きすぎます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជីអនុញ្ញាតរបស់កម្មវិធីមើលភាពខុសគ្នាធំពេក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "차이 뷰어 허용 목록이 너무 큽니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillatelseslisten for diff-visningen er for stor"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lista dozwolonych plików przeglądarki różnic jest zbyt duża"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A lista de permissões do visualizador de diferenças é muito grande"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Список разрешённых файлов просмотра различий слишком велик"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รายการไฟล์ที่อนุญาตของตัวดูส่วนต่างมีขนาดใหญ่เกินไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fark görüntüleyicinin izin listesi çok büyük"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Список дозволених файлів переглядача відмінностей завеликий"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差异查看器的允许列表过大"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差異檢視器的允許清單過大"
+          }
+        }
+      }
+    },
     "diffViewer.addComment": {
       "extractionState": "manual",
       "localizations": {

@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CmuxFoundation
 import Darwin
 import Foundation
@@ -76,7 +77,7 @@ struct DiffViewerPickerCommandRunnerTests {
             executablePath: "/test/cmux",
             concurrencyLimit: 1
         )
-        let fixture = try makePickerFixture(runner: runner)
+        let fixture = try await makePickerFixture(runner: runner)
         defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
         var starts = commands.starts.makeAsyncIterator()
         var cancellations = commands.cancellations.makeAsyncIterator()
@@ -93,7 +94,7 @@ struct DiffViewerPickerCommandRunnerTests {
         #expect(schemeTask.callbackCount == 0)
     }
 
-    private func makePickerFixture(runner: DiffViewerPickerCommandRunner) throws -> (
+    private func makePickerFixture(runner: DiffViewerPickerCommandRunner) async throws -> (
         handler: CmuxDiffViewerURLSchemeHandler,
         webView: WKWebView,
         rootURL: URL,
@@ -109,7 +110,7 @@ struct DiffViewerPickerCommandRunnerTests {
             .write(to: fileURL, atomically: true, encoding: .utf8)
 
         let handler = CmuxDiffViewerURLSchemeHandler(pickerCommandRunner: runner)
-        try handler.register(
+        try await handler.register(
             token: token,
             files: [.init(requestPath: "/index.html", fileURL: fileURL, mimeType: "text/html")]
         )
