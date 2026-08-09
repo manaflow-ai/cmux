@@ -37,7 +37,8 @@ extension AppDelegate {
                     return openNotificationInWindowDock(
                         dock,
                         surfaceId: owner.surfaceID,
-                        notificationId: notificationId
+                        notificationId: notificationId,
+                        scrollPosition: scrollPosition
                     )
                 }
             }
@@ -96,7 +97,8 @@ extension AppDelegate {
     private func openNotificationInWindowDock(
         _ dock: DockSplitStore,
         surfaceId: UUID,
-        notificationId: UUID?
+        notificationId: UUID?,
+        scrollPosition: TerminalNotificationScrollPosition?
     ) -> Bool {
         let target = WindowDockUnreadTarget(
             windowId: dock.workspaceId,
@@ -112,9 +114,18 @@ extension AppDelegate {
             forTabId: target.windowId,
             surfaceId: target.surfaceId
         )
+        notificationStore?.clearFocusedReadIndicator(
+            forTabId: target.windowId,
+            surfaceId: target.surfaceId
+        )
         if let notificationId {
             notificationStore?.markRead(id: notificationId)
         }
+        restoreWindowDockNotificationScrollPosition(
+            scrollPosition,
+            dock: dock,
+            panelId: target.surfaceId
+        )
         return true
     }
 

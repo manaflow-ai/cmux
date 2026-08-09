@@ -368,4 +368,74 @@ struct SidebarUnreadSnapshotTests {
         #expect(second.totals == [1, 2])
         #expect(model.snapshot.totalUnreadCount == 2)
     }
+
+    @Test
+    @MainActor
+    func reentrantSurfacePublicationsRemainOrderedForEveryObserver() {
+        final class Recorder {
+            var projections: [SidebarSurfaceUnreadProjection] = []
+        }
+        final class ReentrancyState {
+            var didPublishNestedProjection = false
+        }
+
+        let ownerID = UUID()
+        let firstSurfaceID = UUID()
+        let secondSurfaceID = UUID()
+        let model = SidebarUnreadModel()
+        let first = Recorder()
+        let second = Recorder()
+        let reentrancy = ReentrancyState()
+        let receive: @MainActor (Recorder, SidebarSurfaceUnreadProjection) -> Void = {
+            recorder,
+            projection in
+            recorder.projections.append(projection)
+            guard !reentrancy.didPublishNestedProjection else { return }
+            reentrancy.didPublishNestedProjection = true
+            model.applySurfaceUnreadProjection(
+                SidebarSurfaceUnreadKey(
+                    workspaceId: ownerID,
+                    surfaceId: secondSurfaceID
+                ),
+                isUnread: true,
+                totalUnreadCount: 1
+            )
+        }
+        let firstObservation = model.observeSurfaceChanges(
+            forOwnerId: ownerID,
+            owner: first,
+            receive
+        )
+        let secondObservation = model.observeSurfaceChanges(
+            forOwnerId: ownerID,
+            owner: second,
+            receive
+        )
+        defer {
+            firstObservation.cancel()
+            secondObservation.cancel()
+        }
+
+        model.applySurfaceUnreadProjection(
+            SidebarSurfaceUnreadKey(
+                workspaceId: ownerID,
+                surfaceId: firstSurfaceID
+            ),
+            isUnread: true,
+            totalUnreadCount: 1
+        )
+
+        let expected = [
+            SidebarSurfaceUnreadProjection(
+                ownerId: ownerID,
+                unreadSurfaceIds: [firstSurfaceID]
+            ),
+            SidebarSurfaceUnreadProjection(
+                ownerId: ownerID,
+                unreadSurfaceIds: [firstSurfaceID, secondSurfaceID]
+            ),
+        ]
+        #expect(first.projections == expected)
+        #expect(second.projections == expected)
+    }
 }

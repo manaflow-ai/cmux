@@ -9,16 +9,20 @@ import Observation
 @MainActor
 @Observable
 public final class SidebarUnreadModel {
-    private struct State: Equatable {
+    private struct State {
         var snapshot = SidebarUnreadSnapshot()
         var surfaceProjectionByOwnerId: [UUID: SidebarSurfaceUnreadProjection] = [:]
     }
 
+    private struct SurfaceProjectionChange {
+        let ownerId: UUID
+        let projection: SidebarSurfaceUnreadProjection?
+    }
+
     private struct Publication {
-        let state: State
-        let snapshotChanged: Bool
+        let snapshot: SidebarUnreadSnapshot?
         let summaryChanged: Bool
-        let changedSurfaceOwnerIds: [UUID]
+        let surfaceProjectionChanges: [SurfaceProjectionChange]
     }
 
     /// The latest global unread state.
@@ -189,9 +193,12 @@ public final class SidebarUnreadModel {
         isUnread: Bool,
         totalUnreadCount: Int
     ) {
-        var next = desiredState
+        var surfaceProjectionChange: SurfaceProjectionChange?
+        var unreadSurfaceKeys = desiredState.snapshot.unreadSurfaceKeys
+        var unreadSurfaceKeysChanged = false
         if let surfaceId = key.surfaceId {
-            var projection = next.surfaceProjectionByOwnerId[key.workspaceId]
+            let previousProjection = desiredState.surfaceProjectionByOwnerId[key.workspaceId]
+            var projection = previousProjection
                 ?? SidebarSurfaceUnreadProjection(ownerId: key.workspaceId)
             var unreadSurfaceIds = projection.unreadSurfaceIds
             if isUnread {
@@ -204,37 +211,43 @@ public final class SidebarUnreadModel {
                 unreadSurfaceIds: unreadSurfaceIds,
                 focusedReadSurfaceId: projection.focusedReadSurfaceId
             )
-            if projection.unreadSurfaceIds.isEmpty,
-               projection.focusedReadSurfaceId == nil {
-                next.surfaceProjectionByOwnerId[key.workspaceId] = nil
+            let nextProjection = if projection.unreadSurfaceIds.isEmpty,
+                                    projection.focusedReadSurfaceId == nil {
+                Optional<SidebarSurfaceUnreadProjection>.none
             } else {
-                next.surfaceProjectionByOwnerId[key.workspaceId] = projection
+                projection
+            }
+            if previousProjection != nextProjection {
+                desiredState.surfaceProjectionByOwnerId[key.workspaceId] = nextProjection
+                surfaceProjectionChange = SurfaceProjectionChange(
+                    ownerId: key.workspaceId,
+                    projection: nextProjection
+                )
             }
         } else {
-            var unreadSurfaceKeys = next.snapshot.unreadSurfaceKeys
             if isUnread {
-                unreadSurfaceKeys.insert(key)
+                unreadSurfaceKeysChanged = unreadSurfaceKeys.insert(key).inserted
             } else {
-                unreadSurfaceKeys.remove(key)
+                unreadSurfaceKeysChanged = unreadSurfaceKeys.remove(key) != nil
             }
-            next.snapshot = SidebarUnreadSnapshot(
-                totalUnreadCount: next.snapshot.totalUnreadCount,
-                summaryByWorkspaceId: next.snapshot.summaryByWorkspaceId,
-                unreadSurfaceKeys: unreadSurfaceKeys,
-                focusedReadIndicatorByWorkspaceId: next.snapshot.focusedReadIndicatorByWorkspaceId,
-                manualUnreadWorkspaceIds: next.snapshot.manualUnreadWorkspaceIds
-            )
         }
-        if next.snapshot.totalUnreadCount != totalUnreadCount {
-            next.snapshot = SidebarUnreadSnapshot(
+        let totalUnreadCountChanged = desiredState.snapshot.totalUnreadCount != totalUnreadCount
+        let snapshotChanged = unreadSurfaceKeysChanged || totalUnreadCountChanged
+        if snapshotChanged {
+            desiredState.snapshot = SidebarUnreadSnapshot(
                 totalUnreadCount: totalUnreadCount,
-                summaryByWorkspaceId: next.snapshot.summaryByWorkspaceId,
-                unreadSurfaceKeys: next.snapshot.unreadSurfaceKeys,
-                focusedReadIndicatorByWorkspaceId: next.snapshot.focusedReadIndicatorByWorkspaceId,
-                manualUnreadWorkspaceIds: next.snapshot.manualUnreadWorkspaceIds
+                summaryByWorkspaceId: desiredState.snapshot.summaryByWorkspaceId,
+                unreadSurfaceKeys: unreadSurfaceKeys,
+                focusedReadIndicatorByWorkspaceId: desiredState.snapshot.focusedReadIndicatorByWorkspaceId,
+                manualUnreadWorkspaceIds: desiredState.snapshot.manualUnreadWorkspaceIds
             )
         }
-        enqueue(next)
+        guard snapshotChanged || surfaceProjectionChange != nil else { return }
+        enqueue(Publication(
+            snapshot: snapshotChanged ? desiredState.snapshot : nil,
+            summaryChanged: false,
+            surfaceProjectionChanges: surfaceProjectionChange.map { [$0] } ?? []
+        ))
     }
 
     /// Applies one workspace summary and global total incrementally.
@@ -248,17 +261,25 @@ public final class SidebarUnreadModel {
         summary: SidebarWorkspaceUnreadSummary?,
         totalUnreadCount: Int
     ) {
-        var next = desiredState
-        var summaries = next.snapshot.summaryByWorkspaceId
-        summaries[workspaceId] = summary
-        next.snapshot = SidebarUnreadSnapshot(
+        let summaryChanged = desiredState.snapshot.summaryByWorkspaceId[workspaceId] != summary
+        let totalUnreadCountChanged = desiredState.snapshot.totalUnreadCount != totalUnreadCount
+        guard summaryChanged || totalUnreadCountChanged else { return }
+        var summaries = desiredState.snapshot.summaryByWorkspaceId
+        if summaryChanged {
+            summaries[workspaceId] = summary
+        }
+        desiredState.snapshot = SidebarUnreadSnapshot(
             totalUnreadCount: totalUnreadCount,
             summaryByWorkspaceId: summaries,
-            unreadSurfaceKeys: next.snapshot.unreadSurfaceKeys,
-            focusedReadIndicatorByWorkspaceId: next.snapshot.focusedReadIndicatorByWorkspaceId,
-            manualUnreadWorkspaceIds: next.snapshot.manualUnreadWorkspaceIds
+            unreadSurfaceKeys: desiredState.snapshot.unreadSurfaceKeys,
+            focusedReadIndicatorByWorkspaceId: desiredState.snapshot.focusedReadIndicatorByWorkspaceId,
+            manualUnreadWorkspaceIds: desiredState.snapshot.manualUnreadWorkspaceIds
         )
-        enqueue(next)
+        enqueue(Publication(
+            snapshot: desiredState.snapshot,
+            summaryChanged: summaryChanged,
+            surfaceProjectionChanges: []
+        ))
     }
 
     /// Returns the exact surface projection for one owner.
@@ -298,21 +319,30 @@ public final class SidebarUnreadModel {
 
     private func enqueue(_ next: State) {
         let previous = desiredState
-        guard previous != next else { return }
+        let snapshotChanged = previous.snapshot != next.snapshot
         let ownerIds = Set(previous.surfaceProjectionByOwnerId.keys)
             .union(next.surfaceProjectionByOwnerId.keys)
         let changedSurfaceOwnerIds = ownerIds.filter {
             previous.surfaceProjectionByOwnerId[$0]
                 != next.surfaceProjectionByOwnerId[$0]
         }.sorted { $0.uuidString < $1.uuidString }
+        guard snapshotChanged || !changedSurfaceOwnerIds.isEmpty else { return }
         desiredState = next
-        pendingPublications.append(Publication(
-            state: next,
-            snapshotChanged: previous.snapshot != next.snapshot,
+        enqueue(Publication(
+            snapshot: snapshotChanged ? next.snapshot : nil,
             summaryChanged: previous.snapshot.summaryByWorkspaceId
                 != next.snapshot.summaryByWorkspaceId,
-            changedSurfaceOwnerIds: changedSurfaceOwnerIds
+            surfaceProjectionChanges: changedSurfaceOwnerIds.map {
+                SurfaceProjectionChange(
+                    ownerId: $0,
+                    projection: next.surfaceProjectionByOwnerId[$0]
+                )
+            }
         ))
+    }
+
+    private func enqueue(_ publication: Publication) {
+        pendingPublications.append(publication)
         publishPendingState()
     }
 
@@ -327,18 +357,20 @@ public final class SidebarUnreadModel {
         while publicationIndex < pendingPublications.count {
             let publication = pendingPublications[publicationIndex]
             publicationIndex += 1
-            surfaceProjectionByOwnerId = publication.state.surfaceProjectionByOwnerId
-            if publication.snapshotChanged {
-                snapshot = publication.state.snapshot
+            for change in publication.surfaceProjectionChanges {
+                surfaceProjectionByOwnerId[change.ownerId] = change.projection
             }
-            for ownerId in publication.changedSurfaceOwnerIds {
-                publishSurfaceProjection(forOwnerId: ownerId)
+            if let nextSnapshot = publication.snapshot {
+                snapshot = nextSnapshot
+            }
+            for change in publication.surfaceProjectionChanges {
+                publishSurfaceProjection(forOwnerId: change.ownerId)
             }
             if publication.summaryChanged {
-                publishSummaryObservers(publication.state.snapshot)
+                publishSummaryObservers(snapshot)
             }
-            if publication.snapshotChanged {
-                publishSnapshotObservers(publication.state.snapshot)
+            if publication.snapshot != nil {
+                publishSnapshotObservers(snapshot)
             }
         }
     }
