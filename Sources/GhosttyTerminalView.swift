@@ -391,11 +391,15 @@ class GhosttyApp {
     /// goes through the actor.
     static let externalHoverWorkService = ExternalHoverWorkService(
         teardownCoordinator: GhosttyApp.terminalSurfaceRuntimeTeardown,
-        readPhysicalRows: { lease, topRow, rowCount in
-            var metrics = ghostty_surface_grid_metrics_s()
-            guard ghostty_surface_grid_metrics(lease.surface, &metrics),
-                  metrics.columns > 0 else { return nil }
-            let columns = UInt32(metrics.columns)
+        // review B3/final-spec §2.3/§9 — the A-B-A metrics contract:
+        // metrics-before, the raw read, metrics-after, all within this
+        // one lease, with the actual before/after-vs-expected comparison
+        // delegated to `ExternalHoverWorkService.coherentPhysicalRowsSnapshot`
+        // — the SAME function tests call — never duplicated inline here.
+        readPhysicalRows: { lease, topRow, rowCount, expectedColumns, expectedViewportRows in
+            var before = ghostty_surface_grid_metrics_s()
+            guard ghostty_surface_grid_metrics(lease.surface, &before), before.columns > 0 else { return nil }
+            let columns = UInt32(before.columns)
             let topLeft = ghostty_point_s(
                 tag: GHOSTTY_POINT_VIEWPORT,
                 coord: GHOSTTY_POINT_COORD_EXACT,
@@ -412,8 +416,23 @@ class GhosttyApp {
             var text = ghostty_text_s()
             guard ghostty_surface_read_text_physical_rows(lease.surface, selection, &text) else { return nil }
             defer { ghostty_surface_free_text(lease.surface, &text) }
-            guard let ptr = text.text, text.text_len > 0 else { return "" }
-            return String(decoding: Data(bytes: ptr, count: Int(text.text_len)), as: UTF8.self)
+            let rawText: String
+            if let ptr = text.text, text.text_len > 0 {
+                rawText = String(decoding: Data(bytes: ptr, count: Int(text.text_len)), as: UTF8.self)
+            } else {
+                rawText = ""
+            }
+            var after = ghostty_surface_grid_metrics_s()
+            guard ghostty_surface_grid_metrics(lease.surface, &after) else { return nil }
+            return ExternalHoverWorkService.coherentPhysicalRowsSnapshot(
+                rawText: rawText,
+                topRow: topRow,
+                expectedRowCount: rowCount,
+                expectedColumns: expectedColumns,
+                expectedViewportRows: expectedViewportRows,
+                metricsBefore: (columns: Int(before.columns), rows: UInt32(before.rows)),
+                metricsAfter: (columns: Int(after.columns), rows: UInt32(after.rows))
+            )
         },
         callSetter: { lease, topRow, rowCount, text, ranges, hostEventID in
             let cRanges = ranges.map {
@@ -6881,7 +6900,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return (consumed, resolution)
     }
 
-    private struct TerminalGridCell {
+    // review R2-B3 — `internal`, not `private`: `TerminalCommandClickArbitratorTests`
+    // constructs this directly to call `resolveCommandClickWrappedCandidate`'s
+    // production-shared adapter with a real `TerminalGridCell`.
+    struct TerminalGridCell {
         let row: Int
         let column: Int
     }
@@ -7078,6 +7100,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             requestGeneration: hoverEventID,
             cell: ExternalHoverGridCell(row: UInt32(cell.row), column: cell.column),
             viewportRowCount: UInt32(metrics.rows),
+            gridColumns: Int(metrics.columns),
             cwd: cwd,
             mirror: hoverCallbackMirror,
             coordinator: externalHoverOwnerCoordinator,
@@ -7112,7 +7135,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             surface: surface,
             requestGeneration: hoverEventID,
             cell: ExternalHoverGridCell(row: 0, column: 0),
+            // Placeholders — `withdrawCurrentCandidate` never resolves,
+            // reads, or A-B-A-checks anything, so `viewportRowCount`/
+            // `gridColumns` here are never compared against real grid
+            // metrics; only `withdrawalAuthorizationVerdict`'s
+            // lifetime/event check runs.
             viewportRowCount: 1,
+            gridColumns: 1,
             cwd: "",
             mirror: hoverCallbackMirror,
             coordinator: externalHoverOwnerCoordinator,
@@ -7204,8 +7233,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     /// One physical row of visible viewport text per array entry, from a
     /// single coherent `ghostty_surface_read_text_physical_rows` capture.
-    private struct TerminalPhysicalViewportSnapshot {
+    /// review R2-B3 — `columns` lives HERE, alongside `lines`, sourced
+    /// from the exact same coherent `expectedMetrics` read that produced
+    /// them (never a second, independently-fetched `Int`) — see
+    /// ``resolveCommandClickWrappedCandidate(resolver:snapshot:cell:cwd:)``'s
+    /// own doc for why this is what makes `columns` this pipeline's
+    /// single source of truth. `internal`, not `private`: tests
+    /// construct this directly to call that adapter with a real,
+    /// coherent snapshot shape instead of loose `rows`/`columns` args.
+    struct TerminalPhysicalViewportSnapshot {
         let lines: [String]
+        let columns: Int
     }
 
     /// Reads the entire visible viewport as one physical-row-preserving
@@ -7265,7 +7303,49 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         guard let lines = raw.splitPhysicalViewportRows(expectedRows: rows) else { return nil }
-        return TerminalPhysicalViewportSnapshot(lines: lines)
+        return TerminalPhysicalViewportSnapshot(lines: lines, columns: columns)
+    }
+
+    /// review R2-B3/B4/cmux-shared-behavior policy — the pipeline from
+    /// `prepareCommandClickContext` this raises to a testable adapter:
+    /// coherent typed snapshot + cell + cwd → seed → shared resolve. No
+    /// `self`, so it needs no live AppKit view/Ghostty surface — the
+    /// metrics/cell → coherent snapshot part above it stays inline
+    /// (review B4 explicitly accepts that private AppKit/C API can't be
+    /// fixture-ized), but everything from the snapshot onward now runs
+    /// through this one function, and this function ALONE.
+    ///
+    /// `columns` is never a parameter here — it comes ONLY from
+    /// `snapshot.columns`, both for `wrappedPathSeed`'s own column-bound
+    /// tokenization and for the shared resolve call, so there is
+    /// structurally no second place a caller (production OR a test)
+    /// could thread in a different, stale, or placeholder column count
+    /// for either step. `prepareCommandClickContext` passes the SAME
+    /// `snapshot` it read `cell.row`'s line out of — there is no
+    /// alternate `metrics.columns`/placeholder path left at the app call
+    /// site for this to diverge through (review R2-B3's core finding).
+    ///
+    /// `purpose: .click` is fixed HERE, not passed in — the only call
+    /// site in the file, and the fixed value is exactly what
+    /// design-decision-b1-fallback-policy.md rule 2 requires: reverting
+    /// it (or routing through the demoted legacy overload instead) fails
+    /// `TerminalCommandClickArbitratorTests`.
+    static func resolveCommandClickWrappedCandidate(
+        resolver: TerminalPathResolver,
+        snapshot: TerminalPhysicalViewportSnapshot,
+        cell: TerminalGridCell,
+        cwd: String
+    ) -> TerminalWrappedPathResolution? {
+        guard cell.row >= 0, cell.row < snapshot.lines.count else { return nil }
+        guard let seed = resolver.wrappedPathSeed(
+            in: snapshot.lines[cell.row], column: cell.column, cwd: cwd, columns: snapshot.columns
+        ) else {
+            return nil
+        }
+        return resolver.resolveWrappedCandidate(
+            seed: seed, rows: snapshot.lines, clickedIndex: cell.row, columns: snapshot.columns, cwd: cwd,
+            purpose: .click
+        )
     }
 
     /// Prepares a hard-wrapped-path command-click candidate, run just
@@ -7312,74 +7392,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard cell.row >= 0, cell.row < snapshot.lines.count else {
             return abort("rowOutOfRange row=\(cell.row)")
         }
-        let clickedRow = snapshot.lines[cell.row]
 
         let resolver = TerminalPathResolver()
-        guard let seed = resolver.wrappedPathSeed(
-            in: clickedRow,
-            column: cell.column,
-            cwd: cwd
+        // review R2-B3/B4/cmux-shared-behavior policy — the ONE call
+        // into the "coherent typed snapshot + cell + cwd → seed → shared
+        // resolve" adapter production and
+        // `TerminalCommandClickArbitratorTests` both call (see that
+        // function's own doc): `columns` comes only from `snapshot`
+        // here, never a separately-threaded `metrics.columns` this call
+        // site could drift from or replace with a placeholder.
+        guard let candidate = Self.resolveCommandClickWrappedCandidate(
+            resolver: resolver, snapshot: snapshot, cell: cell, cwd: cwd
         ) else {
-            // bug B diagnostics v2 (review-bugB-bare-token-no-slash.md §4)
-            // — classify WHY, never changing wrappedPathSeed's own
-            // decision. DEBUG-only and gated separately from `abort`'s
-            // own reason string (which IS built in every configuration,
-            // just never logged outside DEBUG) so no diagnostic-only
-            // value ever gets constructed at all in a release build, not
-            // merely un-logged. Non-sensitive structured fields come
-            // FIRST and `cwd` LAST: `CMUXDebugLog`'s redactor consumes
-            // the rest of the message once it sees a sensitive key like
-            // `cwd` with no other known field after it
-            // (`DebugEventLog.swift`), so `cwd` earlier in the line was
-            // silently swallowing every field meant to follow it. Raw row
-            // text is never logged at all (only `diagnoseSeedAbsence`'s
-            // classification and the grid geometry).
             #if DEBUG
-            let seedAbsenceReason = resolver.diagnoseSeedAbsence(in: clickedRow, column: cell.column, cwd: cwd)
-            cmuxDebugLog(
-                "link.wrappedPath.prepare noSeed detail reason=\(seedAbsenceReason) " +
-                "row=\(cell.row) column=\(cell.column) gridColumns=\(metrics.columns) cwd=\(cwd)"
-            )
+            logCommandClickResolutionFailureDiagnostics(resolver: resolver, snapshot: snapshot, cell: cell, cwd: cwd)
             #endif
-            return abort("noSeed row=\(cell.row) column=\(cell.column)")
-        }
-
-        let previousRow: String? = seed.directions.contains(.previous) && cell.row > 0
-            ? snapshot.lines[cell.row - 1]
-            : nil
-        let nextRow: String? = seed.directions.contains(.next) && cell.row + 1 < snapshot.lines.count
-            ? snapshot.lines[cell.row + 1]
-            : nil
-        guard previousRow != nil || nextRow != nil else {
-            return abort("noAdjacentRow directions=\(seed.directions)")
-        }
-
-        // bug B diagnostics v2 — one evaluation covers both the real
-        // decision and (on the abort path below) the DEBUG diagnostic;
-        // `resolveWrappedCandidate`/`diagnoseWrappedCandidate` calls
-        // would otherwise each re-run the same per-direction filesystem
-        // probes independently.
-        let evaluation = resolver.evaluateWrappedCandidate(
-            seed: seed, previousRow: previousRow, nextRow: nextRow, cwd: cwd
-        )
-        guard let candidate = evaluation.candidate else {
-            // Shape-only diagnostic (never raw row/token/fragment text) —
-            // structured fields first, `cwd` last, same redaction reason
-            // as the `noSeed` case above. `outcomes` (already computed by
-            // `evaluation` above) and `diagnoseCandidateShape` are logged
-            // together; the latter is its own bounded pass (see its doc)
-            // since it continues past guards `evaluation` itself stopped
-            // at, which is a different computation, not a duplicate of it.
-            #if DEBUG
-            let shape = resolver.diagnoseCandidateShape(
-                seed: seed, previousRow: previousRow, nextRow: nextRow, cwd: cwd,
-                cellRow: cell.row, cellColumn: cell.column, gridColumns: Int(metrics.columns)
-            )
-            cmuxDebugLog(
-                "link.wrappedPath.prepare noCandidate detail outcomes=\(evaluation.outcomes) shape=\(shape) cwd=\(cwd)"
-            )
-            #endif
-            return abort("noCandidate directions=\(seed.directions)")
+            return abort("noSeedOrNoCandidate row=\(cell.row) column=\(cell.column)")
         }
 
         #if DEBUG
@@ -7389,6 +7417,53 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         #endif
         return .prepared(candidate)
     }
+
+    #if DEBUG
+    /// bug B diagnostics v2 / review R2-B3 — classifies WHY
+    /// `resolveCommandClickWrappedCandidate` returned `nil`: re-derives
+    /// the seed (a cheap, pure, already-idempotent computation — no
+    /// filesystem I/O) purely for logging; never influences the
+    /// decision that adapter already made, and never raw row/token/
+    /// fragment text. Non-sensitive structured fields come FIRST and
+    /// `cwd` LAST: `CMUXDebugLog`'s redactor consumes the rest of the
+    /// message once it sees a sensitive key like `cwd` with no other
+    /// known field after it (`DebugEventLog.swift`).
+    private func logCommandClickResolutionFailureDiagnostics(
+        resolver: TerminalPathResolver,
+        snapshot: TerminalPhysicalViewportSnapshot,
+        cell: TerminalGridCell,
+        cwd: String
+    ) {
+        let clickedRow = snapshot.lines[cell.row]
+        guard let seed = resolver.wrappedPathSeed(
+            in: clickedRow, column: cell.column, cwd: cwd, columns: snapshot.columns
+        ) else {
+            let seedAbsenceReason = resolver.diagnoseSeedAbsence(in: clickedRow, column: cell.column, cwd: cwd)
+            cmuxDebugLog(
+                "link.wrappedPath.prepare noSeed detail reason=\(seedAbsenceReason) " +
+                "row=\(cell.row) column=\(cell.column) gridColumns=\(snapshot.columns) cwd=\(cwd)"
+            )
+            return
+        }
+        // Shape-only diagnostic (never raw row/token/fragment text).
+        // Re-derives `previousRow`/`nextRow` for the legacy-shaped
+        // diagnostic calls below (bug B diagnostics v2 predates the
+        // shared, window-based entry point and only ever reasoned about
+        // the adjacent-row pair).
+        let previousRow: String? = cell.row > 0 ? snapshot.lines[cell.row - 1] : nil
+        let nextRow: String? = cell.row + 1 < snapshot.lines.count ? snapshot.lines[cell.row + 1] : nil
+        let evaluation = resolver.evaluateWrappedCandidate(
+            seed: seed, previousRow: previousRow, nextRow: nextRow, cwd: cwd
+        )
+        let shape = resolver.diagnoseCandidateShape(
+            seed: seed, previousRow: previousRow, nextRow: nextRow, cwd: cwd,
+            cellRow: cell.row, cellColumn: cell.column, gridColumns: snapshot.columns
+        )
+        cmuxDebugLog(
+            "link.wrappedPath.prepare noCandidate detail outcomes=\(evaluation.outcomes) shape=\(shape) cwd=\(cwd)"
+        )
+    }
+    #endif
 
     /// The only place a wrapped-path candidate gets opened, so a click on
     /// either the leading or trailing wrapped row ends up opening exactly

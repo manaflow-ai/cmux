@@ -1,14 +1,10 @@
-// impl-scope-expansion-8810-test-only — final-spec-scope-expansion-8810.md
-// §2/§3. New value types for the two scope expansions (3+ row hard-wrap
-// support, bidirectional `/`-continuation search) — issue #8810. This
-// file adds ONLY types; no existing function's behavior changes. Per
-// the design spec's §12 implementation order, the actual multi-row
-// contiguous-span evaluator, mirror-slash-seam predicate, and disposition
-// classification are gated on bug B's real-machine root-cause
-// confirmation and land in a later pass — these types exist now so that
-// pass's diff is additive, not a redesign, and so the geometry-aware
-// `resolveWrappedCandidate` overload (added alongside these types) has
-// somewhere to put its (for now ignored) `geometry` parameter.
+// final-spec-scope-expansion-8810.md §2/§3. Value types for issue #8810's
+// two scope expansions (3+ row hard-wrap support, bidirectional
+// `/`-continuation search): the physical-row window/snapshot types, the
+// fullness-guard tunable, the probe budget, and the row-local disposition
+// classification. The multi-row contiguous-span evaluator, mirror-slash-
+// seam predicate, and B1's outcome/rejection-reason types that actually
+// consume these live in `TerminalPathResolver.swift`.
 
 /// final-spec §2.1 — a physical-row window: `rows` in physical top-to-
 /// bottom order, which one is the clicked row, and the single owner of
@@ -153,7 +149,15 @@ public struct TerminalPhysicalRowsSnapshot: Sendable, Equatable {
 struct TerminalWrapProbeBudget {
     static let maxProbes = 15
 
-    private var remaining: Int = TerminalWrapProbeBudget.maxProbes
+    private var remaining: Int
+
+    /// - Parameter maxProbes: review R2-B2 — test-only override so a
+    ///   fixture can deterministically exhaust a SMALL budget instead of
+    ///   needing to spend the full real 15-probe cap; production always
+    ///   uses the default (``Self/maxProbes``).
+    init(maxProbes: Int = TerminalWrapProbeBudget.maxProbes) {
+        remaining = maxProbes
+    }
 
     /// Consumes one probe if budget remains.
     /// - Returns: `true` if a probe may proceed (and one unit of budget
@@ -165,6 +169,15 @@ struct TerminalWrapProbeBudget {
         remaining -= 1
         return true
     }
+
+    /// design-decision-b1-fallback-policy.md rule 1 — whether a probe
+    /// that just returned `nil` did so because the path genuinely doesn't
+    /// exist, or because the budget was already exhausted before it could
+    /// even be checked. Read immediately after a failed `consume()`-gated
+    /// probe; the evaluator uses this to classify the rejection as
+    /// ``TerminalWrappedRejectionReason/probeBudgetExceeded`` vs
+    /// ``TerminalWrappedRejectionReason/candidateDoesNotExist``.
+    var hasRemaining: Bool { remaining > 0 }
 }
 
 /// final-spec §3 — which of three states `wrappedPathSeed`'s row-local

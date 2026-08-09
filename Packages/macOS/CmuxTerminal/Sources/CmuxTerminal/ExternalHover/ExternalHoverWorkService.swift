@@ -25,12 +25,28 @@ internal import CMUXDebugLog
 public actor ExternalHoverWorkService {
     /// Reads the exact physical-row text for `[topRow, topRow+rowCount)`
     /// (viewport-relative, matching Ghostty's own contract), using the
-    /// bounded C access `lease` borrows. `nil` on any failure.
+    /// bounded C access `lease` borrows.
+    ///
+    /// review B3/final-spec §2.3/§9 — the A-B-A metrics contract: the
+    /// implementation must capture grid metrics BEFORE the raw read,
+    /// perform the read, capture metrics AFTER, and return a
+    /// ``TerminalPhysicalRowsSnapshot`` only when BOTH captures match
+    /// `expectedColumns`/`expectedViewportRows` (the values the request
+    /// was built against) — all within the SAME lease. `nil` on any
+    /// failure, including a metrics mismatch (a resize/reflow raced the
+    /// read). Production's implementation
+    /// (`GhosttyApp.externalHoverWorkService`'s closure) delegates the
+    /// actual before/after comparison to
+    /// ``coherentPhysicalRowsSnapshot(rawText:topRow:expectedRowCount:expectedColumns:expectedViewportRows:metricsBefore:metricsAfter:)``
+    /// — the same function tests call — so the contract itself is
+    /// shared, not duplicated.
     public typealias ReadPhysicalRows = @Sendable (
         _ lease: ExternalHoverSurfaceLease,
         _ topRow: UInt32,
-        _ rowCount: UInt32
-    ) -> String?
+        _ rowCount: UInt32,
+        _ expectedColumns: Int,
+        _ expectedViewportRows: UInt32
+    ) -> TerminalPhysicalRowsSnapshot?
 
     /// Calls `ghostty_surface_set_external_link_hover` (or an injected
     /// double) using `lease`. `nil`/`.zero` on rejection. `hostEventID` is
@@ -86,6 +102,38 @@ public actor ExternalHoverWorkService {
     /// capacity (64), so one drain call always empties the ring in a
     /// single round-trip under normal (non-pathological) hover rates.
     private static let diagnosticsDrainCapacity = 64
+
+    /// review B3 — the pure half of the A-B-A metrics contract, called by
+    /// BOTH production's `readPhysicalRows` closure (which supplies the
+    /// two live `ghostty_surface_grid_metrics` captures) and tests
+    /// (which supply synthetic ones) — the SAME function, so the
+    /// contract can never silently diverge between what production
+    /// actually does and what a test merely asserts about it.
+    ///
+    /// - Returns: A snapshot built from `rawText` when both `metricsBefore`
+    ///   and `metricsAfter` equal `expectedColumns`/`expectedViewportRows`;
+    ///   `nil` on any mismatch (a resize/reflow raced the read) or if
+    ///   `rawText` itself can't reconcile with `expectedRowCount`/
+    ///   `expectedColumns` (``TerminalPhysicalRowsSnapshot``'s own
+    ///   `init?`).
+    public static func coherentPhysicalRowsSnapshot(
+        rawText: String,
+        topRow: UInt32,
+        expectedRowCount: UInt32,
+        expectedColumns: Int,
+        expectedViewportRows: UInt32,
+        metricsBefore: (columns: Int, rows: UInt32),
+        metricsAfter: (columns: Int, rows: UInt32)
+    ) -> TerminalPhysicalRowsSnapshot? {
+        guard metricsBefore.columns == expectedColumns, metricsBefore.rows == expectedViewportRows,
+              metricsAfter.columns == expectedColumns, metricsAfter.rows == expectedViewportRows
+        else {
+            return nil
+        }
+        return TerminalPhysicalRowsSnapshot(
+            rawText: rawText, topRow: topRow, expectedRowCount: expectedRowCount, columns: expectedColumns
+        )
+    }
 
     private let teardownCoordinator: TerminalSurfaceRuntimeTeardownCoordinator
     private let resolver: TerminalPathResolver
@@ -362,13 +410,16 @@ public actor ExternalHoverWorkService {
         await applySetter(using: resolvedCache, request: request)
     }
 
-    /// Bounded 3-row read (clicked row + up to 1 adjacent each side,
-    /// clamped to the viewport), resolved through the shared pure
-    /// resolver (review Blocking 6's "reuse pure resolver/tokenizer only,
-    /// never the click helper's whole-viewport read"). Returns a cache
-    /// entry with `ranges` already materialized to absolute viewport
-    /// coordinates, or `nil` on any failure (no candidate, no seed,
-    /// unreadable text, or the read lease was refused).
+    /// Bounded 7-row read (clicked row + up to 3 adjacent each side,
+    /// clamped to the viewport — #8810 widened this from the original
+    /// 3-row window to match the geometry-aware evaluator's own
+    /// `maxWrappedRows` span), resolved through the shared pure resolver
+    /// (review Blocking 6's "reuse pure resolver/tokenizer only, never
+    /// the click helper's whole-viewport read"). Returns a cache entry
+    /// with `ranges` already materialized to absolute viewport
+    /// coordinates, or `nil` on any failure (no candidate, no seed, an
+    /// unreadable or A-B-A-incoherent read, or the read lease was
+    /// refused).
     private func resolveFully(_ request: ExternalHoverWorkRequest) async -> ExternalHoverCandidateCache? {
 #if DEBUG
         // Review round2 B4: ONE snapshot for this whole call — the
@@ -430,8 +481,17 @@ public actor ExternalHoverWorkService {
         }
 #endif
         let clickedRow = request.cell.row
-        let topRow = clickedRow > 0 ? clickedRow - 1 : clickedRow
-        let rowCount = min(3, request.viewportRowCount - topRow)
+        // #8810 — widened from clicked±1 (3 rows) to clicked±3 (7 rows,
+        // matching `TerminalPhysicalRowWindow.maxSnapshotRows`): the
+        // shared geometry-aware evaluator can span up to 4 rows on
+        // either side of the clicked one, and the read window is the
+        // one thing click (which reads its whole viewport) and hover
+        // must deliberately keep IDENTICAL for final-spec §13's
+        // row0/row1/row2 parity to hold at the system level, not just
+        // inside the resolver's own tests.
+        let maxSpan = UInt32(TerminalPhysicalRowWindow.maxSnapshotRows - 1) / 2
+        let topRow = clickedRow > maxSpan ? clickedRow - maxSpan : 0
+        let rowCount = min(UInt32(TerminalPhysicalRowWindow.maxSnapshotRows), request.viewportRowCount - topRow)
         guard rowCount > 0 else {
 #if DEBUG
             if diagnosticsOn {
@@ -455,9 +515,15 @@ public actor ExternalHoverWorkService {
 #endif
             return nil
         }
-        let text = readPhysicalRows(readLease, topRow, rowCount)
+        // review B3 — the reader itself performs the A-B-A metrics
+        // check (before/read/after, all inside this SAME lease) and
+        // returns a coherent snapshot only when both captures match the
+        // request's own expected columns/viewport rows; `nil` covers a
+        // real read failure AND a metrics mismatch (a resize/reflow
+        // raced the read) uniformly.
+        let snapshot = readPhysicalRows(readLease, topRow, rowCount, request.gridColumns, request.viewportRowCount)
         await teardownCoordinator.releaseExternalHoverLease(readLease)
-        guard let text else {
+        guard let snapshot else {
 #if DEBUG
             if diagnosticsOn {
                 logRead(outcome: "rejected", reason: "readFailed", topRow: topRow, rowCount: rowCount, expectedRows: Int(rowCount))
@@ -465,6 +531,7 @@ public actor ExternalHoverWorkService {
 #endif
             return nil
         }
+        let text = snapshot.rawText
 #if DEBUG
         // Review B4/round3 B3: computed ONLY when the gate is on, via the
         // injected `readMetricsCalculator` (never inline) — routing
@@ -482,18 +549,11 @@ public actor ExternalHoverWorkService {
         }
 #endif
 
-        guard let lines = text.splitPhysicalViewportRows(expectedRows: Int(rowCount)) else {
-#if DEBUG
-            if diagnosticsOn {
-                logRead(
-                    outcome: "rejected", reason: "splitFailed", topRow: topRow, rowCount: rowCount,
-                    expectedRows: Int(rowCount), textBytes: textBytes, newlineCount: newlineCount,
-                    rawEntryCount: rawEntryCount
-                )
-            }
-#endif
-            return nil
-        }
+        // review B3 — `snapshot.rows`/`snapshot.columns` ONLY from here
+        // on, never `request.gridColumns` again: the snapshot is the
+        // single coherent source of truth this whole resolve reasons
+        // about, matching ``TerminalPhysicalRowsSnapshot``'s own doc.
+        let lines = snapshot.rows
         let clickedIndex = Int(clickedRow - topRow)
         guard lines.indices.contains(clickedIndex) else {
 #if DEBUG
@@ -518,7 +578,9 @@ public actor ExternalHoverWorkService {
         }
 #endif
 
-        guard let seed = resolver.wrappedPathSeed(in: clickedLine, column: request.cell.column, cwd: request.cwd) else {
+        guard let seed = resolver.wrappedPathSeed(
+            in: clickedLine, column: request.cell.column, cwd: request.cwd, columns: snapshot.columns
+        ) else {
 #if DEBUG
             if diagnosticsOn {
                 logResolve(outcome: "rejected", reason: "noSeed")
@@ -526,10 +588,13 @@ public actor ExternalHoverWorkService {
 #endif
             return nil
         }
-        let previousLine = clickedIndex > 0 ? lines[clickedIndex - 1] : nil
-        let nextLine = clickedIndex + 1 < lines.count ? lines[clickedIndex + 1] : nil
+        // cmux-shared-behavior policy — the SAME entry point the click
+        // path calls (`GhosttyTerminalView.prepareCommandClickContext`),
+        // with `purpose: .hover` so it can never reach the click-only
+        // text-only fallback (design-decision-b1-fallback-policy.md).
         guard let resolved = resolver.resolveWrappedCandidate(
-            seed: seed, previousRow: previousLine, nextRow: nextLine, cwd: request.cwd
+            seed: seed, rows: lines, clickedIndex: clickedIndex, columns: snapshot.columns, cwd: request.cwd,
+            purpose: .hover
         ) else {
 #if DEBUG
             if diagnosticsOn {

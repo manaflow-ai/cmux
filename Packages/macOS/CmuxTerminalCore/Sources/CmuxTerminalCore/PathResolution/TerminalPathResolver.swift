@@ -38,6 +38,101 @@ public enum TerminalWrappedCandidateDirectionOutcome: Sendable, Equatable {
     case candidateDoesNotExist
 }
 
+/// design-decision-b1-fallback-policy.md rule 1 — the geometry-aware,
+/// multi-row evaluator's outcome, structured so a caller can tell "judged
+/// this candidate and rejected it" apart from "couldn't judge it at all"
+/// instead of collapsing both to the same bare `nil` the way the public
+/// ``TerminalPathResolver/resolveWrappedCandidate(seed:window:cwd:geometry:)``
+/// overload still does, for source compatibility with every existing
+/// caller that only ever wanted the collapsed optional. Only the shared,
+/// multi-row entry point
+/// (``TerminalPathResolver/resolveWrappedCandidate(seed:rows:clickedIndex:columns:cwd:purpose:)``)
+/// inspects this directly, to decide whether its own narrow, click-only
+/// text-only fallback may even be attempted.
+enum TerminalWrappedResolutionOutcome: Sendable, Equatable {
+    case resolved(TerminalWrappedPathResolution)
+    /// The evaluator judged at least one structurally-eligible span and
+    /// said no (or rejected the click outright, e.g. a row-local
+    /// disposition's own routing never reached a candidate). This is a
+    /// DECISION — never grounds to fall back to a looser resolution path.
+    case rejected(TerminalWrappedRejectionReason)
+    /// No structurally-eligible span could be judged at all: a row the
+    /// search needed is non-ASCII, so terminal-cell columns for it don't
+    /// exist. design-decision-b1-fallback-policy.md rule 2's narrow
+    /// conditions are the ONLY thing allowed to treat this as license to
+    /// fall back to a text-only join instead of failing closed — and
+    /// even then, that fallback re-derives its own eligibility rather
+    /// than trusting this case alone (see
+    /// ``TerminalPathResolver``'s `resolveTextOnlyPreviousFallback`).
+    case notEvaluable(TerminalWrappedNotEvaluableReason)
+}
+
+/// See ``TerminalWrappedResolutionOutcome/rejected(_:)``'s own doc — every
+/// case here is "judged and said no," never "couldn't tell." Named after
+/// the specific guard/decision that produced it, mirroring
+/// ``TerminalWrappedCandidateDirectionOutcome``'s existing per-direction
+/// vocabulary. **None of these are ever grounds for falling back to a
+/// looser resolution path** (design-decision-b1-fallback-policy.md rule
+/// 1's "rejected" bucket).
+enum TerminalWrappedRejectionReason: Sendable, Equatable {
+    /// A boundary the span needed doesn't reach the strict physical right
+    /// edge (final-spec §4.2) — the load-bearing guard B1 exists to
+    /// protect.
+    case fullnessGuardRejected
+    /// More than one structurally-eligible span succeeded with none
+    /// containing every other (final-spec §4.3) — genuinely ambiguous.
+    case spanAmbiguous
+    /// The joined, cwd-resolved candidate doesn't exist on disk.
+    case candidateDoesNotExist
+    /// An endpoint's own fragment already resolves to an existing path by
+    /// itself, so joining it would be coincidental, not a continuation.
+    case fragmentAloneExists
+    /// The span's leading piece isn't itself shaped like a path prefix.
+    case leadingPieceNotPathPrefixShaped
+    /// The joined candidate isn't shaped like a real path.
+    case candidateNotPathShaped
+    /// final-spec §8's fixed probe budget was exhausted before this
+    /// span's candidate could be checked.
+    case probeBudgetExceeded
+    /// The joined candidate exceeds the byte-length cap.
+    case candidateTooLong
+    /// The span would need more rows than `maxWrappedRows` allows.
+    case rowCountExceeded
+    /// A row-local hit's own mirror-seam/adjacent-only routing
+    /// (final-spec §3.1/§3.2) never reached a candidate.
+    case rowLocalPriorityBypass
+    /// A row an eligible span needed had no extractable fragment/token at
+    /// all (an ASCII row with nothing there to join) — distinct from
+    /// every reason above.
+    case fragmentNotExtractable
+}
+
+/// design-decision-b1-fallback-policy.md rule 1's "評価不能" bucket.
+enum TerminalWrappedNotEvaluableReason: Sendable, Equatable {
+    /// A row the search needed is non-ASCII, so terminal-cell columns for
+    /// it can't be computed at all — the same reason every ASCII guard in
+    /// `String+TerminalPathTokens.swift` exists. No fullness, shape, or
+    /// existence judgment could even be attempted for that row.
+    case nonASCIIRowPreventsCellColumns
+}
+
+/// Which surface is asking the shared, multi-row resolution entry point
+/// (``TerminalPathResolver/resolveWrappedCandidate(seed:rows:clickedIndex:columns:cwd:purpose:)``)
+/// to resolve a candidate — design-decision-b1-fallback-policy.md rule 2
+/// condition 2. `.hover` can NEVER reach the narrow text-only fallback (an
+/// automated, continuous underline built on an unverified column-less join
+/// would be a silent false positive — final-spec's own "誤った下線は『何が
+/// 開くか』についての静かな虚偽" framing); `.click` is the only purpose
+/// that may, and only once every OTHER rule-2 condition also holds.
+/// Threading this as an explicit, required parameter — rather than a
+/// convention every caller has to remember — is what makes hover's
+/// exclusion from that fallback something a reviewer (or a test) can
+/// confirm by reading the call site, not by trusting it.
+public enum TerminalWrappedResolutionPurpose: Sendable, Equatable {
+    case click
+    case hover
+}
+
 /// impl-bugB-diagnostics-v2 (review-bugB-bare-token-no-slash.md §4) —
 /// which broad class a token/fragment's first or last character falls
 /// into, for a permanent DEBUG log that must never carry the character
@@ -591,7 +686,17 @@ public struct TerminalPathResolver: Sendable {
     ///   - cwd: The surface's working directory.
     /// - Returns: The resolved candidate when exactly one direction
     ///   succeeds; `nil` when zero or both do.
-    public func resolveWrappedCandidate(
+    ///
+    /// design-decision-b1-fallback-policy.md rule 6 — `internal`, not
+    /// `public`: this is the legacy, fullness-blind 2-row join, and its
+    /// only sanctioned callers now are within this file — the geometry-
+    /// aware overload's own `geometry: nil` compatibility branch, and
+    /// `resolveTextOnlyPreviousFallback(seed:window:cwd:)`'s narrow,
+    /// rule-2-gated use of it. No other module can reach it directly, so
+    /// there is exactly one grep-auditable path into its behavior instead
+    /// of an implicit fallback any geometry-aware caller could stumble
+    /// into.
+    func resolveWrappedCandidate(
         seed: TerminalWrappedPathSeed,
         previousRow: String?,
         nextRow: String?,
@@ -645,7 +750,220 @@ public struct TerminalPathResolver: Sendable {
         // place both a window (with `columns`) and a geometry are
         // available together.
         guard geometry.fullnessTolerance < window.columns else { return nil }
-        return evaluateContiguousSpans(seed: seed, window: window, cwd: cwd, geometry: geometry).candidate
+        // design-decision-b1-fallback-policy.md rule 1 — this overload
+        // keeps its pre-existing collapsed-optional contract for every
+        // existing caller (`.rejected` and `.notEvaluable` both mean
+        // "no candidate" here, same as before that distinction existed);
+        // only the shared, multi-row entry point below inspects the
+        // outcome itself to decide whether a narrow fallback even applies.
+        switch evaluateContiguousSpans(seed: seed, window: window, cwd: cwd, geometry: geometry) {
+        case .resolved(let resolution):
+            return resolution
+        case .rejected, .notEvaluable:
+            return nil
+        }
+    }
+
+    /// cmux-shared-behavior policy — the ONE resolution path both click
+    /// (`GhosttyTerminalView.prepareCommandClickContext`) and hover
+    /// (`ExternalHoverWorkService.resolveFully`) call once they already
+    /// have a seed: the geometry-aware, multi-row evaluator
+    /// (final-spec-scope-expansion-8810.md §4-§8, `fullnessTolerance = 0`
+    /// per design-gate-release-bugB.md §3) is the only decision-maker —
+    /// design-decision-b1-fallback-policy.md rule 1/5/6 forbid falling
+    /// through to a looser resolution path just because that evaluator
+    /// returned nothing. The ONE narrow exception is
+    /// `resolveTextOnlyPreviousFallback(seed:window:cwd:)` below, reached
+    /// only when the evaluator's own outcome says it couldn't even judge
+    /// the click (a non-ASCII row, never a rejection) AND `purpose ==
+    /// .click` — hover can never reach it, by the type system, not by
+    /// convention (rule 2 condition 2).
+    ///
+    /// `rows`/`clickedIndex` may be a LARGER window than the evaluator
+    /// needs (e.g. a caller's whole viewport capture) — this slices down
+    /// to the shared `clickedIndex ± (maxWrappedRows - 1)` policy (7 rows
+    /// total, matching ``TerminalPhysicalRowWindow/maxSnapshotRows``)
+    /// itself, so click and hover produce byte-for-byte the same window
+    /// shape regardless of how many rows each one happened to read —
+    /// final-spec §13's row0/row1/row2 parity requirement holds at the
+    /// SYSTEM level, not just between two calls already given identical
+    /// windows.
+    ///
+    /// - Parameters:
+    ///   - seed: The seed returned by
+    ///     ``wrappedPathSeed(in:column:cwd:columns:)``, tokenized from
+    ///     `rows[clickedIndex]`.
+    ///   - rows: Physical rows, top to bottom, containing at least
+    ///     `clickedIndex`.
+    ///   - clickedIndex: The clicked row's position within `rows`.
+    ///   - columns: The physical grid's column count — the SAME value
+    ///     passed to `wrappedPathSeed(in:column:cwd:columns:)` for this
+    ///     seed.
+    ///   - cwd: The surface's working directory.
+    ///   - purpose: Which surface is asking — see
+    ///     ``TerminalWrappedResolutionPurpose``'s own doc. Required, no
+    ///     default, so every call site states it explicitly.
+    /// - Returns: The resolved candidate, or `nil` when the evaluator
+    ///   rejected it, couldn't judge it and `purpose != .click`, or
+    ///   couldn't judge it and the narrow fallback's own (independently
+    ///   re-derived) eligibility still says no.
+    public func resolveWrappedCandidate(
+        seed: TerminalWrappedPathSeed,
+        rows: [String],
+        clickedIndex: Int,
+        columns: Int,
+        cwd: String,
+        purpose: TerminalWrappedResolutionPurpose
+    ) -> TerminalWrappedPathResolution? {
+        resolveWrappedCandidateSharedEntry(
+            seed: seed, rows: rows, clickedIndex: clickedIndex, columns: columns, cwd: cwd, purpose: purpose,
+            probeBudget: TerminalWrapProbeBudget()
+        )
+    }
+
+    /// review R2-B2 — test-only probe-budget-override entry, reachable
+    /// only via `@testable import`: lets a fixture deterministically
+    /// exhaust a SMALL injected budget on the way to what would
+    /// otherwise be the winning candidate, instead of needing to
+    /// contort a real-shaped fixture into spending the full 15-probe
+    /// cap. Delegates to the exact same
+    /// ``resolveWrappedCandidateSharedEntry(seed:rows:clickedIndex:columns:cwd:purpose:probeBudget:)``
+    /// production's `purpose`-required overload above calls — never a
+    /// parallel reimplementation.
+    func resolveWrappedCandidateForTesting(
+        seed: TerminalWrappedPathSeed,
+        rows: [String],
+        clickedIndex: Int,
+        columns: Int,
+        cwd: String,
+        purpose: TerminalWrappedResolutionPurpose,
+        maxProbes: Int
+    ) -> TerminalWrappedPathResolution? {
+        resolveWrappedCandidateSharedEntry(
+            seed: seed, rows: rows, clickedIndex: clickedIndex, columns: columns, cwd: cwd, purpose: purpose,
+            probeBudget: TerminalWrapProbeBudget(maxProbes: maxProbes)
+        )
+    }
+
+    private func resolveWrappedCandidateSharedEntry(
+        seed: TerminalWrappedPathSeed,
+        rows: [String],
+        clickedIndex: Int,
+        columns: Int,
+        cwd: String,
+        purpose: TerminalWrappedResolutionPurpose,
+        probeBudget: TerminalWrapProbeBudget
+    ) -> TerminalWrappedPathResolution? {
+        guard rows.indices.contains(clickedIndex) else { return nil }
+
+        let windowStart = max(0, clickedIndex - (Self.maxWrappedRows - 1))
+        let windowEnd = min(rows.count - 1, clickedIndex + (Self.maxWrappedRows - 1))
+        let slicedRows = Array(rows[windowStart...windowEnd])
+        let slicedClickedIndex = clickedIndex - windowStart
+
+        guard let geometry = TerminalWrapGeometry(fullnessTolerance: 0),
+              let window = TerminalPhysicalRowWindow(rows: slicedRows, clickedIndex: slicedClickedIndex, columns: columns),
+              geometry.fullnessTolerance < window.columns
+        else {
+            return nil
+        }
+
+        switch evaluateContiguousSpans(seed: seed, window: window, cwd: cwd, geometry: geometry, probeBudget: probeBudget) {
+        case .resolved(let resolution):
+            return resolution
+        case .rejected:
+            // design-decision-b1-fallback-policy.md rule 5 — a judged
+            // rejection (fullness, ambiguity, absence, budget, shape,
+            // row-local priority, ...) is a DECISION. Never a reason to
+            // fall through to the legacy overload.
+            return nil
+        case .notEvaluable:
+            // rule 2 condition 2 — hover structurally cannot reach the
+            // fallback below; only `purpose == .click` may even attempt
+            // it, and even then that attempt re-derives its own
+            // eligibility rather than trusting this case alone.
+            guard purpose == .click else { return nil }
+            return resolveTextOnlyPreviousFallback(seed: seed, window: window, cwd: cwd)
+        }
+    }
+
+    /// design-decision-b1-fallback-policy.md rule 2/6 — the ONE, narrowly-
+    /// named function permitted to fall back to a text-only join once the
+    /// geometry-aware evaluator reports it couldn't judge a candidate at
+    /// all (``TerminalWrappedResolutionOutcome/notEvaluable(_:)``). Called
+    /// only from
+    /// ``resolveWrappedCandidate(seed:rows:clickedIndex:columns:cwd:purpose:)``,
+    /// and only for `purpose == .click` — every call site is therefore
+    /// grep-auditable, and hover can never reach this by construction.
+    ///
+    /// This does NOT trust its caller's `.notEvaluable` classification as
+    /// sufficient on its own — it re-derives every one of rule 2's
+    /// conditions itself, using the SAME legacy, per-direction evaluator
+    /// (`evaluateWrappedCandidate`) the pre-B1 code path used, so none of
+    /// rule 4's guards (leading-piece shape, fragment-alone existence
+    /// including the `explicitSlashSeam` exception, candidate shape,
+    /// `fileExists` + cwd, exactly-one-direction) are relaxed:
+    ///
+    /// - The winning direction must be `.previous` — `resolveSingleDirection`
+    ///   never takes the text-only branch for `.next` at all, so requiring
+    ///   the win to be `.previous` also excludes a non-ASCII `.next` row
+    ///   for free (rule 2 conditions 3/6): that row just fails its own
+    ///   direction outright, exactly like any other rejection would.
+    /// - The join is structurally 2-row (`previousRow`/`clickedRow` only —
+    ///   `evaluateWrappedCandidate` cannot reach further) — rule 2
+    ///   condition 4 holds by construction, not by a separate check.
+    /// - The clicked row's own ASCII-ness (rule 2 condition 5) is already
+    ///   guaranteed upstream (`wrappedPathSeed` can't produce a seed for a
+    ///   non-ASCII clicked row at all) but is re-checked here anyway, so
+    ///   this function's own safety never depends on that invariant
+    ///   silently holding elsewhere.
+    /// - review R2-B1/rule 2 condition 6 — every row in `window` OTHER
+    ///   than `previousRow` must be ASCII, checked explicitly. Without
+    ///   this, a non-ASCII `.next` row would independently fail its OWN
+    ///   direction (`resolveSingleDirection` never text-only-falls-back
+    ///   for `.next`), which looks identical to ".next simply wasn't
+    ///   there" from `evaluation.outcomes[.next]`'s perspective alone —
+    ///   masking that the window contains MORE non-ASCII content than
+    ///   just the one row rule 2 licenses this exception for.
+    /// - **The load-bearing check**: the result must carry
+    ///   `cellSpans == .unavailableNonASCIIRow` (rule 3). This can only be
+    ///   true when `resolveSingleDirection` ACTUALLY took the text-only
+    ///   branch, which only happens for a genuinely non-ASCII previous
+    ///   row — an all-ASCII candidate the geometry evaluator rejected for
+    ///   any other reason (fullness, most of all) never sets this, so it
+    ///   never reaches this function's success path. This is what keeps
+    ///   rule 5 (fullness rejection never falls back) safe regardless of
+    ///   which OTHER span, if any, the evaluator's own aggregate outcome
+    ///   happened to key its `.rejected`/`.notEvaluable` classification
+    ///   off of — the classification is a reporting aid, not the safety
+    ///   mechanism.
+    private func resolveTextOnlyPreviousFallback(
+        seed: TerminalWrappedPathSeed,
+        window: TerminalPhysicalRowWindow,
+        cwd: String
+    ) -> TerminalWrappedPathResolution? {
+        let clickedIndex = window.clickedIndex
+        guard clickedIndex > 0 else { return nil }
+        // review R2-B1/rule 2 condition 6 — non-ASCII must be CONFINED to
+        // `previousRow`: every other row in the window (the clicked row
+        // itself, `.next`, and any row further out the window happens to
+        // carry) must be ASCII. Subsumes the old clicked-row-only check.
+        for index in window.rows.indices where index != clickedIndex - 1 {
+            guard window.rows[index].unicodeScalars.allSatisfy(\.isASCII) else { return nil }
+        }
+
+        let previousRow = window.rows[clickedIndex - 1]
+        let nextRow = clickedIndex + 1 < window.rows.count ? window.rows[clickedIndex + 1] : nil
+        let evaluation = evaluateWrappedCandidate(seed: seed, previousRow: previousRow, nextRow: nextRow, cwd: cwd)
+
+        guard case .succeeded(let resolution) = evaluation.outcomes[.previous] else { return nil }
+        // Exactly-one-direction still applies: if `.next` ALSO succeeded
+        // (both directions ambiguous), `evaluation.candidate` is `nil`
+        // even though `.previous` alone succeeded — this comparison
+        // rejects that case rather than silently preferring `.previous`.
+        guard evaluation.candidate == resolution else { return nil }
+        guard resolution.cellSpans == .unavailableNonASCIIRow else { return nil }
+        return resolution
     }
 
     /// Runs the same independent-per-direction resolution as
@@ -973,13 +1291,15 @@ public struct TerminalPathResolver: Sendable {
         ))
     }
 
-    /// A single, exact-candidate existence probe: expands `~`, resolves
-    /// against `cwd` when relative, standardizes, and checks existence
-    /// once. Deliberately not ``resolveQuicklookPath(_:cwd:)``, which tries
-    /// multiple punctuation-trimmed variants — that would silently multiply
-    /// the wrapped-candidate I/O budget past its documented per-direction
-    /// probe count.
-    private func probeExists(_ raw: String, cwd: String) -> String? {
+    /// design-decision B5 — computes the exact standardized (tilde-
+    /// expanded, cwd-resolved, `standardizingPath`-applied) candidate path
+    /// `raw` would probe to, WITHOUT touching the file system. The single
+    /// place both ``probeExists(_:cwd:)`` and the contiguous-span
+    /// evaluator's own probe cache derive this from, so two different raw
+    /// spellings that resolve to the same real path are recognized as the
+    /// SAME probe BEFORE any `fileExists` call, not after (final-spec §8
+    /// rule 2's "同一のstandardized pathを1回だけprobe" contract).
+    private func standardizedCandidatePath(_ raw: String, cwd: String) -> String? {
         let expanded = (raw as NSString).expandingTildeInPath
         let candidatePath: String
         if expanded.hasPrefix("/") {
@@ -988,7 +1308,17 @@ public struct TerminalPathResolver: Sendable {
             guard !cwd.isEmpty else { return nil }
             candidatePath = (cwd as NSString).appendingPathComponent(expanded)
         }
-        let standardized = (candidatePath as NSString).standardizingPath
+        return (candidatePath as NSString).standardizingPath
+    }
+
+    /// A single, exact-candidate existence probe: expands `~`, resolves
+    /// against `cwd` when relative, standardizes, and checks existence
+    /// once. Deliberately not ``resolveQuicklookPath(_:cwd:)``, which tries
+    /// multiple punctuation-trimmed variants — that would silently multiply
+    /// the wrapped-candidate I/O budget past its documented per-direction
+    /// probe count.
+    private func probeExists(_ raw: String, cwd: String) -> String? {
+        guard let standardized = standardizedCandidatePath(raw, cwd: cwd) else { return nil }
         return fileExists(standardized) ? standardized : nil
     }
 
@@ -1034,6 +1364,18 @@ public struct TerminalPathResolver: Sendable {
     /// touching a single line of the span enumeration logic below —
     /// exactly the reason this seam exists (design's own "同じ事実の
     /// 二重の正本を作らない" rationale).
+    /// design-decision-b1-fallback-policy.md rule 1 — unlike a plain
+    /// `Bool`, this also distinguishes "measured and it's short" from
+    /// "couldn't measure at all" (a non-ASCII `upperRow`), which is
+    /// exactly the distinction ``TerminalWrappedResolutionOutcome`` needs
+    /// at the boundary level to avoid conflating a genuine fullness
+    /// rejection with a row this heuristic simply can't see into.
+    private enum WrapBoundaryVerdict: Equatable {
+        case full
+        case notFull
+        case notEvaluable
+    }
+
     private protocol WrapBoundaryOracle {
         /// - Parameters:
         ///   - upperRow: The physical row immediately above the boundary.
@@ -1042,20 +1384,25 @@ public struct TerminalPathResolver: Sendable {
         ///     need it; the current text heuristic only ever inspects
         ///     `upperRow`.
         ///   - columns: The physical grid's column count.
-        func isWrapContinuationBoundary(upperRow: String, lowerRow: String, columns: Int) -> Bool
+        func evaluateBoundary(upperRow: String, lowerRow: String, columns: Int) -> WrapBoundaryVerdict
     }
 
     /// The current, only ``WrapBoundaryOracle`` implementation: strict
     /// physical right edge, with a configurable tolerance
     /// (final-spec-scope-expansion-8810.md §1/§2.2) — byte-for-byte the
     /// same judgment `evaluateContiguousSpans` made inline before this
-    /// seam existed.
+    /// seam existed, now additionally reporting `.notEvaluable` instead of
+    /// silently folding a non-ASCII `upperRow` into `.notFull` (that
+    /// conflation was B1's root cause: a non-ASCII adjacent row and a
+    /// genuinely-not-full ASCII row both used to collapse to the same
+    /// bare `false`).
     private struct TextHeuristicWrapBoundaryOracle: WrapBoundaryOracle {
         let fullnessTolerance: Int
 
-        func isWrapContinuationBoundary(upperRow: String, lowerRow: String, columns: Int) -> Bool {
-            guard let lastColumn = upperRow.lastNonWhitespaceColumn else { return false }
-            return lastColumn >= columns - 1 - fullnessTolerance
+        func evaluateBoundary(upperRow: String, lowerRow: String, columns: Int) -> WrapBoundaryVerdict {
+            guard upperRow.unicodeScalars.allSatisfy(\.isASCII) else { return .notEvaluable }
+            guard let lastColumn = upperRow.lastNonWhitespaceColumn else { return .notFull }
+            return lastColumn >= columns - 1 - fullnessTolerance ? .full : .notFull
         }
     }
 
@@ -1065,25 +1412,47 @@ public struct TerminalPathResolver: Sendable {
     /// unique dominating success (§4.3). `geometry` is always non-`nil`
     /// here — the `nil` fallback is handled by the caller before this is
     /// ever reached.
+    ///
+    /// design-decision-b1-fallback-policy.md rule 1 — returns a
+    /// structured ``TerminalWrappedResolutionOutcome`` instead of a bare
+    /// optional. The `.rejected`/`.notEvaluable` classification below is a
+    /// REPORTING aid (which reason to surface when nothing succeeds), not
+    /// itself the safety mechanism: `resolveTextOnlyPreviousFallback`
+    /// independently re-derives whether ITS OWN narrow 2-row join is
+    /// actually eligible, so an imprecise aggregate classification here
+    /// (e.g. an unrelated span's fullness rejection outranking a
+    /// genuinely-non-ASCII adjacent row elsewhere in the same search)
+    /// can never itself admit an unsafe fallback — see that function's
+    /// own doc for why.
+    /// - Parameter probeBudget: Defaults to the real 15-probe cap;
+    ///   review R2-B2 — a test-only smaller override lets a fixture
+    ///   deterministically exhaust the budget without needing to spend
+    ///   the full real cap.
     private func evaluateContiguousSpans(
         seed: TerminalWrappedPathSeed,
         window: TerminalPhysicalRowWindow,
         cwd: String,
-        geometry: TerminalWrapGeometry
-    ) -> (candidate: TerminalWrappedPathResolution?, spanCount: Int) {
+        geometry: TerminalWrapGeometry,
+        probeBudget: TerminalWrapProbeBudget = TerminalWrapProbeBudget()
+    ) -> TerminalWrappedResolutionOutcome {
         let clickedIndex = window.clickedIndex
         let oracle: any WrapBoundaryOracle = TextHeuristicWrapBoundaryOracle(fullnessTolerance: geometry.fullnessTolerance)
-        var probeBudget = TerminalWrapProbeBudget()
+        var probeBudget = probeBudget
         // final-spec §8 rule 2: the SAME raw fragment/candidate probed by
         // more than one span (e.g. the same `spanStart` fragment reused
         // across several `spanEnd` choices) is only ever probed once.
+        // design-decision B5 — keyed on the STANDARDIZED path (computed
+        // before any cache lookup, never after), so two different raw
+        // spellings that resolve to the same real path collapse to one
+        // probe instead of two.
         var probeCache: [String: String?] = [:]
 
         func probe(_ raw: String) -> String? {
-            if let cached = probeCache[raw] { return cached }
+            guard let standardized = standardizedCandidatePath(raw, cwd: cwd) else { return nil }
+            if let cached = probeCache[standardized] { return cached }
             guard probeBudget.consume() else { return nil }
-            let result = probeExists(raw, cwd: cwd)
-            probeCache[raw] = result
+            let result = fileExists(standardized) ? standardized : nil
+            probeCache[standardized] = result
             return result
         }
 
@@ -1092,7 +1461,7 @@ public struct TerminalPathResolver: Sendable {
         // してはいけません" note, which is exactly why this takes two rows
         // and never the seed/clicked index).
         func mirrorSlashSeam(upperRow: String, lowerRow: String) -> Bool {
-            guard oracle.isWrapContinuationBoundary(upperRow: upperRow, lowerRow: lowerRow, columns: window.columns) else {
+            guard oracle.evaluateBoundary(upperRow: upperRow, lowerRow: lowerRow, columns: window.columns) == .full else {
                 return false
             }
             return lowerRow.first == "/"
@@ -1143,16 +1512,44 @@ public struct TerminalPathResolver: Sendable {
         if seed.disposition == .rowLocalHitAwaitingMirrorSlashSeam {
             guard clickedIndex + 1 < window.rows.count,
                   mirrorSlashSeam(upperRow: window.rows[clickedIndex], lowerRow: window.rows[clickedIndex + 1]) else {
-                return (nil, 0)
+                return .rejected(.rowLocalPriorityBypass)
             }
         }
 
-        let minStart = seed.disposition == .rowLocalHitAwaitingMirrorSlashSeam
-            ? clickedIndex
-            : max(0, clickedIndex - (Self.maxWrappedRows - 1))
-        let maxEnd = min(window.rows.count - 1, clickedIndex + (Self.maxWrappedRows - 1))
+        // final-spec §3.1 (review B2) — `.explicitTrailingSlashSeamBypass`
+        // is adjacent-only BY DISPOSITION, exactly like
+        // `.rowLocalHitAwaitingMirrorSlashSeam` is upward-only: neither
+        // may enter the general span search's normal bounds, which would
+        // otherwise let a longer, dominating multi-row candidate override
+        // the intentionally narrow 2-row join — the exact P0-2 shape
+        // final-spec §3.1 forbids.
+        let minStart: Int
+        let maxEnd: Int
+        switch seed.disposition {
+        case .rowLocalHitAwaitingMirrorSlashSeam:
+            minStart = clickedIndex
+            maxEnd = min(window.rows.count - 1, clickedIndex + (Self.maxWrappedRows - 1))
+        case .explicitTrailingSlashSeamBypass:
+            minStart = clickedIndex
+            maxEnd = min(window.rows.count - 1, clickedIndex + 1)
+        case .noRowLocalHit:
+            minStart = max(0, clickedIndex - (Self.maxWrappedRows - 1))
+            maxEnd = min(window.rows.count - 1, clickedIndex + (Self.maxWrappedRows - 1))
+        }
 
         var successes: [SpanSuccess] = []
+        // design-decision-b1-fallback-policy.md rule 1 — aggregate
+        // reporting only (see this function's own doc for why the SAFETY
+        // of the click-only fallback never depends on this being
+        // perfectly precise). `notEvaluableSeen` outranks `rejection`
+        // when both are set: a genuinely non-ASCII row anywhere in the
+        // search is reported as "couldn't judge," even if some OTHER,
+        // unrelated span was independently rejected outright.
+        var rejection: TerminalWrappedRejectionReason?
+        var notEvaluableSeen = false
+        func recordRejection(_ reason: TerminalWrappedRejectionReason) {
+            if rejection == nil { rejection = reason }
+        }
         for spanStart in minStart...clickedIndex {
             // final-spec §5.3 — extending a span upward when the
             // tokenizer didn't license `.previous` for the clicked token
@@ -1183,27 +1580,52 @@ public struct TerminalPathResolver: Sendable {
 
                 // final-spec §4.2 — fullness on every internal boundary.
                 var fullnessOK = true
+                var fullnessNotEvaluable = false
                 for boundary in spanStart..<spanEnd {
-                    guard oracle.isWrapContinuationBoundary(
+                    switch oracle.evaluateBoundary(
                         upperRow: window.rows[boundary], lowerRow: window.rows[boundary + 1], columns: window.columns
-                    ) else {
+                    ) {
+                    case .full:
+                        continue
+                    case .notFull:
                         fullnessOK = false
-                        break
+                    case .notEvaluable:
+                        fullnessOK = false
+                        fullnessNotEvaluable = true
                     }
+                    break
                 }
-                guard fullnessOK else { continue }
+                guard fullnessOK else {
+                    if fullnessNotEvaluable {
+                        notEvaluableSeen = true
+                    } else {
+                        recordRejection(.fullnessGuardRejected)
+                    }
+                    continue
+                }
 
                 var pieces: [SpanPiece] = []
                 var extractionOK = true
+                var extractionNotEvaluable = false
                 for row in spanStart...spanEnd {
                     guard let piece = piece(at: row, spanStart: spanStart, spanEnd: spanEnd),
                           piece.text.count <= Self.maxWrappedFragmentLength else {
                         extractionOK = false
+                        if !window.rows[row].unicodeScalars.allSatisfy(\.isASCII) {
+                            extractionNotEvaluable = true
+                        }
                         break
                     }
                     pieces.append(piece)
                 }
-                guard extractionOK, let leadingPiece = pieces.first, let trailingPiece = pieces.last else { continue }
+                guard extractionOK, let leadingPiece = pieces.first, let trailingPiece = pieces.last else {
+                    if extractionNotEvaluable {
+                        notEvaluableSeen = true
+                    } else {
+                        recordRejection(.fragmentNotExtractable)
+                    }
+                    continue
+                }
 
                 // final-spec §5.1/§5.3 — mirror seam is per-boundary, not
                 // per-span; only the boundary immediately after the
@@ -1251,17 +1673,29 @@ public struct TerminalPathResolver: Sendable {
                 // range/hyperlink identity), never a filesystem heuristic
                 // alone.
                 guard leadingBoundaryHasMirrorSeam || leadingBoundaryHasLegacySlashSeam
-                    || leadingPiece.text.isWrappedPathPrefixShaped else { continue }
+                    || leadingPiece.text.isWrappedPathPrefixShaped else {
+                    recordRejection(.leadingPieceNotPathPrefixShaped)
+                    continue
+                }
 
                 let candidateRaw = pieces.map(\.text).joined()
-                guard candidateRaw.utf8.count <= Self.maxWrappedCandidateBytes else { continue }
-                guard candidateRaw.isWrappedPathCandidateShaped else { continue }
+                guard candidateRaw.utf8.count <= Self.maxWrappedCandidateBytes else {
+                    recordRejection(.candidateTooLong)
+                    continue
+                }
+                guard candidateRaw.isWrappedPathCandidateShaped else {
+                    recordRejection(.candidateNotPathShaped)
+                    continue
+                }
 
                 // final-spec §8 rule 3 — candidate existence is probed
                 // BEFORE the endpoint fragment-alone probes, so a span
                 // whose joined candidate doesn't exist never spends probes
                 // on fragment-alone checks it can no longer affect.
-                guard let standardizedPath = probe(candidateRaw) else { continue }
+                guard let standardizedPath = probe(candidateRaw) else {
+                    recordRejection(probeBudget.hasRemaining ? .candidateDoesNotExist : .probeBudgetExceeded)
+                    continue
+                }
 
                 // final-spec §4.2 — fragment-alone-exists applies only to
                 // the two OUTER endpoints, and only when that endpoint
@@ -1270,10 +1704,12 @@ public struct TerminalPathResolver: Sendable {
                 // legacy-slash-seam boundary.
                 if spanStart != clickedIndex, !leadingBoundaryHasMirrorSeam, !leadingBoundaryHasLegacySlashSeam,
                    probe(leadingPiece.text) != nil {
+                    recordRejection(.fragmentAloneExists)
                     continue
                 }
                 if spanEnd != clickedIndex, !trailingBoundaryHasMirrorSeam, !trailingBoundaryHasLegacySlashSeam,
                    probe(trailingPiece.text) != nil {
+                    recordRejection(.fragmentAloneExists)
                     continue
                 }
 
@@ -1281,7 +1717,10 @@ public struct TerminalPathResolver: Sendable {
             }
         }
 
-        guard !successes.isEmpty else { return (nil, 0) }
+        guard !successes.isEmpty else {
+            if notEvaluableSeen { return .notEvaluable(.nonASCIIRowPreventsCellColumns) }
+            return .rejected(rejection ?? .candidateDoesNotExist)
+        }
 
         // final-spec §4.3 — the unique span containing every other
         // success's row range dominates; anything else (including zero
@@ -1291,7 +1730,9 @@ public struct TerminalPathResolver: Sendable {
                 other.range.lowerBound >= candidate.range.lowerBound && other.range.upperBound <= candidate.range.upperBound
             }
         }
-        guard dominating.count == 1, let winner = dominating.first else { return (nil, successes.count) }
+        guard dominating.count == 1, let winner = dominating.first else {
+            return .rejected(.spanAmbiguous)
+        }
 
         // Clicked row's own span first, then the rest in ascending row
         // order — matches the existing 2-row overload's documented
@@ -1309,12 +1750,9 @@ public struct TerminalPathResolver: Sendable {
             )
         }
         let keys = nativeMatchKeys(range: winner.range, pieces: winner.pieces.map(\.text), clickedIndex: clickedIndex)
-        return (
-            TerminalWrappedPathResolution(
-                path: winner.standardizedPath, nativeMatchKeys: keys, cellSpans: .available(cellSpans)
-            ),
-            successes.count
-        )
+        return .resolved(TerminalWrappedPathResolution(
+            path: winner.standardizedPath, nativeMatchKeys: keys, cellSpans: .available(cellSpans)
+        ))
     }
 
     /// final-spec §6 — the winning span's `nativeMatchKeys`: every

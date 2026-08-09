@@ -27,6 +27,14 @@ public struct ExternalHoverWorkRequest: @unchecked Sendable {
     /// Total rows in the surface's viewport, for clamping the bounded
     /// read window at the top/bottom edge.
     public let viewportRowCount: UInt32
+    /// The physical grid's column count at the moment this request was
+    /// built — #8810's shared resolution entry point
+    /// (`TerminalPathResolver.resolveWrappedCandidate(seed:rows:
+    /// clickedIndex:columns:cwd:)`) needs this for both
+    /// `wrappedPathSeed`'s row-local disposition classification and the
+    /// geometry-aware evaluator's own fullness guard — neither of which
+    /// existed on this request before that shared path did.
+    public let gridColumns: Int
     public let cwd: String
     public let mirror: HoverCallbackMirror
     public let coordinator: ExternalHoverOwnerCoordinator
@@ -45,6 +53,7 @@ public struct ExternalHoverWorkRequest: @unchecked Sendable {
         requestGeneration: UInt64,
         cell: ExternalHoverGridCell,
         viewportRowCount: UInt32,
+        gridColumns: Int,
         cwd: String,
         mirror: HoverCallbackMirror,
         coordinator: ExternalHoverOwnerCoordinator,
@@ -55,6 +64,7 @@ public struct ExternalHoverWorkRequest: @unchecked Sendable {
         self.requestGeneration = requestGeneration
         self.cell = cell
         self.viewportRowCount = viewportRowCount
+        self.gridColumns = gridColumns
         self.cwd = cwd
         self.mirror = mirror
         self.coordinator = coordinator
