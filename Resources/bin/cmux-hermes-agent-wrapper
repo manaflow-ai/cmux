@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # cmux Hermes Agent wrapper - installs native Hermes hooks before session launches.
 #
 # A per-surface `hermes` shim routes here. Interactive launches idempotently

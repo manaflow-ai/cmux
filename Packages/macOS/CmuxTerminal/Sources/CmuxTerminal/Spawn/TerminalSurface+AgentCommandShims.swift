@@ -202,7 +202,7 @@ extension TerminalSurface {
             wrapperInvocation = "exec \"$cmux_wrapper\" \"$@\""
         }
         let script = """
-        #!/usr/bin/env bash
+        #!/bin/bash
         cmux_wrapper=\(shellSingleQuoted(wrapperURL.path))
         cmux_shim_root=\(shellSingleQuoted(shimDirectory.path))
         if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then

@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # Launch Hermes's TUI Python gateway with cmux's process-local hook bootstrap.
 # Every failure falls through to the real interpreter so notifications can
 # never make the Hermes TUI itself unavailable.
