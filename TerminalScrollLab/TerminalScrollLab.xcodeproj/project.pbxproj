@@ -311,7 +311,7 @@
 				);
 				OTHER_LDFLAGS = "$(inherited) -lc++";
 				PRODUCT_BUNDLE_IDENTIFIER = ai.manaflow.TerminalScrollLab;
-				PRODUCT_NAME = "Terminal Scroll Lab";
+				PRODUCT_NAME = TerminalScrollLab;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -457,7 +457,7 @@
 				);
 				OTHER_LDFLAGS = "$(inherited) -lc++";
 				PRODUCT_BUNDLE_IDENTIFIER = ai.manaflow.TerminalScrollLab;
-				PRODUCT_NAME = "Terminal Scroll Lab";
+				PRODUCT_NAME = TerminalScrollLab;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
 			};

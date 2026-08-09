@@ -24,7 +24,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.manaflow.TerminalScrollLab
-        PRODUCT_NAME: Terminal Scroll Lab
+        PRODUCT_NAME: TerminalScrollLab
         INFOPLIST_KEY_CFBundleDisplayName: Scroll Lab
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
         INFOPLIST_KEY_UILaunchScreen_Generation: true
