@@ -1,0 +1,218 @@
+import Foundation
+
+/// Recovers transient Hermes identities persisted instead of a durable conversation.
+///
+/// Hermes's TUI exposes a short transport identifier before its durable
+/// `state.db` session is created. Hermes 0.20 approval callbacks could also
+/// omit the conversation key and fall back to the cmux surface UUID. Recovery
+/// accepts only database-backed process-generation evidence or one unique TUI
+/// row inside the matching hook lifecycle boundary.
+public struct HermesLegacySessionIdentityRecovery: Sendable {
+    /// Creates a resolver for legacy Hermes conversation identities.
+    public init() {}
+
+    /// The authoritative Hermes identity recovered from hook and state stores.
+    public struct Result: Equatable, Sendable {
+        /// The durable Hermes conversation identifier that replaces the transient identity.
+        public let sessionID: String
+        /// The launch command captured for the recovered conversation, when available.
+        public let launchCommand: AgentLaunchCommand?
+
+        /// Creates a recovered Hermes conversation identity.
+        ///
+        /// - Parameters:
+        ///   - sessionID: The authoritative Hermes conversation identifier.
+        ///   - launchCommand: The captured launch command, when available.
+        public init(sessionID: String, launchCommand: AgentLaunchCommand?) {
+            self.sessionID = sessionID
+            self.launchCommand = launchCommand
+        }
+    }
+
+    private struct HookStore: Decodable {
+        let sessions: [String: HookRecord]
+    }
+
+    private struct HookRecord: Decodable {
+        let sessionId: String
+        let workspaceId: String
+        let surfaceId: String
+        let cwd: String?
+        let pid: Int?
+        let pidStartSeconds: Int64?
+        let pidStartMicroseconds: Int64?
+        let launchCommand: AgentLaunchCommand?
+        let startedAt: TimeInterval
+        let updatedAt: TimeInterval
+    }
+
+    /// Recovers the durable Hermes conversation associated with a transient checkpoint.
+    ///
+    /// - Parameters:
+    ///   - surfaceID: The cmux surface that owns the transient checkpoint.
+    ///   - corruptSessionID: The persisted checkpoint that Hermes cannot resume.
+    ///   - expectedWorkspaceID: The workspace that must own the hook record, when known.
+    ///   - hookStateFileURL: The Hermes hook-session store to inspect.
+    ///   - environment: The launch environment used to resolve the Hermes state database.
+    /// - Returns: The authoritative conversation and launch command, or `nil` when the evidence is incomplete.
+    public func recover(
+        surfaceID: UUID,
+        corruptSessionID: String,
+        expectedWorkspaceID: UUID? = nil,
+        hookStateFileURL: URL,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Result? {
+        let normalizedCorruptSessionID = normalized(corruptSessionID)
+        guard let normalizedCorruptSessionID,
+              let data = try? Data(contentsOf: hookStateFileURL),
+              let state = try? JSONDecoder().decode(HookStore.self, from: data),
+              let corruptRecord = state.sessions[normalizedCorruptSessionID]
+                ?? state.sessions.values.first(where: {
+                    $0.sessionId.caseInsensitiveCompare(normalizedCorruptSessionID) == .orderedSame
+                }),
+              corruptRecord.surfaceId.caseInsensitiveCompare(surfaceID.uuidString) == .orderedSame,
+              expectedWorkspaceID.map({
+                  corruptRecord.workspaceId.caseInsensitiveCompare($0.uuidString) == .orderedSame
+              }) ?? true,
+              let corruptPID = corruptRecord.pid,
+              corruptPID > 0,
+              let corruptPIDStartSeconds = corruptRecord.pidStartSeconds,
+              let corruptPIDStartMicroseconds = corruptRecord.pidStartMicroseconds else {
+            return nil
+        }
+
+        let corruptEnvironment = stateEnvironment(
+            base: environment,
+            launchCommand: corruptRecord.launchCommand
+        )
+        let corruptStateDBPath = HermesAgentSessionResolver.stateDBPath(env: corruptEnvironment)
+        let corruptExistence = HermesAgentIndex.sessionExistence(
+            sessionID: normalizedCorruptSessionID,
+            stateDBPath: corruptStateDBPath
+        )
+        guard corruptExistence != .exists else { return nil }
+
+        let candidates = state.sessions.values.filter { record in
+            guard let candidateSessionID = normalized(record.sessionId) else { return false }
+            return candidateSessionID.caseInsensitiveCompare(normalizedCorruptSessionID) != .orderedSame
+                && record.surfaceId.caseInsensitiveCompare(corruptRecord.surfaceId) == .orderedSame
+                && record.workspaceId.caseInsensitiveCompare(corruptRecord.workspaceId) == .orderedSame
+                && record.pid == corruptPID
+                && record.pidStartSeconds == corruptPIDStartSeconds
+                && record.pidStartMicroseconds == corruptPIDStartMicroseconds
+        }.sorted {
+            if $0.updatedAt != $1.updatedAt {
+                return $0.updatedAt > $1.updatedAt
+            }
+            return $0.sessionId < $1.sessionId
+        }
+
+        var databaseBackedCandidates: [HookRecord] = []
+        for candidate in candidates {
+            guard let sessionID = normalized(candidate.sessionId) else { continue }
+            let candidateEnvironment = stateEnvironment(
+                base: environment,
+                launchCommand: candidate.launchCommand
+            )
+            let candidateStateDBPath = HermesAgentSessionResolver.stateDBPath(env: candidateEnvironment)
+            guard HermesAgentIndex.sessionExistence(
+                sessionID: normalizedCorruptSessionID,
+                stateDBPath: candidateStateDBPath
+            ) == .missing else {
+                continue
+            }
+            if HermesAgentIndex.sessionExistence(
+                sessionID: sessionID,
+                stateDBPath: candidateStateDBPath
+            ) == .exists {
+                databaseBackedCandidates.append(candidate)
+            }
+        }
+        if databaseBackedCandidates.count == 1,
+           let candidate = databaseBackedCandidates.first,
+           let sessionID = normalized(candidate.sessionId) {
+            return Result(sessionID: sessionID, launchCommand: candidate.launchCommand)
+        }
+        guard databaseBackedCandidates.isEmpty else { return nil }
+
+        if corruptExistence == .unavailable {
+            guard UUID(uuidString: normalizedCorruptSessionID) == surfaceID,
+                  let fallbackCandidate = candidates.first,
+                  let fallbackSessionID = normalized(fallbackCandidate.sessionId) else {
+                return nil
+            }
+            return Result(
+                sessionID: fallbackSessionID,
+                launchCommand: fallbackCandidate.launchCommand
+            )
+        }
+
+        guard let cwd = normalized(corruptRecord.cwd)
+                ?? normalized(corruptRecord.launchCommand?.workingDirectory) else {
+            return nil
+        }
+        let nextProcessBoundary = state.sessions.values.compactMap { record -> TimeInterval? in
+            guard record.surfaceId.caseInsensitiveCompare(corruptRecord.surfaceId) == .orderedSame,
+                  record.workspaceId.caseInsensitiveCompare(corruptRecord.workspaceId) == .orderedSame,
+                  record.startedAt > corruptRecord.startedAt,
+                  !sameProcessGeneration(
+                      record,
+                      pid: corruptPID,
+                      startSeconds: corruptPIDStartSeconds,
+                      startMicroseconds: corruptPIDStartMicroseconds
+                  ) else {
+                return nil
+            }
+            return record.startedAt
+        }.min()
+        guard let evidence = HermesAgentIndex.recoveryEvidence(
+            cwd: cwd,
+            startedAt: corruptRecord.startedAt,
+            before: nextProcessBoundary,
+            stateDBPath: corruptStateDBPath
+        ) else {
+            return nil
+        }
+        let matches = evidence.filter {
+            $0.sessionID.caseInsensitiveCompare(normalizedCorruptSessionID) != .orderedSame
+        }
+        guard matches.count == 1, let recovered = matches.first else { return nil }
+        let matchingHookRecord = state.sessions.values.first {
+            $0.sessionId.caseInsensitiveCompare(recovered.sessionID) == .orderedSame
+        }
+        return Result(
+            sessionID: recovered.sessionID,
+            launchCommand: matchingHookRecord?.launchCommand ?? corruptRecord.launchCommand
+        )
+    }
+
+    private func stateEnvironment(
+        base: [String: String],
+        launchCommand: AgentLaunchCommand?
+    ) -> [String: String] {
+        var merged = base
+        if let launchEnvironment = launchCommand?.environment {
+            merged.merge(launchEnvironment) { _, captured in captured }
+        }
+        return merged
+    }
+
+    private func sameProcessGeneration(
+        _ record: HookRecord,
+        pid: Int,
+        startSeconds: Int64,
+        startMicroseconds: Int64
+    ) -> Bool {
+        record.pid == pid
+            && record.pidStartSeconds == startSeconds
+            && record.pidStartMicroseconds == startMicroseconds
+    }
+
+    private func normalized(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+}

@@ -196,10 +196,8 @@ extension CMUXCLI {
         )
     }
 
-    /// Repairs records already persisted by the Hermes 0.20 approval bug. The
-    /// corrupt record and the preceding authoritative lifecycle record share
-    /// both a surface and a process-generation identity, making the recovery
-    /// deterministic without guessing from unrelated Hermes conversations.
+    /// Repairs transient Hermes TUI identities using hook process-generation
+    /// evidence and the durable Hermes state database.
     private func recoveredHermesRestoreRecord(
         _ record: RestoreRecord,
         surfaceID: String,
@@ -207,41 +205,23 @@ extension CMUXCLI {
     ) -> RestoreRecord {
         guard record.kind == "hermes-agent",
               let checkpointID = record.checkpointID,
-              let surfaceUUID = UUID(uuidString: surfaceID),
-              UUID(uuidString: checkpointID) == surfaceUUID else {
+              let surfaceUUID = UUID(uuidString: surfaceID) else {
             return record
         }
-
-        var storeEnvironment = processEnvironment
-        storeEnvironment["CMUX_CLAUDE_HOOK_STATE_PATH"] = agentHookStatePath(
+        let hookStatePath = agentHookStatePath(
             sessionStoreSuffix: "hermes-agent",
             env: processEnvironment
         )
-        let candidates = (try? ClaudeHookSessionStore(
-            processEnv: storeEnvironment
-        ).restoreRecoveryCandidates(
-            surfaceId: surfaceID,
-            corruptSessionId: checkpointID
-        )) ?? []
-        guard !candidates.isEmpty else { return record }
-
-        let persistedCandidate = candidates.first { candidate in
-            var hermesEnvironment = processEnvironment
-            if let launchEnvironment = candidate.launchCommand?.environment {
-                hermesEnvironment.merge(launchEnvironment) { _, captured in captured }
-            }
-            let stateDBPath = HermesAgentSessionResolver.stateDBPath(env: hermesEnvironment)
-            return HermesAgentIndex.loadSessions(
-                needle: candidate.sessionId,
-                cwdFilter: nil,
-                offset: 0,
-                limit: 20,
-                stateDBPath: stateDBPath
-            ).sessions.contains { $0.sessionId == candidate.sessionId }
+        guard let candidate = HermesLegacySessionIdentityRecovery().recover(
+            surfaceID: surfaceUUID,
+            corruptSessionID: checkpointID,
+            hookStateFileURL: URL(fileURLWithPath: hookStatePath),
+            environment: processEnvironment
+        ) else {
+            return record
         }
-        let candidate = persistedCandidate ?? candidates[0]
         return record.repairingHermesCheckpoint(
-            candidate.sessionId,
+            candidate.sessionID,
             fallbackLaunchCommand: candidate.launchCommand
         )
     }

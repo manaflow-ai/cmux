@@ -236,43 +236,6 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    /// Returns the newest non-corrupt session identities previously observed
-    /// on the same surface. Used only to repair Hermes bindings written by the
-    /// 0.20 TUI approval callback bug, where the surface UUID was persisted as
-    /// if it were Hermes's conversation id.
-    func restoreRecoveryCandidates(
-        surfaceId: String,
-        corruptSessionId: String
-    ) throws -> [ClaudeHookSessionRecord] {
-        let normalizedSurfaceId = surfaceId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedCorruptSessionId = normalizeSessionId(corruptSessionId)
-        guard !normalizedSurfaceId.isEmpty, !normalizedCorruptSessionId.isEmpty else {
-            return []
-        }
-        return try withLockedState { state in
-            guard let corruptRecord = state.sessions[normalizedCorruptSessionId],
-                  let corruptPID = corruptRecord.pid,
-                  corruptPID > 0,
-                  let corruptPIDStartSeconds = corruptRecord.pidStartSeconds,
-                  let corruptPIDStartMicroseconds = corruptRecord.pidStartMicroseconds else {
-                return []
-            }
-            return state.sessions.values.filter { record in
-                record.sessionId != normalizedCorruptSessionId &&
-                    record.surfaceId.caseInsensitiveCompare(normalizedSurfaceId) == .orderedSame &&
-                    record.workspaceId == corruptRecord.workspaceId &&
-                    record.pid == corruptPID &&
-                    record.pidStartSeconds == corruptPIDStartSeconds &&
-                    record.pidStartMicroseconds == corruptPIDStartMicroseconds
-            }.sorted {
-                if $0.updatedAt != $1.updatedAt {
-                    return $0.updatedAt > $1.updatedAt
-                }
-                return $0.sessionId < $1.sessionId
-            }
-        }
-    }
-
     /// Records the hook-observed permission mode on an existing session record.
     /// The already-current check happens INSIDE the lock: an unlocked pre-check
     /// can race an overlapping hook's write and skip persisting the newest mode,
@@ -28574,6 +28537,32 @@ struct CMUXCLI {
         launchCommand: AgentHookLaunchCommandRecord?,
         observedPermissionMode: String? = nil
     ) {
+        if kind == "hermes-agent" {
+            var stateEnvironment = ProcessInfo.processInfo.environment
+            if let launchEnvironment = launchCommand?.environment {
+                stateEnvironment.merge(launchEnvironment) { _, captured in captured }
+            }
+            let existence = HermesAgentIndex.sessionExistence(
+                sessionID: sessionId,
+                stateDBPath: HermesAgentSessionResolver.stateDBPath(env: stateEnvironment)
+            )
+            switch existence {
+            case .exists:
+                break
+            case .missing:
+                clearAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    sessionId: nil
+                )
+                return
+            case .unavailable:
+                // A temporary snapshot failure must not replace or clear a
+                // previously verified durable Hermes checkpoint.
+                return
+            }
+        }
         if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
             clearAgentSurfaceResumeBinding(client: client, workspaceId: workspaceId, surfaceId: surfaceId, sessionId: sessionId)
             return

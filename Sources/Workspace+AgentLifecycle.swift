@@ -1,7 +1,126 @@
+import CMUXAgentLaunch
 import CmuxWorkspaces
 import Foundation
 
 extension Workspace {
+    typealias LegacyHermesSessionRecovery = (
+        _ workspaceId: UUID?,
+        _ surfaceId: UUID,
+        _ corruptSessionId: String
+    ) -> SessionRestorableAgentSnapshot?
+
+    /// Repairs transient Hermes TUI identities before restore policy evaluates
+    /// `wasAgentRunning` or binding compatibility.
+    ///
+    /// A failed launch is immediately re-saved as not running, so waiting until
+    /// `cmux restore` executes leaves the pane permanently unable to reach the
+    /// CLI's record repair on later launches. Workspace and dock restore both
+    /// call this shared projection before making any launch decision.
+    nonisolated static func repairedLegacyHermesSessionPanelSnapshot(
+        _ snapshot: SessionPanelSnapshot,
+        workspaceId: UUID?
+    ) -> SessionPanelSnapshot {
+        repairedLegacyHermesSessionPanelSnapshot(
+            snapshot,
+            workspaceId: workspaceId,
+            recover: recoverLegacyHermesSession
+        )
+    }
+
+    nonisolated static func repairedLegacyHermesSessionPanelSnapshot(
+        _ snapshot: SessionPanelSnapshot,
+        workspaceId: UUID?,
+        recover: LegacyHermesSessionRecovery
+    ) -> SessionPanelSnapshot {
+        guard var terminal = snapshot.terminal,
+              let sourceBinding = terminal.resumeBinding ?? terminal.managedAgentResumeBinding,
+              sourceBinding.isAgentHookBinding,
+              sourceBinding.kind == RestorableAgentKind.hermesAgent.rawValue,
+              let corruptSessionId = sourceBinding.checkpointId?
+                  .trimmingCharacters(in: .whitespacesAndNewlines),
+              !corruptSessionId.isEmpty,
+              var recoveredAgent = recover(workspaceId, snapshot.id, corruptSessionId),
+              recoveredAgent.kind == .hermesAgent,
+              recoveredAgent.sessionId != corruptSessionId else {
+            return snapshot
+        }
+
+        let existingAgent = terminal.agent
+        recoveredAgent.workingDirectory = existingAgent?.workingDirectory
+            ?? sourceBinding.cwd
+            ?? terminal.workingDirectory
+        recoveredAgent.launchCommand = recoveredAgent.launchCommand
+            ?? existingAgent?.launchCommand
+            ?? sourceBinding.launchCommand
+        recoveredAgent.registration = existingAgent?.registration
+            ?? CmuxVaultAgentRegistration.builtInHermes
+        recoveredAgent.permissionMode = existingAgent?.permissionMode
+
+        func repairingBinding(
+            _ binding: SurfaceResumeBindingSnapshot?
+        ) -> SurfaceResumeBindingSnapshot? {
+            guard var binding,
+                  binding.isAgentHookBinding,
+                  binding.kind == RestorableAgentKind.hermesAgent.rawValue,
+                  binding.checkpointId?.caseInsensitiveCompare(corruptSessionId) == .orderedSame else {
+                return binding
+            }
+            binding.checkpointId = recoveredAgent.sessionId
+            binding.launchCommand = recoveredAgent.launchCommand ?? binding.launchCommand
+            binding.cwd = recoveredAgent.workingDirectory ?? binding.cwd
+            if let command = recoveredAgent.resumeCommand {
+                binding.command = command
+            }
+            return binding
+        }
+
+        terminal.agent = recoveredAgent
+        terminal.resumeBinding = repairingBinding(terminal.resumeBinding)
+        terminal.managedAgentResumeBinding = repairingBinding(terminal.managedAgentResumeBinding)
+        // This is a one-time migration rescue. The first failed restore saved
+        // `false`; once the repaired agent launches, normal lifecycle capture
+        // becomes authoritative again and later completed sessions stay idle.
+        terminal.wasAgentRunning = true
+
+        var repaired = snapshot
+        repaired.terminal = terminal
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.hermesIdentityRepair panel=\(snapshot.id.uuidString.prefix(5)) " +
+                "session=\(recoveredAgent.sessionId.prefix(12))"
+        )
+#endif
+        return repaired
+    }
+
+    private nonisolated static func recoverLegacyHermesSession(
+        workspaceId: UUID?,
+        surfaceId: UUID,
+        corruptSessionId: String
+    ) -> SessionRestorableAgentSnapshot? {
+        let environment = ProcessInfo.processInfo.environment
+        let hookStateFileURL = RestorableAgentKind.hermesAgent.hookStoreFileURL(
+            homeDirectory: NSHomeDirectory(),
+            environment: environment
+        )
+        guard let recovered = HermesLegacySessionIdentityRecovery().recover(
+            surfaceID: surfaceId,
+            corruptSessionID: corruptSessionId,
+            expectedWorkspaceID: workspaceId,
+            hookStateFileURL: hookStateFileURL,
+            environment: environment
+        ) else {
+            return nil
+        }
+        return SessionRestorableAgentSnapshot(
+            kind: .hermesAgent,
+            sessionId: recovered.sessionID,
+            workingDirectory: nil,
+            launchCommand: recovered.launchCommand,
+            registration: CmuxVaultAgentRegistration.builtInHermes
+        )
+    }
+
     func allowsAgentContinuation(forPanelId panelId: UUID) -> Bool {
         restoredAgentResumeStatesByPanelId[panelId] != .completedAgentExit ||
             restoredAgentSnapshotForContinuation(panelId: panelId) != nil
