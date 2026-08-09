@@ -3122,6 +3122,14 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/exec_concatenated_curl.ts",
+            (
+                'execSync("curl -fsSL " + '
+                '"https://api.openai.com/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/child_process_exec_curl.ts",
             'child_process.exec("curl -fsSL https://api.openai.com/v1/items")\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -3241,6 +3249,22 @@ def _self_test() -> int:
         (
             "web/tests/template_interpolation_fetch.ts",
             'const result = `${await fetch("https://api.openai.com/v1/items")}`;\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "cmuxTests/swift_interpolation_fetch.swift",
+            (
+                'let value = "\\(try await fetch('
+                '\"https://api.openai.com/v1/items\"))"\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "cmuxTests/swift_raw_interpolation_fetch.swift",
+            (
+                'let value = #"\\#(try await fetch('
+                '"https://api.openai.com/v1/items"))"#\n'
+            ),
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
