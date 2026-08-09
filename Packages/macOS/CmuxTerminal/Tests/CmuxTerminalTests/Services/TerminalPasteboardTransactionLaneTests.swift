@@ -270,6 +270,29 @@ struct TerminalPasteboardTransactionLaneTests {
         )
     }
 
+    @Test("finish before apply keeps rollback ownership in the lane")
+    func finishBeforeAppliedSignalKeepsRollbackOwnershipInLane() {
+        let previousContents = [TerminalPasteboardItemSnapshot(
+            representations: [.init(
+                typeIdentifier: NSPasteboard.PasteboardType.string.rawValue,
+                data: Data("user clipboard".utf8)
+            )]
+        )]
+        let result = TerminalPasteboardMutationResult(
+            status: .written,
+            previousContents: previousContents,
+            publishedContents: [],
+            publishedChangeCount: 42
+        )
+        let lease = TerminalPasteboardMutationLease(id: 1) {}
+
+        #expect(lease.finish() == nil)
+        let disposition = lease.signalApplied(result)
+
+        #expect(disposition == .laneMustRestore)
+        #expect(lease.finish()?.previousContents == previousContents)
+    }
+
     @Test("failed item reconstruction preserves the existing clipboard")
     func failedItemReconstructionPreservesExistingClipboard() {
         let fixture = makeFixture()
