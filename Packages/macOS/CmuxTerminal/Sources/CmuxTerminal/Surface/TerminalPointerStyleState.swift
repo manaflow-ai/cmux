@@ -10,6 +10,8 @@ public import GhosttyKit
 @MainActor
 public struct TerminalPointerStyleState {
     private var ghosttyCursor: NSCursor = .iBeam
+    /// Semantic identity for deduplicating factory cursors without image reads.
+    private var ghosttyShape: ghostty_action_mouse_shape_e?
     private var activeRuntimeLifetimeId: UUID?
     private var isFocused = false
     private var isCmuxLinkHoverActive = false
@@ -37,45 +39,50 @@ public struct TerminalPointerStyleState {
     public mutating func apply(_ event: TerminalPointerStyleEvent) -> Bool {
         switch event {
         case .runtimeActivated(let runtimeLifetimeId):
-            let previousCursor = effectiveCursor
+            let shouldInvalidate = isFocused && (
+                ghosttyShape != nil || isCmuxLinkHoverActive
+            )
             activeRuntimeLifetimeId = runtimeLifetimeId
             ghosttyCursor = .iBeam
+            ghosttyShape = nil
             isCmuxLinkHoverActive = false
-            return !cursorsEqual(previousCursor, effectiveCursor)
+            return shouldInvalidate
 
         case .runtimeEnded(let runtimeLifetimeId):
             if let runtimeLifetimeId,
                activeRuntimeLifetimeId != runtimeLifetimeId {
                 return false
             }
-            let previousCursor = effectiveCursor
+            let shouldInvalidate = isFocused && (
+                ghosttyShape != nil || isCmuxLinkHoverActive
+            )
             activeRuntimeLifetimeId = nil
             ghosttyCursor = .iBeam
+            ghosttyShape = nil
             isCmuxLinkHoverActive = false
-            return !cursorsEqual(previousCursor, effectiveCursor)
+            return shouldInvalidate
 
         case .ghosttyShape(let shape, let runtimeLifetimeId):
             guard activeRuntimeLifetimeId == runtimeLifetimeId else { return false }
             guard let cursor = cursor(for: shape) else { return false }
-            let previousCursor = effectiveCursor
+            guard ghosttyShape != shape else { return false }
             ghosttyCursor = cursor
-            return !cursorsEqual(previousCursor, effectiveCursor)
+            ghosttyShape = shape
+            return isFocused && !isCmuxLinkHoverActive
 
         case .focusChanged(let focused):
             guard isFocused != focused else { return false }
-            let previousCursor = effectiveCursor
             isFocused = focused
             if !focused {
                 isCmuxLinkHoverActive = false
             }
-            return !cursorsEqual(previousCursor, effectiveCursor)
+            return true
 
         case .cmuxLinkHoverChanged(let active):
             let nextActive = isFocused && active
             guard isCmuxLinkHoverActive != nextActive else { return false }
-            let previousCursor = effectiveCursor
             isCmuxLinkHoverActive = nextActive
-            return !cursorsEqual(previousCursor, effectiveCursor)
+            return true
         }
     }
 
@@ -193,9 +200,5 @@ public struct TerminalPointerStyleState {
         default:
             return nil
         }
-    }
-
-    private func cursorsEqual(_ lhs: NSCursor, _ rhs: NSCursor) -> Bool {
-        lhs === rhs || lhs.isEqual(rhs)
     }
 }

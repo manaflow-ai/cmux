@@ -21,6 +21,30 @@ struct TerminalPointerStyleStateTests {
         #expect(state.effectiveCursor == NSCursor.pointingHand)
     }
 
+    @Test("repeated OSC 22 shape does not invalidate cursor rects")
+    func repeatedGhosttyPointerShapeIsUnchanged() {
+        var state = TerminalPointerStyleState()
+        let runtimeLifetimeId = activate(&state)
+        state.apply(.focusChanged(true))
+
+        let firstChange = state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_NESW_RESIZE,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        let repeatedChange = state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_NESW_RESIZE,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+
+        if #available(macOS 15.0, *) {
+            #expect(firstChange)
+            #expect(!repeatedChange)
+        } else {
+            #expect(!firstChange)
+            #expect(!repeatedChange)
+        }
+    }
+
     @Test("OSC 22 shapes map to their closest public AppKit cursor")
     func mapsSupportedGhosttyPointerShapes() {
         var mappings: [(ghostty_action_mouse_shape_e, NSCursor)] = [
