@@ -451,8 +451,8 @@ struct DockRuntimeParityTests {
         }
     }
 
-    @Test("Notification attention routes to both Dock scopes")
-    func notificationAttentionRoutesToBothDockScopes() async throws {
+    @Test("Notification delivery excludes hidden workspace Docks without breaking scoped flashes")
+    func notificationDeliveryExcludesHiddenWorkspaceDocks() async throws {
         try await withAppContext { appDelegate, manager, workspace, windowID in
             let workspaceDock = workspace.dockSplit
             let globalDock = appDelegate.windowDock(forWindowId: windowID)
@@ -465,8 +465,7 @@ struct DockRuntimeParityTests {
                 claimedTabId: workspace.id,
                 surfaceId: workspacePanel.id
             )
-            #expect(workspaceDelivery?.tabId == workspace.id)
-            #expect(workspaceDelivery?.surfaceId == workspacePanel.id)
+            #expect(workspaceDelivery == nil)
             let globalDelivery = appDelegate.agentNotificationDeliveryTarget(
                 claimedTabId: workspace.id,
                 surfaceId: globalPanel.id
@@ -511,17 +510,30 @@ struct DockRuntimeParityTests {
         }
     }
 
-    @Test("Notification opens reveal exact panels in both Dock scopes")
-    func notificationOpensRevealExactPanelsInBothDockScopes() async throws {
-        try await withAppContext { appDelegate, _, workspace, windowID in
+    @Test("Notification opens fail closed for hidden workspace Docks")
+    func notificationOpensOnlyRenderedWindowDockPanels() async throws {
+        let sidebarState = FileExplorerState()
+        let previousSidebarVisibility = sidebarState.isVisible
+        let previousSidebarMode = sidebarState.mode
+        sidebarState.setVisible(false)
+        sidebarState.mode = .files
+        defer {
+            sidebarState.mode = previousSidebarMode
+            sidebarState.setVisible(previousSidebarVisibility)
+        }
+
+        try await withAppContext(fileExplorerState: sidebarState) { appDelegate, _, workspace, windowID in
             let notificationStore = TerminalNotificationStore.shared
             let previousNotificationStore = appDelegate.notificationStore
             let workspaceDock = workspace.dockSplit
             let globalDock = appDelegate.windowDock(forWindowId: windowID)
             let workspacePanel = DockRuntimeParityPanel(title: "Workspace Dock")
+            let initiallyFocusedGlobalPanel = DockRuntimeParityPanel(title: "Initially focused")
             let globalPanel = DockRuntimeParityPanel(title: "Global Dock")
             try workspaceDock.seedRuntimeParityPanel(workspacePanel)
+            try globalDock.seedRuntimeParityPanel(initiallyFocusedGlobalPanel)
             try globalDock.seedRuntimeParityPanel(globalPanel)
+            globalDock.focusPanel(initiallyFocusedGlobalPanel.id)
 
             let workspaceNotification = TerminalNotification(
                 id: UUID(),
@@ -553,15 +565,23 @@ struct DockRuntimeParityTests {
                 appDelegate.notificationStore = previousNotificationStore
             }
 
-            #expect(appDelegate.openTerminalNotification(workspaceNotification))
-            #expect(workspaceDock.focusedPanelId == workspacePanel.id)
-            #expect(!notificationStore.hasUnreadNotification(
+            #expect(!appDelegate.openTerminalNotification(workspaceNotification))
+            #expect(notificationStore.hasUnreadNotification(
                 forTabId: workspace.id,
                 surfaceId: workspacePanel.id
             ))
+            #expect(!sidebarState.isVisible)
+            #expect(sidebarState.mode == .files)
+            #expect(globalDock.focusedPanelId == initiallyFocusedGlobalPanel.id)
 
             #expect(appDelegate.openTerminalNotification(globalNotification))
             #expect(globalDock.focusedPanelId == globalPanel.id)
+            #expect(sidebarState.isVisible)
+            #expect(sidebarState.mode == .dock)
+            #expect(notificationStore.hasUnreadNotification(
+                forTabId: workspace.id,
+                surfaceId: workspacePanel.id
+            ))
             #expect(!notificationStore.hasUnreadNotification(
                 forTabId: globalDock.workspaceId,
                 surfaceId: globalPanel.id
