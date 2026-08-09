@@ -10,6 +10,16 @@ internal import CMUXDebugLog
 // MARK: - Headless bootstrap windows and runtime surface lifecycle
 extension TerminalSurface {
     @MainActor
+    private func endAttachedViewRuntimeLifetime() {
+        let runtimeLifetimeId = surfaceCallbackContext?
+            .takeUnretainedValue().runtimeLifetimeId
+        let view = attachedView ?? surfaceView
+        view.runtimeSurfaceDidEnd(
+            runtimeLifetimeId: runtimeLifetimeId
+        )
+    }
+
+    @MainActor
     func scheduleHeadlessRuntimeStartIfNeeded(
         reason: String,
         source: RuntimeSurfaceCreationSource = .normal
@@ -160,7 +170,7 @@ extension TerminalSurface {
         let registeredOwnerId = registry.runtimeSurfaceOwnerId(surface)
         guard registeredOwnerId == id,
               GhosttySurfaceRuntimeProbe.surfacePointerAppearsLive(surface) else {
-            attachedView?.runtimeSurfaceDidEnd()
+            endAttachedViewRuntimeLifetime()
             let callbackContext = surfaceCallbackContext
             invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: false)
             surfaceCallbackContext = nil
@@ -299,7 +309,7 @@ extension TerminalSurface {
         backgroundSurfaceStartSource = .normal
         cancelAgentCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
-        attachedView?.runtimeSurfaceDidEnd()
+        endAttachedViewRuntimeLifetime()
 
         let callbackContext = surfaceCallbackContext
         let surfaceToFree = surface
@@ -395,7 +405,7 @@ extension TerminalSurface {
         backgroundSurfaceStartSource = .normal
         cancelAgentCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
-        attachedView?.runtimeSurfaceDidEnd()
+        endAttachedViewRuntimeLifetime()
         let callbackContext = surfaceCallbackContext
         let surfaceToFree = surface
         let retiredRemoteOutputLane = retireRemoteOutputLane()
@@ -749,9 +759,6 @@ extension TerminalSurface {
 
         let scaleFactors = scaleFactors(for: view)
 
-        // Activate view-owned runtime state before `ghostty_surface_new`: a
-        // fast child or buffered manual I/O can emit actions during creation.
-        view.prepareForRuntimeSurfaceCreation()
         let runtimeSurfaceCreation = createNativeRuntimeSurface(
             app: app,
             for: view,
@@ -762,6 +769,11 @@ extension TerminalSurface {
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput
 
         if surface == nil {
+            let failedRuntimeLifetimeId = surfaceCallbackContext?
+                .takeUnretainedValue().runtimeLifetimeId
+            view.runtimeSurfaceDidEnd(
+                runtimeLifetimeId: failedRuntimeLifetimeId
+            )
             invalidateRuntimeClipboardRequests(in: surfaceCallbackContext, completingNativeRequests: false)
             surfaceCallbackContext?.release()
             surfaceCallbackContext = nil

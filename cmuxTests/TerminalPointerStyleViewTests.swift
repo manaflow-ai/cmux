@@ -15,13 +15,22 @@ struct TerminalPointerStyleViewTests {
     func pointerIntentDoesNotLeakBetweenViews() {
         let firstView = GhosttyNSView(frame: .zero)
         let secondView = GhosttyNSView(frame: .zero)
+        let firstRuntimeLifetimeId = UUID()
+        let secondRuntimeLifetimeId = UUID()
 
-        firstView.prepareForRuntimeSurfaceCreation()
-        secondView.prepareForRuntimeSurfaceCreation()
+        firstView.prepareForRuntimeSurfaceCreation(
+            runtimeLifetimeId: firstRuntimeLifetimeId
+        )
+        secondView.prepareForRuntimeSurfaceCreation(
+            runtimeLifetimeId: secondRuntimeLifetimeId
+        )
         firstView.applyTerminalPointerStyle(.focusChanged(true))
         secondView.applyTerminalPointerStyle(.focusChanged(true))
         firstView.applyTerminalPointerStyle(
-            .ghosttyShape(GHOSTTY_MOUSE_SHAPE_COPY)
+            .ghosttyShape(
+                GHOSTTY_MOUSE_SHAPE_COPY,
+                runtimeLifetimeId: firstRuntimeLifetimeId
+            )
         )
 
         #expect(firstView.effectiveTerminalPointerCursor == NSCursor.dragCopy)
@@ -31,23 +40,39 @@ struct TerminalPointerStyleViewTests {
     @Test("native runtime lifecycle gates pointer intent on the retained view")
     func runtimeLifecycleGatesPointerIntentOnSameView() {
         let view = GhosttyNSView(frame: .zero)
-        view.prepareForRuntimeSurfaceCreation()
+        let oldRuntimeLifetimeId = UUID()
+        view.prepareForRuntimeSurfaceCreation(
+            runtimeLifetimeId: oldRuntimeLifetimeId
+        )
         view.applyTerminalPointerStyle(.focusChanged(true))
         view.applyTerminalPointerStyle(
-            .ghosttyShape(GHOSTTY_MOUSE_SHAPE_POINTER)
+            .ghosttyShape(
+                GHOSTTY_MOUSE_SHAPE_POINTER,
+                runtimeLifetimeId: oldRuntimeLifetimeId
+            )
         )
         #expect(view.effectiveTerminalPointerCursor == NSCursor.pointingHand)
 
-        view.runtimeSurfaceDidEnd()
+        view.runtimeSurfaceDidEnd(runtimeLifetimeId: oldRuntimeLifetimeId)
         view.applyTerminalPointerStyle(
-            .ghosttyShape(GHOSTTY_MOUSE_SHAPE_POINTER)
+            .ghosttyShape(
+                GHOSTTY_MOUSE_SHAPE_POINTER,
+                runtimeLifetimeId: oldRuntimeLifetimeId
+            )
         )
         #expect(view.effectiveTerminalPointerCursor == NSCursor.iBeam)
 
-        view.prepareForRuntimeSurfaceCreation()
-        view.applyTerminalPointerStyle(
-            .ghosttyShape(GHOSTTY_MOUSE_SHAPE_CROSSHAIR)
+        let newRuntimeLifetimeId = UUID()
+        view.prepareForRuntimeSurfaceCreation(
+            runtimeLifetimeId: newRuntimeLifetimeId
         )
+        view.applyTerminalPointerStyle(
+            .ghosttyShape(
+                GHOSTTY_MOUSE_SHAPE_CROSSHAIR,
+                runtimeLifetimeId: newRuntimeLifetimeId
+            )
+        )
+        view.runtimeSurfaceDidEnd(runtimeLifetimeId: oldRuntimeLifetimeId)
         view.runtimeSurfaceDidBecomeReady()
 
         #expect(view.effectiveTerminalPointerCursor == NSCursor.crosshair)

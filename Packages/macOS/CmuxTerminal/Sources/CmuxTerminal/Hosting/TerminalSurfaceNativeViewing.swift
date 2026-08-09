@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxTerminalCore
 public import GhosttyKit
+public import Foundation
 
 /// The inner terminal NSView a ``TerminalSurface`` renders into.
 ///
@@ -41,11 +42,16 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
 
     /// Resets view-owned state and accepts callbacks for the native surface
     /// lifetime that is about to be created.
-    func prepareForRuntimeSurfaceCreation()
+    /// - Parameter runtimeLifetimeId: The callback-context identity installed
+    ///   before the native constructor can emit actions.
+    func prepareForRuntimeSurfaceCreation(runtimeLifetimeId: UUID)
 
     /// Resets view-owned state and rejects callbacks from an ended native
     /// surface lifetime.
-    func runtimeSurfaceDidEnd()
+    ///
+    /// - Parameter runtimeLifetimeId: The ended callback-context identity, or
+    ///   `nil` when replacing the entire surface owner unconditionally.
+    func runtimeSurfaceDidEnd(runtimeLifetimeId: UUID?)
 
     /// Reconciles view-owned state after a new native Ghostty surface lifetime
     /// is installed.
