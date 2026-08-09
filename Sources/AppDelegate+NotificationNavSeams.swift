@@ -211,6 +211,12 @@ final class NotificationNavSeamAdapter:
         owner?.clearWindowDockSurfaceUnread(target)
     }
 
+    func markLatestWindowDockNotificationAsOldestUnread(
+        _ target: WindowDockUnreadTarget
+    ) -> UUID? {
+        owner?.markLatestWindowDockNotificationAsOldestUnread(target)
+    }
+
     func focusedPanel(forTabId tabId: UUID, surfaceId: UUID?) -> FocusedPanel? {
         owner?.focusedPanel(forTabId: tabId, surfaceId: surfaceId) ?? nil
     }

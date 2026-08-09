@@ -690,10 +690,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // so its `#if DEBUG` `jumpUnreadInvoked` recorder and nil-store guard
             // still fire exactly as before; map the resolved notification back to
             // its id for the package boundary.
-            focusedJump: { [unowned self] excludedNotificationId, excludedWorkspaceId in
+            focusedJump: {
+                [unowned self] excludedNotificationId, excludedWorkspaceId, excludedWindowDockTarget in
                 self.jumpToLatestUnread(
                     excludingNotificationId: excludedNotificationId,
-                    excludingWorkspaceId: excludedWorkspaceId
+                    excludingWorkspaceId: excludedWorkspaceId,
+                    excludingWindowDockTarget: excludedWindowDockTarget
                 )?.id
             }
         )
@@ -4108,6 +4110,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 context.tabManager.sessionAutosaveFingerprint(
                     restorableAgentIndex: restorableAgentIndex,
                     surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                )
+            )
+            hasher.combine(
+                context.existingWindowDock()?.sessionManualUnreadAutosaveFingerprint(
+                    notificationStore: notificationStore
                 )
             )
             hasher.combine(context.sidebarState.isVisible)
@@ -12752,7 +12759,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func jumpToLatestUnread(
         excludingNotificationId excludedNotificationId: UUID? = nil,
-        excludingWorkspaceId excludedWorkspaceId: UUID? = nil
+        excludingWorkspaceId excludedWorkspaceId: UUID? = nil,
+        excludingWindowDockTarget excludedWindowDockTarget: WindowDockUnreadTarget? = nil
     ) -> TerminalNotification? {
         guard let notificationStore else { return nil }
 #if DEBUG
@@ -12765,7 +12773,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         guard let openedId = notificationNavigation.jumpToLatestUnread(
             excludingNotificationId: excludedNotificationId,
-            excludingWorkspaceId: excludedWorkspaceId
+            excludingWorkspaceId: excludedWorkspaceId,
+            excludingWindowDockTarget: excludedWindowDockTarget
         ) else {
             return nil
         }

@@ -48,6 +48,12 @@ public protocol FocusedNotificationResolving: AnyObject {
     /// per-window Dock surface.
     func clearWindowDockSurfaceUnread(_ target: WindowDockUnreadTarget)
 
+    /// Marks only the exact Dock surface's latest notification oldest-unread,
+    /// returning its id. Notifications owned by sibling surfaces are ignored.
+    func markLatestWindowDockNotificationAsOldestUnread(
+        _ target: WindowDockUnreadTarget
+    ) -> UUID?
+
     /// Resolves `surfaceId` to the owning panel within `tabId`'s workspace, or
     /// `nil` when there is no surface or no owning panel. Mirrors
     /// `focusedPanelNotificationTarget(_:)`.

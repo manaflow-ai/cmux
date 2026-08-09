@@ -21,13 +21,21 @@ public final class FocusedNotificationMarker {
     /// Delegates to `NotificationNavigationCoordinator.jumpToLatestUnread`,
     /// returning the opened notification id (or `nil`). Injected so the marker
     /// does not depend on the coordinator's other seams.
-    private let jumpToLatestUnread: (_ excludingNotificationId: UUID?, _ excludingWorkspaceId: UUID?) -> UUID?
+    private let jumpToLatestUnread: (
+        _ excludingNotificationId: UUID?,
+        _ excludingWorkspaceId: UUID?,
+        _ excludingWindowDockTarget: WindowDockUnreadTarget?
+    ) -> UUID?
 
     /// Creates a focused-notification marker driven by the injected resolver
     /// and jump closure.
     public init(
         resolver: any FocusedNotificationResolving,
-        jumpToLatestUnread: @escaping (_ excludingNotificationId: UUID?, _ excludingWorkspaceId: UUID?) -> UUID?
+        jumpToLatestUnread: @escaping (
+            _ excludingNotificationId: UUID?,
+            _ excludingWorkspaceId: UUID?,
+            _ excludingWindowDockTarget: WindowDockUnreadTarget?
+        ) -> UUID?
     ) {
         self.resolver = resolver
         self.jumpToLatestUnread = jumpToLatestUnread
@@ -36,8 +44,9 @@ public final class FocusedNotificationMarker {
     /// The result of marking the focused notification oldest-unread, mirroring
     /// the app-target `FocusedNotificationMarkResult`.
     private enum MarkResult {
-        case deferredNotification(id: UUID, excludedOwnerId: UUID?)
-        case markedOwnerWithoutNotification(UUID)
+        case deferredNotification(UUID)
+        case markedWorkspaceWithoutNotification(UUID)
+        case markedWindowDockWithoutNotification(WindowDockUnreadTarget)
     }
 
     /// Toggles the focused notification's unread state, returning whether
@@ -112,10 +121,12 @@ public final class FocusedNotificationMarker {
             return nil
         }
         switch result {
-        case .deferredNotification(let notificationId, let excludedOwnerId):
-            return jumpToLatestUnread(notificationId, excludedOwnerId)
-        case .markedOwnerWithoutNotification(let ownerId):
-            return jumpToLatestUnread(nil, ownerId)
+        case .deferredNotification(let notificationId):
+            return jumpToLatestUnread(notificationId, nil, nil)
+        case .markedWorkspaceWithoutNotification(let workspaceId):
+            return jumpToLatestUnread(nil, workspaceId, nil)
+        case .markedWindowDockWithoutNotification(let target):
+            return jumpToLatestUnread(nil, nil, target)
         }
     }
 
@@ -134,19 +145,13 @@ public final class FocusedNotificationMarker {
     }
 
     private func markFocusedWindowDockAsOldestUnread(_ target: WindowDockUnreadTarget) -> MarkResult {
-        if let notificationId = resolver.markLatestNotificationAsOldestUnread(
-            forTabId: target.windowId,
-            surfaceId: target.surfaceId
-        ) {
-            return .deferredNotification(
-                id: notificationId,
-                excludedOwnerId: target.windowId
-            )
+        if let notificationId = resolver.markLatestWindowDockNotificationAsOldestUnread(target) {
+            return .deferredNotification(notificationId)
         }
         if !resolver.windowDockSurfaceIsUnread(target) {
             resolver.markWindowDockSurfaceUnread(target)
         }
-        return .markedOwnerWithoutNotification(target.windowId)
+        return .markedWindowDockWithoutNotification(target)
     }
 
     private func markFocusedWorkspaceAsOldestUnread(tabId: UUID, surfaceId: UUID?) -> MarkResult {
@@ -154,7 +159,7 @@ public final class FocusedNotificationMarker {
             forTabId: tabId,
             surfaceId: surfaceId
         ) {
-            return .deferredNotification(id: notificationId, excludedOwnerId: nil)
+            return .deferredNotification(notificationId)
         }
         if let panel = resolver.focusedPanel(forTabId: tabId, surfaceId: surfaceId) {
             let panelAlreadyUnread =
@@ -172,6 +177,6 @@ public final class FocusedNotificationMarker {
         } else if !resolver.workspaceIsUnread(forTabId: tabId) {
             resolver.storeMarkUnread(forTabId: tabId)
         }
-        return .markedOwnerWithoutNotification(tabId)
+        return .markedWorkspaceWithoutNotification(tabId)
     }
 }

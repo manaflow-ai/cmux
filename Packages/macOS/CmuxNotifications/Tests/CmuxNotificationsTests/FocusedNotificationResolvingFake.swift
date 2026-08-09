@@ -24,6 +24,7 @@ final class FakeFocusedResolving: FocusedNotificationResolving {
     var storeRestoredUnreadTabs: Set<UUID> = []
     var workspaceUnreadTabs: Set<UUID> = []
     var unreadWindowDockTargets: Set<WindowDockUnreadTarget> = []
+    var oldestUnreadIdByWindowDockTarget: [WindowDockUnreadTarget: UUID] = [:]
     /// The notification id `markLatestNotificationAsOldestUnread` returns per tab.
     var oldestUnreadIdByTab: [UUID: UUID] = [:]
 
@@ -47,6 +48,12 @@ final class FakeFocusedResolving: FocusedNotificationResolving {
     func clearWindowDockSurfaceUnread(_ target: WindowDockUnreadTarget) {
         unreadWindowDockTargets.remove(target)
         mutations.append("clearWindowDockSurfaceUnread(\(short(target.surfaceId)))")
+    }
+
+    func markLatestWindowDockNotificationAsOldestUnread(
+        _ target: WindowDockUnreadTarget
+    ) -> UUID? {
+        oldestUnreadIdByWindowDockTarget[target]
     }
 
     func focusedPanel(forTabId tabId: UUID, surfaceId: UUID?) -> FocusedPanel? {

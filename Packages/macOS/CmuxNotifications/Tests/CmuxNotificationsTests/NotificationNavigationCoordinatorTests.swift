@@ -203,6 +203,32 @@ struct NotificationNavigationCoordinatorTests {
         ])
     }
 
+    @Test("window Dock jump excludes only the exact focused surface")
+    func windowDockJumpExcludesOnlyExactSurface() {
+        let store = FakeStore()
+        let openRouting = FakeOpenRouting()
+        let windowID = UUID()
+        let focusedTarget = WindowDockUnreadTarget(
+            windowId: windowID,
+            surfaceId: UUID()
+        )
+        let siblingTarget = WindowDockUnreadTarget(
+            windowId: windowID,
+            surfaceId: UUID()
+        )
+        store.windowDockUnreadTargets = [focusedTarget, siblingTarget]
+        let coordinator = makeCoordinator(store: store, openRouting: openRouting)
+
+        _ = coordinator.jumpToLatestUnread(
+            excludingWindowDockTarget: focusedTarget
+        )
+
+        #expect(store.clearedWindowDockTargets == [siblingTarget])
+        #expect(openRouting.log == [
+            "windowDock(window=\(short(windowID)),surf=\(short(siblingTarget.surfaceId)))",
+        ])
+    }
+
     @Test("failed window Dock unread open falls through without clearing it")
     func failedWindowDockUnreadFallsThrough() {
         let store = FakeStore()

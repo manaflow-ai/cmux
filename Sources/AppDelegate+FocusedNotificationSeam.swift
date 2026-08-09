@@ -33,6 +33,15 @@ extension AppDelegate {
         )
     }
 
+    func markLatestWindowDockNotificationAsOldestUnread(
+        _ target: WindowDockUnreadTarget
+    ) -> UUID? {
+        notificationStore?.markLatestWindowDockNotificationAsOldestUnread(
+            windowId: target.windowId,
+            surfaceId: target.surfaceId
+        )
+    }
+
     func focusedPanel(forTabId tabId: UUID, surfaceId: UUID?) -> FocusedPanel? {
         guard let surfaceId,
               let workspace = workspaceFor(tabId: tabId) else {

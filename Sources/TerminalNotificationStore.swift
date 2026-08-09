@@ -1739,6 +1739,20 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     @discardableResult
+    func markLatestWindowDockNotificationAsOldestUnread(
+        windowId: UUID,
+        surfaceId: UUID
+    ) -> UUID? {
+        var updated = notifications
+        guard let index = updated.firstIndex(where: {
+            $0.matches(tabId: windowId, surfaceId: surfaceId)
+        }) else {
+            return nil
+        }
+        return moveNotificationToOldestUnread(at: index, in: &updated)
+    }
+
+    @discardableResult
     func markLatestNotificationAsOldestUnread(forTabId tabId: UUID, surfaceId: UUID?) -> UUID? {
         var updated = notifications
         guard let index = latestNotificationIndex(forTabId: tabId, surfaceId: surfaceId, in: updated) else {
@@ -1748,11 +1762,18 @@ final class TerminalNotificationStore: ObservableObject {
             return nil
         }
 
+        return moveNotificationToOldestUnread(at: index, in: &updated)
+    }
+
+    private func moveNotificationToOldestUnread(
+        at index: Int,
+        in updated: inout [TerminalNotification]
+    ) -> UUID {
         var notification = updated.remove(at: index)
         notification.isRead = false
         let insertionIndex = updated.lastIndex(where: { !$0.isRead }).map { $0 + 1 } ?? updated.endIndex
         updated.insert(notification, at: insertionIndex)
-        setWorkspaceManualUnread(false, forTabId: tabId)
+        setWorkspaceManualUnread(false, forTabId: notification.tabId)
         if let notificationSurfaceId = notification.surfaceId {
             setSurfaceManualUnread(
                 false,

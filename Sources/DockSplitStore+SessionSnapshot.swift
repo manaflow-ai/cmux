@@ -86,6 +86,26 @@ extension DockSplitStore {
         )
     }
 
+    /// Hashes the manual unread bits persisted for this global Dock's panels.
+    func sessionManualUnreadAutosaveFingerprint(
+        notificationStore: TerminalNotificationStore?
+    ) -> Int {
+        var hasher = Hasher()
+        let panelIds = Array(
+            orderedSessionPanelIds()
+                .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
+        )
+        hasher.combine(panelIds.count)
+        for panelId in panelIds {
+            hasher.combine(panelId)
+            hasher.combine(notificationStore?.hasManualUnread(
+                forTabId: workspaceId,
+                surfaceId: panelId
+            ) ?? false)
+        }
+        return hasher.finalize()
+    }
+
     private func orderedSessionPanelIds() -> [UUID] {
         var result: [UUID] = []
         var seen: Set<UUID> = []

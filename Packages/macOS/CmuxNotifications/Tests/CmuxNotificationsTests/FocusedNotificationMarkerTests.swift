@@ -5,15 +5,23 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct FocusedNotificationMarkerTests {
-    /// Records every `(excludedNotificationId, excludedWorkspaceId)` the marker
-    /// asks to jump for, and returns a scriptable opened id.
+    /// Records every notification, workspace, and exact Dock target exclusion
+    /// the marker asks to jump for, and returns a scriptable opened id.
     @MainActor
     final class JumpSpy {
         var openedId: UUID?
-        private(set) var calls: [(UUID?, UUID?)] = []
+        private(set) var calls: [(UUID?, UUID?, WindowDockUnreadTarget?)] = []
 
-        func jump(_ excludedNotificationId: UUID?, _ excludedWorkspaceId: UUID?) -> UUID? {
-            calls.append((excludedNotificationId, excludedWorkspaceId))
+        func jump(
+            _ excludedNotificationId: UUID?,
+            _ excludedWorkspaceId: UUID?,
+            _ excludedWindowDockTarget: WindowDockUnreadTarget?
+        ) -> UUID? {
+            calls.append((
+                excludedNotificationId,
+                excludedWorkspaceId,
+                excludedWindowDockTarget
+            ))
             return openedId
         }
     }
@@ -24,7 +32,7 @@ struct FocusedNotificationMarkerTests {
     ) -> (FocusedNotificationMarker, JumpSpy) {
         let marker = FocusedNotificationMarker(
             resolver: resolver,
-            jumpToLatestUnread: { jump.jump($0, $1) }
+            jumpToLatestUnread: { jump.jump($0, $1, $2) }
         )
         return (marker, jump)
     }
@@ -164,6 +172,7 @@ struct FocusedNotificationMarkerTests {
         #expect(spy.calls.count == 1)
         #expect(spy.calls.first?.0 == nil)
         #expect(spy.calls.first?.1 == nil)
+        #expect(spy.calls.first?.2 == target)
     }
 
     @Test("mark-oldest defers an exact Dock notification without excluding sibling surfaces")
@@ -172,7 +181,7 @@ struct FocusedNotificationMarkerTests {
         let notificationID = UUID()
         let resolver = FakeFocusedResolving()
         resolver.focusedTargetValue = .windowDock(target)
-        resolver.oldestUnreadIdByTab[target.windowId] = notificationID
+        resolver.oldestUnreadIdByWindowDockTarget[target] = notificationID
         let (marker, spy) = makeMarker(resolver: resolver)
 
         _ = marker.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread()
@@ -181,6 +190,7 @@ struct FocusedNotificationMarkerTests {
         #expect(spy.calls.count == 1)
         #expect(spy.calls.first?.0 == notificationID)
         #expect(spy.calls.first?.1 == nil)
+        #expect(spy.calls.first?.2 == nil)
     }
 
     @Test("mark-oldest does not defer a notification from a sibling Dock surface")
@@ -201,6 +211,7 @@ struct FocusedNotificationMarkerTests {
         #expect(spy.calls.count == 1)
         #expect(spy.calls.first?.0 == nil)
         #expect(spy.calls.first?.1 == nil)
+        #expect(spy.calls.first?.2 == target)
     }
 
     @Test("mark-oldest defers to a notification id, then jumps excluding it")
