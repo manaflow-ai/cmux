@@ -89,16 +89,15 @@ private extension NSView {
         context: UnsafeMutableRawPointer?
     ) {
         let parentWindow = window
-        let previousSubviews = PortalViewHierarchyMutationTracker.subviewOrderBeforeSort(
+        let sortState = PortalViewHierarchyMutationTracker.subviewOrderBeforeSort(
             parentView: self,
             parentWindow: parentWindow
         )
         cmux_portalSortSubviews(compare, context: context)
-        guard let previousSubviews else { return }
+        guard let sortState else { return }
         PortalViewHierarchyMutationTracker.recordSortIfNeeded(
             parentView: self,
-            parentWindow: parentWindow,
-            previousSubviews: previousSubviews
+            sortState: sortState
         )
     }
 }
@@ -108,7 +107,7 @@ final class PortalSplitDividerCacheInvalidator {
     /// AppKit does not document `subviews` as KVO-compliant. Hook every public
     /// hierarchy mutation entrypoint once so the window tracker can advance its
     /// generation without a pointer-time tree walk.
-    private static let installViewHierarchyMutationHooks: Void = {
+    private static let hierarchyMutationHooksInstalled: Bool = {
         let selectorPairs: [(original: Selector, replacement: Selector)] = [
             (#selector(NSView.addSubview(_:)), #selector(NSView.cmux_portalAddSubview(_:))),
             (
@@ -133,13 +132,14 @@ final class PortalSplitDividerCacheInvalidator {
             guard let original = class_getInstanceMethod(NSView.self, selectors.original),
                   let replacement = class_getInstanceMethod(NSView.self, selectors.replacement) else {
                 assertionFailure("Unable to install portal view-hierarchy mutation hook for \(selectors.original)")
-                return
+                return false
             }
             methodPairs.append((original, replacement))
         }
         for methods in methodPairs {
             method_exchangeImplementations(methods.original, methods.replacement)
         }
+        return true
     }()
 
     // Observer tokens are assigned/cleared from main-thread AppKit paths. Swift
@@ -150,7 +150,7 @@ final class PortalSplitDividerCacheInvalidator {
     private var hierarchyRegistration: PortalViewHierarchyMutationRegistration?
 
     init() {
-        _ = Self.installViewHierarchyMutationHooks
+        _ = Self.hierarchyMutationHooksInstalled
     }
 
     deinit {
@@ -208,7 +208,8 @@ final class PortalSplitDividerCacheInvalidator {
     }
 
     func isHierarchyCurrent(for rootView: NSView) -> Bool {
-        hierarchyRegistration?.isCurrent(for: rootView) == true
+        guard Self.hierarchyMutationHooksInstalled else { return false }
+        return hierarchyRegistration?.isCurrent(for: rootView) == true
     }
 
     private nonisolated func invalidateObservations() {

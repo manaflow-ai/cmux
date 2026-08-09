@@ -4,6 +4,11 @@ import ObjectiveC
 /// Owns the divider-relevant structural generation for one AppKit window.
 @MainActor
 final class PortalViewHierarchyMutationTracker: NSObject {
+    struct SubviewOrderBeforeSort {
+        fileprivate let tracker: PortalViewHierarchyMutationTracker
+        fileprivate let subviews: [NSView]
+    }
+
     private static let windowAssociationKey = NSObject()
     private static let nodeStateAssociationKey = NSObject()
 
@@ -109,7 +114,7 @@ final class PortalViewHierarchyMutationTracker: NSObject {
     static func subviewOrderBeforeSort(
         parentView: NSView,
         parentWindow: NSWindow?
-    ) -> [NSView]? {
+    ) -> SubviewOrderBeforeSort? {
         guard let window = parentWindow,
               let tracker = tracker(for: window, createIfNeeded: false),
               tracker.hasActiveCaches,
@@ -118,23 +123,21 @@ final class PortalViewHierarchyMutationTracker: NSObject {
             return nil
         }
         tracker.beginSort(parentView: parentView)
-        return parentView.subviews
+        return SubviewOrderBeforeSort(tracker: tracker, subviews: parentView.subviews)
     }
 
     static func recordSortIfNeeded(
         parentView: NSView,
-        parentWindow: NSWindow?,
-        previousSubviews: [NSView]
+        sortState: SubviewOrderBeforeSort
     ) {
-        guard let window = parentWindow,
-              let tracker = tracker(for: window, createIfNeeded: false),
-              tracker.finishSort(parentView: parentView) else {
+        let tracker = sortState.tracker
+        guard tracker.finishSort(parentView: parentView) else {
             return
         }
         guard tracker.hasActiveCaches,
               let parentState = tracker.currentNodeState(for: parentView),
               parentState.containsSplitView,
-              !haveSameIdentityOrder(previousSubviews, parentView.subviews) else { return }
+              !haveSameIdentityOrder(sortState.subviews, parentView.subviews) else { return }
         tracker.markDirty()
     }
 
