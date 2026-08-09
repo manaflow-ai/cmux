@@ -290,10 +290,18 @@ private final class SidebarPopoverCloseWaiter: NSObject {
 
     @objc
     private func popoverDidClose(_ notification: Notification) {
-        // `didClose` is the documented post-animation wake-up. The backing
-        // window's visibility is the stable identity and completion condition.
-        guard notification.object is NSPopover, !window.isVisible else { return }
-        finish()
+        // AppKit still has the popover content attached when it posts
+        // `didClose`; use that stable relationship to reject unrelated
+        // popovers, then let its backing-window visibility settle after the
+        // notification-delivery turn.
+        guard let popover = notification.object as? NSPopover,
+              popover.contentViewController?.view.window === window
+        else { return }
+        RunLoop.main.perform(inModes: [.common]) { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.finish()
+            }
+        }
     }
 
     private func finish() {
