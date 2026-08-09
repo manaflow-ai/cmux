@@ -1005,9 +1005,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func advanceBottomDockTransition() {
         let isTransitioning = bottomDockTransitionInFlight
         #if DEBUG
-        if isTransitioning, !bottomDockTransitionObserved {
-            maximumInternalDockPresentationGap = 0
-        }
         sampleInternalDockPresentationGap()
         #endif
         guard isTransitioning || bottomDockTransitionObserved else { return }
@@ -1072,6 +1069,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let nextHeight = keyboardOverlapFromLayoutGuide
         guard abs(nextHeight - keyboardHeight) > 0.25 else { return false }
         keyboardHeight = nextHeight
+        #if DEBUG
+        // Scope the retained seam maximum to this keyboard target change. The dock
+        // can already have a presentation layer when the guide updates, so waiting
+        // to infer a transition from model/presentation divergence may miss its first
+        // frame and leave an unrelated Composer mount animation in the measurement.
+        maximumInternalDockPresentationGap = 0
+        #endif
         bottomDockTransitionObserved = bottomDockTransitionInFlight
         setNeedsGeometrySync()
         return true
