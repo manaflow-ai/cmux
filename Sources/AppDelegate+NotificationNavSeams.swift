@@ -471,10 +471,12 @@ extension AppDelegate {
               let manager = tabManagerForWindowDockOwner(target.windowId) else {
             return false
         }
-        _ = TerminalController.shared.focusAndRevealWindowDock(
+        guard TerminalController.shared.focusAndRevealWindowDock(
             for: dock,
             fallback: manager
-        )
+        ) else {
+            return false
+        }
         dock.focusPanel(target.surfaceId)
         return dock.focusedPanelId == target.surfaceId
     }

@@ -296,18 +296,18 @@ extension TerminalController {
         return workspaceID != dockOwnerId
     }
 
-    /// Focuses the Dock's owning window, makes it the active manager, and
-    /// reveals the Dock there, returning the owning manager. A Dock surface or
-    /// pane renders only in its owning window (the registry is the source of
-    /// truth), so Dock focus operations anchor there even when the caller's
-    /// routed context resolved another window.
+    /// Focuses the Dock's owning window and reveals the Dock there. Returns
+    /// whether the Dock became available for the requested focus operation. A
+    /// Dock surface or pane renders only in its owning window (the registry is
+    /// the source of truth), so Dock focus operations anchor there even when
+    /// the caller's routed context resolved another window.
     @discardableResult
-    func focusAndRevealWindowDock(for dock: DockSplitStore, fallback tabManager: TabManager) -> TabManager {
+    func focusAndRevealWindowDock(for dock: DockSplitStore, fallback tabManager: TabManager) -> Bool {
         let owningTabManager = dockOwnerTabManager(for: dock, fallback: tabManager)
         _ = AppDelegate.shared?.focusMainWindow(windowId: dock.workspaceId)
+        guard revealDockForFocus(tabManager: owningTabManager) else { return false }
         setActiveTabManager(owningTabManager)
-        revealDockForFocus(tabManager: owningTabManager)
-        return owningTabManager
+        return true
     }
 
     /// The window-Dock branch of `controlSurfaceClose`: closes the routed

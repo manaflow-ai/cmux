@@ -397,7 +397,8 @@ final class TerminalNotificationStore: ObservableObject {
     /// owner index and the published sidebar projection in lockstep so BEL
     /// handling stays constant-time and refreshes once per logical mutation.
     private var manualUnreadSurfaceIdsByOwnerId: [UUID: Set<UUID>] = [:]
-    private var manualUnreadSurfaceKeys: Set<SidebarSurfaceUnreadKey> = []
+    private var manualUnreadSurfaceSequenceByKey: [SidebarSurfaceUnreadKey: UInt64] = [:]
+    private var latestManualUnreadSurfaceSequence: UInt64 = 0
     @Published private(set) var panelDerivedUnreadWorkspaceIds: Set<UUID> = [] {
         didSet { refreshUnreadPresentation() }
     }
@@ -533,17 +534,20 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     var windowDockUnreadTargets: [WindowDockUnreadTarget] {
-        manualUnreadSurfaceKeys.compactMap { key in
+        manualUnreadSurfaceSequenceByKey.sorted { lhs, rhs in
+            if lhs.value != rhs.value {
+                return lhs.value > rhs.value
+            }
+            if lhs.key.workspaceId != rhs.key.workspaceId {
+                return lhs.key.workspaceId.uuidString < rhs.key.workspaceId.uuidString
+            }
+            return (lhs.key.surfaceId?.uuidString ?? "") < (rhs.key.surfaceId?.uuidString ?? "")
+        }.compactMap { key, _ in
             guard let surfaceId = key.surfaceId else { return nil }
             return WindowDockUnreadTarget(
                 windowId: key.workspaceId,
                 surfaceId: surfaceId
             )
-        }.sorted { lhs, rhs in
-            if lhs.windowId != rhs.windowId {
-                return lhs.windowId.uuidString < rhs.windowId.uuidString
-            }
-            return lhs.surfaceId.uuidString < rhs.surfaceId.uuidString
         }
     }
 
@@ -560,7 +564,7 @@ final class TerminalNotificationStore: ObservableObject {
             summaries: buildSidebarUnreadSummaries(),
             unreadSurfaceKeys: Set(indexes.unreadByTabSurface.map {
                 SidebarSurfaceUnreadKey(workspaceId: $0.tabId, surfaceId: $0.surfaceId)
-            }).union(manualUnreadSurfaceKeys),
+            }).union(manualUnreadSurfaceSequenceByKey.keys),
             focusedReadIndicatorByWorkspaceId: focusedReadIndicatorByTabId,
             manualUnreadWorkspaceIds: manualUnreadWorkspaceIds
         )
@@ -755,9 +759,13 @@ final class TerminalNotificationStore: ObservableObject {
         }
         let key = SidebarSurfaceUnreadKey(workspaceId: tabId, surfaceId: surfaceId)
         if isUnread {
-            manualUnreadSurfaceKeys.insert(key)
+            latestManualUnreadSurfaceSequence &+= 1
+            manualUnreadSurfaceSequenceByKey[key] = latestManualUnreadSurfaceSequence
         } else {
-            manualUnreadSurfaceKeys.remove(key)
+            manualUnreadSurfaceSequenceByKey.removeValue(forKey: key)
+            if manualUnreadSurfaceSequenceByKey.isEmpty {
+                latestManualUnreadSurfaceSequence = 0
+            }
         }
         return true
     }
@@ -784,7 +792,8 @@ final class TerminalNotificationStore: ObservableObject {
     private func clearSurfaceManualUnread() {
         guard !manualUnreadSurfaceIdsByOwnerId.isEmpty else { return }
         manualUnreadSurfaceIdsByOwnerId.removeAll()
-        manualUnreadSurfaceKeys.removeAll()
+        manualUnreadSurfaceSequenceByKey.removeAll()
+        latestManualUnreadSurfaceSequence = 0
         refreshUnreadPresentation()
     }
 
@@ -796,10 +805,13 @@ final class TerminalNotificationStore: ObservableObject {
             return false
         }
         for surfaceId in surfaceIds {
-            manualUnreadSurfaceKeys.remove(SidebarSurfaceUnreadKey(
+            manualUnreadSurfaceSequenceByKey.removeValue(forKey: SidebarSurfaceUnreadKey(
                 workspaceId: tabId,
                 surfaceId: surfaceId
             ))
+        }
+        if manualUnreadSurfaceSequenceByKey.isEmpty {
+            latestManualUnreadSurfaceSequence = 0
         }
         refreshUnreadPresentation()
         return true
