@@ -10260,6 +10260,51 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testTextBoxSelectedAttachmentCopyWritesEveryFileURL() throws {
+        let firstURL = try makeTemporaryPNGFile(named: "moon.png")
+        let secondURL = try makeTemporaryPNGFile(named: "sun.png")
+        let attachments = [firstURL, secondURL].map { fileURL in
+            TextBoxAttachment(
+                localURL: fileURL,
+                submissionText: TextBoxAttachment.submissionText(
+                    forLocalFileURL: fileURL
+                )
+            )
+        }
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 30)
+        )
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+
+        guard let copyEvent = makeKeyDownEvent(
+            key: "c",
+            modifiers: .command,
+            keyCode: UInt16(kVK_ANSI_C),
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct copy event")
+            return
+        }
+
+        try withPreservedGeneralPasteboard {
+            textView.insertAttachments(attachments)
+            textView.setSelectedRange(
+                NSRange(location: 0, length: textView.attributedString().length)
+            )
+
+            XCTAssertTrue(textView.performKeyEquivalent(with: copyEvent))
+            let copiedFileURLs = NSPasteboard.general.pasteboardItems?
+                .compactMap { $0.string(forType: .fileURL) }
+                .compactMap(URL.init(string:))
+                .map(\.standardizedFileURL.path)
+            XCTAssertEqual(
+                copiedFileURLs,
+                [firstURL.path, secondURL.path]
+            )
+        }
+    }
+
     func testTextBoxFocusedAttachmentCopyFollowsSelectionAfterSelectionChanges() throws {
         let originalURL = try makeTemporaryPNGFile(named: "moon.png")
         let originalAttachment = TextBoxAttachment(

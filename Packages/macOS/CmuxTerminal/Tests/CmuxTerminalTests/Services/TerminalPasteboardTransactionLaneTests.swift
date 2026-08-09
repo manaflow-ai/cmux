@@ -216,6 +216,28 @@ struct TerminalPasteboardTransactionLaneTests {
         )
     }
 
+    @Test("failed item reconstruction preserves the existing clipboard")
+    func failedItemReconstructionPreservesExistingClipboard() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        fixture.standard.clearContents()
+        fixture.standard.setString("user clipboard", forType: .string)
+        let lane = TerminalPasteboardTransactionLane(
+            pasteboard: fixture.standard
+        )
+
+        let result = lane.applyUnmanagedMutation(.init(
+            contents: [TerminalPasteboardItemSnapshot(representations: [])],
+            condition: nil,
+            capturesPreviousContents: false
+        ))
+
+        #expect(result.status == .writeFailed)
+        #expect(
+            fixture.standard.string(forType: .string) == "user clipboard"
+        )
+    }
+
     private func makeFixture(
         maximumQueuedOperations: Int = 8
     ) -> (

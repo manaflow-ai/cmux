@@ -382,6 +382,28 @@ struct TerminalClipboardInputSequencerTests {
         #expect(delivered == ["paste-cancelled", "buffered", "current"])
     }
 
+    @Test("overflow fails open when cancellation makes no progress")
+    func overflowWithoutCancellationProgressFailsOpen() {
+        let sequencer = TerminalClipboardInputSequencer<String, Int>(
+            maximumBufferedEvents: 1
+        )
+        var overflowCount = 0
+        var delivered: [String] = []
+        sequencer.beginRequest(
+            id: 1,
+            onOverflow: { overflowCount += 1 }
+        )
+
+        #expect(sequencer.shouldDefer("buffered"))
+        #expect(!sequencer.shouldDefer("current"))
+        #expect(overflowCount == 1)
+
+        sequencer.completeRequest(id: 1, confirmed: false) {
+            delivered.append($0)
+        }
+        #expect(delivered == ["buffered"])
+    }
+
     @Test("confirmation-phase overflow cannot drop the triggering input")
     func confirmationOverflowCancelsSequencingBeforeRoutingInput() {
         let sequencer = TerminalClipboardInputSequencer<String, Int>(

@@ -12,6 +12,17 @@ import Testing
 @Suite("Terminal image transfer concurrency")
 struct TerminalImageTransferConcurrencyTests {
     @MainActor
+    @Test("failure event streams finish when their probe is released")
+    func failureProbeFinishesOnRelease() async {
+        var probe: PastePreparationFailureProbe? = PastePreparationFailureProbe()
+        var events = probe?.events().makeAsyncIterator()
+
+        probe = nil
+
+        #expect(await events?.next() == nil)
+    }
+
+    @MainActor
     @Test("lazy pasteboard providers materialize through isolated preparation")
     func lazyPasteboardProviderMaterializes() async throws {
         let pasteboard = NSPasteboard(
