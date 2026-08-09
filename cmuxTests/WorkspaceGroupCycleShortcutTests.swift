@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Foundation
 import Testing
 
@@ -12,6 +13,22 @@ import Testing
 @MainActor
 @Suite("Workspace group cycle shortcuts", .serialized)
 struct WorkspaceGroupCycleShortcutTests {
+    @Test func actionsAreVisibleAndUnboundByDefault() throws {
+        let actions: [KeyboardShortcutSettings.Action] = [
+            .nextSidebarTabInGroup,
+            .prevSidebarTabInGroup,
+        ]
+
+        for action in actions {
+            let sharedAction = try #require(ShortcutAction(rawValue: action.rawValue))
+            #expect(KeyboardShortcutSettings.publicShortcutActions.contains(action))
+            #expect(KeyboardShortcutSettings.settingsVisibleActions.contains(action))
+            #expect(action.defaultShortcut == .unbound)
+            #expect(sharedAction.defaultShortcut == nil)
+            #expect(sharedAction.displayName == action.label)
+        }
+    }
+
     @Test func configuredActionsCycleMembersWithoutSelectingAnchor() throws {
         let appDelegate = try #require(AppDelegate.shared)
         let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
