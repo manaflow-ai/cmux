@@ -10,6 +10,19 @@ import Testing
 @testable import cmux
 #endif
 
+private final class PortalBindLayoutCountingView: NSView {
+    private(set) var layoutCount = 0
+
+    override func layout() {
+        layoutCount += 1
+        super.layout()
+    }
+
+    func resetLayoutCount() {
+        layoutCount = 0
+    }
+}
+
 @MainActor
 struct GhosttyTerminalViewVisibilityPolicyTests {
     @Test func staleRepresentableCannotOverwriteCurrentHostAttentionColor() {
@@ -227,6 +240,66 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         #expect(observedReasons?.contains(.bindingRequired) == true)
         #expect(observedReasons?.contains(.flushPendingManualSizeReport) == true)
         #expect(usedLatestReconciliation)
+    }
+
+    @Test func portalRegistryBindsDeferWindowLayoutUntilCoalescedPass() async {
+        let size = NSSize(width: 640, height: 360)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let container = PortalBindLayoutCountingView(frame: NSRect(origin: .zero, size: size))
+        window.contentView = container
+        let firstAnchor = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 360))
+        let secondAnchor = NSView(frame: NSRect(x: 320, y: 0, width: 320, height: 360))
+        container.addSubview(firstAnchor)
+        container.addSubview(secondAnchor)
+
+        let firstPanel = TerminalPanel(workspaceId: UUID())
+        let secondPanel = TerminalPanel(workspaceId: UUID())
+        defer {
+            TerminalWindowPortalRegistry.detach(hostedView: firstPanel.hostedView)
+            TerminalWindowPortalRegistry.detach(hostedView: secondPanel.hostedView)
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+            firstPanel.surface.teardownSurface()
+            secondPanel.surface.teardownSurface()
+        }
+
+        window.orderFront(nil)
+        window.displayIfNeeded()
+        container.resetLayoutCount()
+        container.needsLayout = true
+
+        TerminalWindowPortalRegistry.bind(
+            hostedView: firstPanel.hostedView,
+            to: firstAnchor,
+            visibleInUI: true,
+            expectedSurfaceId: firstPanel.surface.id,
+            expectedGeneration: firstPanel.surface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.bind(
+            hostedView: secondPanel.hostedView,
+            to: secondAnchor,
+            visibleInUI: true,
+            expectedSurfaceId: secondPanel.surface.id,
+            expectedGeneration: secondPanel.surface.portalBindingGeneration()
+        )
+
+        #expect(
+            container.layoutCount == 0,
+            "Per-pane portal binds must consume committed geometry without forcing window layout"
+        )
+
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
+        #expect(container.layoutCount > 0, "The coalesced window pass must still converge layout")
     }
 
     private func attentionStrokeHexes(in view: NSView) -> [String] {
