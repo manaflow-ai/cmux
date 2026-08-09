@@ -50,28 +50,36 @@ final class {name}: XCTestCase {{
 
 
 def check_bounded_process_batches() -> int:
-    """Process batches must be bounded, balanced, and cover every selector once."""
+    """Process batches must bound represented work and cover every selector once."""
     import json
 
     suite_names = (
         "HeavyTests",
+        "WideTests",
         "AlphaTests",
         "BetaTests",
         "GammaTests",
         "DeltaTests",
         "EpsilonTests",
         "ZetaTests",
+        "TerminalWindowPortalLifecycleTests",
+        "TerminalOffscreenStartupTests",
+        "BrowserWindowPortalLifecycleTests",
     )
+    test_counts = {name: 5 if name == "WideTests" else 2 for name in suite_names}
     with tempfile.TemporaryDirectory() as tmp:
         tmp_root = Path(tmp)
         test_root = tmp_root / "cmuxTests"
         test_root.mkdir()
         for name in suite_names:
+            methods = "\n".join(
+                f"    func testGenerated{index}() {{}}"
+                for index in range(1, test_counts[name] + 1)
+            )
             (test_root / f"{name}.swift").write_text(
                 f"""
 final class {name}: XCTestCase {{
-    func testOne() {{}}
-    func testTwo() {{}}
+{methods}
 }}
 """.lstrip(),
                 encoding="utf-8",
@@ -101,8 +109,10 @@ final class {name}: XCTestCase {{
             "1",
             "--shard-total",
             "1",
-            "--batch-size",
+            "--batch-selector-limit",
             "2",
+            "--batch-test-limit",
+            "6",
             "--batch-output-directory",
             str(output_directory),
             "--timings",
@@ -120,21 +130,62 @@ final class {name}: XCTestCase {{
             print(f"FAIL: batched shard helper exited {result.returncode}")
             return 1
 
-        invalid_size_command = [*batch_command]
-        invalid_size_command[invalid_size_command.index("--batch-size") + 1] = "0"
-        invalid_size = subprocess.run(
-            invalid_size_command,
+        invalid_selector_limit_command = [*batch_command]
+        invalid_selector_limit_command[
+            invalid_selector_limit_command.index("--batch-selector-limit") + 1
+        ] = "0"
+        invalid_selector_limit = subprocess.run(
+            invalid_selector_limit_command,
             text=True,
             capture_output=True,
             check=False,
         )
         if (
-            invalid_size.returncode == 0
-            or "--batch-size must be >= 1" not in invalid_size.stderr
+            invalid_selector_limit.returncode == 0
+            or "--batch-selector-limit must be >= 1"
+            not in invalid_selector_limit.stderr
         ):
-            print(invalid_size.stdout, end="")
-            print(invalid_size.stderr, end="", file=sys.stderr)
-            print("FAIL: zero batch size must be rejected")
+            print(invalid_selector_limit.stdout, end="")
+            print(invalid_selector_limit.stderr, end="", file=sys.stderr)
+            print("FAIL: zero selector limit must be rejected")
+            return 1
+
+        invalid_test_limit_command = [*batch_command]
+        invalid_test_limit_command[
+            invalid_test_limit_command.index("--batch-test-limit") + 1
+        ] = "0"
+        invalid_test_limit = subprocess.run(
+            invalid_test_limit_command,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if (
+            invalid_test_limit.returncode == 0
+            or "--batch-test-limit must be >= 1" not in invalid_test_limit.stderr
+        ):
+            print(invalid_test_limit.stdout, end="")
+            print(invalid_test_limit.stderr, end="", file=sys.stderr)
+            print("FAIL: zero represented-test limit must be rejected")
+            return 1
+
+        undersized_test_limit_command = [*batch_command]
+        undersized_test_limit_command[
+            undersized_test_limit_command.index("--batch-test-limit") + 1
+        ] = "1"
+        undersized_test_limit = subprocess.run(
+            undersized_test_limit_command,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if (
+            undersized_test_limit.returncode == 0
+            or "exceeding --batch-test-limit 1" not in undersized_test_limit.stderr
+        ):
+            print(undersized_test_limit.stdout, end="")
+            print(undersized_test_limit.stderr, end="", file=sys.stderr)
+            print("FAIL: a suite larger than the process test limit must be rejected")
             return 1
 
         batches = [
@@ -160,6 +211,17 @@ final class {name}: XCTestCase {{
         print(f"FAIL: process batches must contain 1...2 selectors, got {batches}")
         return 1
 
+    represented_tests = [
+        sum(test_counts[selector.rsplit("/", 1)[-1]] for selector in batch)
+        for batch in batches
+    ]
+    if any(count > 6 for count in represented_tests):
+        print(
+            "FAIL: process batches exceeded the represented-test limit: "
+            f"counts={represented_tests} batches={batches}"
+        )
+        return 1
+
     flattened = [selector for batch in batches for selector in batch]
     expected = {f"-only-testing:cmuxTests/{name}" for name in suite_names}
     if len(flattened) != len(set(flattened)) or set(flattened) != expected:
@@ -172,7 +234,19 @@ final class {name}: XCTestCase {{
         print(f"FAIL: timing-balanced batches should isolate the dominant suite: {heavy_batch}")
         return 1
 
-    print("PASS: process batches bound app-host lifetime without losing selectors")
+    isolated_suites = (
+        "TerminalWindowPortalLifecycleTests",
+        "TerminalOffscreenStartupTests",
+        "BrowserWindowPortalLifecycleTests",
+    )
+    for suite in isolated_suites:
+        selector = f"-only-testing:cmuxTests/{suite}"
+        batch = next(batch for batch in batches if selector in batch)
+        if batch != [selector]:
+            print(f"FAIL: resource-lifecycle suite must run in a fresh process: {batch}")
+            return 1
+
+    print("PASS: process batches bound app-host work without losing selectors")
     return 0
 
 
