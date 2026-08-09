@@ -5,6 +5,8 @@ import CmuxControlSocket
 import CmuxNotifications
 import CmuxTerminal
 import Foundation
+import Observation
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -205,6 +207,33 @@ struct DockRuntimeParityTests {
 
             let workspace = try #require(manager.tabs.first)
             try await body(appDelegate, manager, workspace, windowID)
+        }
+    }
+
+    @Test("Workspace panel unread invalidates only its keyed state")
+    func workspacePanelUnreadInvalidatesOnlyItsKeyedState() async throws {
+        try await withAppContext { _, _, workspace, _ in
+            let panelID = try #require(workspace.focusedPanelId)
+            let workspaceObserver = DockRuntimeParityUnreadObserver()
+            let workspaceObservation = workspace.objectWillChange.sink {
+                workspaceObserver.publicationCount += 1
+            }
+            let keyedInvalidationCount = OSAllocatedUnfairLock(initialState: 0)
+            withObservationTracking {
+                _ = workspace.manualUnreadPanelIds
+            } onChange: {
+                keyedInvalidationCount.withLock { $0 += 1 }
+            }
+            defer {
+                workspaceObservation.cancel()
+                workspace.clearManualUnread(panelId: panelID)
+            }
+
+            workspace.markPanelUnread(panelID)
+
+            #expect(workspace.manualUnreadPanelIds == [panelID])
+            #expect(keyedInvalidationCount.withLock { $0 } == 1)
+            #expect(workspaceObserver.publicationCount == 0)
         }
     }
 

@@ -193,6 +193,59 @@ struct SidebarUnreadSnapshotTests {
 
     @Test
     @MainActor
+    func sameOwnerSurfaceMutationDoesNotInvalidateGlobalSnapshot() {
+        let ownerID = UUID()
+        let firstSurfaceID = UUID()
+        let secondSurfaceID = UUID()
+        let model = SidebarUnreadModel()
+        model.applySurfaceUnreadProjection(
+            SidebarSurfaceUnreadKey(
+                workspaceId: ownerID,
+                surfaceId: firstSurfaceID
+            ),
+            isUnread: true,
+            totalUnreadCount: 1
+        )
+
+        final class Recorder {
+            var snapshots: [SidebarUnreadSnapshot] = []
+        }
+        let recorder = Recorder()
+        let observation = model.observeChanges(owner: recorder) { recorder, snapshot in
+            recorder.snapshots.append(snapshot)
+        }
+        defer { observation.cancel() }
+
+        let invalidationCount = OSAllocatedUnfairLock(initialState: 0)
+        withObservationTracking {
+            _ = model.snapshot
+        } onChange: {
+            invalidationCount.withLock { $0 += 1 }
+        }
+
+        model.applySurfaceUnreadProjection(
+            SidebarSurfaceUnreadKey(
+                workspaceId: ownerID,
+                surfaceId: secondSurfaceID
+            ),
+            isUnread: true,
+            totalUnreadCount: 1
+        )
+
+        #expect(invalidationCount.withLock { $0 } == 0)
+        #expect(recorder.snapshots.isEmpty)
+        #expect(model.hasUnreadNotification(
+            forWorkspaceId: ownerID,
+            surfaceId: firstSurfaceID
+        ))
+        #expect(model.hasUnreadNotification(
+            forWorkspaceId: ownerID,
+            surfaceId: secondSurfaceID
+        ))
+    }
+
+    @Test
+    @MainActor
     func reentrantPublicationsRemainOrderedForEveryObserver() {
         final class Recorder {
             var totals: [Int] = []
