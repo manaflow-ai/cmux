@@ -1831,7 +1831,9 @@ public struct TerminalPathResolver: Sendable {
             guard oracle.evaluateBoundary(upperRow: upperRow, lowerRow: lowerRow, columns: window.columns) == .full else {
                 return false
             }
-            return lowerRow.first == "/"
+            return lowerRow.leadingContinuationFragmentWithRange(
+                maxIndentation: Self.maxContinuationIndentation
+            )?.fragment.hasPrefix("/") == true
         }
 
         // final-spec §4.1: derive every row's canonical contribution from
@@ -1879,9 +1881,10 @@ public struct TerminalPathResolver: Sendable {
 
         // issue #8810 revised ruling — `.explicitTrailingSlashSeamBypass`
         // searches downward through the same max-four-row bound as the
-        // mirror-seam disposition. The length-three-plus license guard below
-        // keeps this expansion tied to the clicked piece's own legacy slash
-        // seam; the two-row path retains its existing behavior byte-for-byte.
+        // mirror-seam disposition. The boundary-local seam checks below
+        // keep the expansion tied to the clicked piece's own legacy slash
+        // seam while preserving the existing row-local and candidate-shape
+        // guards.
         let minStart: Int
         let maxEnd: Int
         switch seed.disposition {
@@ -2000,26 +2003,22 @@ public struct TerminalPathResolver: Sendable {
                 // generalized boundary-locally exactly like mirror seam
                 // above: a piece ending with `/` is itself strong-enough
                 // join evidence to bypass fragment-alone-exists at THAT
-                // boundary, provided the row immediately across it is
-                // unindented (`.startColumn == 0`). Bug A's 10 existing
-                // 2-row fixtures rely on this; without it here, their
-                // geometry-aware/legacy parity (final-spec §10) would
-                // break for exactly the fixtures that established it.
+                // boundary. The continuation piece is extracted through the
+                // bounded indentation gate, so the leading seam must use
+                // that same gate rather than collapsing the confirmed
+                // two-space capture to col-0.
                 let leadingBoundaryHasLegacySlashSeam = spanStart < spanEnd &&
-                    leadingPiece.text.hasSuffix("/") && pieces[1].startColumn == 0
+                    leadingPiece.text.hasSuffix("/") &&
+                    pieces[1].startColumn <= Self.maxContinuationIndentation
+
+                // This asymmetry is deliberate. On the trailing side, a
+                // col-0 continuation is the legacy slash exception; an
+                // indented final fragment must remain independently probed
+                // so a directory listing cannot be mistaken for a joined
+                // path. The trailing-side col-0 pin preserves that
+                // fragment-alone rejection behavior.
                 let trailingBoundaryHasLegacySlashSeam = spanEnd > spanStart &&
                     pieces[pieces.count - 2].text.hasSuffix("/") && trailingPiece.startColumn == 0
-
-                // The revised multi-row exception is licensed only when a
-                // three-or-more-row span begins with the clicked piece's
-                // legacy slash seam. Length two deliberately remains
-                // unchanged, including its existing indentation semantics.
-                if seed.disposition == .explicitTrailingSlashSeamBypass,
-                   length >= 3,
-                   !leadingBoundaryHasLegacySlashSeam {
-                    recordRejection(.rowLocalPriorityBypass)
-                    continue
-                }
 
                 // final-spec §4.2 — outer endpoint guard: leading piece
                 // must be path-prefix-shaped, unless a boundary bypass
