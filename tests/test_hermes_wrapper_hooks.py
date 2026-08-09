@@ -670,29 +670,35 @@ def test_tui_gateway_registers_hooks_for_every_turn(failures: list[str]) -> None
 
 
 def test_tui_gateway_rejects_retired_cmux_python_wrapper(failures: list[str]) -> None:
-    result = run_wrapper(
-        ["--tui"],
-        tui_gateway_turns=2,
-        stale_tui_python_wrapper=True,
-    )
     expected_events = [
         f"gateway:{event}:{turn}"
         for turn in (1, 2)
         for event in ("prompt-submit", "agent-response", "session-end")
     ]
+    cases = (
+        ("watcher available", {}),
+        ("watcher unavailable", {"cli_available": False}),
+    )
+    for label, kwargs in cases:
+        result = run_wrapper(
+            ["--tui"],
+            tui_gateway_turns=2,
+            stale_tui_python_wrapper=True,
+            **kwargs,
+        )
 
-    expect(
-        result.returncode == 0,
-        "TUI stale Python wrapper: retired cmux wrapper blocked gateway startup: "
-        f"{result.returncode}: {result.stderr}",
-        failures,
-    )
-    expect(
-        result.tui_gateway_events == expected_events,
-        "TUI stale Python wrapper: gateway did not fall back to Hermes's real interpreter: "
-        f"{result.tui_gateway_events}",
-        failures,
-    )
+        expect(
+            result.returncode == 0,
+            f"TUI stale Python wrapper ({label}): retired cmux wrapper blocked "
+            f"gateway startup: {result.returncode}: {result.stderr}",
+            failures,
+        )
+        expect(
+            result.tui_gateway_events == expected_events,
+            f"TUI stale Python wrapper ({label}): gateway did not fall back to "
+            f"Hermes's real interpreter: {result.tui_gateway_events}",
+            failures,
+        )
 
 
 def test_explicit_classic_cli_skips_tui_watcher(failures: list[str]) -> None:
