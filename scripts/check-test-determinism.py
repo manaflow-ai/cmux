@@ -3100,6 +3100,52 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/timeout_curl.sh",
+            "timeout 10 curl -fsSL https://api.openai.com/v1/items\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/timeout_option_curl.sh",
+            (
+                "timeout -k 2 --signal=TERM 10 "
+                "curl -fsSL https://api.openai.com/v1/items\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/sudo_curl.sh",
+            "sudo curl -fsSL https://api.openai.com/v1/items\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/nested_sudo_timeout_curl.sh",
+            (
+                "sudo -u root timeout --kill-after=2 10 "
+                "curl -fsSL https://api.openai.com/v1/items\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/sudo_assignment_curl.sh",
+            "sudo API_ENV=test curl https://api.openai.com/v1/items\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/nice_curl.sh",
+            "nice -n 5 curl https://api.openai.com/v1/items\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/time_curl.sh",
+            "time -f '%E' curl https://api.openai.com/v1/items\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/gtimeout_curl.sh",
+            "gtimeout --foreground 10 curl https://api.openai.com/v1/items\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/shell_long_options_network.sh",
             (
                 "bash --noprofile --norc --rcfile /tmp/empty "
@@ -3199,8 +3245,21 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/httpx_module_stream.py",
+            'httpx.stream("GET", "https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/httpx_client_get.py",
             'httpx.Client().get("https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/httpx_client_stream.py",
+            (
+                'httpx.Client().stream('
+                '"GET", "https://api.openai.com/v1/items")\n'
+            ),
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
@@ -3670,6 +3729,29 @@ def _self_test() -> int:
         (
             "tests/n18i_shell_argument.sh",
             "printf curl https://api.openai.com/v1/items\n",
+        ),
+        (
+            "tests/n18i_timeout_inert_curl.sh",
+            (
+                "timeout 10 printf '%s\\n' "
+                "'curl https://api.openai.com/v1/items'\n"
+            ),
+        ),
+        (
+            "tests/n18i_sudo_inert_curl.sh",
+            "sudo echo curl https://api.openai.com/v1/items\n",
+        ),
+        (
+            "tests/n18i_timeout_option_value.sh",
+            "timeout -s curl 10 echo https://api.openai.com/v1/items\n",
+        ),
+        (
+            "tests/n18i_sudo_option_value.sh",
+            "sudo -p curl echo https://api.openai.com/v1/items\n",
+        ),
+        (
+            "tests/n18i_time_option_value.sh",
+            "time -f curl echo https://api.openai.com/v1/items\n",
         ),
         # Redirections do not promote later argv data into command position.
         (
