@@ -2922,6 +2922,54 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/regex_quote_then_fetch.ts",
+            (
+                'const quoted = /"/;\n'
+                'await fetch("https://api.openai.com/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/regex_character_class_then_fetch.ts",
+            (
+                'const quoted = /["/]/;\n'
+                'await fetch("https://api.openai.com/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/regex_escape_then_fetch.ts",
+            (
+                'const escaped = /\\/"/;\n'
+                'await fetch("https://api.openai.com/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/template_regex_then_fetch.ts",
+            (
+                'const matched = `${/"/.test(value)}`;\n'
+                'await fetch("https://api.openai.com/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/return_regex_then_fetch.ts",
+            (
+                'function quoted() { return /"/; }\n'
+                'await fetch("https://api.openai.com/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/division_then_fetch.ts",
+            (
+                "const ratio = total / divisor;\n"
+                'await fetch("https://api.openai.com/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/fstring_network.py",
             'payload = f"{requests.get(\'https://api.openai.com/v1/items\')}"\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -3013,6 +3061,21 @@ def _self_test() -> int:
         (
             "tests/requests_request.py",
             'requests.request("GET", "https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/superagent_method_first.ts",
+            'superagent("GET", "https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/superagent_dynamic_method.ts",
+            'superagent(method, "https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/superagent_url_only.ts",
+            'superagent("https://api.openai.com/v1/items")\n',
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
