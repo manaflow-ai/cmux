@@ -247,7 +247,10 @@ final class PortalViewHierarchyMutationTracker: NSObject {
     ) {
         guard !isSorting(parentView: parentView) else { return }
         guard let parentState = currentNodeState(for: parentView) else {
-            if isCurrentRegisteredRoot(insertedView) {
+            // Crossing from an indexed cache root into an unindexed window
+            // branch breaks provenance for the entire moved subtree. Advancing
+            // the generation revokes every descendant proof in constant time.
+            if currentNodeState(for: insertedView) != nil {
                 markDirty()
             }
             return
@@ -300,7 +303,8 @@ final class PortalViewHierarchyMutationTracker: NSObject {
     ) {
         guard !isSorting(parentView: parentView) else { return }
         guard currentNodeState(for: parentView) != nil else {
-            if isCurrentRegisteredRoot(oldView) || isCurrentRegisteredRoot(newView) {
+            if isCurrentRegisteredRoot(oldView)
+                || currentNodeState(for: newView) != nil {
                 markDirty()
             }
             return
@@ -322,8 +326,11 @@ final class PortalViewHierarchyMutationTracker: NSObject {
               hasActiveCaches,
               !Self.haveSameIdentityOrder(oldSubviews, newSubviews) else { return }
         guard let parentState = currentNodeState(for: parentView) else {
-            if oldSubviews.contains(where: isCurrentRegisteredRoot)
-                || newSubviews.contains(where: isCurrentRegisteredRoot) {
+            let touchesRegisteredRoot = oldSubviews.contains(where: isCurrentRegisteredRoot)
+            let movesIndexedProofOutsideRoot = newSubviews.contains {
+                currentNodeState(for: $0) != nil
+            }
+            if touchesRegisteredRoot || movesIndexedProofOutsideRoot {
                 markDirty()
             }
             return
