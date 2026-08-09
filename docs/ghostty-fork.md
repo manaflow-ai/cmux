@@ -174,6 +174,10 @@ The final font integration landed in merge commits `23003282d` and
   - Preserve the single-message boundary when paste encoding or termio write
     ownership changes. Splitting the three segments back into independent
     mailbox messages reintroduces the ordering race.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f27772d1096386e41145d0f9e4149dca30de1b01-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `28217169337f3b68a2368ce966b190fcc633545b179b8a68356527d4173c8343`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Initial cmux theme-picker render
 
