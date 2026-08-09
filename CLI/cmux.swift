@@ -25079,14 +25079,25 @@ struct CMUXCLI {
                 telemetry: telemetry
             )
             let shouldPromoteActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
+            var sessionRecordWorkspaceId = workspaceId
+            var sessionRecordSurfaceId = surfaceId
+            if isCompactSessionStart,
+               !resolvedSurface.isAuthoritative,
+               let compactSession {
+                // A focused-surface fallback is only a delivery guess. Keep the
+                // compacted session's recorded identity so a later authoritative
+                // Stop can reconcile the title on the pane that owns it.
+                sessionRecordWorkspaceId = compactSession.workspaceId
+                sessionRecordSurfaceId = compactSession.surfaceId
+            }
             if let sessionId = parsedInput.sessionId, !isForkSessionLaunch {
                 // Non-clear SessionStart can arrive late from startup/resume/compact
                 // after /clear, so only /clear or replacement of a stopped owner
                 // establishes a new active boundary.
                 _ = try? sessionStore.upsert(
                     sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
+                    workspaceId: sessionRecordWorkspaceId,
+                    surfaceId: sessionRecordSurfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
                     pid: claudePid,
@@ -25111,18 +25122,15 @@ struct CMUXCLI {
                 }
             }
             if isCompactSessionStart, !isForkSessionLaunch {
-                if resolvedSurface.isAuthoritative {
-                    runClaudeCompactAutoNameHook(
-                        parsedInput: parsedInput,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        sessionStore: sessionStore,
-                        client: client,
-                        telemetry: telemetry
-                    )
-                } else {
-                    telemetry.breadcrumb("claude-hook.auto-name.compact.non-authoritative-target")
-                }
+                runClaudeCompactAutoNameHook(
+                    parsedInput: parsedInput,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    targetIsAuthoritative: resolvedSurface.isAuthoritative,
+                    sessionStore: sessionStore,
+                    client: client,
+                    telemetry: telemetry
+                )
             }
             // Register PID for stale-session detection and OSC suppression.
             // Startup/resume SessionStart remains non-visible; /clear is a

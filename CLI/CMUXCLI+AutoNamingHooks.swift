@@ -95,14 +95,16 @@ extension CMUXCLI {
         }
     }
 
-    /// Handles Claude's explicit compact lifecycle event. The immediate replay
-    /// is best-effort because matching SessionStart hooks have no guaranteed
-    /// ordering; the durable obligation remains for the next Stop even after a
-    /// successful apply.
+    /// Handles Claude's explicit compact lifecycle event. The durable obligation
+    /// is recorded even when delivery only found a focused-surface fallback; only
+    /// the immediate replay requires an authoritative target. Matching
+    /// SessionStart hooks have no guaranteed ordering, so the obligation remains
+    /// for the next Stop even after a successful apply.
     func runClaudeCompactAutoNameHook(
         parsedInput: ClaudeHookParsedInput,
         workspaceId: String,
         surfaceId: String,
+        targetIsAuthoritative: Bool,
         sessionStore: ClaudeHookSessionStore,
         client: SocketClient,
         telemetry: CLISocketSentryTelemetry
@@ -115,11 +117,13 @@ extension CMUXCLI {
             telemetry.breadcrumb("claude-hook.auto-name.compact.nested-suppressed")
             return
         }
+        let ownershipWorkspaceId = mappedSession?.workspaceId ?? workspaceId
+        let ownershipSurfaceId = mappedSession?.surfaceId ?? (targetIsAuthoritative ? surfaceId : nil)
         guard shouldApplyClaudeHookVisibleMutation(
             sessionStore: sessionStore,
             parsedInput: parsedInput,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
+            workspaceId: ownershipWorkspaceId,
+            surfaceId: ownershipSurfaceId,
             telemetry: telemetry
         ) else {
             telemetry.breadcrumb("claude-hook.auto-name.compact.stale")
@@ -127,6 +131,10 @@ extension CMUXCLI {
         }
         guard (try? sessionStore.markAutoNamingTitleReconciliationPending(sessionId: sessionId)) != nil else {
             telemetry.breadcrumb("claude-hook.auto-name.compact.no-title")
+            return
+        }
+        guard targetIsAuthoritative else {
+            telemetry.breadcrumb("claude-hook.auto-name.compact.non-authoritative-target")
             return
         }
         guard let probe = try? client.sendV2(
