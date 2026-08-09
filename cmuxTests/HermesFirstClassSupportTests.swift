@@ -367,6 +367,49 @@ struct HermesFirstClassSupportTests {
         #expect(CachedAgentProcessIdentityValidator().currentProcess(liveProcess, matches: snapshot))
     }
 
+    @Test("An unrelated Python argument named Hermes is not detected as the agent entrypoint")
+    func unrelatedPythonHermesArgumentIsNotDetected() throws {
+        let fixture = try makeFixture { [StateRow("unrelated-session", cwd: $0.path)] }
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let pythonExecutable = fixture.root
+            .appendingPathComponent("venv/bin/python", isDirectory: false).path
+        let unrelatedEntrypoint = fixture.root
+            .appendingPathComponent("tools/report.py", isDirectory: false).path
+        let unrelatedHermesArgument = fixture.root
+            .appendingPathComponent("fixtures/hermes", isDirectory: false).path
+        let process = hermesProcess(
+            pid: 9_535,
+            workspaceID: fixture.workspaceID,
+            panelID: fixture.panelID,
+            name: "Python",
+            path: pythonExecutable
+        )
+        let liveProcess = CmuxTopProcessArguments(
+            arguments: [
+                pythonExecutable,
+                unrelatedEntrypoint,
+                "--fixture", unrelatedHermesArgument,
+                "--resume", "unrelated-session",
+            ],
+            environment: hermesEnvironment(fixture)
+        )
+        let observed = VaultObservedAgentProcess(
+            processName: process.name,
+            processPath: process.path,
+            arguments: liveProcess.arguments,
+            environment: liveProcess.environment
+        )
+        let registration = CmuxVaultAgentRegistration.builtInHermes
+
+        #expect(registration.detect.matches(observed) == false)
+        let detected = try detectedHermesSnapshots(
+            fixture: fixture,
+            processes: [process],
+            argumentsByPID: [process.pid: liveProcess]
+        )
+        #expect(detected.isEmpty)
+    }
+
     @Test(
         "Python-backed Hermes management commands are detected but never restored",
         arguments: ["gateway", "doctor", "update"]
