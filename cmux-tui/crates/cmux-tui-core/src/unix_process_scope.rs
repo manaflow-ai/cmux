@@ -89,6 +89,8 @@ impl UnixProcessScope {
             if Instant::now() >= deadline {
                 break;
             }
+            // macOS has no completion signal for this cross-process marker scan.
+            // Keep the probe bounded by the final deadline above.
             std::thread::sleep(Duration::from_millis(2));
         }
     }
