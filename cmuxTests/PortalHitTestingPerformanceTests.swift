@@ -651,23 +651,31 @@ struct PortalHitTestingPerformanceTests {
 
     @Test
     func arrangedSubviewMutationsInvalidateHierarchyRegistration() throws {
-        try expectArrangedSubviewMutationInvalidates { splitView, panes in
-            splitView.addArrangedSubview(panes[0])
-        }
         try expectArrangedSubviewMutationInvalidates(
             prepare: { splitView, panes in
-                splitView.addArrangedSubview(panes[0])
+                splitView.removeArrangedSubview(panes[0])
             },
             mutation: { splitView, panes in
-                splitView.removeArrangedSubview(panes[0])
+                splitView.addArrangedSubview(panes[0])
             }
         )
         try expectArrangedSubviewMutationInvalidates { splitView, panes in
-            splitView.insertArrangedSubview(panes[0], at: 0)
+            splitView.removeArrangedSubview(panes[0])
         }
-        try expectArrangedSubviewMutationInvalidates { splitView, _ in
-            splitView.arrangesAllSubviews = true
+        try expectArrangedSubviewMutationInvalidates { splitView, panes in
+            splitView.insertArrangedSubview(panes[1], at: 0)
         }
+        try expectArrangedSubviewMutationInvalidates(
+            prepare: { splitView, panes in
+                splitView.arrangesAllSubviews = false
+                for pane in panes {
+                    splitView.removeArrangedSubview(pane)
+                }
+            },
+            mutation: { splitView, _ in
+                splitView.arrangesAllSubviews = true
+            }
+        )
     }
 
     private func expectArrangedSubviewMutationInvalidates(
@@ -684,7 +692,7 @@ struct PortalHitTestingPerformanceTests {
 
         let rootView = try #require(window.contentView)
         let splitView = NSSplitView(frame: rootView.bounds)
-        splitView.arrangesAllSubviews = false
+        splitView.arrangesAllSubviews = true
         let panes = [
             NSView(frame: NSRect(x: 0, y: 0, width: 200, height: rootView.bounds.height)),
             NSView(frame: NSRect(x: 201, y: 0, width: 119, height: rootView.bounds.height)),
