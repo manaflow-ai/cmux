@@ -725,7 +725,10 @@ extension FeedCoordinator {
                 ?? .owner(kind: ownerKind, id: owner.id),
             statusKey: statusKey
         )
-        let attentionState = pendingAttentionStates[target] ?? AttentionOverlayState(owner: owner)
+        let attentionState = pendingAttentionStates[target] ?? AttentionOverlayState(
+            owner: owner,
+            previousLifecycle: owner.agentLifecycle(key: statusKey, panelId: panelId)
+        )
         attentionState.fallbackOwner = owner
         attentionState.count += 1
         pendingAttentionStates[target] = attentionState
@@ -755,8 +758,8 @@ extension FeedCoordinator {
 
     /// Concludes a blocking decision's attention overlay. Decrements the
     /// per-target refcount and, when it reaches zero, clears the needs-input
-    /// overlay — but only the parts the feed still owns: the lifecycle is set
-    /// to `.running` only if it's still `.needsInput`, and the status entry is
+    /// overlay — but only the parts the feed still owns: the lifecycle is
+    /// restored only if it's still `.needsInput`, and the status entry is
     /// removed only if it still holds our "Needs input" value. Anything an
     /// agent hook replaced in the meantime is left untouched, so a real
     /// running/idle/needs-input update from the agent always wins.
@@ -774,7 +777,15 @@ extension FeedCoordinator {
         // safe even if another panel still needs input.
         if let panelId = target.panelId,
            owner.agentLifecycle(key: target.statusKey, panelId: panelId) == .needsInput {
-            owner.setAgentLifecycle(key: target.statusKey, panelId: panelId, lifecycle: .running)
+            if let previousLifecycle = attentionState.previousLifecycle {
+                owner.setAgentLifecycle(
+                    key: target.statusKey,
+                    panelId: panelId,
+                    lifecycle: previousLifecycle
+                )
+            } else {
+                owner.clearAgentLifecycle(key: target.statusKey, panelId: panelId)
+            }
         }
 
         // Workspace status is shared across panels (keyed only by statusKey),
@@ -908,10 +919,15 @@ extension FeedCoordinator {
 private final class AttentionOverlayState {
     var count: Int
     var fallbackOwner: ControlSidebarPanelOwner
+    let previousLifecycle: AgentHibernationLifecycleState?
 
-    init(owner: ControlSidebarPanelOwner) {
+    init(
+        owner: ControlSidebarPanelOwner,
+        previousLifecycle: AgentHibernationLifecycleState?
+    ) {
         self.count = 0
         self.fallbackOwner = owner
+        self.previousLifecycle = previousLifecycle
     }
 }
 

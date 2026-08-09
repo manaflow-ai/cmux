@@ -231,6 +231,15 @@ extension DockSplitStore {
     }
 
     @discardableResult
+    func clearAgentLifecycle(key: String, panelId: UUID) -> Bool {
+        var didClear = false
+        mutateAgentRuntime(panelId: panelId) {
+            didClear = $0.agentLifecycleStates.removeValue(forKey: key) != nil
+        }
+        return didClear
+    }
+
+    @discardableResult
     func clearAgentPID(
         key: String,
         panelId: UUID,

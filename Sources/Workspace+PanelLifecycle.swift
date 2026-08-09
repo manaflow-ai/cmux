@@ -90,7 +90,7 @@ extension Workspace {
                 statusEntriesForPanel[statusKey] = statusEntry
             }
         }
-        for statusKey in lifecycleStates.keys {
+        for (statusKey, lifecycle) in lifecycleStates where lifecycle == .needsInput {
             if let statusEntry = statusEntries[statusKey] {
                 statusEntriesForPanel[statusKey] = statusEntry
             }
@@ -128,7 +128,9 @@ extension Workspace {
         for key in agentPIDPanelIdsByKey.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
             return true
         }
-        if agentLifecycleStatesByPanelId.values.contains(where: { $0[statusKey] != nil }) {
+        if agentLifecycleStatesByPanelId.values.contains(where: {
+            $0[statusKey] == .needsInput
+        }) {
             return true
         }
         return false
