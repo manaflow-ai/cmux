@@ -32,6 +32,16 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   case "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" in
     leak) config_home=/Users/runner ;;
     sibling-leak) config_home="${TEST_RUNNER_HOME}-other" ;;
+    published-default-alias) config_home="$CMUX_APP_HOST_HOME" ;;
+    published-config-alias)
+      config_category=config
+      config_home="$CMUX_APP_HOST_HOME"
+      ;;
+    published-default-sibling-leak) config_home="${CMUX_APP_HOST_HOME}-other" ;;
+    published-config-sibling-leak)
+      config_category=config
+      config_home="${CMUX_APP_HOST_HOME}-other"
+      ;;
     xdg-config-leak)
       config_category=config
       config_home=/Users/runner
@@ -62,7 +72,11 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-config-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-default-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "unrelated-config-token" ] \
-    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "no-config-evidence" ]; then
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "no-config-evidence" ] \
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "published-default-alias" ] \
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "published-config-alias" ] \
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "published-default-sibling-leak" ] \
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "published-config-sibling-leak" ]; then
     echo 'cmux DEV message = "socket.listener.start"'
     exit 0
   fi
@@ -296,6 +310,33 @@ if [ "$isolated_runner_count" -ne "$invocation_count" ]; then
   exit 1
 fi
 
+for published_alias_evidence in published-default-alias published-config-alias; do
+  set +e
+  PATH="$TMP_DIR:$PATH" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+  CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/$published_alias_evidence-xcodebuild-args.log" \
+  CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/$published_alias_evidence-test-runner-env.log" \
+  CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/$published_alias_evidence-parent-env.log" \
+  CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/$published_alias_evidence-runner-home-env.log" \
+  CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+  CMUX_MOCK_XCODEBUILD_MODE="$published_alias_evidence" \
+  CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+  CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+  CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+  CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
+  CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+    bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+      >"$TMP_DIR/$published_alias_evidence-output.log" 2>&1
+  published_alias_evidence_status=$?
+  set -e
+
+  if [ "$published_alias_evidence_status" -ne 0 ]; then
+    cat "$TMP_DIR/$published_alias_evidence-output.log"
+    echo "FAIL: wrapper must accept $published_alias_evidence"
+    exit 1
+  fi
+done
+
 for evidence_regression in no-config-evidence unrelated-config-token; do
   set +e
   PATH="$TMP_DIR:$PATH" \
@@ -411,9 +452,13 @@ for xdg_leak in xdg-config-leak xdg-default-leak; do
   fi
 done
 
-for regression in sibling-leak missing-log; do
+for regression in \
+  sibling-leak \
+  published-default-sibling-leak \
+  published-config-sibling-leak \
+  missing-log; do
   case "$regression" in
-    sibling-leak)
+    *sibling-leak)
       expected_failure="FAIL: Ghostty accessed configuration outside the isolated app-host home"
       ;;
     missing-log)
