@@ -120,6 +120,9 @@ struct HermesFirstClassSupportTests {
         let terminal = try #require(repaired.terminal)
         #expect(terminal.agent?.sessionId == recoveredSessionID)
         #expect(terminal.resumeBinding?.checkpointId == recoveredSessionID)
+        #expect(terminal.resumeBinding?.autoResume == true)
+        #expect(terminal.managedAgentResumeBinding?.checkpointId == recoveredSessionID)
+        #expect(terminal.managedAgentResumeBinding?.autoResume == true)
         #expect(terminal.resumeBinding?.command.contains(recoveredSessionID) == true)
         #expect(terminal.resumeBinding?.command.contains(corruptSessionID) == false)
         #expect(terminal.wasAgentRunning == true)
@@ -148,6 +151,130 @@ struct HermesFirstClassSupportTests {
         #expect(missingTerminal.resumeBinding == nil)
         #expect(missingTerminal.managedAgentResumeBinding == nil)
         #expect(missingTerminal.wasAgentRunning == false)
+    }
+
+    @Test("Automatic restore re-arms a durable Hermes checkpoint retired by a legacy launch failure")
+    func automaticRestoreRearmsDurableHermesCheckpointAfterLegacyFailure() throws {
+        let durableSessionID = "20260807_192611_076701"
+        let fixture = try makeFixture {
+            [StateRow(durableSessionID, cwd: $0.path, source: "tui")]
+        }
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let transientSessionID = fixture.panelID.uuidString
+        let processID = Int(Int32.max) - 9_530
+        let processIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(processID),
+            startSeconds: 700,
+            startMicroseconds: 800
+        )
+        try writeHermesHookStore(
+            fixture: fixture,
+            sessions: [
+                (sessionID: durableSessionID, updatedAt: 101),
+                (sessionID: transientSessionID, updatedAt: 102),
+            ],
+            processID: processID,
+            identity: processIdentity,
+            executablePath: fixture.hermesExecutable,
+            arguments: [fixture.hermesExecutable, "--tui"],
+            runtimeStatus: "running",
+            agentLifecycle: "running"
+        )
+
+        let workingDirectory = fixture.repo.path
+        let launchCommand = AgentLaunchCommandSnapshot(
+            launcher: "hermes-agent",
+            executablePath: fixture.hermesExecutable,
+            arguments: [fixture.hermesExecutable, "--tui"],
+            workingDirectory: workingDirectory,
+            environment: [
+                "HERMES_HOME": fixture.hermesHome.path,
+                "CMUX_AGENT_HOOK_STATE_DIR": fixture.root
+                    .appendingPathComponent(".cmuxterm", isDirectory: true).path,
+            ],
+            capturedAt: 100,
+            source: "environment"
+        )
+        let retiredBinding = SurfaceResumeBindingSnapshot(
+            name: "Hermes Agent",
+            kind: RestorableAgentKind.hermesAgent.rawValue,
+            command: "'\(fixture.hermesExecutable)' '--tui' '--resume' '\(durableSessionID)'",
+            cwd: workingDirectory,
+            checkpointId: durableSessionID,
+            source: "agent-hook",
+            launchCommand: launchCommand,
+            autoResume: false,
+            approvalPolicy: .auto
+        )
+        let retiredPanel = SessionPanelSnapshot(
+            id: fixture.panelID,
+            type: .terminal,
+            title: "Hermes",
+            customTitle: nil,
+            directory: workingDirectory,
+            isPinned: false,
+            isManuallyUnread: false,
+            gitBranch: nil,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: SessionTerminalPanelSnapshot(
+                workingDirectory: workingDirectory,
+                agent: nil,
+                resumeBinding: retiredBinding,
+                managedAgentResumeBinding: nil,
+                wasAgentRunning: false
+            ),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil,
+            project: nil
+        )
+
+        let repaired = Workspace.repairedLegacyHermesSessionPanelSnapshot(
+            retiredPanel,
+            workspaceId: fixture.workspaceID
+        )
+        let terminal = try #require(repaired.terminal)
+        let agent = try #require(terminal.agent)
+        let resumeBinding = try #require(terminal.resumeBinding)
+        let managedBinding = try #require(terminal.managedAgentResumeBinding)
+
+        #expect(agent.kind == .hermesAgent)
+        #expect(agent.sessionId == durableSessionID)
+        #expect(resumeBinding.checkpointId == durableSessionID)
+        #expect(resumeBinding.autoResume == true)
+        #expect(managedBinding.checkpointId == durableSessionID)
+        #expect(managedBinding.autoResume == true)
+        #expect(terminal.wasAgentRunning == true)
+        #expect(
+            agent.resumeStartupInput()
+                == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore hermes-agent \(durableSessionID)\n"
+        )
+
+        try writeHermesHookStore(
+            fixture: fixture,
+            sessions: [
+                (sessionID: durableSessionID, updatedAt: 103),
+                (sessionID: transientSessionID, updatedAt: 104),
+            ],
+            processID: processID,
+            identity: processIdentity,
+            executablePath: fixture.hermesExecutable,
+            arguments: [fixture.hermesExecutable, "--tui"],
+            runtimeStatus: "idle",
+            agentLifecycle: "idle"
+        )
+
+        let completed = Workspace.repairedLegacyHermesSessionPanelSnapshot(
+            retiredPanel,
+            workspaceId: fixture.workspaceID
+        )
+        let completedTerminal = try #require(completed.terminal)
+        #expect(completedTerminal.agent == nil)
+        #expect(completedTerminal.resumeBinding?.autoResume == false)
+        #expect(completedTerminal.managedAgentResumeBinding == nil)
+        #expect(completedTerminal.wasAgentRunning == false)
     }
 
     @Test("A bare Hermes process does not claim an uncorrelated active state.db session")
@@ -1133,13 +1260,15 @@ struct HermesFirstClassSupportTests {
         processID: Int,
         identity: AgentPIDProcessIdentity,
         executablePath: String,
-        arguments: [String]
+        arguments: [String],
+        runtimeStatus: String? = nil,
+        agentLifecycle: String? = nil
     ) throws {
         let stateDirectory = fixture.root.appendingPathComponent(".cmuxterm", isDirectory: true)
         try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
         var sessionObjects: [String: Any] = [:]
         for session in sessions {
-            sessionObjects[session.sessionID] = [
+            var record: [String: Any] = [
                 "sessionId": session.sessionID,
                 "workspaceId": fixture.workspaceID.uuidString,
                 "surfaceId": fixture.panelID.uuidString,
@@ -1160,6 +1289,13 @@ struct HermesFirstClassSupportTests {
                     "source": "environment",
                 ],
             ]
+            if let runtimeStatus {
+                record["runtimeStatus"] = runtimeStatus
+            }
+            if let agentLifecycle {
+                record["agentLifecycle"] = agentLifecycle
+            }
+            sessionObjects[session.sessionID] = record
         }
         let data = try JSONSerialization.data(
             withJSONObject: [
