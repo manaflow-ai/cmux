@@ -602,9 +602,94 @@ struct RemoteResumeBindingTests {
     }
 
     @Test
+    func surfaceRestoreRecordExactNilCwdDoesNotUseCapturedFallbacks() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        let windowID = UUID()
+        let window = makeMainWindow(id: windowID)
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowID)
+            AppDelegate.shared = previousAppDelegate
+            for workspace in manager.tabs {
+                workspace.teardownAllPanels()
+            }
+            window.orderOut(nil)
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let surfaceID = try #require(workspace.focusedPanelId)
+        let sessionID = UUID().uuidString.lowercased()
+        let capturedDirectory = "/Users/alice/captured-local-project"
+        let restoredFallbackDirectory = "/Users/alice/restored-local-project"
+        #expect(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: "codex",
+                command: "codex resume \(sessionID)",
+                cwd: capturedDirectory,
+                checkpointId: sessionID,
+                source: "agent-hook",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "codex",
+                    executablePath: "/usr/local/bin/codex",
+                    arguments: ["/usr/local/bin/codex", "resume", sessionID],
+                    workingDirectory: capturedDirectory
+                ),
+                restoreWorkingDirectorySelection: .exact(nil),
+                autoResume: true
+            ),
+            panelId: surfaceID
+        ))
+        workspace.restoredResumeSessionWorkingDirectoriesByPanelId[surfaceID] =
+            restoredFallbackDirectory
+
+        let result = try v2Result(request: [
+            "id": "exact-nil-cwd-resume-get",
+            "method": "surface.resume.get",
+            "params": [
+                "window_id": windowID.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceID.uuidString,
+            ],
+        ])
+        let restoreRecord = try #require(result["restore_record"] as? [String: Any])
+        #expect(restoreRecord["working_directory"] as? String == nil)
+        let launchCommand = try #require(restoreRecord["launch_command"] as? [String: Any])
+        #expect(launchCommand["working_directory"] as? String == nil)
+    }
+
+    @Test
     func legacyPersistentAgentHookBindingWithoutCwdPolicyReattachesWithoutReplayingStartupInput() throws {
         let fixture = try makeRelayedFixture()
-        let legacySnapshot = try snapshotWithoutRestoreWorkingDirectorySelection(fixture.snapshot)
+        var legacySnapshot = try snapshotWithoutRestoreWorkingDirectorySelection(fixture.snapshot)
+        let legacyPanelIndex = try #require(
+            legacySnapshot.panels.firstIndex { $0.id == fixture.surfaceID }
+        )
+        var legacyTerminal = try #require(legacySnapshot.panels[legacyPanelIndex].terminal)
+        legacyTerminal.agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "session-remote-7989",
+            workingDirectory: "/Users/alice/legacy-captured-project",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex", "resume", "session-remote-7989"],
+                workingDirectory: "/Users/alice/legacy-captured-project"
+            )
+        )
+        legacyTerminal.wasAgentRunning = true
+        legacySnapshot.panels[legacyPanelIndex].terminal = legacyTerminal
         let suiteName = "cmux-legacy-remote-resume-cwd-policy-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
