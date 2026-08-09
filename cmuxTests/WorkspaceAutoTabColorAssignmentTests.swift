@@ -581,6 +581,59 @@ import Testing
         #expect(afterClearing[newWorkspace.uuidString] == newWorkspaceColor)
     }
 
+    /// The reservation has to survive a saturated palette too, which is the
+    /// case the override test above cannot reach: its manual color sits outside
+    /// the palette, so a never-used color is always available and the reserved
+    /// one is never a candidate.
+    ///
+    /// Once every color has a holder, the reserved color sits at the same use
+    /// count as the rest, so palette order alone handed it to the new
+    /// workspace. Clearing the manual color then left two live workspaces
+    /// sharing one rail permanently — assignments are never rewritten once
+    /// made — even though a free color was available for them.
+    @Test
+    func manualOverrideKeepsItsReservationWhenEveryColorHasAHolder() throws {
+        let defaults = Self.suite()
+        let overridden = UUID()
+        let otherManual = UUID()
+        let newWorkspace = UUID()
+
+        Self.assign(count: 1, defaults: defaults, ids: [overridden])
+        let reservedColor = try #require(
+            WorkspaceAutoColorAssignmentStore.assignedColorHex(for: overridden, defaults: defaults)
+        )
+        // Every remaining palette color goes to a manual override, so all of
+        // them — including the reserved one — are spoken for exactly once.
+        let manualColors = Self.palette.map(\.hex).filter {
+            WorkspaceAutoTabColorAssignment.normalized($0)
+                != WorkspaceAutoTabColorAssignment.normalized(reservedColor)
+        }
+        let overriddenManualColor = try #require(manualColors.first)
+
+        let whileOverridden = WorkspaceAutoColorAssignmentStore.reconcile(
+            needingAssignment: [newWorkspace],
+            liveIds: [overridden, otherManual, newWorkspace],
+            manualColorHexes: manualColors,
+            palette: Self.palette,
+            defaults: defaults
+        )
+
+        #expect(whileOverridden[newWorkspace.uuidString] != reservedColor)
+
+        // Only the reserved workspace reverts; the other manual color stays, so
+        // the two auto workspaces still have distinct colors available.
+        let afterClearing = WorkspaceAutoColorAssignmentStore.reconcile(
+            needingAssignment: [overridden, newWorkspace],
+            liveIds: [overridden, otherManual, newWorkspace],
+            manualColorHexes: manualColors.filter { $0 != overriddenManualColor },
+            palette: Self.palette,
+            defaults: defaults
+        )
+
+        #expect(afterClearing[overridden.uuidString] == reservedColor)
+        #expect(afterClearing[overridden.uuidString] != afterClearing[newWorkspace.uuidString])
+    }
+
     /// The failure this guards against: a reconcile that ran mid-restore, when
     /// no workspaces were loaded yet, used to wipe the table and hand every
     /// workspace a different color on the next pass.
