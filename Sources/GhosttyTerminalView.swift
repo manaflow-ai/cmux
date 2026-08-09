@@ -381,6 +381,76 @@ class GhosttyApp {
     /// `TerminalSurfaceRuntimeTeardownCoordinator.shared` actor singleton).
     static let terminalSurfaceRuntimeTeardown = TerminalSurfaceRuntimeTeardownCoordinator()
 
+    /// cmux fork: (B) ExternalHover — the process-wide hover-candidate
+    /// resolution/cache actor. One instance, injected the same way as
+    /// `terminalSurfaceRuntimeTeardown` above (which it also owns a
+    /// reference to, for its just-in-time lease acquisition). The three
+    /// closures are the ONLY place this file calls the raw
+    /// `ghostty_surface_{read_text_physical_rows,set_external_link_hover,
+    /// clear_external_link_hover}` C functions for (B) — everywhere else
+    /// goes through the actor.
+    static let externalHoverWorkService = ExternalHoverWorkService(
+        teardownCoordinator: GhosttyApp.terminalSurfaceRuntimeTeardown,
+        readPhysicalRows: { lease, topRow, rowCount in
+            var metrics = ghostty_surface_grid_metrics_s()
+            guard ghostty_surface_grid_metrics(lease.surface, &metrics),
+                  metrics.columns > 0 else { return nil }
+            let columns = UInt32(metrics.columns)
+            let topLeft = ghostty_point_s(
+                tag: GHOSTTY_POINT_VIEWPORT,
+                coord: GHOSTTY_POINT_COORD_EXACT,
+                x: 0,
+                y: topRow
+            )
+            let bottomRight = ghostty_point_s(
+                tag: GHOSTTY_POINT_VIEWPORT,
+                coord: GHOSTTY_POINT_COORD_EXACT,
+                x: columns - 1,
+                y: topRow + rowCount - 1
+            )
+            let selection = ghostty_selection_s(top_left: topLeft, bottom_right: bottomRight, rectangle: false)
+            var text = ghostty_text_s()
+            guard ghostty_surface_read_text_physical_rows(lease.surface, selection, &text) else { return nil }
+            defer { ghostty_surface_free_text(lease.surface, &text) }
+            guard let ptr = text.text, text.text_len > 0 else { return "" }
+            return String(decoding: Data(bytes: ptr, count: Int(text.text_len)), as: UTF8.self)
+        },
+        callSetter: { lease, topRow, rowCount, text, ranges in
+            let cRanges = ranges.map {
+                ghostty_external_hover_cell_range_s(row: $0.row, start_column: $0.startColumn, end_column: $0.endColumn)
+            }
+            let byteCount = text.utf8.count
+            var outTokenBits = [UInt64](repeating: 0, count: 4)
+            let minted: Bool = text.withCString { cText in
+                cRanges.withUnsafeBufferPointer { rangesBuf in
+                    outTokenBits.withUnsafeMutableBufferPointer { tokenBuf in
+                        ghostty_surface_set_external_link_hover(
+                            lease.surface,
+                            topRow,
+                            rowCount,
+                            cText,
+                            byteCount,
+                            rangesBuf.baseAddress,
+                            rangesBuf.count,
+                            tokenBuf.baseAddress
+                        )
+                    }
+                }
+            }
+            guard minted else { return nil }
+            let token = HoverActivationTokenValue(
+                bits: (outTokenBits[0], outTokenBits[1], outTokenBits[2], outTokenBits[3])
+            )
+            return token == .zero ? nil : token
+        },
+        callClear: { lease, token in
+            var bits = [token.bits.0, token.bits.1, token.bits.2, token.bits.3]
+            bits.withUnsafeBufferPointer { buf in
+                ghostty_surface_clear_external_link_hover(lease.surface, buf.baseAddress)
+            }
+        }
+    )
+
     /// The process-wide paced native-surface creation queue for session restore.
     @MainActor
     static let terminalSurfaceRestoreSpawnScheduler = TerminalSurfaceRestoreSpawnScheduler()
@@ -3273,11 +3343,55 @@ class GhosttyApp {
         case GHOSTTY_ACTION_MOUSE_OVER_LINK:
             let url = GhosttySurfaceScrollView.linkHoverURL(from: action.action.mouse_over_link)
             let terminalSurface = surfaceView.terminalSurface
-            DispatchQueue.main.async { guard surfaceView.terminalSurface === terminalSurface, surfaceView.isVisibleInUI else { return }; terminalSurface?.hostedView.setLinkHoverURL(url) }
+            // cmux fork: (B) ExternalHover — captured synchronously, on the
+            // renderer thread, at the exact moment this native callback
+            // fired: `hoverEventID` names the event this result actually
+            // answers, even if the main thread has since bumped it further
+            // (review Blocking 1's "copy at dispatch time, not on arrival").
+            let hoverEventID = surfaceView.hoverCallbackMirror.captureHoverCallbackSnapshot().hoverEventID
+            DispatchQueue.main.async {
+                guard surfaceView.terminalSurface === terminalSurface, surfaceView.isVisibleInUI else { return }
+                surfaceView.applyNativeHoverResult(hoverEventID: hoverEventID, url: url)
+            }
             return true
+        case GHOSTTY_ACTION_EXTERNAL_LINK_HOVER:
+            // cmux fork: (B) ExternalHover — the ack for a prior
+            // `ghostty_surface_set_external_link_hover` call. Answered
+            // synchronously, on whichever thread this callback fired on:
+            // no `DispatchQueue.main.async`/`Task { @MainActor in }` hop
+            // before `receiveTransition` (review Blocking 1/5) — its
+            // return value is the ack reducer's `performAction` verbatim.
+            let hoverAction = action.action.external_link_hover
+            let token = HoverActivationTokenValue(
+                bits: (
+                    hoverAction.token_bits.0,
+                    hoverAction.token_bits.1,
+                    hoverAction.token_bits.2,
+                    hoverAction.token_bits.3
+                )
+            )
+            let committed = surfaceView.externalHoverOwnerCoordinator.receiveTransition(
+                token: token,
+                active: hoverAction.active
+            )
+            if !hoverAction.active, let terminalSurface = surfaceView.terminalSurface {
+                let lifetimeID = RuntimeSurfaceLifetimeID(
+                    surfaceID: terminalSurface.id,
+                    runtimeSurfaceGeneration: terminalSurface.runtimeSurfaceGeneration
+                )
+                GhosttyApp.externalHoverWorkService.noteExternalInactive(lifetimeID: lifetimeID, token: token)
+            }
+            return committed
         case GHOSTTY_ACTION_SCROLLBAR:
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
             surfaceView.enqueueScrollbarUpdate(scrollbar)
+            // cmux fork: (B) ExternalHover — a scroll changes which
+            // physical rows the cached candidate's `topRow`/`rowCount`
+            // window actually names, so it must be withdrawn rather than
+            // re-presented against the new offset.
+            DispatchQueue.main.async {
+                surfaceView.clearExternalHoverCandidate(reason: "scroll")
+            }
             return true
         case GHOSTTY_ACTION_CELL_SIZE:
             let cellSize = CGSize(
@@ -3293,6 +3407,10 @@ class GhosttyApp {
                     object: surfaceView,
                     userInfo: [GhosttyNotificationKey.cellSize: cellSize]
                 )
+                // cmux fork: (B) ExternalHover — a cell-size change
+                // invalidates every cell/row coordinate the cached
+                // candidate was resolved against.
+                surfaceView.clearExternalHoverCandidate(reason: "cellSizeChanged")
             }
             return true
         case GHOSTTY_ACTION_START_SEARCH:
@@ -3354,6 +3472,14 @@ class GhosttyApp {
                 authoritativeGeometry: geometry,
                 surfaceView: surfaceView
             )
+            // cmux fork: (B) ExternalHover — a cwd change invalidates any
+            // cached candidate's filesystem resolution outright; the
+            // per-recompute backstop re-fetch/compare (in
+            // `performExternalHoverRecompute`) additionally catches a cwd
+            // change this action was itself coalesced/suppressed for.
+            DispatchQueue.main.async {
+                surfaceView.clearExternalHoverCandidate(reason: "cwdChanged")
+            }
             return true
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
             guard let tabId = callbackTabId ?? surfaceView.tabId,
@@ -3836,6 +3962,26 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyTables: [String] = []
     fileprivate private(set) var keyboardCopyModeActive = false
     private var wordPathHoverActive = false
+
+    // cmux fork: (B) ExternalHover — main-actor-owned state. `hoverEventID`
+    // is the single source of truth; `hoverCallbackMirror` is a bounded
+    // read-only copy the native `MOUSE_OVER_LINK` callback (renderer
+    // thread, cannot await) and `ExternalHoverWorkService`'s own
+    // acceptance-boundary checks read via `captureHoverCallbackSnapshot()`.
+    // Never place this mailbox/coordinator in an observable store or
+    // SwiftUI body — see `ExternalHoverOwnerCoordinator`'s own doc.
+    private var hoverEventID: UInt64 = 0
+    // `fileprivate`, not `private`: `GhosttyApp.handleAction`'s
+    // `GHOSTTY_ACTION_MOUSE_OVER_LINK`/`GHOSTTY_ACTION_EXTERNAL_LINK_HOVER`
+    // cases (a different type, same file) read/call these synchronously
+    // from the renderer-callback path.
+    fileprivate let hoverCallbackMirror = HoverCallbackMirror()
+    private let externalHoverRecomputeScheduler = MainActorDeferredActionScheduler()
+    private var hoverIndicatorOwner: TerminalHoverIndicatorOwner = .none
+    fileprivate lazy var externalHoverOwnerCoordinator = ExternalHoverOwnerCoordinator(
+        scheduler: { DispatchQueue.main.async(execute: $0) },
+        project: { [weak self] entry in self?.applyExternalHoverProjection(entry) }
+    )
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
@@ -3914,6 +4060,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate var isVisibleInUI: Bool { visibleInUI }
     fileprivate func setVisibleInUI(_ visible: Bool) {
         visibleInUI = visible
+        // cmux fork: (B) ExternalHover — a hidden surface must not keep
+        // holding (or racily re-present) an active hover candidate; the
+        // actor's own `isCurrent` mirror check would also catch this
+        // (`snapshot.visible` gates acceptance), but withdrawing eagerly
+        // here also drops the setter-side Ghostty override immediately
+        // rather than only on the next hover-affecting event.
+        if !visible {
+            noteHoverAffectingEventAndPublish(commandHeld: false)
+            clearExternalHoverCandidate(reason: "visibilityLost")
+        }
     }
 
     override init(frame frameRect: NSRect) {
@@ -4448,6 +4604,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             suppressAssignedGridPin: isWindowLiveResizeActive
                 || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window)
         )
+        if surfaceSizeChanged {
+            // cmux fork: (B) ExternalHover — an actual grid resize
+            // invalidates every cell/row coordinate the cached candidate
+            // was resolved against, same as `GHOSTTY_ACTION_CELL_SIZE`.
+            clearExternalHoverCandidate(reason: "surfaceSizeChanged")
+        }
         return didChange || surfaceSizeChanged
     }
 
@@ -6217,6 +6379,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
 #endif
+        // cmux fork: (B) ExternalHover — bump + publish BEFORE forwarding
+        // to Ghostty (review Blocking 1): a synchronously-fired native
+        // `MOUSE_OVER_LINK` callback for this same event must observe the
+        // new `hoverEventID`, never a stale one.
+        noteHoverAffectingEventAndPublish(commandHeld: event.modifierFlags.contains(.command))
         ghostty_surface_mouse_pos(
             surface,
             point.x,
@@ -6231,6 +6398,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             cmdHeld: event.modifierFlags.contains(.command),
             suppressPathHover: suppressCommandPathHover
         )
+        if event.modifierFlags.contains(.command), !suppressCommandPathHover {
+            requestExternalHoverRecompute()
+        } else {
+            clearExternalHoverCandidate(reason: event.modifierFlags.contains(.command) ? "selectionActive" : "cmdReleased")
+        }
     }
 
     private func shouldSuppressCommandPathHover(for flags: NSEvent.ModifierFlags) -> Bool {
@@ -6640,6 +6812,197 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let column = Int((point.x - xInset) / cellWidth)
         guard row >= 0, row < rows, column >= 0, column < cols else { return nil }
         return TerminalGridCell(row: row, column: column)
+    }
+
+    // cmux fork: (B) ExternalHover — AppKit wiring. main event path only
+    // ever does: bump `hoverEventID` + publish the mirror (cheap: a value
+    // copy, no Ghostty call), the existing immediate `mouse_pos` forward
+    // (unchanged), and enqueue the coalesced recompute. `currentGridMetrics()`/
+    // `gridCell(at:)` — both take Ghostty's renderer mutex — run ONLY
+    // inside the coalesced callback below, never on every raw event
+    // (review Blocking 1).
+
+    #if DEBUG
+    private static let externalHoverSignposter = OSSignposter(
+        subsystem: "com.cmux.terminal.external-hover",
+        category: .dynamicTracing
+    )
+    #endif
+
+    /// Bumps `hoverEventID` and publishes the new snapshot to the mirror.
+    /// Called by every hover-affecting AppKit event handler BEFORE it
+    /// forwards to Ghostty (`ghostty_surface_mouse_pos`/`_mouse_scroll`) —
+    /// `cursorPosCallback`/`modsChanged` on the Ghostty side can fire a
+    /// synchronous native `MOUSE_OVER_LINK` callback for that same event,
+    /// so the mirror must already reflect it by the time that happens
+    /// (review Blocking 1). Bumping unconditionally (never gated on
+    /// whether the cell/mods actually changed) is deliberately
+    /// conservative — final-spec explicitly allows extra increments as
+    /// safe, and computing "did the cell change" here would require the
+    /// same renderer-mutex calls this design keeps off the main path.
+    private func noteHoverAffectingEventAndPublish(commandHeld: Bool) {
+        hoverEventID &+= 1
+        let lifetimeID = terminalSurface.map {
+            RuntimeSurfaceLifetimeID(surfaceID: $0.id, runtimeSurfaceGeneration: $0.runtimeSurfaceGeneration)
+        }
+        hoverCallbackMirror.publish(.init(
+            lifetimeID: lifetimeID,
+            hoverEventID: hoverEventID,
+            eligible: commandHeld,
+            visible: isVisibleInUI
+        ))
+    }
+
+    /// Coalesces the actual hover-candidate recompute to at most once per
+    /// run-loop turn, reusing the existing `MainActorDeferredActionScheduler`
+    /// primitive (no new coalescing mechanism) — `ghostty_surface_mouse_pos`
+    /// itself is never coalesced, only this derived resolver work.
+    private func requestExternalHoverRecompute() {
+        externalHoverRecomputeScheduler.schedule(zeroDelayPolicy: .yieldOnce) { [weak self] in
+            self?.performExternalHoverRecompute()
+        }
+    }
+
+    /// Runs on the main actor, at most once per run-loop turn. This is the
+    /// ONLY place `currentGridMetrics()`/`gridCell(at:)` run for (B).
+    /// Resolves the actual candidate off-main inside
+    /// `ExternalHoverWorkService`; this method itself never blocks on it.
+    private func performExternalHoverRecompute() {
+        #if DEBUG
+        let signpostID = Self.externalHoverSignposter.makeSignpostID()
+        let interval = Self.externalHoverSignposter.beginInterval("externalHoverRecompute", id: signpostID)
+        #endif
+        func finish() {
+            #if DEBUG
+            Self.externalHoverSignposter.endInterval("externalHoverRecompute", interval)
+            #endif
+        }
+
+        guard let surface, let terminalSurface else {
+            clearExternalHoverCandidate(reason: "noSurface")
+            finish()
+            return
+        }
+        guard let point = preferredPointerPoint() else {
+            clearExternalHoverCandidate(reason: "noPoint")
+            finish()
+            return
+        }
+        let modifierFlags = NSEvent.modifierFlags
+        guard modifierFlags.contains(.command) else {
+            clearExternalHoverCandidate(reason: "cmdReleased")
+            finish()
+            return
+        }
+        guard !shouldSuppressCommandPathHover(for: modifierFlags) else {
+            clearExternalHoverCandidate(reason: "selectionActive")
+            finish()
+            return
+        }
+        guard let workspace = terminalSurface.owningWorkspace(),
+              workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: terminalSurface.id) else {
+            clearExternalHoverCandidate(reason: "remote")
+            finish()
+            return
+        }
+        guard let metrics = currentGridMetrics(), let cell = gridCell(at: point, metrics: metrics) else {
+            clearExternalHoverCandidate(reason: "noCell")
+            finish()
+            return
+        }
+        guard let cwd = resolvedWordPathWorkingDirectory(workspace: workspace, terminalSurface: terminalSurface) else {
+            clearExternalHoverCandidate(reason: "noCwd")
+            finish()
+            return
+        }
+
+        let lifetimeID = RuntimeSurfaceLifetimeID(
+            surfaceID: terminalSurface.id,
+            runtimeSurfaceGeneration: terminalSurface.runtimeSurfaceGeneration
+        )
+        let request = ExternalHoverWorkRequest(
+            lifetimeID: lifetimeID,
+            surface: surface,
+            requestGeneration: hoverEventID,
+            cell: ExternalHoverGridCell(row: UInt32(cell.row), column: cell.column),
+            viewportRowCount: UInt32(metrics.rows),
+            cwd: cwd,
+            mirror: hoverCallbackMirror,
+            coordinator: externalHoverOwnerCoordinator
+        )
+        let task = GhosttyApp.externalHoverWorkService.submit(request)
+        #if DEBUG
+        Task { await task.value; finish() }
+        #endif
+    }
+
+    /// The shared withdrawal entry point every non-resolver invalidation
+    /// trigger (Cmd release, selection, remote, cwd/scroll/resize,
+    /// visibility loss, surface replacement/teardown) calls — review
+    /// Blocking 7. Builds a minimal `ExternalHoverWorkRequest` at the
+    /// CURRENT `hoverEventID` (already bumped/published by the caller)
+    /// purely to satisfy `withdrawCurrentCandidate`'s acceptance-boundary
+    /// check; `cwd`/`cell`/`viewportRowCount` are unused by withdrawal.
+    // `fileprivate`: `GhosttyApp.handleAction`'s
+    // `GHOSTTY_ACTION_EXTERNAL_LINK_HOVER` case calls this for `active ==
+    // false`, and the `GHOSTTY_ACTION_PWD`/`_SCROLLBAR`/`_CELL_SIZE` cases
+    // call it for cwd/scroll/resize invalidation — all a different type,
+    // same file.
+    fileprivate func clearExternalHoverCandidate(reason: String) {
+        guard let surface, let terminalSurface else { return }
+        let lifetimeID = RuntimeSurfaceLifetimeID(
+            surfaceID: terminalSurface.id,
+            runtimeSurfaceGeneration: terminalSurface.runtimeSurfaceGeneration
+        )
+        let request = ExternalHoverWorkRequest(
+            lifetimeID: lifetimeID,
+            surface: surface,
+            requestGeneration: hoverEventID,
+            cell: ExternalHoverGridCell(row: 0, column: 0),
+            viewportRowCount: 1,
+            cwd: "",
+            mirror: hoverCallbackMirror,
+            coordinator: externalHoverOwnerCoordinator
+        )
+        Task { [weak self] in
+            await GhosttyApp.externalHoverWorkService.withdrawCurrentCandidate(request: request, reason: reason)
+            _ = self
+        }
+    }
+
+    /// `ExternalHoverOwnerCoordinator`'s `project` closure — applies an
+    /// accepted-owner snapshot (or `nil`) to the bottom-left link
+    /// indicator. A `nil` projection only ever clears `.external` —
+    /// `.native` must survive untouched (review Blocking 7's closing
+    /// requirement).
+    private func applyExternalHoverProjection(_ entry: ExternalHoverMailbox.Entry?) {
+        if let entry {
+            hoverIndicatorOwner = .external(hoverEventID: entry.event, token: entry.token)
+            terminalSurface?.hostedView.setLinkHoverURL(entry.path)
+        } else if case .external = hoverIndicatorOwner {
+            hoverIndicatorOwner = .none
+            terminalSurface?.hostedView.setLinkHoverURL(nil)
+        }
+    }
+
+    /// Applies a native `MOUSE_OVER_LINK` result, captured synchronously
+    /// (via `captureHoverCallbackSnapshot()`) at the point the callback
+    /// actually fired — see `GhosttyApp.handleAction`'s
+    /// `GHOSTTY_ACTION_MOUSE_OVER_LINK` case. An external owner already
+    /// active for the SAME event is never displaced by that event's
+    /// (possibly delayed) native result.
+    // `fileprivate`: called from `GhosttyApp.handleAction`'s
+    // `GHOSTTY_ACTION_MOUSE_OVER_LINK` case (a different type, same file).
+    fileprivate func applyNativeHoverResult(hoverEventID: UInt64, url: String?) {
+        hoverIndicatorOwner = hoverIndicatorOwner.receivingNativeResult(hoverEventID: hoverEventID, url: url)
+        switch hoverIndicatorOwner {
+        case .native:
+            terminalSurface?.hostedView.setLinkHoverURL(url)
+        case .none:
+            terminalSurface?.hostedView.setLinkHoverURL(nil)
+        case .external:
+            break // leave the external candidate's indicator showing.
+        }
     }
 
     /// One physical row of visible viewport text per array entry, from a
@@ -7805,6 +8168,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: event.modifierFlags)
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
+        noteHoverAffectingEventAndPublish(commandHeld: event.modifierFlags.contains(.command))
         ghostty_surface_mouse_pos(
             surface,
             eventPoint.x,
@@ -7819,6 +8183,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             cmdHeld: event.modifierFlags.contains(.command),
             suppressPathHover: suppressCommandPathHover
         )
+        if event.modifierFlags.contains(.command), !suppressCommandPathHover {
+            requestExternalHoverRecompute()
+        } else {
+            clearExternalHoverCandidate(reason: event.modifierFlags.contains(.command) ? "selectionActive" : "cmdReleased")
+        }
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -7828,6 +8197,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: event.modifierFlags)
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
+        noteHoverAffectingEventAndPublish(commandHeld: event.modifierFlags.contains(.command))
         ghostty_surface_mouse_pos(
             surface,
             eventPoint.x,
@@ -7842,6 +8212,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             cmdHeld: event.modifierFlags.contains(.command),
             suppressPathHover: suppressCommandPathHover
         )
+        if event.modifierFlags.contains(.command), !suppressCommandPathHover {
+            requestExternalHoverRecompute()
+        }
     }
 
     private func maybeRequestFirstResponderForMouseFocus() {
@@ -7870,7 +8243,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if NSEvent.pressedMouseButtons != 0 {
             return
         }
+        noteHoverAffectingEventAndPublish(commandHeld: false)
         ghostty_surface_mouse_pos(surface, -1, -1, mouseModsFromEvent(event))
+        clearExternalHoverCandidate(reason: "pointerLeftView")
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -7950,6 +8325,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let momentumEnded = event.momentumPhase == .ended || event.momentumPhase == .cancelled
         GhosttyApp.shared.markScrollActivity(hasMomentum: hasMomentum, momentumEnded: momentumEnded)
 
+        // cmux fork: (B) ExternalHover — a scroll invalidates any cached
+        // candidate's physical-row scope before it can even be re-resolved,
+        // so this bumps + clears (never recomputes) ahead of the forward,
+        // matching the wiring plan's "scrollWheel（forward 前 bump +
+        // clear）".
+        noteHoverAffectingEventAndPublish(commandHeld: NSEvent.modifierFlags.contains(.command))
+        clearExternalHoverCandidate(reason: "scroll")
         ghostty_surface_mouse_scroll(
             surface,
             x,
@@ -7980,6 +8362,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             removeTrackingArea(trackingArea)
         }
         resetCommandClickGestureState()
+        // cmux fork: (B) ExternalHover — tombstone this lifetime's mailbox
+        // and actor-side cache before releasing the model reference below.
+        // `teardown()` and `invalidateSurface` are both safe to call from a
+        // nonisolated `deinit` (neither is `@MainActor`-isolated — the
+        // coordinator is a plain `NSLock`-guarded class, and the actor call
+        // is `nonisolated`/fire-and-forget by design).
+        if let terminalSurface {
+            let lifetimeID = RuntimeSurfaceLifetimeID(
+                surfaceID: terminalSurface.id,
+                runtimeSurfaceGeneration: terminalSurface.runtimeSurfaceGeneration
+            )
+            externalHoverOwnerCoordinator.teardown()
+            GhosttyApp.externalHoverWorkService.invalidateSurface(lifetimeID)
+        }
         terminalSurface = nil
     }
 

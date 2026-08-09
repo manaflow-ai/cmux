@@ -33,6 +33,29 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     private nonisolated let isolatedHibernationAdmission =
         TerminalSurfaceRuntimeTeardownAdmission()
 
+    // cmux fork: (B) ExternalHover — native-surface lease. See
+    // `acquireExternalHoverLease`/`releaseExternalHoverLease` below.
+
+    /// Outstanding lease IDs per runtime lifetime. A lifetime with a
+    /// nonempty set here must not be freed yet — `enqueue(_:)` defers the
+    /// free until the set empties.
+    private var outstandingHoverLeaseIDs: [RuntimeSurfaceLifetimeID: Set<UUID>] = [:]
+    /// The highest `runtimeSurfaceGeneration` ever torn down, per
+    /// surfaceID. A monotonic watermark, never removed: `runtimeSurfaceGeneration`
+    /// is per-surfaceID monotonic (bumped only on install/removal — see
+    /// `TerminalSurface.surface`'s setter), so a generation at or below
+    /// this watermark can never legitimately be acquired again — it names
+    /// a lifetime that has already ended. This is what lets a lifetime be
+    /// safely retired without needing a *permanent* per-lifetime tombstone
+    /// entry (which would leak forever across repeated hibernate/resume
+    /// cycles) while still refusing a lease to a delayed, stale acquire.
+    private var retiredRuntimeGenerationWatermark: [UUID: UInt64] = [:]
+    /// A teardown request that arrived while a hover lease was still
+    /// outstanding for its lifetime, held in full (not just the request)
+    /// so the deferred admission preserves the original execution lane and
+    /// hibernation reservation — see `DeferredRuntimeTeardown`.
+    private var deferredHoverTeardowns: [RuntimeSurfaceLifetimeID: DeferredRuntimeTeardown] = [:]
+
     /// Creates the process's teardown coordinator.
     public init() {
         isolatedHibernationQueues = (
@@ -56,6 +79,50 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         _ reservation: TerminalSurfaceRuntimeTeardownReservation
     ) {
         isolatedHibernationAdmission.release(reservation)
+    }
+
+    /// Borrows `surface` for one bounded, off-main external-hover C access.
+    /// Fails closed (`nil`) once `lifetimeID`'s generation is at or below
+    /// this surfaceID's retired watermark — i.e. once this lifetime's
+    /// teardown has already been requested or completed. The caller must
+    /// re-acquire (this does not hold across suspension): read scope +
+    /// setter should each take their own short-lived lease, never one held
+    /// across an `fs probe or other suspension (review Blocking 4).
+    func acquireExternalHoverLease(
+        lifetimeID: RuntimeSurfaceLifetimeID,
+        surface: ghostty_surface_t
+    ) -> ExternalHoverSurfaceLease? {
+        if let watermark = retiredRuntimeGenerationWatermark[lifetimeID.surfaceID],
+           lifetimeID.runtimeSurfaceGeneration <= watermark {
+            return nil
+        }
+        let leaseID = UUID()
+        outstandingHoverLeaseIDs[lifetimeID, default: []].insert(leaseID)
+        return ExternalHoverSurfaceLease(id: leaseID, lifetimeID: lifetimeID, surface: surface)
+    }
+
+    /// Releases a lease exactly once. An unknown or already-released
+    /// `leaseID` is a no-op — it must never decrement an outstanding count
+    /// it doesn't actually own, which could otherwise admit a deferred
+    /// free while a DIFFERENT, still-genuinely-outstanding lease exists.
+    /// `async` because admitting a deferred free may itself need to
+    /// `await` the isolated-hibernation admission actor.
+    func releaseExternalHoverLease(_ lease: ExternalHoverSurfaceLease) async {
+        guard var ids = outstandingHoverLeaseIDs[lease.lifetimeID],
+              ids.remove(lease.id) != nil else {
+            return
+        }
+        if !ids.isEmpty {
+            outstandingHoverLeaseIDs[lease.lifetimeID] = ids
+            return
+        }
+        outstandingHoverLeaseIDs.removeValue(forKey: lease.lifetimeID)
+        guard let deferred = deferredHoverTeardowns.removeValue(forKey: lease.lifetimeID) else { return }
+        await admitTeardown(
+            deferred.request,
+            executionLane: deferred.executionLane,
+            isolatedHibernationReservation: deferred.isolatedHibernationReservation
+        )
     }
 
     /// Reads a bounded screen tail away from the main actor and before any
@@ -88,6 +155,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         workspaceId: UUID,
         reason: String,
         surface: ghostty_surface_t,
+        runtimeSurfaceGeneration: UInt64,
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
         freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void = { surface in
             ghostty_surface_free(surface)
@@ -98,6 +166,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             workspaceId: workspaceId,
             reason: reason,
             surface: surface,
+            runtimeSurfaceGeneration: runtimeSurfaceGeneration,
             callbackContext: callbackContext,
             manualIOContext: nil,
             byteTeeLease: nil,
@@ -137,6 +206,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         workspaceId: UUID,
         reason: String,
         surface: ghostty_surface_t,
+        runtimeSurfaceGeneration: UInt64,
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
         manualIOContext: Unmanaged<TerminalManualIOWriteBox>?,
         byteTeeLease: (any TerminalByteTeeLease)?,
@@ -154,6 +224,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             workspaceId: workspaceId,
             reason: reason,
             surface: surface,
+            runtimeSurfaceGeneration: runtimeSurfaceGeneration,
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: byteTeeLease,
@@ -170,7 +241,51 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         return ticket
     }
 
+    /// cmux fork: (B) ExternalHover — the lease gate. Every native free
+    /// (close/deinit/hibernation, and any future teardown source) funnels
+    /// through here, so this is the ONE place that decides whether a free
+    /// may proceed now or must wait for outstanding hover leases to
+    /// release (review Blocking 1: "all native free must go through the
+    /// lease gate" — the audited call sites are enumerated in this
+    /// commit's message).
     func enqueue(
+        _ request: TerminalSurfaceRuntimeTeardownRequest,
+        executionLane: TerminalSurfaceRuntimeTeardownExecutionLane = .serializedClose,
+        isolatedHibernationReservation:
+            TerminalSurfaceRuntimeTeardownReservation? = nil
+    ) async {
+        let lifetimeID = request.lifetimeID
+        retiredRuntimeGenerationWatermark[lifetimeID.surfaceID] = max(
+            retiredRuntimeGenerationWatermark[lifetimeID.surfaceID] ?? 0,
+            lifetimeID.runtimeSurfaceGeneration
+        )
+        if let outstanding = outstandingHoverLeaseIDs[lifetimeID], !outstanding.isEmpty {
+            if deferredHoverTeardowns[lifetimeID] != nil {
+                // Two teardown requests for the SAME still-outstanding
+                // lifetime — should never happen (deinit/teardown/hibernation
+                // each run at most once per lifetime). Fail closed: never
+                // silently overwrite and orphan the first request's
+                // completion/ticket. Caught in DEBUG via assert; in release
+                // this drops the second request rather than double-admitting
+                // or double-freeing.
+                assert(false, "duplicate teardown request for the same runtime lifetime \(lifetimeID)")
+                return
+            }
+            deferredHoverTeardowns[lifetimeID] = DeferredRuntimeTeardown(
+                request: request,
+                executionLane: executionLane,
+                isolatedHibernationReservation: isolatedHibernationReservation
+            )
+            return
+        }
+        await admitTeardown(
+            request,
+            executionLane: executionLane,
+            isolatedHibernationReservation: isolatedHibernationReservation
+        )
+    }
+
+    private func admitTeardown(
         _ request: TerminalSurfaceRuntimeTeardownRequest,
         executionLane: TerminalSurfaceRuntimeTeardownExecutionLane = .serializedClose,
         isolatedHibernationReservation:

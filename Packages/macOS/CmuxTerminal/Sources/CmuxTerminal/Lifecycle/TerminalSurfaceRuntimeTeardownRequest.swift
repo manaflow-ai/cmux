@@ -21,6 +21,11 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
     let workspaceId: UUID
     let reason: String
     let surface: ghostty_surface_t
+    /// The `runtimeSurfaceGeneration` that was current while `surface` was
+    /// installed, captured by the caller before nil-ing it out. Identifies
+    /// which native-runtime lifetime this request is ending — see
+    /// `RuntimeSurfaceLifetimeID`.
+    let runtimeSurfaceGeneration: UInt64
     let callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     let manualIOContext: Unmanaged<TerminalManualIOWriteBox>?
     let byteTeeLease: (any TerminalByteTeeLease)?
@@ -31,11 +36,16 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
     let workspaceToken: String
 #endif
 
+    var lifetimeID: RuntimeSurfaceLifetimeID {
+        .init(surfaceID: id, runtimeSurfaceGeneration: runtimeSurfaceGeneration)
+    }
+
     init(
         id: UUID,
         workspaceId: UUID,
         reason: String,
         surface: ghostty_surface_t,
+        runtimeSurfaceGeneration: UInt64,
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
         manualIOContext: Unmanaged<TerminalManualIOWriteBox>?,
         byteTeeLease: (any TerminalByteTeeLease)?,
@@ -46,6 +56,7 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         self.workspaceId = workspaceId
         self.reason = reason
         self.surface = surface
+        self.runtimeSurfaceGeneration = runtimeSurfaceGeneration
         self.callbackContext = callbackContext
         self.manualIOContext = manualIOContext
         self.byteTeeLease = byteTeeLease

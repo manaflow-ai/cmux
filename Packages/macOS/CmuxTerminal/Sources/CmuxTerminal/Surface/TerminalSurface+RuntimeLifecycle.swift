@@ -245,6 +245,9 @@ extension TerminalSurface {
         mobileByteTeeLease = nil
         byteTee.dropSurface(surfaceID: id)
 
+        // Captured before `surface = nil` advances runtimeSurfaceGeneration —
+        // this is the lifetime that's actually ending (see RuntimeSurfaceLifetimeID).
+        let installedGeneration = runtimeSurfaceGeneration
         let surfaceToFree = surface
         if let surfaceToFree {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
@@ -278,6 +281,7 @@ extension TerminalSurface {
                 workspaceId: tabId,
                 reason: "teardown",
                 surface: surfaceToFree,
+                runtimeSurfaceGeneration: installedGeneration,
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
@@ -287,14 +291,29 @@ extension TerminalSurface {
         }
 #endif
 
-        Task { @MainActor in
-            // Keep free behavior aligned with deinit: perform the runtime teardown on
-            // the next main-actor turn so SIGHUP delivery is deterministic but non-reentrant.
-            ghostty_surface_free(surfaceToFree)
-            callbackContext?.release()
-            manualIOContext?.release()
-            teeLease?.release()
-        }
+        // cmux fork: (B) ExternalHover review Blocking 1 — this used to free
+        // directly (`Task { @MainActor in ghostty_surface_free(surfaceToFree) } `),
+        // bypassing the lease gate entirely: a hover work item holding a
+        // lease for this lifetime could have its borrowed pointer freed out
+        // from under it. Routed through the SAME coordinator deinit already
+        // uses (`.serializedClose`, its default lane) — that lane already
+        // frees off-main on a single dedicated worker (see the coordinator's
+        // own doc comment: "one at a time on a utility worker so re-entrant
+        // teardown loops cannot form"), which satisfies the "non-reentrant"
+        // half of the original comment's intent at least as well as a bare
+        // `Task { @MainActor in ... }` hop did; the "next main-actor turn"
+        // wording described how deinit already worked, not a hard
+        // requirement unique to this call site.
+        runtimeTeardown.enqueueRuntimeTeardown(
+            id: id,
+            workspaceId: tabId,
+            reason: "teardown",
+            surface: surfaceToFree,
+            runtimeSurfaceGeneration: installedGeneration,
+            callbackContext: callbackContext,
+            manualIOContext: manualIOContext,
+            byteTeeLease: teeLease
+        )
     }
 
     /// Frees the runtime surface while keeping the model alive for an
@@ -326,6 +345,9 @@ extension TerminalSurface {
         mobileByteTeeLease = nil
         byteTee.dropSurface(surfaceID: id)
 
+        // Captured before `surface = nil` advances runtimeSurfaceGeneration —
+        // this is the lifetime that's actually ending (see RuntimeSurfaceLifetimeID).
+        let installedGeneration = runtimeSurfaceGeneration
         let surfaceToFree = surface
         if let surfaceToFree {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
@@ -366,6 +388,7 @@ extension TerminalSurface {
                 workspaceId: tabId,
                 reason: reason,
                 surface: surfaceToFree,
+                runtimeSurfaceGeneration: installedGeneration,
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
@@ -382,6 +405,7 @@ extension TerminalSurface {
             workspaceId: tabId,
             reason: reason,
             surface: surfaceToFree,
+            runtimeSurfaceGeneration: installedGeneration,
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,

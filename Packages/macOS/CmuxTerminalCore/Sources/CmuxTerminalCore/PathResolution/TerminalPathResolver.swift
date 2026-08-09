@@ -53,6 +53,38 @@ public struct TerminalWrappedPathSeed: Sendable {
     /// token touching both boundaries.
     public let directions: [TerminalWrapDirection]
     let token: String
+    /// The clicked token's column range on the clicked row (half-open),
+    /// carried through to ``TerminalWrappedPathResolution/cellSpans`` so a
+    /// caller never needs to re-tokenize to find where to underline it.
+    let tokenStartColumn: Int
+    let tokenEndColumn: Int
+}
+
+/// (B) ExternalHover — one cell span to underline, relative to the clicked
+/// row. Exactly two are ever produced for a resolved wrapped-path
+/// candidate: the clicked token's own span (`rowOffsetFromClicked == 0`)
+/// and the winning direction's adjacent-row fragment span
+/// (`rowOffsetFromClicked == -1` for `.previous`, `+1` for `.next`) — never
+/// a rejected direction's span, matching
+/// ``TerminalWrappedPathResolution/nativeMatchKeys``'s same winning-only
+/// rule.
+///
+/// A caller materializes these into absolute viewport ranges by adding the
+/// clicked row's own viewport row to `rowOffsetFromClicked` — this type
+/// intentionally carries no absolute row itself, since that would require
+/// re-deriving it correctly at every call site instead of once.
+public struct TerminalWrappedPathCellSpan: Sendable, Equatable {
+    public let rowOffsetFromClicked: Int
+    /// Inclusive start column.
+    public let startColumn: Int
+    /// Exclusive end column (half-open).
+    public let endColumn: Int
+
+    public init(rowOffsetFromClicked: Int, startColumn: Int, endColumn: Int) {
+        self.rowOffsetFromClicked = rowOffsetFromClicked
+        self.startColumn = startColumn
+        self.endColumn = endColumn
+    }
 }
 
 /// A hard-wrapped path candidate resolved against an adjacent row, ready to
@@ -90,9 +122,23 @@ public struct TerminalWrappedPathResolution: Sendable, Equatable {
     /// unrelated native link.
     public let nativeMatchKeys: [String]
 
-    public init(path: String, nativeMatchKeys: [String]) {
+    /// (B) ExternalHover — the clicked token's span plus the winning
+    /// direction's adjacent-row fragment span, for underlining without
+    /// re-tokenizing. Exactly 2 entries when resolved through
+    /// ``TerminalPathResolver/resolveWrappedCandidate(seed:previousRow:nextRow:cwd:)``;
+    /// empty for a `TerminalWrappedPathResolution` constructed directly
+    /// (e.g. in existing click-arbitrator tests that only need `path`/
+    /// `nativeMatchKeys`).
+    public let cellSpans: [TerminalWrappedPathCellSpan]
+
+    public init(
+        path: String,
+        nativeMatchKeys: [String],
+        cellSpans: [TerminalWrappedPathCellSpan] = []
+    ) {
         self.path = path
         self.nativeMatchKeys = nativeMatchKeys
+        self.cellSpans = cellSpans
     }
 }
 
@@ -241,7 +287,12 @@ public struct TerminalPathResolver: Sendable {
         ), match.token.count <= Self.maxWrappedFragmentLength else {
             return nil
         }
-        return TerminalWrappedPathSeed(directions: match.directions, token: match.token)
+        return TerminalWrappedPathSeed(
+            directions: match.directions,
+            token: match.token,
+            tokenStartColumn: match.startColumn,
+            tokenEndColumn: match.endColumn
+        )
     }
 
     /// Resolves a ``TerminalWrappedPathSeed`` against the adjacent row(s)
@@ -341,10 +392,10 @@ public struct TerminalPathResolver: Sendable {
         var outcomes: [TerminalWrapDirection: TerminalWrappedCandidateDirectionOutcome] = [:]
 
         if seed.directions.contains(.previous), let previousRow {
-            outcomes[.previous] = resolveSingleDirection(.previous, token: seed.token, adjacentRow: previousRow, cwd: cwd)
+            outcomes[.previous] = resolveSingleDirection(.previous, seed: seed, adjacentRow: previousRow, cwd: cwd)
         }
         if seed.directions.contains(.next), let nextRow {
-            outcomes[.next] = resolveSingleDirection(.next, token: seed.token, adjacentRow: nextRow, cwd: cwd)
+            outcomes[.next] = resolveSingleDirection(.next, seed: seed, adjacentRow: nextRow, cwd: cwd)
         }
 
         return outcomes
@@ -352,18 +403,20 @@ public struct TerminalPathResolver: Sendable {
 
     private func resolveSingleDirection(
         _ direction: TerminalWrapDirection,
-        token: String,
+        seed: TerminalWrappedPathSeed,
         adjacentRow: String,
         cwd: String
     ) -> TerminalWrappedCandidateDirectionOutcome {
-        let fragment: String?
+        let token = seed.token
+        let fragmentMatch: (fragment: String, startColumn: Int, endColumn: Int)?
         switch direction {
         case .next:
-            fragment = adjacentRow.leadingContinuationFragment(maxIndentation: Self.maxContinuationIndentation)
+            fragmentMatch = adjacentRow.leadingContinuationFragmentWithRange(maxIndentation: Self.maxContinuationIndentation)
         case .previous:
-            fragment = adjacentRow.trailingContinuationFragment()
+            fragmentMatch = adjacentRow.trailingContinuationFragmentWithRange()
         }
-        guard let fragment else { return .noFragment }
+        guard let fragmentMatch else { return .noFragment }
+        let fragment = fragmentMatch.fragment
         guard fragment.count <= Self.maxWrappedFragmentLength else { return .fragmentTooLong }
 
         // The fragment sum is checked before building the joined string so
@@ -392,9 +445,27 @@ public struct TerminalPathResolver: Sendable {
             guard !key.isEmpty, !matchKeys.contains(key) else { continue }
             matchKeys.append(key)
         }
+        // (B) ExternalHover — the clicked token's own span, plus the
+        // winning adjacent fragment's span at the appropriate row offset.
+        // Order doesn't encode meaning (a caller materializes each by its
+        // own rowOffsetFromClicked), but clicked-first matches this type's
+        // own "clicked token, then adjacent fragment" narrative elsewhere.
+        let cellSpans = [
+            TerminalWrappedPathCellSpan(
+                rowOffsetFromClicked: 0,
+                startColumn: seed.tokenStartColumn,
+                endColumn: seed.tokenEndColumn
+            ),
+            TerminalWrappedPathCellSpan(
+                rowOffsetFromClicked: direction == .previous ? -1 : 1,
+                startColumn: fragmentMatch.startColumn,
+                endColumn: fragmentMatch.endColumn
+            ),
+        ]
         return .succeeded(TerminalWrappedPathResolution(
             path: standardizedPath,
-            nativeMatchKeys: matchKeys
+            nativeMatchKeys: matchKeys,
+            cellSpans: cellSpans
         ))
     }
 

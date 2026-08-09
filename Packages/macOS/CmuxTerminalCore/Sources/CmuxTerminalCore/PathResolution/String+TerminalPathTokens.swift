@@ -269,7 +269,7 @@ extension String {
     func wrapContinuationToken(
         atColumn column: Int,
         maxIndentation: Int
-    ) -> (token: String, directions: [TerminalWrapDirection])? {
+    ) -> (token: String, directions: [TerminalWrapDirection], startColumn: Int, endColumn: Int)? {
         guard unicodeScalars.allSatisfy(\.isASCII) else { return nil }
         let characters = Array(self)
         guard !characters.isEmpty, column >= 0, column < characters.count else { return nil }
@@ -286,6 +286,9 @@ extension String {
 
         let token = String(characters[start...end])
         guard !token.isEmpty else { return nil }
+        // ASCII-only (guarded above), so character index == terminal column.
+        let startColumn = start
+        let endColumn = end + 1
 
         let touchesTrailingBoundary = characters[(end + 1)...].allSatisfy(\.isWhitespace)
         let leadingRun = characters[..<start]
@@ -294,16 +297,16 @@ extension String {
 
         if token.hasExplicitTerminalRelativeMarker {
             guard touchesTrailingBoundary else { return nil }
-            return (token, [.next])
+            return (token, [.next], startColumn, endColumn)
         }
 
         switch (touchesLeadingBoundary, touchesTrailingBoundary) {
         case (true, true):
-            return (token, [.previous, .next])
+            return (token, [.previous, .next], startColumn, endColumn)
         case (true, false):
-            return (token, [.previous])
+            return (token, [.previous], startColumn, endColumn)
         case (false, true):
-            return (token, [.next])
+            return (token, [.next], startColumn, endColumn)
         case (false, false):
             return nil
         }
@@ -315,6 +318,15 @@ extension String {
     /// - Returns: The leading token, or `nil` for non-ASCII rows or rows
     ///   with no token within the indentation bound.
     func leadingContinuationFragment(maxIndentation: Int) -> String? {
+        leadingContinuationFragmentWithRange(maxIndentation: maxIndentation)?.fragment
+    }
+
+    /// Same as ``leadingContinuationFragment(maxIndentation:)``, but also
+    /// returns the fragment's column range (half-open) for (B) ExternalHover
+    /// underlining — see ``TerminalWrappedPathCellSpan``.
+    func leadingContinuationFragmentWithRange(
+        maxIndentation: Int
+    ) -> (fragment: String, startColumn: Int, endColumn: Int)? {
         guard unicodeScalars.allSatisfy(\.isASCII) else { return nil }
         let characters = Array(self)
 
@@ -333,7 +345,8 @@ extension String {
             end += 1
         }
         let fragment = String(characters[index...end])
-        return fragment.isEmpty ? nil : fragment
+        guard !fragment.isEmpty else { return nil }
+        return (fragment, index, end + 1)
     }
 
     /// The last token on a continuation row, ignoring trailing grid
@@ -343,6 +356,13 @@ extension String {
     /// - Returns: The trailing token, or `nil` for non-ASCII rows or rows
     ///   with no trailing token.
     func trailingContinuationFragment() -> String? {
+        trailingContinuationFragmentWithRange()?.fragment
+    }
+
+    /// Same as ``trailingContinuationFragment()``, but also returns the
+    /// fragment's column range (half-open) for (B) ExternalHover
+    /// underlining — see ``TerminalWrappedPathCellSpan``.
+    func trailingContinuationFragmentWithRange() -> (fragment: String, startColumn: Int, endColumn: Int)? {
         guard unicodeScalars.allSatisfy(\.isASCII) else { return nil }
         let characters = Array(self)
         guard !characters.isEmpty else { return nil }
@@ -358,7 +378,8 @@ extension String {
             start -= 1
         }
         let fragment = String(characters[start...end])
-        return fragment.isEmpty ? nil : fragment
+        guard !fragment.isEmpty else { return nil }
+        return (fragment, start, end + 1)
     }
 
     /// The exact-match key used to correlate a wrapped-path candidate
