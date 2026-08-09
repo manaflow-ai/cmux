@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 use std::mem::size_of;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex, Weak};
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -572,8 +572,7 @@ impl JournalIngressSender {
                             }
                             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                                 Err(anyhow::Error::new(JournalCommitIndeterminate::after(
-                                    JOURNAL_DURABLE_WAIT
-                                        .saturating_add(JOURNAL_COMMIT_RESULT_WAIT),
+                                    JOURNAL_DURABLE_WAIT.saturating_add(JOURNAL_COMMIT_RESULT_WAIT),
                                 )))
                             }
                         }
@@ -1342,7 +1341,9 @@ mod tests {
         producer.join().unwrap();
         let records = mux.session_journal_after(0, 1024).unwrap().records;
         assert!(
-            records.iter().any(|record| record.payload.to_string().contains("admitted-commit-marker")),
+            records
+                .iter()
+                .any(|record| record.payload.to_string().contains("admitted-commit-marker")),
             "the caller must observe success for the admitted durable commit"
         );
         drop(mux);
@@ -1413,10 +1414,9 @@ mod tests {
         let durable_deadline = Instant::now() + Duration::from_secs(1);
         loop {
             let records = mux.session_journal_after(0, 1024).unwrap().records;
-            if records.iter().any(|record| record
-                .payload
-                .to_string()
-                .contains("indeterminate-commit-marker"))
+            if records
+                .iter()
+                .any(|record| record.payload.to_string().contains("indeterminate-commit-marker"))
             {
                 break;
             }

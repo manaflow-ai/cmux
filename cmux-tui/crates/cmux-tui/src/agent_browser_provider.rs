@@ -210,18 +210,12 @@ fn resolve_page_target(
 ) -> anyhow::Result<ResolvedPageTarget> {
     let mut control = MuxControl::connect(socket, deadline)?;
     let topology = control.request(1, json!({"id":1,"cmd":"list-workspaces"}), deadline)?;
-    let provider =
-        control.request(2, json!({"id":2,"cmd":"get-browser-provider"}), deadline)?;
+    let provider = control.request(2, json!({"id":2,"cmd":"get-browser-provider"}), deadline)?;
     let confirmed_topology =
         control.request(3, json!({"id":3,"cmd":"list-workspaces"}), deadline)?;
     let confirmed_provider =
         control.request(4, json!({"id":4,"cmd":"get-browser-provider"}), deadline)?;
-    ensure_stable_resolution(
-        &topology,
-        &provider,
-        &confirmed_topology,
-        &confirmed_provider,
-    )?;
+    ensure_stable_resolution(&topology, &provider, &confirmed_topology, &confirmed_provider)?;
     resolve_page_target_snapshot(&topology, &provider, scope)
 }
 
@@ -240,17 +234,9 @@ impl ResolutionFence {
         Ok(Self {
             registry_id: required_string(topology, "registry_id", "workspace snapshot")?,
             generation: required_string(topology, "generation", "workspace snapshot")?,
-            workspace_revision: required_u64(
-                topology,
-                "workspace_revision",
-                "workspace snapshot",
-            )?,
+            workspace_revision: required_u64(topology, "workspace_revision", "workspace snapshot")?,
             pane_revision: required_u64(topology, "pane_revision", "workspace snapshot")?,
-            terminal_revision: required_u64(
-                topology,
-                "terminal_revision",
-                "workspace snapshot",
-            )?,
+            terminal_revision: required_u64(topology, "terminal_revision", "workspace snapshot")?,
             provider_revision: required_u64(provider, "revision", "browser provider snapshot")?,
         })
     }
@@ -512,8 +498,8 @@ impl MuxControl {
         let connector = std::thread::Builder::new()
             .name("agent-browser-provider-connect".into())
             .spawn(move || {
-                let _ = sender.send(UnixStream::connect(socket));
-            })?;
+            let _ = sender.send(UnixStream::connect(socket));
+        })?;
         let stream = match receiver.recv_timeout(remaining) {
             Ok(result) => {
                 let _ = connector.join();
@@ -601,10 +587,10 @@ fn read_control_line(
         reader.get_ref().set_read_timeout(Some(remaining_socket_timeout(deadline)?))?;
         let available = reader.fill_buf()?;
         anyhow::ensure!(!available.is_empty(), "cmux-tui closed its control socket");
-        let consumed = available.iter().position(|byte| *byte == b'\n').map_or(
-            available.len(),
-            |newline| newline + 1,
-        );
+        let consumed = available
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(available.len(), |newline| newline + 1);
         anyhow::ensure!(
             line.len().saturating_add(consumed) <= limit,
             "cmux-tui response exceeds 16 MiB"
@@ -738,8 +724,8 @@ mod tests {
     #[test]
     fn mirrored_terminal_without_a_workspace_scope_is_rejected() {
         let mut topology = topology();
-        topology["workspaces"][1]["screens"][0]["panes"][0]["tabs"][0]
-            ["terminal_resource_id"] = json!("term_one");
+        topology["workspaces"][1]["screens"][0]["panes"][0]["tabs"][0]["terminal_resource_id"] =
+            json!("term_one");
         let scope = ProviderScope { terminal: Some("term_one".into()), ..Default::default() };
 
         let error = select_workspace_target(&topology, &targets(), &scope)
@@ -765,24 +751,16 @@ mod tests {
     fn changing_topology_or_provider_revision_retries_resolution() {
         let mut changed_topology = topology();
         changed_topology["pane_revision"] = json!(13);
-        let error = ensure_stable_resolution(
-            &topology(),
-            &provider(),
-            &changed_topology,
-            &provider(),
-        )
-        .unwrap_err();
+        let error =
+            ensure_stable_resolution(&topology(), &provider(), &changed_topology, &provider())
+                .unwrap_err();
         assert!(error.to_string().contains("changed during target resolution"));
 
         let mut changed_provider = provider();
         changed_provider["revision"] = json!(18);
-        let error = ensure_stable_resolution(
-            &topology(),
-            &provider(),
-            &topology(),
-            &changed_provider,
-        )
-        .unwrap_err();
+        let error =
+            ensure_stable_resolution(&topology(), &provider(), &topology(), &changed_provider)
+                .unwrap_err();
         assert!(error.to_string().contains("changed during target resolution"));
     }
 

@@ -236,9 +236,7 @@ fn connect_before(
             // safe here because retry_until immediately reaches the same final
             // deadline and main exits, which terminates the blocked connector.
             drop(connector);
-            return Err(AppendAttemptError::Retryable(anyhow!(
-                "connect to {display} timed out"
-            )));
+            return Err(AppendAttemptError::Retryable(anyhow!("connect to {display} timed out")));
         }
     };
     result.map_err(|error| {
@@ -301,18 +299,17 @@ fn read_before(
             .get_ref()
             .set_read_timeout(Some(remaining_before(deadline)?))
             .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
-        let available = reader
-            .fill_buf()
-            .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+        let available =
+            reader.fill_buf().map_err(|error| AppendAttemptError::Retryable(error.into()))?;
         if available.is_empty() {
             return Err(AppendAttemptError::Retryable(anyhow!(
                 "journal append closed without a complete response"
             )));
         }
-        let consumed = available.iter().position(|byte| *byte == b'\n').map_or(
-            available.len(),
-            |newline| newline + 1,
-        );
+        let consumed = available
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(available.len(), |newline| newline + 1);
         if response.len().saturating_add(consumed) > MAX_RESPONSE_BYTES {
             return Err(AppendAttemptError::Fatal(anyhow!(
                 "journal append response exceeds 16 MiB"

@@ -155,10 +155,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".codex/hooks.json",
         override_env: Some("CODEX_HOME"),
         override_relative_path: "hooks.json",
-        format: Format::Nested {
-            timeout: COMMAND_HOOK_TIMEOUT_SECONDS,
-            asynchronous: false,
-        },
+        format: Format::Nested { timeout: COMMAND_HOOK_TIMEOUT_SECONDS, asynchronous: false },
         events: CODEX_EVENTS,
     },
     Provider {
@@ -167,10 +164,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".claude/settings.json",
         override_env: Some("CLAUDE_CONFIG_DIR"),
         override_relative_path: "settings.json",
-        format: Format::Nested {
-            timeout: COMMAND_HOOK_TIMEOUT_SECONDS,
-            asynchronous: true,
-        },
+        format: Format::Nested { timeout: COMMAND_HOOK_TIMEOUT_SECONDS, asynchronous: true },
         events: CLAUDE_EVENTS,
     },
     Provider {
@@ -179,10 +173,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".gemini/settings.json",
         override_env: None,
         override_relative_path: "settings.json",
-        format: Format::Nested {
-            timeout: GEMINI_HOOK_TIMEOUT_MILLISECONDS,
-            asynchronous: false,
-        },
+        format: Format::Nested { timeout: GEMINI_HOOK_TIMEOUT_MILLISECONDS, asynchronous: false },
         events: GEMINI_EVENTS,
     },
     Provider {
@@ -200,10 +191,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".grok/hooks/cmux-tui-journal.json",
         override_env: Some("GROK_HOME"),
         override_relative_path: "hooks/cmux-tui-journal.json",
-        format: Format::Nested {
-            timeout: COMMAND_HOOK_TIMEOUT_SECONDS,
-            asynchronous: false,
-        },
+        format: Format::Nested { timeout: COMMAND_HOOK_TIMEOUT_SECONDS, asynchronous: false },
         events: GROK_EVENTS,
     },
     Provider {

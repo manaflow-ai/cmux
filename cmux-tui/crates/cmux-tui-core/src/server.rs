@@ -7823,10 +7823,7 @@ fn handle_journal_extension_request(
 fn journal_extension_error(operation: &str, error: anyhow::Error) -> ResourceError {
     let message = error.to_string();
     eprintln!("cmux-tui: {operation} failed: {error:#}");
-    if error
-        .downcast_ref::<crate::journal_ingress::JournalCommitIndeterminate>()
-        .is_some()
-    {
+    if error.downcast_ref::<crate::journal_ingress::JournalCommitIndeterminate>().is_some() {
         // The helper must retry the same idempotency key until SQLite exposes
         // the authoritative result. A non-retryable operation failure would
         // make a later provider invocation allocate a new key and duplicate a

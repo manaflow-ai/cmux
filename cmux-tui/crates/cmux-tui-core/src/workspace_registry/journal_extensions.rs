@@ -686,12 +686,9 @@ impl WorkspaceRegistry {
         &mut self,
         events: &[&crate::journal_ingress::JournalIngressEvent],
     ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>> {
-        self.append_journal_ingress_events_with_limits(
-            events,
-            Duration::from_secs(5),
-            None,
-            || Ok(()),
-        )
+        self.append_journal_ingress_events_with_limits(events, Duration::from_secs(5), None, || {
+            Ok(())
+        })
     }
 
     pub(crate) fn append_journal_ingress_events_with_deadline<F>(
@@ -726,12 +723,13 @@ impl WorkspaceRegistry {
         self.connection.busy_timeout(busy_timeout)?;
         let deadline_active = deadline.map(|_| Arc::new(AtomicBool::new(true)));
         if let (Some(deadline), Some(active)) = (deadline, deadline_active.as_ref())
-            && let Err(error) = self
-                .connection
-                .progress_handler(1, Some({
+            && let Err(error) = self.connection.progress_handler(
+                1,
+                Some({
                     let active = active.clone();
                     move || active.load(Ordering::Acquire) && Instant::now() >= deadline
-                }))
+                }),
+            )
         {
             let error = anyhow::Error::new(error);
             return match self.connection.busy_timeout(Duration::from_secs(5)) {
@@ -1174,9 +1172,7 @@ impl WorkspaceRegistry {
         }
         ensure_journal_deadline(deadline)?;
         if let Some(deadline) = deadline {
-            tx.busy_timeout(
-                deadline.saturating_duration_since(Instant::now()).min(busy_timeout),
-            )?;
+            tx.busy_timeout(deadline.saturating_duration_since(Instant::now()).min(busy_timeout))?;
         }
         ensure_journal_deadline(deadline)?;
         admit_commit()?;

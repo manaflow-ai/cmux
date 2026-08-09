@@ -4,6 +4,8 @@ use std::io::Write;
 use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, Weak, mpsc};
 use std::time::{Duration, Instant};
@@ -12,7 +14,11 @@ use regex::bytes::{Regex, RegexBuilder};
 use serde_json::json;
 use wait_timeout::ChildExt;
 #[cfg(windows)]
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+#[cfg(windows)]
+use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+    CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+};
 #[cfg(windows)]
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
@@ -20,7 +26,10 @@ use windows_sys::Win32::System::JobObjects::{
     SetInformationJobObject, TerminateJobObject,
 };
 #[cfg(windows)]
-use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
+use windows_sys::Win32::System::Threading::{
+    CREATE_SUSPENDED, OpenProcess, OpenThread, PROCESS_SET_QUOTA, PROCESS_TERMINATE, ResumeThread,
+    THREAD_SUSPEND_RESUME,
+};
 
 use crate::journal_kernel::{JournalDocument, SharedJournalRead};
 use crate::workspace_registry::{
@@ -67,9 +76,7 @@ impl WindowsHookJob {
             return Err(std::io::Error::last_os_error());
         }
 
-        let process = unsafe {
-            OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, child.id())
-        };
+        let process = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, child.id()) };
         if process.is_null() {
             return Err(std::io::Error::last_os_error());
         }
@@ -95,6 +102,51 @@ impl WindowsHookJob {
         let _ = child.kill();
         let _ = child.wait();
     }
+}
+
+#[cfg(windows)]
+fn resume_suspended_hook_child(child: &std::process::Child) -> std::io::Result<()> {
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+    if snapshot == INVALID_HANDLE_VALUE {
+        return Err(std::io::Error::last_os_error());
+    }
+    let result = (|| {
+        let mut thread_entry = THREADENTRY32 {
+            dwSize: u32::try_from(std::mem::size_of::<THREADENTRY32>())
+                .expect("Windows thread entry size fits in u32"),
+            ..THREADENTRY32::default()
+        };
+        if unsafe { Thread32First(snapshot, &mut thread_entry) } == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        loop {
+            if thread_entry.th32OwnerProcessID == child.id() {
+                let thread = unsafe {
+                    OpenThread(THREAD_SUSPEND_RESUME, 0, thread_entry.th32ThreadID)
+                };
+                if thread.is_null() {
+                    return Err(std::io::Error::last_os_error());
+                }
+                let resume_result = unsafe { ResumeThread(thread) };
+                let resume_error =
+                    (resume_result == u32::MAX).then(std::io::Error::last_os_error);
+                unsafe {
+                    CloseHandle(thread);
+                }
+                return resume_error.map_or(Ok(()), Err);
+            }
+            if unsafe { Thread32Next(snapshot, &mut thread_entry) } == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "suspended hook process has no thread to resume",
+                ));
+            }
+        }
+    })();
+    unsafe {
+        CloseHandle(snapshot);
+    }
+    result
 }
 
 #[cfg(windows)]
@@ -702,6 +754,8 @@ fn execute_delivery(
         .stderr(Stdio::null());
     #[cfg(unix)]
     command.process_group(0);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_SUSPENDED);
     if let Some(session_id) = session_id {
         command.env("CMUX_JOURNAL_SESSION_ID", session_id);
     }
@@ -717,6 +771,11 @@ fn execute_delivery(
             return (None, Some(format!("isolate hook process tree: {error}")));
         }
     };
+    #[cfg(windows)]
+    if let Err(error) = resume_suspended_hook_child(&child) {
+        job.terminate_and_wait(&mut child);
+        return (None, Some(format!("resume isolated hook process: {error}")));
+    }
     let process_group = child.id();
     let Some(stdin) = child.stdin.take() else {
         #[cfg(unix)]
@@ -851,19 +910,18 @@ fn execute_hook_child_portable(
     let deadline = Instant::now() + timeout;
     let input = input.to_vec();
     let (write_result_sender, write_result_receiver) = mpsc::sync_channel(1);
-    let writer = match std::thread::Builder::new().name("journal-hook-stdin".into()).spawn(
-        move || {
+    let writer =
+        match std::thread::Builder::new().name("journal-hook-stdin".into()).spawn(move || {
             let result = stdin.write_all(&input);
             drop(stdin);
             let _ = write_result_sender.send(result);
-        },
-    ) {
-        Ok(writer) => writer,
-        Err(error) => {
-            job.terminate_and_wait(child);
-            return (None, Some(format!("start hook stdin writer: {error}")));
-        }
-    };
+        }) {
+            Ok(writer) => writer,
+            Err(error) => {
+                job.terminate_and_wait(child);
+                return (None, Some(format!("start hook stdin writer: {error}")));
+            }
+        };
 
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -875,13 +933,7 @@ fn execute_hook_child_portable(
         match write_result_receiver.recv_timeout(remaining.min(Duration::from_millis(10))) {
             Ok(Ok(())) => {
                 let _ = writer.join();
-                return wait_for_hook_exit_windows(
-                    child,
-                    process_group,
-                    deadline,
-                    timeout,
-                    job,
-                );
+                return wait_for_hook_exit_windows(child, process_group, deadline, timeout, job);
             }
             Ok(Err(error)) => {
                 let _ = writer.join();
@@ -1101,16 +1153,20 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn portable_hook_stdin_write_obeys_the_execution_timeout() {
-        let mut child = Command::new("cmd")
+        let mut command = Command::new("cmd");
+        command
             .args(["/C", "ping -n 30 127.0.0.1 >NUL"])
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
-        let stdin = child.stdin.take().unwrap();
+            .creation_flags(CREATE_SUSPENDED);
+        let mut child = command.spawn().unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        assert_eq!(child.try_wait().unwrap(), None);
         let process_group = child.id();
         let job = WindowsHookJob::assign(&child).unwrap();
+        resume_suspended_hook_child(&child).unwrap();
+        let stdin = child.stdin.take().unwrap();
         let timeout = Duration::from_millis(100);
         let started = Instant::now();
 

@@ -630,15 +630,10 @@ pub struct WorkspaceRegistry {
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
     #[cfg(test)]
-    journal_before_commit: Option<(
-        std::sync::mpsc::SyncSender<()>,
-        std::sync::mpsc::Receiver<()>,
-    )>,
+    journal_before_commit: Option<(std::sync::mpsc::SyncSender<()>, std::sync::mpsc::Receiver<()>)>,
     #[cfg(test)]
-    journal_after_commit_admission: Option<(
-        std::sync::mpsc::SyncSender<()>,
-        std::sync::mpsc::Receiver<()>,
-    )>,
+    journal_after_commit_admission:
+        Option<(std::sync::mpsc::SyncSender<()>, std::sync::mpsc::Receiver<()>)>,
     _lease: Option<SessionLease>,
     _session_guard: Option<SessionLease>,
 }
