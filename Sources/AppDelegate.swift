@@ -1115,6 +1115,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didReplyToTerminate = false
     // True while owned asynchronous cleanup controls the terminate reply.
     private var isAwaitingTerminateCleanup = false
+    enum TerminateCleanupPhase: Equatable, Sendable {
+        case ownedRuntimeCleanup
+        case freshSnapshot
+    }
+    enum TerminateCleanupDeadlineDisposition: Equatable, Sendable {
+        case persistCachedSnapshotAndTerminate
+        case cancelTerminationAfterRuntimeCleanupFailure
+    }
+    private var terminateCleanupPhase: TerminateCleanupPhase?
     private var terminateOwnedCleanupTask: Task<Void, Never>?
     private var terminateCleanupWatchdogTask: Task<Void, Never>?
     /// Force-exits if AppKit's terminate gauntlet wedges (#6758).
@@ -1941,6 +1950,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         terminateCleanupWatchdogTask?.cancel()
         terminateCleanupWatchdogTask = nil
         terminateOwnedCleanupTask = nil
+        terminateCleanupPhase = nil
         // A cancelled quit ends this terminate request; the next quit must reply again.
         if !shouldTerminate {
             didReplyToTerminate = false
@@ -1954,6 +1964,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let hasOwnedRuntimeCleanup = !markedForKill.isEmpty || !simulatorCleanupTasks.isEmpty
         if !isAwaitingTerminateCleanup {
             isAwaitingTerminateCleanup = true
+            terminateCleanupPhase = .ownedRuntimeCleanup
             StartupBreadcrumbLog.append(
                 "appDelegate.shouldTerminate.cleanupLater",
                 fields: [
@@ -1980,6 +1991,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     self.cancelTerminationAfterSimulatorCleanupFailure()
                     return
                 }
+                self.terminateCleanupPhase = .freshSnapshot
                 let resumeIndexes = await ProcessDetectedResumeIndexes.loadFresh()
                 guard !Task.isCancelled else { return }
                 _ = self.saveSessionSnapshot(
@@ -1999,9 +2011,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // watchdog requests cancellation after that contract plus cleanup
             // headroom. It cancels the actual panel and rollback tasks, joins
             // rollback only for a bounded grace period, then explicitly cancels
-            // this quit request. The fresh agent-index load gets separate headroom;
-            // when it is the only deferred work, its timeout falls back to the
-            // revalidated cache and lets termination proceed.
+            // this quit request. Once owned cleanup succeeds, the fresh agent-index
+            // load is the only remaining work; its timeout falls back to cached
+            // indexes and lets termination proceed without reporting cleanup failure.
             let cleanupDeadline: Duration
             if !simulatorCleanupTasks.isEmpty {
                 cleanupDeadline = .seconds(155)
@@ -2015,7 +2027,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 try? await ContinuousClock().sleep(for: cleanupDeadline)
                 guard !Task.isCancelled else { return }
                 cleanupTask.cancel()
-                guard hasOwnedRuntimeCleanup else {
+                let disposition = Self.terminateCleanupDeadlineDisposition(
+                    phase: self.terminateCleanupPhase,
+                    hasOwnedRuntimeCleanup: hasOwnedRuntimeCleanup
+                )
+                guard disposition == .cancelTerminationAfterRuntimeCleanupFailure else {
                     _ = self.saveSessionSnapshotUsingCachedProcessDetectedIndexes(
                         includeScrollback: true,
                         removeWhenEmpty: false
@@ -2037,6 +2053,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         return true
+    }
+
+    nonisolated static func terminateCleanupDeadlineDisposition(
+        phase: TerminateCleanupPhase?,
+        hasOwnedRuntimeCleanup: Bool
+    ) -> TerminateCleanupDeadlineDisposition {
+        if phase == .freshSnapshot || !hasOwnedRuntimeCleanup {
+            return .persistCachedSnapshotAndTerminate
+        }
+        return .cancelTerminationAfterRuntimeCleanupFailure
     }
 
     private func cancelTerminationAfterSimulatorCleanupFailure() {
@@ -2243,7 +2269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingFreshProcessDetectedIndexes(
+        _ = saveSessionSnapshotUsingCachedProcessDetectedIndexes(
             includeScrollback: true,
             removeWhenEmpty: false
         )
@@ -4057,9 +4083,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isTerminatingApp = true
-                _ = self.saveSessionSnapshotIncludingFreshProcessDetectedIndexes(
+                let resumeIndexes = await ProcessDetectedResumeIndexes.loadFresh()
+                _ = self.saveSessionSnapshot(
                     includeScrollback: true,
-                    removeWhenEmpty: false
+                    removeWhenEmpty: false,
+                    restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+                    surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
                 )
                 ClosedItemHistoryStore.shared.flushPendingSaves()
             }
@@ -4492,26 +4521,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    private func saveSessionSnapshotIncludingFreshProcessDetectedIndexes(
-        includeScrollback: Bool,
-        removeWhenEmpty: Bool = false
-    ) -> Bool {
-        let resumeIndexes = ProcessDetectedResumeIndexes.loadFreshSynchronously()
-        return saveSessionSnapshot(
-            includeScrollback: includeScrollback,
-            removeWhenEmpty: removeWhenEmpty,
-            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
-        )
-    }
-
-    @discardableResult
     private func saveSessionSnapshotUsingCachedProcessDetectedIndexes(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false
     ) -> Bool {
-        // This path runs only after the fresh process scan exceeded its watchdog.
-        // It must not retry process or filesystem work on the main actor.
+        // A watchdog fallback or synchronous updater callback must not retry
+        // process or filesystem work on the main actor.
         let resumeIndexes = ProcessDetectedResumeIndexes.cached(
             restorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty
         )

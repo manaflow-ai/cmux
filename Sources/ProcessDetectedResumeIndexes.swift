@@ -23,10 +23,8 @@ struct ProcessDetectedResumeIndexes: Sendable {
         }.value
     }
 
-    /// Loads current hook stores and captures an uncached process snapshot synchronously.
-    ///
-    /// Use only from lifecycle callbacks that must finish persistence before returning,
-    /// such as update relaunch and system power-off.
+    /// Synchronous implementation for detached loading and focused tests.
+    /// Main-actor lifecycle paths must call ``loadFresh(homeDirectory:fileManager:)``.
     static func loadFreshSynchronously(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
