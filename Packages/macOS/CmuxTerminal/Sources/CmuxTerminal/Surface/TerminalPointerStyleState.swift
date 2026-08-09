@@ -9,6 +9,7 @@ public import GhosttyKit
 @MainActor
 public struct TerminalPointerStyleState {
     private var ghosttyCursor: NSCursor = .iBeam
+    private var acceptsGhosttyShape = false
     private var isFocused = false
     private var isCmuxLinkHoverActive = false
 
@@ -29,12 +30,27 @@ public struct TerminalPointerStyleState {
     /// Unsupported Ghostty shapes are ignored so an unknown or unavailable
     /// cursor never replaces the current pointer with an unrelated fallback.
     ///
-    /// - Parameter event: The Ghostty, focus, cmux-hover, or reset transition.
+    /// - Parameter event: The runtime, Ghostty, focus, or cmux-hover transition.
     /// - Returns: `true` when AppKit cursor rects need invalidation.
     @discardableResult
     public mutating func apply(_ event: TerminalPointerStyleEvent) -> Bool {
         switch event {
+        case .runtimeActivated:
+            let previousCursor = effectiveCursor
+            acceptsGhosttyShape = true
+            ghosttyCursor = .iBeam
+            isCmuxLinkHoverActive = false
+            return !cursorsEqual(previousCursor, effectiveCursor)
+
+        case .runtimeEnded:
+            let previousCursor = effectiveCursor
+            acceptsGhosttyShape = false
+            ghosttyCursor = .iBeam
+            isCmuxLinkHoverActive = false
+            return !cursorsEqual(previousCursor, effectiveCursor)
+
         case .ghosttyShape(let shape):
+            guard acceptsGhosttyShape else { return false }
             guard let cursor = cursor(for: shape) else { return false }
             let previousCursor = effectiveCursor
             ghosttyCursor = cursor
@@ -54,12 +70,6 @@ public struct TerminalPointerStyleState {
             guard isCmuxLinkHoverActive != nextActive else { return false }
             let previousCursor = effectiveCursor
             isCmuxLinkHoverActive = nextActive
-            return !cursorsEqual(previousCursor, effectiveCursor)
-
-        case .reset:
-            let previousCursor = effectiveCursor
-            ghosttyCursor = .iBeam
-            isCmuxLinkHoverActive = false
             return !cursorsEqual(previousCursor, effectiveCursor)
         }
     }

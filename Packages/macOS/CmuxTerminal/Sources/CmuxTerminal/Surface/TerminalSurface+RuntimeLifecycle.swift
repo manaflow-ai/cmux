@@ -130,6 +130,7 @@ extension TerminalSurface {
         let registeredOwnerId = registry.runtimeSurfaceOwnerId(surface)
         guard registeredOwnerId == id,
               GhosttySurfaceRuntimeProbe.surfacePointerAppearsLive(surface) else {
+            attachedView?.runtimeSurfaceDidEnd()
             let callbackContext = surfaceCallbackContext
             surfaceCallbackContext = nil
             let teeLease = mobileByteTeeLease
@@ -236,6 +237,7 @@ extension TerminalSurface {
         backgroundSurfaceStartSource = .normal
         cancelClaudeCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
+        attachedView?.runtimeSurfaceDidEnd()
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
@@ -318,6 +320,7 @@ extension TerminalSurface {
         backgroundSurfaceStartSource = .normal
         cancelClaudeCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
+        attachedView?.runtimeSurfaceDidEnd()
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
         let manualIOContext = manualIOContext
@@ -650,6 +653,9 @@ extension TerminalSurface {
 
         let scaleFactors = scaleFactors(for: view)
 
+        // Activate view-owned runtime state before `ghostty_surface_new`: a
+        // fast child or buffered manual I/O can emit actions during creation.
+        view.prepareForRuntimeSurfaceCreation()
         let runtimeSurfaceCreation = createNativeRuntimeSurface(
             app: app,
             for: view,

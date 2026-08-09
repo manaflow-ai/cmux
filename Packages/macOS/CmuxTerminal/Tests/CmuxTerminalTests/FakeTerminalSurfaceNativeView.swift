@@ -13,6 +13,8 @@ final class FakeTerminalSurfaceNativeView: NSView {
     func toggleKeyboardCopyMode() -> Bool { false }
     func applyWindowBackgroundIfActive() {}
     func forceRefreshSurface() -> Bool { true }
+    func prepareForRuntimeSurfaceCreation() {}
+    func runtimeSurfaceDidEnd() {}
     func runtimeSurfaceDidBecomeReady() {}
 }
 

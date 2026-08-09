@@ -3157,11 +3157,14 @@ class GhosttyApp {
 
         if action.tag == GHOSTTY_ACTION_SHOW_CHILD_EXITED {
             let actionSurface = callbackContext?.terminalSurface
+            let actionRuntimeSurface = target.target.surface
             if let surfaceView = callbackContext?.surfaceView,
-               let actionSurfaceId = callbackSurfaceId {
+               let actionSurfaceId = callbackSurfaceId,
+               let actionRuntimeSurface {
                 performOnMain {
-                    guard surfaceView.terminalSurface?.id == actionSurfaceId else { return }
-                    surfaceView.applyTerminalPointerStyle(.reset)
+                    guard surfaceView.terminalSurface?.id == actionSurfaceId,
+                          surfaceView.terminalSurface?.surface == actionRuntimeSurface else { return }
+                    surfaceView.runtimeSurfaceDidEnd()
                 }
             }
             return handleChildExitedAction(
@@ -3274,9 +3277,11 @@ class GhosttyApp {
             return false
         case GHOSTTY_ACTION_MOUSE_SHAPE:
             let shape = action.action.mouse_shape
-            guard let actionSurfaceId = callbackSurfaceId else { return false }
+            guard let actionSurfaceId = callbackSurfaceId,
+                  let actionRuntimeSurface = target.target.surface else { return false }
             performOnMain {
-                guard surfaceView.terminalSurface?.id == actionSurfaceId else { return }
+                guard surfaceView.terminalSurface?.id == actionSurfaceId,
+                      surfaceView.terminalSurface?.surface == actionRuntimeSurface else { return }
                 surfaceView.applyTerminalPointerStyle(.ghosttyShape(shape))
             }
             return true
@@ -4084,7 +4089,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if !isSameSurface {
             appliedColorScheme = nil
             // Reset any OSC 22 mouse shape carried over from the previous surface.
-            applyTerminalPointerStyle(.reset)
+            applyTerminalPointerStyle(.runtimeActivated)
         }
         terminalSurface = surface
         tabId = surface.tabId
@@ -4607,8 +4612,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
+    func prepareForRuntimeSurfaceCreation() {
+        applyTerminalPointerStyle(.runtimeActivated)
+    }
+
+    func runtimeSurfaceDidEnd() {
+        applyTerminalPointerStyle(.runtimeEnded)
+    }
+
     func runtimeSurfaceDidBecomeReady() {
-        applyTerminalPointerStyle(.reset)
         guard keyboardCopyModeActive, let surface else { return }
         guard initializeKeyboardCopyModeCursor(surface: surface) else {
             setKeyboardCopyModeActive(false)
