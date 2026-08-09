@@ -12528,12 +12528,15 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     hostId: ObjectIdentifier(host),
                     instanceSerial: host.instanceSerial
                 ) { [weak coordinator, weak terminalSurface] in
-                    guard let coordinator,
-                          let terminalSurface,
-                          coordinator.attachGeneration == parkedAttachGeneration,
-                          coordinator.vacancyParkedSurface === terminalSurface,
-                          let parkedRetry else { return }
-                    parkedRetry()
+                    // TerminalSurface drains vacancy retries from RunLoop.main.
+                    MainActor.assumeIsolated {
+                        guard let coordinator,
+                              let terminalSurface,
+                              coordinator.attachGeneration == parkedAttachGeneration,
+                              coordinator.vacancyParkedSurface === terminalSurface,
+                              let parkedRetry else { return }
+                        parkedRetry()
+                    }
                 }
             } else {
                 coordinator.vacancyRetry = nil
