@@ -266,6 +266,72 @@ struct PiFeedDockOwnershipTests {
     }
 
     @MainActor
+    @Test("Overlapping Feed attention stays lit across a panel owner transfer")
+    func overlappingFeedAttentionStaysLitAcrossPanelOwnerTransfer() async throws {
+        try await withAppContext { appDelegate, manager, workspace, windowID in
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let targetPanel = try dock.seedPiFeedPanel()
+            let beforeMoveEvent = WorkstreamEvent(
+                sessionId: "pi-window-dock-overlap-before-move",
+                hookEventName: .permissionRequest,
+                source: "pi",
+                workspaceId: windowID.uuidString,
+                surfaceId: targetPanel.id.uuidString,
+                toolName: "Bash",
+                requestId: "pi-window-dock-overlap-before-move-request"
+            )
+            let firstTarget = try #require(
+                FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                    event: beforeMoveEvent,
+                    resolved: (windowID, targetPanel.id),
+                    tabManager: manager
+                )
+            )
+            #expect(appDelegate.moveDockSurfaceToWorkspace(
+                sourceDock: dock,
+                panelId: targetPanel.id,
+                toWorkspace: workspace.id,
+                targetPane: nil,
+                targetIndex: nil,
+                splitTarget: nil,
+                focus: false,
+                focusWindow: false
+            ))
+
+            let afterMoveEvent = WorkstreamEvent(
+                sessionId: "pi-window-dock-overlap-after-move",
+                hookEventName: .permissionRequest,
+                source: "pi",
+                workspaceId: workspace.id.uuidString,
+                surfaceId: targetPanel.id.uuidString,
+                toolName: "Bash",
+                requestId: "pi-window-dock-overlap-after-move-request"
+            )
+            let secondTarget = try #require(
+                FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                    event: afterMoveEvent,
+                    resolved: (workspace.id, targetPanel.id),
+                    tabManager: manager
+                )
+            )
+
+            FeedCoordinator.shared.concludeBlockingDecisionAttention(firstTarget)
+
+            #expect(
+                workspace.agentLifecycleStatesByPanelId[targetPanel.id]?["pi"] == .needsInput
+            )
+            #expect(workspace.statusEntries["pi"]?.value == FeedCoordinator.needsInputStatusValue)
+
+            FeedCoordinator.shared.concludeBlockingDecisionAttention(secondTarget)
+
+            #expect(
+                workspace.agentLifecycleStatesByPanelId[targetPanel.id]?["pi"] == .running
+            )
+            #expect(workspace.statusEntries["pi"] == nil)
+        }
+    }
+
+    @MainActor
     @Test("Surface-less blocking Feed marks the focused window Dock panel as needing input")
     func surfaceLessBlockingFeedMarksFocusedWindowDockPanelAsNeedingInput() async throws {
         try await withAppContext { appDelegate, _, _, windowID in
