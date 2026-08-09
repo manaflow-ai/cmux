@@ -6,8 +6,6 @@ import {
 } from "../../../../../../services/subrouter/routeHelpers";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 type RouteContext = {
   readonly params: Promise<{ readonly accountId: string }>;
