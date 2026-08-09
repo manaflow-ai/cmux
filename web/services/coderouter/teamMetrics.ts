@@ -174,25 +174,34 @@ type MutableMetrics = {
 };
 
 function parseRow(value: unknown): ParsedRow | null {
-  if (!isPlainRecord(value)) return null;
-  const keys = Object.keys(value).sort();
+  const record = Array.isArray(value)
+    ? value.length === EXPECTED_COLUMNS.length
+      ? Object.fromEntries(
+        EXPECTED_COLUMNS.map((column, index) => [column, value[index]]),
+      )
+      : null
+    : isPlainRecord(value)
+    ? value
+    : null;
+  if (!record) return null;
+  const keys = Object.keys(record).sort();
   if (
     keys.length !== EXPECTED_COLUMNS.length ||
     ![...EXPECTED_COLUMNS].sort().every((key, index) => keys[index] === key)
   ) {
     return null;
   }
-  const day = typeof value.day === "string" &&
-      /^\d{4}-\d{2}-\d{2}$/.test(value.day)
-    ? value.day
+  const day = typeof record.day === "string" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(record.day)
+    ? record.day
     : null;
-  const inputTokens = nonNegativeNumber(value.input_tokens);
-  const cachedInputTokens = nonNegativeNumber(value.cached_input_tokens);
-  const outputTokens = nonNegativeNumber(value.output_tokens);
-  const totalTokens = nonNegativeNumber(value.total_tokens);
-  const apiEquivalentUsd = nonNegativeNumber(value.api_equivalent_usd);
-  const pricedTokens = nonNegativeNumber(value.priced_tokens);
-  const unpricedTokens = nonNegativeNumber(value.unpriced_tokens);
+  const inputTokens = nonNegativeNumber(record.input_tokens);
+  const cachedInputTokens = nonNegativeNumber(record.cached_input_tokens);
+  const outputTokens = nonNegativeNumber(record.output_tokens);
+  const totalTokens = nonNegativeNumber(record.total_tokens);
+  const apiEquivalentUsd = nonNegativeNumber(record.api_equivalent_usd);
+  const pricedTokens = nonNegativeNumber(record.priced_tokens);
+  const unpricedTokens = nonNegativeNumber(record.unpriced_tokens);
   if (
     !day ||
     inputTokens === null ||

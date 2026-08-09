@@ -115,6 +115,30 @@ describe("CodeRouter team metrics", () => {
     expect(JSON.stringify(result)).not.toMatch(/model|provider|member|account/i);
   });
 
+  test("accepts PostHog tabular rows aligned with validated columns", () => {
+    const result = metricsTest.metricsFromRows(
+      [[
+        "2026-08-08",
+        80,
+        20,
+        20,
+        100,
+        0.0003,
+        100,
+        0,
+      ]],
+      new Date("2026-08-08T12:00:00.000Z"),
+    );
+    expect(result?.totals).toMatchObject({
+      inputTokens: 80,
+      cachedInputTokens: 20,
+      outputTokens: 20,
+      totalTokens: 100,
+      pricedTokens: 100,
+      unpricedTokens: 0,
+    });
+  });
+
   test("fails closed when PostHog is unconfigured or malformed", async () => {
     expect(
       await metricsTest.queryCoderouterTeamMetrics("team-1", {
