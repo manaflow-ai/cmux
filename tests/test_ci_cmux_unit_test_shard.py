@@ -15,12 +15,14 @@ HELPER = ROOT / "scripts" / "ci" / "cmux_unit_test_shard.py"
 
 def write_large_suite_fixture(test_root: Path) -> None:
     methods = "\n".join(
-        f"    func testGenerated{index:02d}() {{}}"
-        for index in range(1, 41)
+        f"    @Test func testGenerated{index:02d}() {{}}"
+        for index in range(1, 40)
     )
     (test_root / "LargeSuiteTests.swift").write_text(
         f"""
-final class LargeSuiteTests: XCTestCase {{
+import Testing
+
+struct LargeSuiteTests {{
 {methods}
 }}
 """.lstrip(),
@@ -29,7 +31,10 @@ final class LargeSuiteTests: XCTestCase {{
     (test_root / "LargeSuiteExtensionTests.swift").write_text(
         """
 extension LargeSuiteTests {
-    func testExtensionRegression() {}
+    @Test func testExtensionRegression() {}
+
+    @Test
+    func extensionOnFollowingLine() {}
 }
 """.lstrip(),
         encoding="utf-8",
@@ -485,10 +490,17 @@ def main() -> int:
                 return 1
             selectors.extend(output.read_text(encoding="utf-8").splitlines())
 
-    extension_selector = "-only-testing:cmuxTests/LargeSuiteTests/testExtensionRegression"
-    if selectors.count(extension_selector) != 1:
-        print(f"FAIL: expected extension selector exactly once, got {selectors.count(extension_selector)}")
-        return 1
+    extension_selectors = {
+        "-only-testing:cmuxTests/LargeSuiteTests/testExtensionRegression",
+        "-only-testing:cmuxTests/LargeSuiteTests/extensionOnFollowingLine",
+    }
+    for extension_selector in extension_selectors:
+        if selectors.count(extension_selector) != 1:
+            print(
+                "FAIL: expected Swift Testing extension selector exactly once, got "
+                f"{extension_selector}={selectors.count(extension_selector)}"
+            )
+            return 1
 
     suite_selector = "-only-testing:cmuxTests/LargeSuiteTests"
     if suite_selector in selectors:
