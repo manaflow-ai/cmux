@@ -204,6 +204,10 @@ class TabManager: ObservableObject {
     /// source of workspaces, so its own flag is already app-wide.
     var autoWorkspaceColorReconcileScheduledFallback = false
 
+    /// Last auto color settings seen on the defaults notification path, so an
+    /// unrelated write does not schedule a full workspace scan.
+    var lastAutoWorkspaceColorSettingsFingerprint: String?
+
     var tabs: [Workspace] {
         get { workspaces.tabs }
         set { workspaces.tabs = newValue }
@@ -679,7 +683,7 @@ class TabManager: ObservableObject {
                 self?.focusHistoryScopeSettingsDidChange()
                 self?.refreshTabCloseButtonVisibility()
                 self?.refreshWindowTitle()
-                self?.scheduleAutoWorkspaceColorReconcile()
+                self?.scheduleAutoWorkspaceColorReconcileIfSettingsChanged()
             }
         })
 #if DEBUG

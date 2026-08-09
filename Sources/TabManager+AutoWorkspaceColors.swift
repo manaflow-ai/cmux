@@ -55,6 +55,35 @@ extension TabManager {
         }
     }
 
+    /// Requests a reconcile only if the auto color settings actually changed.
+    ///
+    /// The `UserDefaults.didChangeNotification` observer is store-wide, so it
+    /// also fires for writes that have nothing to do with workspace colors —
+    /// and for the assignment map this feature writes itself. Reconciling on
+    /// each of those would scan every window's workspaces for unrelated work,
+    /// so the notification path compares the two inputs a pass depends on and
+    /// drops the request when neither moved.
+    func scheduleAutoWorkspaceColorReconcileIfSettingsChanged() {
+        let fingerprint = autoWorkspaceColorSettingsFingerprint()
+        guard fingerprint != lastAutoWorkspaceColorSettingsFingerprint else { return }
+        lastAutoWorkspaceColorSettingsFingerprint = fingerprint
+        scheduleAutoWorkspaceColorReconcile()
+    }
+
+    /// The indicator style and palette, the only settings a pass reads.
+    ///
+    /// Workspace membership changes arrive on their own path, so they are
+    /// deliberately absent here.
+    private func autoWorkspaceColorSettingsFingerprint() -> String {
+        let keys = WorkspaceColorsCatalogSection()
+        let settings = UserDefaultsSettingsClient(defaults: autoWorkspaceColorDefaults)
+        let style = settings.value(for: keys.indicatorStyle).rawValue
+        let palette = WorkspaceTabColorSettings.palette(defaults: autoWorkspaceColorDefaults)
+            .map(\.hex)
+            .joined(separator: ",")
+        return "\(style)|\(palette)"
+    }
+
     /// Allocates colors to workspaces that need one and prunes dead entries.
     ///
     /// Existing assignments are preserved, so deleting or reordering a
@@ -106,16 +135,25 @@ extension TabManager {
     /// A `TabManager` only owns one window's workspaces, so pruning against a
     /// single manager's `tabs` would delete the other windows' assignments and
     /// reshuffle their colors on the next pass.
+    ///
+    /// Window summaries alone are not the full list: a registered context whose
+    /// window is gone mid-teardown, or absent in a windowless test context, has
+    /// no summary but still owns live workspaces. Omitting it would stop its
+    /// colors counting as in use and let a later allocation duplicate one.
     private static func autoColorReconcileWorkspaces(fallback: TabManager) -> [Workspace] {
         guard let app = AppDelegate.shared else { return fallback.tabs }
 
         var managers: [TabManager] = [fallback]
-        for summary in app.listMainWindowSummaries() {
-            guard let manager = app.tabManagerFor(windowId: summary.windowId),
-                  !managers.contains(where: { $0 === manager }) else {
-                continue
-            }
+        func add(_ manager: TabManager) {
+            guard !managers.contains(where: { $0 === manager }) else { return }
             managers.append(manager)
+        }
+        for summary in app.listMainWindowSummaries() {
+            guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+            add(manager)
+        }
+        for context in app.mainWindowContexts.values {
+            add(context.tabManager)
         }
 
         var seen: Set<UUID> = []

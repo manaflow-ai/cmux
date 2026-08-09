@@ -1040,6 +1040,14 @@ import Testing
         let defaults = Self.suite()
         let settings = UserDefaultsSettingsClient(defaults: defaults)
         let store = ObjectIdentifier(defaults)
+        let otherDefaults = Self.suite()
+        let otherStore = ObjectIdentifier(otherDefaults)
+        // `ObjectIdentifier` is an address, so a leaked entry could suppress a
+        // later test whose store happens to reuse the same allocation.
+        defer {
+            app.scheduledAutoWorkspaceColorReconciles.remove(store)
+            app.scheduledAutoWorkspaceColorReconciles.remove(otherStore)
+        }
 
         let first = TabManager(
             autoWelcomeIfNeeded: false,
@@ -1065,8 +1073,6 @@ import Testing
 
         // A different store is a different pass, so one manager's pending work
         // cannot swallow a request that would reconcile something else.
-        let otherDefaults = Self.suite()
-        let otherStore = ObjectIdentifier(otherDefaults)
         app.scheduledAutoWorkspaceColorReconciles.remove(otherStore)
         let other = TabManager(
             autoWelcomeIfNeeded: false,
@@ -1076,6 +1082,38 @@ import Testing
         )
         other.scheduleAutoWorkspaceColorReconcile()
         #expect(app.scheduledAutoWorkspaceColorReconciles.contains(otherStore))
+    }
+
+    /// The defaults observer is store-wide, so an unrelated write must not
+    /// enqueue a pass that scans every window's workspaces.
+    @MainActor
+    @Test
+    func unrelatedDefaultsWriteDoesNotScheduleAReconcile() async throws {
+        let app = try #require(AppDelegate.shared, "needs the app host")
+        let defaults = Self.suite()
+        let store = ObjectIdentifier(defaults)
+        defer { app.scheduledAutoWorkspaceColorReconciles.remove(store) }
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let key = WorkspaceColorsCatalogSection().indicatorStyle
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            settings: settings,
+            autoWorkspaceColorDefaults: defaults,
+            closeTabWarningDefaults: defaults
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+
+        settings.set(.leftRailAuto, for: key)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+        #expect(await Self.waitUntil { Self.railColor(for: workspace, defaults: defaults) != nil })
+        #expect(await Self.waitUntil {
+            !app.scheduledAutoWorkspaceColorReconciles.contains(store)
+        })
+
+        defaults.set("something else", forKey: "unrelated.key")
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+
+        #expect(!app.scheduledAutoWorkspaceColorReconciles.contains(store))
     }
 
     /// Polls `condition` until it holds or the deadline passes.
