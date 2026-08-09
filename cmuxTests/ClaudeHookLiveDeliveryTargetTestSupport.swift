@@ -176,7 +176,8 @@ enum ClaudeHookLiveDeliveryHarness {
         workspaceId: String,
         surfaceId: String,
         workspaceIDsBySurface: [String: String] = [:],
-        missingWorkspaceIDs: Set<String> = []
+        missingWorkspaceIDs: Set<String> = [],
+        feedPushSucceeds: Bool = true
     ) -> TaskSyncDeliverySignals {
         let deliveries = TaskSyncDeliverySignals()
         _ = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
@@ -186,6 +187,19 @@ enum ClaudeHookLiveDeliveryHarness {
             }
             if method == "feed.push" {
                 deliveries.feed.signal()
+                guard feedPushSucceeds else {
+                    guard let id = payload["id"] as? String else {
+                        return "ERROR: injected Feed rejection"
+                    }
+                    return v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "delivery_failed", "message": "injected Feed rejection"]
+                    )
+                }
+                if let id = payload["id"] as? String {
+                    return v2Response(id: id, ok: true, result: [:])
+                }
                 return "OK"
             }
             guard let id = payload["id"] as? String else {

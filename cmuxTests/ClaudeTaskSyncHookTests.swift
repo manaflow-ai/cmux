@@ -175,6 +175,152 @@ struct ClaudeTaskSyncHookTests {
         #expect(persistedRecord["surfaceId"] as? String == surfaceId)
     }
 
+    @Test("A personal task list clears its prior workspace after session teardown and resume")
+    func movesPersonalTaskOwnerAfterSessionTeardown() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(
+            name: "task-sync-personal-resume-move"
+        )
+        defer { context.cleanup() }
+        let previousWorkspaceId = "34343434-3434-3434-3434-343434343434"
+        let currentWorkspaceId = "35353535-3535-3535-3535-353535353535"
+        let previousSurfaceId = "36363636-3636-3636-3636-363636363636"
+        let currentSurfaceId = "37373737-3737-3737-3737-373737373737"
+        let sessionId = "resumed-personal-session"
+        let tasksRoot = context.root.appendingPathComponent(".claude/tasks", isDirectory: true)
+        let taskDirectory = tasksRoot.appendingPathComponent(sessionId, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: taskDirectory,
+            withIntermediateDirectories: true
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Resume task","status":"pending"}"#,
+            named: "1.json",
+            in: taskDirectory
+        )
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: previousWorkspaceId,
+            surfaceId: previousSurfaceId,
+            workspaceIDsBySurface: [
+                previousSurfaceId: previousWorkspaceId,
+                currentSurfaceId: currentWorkspaceId,
+            ]
+        )
+        var previousEnvironment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        previousEnvironment["CMUX_WORKSPACE_ID"] = previousWorkspaceId
+        previousEnvironment["CMUX_SURFACE_ID"] = previousSurfaceId
+
+        let firstResult = runHook(
+            context: context,
+            environment: previousEnvironment,
+            sessionId: sessionId,
+            toolName: "TaskCreate"
+        )
+        #expect(!firstResult.timedOut, Comment(rawValue: firstResult.stderr))
+        #expect(firstResult.status == 0, Comment(rawValue: firstResult.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+
+        let teardownResult = ClaudeHookLiveDeliveryHarness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            environment: previousEnvironment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"SessionEnd","cwd":"\#(context.root.path)"}"#
+        )
+        #expect(!teardownResult.timedOut, Comment(rawValue: teardownResult.stderr))
+        #expect(teardownResult.status == 0, Comment(rawValue: teardownResult.stderr))
+        #expect(
+            try ClaudeHookLiveDeliveryHarness.sessionRecord(
+                in: context.storeURL,
+                sessionId: sessionId
+            ) == nil
+        )
+
+        try writeTask(
+            #"{"id":"1","subject":"Resumed task","status":"in_progress"}"#,
+            named: "1.json",
+            in: taskDirectory
+        )
+        var currentEnvironment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        currentEnvironment["CMUX_WORKSPACE_ID"] = currentWorkspaceId
+        currentEnvironment["CMUX_SURFACE_ID"] = currentSurfaceId
+        let resumedResult = runHook(
+            context: context,
+            environment: currentEnvironment,
+            sessionId: sessionId,
+            toolName: "TaskUpdate"
+        )
+        #expect(!resumedResult.timedOut, Comment(rawValue: resumedResult.stderr))
+        #expect(resumedResult.status == 0, Comment(rawValue: resumedResult.stderr))
+
+        let reconciliations = reconcileRequests(in: context)
+        #expect(reconciliations.count == 3)
+        let previousDelivery = try #require(reconciliations.first)
+        let previousCleanup = try #require(reconciliations.dropFirst().first)
+        let currentDelivery = try #require(reconciliations.last)
+        let ownerID = taskOwnerID(directoryName: sessionId, tasksRootURL: tasksRoot)
+        #expect(previousDelivery["workspace_id"] as? String == previousWorkspaceId)
+        #expect(previousCleanup["workspace_id"] as? String == previousWorkspaceId)
+        #expect(previousCleanup["owner_id"] as? String == ownerID)
+        #expect((previousCleanup["items"] as? [[String: Any]])?.isEmpty == true)
+        #expect(currentDelivery["workspace_id"] as? String == currentWorkspaceId)
+        #expect(currentDelivery["owner_id"] as? String == ownerID)
+        #expect(
+            (currentDelivery["items"] as? [[String: Any]])?.compactMap {
+                $0["text"] as? String
+            } == ["Resumed task"]
+        )
+    }
+
+    @Test("A rejected authoritative Feed snapshot prevents checklist commit")
+    func rejectsChecklistWhenFeedSnapshotIsRejected() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(
+            name: "task-sync-feed-rejection"
+        )
+        defer { context.cleanup() }
+        let workspaceId = "38383838-3838-3838-3838-383838383838"
+        let surfaceId = "39393939-3939-3939-3939-393939393939"
+        let sessionId = "feed-rejection-session"
+        let taskDirectory = context.root
+            .appendingPathComponent(".claude/tasks/\(sessionId)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: taskDirectory,
+            withIntermediateDirectories: true
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Authoritative task","status":"pending"}"#,
+            named: "1.json",
+            in: taskDirectory
+        )
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            feedPushSucceeds: false
+        )
+        var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let result = runHook(
+            context: context,
+            environment: environment,
+            sessionId: sessionId,
+            toolName: "TaskCreate"
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(reconcileRequests(in: context).isEmpty)
+        #expect(
+            try ClaudeHookLiveDeliveryHarness.sessionRecord(
+                in: context.storeURL,
+                sessionId: sessionId
+            ) == nil
+        )
+    }
+
     @Test("Namespaced delivery removes a legacy owner exactly once")
     func migratesLegacyChecklistOwnerBeforeDelivery() throws {
         let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync-owner-migration")
