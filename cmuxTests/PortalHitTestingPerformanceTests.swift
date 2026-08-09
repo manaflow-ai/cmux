@@ -700,6 +700,14 @@ struct PortalHitTestingPerformanceTests {
         splitView.addSubview(panes[0])
         splitView.addSubview(panes[1])
         rootView.addSubview(splitView)
+        defer {
+            // `removeArrangedSubview` intentionally leaves the view in `subviews`.
+            // Restore AppKit's all-subviews-are-arranged invariant before the
+            // split view deallocates; macOS 15 otherwise tears down KVO twice.
+            for pane in panes where !splitView.arrangedSubviews.contains(where: { $0 === pane }) {
+                splitView.addArrangedSubview(pane)
+            }
+        }
         prepare(splitView, panes)
 
         let invalidator = PortalSplitDividerCacheInvalidator()
