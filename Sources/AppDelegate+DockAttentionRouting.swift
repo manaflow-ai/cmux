@@ -85,7 +85,10 @@ extension AppDelegate {
                let target = workspace.surfaceOwnershipTarget(for: owner.surfaceID) {
                 workspace.markPanelUnread(target.containerPanelID)
             } else {
-                notificationStore?.markUnread(forTabId: owner.tabID)
+                notificationStore?.markUnread(
+                    forTabId: owner.tabID,
+                    surfaceId: owner.surfaceID
+                )
             }
         }
 

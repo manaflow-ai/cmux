@@ -17,6 +17,7 @@ private final class FakeHost: NotificationDismissalHosting {
     var manualPanelUnread: Set<UUID> = []
     var restoredPanelUnread: Set<UUID> = []
     var manualWorkspaceUnread: Set<UUID> = []
+    var manualSurfaceUnread: Set<UUID> = []
     var restoredWorkspaceUnread: Set<UUID> = []
     var unreadNotificationSurfaces: Set<UUID> = []
     var workspaceWideUnread: Set<UUID> = []
@@ -70,6 +71,10 @@ private final class FakeHost: NotificationDismissalHosting {
         manualWorkspaceUnread.contains(workspaceId)
     }
 
+    func storeHasManualUnread(workspaceId: UUID, surfaceId: UUID) -> Bool {
+        manualSurfaceUnread.contains(surfaceId)
+    }
+
     func storeHasRestoredUnreadIndicator(workspaceId: UUID) -> Bool {
         restoredWorkspaceUnread.contains(workspaceId)
     }
@@ -96,6 +101,11 @@ private final class FakeHost: NotificationDismissalHosting {
     func storeClearManualUnread(workspaceId: UUID) -> Bool {
         log.append("storeClearManualUnread")
         return manualWorkspaceUnread.contains(workspaceId)
+    }
+
+    func storeClearManualUnread(workspaceId: UUID, surfaceId: UUID) -> Bool {
+        log.append("storeClearManualUnread:\(short(surfaceId))")
+        return manualSurfaceUnread.contains(surfaceId)
     }
 
     func storeClearRestoredUnreadIndicator(workspaceId: UUID) -> Bool {
@@ -202,6 +212,7 @@ struct NotificationDismissalModelTests {
         let (model, host, workspaceId, panelId) = makeModel()
         host.manualPanelUnread = [panelId]
         host.manualWorkspaceUnread = [workspaceId]
+        host.manualSurfaceUnread = [panelId]
 
         // Direct interaction may not clear a manually-set unread indicator.
         #expect(!model.dismissNotificationOnDirectInteraction(workspaceId: workspaceId, surfaceId: panelId))
@@ -212,6 +223,7 @@ struct NotificationDismissalModelTests {
         let prefix = String(panelId.uuidString.prefix(4))
         #expect(host.log == [
             "panelClearManualUnread", "storeClearManualUnread",
+            "storeClearManualUnread:\(prefix)",
             "clearFocusedRead:\(prefix)", "unreadIndicatorFlash",
         ])
     }
