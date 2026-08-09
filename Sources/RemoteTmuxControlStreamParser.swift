@@ -209,6 +209,12 @@ struct RemoteTmuxControlStreamParser {
             return .sessionRenamed(sessionId: nil, name: Self.fieldsFrom(line, 1), idBearingName: nil)
         }
         if line == "%sessions-changed" { return .sessionsChanged }
+        if line == "%client-detached" || line.hasPrefix("%client-detached ") {
+            guard let client = Self.field(line, 1), !client.isEmpty else {
+                return .unparsed(line)
+            }
+            return .clientDetached(client: client)
+        }
         if line.hasPrefix("%window-add ") {
             guard let id = Self.fieldId(line, 1, sigil: "@") else { return .unparsed(line) }
             return .windowAdd(windowId: id)

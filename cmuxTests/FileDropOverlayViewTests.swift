@@ -1,8 +1,8 @@
 import AppKit
 import ObjectiveC.runtime
 import SwiftUI
+import Testing
 import WebKit
-import XCTest
 import CmuxUpdater
 
 #if canImport(cmux_DEV)
@@ -12,7 +12,8 @@ import CmuxUpdater
 #endif
 
 @MainActor
-final class FileDropOverlayViewTests: XCTestCase {
+@Suite(.serialized)
+struct FileDropOverlayViewTests {
     private func makeContentViewWindow(windowId: UUID = UUID()) -> NSWindow {
         _ = NSApplication.shared
 
@@ -128,7 +129,8 @@ final class FileDropOverlayViewTests: XCTestCase {
         window.contentView?.layoutSubtreeIfNeeded()
     }
 
-    func testContentViewInstallsSingleFileDropOverlayAcrossRepeatedLayouts() {
+    @Test
+    func contentViewInstallsSingleFileDropOverlayAcrossRepeatedLayouts() throws {
         let window = makeContentViewWindow()
         defer {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
@@ -139,24 +141,21 @@ final class FileDropOverlayViewTests: XCTestCase {
         realizeWindowLayout(window)
         realizeWindowLayout(window)
 
-        guard let themeFrame = window.contentView?.superview else {
-            XCTFail("Expected theme frame")
-            return
-        }
+        let themeFrame = try #require(window.contentView?.superview)
 
         let overlays = fileDropOverlays(in: themeFrame)
-        XCTAssertEqual(
-            overlays.count,
-            1,
+        #expect(
+            overlays.count == 1,
             "ContentView should install exactly one FileDropOverlayView even after repeated layout passes"
         )
-        XCTAssertTrue(
+        #expect(
             (objc_getAssociatedObject(window, &fileDropOverlayKey) as? FileDropOverlayView) === overlays.first,
             "The window-associated file-drop overlay should match the single installed view"
         )
     }
 
-    func testOverlayResolvesPortalHostedBrowserWebViewForFileDrops() {
+    @Test
+    func overlayResolvesPortalHostedBrowserWebViewForFileDrops() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
             styleMask: [.titled, .closable],
@@ -169,11 +168,8 @@ final class FileDropOverlayViewTests: XCTestCase {
         }
         realizeWindowLayout(window)
 
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
+        let contentView = try #require(window.contentView)
+        let container = try #require(contentView.superview)
 
         let anchor = NSView(frame: NSRect(x: 40, y: 36, width: 220, height: 150))
         contentView.addSubview(anchor)
@@ -191,13 +187,14 @@ final class FileDropOverlayViewTests: XCTestCase {
             NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY),
             to: nil
         )
-        XCTAssertTrue(
+        #expect(
             overlay.webViewUnderPoint(point) === webView,
             "File-drop overlay should resolve portal-hosted browser panes so Finder uploads still reach WKWebView"
         )
     }
 
-    func testOverlayDelegatesBrowserFileDragLifecycleToPortalHostedWebView() {
+    @Test
+    func overlayDelegatesBrowserFileDragLifecycleToPortalHostedWebView() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
             styleMask: [.titled, .closable],
@@ -210,11 +207,8 @@ final class FileDropOverlayViewTests: XCTestCase {
         }
         realizeWindowLayout(window)
 
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
+        let contentView = try #require(window.contentView)
+        let container = try #require(contentView.superview)
 
         let anchor = NSView(frame: NSRect(x: 52, y: 44, width: 210, height: 140))
         contentView.addSubview(anchor)
@@ -230,7 +224,7 @@ final class FileDropOverlayViewTests: XCTestCase {
 
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.drag.\(UUID().uuidString)"))
         pasteboard.clearContents()
-        XCTAssertTrue(
+        #expect(
             pasteboard.writeObjects([URL(fileURLWithPath: "/tmp/upload.mov") as NSURL]),
             "Expected file URL drag payload"
         )
@@ -245,19 +239,19 @@ final class FileDropOverlayViewTests: XCTestCase {
             pasteboard: pasteboard
         )
 
-        XCTAssertEqual(overlay.draggingEntered(dragInfo), .copy)
-        XCTAssertTrue(overlay.prepareForDragOperation(dragInfo))
-        XCTAssertTrue(overlay.performDragOperation(dragInfo))
+        #expect(overlay.draggingEntered(dragInfo) == .copy)
+        #expect(overlay.prepareForDragOperation(dragInfo))
+        #expect(overlay.performDragOperation(dragInfo))
         overlay.concludeDragOperation(dragInfo)
 
-        XCTAssertEqual(
-            webView.dragCalls,
-            ["entered", "prepare", "perform", "conclude"],
+        #expect(
+            webView.dragCalls == ["entered", "prepare", "perform", "conclude"],
             "Finder file drops over browser panes should still reach the portal-hosted WKWebView"
         )
     }
 
-    func testOverlayDoesNotRecordTextDragWhenWebViewRejectsDrop() {
+    @Test
+    func overlayDoesNotRecordTextDragWhenWebViewRejectsDrop() throws {
         let defaults = UserDefaults.standard
         let savedDefaultBehavior = defaults.object(forKey: FileDropBehaviorSettings.defaultBehaviorKey)
         defaults.set(FileDropDefaultBehavior.text.rawValue, forKey: FileDropBehaviorSettings.defaultBehaviorKey)
@@ -281,11 +275,8 @@ final class FileDropOverlayViewTests: XCTestCase {
         }
         realizeWindowLayout(window)
 
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
+        let contentView = try #require(window.contentView)
+        let container = try #require(contentView.superview)
 
         let anchor = NSView(frame: NSRect(x: 52, y: 44, width: 210, height: 140))
         contentView.addSubview(anchor)
@@ -302,7 +293,7 @@ final class FileDropOverlayViewTests: XCTestCase {
 
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.drag.\(UUID().uuidString)"))
         pasteboard.clearContents()
-        XCTAssertTrue(
+        #expect(
             pasteboard.writeObjects([URL(fileURLWithPath: "/tmp/rejected-upload.mov") as NSURL]),
             "Expected file URL drag payload"
         )
@@ -317,16 +308,15 @@ final class FileDropOverlayViewTests: XCTestCase {
             pasteboard: pasteboard
         )
 
-        XCTAssertEqual(overlay.draggingEntered(dragInfo), .copy)
-        XCTAssertTrue(overlay.prepareForDragOperation(dragInfo))
-        XCTAssertFalse(overlay.performDragOperation(dragInfo))
-        XCTAssertFalse(overlay.didPerformDragAsText)
-        XCTAssertNil(overlay.performedTextDragWebView)
+        #expect(overlay.draggingEntered(dragInfo) == .copy)
+        #expect(overlay.prepareForDragOperation(dragInfo))
+        #expect(!overlay.performDragOperation(dragInfo))
+        #expect(!overlay.didPerformDragAsText)
+        #expect(overlay.performedTextDragWebView == nil)
 
         overlay.concludeDragOperation(dragInfo)
-        XCTAssertEqual(
-            webView.dragCalls,
-            ["entered", "prepare", "perform"],
+        #expect(
+            webView.dragCalls == ["entered", "prepare", "perform"],
             "Rejected text drops should not be recorded as performed or receive a text-route conclude"
         )
     }

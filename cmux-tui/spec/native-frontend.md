@@ -19,6 +19,14 @@ shared command in [`commands.md`](commands.md) explicitly takes authority.
 Remote automation of frontend-owned behavior uses the proposed adapter in
 [`programmability.md`](programmability.md#frontend-action-adapter).
 
+The native TUI keeps active workspace, screen, pane, tab, text selection, and
+scroll state in its `App` instance. Tree refreshes preserve those choices by
+stable resource identity. They never write the mux's shared active fields.
+Even when the TUI starts the server itself, it reconnects through the normal
+remote-session path so each terminal view has its own VT mirror and viewport.
+Selecting a visible terminal view explicitly transfers canonical geometry to
+that client/view pair.
+
 ## Startup workspace mutation
 
 The native TUI prepares visible topology before entering terminal mode. When

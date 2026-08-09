@@ -6,6 +6,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
         remoteRelayPort: Int,
         shellFeatures: String,
         initialCommand: String? = nil,
+        configuredRemoteCommand: String? = nil,
         terminfoSource: String? = nil,
         bundledZshIntegration: String? = nil,
         bundledBashIntegration: String? = nil,
@@ -31,6 +32,19 @@ enum RemoteInteractiveShellBootstrapBuilder {
         bashShellLines.append(contentsOf: initialCommandBootstrap.posixInteractiveShellLines)
         let zshBootstrap = RemoteRelayZshBootstrap(shellStateDir: shellStateDir)
         let relayWarmupLines = relayWarmupLines(remoteRelayPort: remoteRelayPort)
+        // A captured/approved startup command is an explicit restore target;
+        // it takes precedence over the host's default interactive program.
+        // Launching the configured command with `-c` would bypass the shell
+        // hooks that atomically claim and execute the startup command.
+        let chainedRemoteCommand = terminalProfile.kind == .shell && !initialCommandBootstrap.hasCommand
+            ? configuredRemoteCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+            : nil
+        let chainedRemoteCommandLaunch = chainedRemoteCommand.flatMap { command -> String? in
+            guard !command.isEmpty else { return nil }
+            // Match sshd's normal RemoteCommand execution through the account
+            // shell while retaining cmux's persistent-PTY hangup protection.
+            return "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -c \(shellQuote(command))"
+        }
 
         var outerLines: [String] = [
             "mkdir -p \"$HOME/.cmux/relay\"",
@@ -95,7 +109,8 @@ enum RemoteInteractiveShellBootstrapBuilder {
             terminalLaunchLine(
                 profile: terminalProfile,
                 indentation: "    ",
-                directShellCommand: "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -il",
+                directShellCommand: chainedRemoteCommandLaunch
+                    ?? "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -il",
                 tmuxShellCommand: "export CMUX_REAL_ZDOTDIR=\"${CMUX_REAL_ZDOTDIR:-${ZDOTDIR:-$HOME}}\"; export ZDOTDIR=\"\(shellStateDir)\"; exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"${SHELL:-/bin/zsh}\" \"${SHELL:-/bin/zsh}\" -il"
             ),
             "    ;;",
@@ -121,7 +136,8 @@ enum RemoteInteractiveShellBootstrapBuilder {
             terminalLaunchLine(
                 profile: terminalProfile,
                 indentation: "    ",
-                directShellCommand: "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i",
+                directShellCommand: chainedRemoteCommandLaunch
+                    ?? "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i",
                 tmuxShellCommand: "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"${SHELL:-/bin/bash}\" \"${SHELL:-/bin/bash}\" --rcfile \"\(shellStateDir)/.bashrc\" -i"
             ),
             "    ;;",
@@ -139,7 +155,8 @@ enum RemoteInteractiveShellBootstrapBuilder {
             terminalLaunchLine(
                 profile: terminalProfile,
                 indentation: "    ",
-                directShellCommand: "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -il --init-command \(fishInitCommand)",
+                directShellCommand: chainedRemoteCommandLaunch
+                    ?? "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -il --init-command \(fishInitCommand)",
                 tmuxShellCommand: "export CMUX_FISH_INTEGRATION_FILE=\"\(shellStateDir)/fish/config.fish\"; export CMUX_FISH_USER_CONFIG_ALREADY_LOADED=1; exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"${SHELL:-/bin/fish}\" \"${SHELL:-/bin/fish}\" -il --init-command \(fishInitCommand)"
             ),
             "    ;;",
@@ -151,7 +168,8 @@ enum RemoteInteractiveShellBootstrapBuilder {
             terminalLaunchLine(
                 profile: terminalProfile,
                 indentation: "",
-                directShellCommand: "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -i",
+                directShellCommand: chainedRemoteCommandLaunch
+                    ?? "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -i",
                 tmuxShellCommand: "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"${SHELL:-/bin/sh}\" \"${SHELL:-/bin/sh}\" -i"
             ),
             ";;",
@@ -245,7 +263,11 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "case \"$cmux_workspace_id\" in \"\"|'__CMUX_''WORKSPACE_ID__') ;; *) export CMUX_WORKSPACE_ID=\"$cmux_workspace_id\"; export CMUX_TAB_ID=\"$cmux_workspace_id\" ;; esac",
             "cmux_surface_id='__CMUX_SURFACE_ID__'",
             "case \"$cmux_surface_id\" in \"\"|'__CMUX_''SURFACE_ID__') ;; *) export CMUX_SURFACE_ID=\"$cmux_surface_id\"; export CMUX_PANEL_ID=\"$cmux_surface_id\" ;; esac",
-            "unset cmux_workspace_id cmux_surface_id",
+            "cmux_terminal_lifecycle_id='__CMUX_TERMINAL_LIFECYCLE_ID__'",
+            "case \"$cmux_terminal_lifecycle_id\" in \"\"|'__CMUX_''TERMINAL_LIFECYCLE_ID__') ;; *) export CMUX_TERMINAL_LIFECYCLE_ID=\"$cmux_terminal_lifecycle_id\" ;; esac",
+            "cmux_ssh_attempt_id='__CMUX_SSH_ATTEMPT_ID__'",
+            "case \"$cmux_ssh_attempt_id\" in \"\"|'__CMUX_''SSH_ATTEMPT_ID__') ;; *) export CMUX_SSH_ATTEMPT_ID=\"$cmux_ssh_attempt_id\" ;; esac",
+            "unset cmux_workspace_id cmux_surface_id cmux_terminal_lifecycle_id cmux_ssh_attempt_id",
             "hash -r >/dev/null 2>&1 || true",
             "rehash >/dev/null 2>&1 || true",
         ])
@@ -353,17 +375,15 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "  mkdir -p \"$HOME/.cmux/relay\" >/dev/null 2>&1 || true",
             "  printf '%s' \"$cmux_relay_tty\" > \"$HOME/.cmux/relay/\(remoteRelayPort).tty\" 2>/dev/null || true",
             "fi",
-            "if [ -n \"$cmux_relay_cli\" ] && [ -n \"$CMUX_WORKSPACE_ID\" ] && [ -n \"$cmux_relay_tty\" ] && [ \"$cmux_relay_tty\" != \"not a tty\" ]; then",
-            "  (",
-            "    cmux_relay_report_tty=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"tty_name\\\":\\\"$cmux_relay_tty\\\"}\"",
-            "    cmux_relay_ports_kick=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"reason\\\":\\\"command\\\"}\"",
-            "    if [ -n \"$CMUX_SURFACE_ID\" ]; then",
-            "      cmux_relay_report_tty=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"$CMUX_SURFACE_ID\\\",\\\"tty_name\\\":\\\"$cmux_relay_tty\\\"}\"",
-            "      cmux_relay_ports_kick=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"$CMUX_SURFACE_ID\\\",\\\"reason\\\":\\\"command\\\"}\"",
-            "    fi",
-            "    \"$cmux_relay_cli\" rpc surface.report_tty \"$cmux_relay_report_tty\" >/dev/null 2>&1 || true",
-            "    \"$cmux_relay_cli\" rpc surface.ports_kick \"$cmux_relay_ports_kick\" >/dev/null 2>&1 || true",
-            "  ) </dev/null >/dev/null 2>&1 &",
+            "if [ -n \"$cmux_relay_cli\" ] && [ -n \"$CMUX_WORKSPACE_ID\" ] && [ -n \"$CMUX_TERMINAL_LIFECYCLE_ID\" ] && [ -n \"$CMUX_SSH_ATTEMPT_ID\" ] && [ -n \"$cmux_relay_tty\" ] && [ \"$cmux_relay_tty\" != \"not a tty\" ]; then",
+            "  cmux_relay_report_tty=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"tty_name\\\":\\\"$cmux_relay_tty\\\",\\\"terminal_lifecycle_id\\\":\\\"$CMUX_TERMINAL_LIFECYCLE_ID\\\",\\\"attempt_id\\\":\\\"$CMUX_SSH_ATTEMPT_ID\\\"}\"",
+            "  cmux_relay_ports_kick=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"reason\\\":\\\"command\\\"}\"",
+            "  if [ -n \"$CMUX_SURFACE_ID\" ]; then",
+            "    cmux_relay_report_tty=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"$CMUX_SURFACE_ID\\\",\\\"tty_name\\\":\\\"$cmux_relay_tty\\\",\\\"terminal_lifecycle_id\\\":\\\"$CMUX_TERMINAL_LIFECYCLE_ID\\\",\\\"attempt_id\\\":\\\"$CMUX_SSH_ATTEMPT_ID\\\"}\"",
+            "    cmux_relay_ports_kick=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"$CMUX_SURFACE_ID\\\",\\\"reason\\\":\\\"command\\\"}\"",
+            "  fi",
+            "  \"$cmux_relay_cli\" rpc surface.report_tty \"$cmux_relay_report_tty\" >/dev/null 2>&1 || true",
+            "  ( \"$cmux_relay_cli\" rpc surface.ports_kick \"$cmux_relay_ports_kick\" >/dev/null 2>&1 || true ) </dev/null >/dev/null 2>&1 &",
             "fi",
             "unset CMUX_BOOTSTRAP_TTY cmux_relay_cli cmux_relay_tty cmux_relay_report_tty cmux_relay_ports_kick",
         ]

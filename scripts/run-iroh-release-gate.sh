@@ -4,7 +4,8 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage: scripts/run-iroh-release-gate.sh --mode <automatic|relay-only|relay-expiry|direct-only|private-path> --tag <tag>
-       [--staging-base-url <url>] [--skip-build] [--keep-simulator]
+       [--staging-base-url <url>] [--presence-base-url <url>]
+       [--skip-build] [--keep-simulator]
        [--report-output <path>] [--print-plan]
        [--production [--stack-env-file <secure-path>]]
 
@@ -25,6 +26,7 @@ EOF
 MODE=""
 TAG=""
 STAGING_BASE_URL="${CMUX_IROH_RELEASE_GATE_BASE_URL:-https://cmux-staging.vercel.app}"
+PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}"
 SKIP_BUILD=0
 KEEP_SIMULATOR=0
 REPORT_OUTPUT=""
@@ -38,6 +40,7 @@ while [[ $# -gt 0 ]]; do
     --mode) MODE="${2:-}"; shift 2 ;;
     --tag) TAG="${2:-}"; shift 2 ;;
     --staging-base-url) STAGING_BASE_URL="${2:-}"; BASE_URL_WAS_EXPLICIT=1; shift 2 ;;
+    --presence-base-url) PRESENCE_BASE_URL="${2:-}"; shift 2 ;;
     --production) PRODUCTION=1; shift ;;
     --stack-env-file) STACK_ENV_FILE="${2:-}"; shift 2 ;;
     --skip-build) SKIP_BUILD=1; shift ;;
@@ -55,6 +58,10 @@ if [[ "$PRODUCTION" -eq 1 && "$BASE_URL_WAS_EXPLICIT" -eq 1 ]]; then
   echo "error: --production cannot be combined with --staging-base-url" >&2
   exit 2
 fi
+if [[ "$PRODUCTION" -eq 1 && -n "$PRESENCE_BASE_URL" ]]; then
+  echo "error: --production cannot be combined with --presence-base-url" >&2
+  exit 2
+fi
 if [[ "$PRODUCTION" -eq 0 && -n "$STACK_ENV_FILE" ]]; then
   echo "error: --stack-env-file requires --production" >&2
   exit 2
@@ -65,6 +72,9 @@ if [[ "$PRODUCTION" -eq 1 && "$SKIP_BUILD" -eq 1 ]]; then
 fi
 if [[ "$PRODUCTION" -eq 1 ]]; then
   STAGING_BASE_URL="https://cmux.com"
+  # Production clients resolve presence.cmux.dev from their auth channel.
+  # Never inherit a development worker override from the caller's shell.
+  PRESENCE_BASE_URL=""
 fi
 
 case "$MODE" in
@@ -85,6 +95,10 @@ if [[ "$GATE_PLAN" != "host-private-path-transport" ]]; then
   case "$STAGING_BASE_URL" in
     https://*) ;;
     *) echo "error: --staging-base-url must use https" >&2; exit 2 ;;
+  esac
+  case "$PRESENCE_BASE_URL" in
+    ""|https://*) ;;
+    *) echo "error: --presence-base-url must use https" >&2; exit 2 ;;
   esac
 fi
 
@@ -135,6 +149,35 @@ PROD_ACCOUNT_STATE_FILE=""
 PROD_RECOVERY_FILE=""
 VERCEL_DIR=""
 
+shutdown_prior_gate_simulators() {
+  local simulator_name="$1"
+  local prior_simulator_id
+
+  while IFS= read -r prior_simulator_id; do
+    [[ -n "$prior_simulator_id" ]] || continue
+    echo "==> shutting down retained same-tag simulator: $prior_simulator_id"
+    xcrun simctl shutdown "$prior_simulator_id"
+  done < <(
+    SIMULATOR_NAME="$simulator_name" /usr/bin/python3 <<'PY'
+import json
+import os
+import subprocess
+
+listing = json.loads(
+    subprocess.check_output(["xcrun", "simctl", "list", "devices", "-j"])
+)
+for devices in listing.get("devices", {}).values():
+    for device in devices:
+        if (
+            device.get("isAvailable", True)
+            and device.get("name") == os.environ["SIMULATOR_NAME"]
+            and device.get("state") != "Shutdown"
+        ):
+            print(device["udid"])
+PY
+  )
+}
+
 cleanup() {
   local exit_code=$?
   local cleanup_code=0
@@ -166,12 +209,16 @@ cleanup() {
     rm -rf "$VERCEL_DIR"
   fi
   defaults delete "$MAC_BUNDLE_ID" cmux.iroh.debug.transport-mode >/dev/null 2>&1 || true
+  defaults delete "$MAC_BUNDLE_ID" presenceServiceURL >/dev/null 2>&1 || true
   pkill -f "cmux DEV ${SLUG}.app/Contents/MacOS/cmux DEV" 2>/dev/null || true
   if [[ "$PRODUCTION" -eq 1 ]]; then
     # Production uses a disposable account and must remove its local tokens.
+    # The endpoint key and verified-policy cache live outside the ordinary
+    # tagged app support directory, so clear that exact tagged identity too.
     # Staging keeps its tagged state so a failed gate remains inspectable and a
     # later --skip-build run can reuse the same authenticated build.
     rm -rf "$HOME/Library/Application Support/cmux/$MAC_BUNDLE_ID"
+    rm -rf "$HOME/Library/Application Support/cmux/iroh-debug/$MAC_BUNDLE_ID"
     security delete-generic-password -s "$MAC_BUNDLE_ID.auth" -a cmux-auth-access-token >/dev/null 2>&1 || true
     security delete-generic-password -s "$MAC_BUNDLE_ID.auth" -a cmux-auth-refresh-token >/dev/null 2>&1 || true
   fi
@@ -241,6 +288,8 @@ if [[ "$PRODUCTION" -eq 1 ]]; then
   echo "==> temporary production Stack account ready (credentials redacted)"
 fi
 
+shutdown_prior_gate_simulators "$SIMULATOR_NAME"
+
 SIMULATOR_ID="$(SIMULATOR_NAME="$SIMULATOR_NAME" /usr/bin/python3 <<'PY'
 import json
 import os
@@ -293,28 +342,34 @@ xcrun simctl bootstatus "$SIMULATOR_ID" -b
 
 if [[ "$SKIP_BUILD" -ne 1 ]]; then
   if [[ "$PRODUCTION" -eq 1 ]]; then
+    CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
     CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
     CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
       ./scripts/reload.sh \
         --tag "$TAG" \
         --prod-auth \
         --credentials-file "$PROD_CREDENTIALS_FILE"
+    CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
     CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
     CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
       ./ios/scripts/reload.sh \
         --tag "$TAG" \
         --simulator "$SIMULATOR_NAME" \
+        --simulator-id "$SIMULATOR_ID" \
         --prod-auth \
         --no-launch
   else
+    CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
     CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
     CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
       ./scripts/reload.sh --tag "$TAG"
+    CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
     CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
     CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
       ./ios/scripts/reload.sh \
         --tag "$TAG" \
         --simulator "$SIMULATOR_NAME" \
+        --simulator-id "$SIMULATOR_ID" \
         --no-launch
   fi
 else
@@ -323,10 +378,78 @@ else
 fi
 
 [[ -d "$MAC_APP" ]] || { echo "error: tagged Mac app is missing: $MAC_APP" >&2; exit 1; }
+"$SCRIPT_DIR/lib/verify-iroh-release-gate-builds.sh" \
+  --mac-app "$MAC_APP" \
+  --ios-app "$IOS_APP" \
+  --backend-base-url "$STAGING_BASE_URL" \
+  --presence-base-url "$PRESENCE_BASE_URL"
+
+if [[ "$PRODUCTION" -eq 1 ]]; then
+  PRODUCTION_RELAY_POLICY_XCCONFIG="$REPO_ROOT/config/IrohRelayPolicyProduction.xcconfig"
+  MAC_INFO_PLIST="$MAC_APP/Contents/Info.plist"
+  IOS_INFO_PLIST="$IOS_APP/Info.plist"
+  PRODUCTION_RELAY_POLICY_XCCONFIG="$PRODUCTION_RELAY_POLICY_XCCONFIG" \
+  MAC_INFO_PLIST="$MAC_INFO_PLIST" \
+  IOS_INFO_PLIST="$IOS_INFO_PLIST" \
+  /usr/bin/python3 <<'PY'
+import os
+import plistlib
+
+setting_names = (
+    "CMUX_IROH_RELAY_POLICY_KEY_ID",
+    "CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64",
+    "CMUX_IROH_RELAY_POLICY_NEXT_KEY_ID",
+    "CMUX_IROH_RELAY_POLICY_NEXT_PUBLIC_KEY_BASE64",
+)
+settings = {}
+with open(os.environ["PRODUCTION_RELAY_POLICY_XCCONFIG"], encoding="utf-8") as handle:
+    for raw_line in handle:
+        line = raw_line.strip()
+        if not line or line.startswith("//") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        settings[key.strip()] = value.strip()
+
+missing = [name for name in setting_names if not settings.get(name)]
+if missing:
+    raise SystemExit("production relay-policy build profile is incomplete")
+
+expected_trust = [
+    {
+        "keyID": settings["CMUX_IROH_RELAY_POLICY_KEY_ID"],
+        "publicKeyBase64": settings["CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64"],
+    },
+    {
+        "keyID": settings["CMUX_IROH_RELAY_POLICY_NEXT_KEY_ID"],
+        "publicKeyBase64": settings["CMUX_IROH_RELAY_POLICY_NEXT_PUBLIC_KEY_BASE64"],
+    },
+]
+
+for label, environment_name in (
+    ("Mac", "MAC_INFO_PLIST"),
+    ("iOS", "IOS_INFO_PLIST"),
+):
+    with open(os.environ[environment_name], "rb") as handle:
+        info = plistlib.load(handle)
+    if info.get("CMUXIrohRelayPolicyKeyID") != expected_trust[0]["keyID"]:
+        raise SystemExit(f"{label} production gate app has the wrong relay-policy key ID")
+    if info.get("CMUXIrohRelayPolicyPublicKeyBase64") != expected_trust[0]["publicKeyBase64"]:
+        raise SystemExit(f"{label} production gate app has the wrong relay-policy public key")
+    if info.get("CMUXIrohRelayPolicyTrustKeys") != expected_trust:
+        raise SystemExit(f"{label} production gate app has the wrong relay-policy trust set")
+
+print("==> production relay-policy pins verified in Mac and iOS build artifacts")
+PY
+fi
 
 # Both endpoints read the mode before constructing their Iroh endpoint. Write
 # after installation so a fresh simulator app container cannot replace it.
 defaults write "$MAC_BUNDLE_ID" cmux.iroh.debug.transport-mode -string "$RAW_MODE"
+if [[ -n "$PRESENCE_BASE_URL" ]]; then
+  defaults write "$MAC_BUNDLE_ID" presenceServiceURL -string "$PRESENCE_BASE_URL"
+else
+  defaults delete "$MAC_BUNDLE_ID" presenceServiceURL >/dev/null 2>&1 || true
+fi
 xcrun simctl spawn "$SIMULATOR_ID" defaults write \
   "$IOS_BUNDLE_ID" cmux.iroh.debug.transport-mode -string "$RAW_MODE"
 
@@ -386,6 +509,7 @@ fi
 # tag is uniquely owned by this driver, and the exact executable is now absent,
 # so remove only this validated tag's socket before relaunching.
 cmux_attach_remove_stale_socket "$TAG"
+CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
 CMUX_ATTACH_ALLOW_RELAUNCH=1 \
 CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
 cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" physical_device

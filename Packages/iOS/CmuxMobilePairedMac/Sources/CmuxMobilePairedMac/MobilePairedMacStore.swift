@@ -14,7 +14,7 @@ let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedM
 /// inject it as `any MobilePairedMacStoring`.
 public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// The schema version this build creates and migrates to.
-    public static let currentSchemaVersion: Int32 = 8
+    public static let currentSchemaVersion: Int32 = 9
 
     private let dbPath: String
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
@@ -113,7 +113,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV6()
                 try migrateToV7()
                 try migrateToV8()
-                try setUserVersion(8)
+                try migrateToV9()
+                try setUserVersion(9)
             }
         case 1:
             try transaction {
@@ -124,7 +125,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV6()
                 try migrateToV7()
                 try migrateToV8()
-                try setUserVersion(8)
+                try migrateToV9()
+                try setUserVersion(9)
             }
         case 2:
             try transaction {
@@ -134,7 +136,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV6()
                 try migrateToV7()
                 try migrateToV8()
-                try setUserVersion(8)
+                try migrateToV9()
+                try setUserVersion(9)
             }
         case 3:
             try transaction {
@@ -143,7 +146,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV6()
                 try migrateToV7()
                 try migrateToV8()
-                try setUserVersion(8)
+                try migrateToV9()
+                try setUserVersion(9)
             }
         case 4:
             try transaction {
@@ -151,27 +155,36 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV6()
                 try migrateToV7()
                 try migrateToV8()
-                try setUserVersion(8)
+                try migrateToV9()
+                try setUserVersion(9)
             }
         case 5:
             try transaction {
                 try migrateToV6()
                 try migrateToV7()
                 try migrateToV8()
-                try setUserVersion(8)
+                try migrateToV9()
+                try setUserVersion(9)
             }
         case 6:
             try transaction {
                 try migrateToV7()
                 try migrateToV8()
-                try setUserVersion(8)
+                try migrateToV9()
+                try setUserVersion(9)
             }
         case 7:
             try transaction {
                 try migrateToV8()
-                try setUserVersion(8)
+                try migrateToV9()
+                try setUserVersion(9)
             }
         case 8:
+            try transaction {
+                try migrateToV9()
+                try setUserVersion(9)
+            }
+        case 9:
             break
         default:
             // A newer build wrote a higher schema version. Schema migrations are
@@ -462,6 +475,21 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         """)
     }
 
+    /// v9: record where each Tailscale compatibility grant came from. The v8
+    /// migration rows keep the `'migration'` origin and its lifecycle (deleted
+    /// forever once Iroh is persisted). `'user'` rows are created when the user
+    /// explicitly enters a Tailscale pairing code from their Mac and survive
+    /// Iroh persistence, because the user chose Tailscale on purpose and may
+    /// keep dialing it while the preference says so.
+    private func migrateToV9() throws {
+        let columns = try tableColumns("legacy_tailscale_route_grants")
+        guard !columns.contains("origin") else { return }
+        try exec("""
+            ALTER TABLE legacy_tailscale_route_grants
+            ADD COLUMN origin TEXT NOT NULL DEFAULT 'migration';
+        """)
+    }
+
     /// Column names defined on `table` (via `PRAGMA table_info`), used to make
     /// additive column migrations idempotent.
     private func tableColumns(_ table: String) throws -> Set<String> {
@@ -564,6 +592,57 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             onlyIfOlder: false,
             routeWriteCondition: condition
         )
+    }
+
+    /// Persist `'user'`-origin Tailscale compatibility grants for routes the
+    /// user entered as a pairing code. Upgrades an existing `'migration'` grant
+    /// for the same destination to `'user'`, so a deliberate re-scan is not
+    /// silently revoked when Iroh is later persisted.
+    public func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) throws {
+        try ensureReady()
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let ownerKey = Self.ownerKey(
+            stackUserID: stackUserID,
+            teamID: teamID,
+            instanceTag: instanceTag
+        )
+        let grantRoutes = routes.filter { route in
+            guard route.kind == .tailscale,
+                  case .hostPort = route.endpoint else { return false }
+            return true
+        }
+        guard !grantRoutes.isEmpty else { return }
+        try transaction {
+            guard try fetchMacRow(
+                macDeviceID: macDeviceID,
+                ownerKey: ownerKey
+            ) != nil else {
+                // The grant table references the scoped row; authorizing an
+                // unknown row would strand an unowned bearer capability.
+                return
+            }
+            for route in grantRoutes {
+                let encoded = try Self.encodeRoute(route)
+                try exec("""
+                    INSERT INTO legacy_tailscale_route_grants (
+                        mac_device_id, owner_key, endpoint_json, origin
+                    )
+                    VALUES (?, ?, ?, 'user')
+                    ON CONFLICT (mac_device_id, owner_key, endpoint_json)
+                    DO UPDATE SET origin = 'user';
+                """, binding: [
+                    .text(macDeviceID),
+                    .text(ownerKey),
+                    .text(encoded),
+                ])
+            }
+        }
     }
 
     private func upsertRecord(
@@ -728,10 +807,14 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 isActive: shouldMarkActive
             )
             if routesToPersist.contains(where: { $0.kind == .iroh }) {
+                // Only the staggered-update migration capability dies on Iroh
+                // arrival. A user-entered pairing-code grant is a deliberate
+                // Tailscale choice and remains available for preference-ordered
+                // dials until its row is removed.
                 try exec(
                     """
                     DELETE FROM legacy_tailscale_route_grants
-                    WHERE mac_device_id = ? AND owner_key = ?;
+                    WHERE mac_device_id = ? AND owner_key = ? AND origin = 'migration';
                     """,
                     binding: [.text(macDeviceID), .text(ownerKey)]
                 )

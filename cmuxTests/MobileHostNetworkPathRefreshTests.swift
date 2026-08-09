@@ -1,3 +1,5 @@
+import CMUXMobileCore
+import CmuxIrohTransport
 import Foundation
 import Testing
 
@@ -189,6 +191,47 @@ import Testing
 @MainActor
 struct MobileHostIrohStartupRetryTests {
     @Test
+    func bindingRemainsUnavailableUntilMatchingHostRuntimeIsActive() throws {
+        let runtime = MobileHostIrohRuntime.shared
+        let originalRevision = runtime.lifecycleRevision
+        let revision: UInt64 = 4_200
+        let binding = try CmxIrohBrokerBindingMetadata(
+            bindingID: "123e4567-e89b-42d3-a456-426614174010",
+            deviceID: "123e4567-e89b-42d3-a456-426614174011",
+            appInstanceID: "123e4567-e89b-42d3-a456-426614174012",
+            tag: "route-ready",
+            platform: .mac,
+            endpointID: CmxIrohPeerIdentity(
+                endpointID: String(repeating: "a", count: 64)
+            ),
+            identityGeneration: 1
+        )
+        defer {
+            runtime.lifecycleRevision = originalRevision
+            runtime.clearIrohRoutePublication()
+            MobileHostPublicStatusCache.removeAll()
+        }
+        MobileHostPublicStatusCache.removeAll()
+        runtime.lifecycleRevision = revision
+
+        runtime.beginIrohRouteActivation(revision: revision)
+        runtime.stageIrohRoute(binding, pathHints: [], revision: revision)
+
+        #expect(!MobileHostPublicStatusCache.hasIrohRoute())
+        #expect(runtime.routePublicationPhase == .starting(revision: revision))
+        #expect(!runtime.publishIrohRouteIfActive(revision: revision - 1))
+        #expect(!MobileHostPublicStatusCache.hasIrohRoute())
+        #expect(runtime.publishIrohRouteIfActive(revision: revision))
+        #expect(MobileHostPublicStatusCache.hasIrohRoute())
+
+        runtime.lifecycleRevision = revision + 1
+        runtime.beginIrohRouteActivation(revision: revision + 1)
+
+        #expect(!MobileHostPublicStatusCache.hasIrohRoute())
+        #expect(runtime.routePublicationPhase == .starting(revision: revision + 1))
+    }
+
+    @Test
     func sameAccountAuthObservationDoesNotSupersedeActivationInFlight() {
         #expect(!MobileHostIrohRuntime.shouldReconcileAuthObservation(
             accountID: "same-account",
@@ -271,6 +314,71 @@ struct MobileHostIrohStartupRetryTests {
         runtime.signOutIntentActive = originalSignOutIntentActive
         runtime.lifecycleRevision = originalRevision
     }
+
+    @Test
+    func staleDeactivationCannotClearReplacementRuntimeState() async {
+        let runtime = MobileHostIrohRuntime.shared
+        let originalDesiredActive = runtime.desiredActive
+        let originalSignOutIntentActive = runtime.signOutIntentActive
+        let originalRevision = runtime.lifecycleRevision
+        let probe = MobileHostIrohDeactivationProbe()
+        runtime.desiredActive = true
+        runtime.signOutIntentActive = false
+        runtime.lifecycleRevision = 1_000
+
+        await runtime.handleActiveRuntimeDeactivation(
+            revision: 999,
+            stopLANPublication: {
+                probe.didStopLAN = true
+            },
+            clearHostRuntime: {
+                probe.didClearHost = true
+            }
+        )
+
+        #expect(!probe.didStopLAN)
+        #expect(!probe.didClearHost)
+        runtime.desiredActive = originalDesiredActive
+        runtime.signOutIntentActive = originalSignOutIntentActive
+        runtime.lifecycleRevision = originalRevision
+    }
+
+    @Test
+    func deactivationRechecksOwnershipAfterSuspendingCleanup() async {
+        let runtime = MobileHostIrohRuntime.shared
+        let originalDesiredActive = runtime.desiredActive
+        let originalSignOutIntentActive = runtime.signOutIntentActive
+        let originalRevision = runtime.lifecycleRevision
+        let probe = MobileHostIrohDeactivationProbe()
+        runtime.desiredActive = true
+        runtime.signOutIntentActive = false
+        runtime.lifecycleRevision = 2_000
+
+        await runtime.handleActiveRuntimeDeactivation(
+            revision: 2_000,
+            stopLANPublication: {
+                probe.didStopLAN = true
+                // A replacement activation took ownership while the old
+                // callback was suspended in LAN cleanup.
+                runtime.lifecycleRevision = 2_001
+            },
+            clearHostRuntime: {
+                probe.didClearHost = true
+            }
+        )
+
+        #expect(probe.didStopLAN)
+        #expect(!probe.didClearHost)
+        runtime.desiredActive = originalDesiredActive
+        runtime.signOutIntentActive = originalSignOutIntentActive
+        runtime.lifecycleRevision = originalRevision
+    }
+}
+
+@MainActor
+private final class MobileHostIrohDeactivationProbe {
+    var didStopLAN = false
+    var didClearHost = false
 }
 
 private actor MobileHostIrohStartupRetryGate {

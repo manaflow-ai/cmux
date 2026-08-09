@@ -21,7 +21,8 @@ extension MobileWorkspacePreview {
             hasUnread: remote.hasUnread ?? false,
             terminals: remote.terminals.map { terminal in
                 MobileTerminalPreview(remote: terminal)
-            }
+            },
+            simulators: remote.simulators
         )
     }
 }
@@ -35,6 +36,7 @@ extension MobileWorkspaceGroupPreview {
             name: remote.name,
             isCollapsed: remote.isCollapsed,
             isPinned: remote.isPinned,
+            iconSymbol: remote.iconSymbol,
             anchorWorkspaceID: MobileWorkspacePreview.ID(rawValue: remote.anchorWorkspaceID)
         )
     }

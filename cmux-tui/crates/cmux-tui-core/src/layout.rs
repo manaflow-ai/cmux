@@ -1,9 +1,13 @@
 //! Pure layout math shared by frontends: a screen's split tree plus a
 //! rectangle produce pane rects that tile the area exactly.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
-use crate::{Node, PaneId, SplitDir, SplitId};
+use crate::{Node, PaneId, SplitDir, SplitId, ViewportColumn};
+
+pub const DEFAULT_VIEWPORT_PANE_WIDTH: f32 = 2.0 / 3.0;
+pub const MIN_VIEWPORT_PANE_WIDTH: f32 = 0.1;
+pub const MAX_VIEWPORT_PANE_WIDTH: f32 = 1.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Rect {
@@ -19,12 +23,51 @@ impl Rect {
     }
 }
 
+/// A pane rectangle in a horizontally extended viewport.
+///
+/// Terminal-local dimensions remain `u16`, but horizontal position and
+/// extent use `u64` so an arbitrary number of columns never collapse onto
+/// `u16::MAX`. Frontends narrow these coordinates only after viewport clipping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct VirtualRect {
+    pub x: u64,
+    pub y: u16,
+    pub width: u64,
+    pub height: u16,
+}
+
+impl VirtualRect {
+    pub fn contains(&self, x: u64, y: u16) -> bool {
+        x >= self.x
+            && x < self.x.saturating_add(self.width)
+            && y >= self.y
+            && y < self.y.saturating_add(self.height)
+    }
+}
+
+impl From<Rect> for VirtualRect {
+    fn from(rect: Rect) -> Self {
+        Self { x: u64::from(rect.x), y: rect.y, width: u64::from(rect.width), height: rect.height }
+    }
+}
+
+/// Bounding geometry for one horizontal viewport column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ViewportColumnRect {
+    pub owner: ViewportColumn,
+    /// Any visible pane in the column, suitable for pane-addressed commands.
+    pub representative: PaneId,
+    pub rect: VirtualRect,
+}
+
 #[derive(Debug, Default)]
 pub struct LayoutResult {
     pub panes: Vec<(PaneId, Rect)>,
     /// Pane rows that represent collapsed Zellij stack headers rather than
     /// terminal content.
     pub stacked_headers: HashSet<PaneId>,
+    /// Horizontal extent occupied by the layout, including viewport columns.
+    pub virtual_width: u16,
 }
 
 impl LayoutResult {
@@ -53,6 +96,56 @@ impl LayoutResult {
         recency: impl Fn(PaneId) -> R,
     ) -> Option<PaneId> {
         directional_neighbor_by_recency(&self.panes, from, dx, dy, recency)
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct ViewportLayoutResult {
+    pub panes: Vec<(PaneId, VirtualRect)>,
+    /// Column bounds emitted during the same traversal as `panes`.
+    pub columns: Vec<ViewportColumnRect>,
+    /// Pane rows that represent collapsed Zellij stack headers rather than
+    /// terminal content.
+    pub stacked_headers: HashSet<PaneId>,
+    /// Horizontal extent occupied by all viewport columns.
+    pub virtual_width: u64,
+}
+
+impl ViewportLayoutResult {
+    pub fn rect_of(&self, pane: PaneId) -> Option<VirtualRect> {
+        self.panes.iter().find(|(id, _)| *id == pane).map(|(_, rect)| *rect)
+    }
+
+    pub fn pane_at(&self, x: u64, y: u16) -> Option<PaneId> {
+        self.panes.iter().find(|(_, rect)| rect.contains(x, y)).map(|(id, _)| *id)
+    }
+
+    pub fn neighbor(&self, from: PaneId, dx: i32, dy: i32) -> Option<PaneId> {
+        virtual_directional_neighbor(&self.panes, from, dx, dy)
+    }
+
+    pub fn neighbor_by_recency<R: Ord>(
+        &self,
+        from: PaneId,
+        dx: i32,
+        dy: i32,
+        recency: impl Fn(PaneId) -> R,
+    ) -> Option<PaneId> {
+        virtual_directional_neighbor_by_recency(&self.panes, from, dx, dy, recency)
+    }
+}
+
+impl From<LayoutResult> for ViewportLayoutResult {
+    fn from(layout: LayoutResult) -> Self {
+        let mut result = Self {
+            stacked_headers: layout.stacked_headers,
+            virtual_width: u64::from(layout.virtual_width),
+            ..Default::default()
+        };
+        for (pane, rect) in layout.panes {
+            record_viewport_pane(&mut result, ViewportColumn::Base, pane, rect.into());
+        }
+        result
     }
 }
 
@@ -112,6 +205,52 @@ pub fn directional_neighbor_by_recency<R: Ord>(
         .map(|(_, _, id)| id)
 }
 
+fn virtual_directional_neighbor(
+    panes: &[(PaneId, VirtualRect)],
+    from: PaneId,
+    dx: i32,
+    dy: i32,
+) -> Option<PaneId> {
+    let current = panes.iter().find(|(id, _)| *id == from).map(|(_, rect)| *rect)?;
+    let direction = Direction::from_delta(dx, dy)?;
+    panes
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, (id, rect))| *id != from && rect.width > 0 && rect.height > 0)
+        .filter_map(|(order, (id, rect))| {
+            direction.score_virtual(current, rect).map(|score| (order, id, score))
+        })
+        .min_by_key(|(order, _, score)| (std::cmp::Reverse(score.overlap), score.distance, *order))
+        .map(|(_, id, _)| id)
+}
+
+fn virtual_directional_neighbor_by_recency<R: Ord>(
+    panes: &[(PaneId, VirtualRect)],
+    from: PaneId,
+    dx: i32,
+    dy: i32,
+    recency: impl Fn(PaneId) -> R,
+) -> Option<PaneId> {
+    let current = panes.iter().find(|(id, _)| *id == from).map(|(_, rect)| *rect)?;
+    let direction = Direction::from_delta(dx, dy)?;
+    panes
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, (id, rect))| *id != from && rect.width > 0 && rect.height > 0)
+        .filter_map(|(order, (id, rect))| {
+            direction
+                .score_virtual(current, rect)
+                .filter(|score| score.distance == 0 && score.overlap > 0)
+                .map(|_| (recency(id), order, id))
+        })
+        .max_by(|(a_recency, a_order, _), (b_recency, b_order, _)| {
+            a_recency.cmp(b_recency).then_with(|| b_order.cmp(a_order))
+        })
+        .map(|(_, _, id)| id)
+}
+
 #[derive(Clone, Copy)]
 enum Direction {
     Left,
@@ -124,6 +263,12 @@ enum Direction {
 struct NeighborScore {
     overlap: u16,
     distance: u16,
+}
+
+#[derive(Clone, Copy)]
+struct VirtualNeighborScore {
+    overlap: u64,
+    distance: u64,
 }
 
 impl Direction {
@@ -176,9 +321,78 @@ impl Direction {
         };
         (overlap > 0).then_some(NeighborScore { overlap, distance })
     }
+
+    fn score_virtual(
+        self,
+        current: VirtualRect,
+        candidate: VirtualRect,
+    ) -> Option<VirtualNeighborScore> {
+        let (overlap, distance) = match self {
+            Direction::Left => {
+                let candidate_max = candidate.x.saturating_add(candidate.width);
+                if candidate_max > current.x {
+                    return None;
+                }
+                (
+                    overlap_len_u64(
+                        u64::from(current.y),
+                        u64::from(current.height),
+                        u64::from(candidate.y),
+                        u64::from(candidate.height),
+                    ),
+                    current.x - candidate_max,
+                )
+            }
+            Direction::Right => {
+                let current_max = current.x.saturating_add(current.width);
+                if candidate.x < current_max {
+                    return None;
+                }
+                (
+                    overlap_len_u64(
+                        u64::from(current.y),
+                        u64::from(current.height),
+                        u64::from(candidate.y),
+                        u64::from(candidate.height),
+                    ),
+                    candidate.x - current_max,
+                )
+            }
+            Direction::Up => {
+                let current_min = u64::from(current.y);
+                let candidate_max =
+                    u64::from(candidate.y).saturating_add(u64::from(candidate.height));
+                if candidate_max > current_min {
+                    return None;
+                }
+                (
+                    overlap_len_u64(current.x, current.width, candidate.x, candidate.width),
+                    current_min - candidate_max,
+                )
+            }
+            Direction::Down => {
+                let current_max = u64::from(current.y).saturating_add(u64::from(current.height));
+                let candidate_min = u64::from(candidate.y);
+                if candidate_min < current_max {
+                    return None;
+                }
+                (
+                    overlap_len_u64(current.x, current.width, candidate.x, candidate.width),
+                    candidate_min - current_max,
+                )
+            }
+        };
+        (overlap > 0).then_some(VirtualNeighborScore { overlap, distance })
+    }
 }
 
 fn overlap_len(a_start: u16, a_len: u16, b_start: u16, b_len: u16) -> u16 {
+    let start = a_start.max(b_start);
+    let end = a_start.saturating_add(a_len).min(b_start.saturating_add(b_len));
+    end.saturating_sub(start)
+}
+
+fn overlap_len_u64(a_start: u64, a_len: u64, b_start: u64, b_len: u64) -> u64 {
     let start = a_start.max(b_start);
     let end = a_start.saturating_add(a_len).min(b_start.saturating_add(b_len));
     end.saturating_sub(start)
@@ -218,13 +432,62 @@ pub struct ExactSplitResize {
     pub split: SplitId,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExactViewportSplitResize {
+    pub area: VirtualRect,
+    pub split: SplitId,
+}
+
+impl From<ExactSplitResize> for ExactViewportSplitResize {
+    fn from(resize: ExactSplitResize) -> Self {
+        Self { area: resize.area.into(), split: resize.split }
+    }
+}
+
 /// Compute pane rects for a screen. Panes tile the area exactly; each
 /// pane draws its own border box inside its rect, so no divider cells
 /// are reserved between siblings.
 pub fn layout_screen(root: &Node, area: Rect, active_pane: Option<PaneId>) -> LayoutResult {
-    let mut result = LayoutResult::default();
+    let mut result = LayoutResult { virtual_width: area.width, ..Default::default() };
     walk(root, area, active_pane, &mut result);
     result
+}
+
+/// Compute a screen layout with selected right splits extending the horizontal
+/// viewport instead of subdividing it.
+///
+/// Each marked split maps to the width of its right side as a fraction of the
+/// frontend viewport. Unmarked splits keep their ordinary tiled behavior.
+pub fn layout_screen_with_viewport(
+    root: &Node,
+    area: Rect,
+    active_pane: Option<PaneId>,
+    base_width: f32,
+    viewport_splits: &BTreeMap<SplitId, f32>,
+) -> ViewportLayoutResult {
+    let mut result = ViewportLayoutResult::default();
+    let base_area = VirtualRect {
+        x: u64::from(area.x),
+        y: area.y,
+        width: u64::from(viewport_column_cells(area.width, base_width)),
+        height: area.height,
+    };
+    let end = walk_viewport(
+        root,
+        base_area,
+        area.width,
+        active_pane,
+        viewport_splits,
+        ViewportColumn::Base,
+        &mut result,
+    );
+    result.virtual_width = end.saturating_sub(u64::from(area.x)).max(u64::from(area.width));
+    result
+}
+
+fn viewport_column_cells(viewport_width: u16, width: f32) -> u16 {
+    let width = width.clamp(MIN_VIEWPORT_PANE_WIDTH, MAX_VIEWPORT_PANE_WIDTH);
+    ((f32::from(viewport_width) * width).round() as u16).clamp(1, viewport_width.max(1))
 }
 
 /// Reproduce Zellij's default auto-layout sequence for panes in creation
@@ -334,6 +597,151 @@ fn walk(node: &Node, area: Rect, active_pane: Option<PaneId>, out: &mut LayoutRe
     }
 }
 
+/// Lay out `node` and return the first unused absolute x coordinate.
+fn walk_viewport(
+    node: &Node,
+    area: VirtualRect,
+    viewport_width: u16,
+    active_pane: Option<PaneId>,
+    viewport_splits: &BTreeMap<SplitId, f32>,
+    owner: ViewportColumn,
+    out: &mut ViewportLayoutResult,
+) -> u64 {
+    match node {
+        Node::Leaf(id) => {
+            record_viewport_pane(out, owner, *id, area);
+            area.x.saturating_add(area.width)
+        }
+        Node::Split { id, dir: SplitDir::Right, a, b, .. } if viewport_splits.contains_key(id) => {
+            let a_end =
+                walk_viewport(a, area, viewport_width, active_pane, viewport_splits, owner, out);
+            let width = viewport_column_cells(viewport_width, viewport_splits[id]);
+            walk_viewport(
+                b,
+                VirtualRect { x: a_end, width: u64::from(width), ..area },
+                viewport_width,
+                active_pane,
+                viewport_splits,
+                ViewportColumn::Split(*id),
+                out,
+            )
+        }
+        Node::Split { dir, ratio, a, b, .. } => {
+            let too_small = match dir {
+                SplitDir::Right => area.width < 2,
+                SplitDir::Down => area.height < 2,
+            };
+            if too_small {
+                let a_end = walk_viewport(
+                    a,
+                    area,
+                    viewport_width,
+                    active_pane,
+                    viewport_splits,
+                    owner,
+                    out,
+                );
+                let b_end = walk_viewport(
+                    b,
+                    VirtualRect { width: 0, height: 0, ..area },
+                    viewport_width,
+                    active_pane,
+                    viewport_splits,
+                    owner,
+                    out,
+                );
+                return a_end.max(b_end);
+            }
+            let (a_rect, b_rect) = split_virtual_sides(area, *dir, *ratio);
+            let a_end =
+                walk_viewport(a, a_rect, viewport_width, active_pane, viewport_splits, owner, out);
+            let b_end =
+                walk_viewport(b, b_rect, viewport_width, active_pane, viewport_splits, owner, out);
+            a_end.max(b_end)
+        }
+        Node::Stack { panes, expanded } => {
+            let panes = panes.as_slice();
+            let expanded = active_pane.filter(|pane| panes.contains(pane)).unwrap_or(*expanded);
+            walk_viewport_stack(panes, expanded, area, owner, out);
+            area.x.saturating_add(area.width)
+        }
+    }
+}
+
+fn record_viewport_pane(
+    out: &mut ViewportLayoutResult,
+    owner: ViewportColumn,
+    pane: PaneId,
+    rect: VirtualRect,
+) {
+    out.panes.push((pane, rect));
+    if rect.width == 0 || rect.height == 0 {
+        return;
+    }
+    if let Some(column) = out.columns.last_mut()
+        && column.owner == owner
+    {
+        let right =
+            column.rect.x.saturating_add(column.rect.width).max(rect.x.saturating_add(rect.width));
+        let bottom = column
+            .rect
+            .y
+            .saturating_add(column.rect.height)
+            .max(rect.y.saturating_add(rect.height));
+        column.rect.x = column.rect.x.min(rect.x);
+        column.rect.y = column.rect.y.min(rect.y);
+        column.rect.width = right.saturating_sub(column.rect.x);
+        column.rect.height = bottom.saturating_sub(column.rect.y);
+        return;
+    }
+    out.columns.push(ViewportColumnRect { owner, representative: pane, rect });
+}
+
+fn walk_viewport_stack(
+    panes: &[PaneId],
+    expanded: PaneId,
+    area: VirtualRect,
+    owner: ViewportColumn,
+    out: &mut ViewportLayoutResult,
+) {
+    let expanded_index = panes.iter().position(|pane| *pane == expanded).unwrap_or(panes.len() - 1);
+    let visible_headers = usize::from(area.height.saturating_sub(1)).min(panes.len() - 1);
+    let available_before = expanded_index;
+    let available_after = panes.len() - expanded_index - 1;
+    let mut headers_before = 0;
+    let mut headers_after = 0;
+    while headers_before + headers_after < visible_headers {
+        let can_take_before = headers_before < available_before;
+        let can_take_after = headers_after < available_after;
+        if can_take_before && (!can_take_after || headers_before <= headers_after) {
+            headers_before += 1;
+        } else if can_take_after {
+            headers_after += 1;
+        } else {
+            break;
+        }
+    }
+    let expanded_height = area.height.saturating_sub((headers_before + headers_after) as u16);
+
+    let mut y = area.y;
+    for (index, pane) in panes.iter().copied().enumerate() {
+        let height = if index == expanded_index {
+            expanded_height
+        } else if index >= expanded_index - headers_before && index < expanded_index
+            || index > expanded_index && index <= expanded_index + headers_after
+        {
+            1
+        } else {
+            0
+        };
+        record_viewport_pane(out, owner, pane, VirtualRect { y, height, ..area });
+        if height == 1 && index != expanded_index {
+            out.stacked_headers.insert(pane);
+        }
+        y = y.saturating_add(height);
+    }
+}
+
 fn walk_stack(panes: &[PaneId], expanded: PaneId, area: Rect, out: &mut LayoutResult) {
     let expanded_index = panes.iter().position(|pane| *pane == expanded).unwrap_or(panes.len() - 1);
     let visible_headers = usize::from(area.height.saturating_sub(1)).min(panes.len() - 1);
@@ -403,6 +811,137 @@ pub fn exact_split_for_pane_edge(
     let mut best = None;
     exact_split_for_pane_edge_walk(root, area, pane, pane_rect, edge, &mut best);
     best
+}
+
+/// Find the exact split behind a pane edge in a horizontally extended
+/// viewport layout.
+pub fn exact_split_for_pane_edge_with_viewport(
+    root: &Node,
+    area: Rect,
+    active_pane: Option<PaneId>,
+    pane: PaneId,
+    edge: SplitEdge,
+    base_width: f32,
+    viewport_splits: &BTreeMap<SplitId, f32>,
+) -> Option<ExactViewportSplitResize> {
+    let pane_rect =
+        layout_screen_with_viewport(root, area, active_pane, base_width, viewport_splits)
+            .rect_of(pane)?;
+    let mut best = None;
+    let base_area = VirtualRect {
+        x: u64::from(area.x),
+        y: area.y,
+        width: u64::from(viewport_column_cells(area.width, base_width)),
+        height: area.height,
+    };
+    exact_split_for_pane_edge_viewport_walk(
+        root,
+        base_area,
+        area.width,
+        active_pane,
+        viewport_splits,
+        pane,
+        pane_rect,
+        edge,
+        &mut best,
+    );
+    best
+}
+
+#[allow(clippy::too_many_arguments)]
+fn exact_split_for_pane_edge_viewport_walk(
+    node: &Node,
+    area: VirtualRect,
+    viewport_width: u16,
+    active_pane: Option<PaneId>,
+    viewport_splits: &BTreeMap<SplitId, f32>,
+    pane: PaneId,
+    pane_rect: VirtualRect,
+    edge: SplitEdge,
+    best: &mut Option<ExactViewportSplitResize>,
+) {
+    let Node::Split { id, dir, ratio, a, b } = node else {
+        return;
+    };
+    let (a_rect, b_rect, split_area) =
+        if *dir == SplitDir::Right && viewport_splits.contains_key(id) {
+            let mut ignored = ViewportLayoutResult::default();
+            let a_end = walk_viewport(
+                a,
+                area,
+                viewport_width,
+                active_pane,
+                viewport_splits,
+                ViewportColumn::Base,
+                &mut ignored,
+            );
+            let width = viewport_column_cells(viewport_width, viewport_splits[id]);
+            let b_rect = VirtualRect { x: a_end, width: u64::from(width), ..area };
+            (
+                area,
+                b_rect,
+                VirtualRect {
+                    width: b_rect.x.saturating_add(b_rect.width).saturating_sub(area.x),
+                    ..area
+                },
+            )
+        } else {
+            let too_small = match dir {
+                SplitDir::Right => area.width < 2,
+                SplitDir::Down => area.height < 2,
+            };
+            if too_small {
+                return;
+            }
+            let (a_rect, b_rect) = split_virtual_sides(area, *dir, *ratio);
+            (a_rect, b_rect, area)
+        };
+    let pane_in_a = a.contains(pane);
+    let pane_in_b = b.contains(pane);
+    if *dir == edge.dir() {
+        let boundary = match dir {
+            SplitDir::Right => b_rect.x,
+            SplitDir::Down => u64::from(b_rect.y),
+        };
+        let matches_boundary = match edge {
+            SplitEdge::Right => {
+                pane_in_a && pane_rect.x.saturating_add(pane_rect.width) == boundary
+            }
+            SplitEdge::Left => pane_in_b && pane_rect.x == boundary,
+            SplitEdge::Bottom => {
+                pane_in_a && u64::from(pane_rect.y.saturating_add(pane_rect.height)) == boundary
+            }
+            SplitEdge::Top => pane_in_b && u64::from(pane_rect.y) == boundary,
+        };
+        if matches_boundary {
+            *best = Some(ExactViewportSplitResize { area: split_area, split: *id });
+        }
+    }
+    if pane_in_a {
+        exact_split_for_pane_edge_viewport_walk(
+            a,
+            a_rect,
+            viewport_width,
+            active_pane,
+            viewport_splits,
+            pane,
+            pane_rect,
+            edge,
+            best,
+        );
+    } else if pane_in_b {
+        exact_split_for_pane_edge_viewport_walk(
+            b,
+            b_rect,
+            viewport_width,
+            active_pane,
+            viewport_splits,
+            pane,
+            pane_rect,
+            edge,
+            best,
+        );
+    }
 }
 
 fn exact_split_for_pane_edge_walk(
@@ -519,16 +1058,58 @@ fn leaf_without_crossing_dir(
 pub fn split_sides(area: Rect, dir: SplitDir, ratio: f32) -> (Rect, Rect) {
     match dir {
         SplitDir::Right => {
-            let a_w = ((area.width as f32) * ratio).round() as u16;
-            let a_w = a_w.clamp(1, area.width.saturating_sub(1).max(1));
-            (Rect { width: a_w, ..area }, Rect { x: area.x + a_w, width: area.width - a_w, ..area })
+            let (first_width, second_width) = split_extent(area.width, ratio);
+            (
+                Rect { width: first_width, ..area },
+                Rect { x: area.x.saturating_add(first_width), width: second_width, ..area },
+            )
         }
         SplitDir::Down => {
-            let a_h = ((area.height as f32) * ratio).round() as u16;
-            let a_h = a_h.clamp(1, area.height.saturating_sub(1).max(1));
+            let (first_height, second_height) = split_extent(area.height, ratio);
             (
-                Rect { height: a_h, ..area },
-                Rect { y: area.y + a_h, height: area.height - a_h, ..area },
+                Rect { height: first_height, ..area },
+                Rect { y: area.y.saturating_add(first_height), height: second_height, ..area },
+            )
+        }
+    }
+}
+
+fn split_extent(extent: u16, ratio: f32) -> (u16, u16) {
+    if extent == 0 {
+        return (0, 0);
+    }
+    let first = ((f32::from(extent)) * ratio).round() as u16;
+    let first = first.clamp(1, extent.saturating_sub(1).max(1));
+    (first, extent - first)
+}
+
+fn split_virtual_extent(extent: u64, ratio: f32) -> (u64, u64) {
+    if extent == 0 {
+        return (0, 0);
+    }
+    let first = ((extent as f64) * f64::from(ratio)).round() as u64;
+    let first = first.clamp(1, extent.saturating_sub(1).max(1));
+    (first, extent - first)
+}
+
+fn split_virtual_sides(area: VirtualRect, dir: SplitDir, ratio: f32) -> (VirtualRect, VirtualRect) {
+    match dir {
+        SplitDir::Right => {
+            let (first_width, second_width) = split_virtual_extent(area.width, ratio);
+            (
+                VirtualRect { width: first_width, ..area },
+                VirtualRect { x: area.x.saturating_add(first_width), width: second_width, ..area },
+            )
+        }
+        SplitDir::Down => {
+            let (first_height, second_height) = split_extent(area.height, ratio);
+            (
+                VirtualRect { height: first_height, ..area },
+                VirtualRect {
+                    y: area.y.saturating_add(first_height),
+                    height: second_height,
+                    ..area
+                },
             )
         }
     }
@@ -553,9 +1134,177 @@ mod tests {
         assert_eq!(r1.width, 40);
         assert_eq!(r2.width, 40);
         assert_eq!(r2.x, 40);
+        assert_eq!(layout.virtual_width, 80);
         // Panes tile without gaps: every cell belongs to exactly one pane.
         assert_eq!(layout.pane_at(39, 0), Some(1));
         assert_eq!(layout.pane_at(40, 0), Some(2));
+    }
+
+    #[test]
+    fn zero_extent_terminal_splits_preserve_empty_rect() {
+        for dir in [SplitDir::Right, SplitDir::Down] {
+            let area = Rect { x: u16::MAX, y: u16::MAX, width: 0, height: 0 };
+            let (first, second) = split_sides(area, dir, 0.5);
+
+            assert_eq!(first, area);
+            assert_eq!(second, area);
+        }
+    }
+
+    #[test]
+    fn zero_extent_virtual_splits_preserve_empty_rect() {
+        for dir in [SplitDir::Right, SplitDir::Down] {
+            let area = VirtualRect { x: u64::MAX, y: u16::MAX, width: 0, height: 0 };
+            let (first, second) = split_virtual_sides(area, dir, 0.5);
+
+            assert_eq!(first, area);
+            assert_eq!(second, area);
+        }
+    }
+
+    #[test]
+    fn viewport_split_appends_a_two_thirds_width_column() {
+        let root = Node::Split {
+            id: 10,
+            dir: SplitDir::Right,
+            ratio: 0.9,
+            a: Box::new(Node::Leaf(1)),
+            b: Box::new(Node::Leaf(2)),
+        };
+
+        let viewport_splits = BTreeMap::from([(10, 2.0 / 3.0)]);
+        let layout = layout_screen_with_viewport(
+            &root,
+            Rect { x: 7, y: 3, width: 80, height: 24 },
+            Some(1),
+            1.0,
+            &viewport_splits,
+        );
+
+        assert_eq!(layout.rect_of(1), Some(VirtualRect { x: 7, y: 3, width: 80, height: 24 }));
+        assert_eq!(layout.rect_of(2), Some(VirtualRect { x: 87, y: 3, width: 53, height: 24 }));
+        assert_eq!(
+            layout.columns,
+            vec![
+                ViewportColumnRect {
+                    owner: ViewportColumn::Base,
+                    representative: 1,
+                    rect: VirtualRect { x: 7, y: 3, width: 80, height: 24 },
+                },
+                ViewportColumnRect {
+                    owner: ViewportColumn::Split(10),
+                    representative: 2,
+                    rect: VirtualRect { x: 87, y: 3, width: 53, height: 24 },
+                },
+            ]
+        );
+        assert_eq!(layout.virtual_width, 133);
+    }
+
+    #[test]
+    fn viewport_layout_preserves_columns_past_u16_extent() {
+        let root = Node::Split {
+            id: 11,
+            dir: SplitDir::Right,
+            ratio: 0.5,
+            a: Box::new(Node::Split {
+                id: 10,
+                dir: SplitDir::Right,
+                ratio: 0.5,
+                a: Box::new(Node::Leaf(1)),
+                b: Box::new(Node::Leaf(2)),
+            }),
+            b: Box::new(Node::Leaf(3)),
+        };
+        let viewport_splits = BTreeMap::from([(10, 1.0), (11, 1.0)]);
+        let layout = layout_screen_with_viewport(
+            &root,
+            Rect { x: 0, y: 0, width: u16::MAX, height: 24 },
+            Some(3),
+            1.0,
+            &viewport_splits,
+        );
+
+        assert_eq!(layout.virtual_width, u64::from(u16::MAX) * 3);
+        assert_eq!(
+            layout.rect_of(3),
+            Some(VirtualRect {
+                x: u64::from(u16::MAX) * 2,
+                y: 0,
+                width: u64::from(u16::MAX),
+                height: 24,
+            })
+        );
+        assert_eq!(layout.pane_at(u64::from(u16::MAX) * 2, 0), Some(3));
+        assert_eq!(layout.neighbor(2, 1, 0), Some(3));
+        assert_eq!(layout.neighbor(3, -1, 0), Some(2));
+    }
+
+    #[test]
+    fn viewport_split_resize_finds_a_nested_appended_divider() {
+        let root = Node::Split {
+            id: 10,
+            dir: SplitDir::Right,
+            ratio: 0.5,
+            a: Box::new(Node::Leaf(1)),
+            b: Box::new(Node::Split {
+                id: 20,
+                dir: SplitDir::Right,
+                ratio: 0.5,
+                a: Box::new(Node::Leaf(2)),
+                b: Box::new(Node::Leaf(3)),
+            }),
+        };
+        let area = Rect { x: 0, y: 0, width: 80, height: 24 };
+        let viewport_splits = BTreeMap::from([(10, DEFAULT_VIEWPORT_PANE_WIDTH)]);
+
+        assert_eq!(
+            exact_split_for_pane_edge_with_viewport(
+                &root,
+                area,
+                Some(2),
+                2,
+                SplitEdge::Right,
+                1.0,
+                &viewport_splits,
+            ),
+            Some(ExactViewportSplitResize {
+                area: VirtualRect { x: 80, y: 0, width: 53, height: 24 },
+                split: 20,
+            })
+        );
+    }
+
+    #[test]
+    fn viewport_split_preserves_the_existing_tiled_column() {
+        let root = Node::Split {
+            id: 10,
+            dir: SplitDir::Right,
+            ratio: 0.5,
+            a: Box::new(Node::Split {
+                id: 11,
+                dir: SplitDir::Down,
+                ratio: 0.25,
+                a: Box::new(Node::Leaf(1)),
+                b: Box::new(Node::Leaf(2)),
+            }),
+            b: Box::new(Node::Leaf(3)),
+        };
+
+        let viewport_splits = BTreeMap::from([(10, 2.0 / 3.0)]);
+        let layout = layout_screen_with_viewport(
+            &root,
+            Rect { x: 0, y: 0, width: 100, height: 40 },
+            Some(2),
+            1.0,
+            &viewport_splits,
+        );
+
+        assert_eq!(layout.rect_of(1), Some(VirtualRect { x: 0, y: 0, width: 100, height: 10 }));
+        assert_eq!(layout.rect_of(2), Some(VirtualRect { x: 0, y: 10, width: 100, height: 30 }));
+        assert_eq!(layout.rect_of(3), Some(VirtualRect { x: 100, y: 0, width: 67, height: 40 }));
+        assert_eq!(layout.virtual_width, 167);
+        assert_eq!(layout.neighbor(2, 1, 0), Some(3));
     }
 
     #[test]

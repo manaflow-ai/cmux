@@ -1,10 +1,14 @@
 # Transport Contract
 
-The command schema is transport-independent. Protocol v5 introduced the Unix domain socket JSON-lines transport. Protocol v6 also implements an opt-in WebSocket transport with the same command and event payloads. Protocol v7 leaves both framing contracts unchanged and adds render-mode negotiation at the command layer. HTTP and SSE remain proposals.
+This document covers private protocol-v11 transport negotiation. The public
+resource protocol defines its transport parity in
+[`resource-api-v2.md`](resource-api-v2.md).
+
+The raw command schema is transport-independent. Protocol v5 introduced the Unix domain socket JSON-lines transport. Protocol v6 also implements an opt-in WebSocket transport with the same command and event payloads. Protocol v7 leaves both framing contracts unchanged and adds render-mode negotiation at the command layer. HTTP and SSE remain proposals.
 
 ## Protocol Negotiation
 
-The current server reports `protocol:10` from `identify` and `ping`. Clients must inspect `identify.protocol` before using versioned additions. A client selecting `attach-surface` with `mode:"render"` must require `protocol >= 7`; on protocol 6 it must use the default byte mode or refuse the attachment. A client requiring stable split ids or sending `set-split-ratio` must require protocol 8. A client decoding stack layouts or sending `new-pane` must require protocol 9. A client using `set-client-sizing` must require protocol 10 and include its target surface.
+The current server reports `protocol:11` from `identify` and `ping`. Clients must inspect `identify.protocol` before using versioned additions. A client selecting `attach-surface` with `mode:"render"` must require `protocol >= 7`; on protocol 6 it must use the default byte mode or refuse the attachment. A client requiring stable split ids or sending `set-split-ratio` must require protocol 8. A client decoding stack layouts or sending `new-pane` must require protocol 9. A client using `set-client-sizing` must require protocol 10 and include its target surface. Protocol 11 changes terminal creation and `run` lifecycle response shapes and adds terminal renderer minting. A client sending `shutdown-daemon` with `force:true` must require the additive `daemon-handoff-force-v1` capability. A remote TUI routing browser pointer input must also require the additive `browser-pointer-frame-guard-v1` capability and use its guarded command names; legacy clients can continue using the original optional-guard commands. A browser `attach-surface` connection must advertise that capability through `set-client-info` on the same socket before attaching. A client sending `new-pane-right` or interpreting `Screen.viewport_splits` must require the additive `viewport-splits-v1` capability. A client sending `set-viewport-pane-width` or interpreting `Screen.viewport_base_width` must require `viewport-column-resize-v1`. A client sending `undo-layout` must require `layout-undo-v1`.
 
 There is no transport-level version preamble. Omitting `attach-surface.mode` selects `"bytes"`, and omitting `subscribe.tree_events` selects `"coarse"`; those defaults preserve the exact protocol-v6 attach and tree-event behavior. Unix socket paths, WebSocket upgrade/authentication, request ids, response envelopes, and message framing do not change in protocol 7.
 
@@ -61,14 +65,22 @@ Response envelope:
 
 ```text
 object{id?:any,ok:true,data:any}
-| object{id?:any,ok:false,error:string}
+| object{id?:any,ok:false,error:string,error_code?:string,error_delivery?:"known-not-delivered"|"ambiguous"}
 ```
+
+`error_code` is an additive machine-readable classification for commands that
+define one. Clients must continue to display or log `error` and ignore unknown
+codes.
 
 Decode errors return:
 
 ```text
 object{ok:false,error:"bad request: ..."}
 ```
+
+`clear-history` errors include `error_delivery`. `"known-not-delivered"` proves that neither a
+clear nor fallback input reached the terminal. `"ambiguous"` means terminal delivery may have
+started before the error. Clients must treat a missing or unknown value as `"ambiguous"`.
 
 ### Id Correlation
 
@@ -106,14 +118,14 @@ vNext applies a 4,194,304-byte client-to-server UTF-8 message limit on every tra
 | status | implemented client transport primitive |
 | since | protocol 9 client |
 
-`cmux-tui relay` copies bytes between stdin/stdout and one existing local Unix session socket:
+`cmux relay` copies bytes between stdin/stdout and one existing local Unix session socket:
 
 ```text
-cmux-tui relay --session main
-cmux-tui relay --socket /absolute/path/to/session.sock
+cmux relay --session main
+cmux relay --socket /absolute/path/to/session.sock
 ```
 
-Relay does not start a mux server, render a TUI, authenticate a caller, or interpret command payloads. Its stdout contains only server protocol bytes. When stdin is a terminal because a provider allocated a PTY, relay enables raw terminal mode for its lifetime to prevent echo and newline conversion. Providers should use a pipe when possible.
+Relay does not start a mux server, render a TUI, authenticate a caller, or interpret command payloads. Its stdout contains only server protocol bytes. When stdin is a terminal because a provider allocated a PTY, relay enables raw terminal mode for its lifetime to prevent echo and newline conversion. Providers should use a pipe when possible. When relay stdin reaches EOF, relay half-closes the Unix socket write side and continues copying server output. The server stops accepting requests on that connection, completes every parsed request, and then closes the response stream. Requests for one surface remain ordered, and an active `clear-history` also blocks later lifecycle commands. Requests for unrelated surfaces may complete first, so clients must correlate responses by request id.
 
 The implemented SSH machine connector starts relay as:
 
@@ -139,8 +151,8 @@ The server classifies relay traffic as Unix because relay terminates at the Unix
 WebSocket is opt-in and can run alongside either the local TUI or `--headless`:
 
 ```text
-cmux-tui --ws 127.0.0.1:7681
-cmux-tui --headless --ws 127.0.0.1:7681
+cmux --ws 127.0.0.1:7681
+cmux --headless --ws 127.0.0.1:7681
 ```
 
 The equivalent config is:
@@ -221,7 +233,7 @@ vNext adds client-generated `stream_id` to `subscribe` and `attach-surface`, ech
 HTTP is opt-in. The server binds localhost by default when enabled:
 
 ```text
-cmux-tui --http 127.0.0.1:0
+cmux --http 127.0.0.1:0
 ```
 
 The implementation must not bind a non-loopback address unless the user explicitly supplies one. HTTP is disabled unless a bearer token exists or the user passes `--http-insecure-localhost`.

@@ -5,7 +5,8 @@ extension CMUXCLI {
 // Installed by `cmux hooks pi install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 
-import { spawn, spawnSync } from "node:child_process";
+import { Buffer } from "node:buffer";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -16,12 +17,14 @@ interface PendingCompletion {
   lastAssistantMessage?: string;
   notificationType: string;
   turnId: string;
+  suppressNotification: boolean;
 }
 
 interface SessionState {
   nextTurn: number;
   activeTurnId?: string;
   pendingCompletion?: PendingCompletion;
+  feedDeliveryFailed: boolean;
   stopped: boolean;
 }
 
@@ -31,9 +34,14 @@ interface CommandResult {
   stdout: string;
   stderr: string;
   error?: unknown;
+  surfaceUnavailable?: boolean;
 }
 
-const sessionStates = new Map<string, SessionState>();
+interface PiExtensionContextSnapshot {
+  readonly sessionId: string | null;
+  readonly cwd: string;
+  readonly notifyWarning?: () => void;
+}
 
 function firstString(...values: unknown[]): string | null {
   for (const value of values) {
@@ -49,6 +57,137 @@ function objectValue(value: unknown, keys: string[]): unknown {
     if (typed[key] !== undefined && typed[key] !== null) return typed[key];
   }
   return undefined;
+}
+
+function utf8Prefix(value: unknown, maximumBytes: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const candidate = value.length > maximumBytes ? value.slice(0, maximumBytes) : value;
+  const bytes = Buffer.from(candidate, "utf8");
+  if (bytes.byteLength <= maximumBytes) return candidate;
+  return bytes.subarray(0, maximumBytes).toString("utf8").replace(/\uFFFD+$/u, "");
+}
+
+interface PiFeedProjectionState {
+  remainingNodes: number;
+  seen: WeakSet<object>;
+}
+
+function projectPiFeedValue(value: unknown, state: PiFeedProjectionState, depth = 0, preserveText = true): unknown {
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "string") return preserveText ? utf8Prefix(value, 512) : piFeedValueSummary(value);
+  if (typeof value === "number") {
+    return preserveText && Number.isFinite(value) ? value : piFeedValueSummary(value);
+  }
+  if (typeof value !== "object") return piFeedValueSummary(value);
+  if (depth >= 4 || state.remainingNodes <= 0) return piFeedValueSummary(value);
+  if (state.seen.has(value)) return { kind: "circular" };
+  state.remainingNodes -= 1;
+  state.seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      const out: unknown[] = [];
+      const retained = Math.min(value.length, 12);
+      for (let index = 0; index < retained; index += 1) {
+        try {
+          out.push(projectPiFeedValue(value[index], state, depth + 1, preserveText));
+        } catch (_) {
+          out.push({ kind: "unavailable" });
+        }
+      }
+      if (value.length > retained) out.push({ kind: "omitted", count: value.length - retained });
+      return out;
+    }
+    const out: Record<string, unknown> = {};
+    let scanned = 0;
+    try {
+      for (const key in value as Record<string, unknown>) {
+        if (scanned >= 12) {
+          out.cmux_truncated = true;
+          break;
+        }
+        scanned += 1;
+        if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+        const projectedKey = utf8Prefix(key, 128);
+        if (!projectedKey) continue;
+        try {
+          out[projectedKey] = projectPiFeedValue(
+            (value as Record<string, unknown>)[key],
+            state,
+            depth + 1,
+            preserveText,
+          );
+        } catch (_) {
+          out[projectedKey] = { kind: "unavailable" };
+        }
+      }
+    } catch (_) {
+      return piFeedValueSummary(value);
+    }
+    return out;
+  } finally {
+    state.seen.delete(value);
+  }
+}
+
+function boundedPiFeedInput(payload: Record<string, unknown>, maximumBytes: number): string {
+  const serialized = JSON.stringify(payload);
+  if (Buffer.byteLength(serialized, "utf8") <= maximumBytes) return serialized;
+
+  const summaries = Array.isArray(payload.cmux_compacted_terminal_events)
+    ? payload.cmux_compacted_terminal_events
+    : [];
+  const latest = summaries.length > 0 && typeof summaries[summaries.length - 1] === "object"
+    ? summaries[summaries.length - 1] as Record<string, unknown>
+    : undefined;
+  const rawCount = payload.cmux_compacted_terminal_count;
+  const totalCount = typeof rawCount === "number" && Number.isFinite(rawCount)
+    ? Math.max(summaries.length, rawCount)
+    : summaries.length;
+  const rawOmitted = payload.cmux_compacted_terminal_omitted_count;
+  const omittedCount = typeof rawOmitted === "number" && Number.isFinite(rawOmitted)
+    ? Math.max(0, rawOmitted, totalCount - 1)
+    : Math.max(0, totalCount - 1);
+  const safe: Record<string, unknown> = {};
+  for (const key of ["session_id", "cwd", "turn_id", "tool_call_id", "tool_name"] as const) {
+    const value = utf8Prefix(payload[key], 256);
+    if (value !== undefined) safe[key] = value;
+  }
+  for (const key of ["hook_event_name", "event"] as const) {
+    const value = utf8Prefix(payload[key], 64);
+    if (value !== undefined) safe[key] = value;
+  }
+  if (typeof payload.is_error === "boolean") safe.is_error = payload.is_error;
+  if (latest) {
+    const summary: Record<string, unknown> = {};
+    for (const key of ["session_id", "cwd", "turn_id", "tool_call_id", "tool_name"] as const) {
+      const value = utf8Prefix(latest[key] ?? payload[key], 256);
+      if (value !== undefined) summary[key] = value;
+    }
+    if (typeof latest.is_error === "boolean") summary.is_error = latest.is_error;
+    safe.cmux_compacted_terminal_count = totalCount;
+    safe.cmux_compacted_terminal_omitted_count = omittedCount;
+    safe.cmux_compacted_terminal_events = [summary];
+  } else if (firstString(payload.hook_event_name, payload.event) === "PostToolUse") {
+    safe.cmux_compacted_terminal_count = 1;
+    safe.cmux_compacted_terminal_omitted_count = 0;
+    safe.cmux_compacted_terminal_events = [piTerminalFeedSummary(payload)];
+  } else if (payload.tool_input !== undefined) {
+    safe.tool_input = piFeedValueSummary(payload.tool_input);
+  }
+
+  const compacted = JSON.stringify(safe);
+  if (Buffer.byteLength(compacted, "utf8") <= maximumBytes) return compacted;
+  const fallbackEvent = utf8Prefix(payload.hook_event_name, 64) || "PostToolUse";
+  return JSON.stringify({
+    session_id: utf8Prefix(payload.session_id, 128),
+    hook_event_name: fallbackEvent,
+    event: fallbackEvent,
+    tool_call_id: "compacted-overflow",
+    tool_name: "cmux_compacted_terminal_overflow",
+    tool_input: fallbackEvent === "PostToolUse"
+      ? { omitted_terminal_count: Math.max(1, totalCount) }
+      : piFeedValueSummary(payload.tool_input),
+  });
 }
 
 function resolveExecutable(name: string): string {
@@ -81,43 +220,84 @@ function looksLikePiScript(value: string): boolean {
   );
 }
 
-function normalizedLaunchArgv(): string[] {
-  const raw = Array.isArray(process.argv) ? process.argv.map((value) => String(value)) : [];
-  if (raw.length === 0) return [resolveExecutable("pi")];
-  if (looksLikePiExecutable(raw[0])) return raw;
-  if (raw.length > 1 && looksLikePiScript(raw[1])) {
-    return [resolveExecutable("pi"), ...raw.slice(2)];
-  }
-  return [resolveExecutable("pi"), ...raw.slice(1)];
+interface NormalizedLaunchArgvCache {
+  key: string;
+  argv: string[];
 }
 
+let normalizedLaunchArgvCache: NormalizedLaunchArgvCache | undefined;
+
+function normalizedLaunchArgv(): string[] {
+  const raw = Array.isArray(process.argv) ? process.argv.map((value) => String(value)) : [];
+  // Pi's argv and inherited PATH are stable for the lifetime of this extension.
+  // Memoize executable discovery so every hook subprocess does not synchronously
+  // stat the full PATH again. Keep the key dynamic for test harnesses and hosts
+  // that deliberately rewrite process argv at runtime.
+  const cacheKey = [process.env.PATH || "", ...raw].join("\0");
+  if (normalizedLaunchArgvCache?.key === cacheKey) {
+    return normalizedLaunchArgvCache.argv;
+  }
+
+  let argv: string[];
+  if (raw.length === 0) {
+    argv = [resolveExecutable("pi")];
+  } else if (looksLikePiExecutable(raw[0])) {
+    argv = raw;
+  } else if (raw.length > 1 && looksLikePiScript(raw[1])) {
+    argv = [resolveExecutable("pi"), ...raw.slice(2)];
+  } else {
+    argv = [resolveExecutable("pi"), ...raw.slice(1)];
+  }
+  normalizedLaunchArgvCache = { key: cacheKey, argv };
+  return argv;
+}
+
+interface DetectedPiVersionCache {
+  key: string;
+  version: string | null;
+}
+
+let detectedPiVersionCache: DetectedPiVersionCache | undefined;
+
 function detectedPiVersion(): string | null {
+  const cacheKey = [
+    process.cwd(),
+    ...process.argv.slice(0, 2).map((value) => String(value)),
+  ].join("\0");
+  if (detectedPiVersionCache?.key === cacheKey) {
+    return detectedPiVersionCache.version;
+  }
+
   const script = process.argv.slice(0, 2).find((value) => {
     const candidate = String(value);
     return looksLikePiScript(candidate) || looksLikePiExecutable(candidate);
   });
-  if (!script) return null;
-  let scriptPath = path.resolve(String(script));
-  try {
-    // npm launches through bin symlinks, so inspect the package containing the resolved script.
-    scriptPath = fs.realpathSync(scriptPath);
-  } catch (_) {}
-  let directory = path.dirname(scriptPath);
-  for (let depth = 0; depth < 8; depth += 1) {
+  let version: string | null = null;
+  if (script) {
+    let scriptPath = path.resolve(String(script));
     try {
-      const packageJSON = JSON.parse(fs.readFileSync(path.join(directory, "package.json"), "utf8"));
-      if (
-        packageJSON?.name === "@earendil-works/pi-coding-agent" ||
-        packageJSON?.name === "@mariozechner/pi-coding-agent"
-      ) {
-        return firstString(packageJSON.version);
-      }
+      // npm launches through bin symlinks, so inspect the package containing the resolved script.
+      scriptPath = fs.realpathSync(scriptPath);
     } catch (_) {}
-    const parent = path.dirname(directory);
-    if (parent === directory) break;
-    directory = parent;
+    let directory = path.dirname(scriptPath);
+    for (let depth = 0; depth < 8; depth += 1) {
+      try {
+        const packageJSON = JSON.parse(fs.readFileSync(path.join(directory, "package.json"), "utf8"));
+        if (
+          packageJSON?.name === "@earendil-works/pi-coding-agent" ||
+          packageJSON?.name === "@mariozechner/pi-coding-agent"
+        ) {
+          version = firstString(packageJSON.version);
+          break;
+        }
+      } catch (_) {}
+      const parent = path.dirname(directory);
+      if (parent === directory) break;
+      directory = parent;
+    }
   }
-  return null;
+  detectedPiVersionCache = { key: cacheKey, version };
+  return version;
 }
 
 function supportsAgentSettled(): boolean {
@@ -237,18 +417,38 @@ function textFromContent(content: unknown): string | null {
   return parts.join("\n") || null;
 }
 
-function lastAssistantMessage(event: unknown): string | undefined {
+interface AssistantCompletion {
+  lastAssistantMessage?: string;
+  suppressNotification: boolean;
+}
+
+function assistantCompletionFrom(event: unknown): AssistantCompletion {
   const messagesValue = objectValue(event, ["messages"]);
   const messages = Array.isArray(messagesValue) ? messagesValue : [];
+  let suppressNotification = false;
+  let inspectedLatestAssistant = false;
+  // Resolve text and interruption metadata in one reverse pass. agent_end may
+  // carry a large message array, so notification support must not rescan it.
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (!message || typeof message !== "object") continue;
-    const typed = message as { role?: unknown; content?: unknown };
+    const typed = message as {
+      role?: unknown;
+      content?: unknown;
+      stopReason?: unknown;
+      cmuxSuppressNotification?: unknown;
+    };
     if (typed.role !== "assistant") continue;
+    if (!inspectedLatestAssistant) {
+      // Input extensions may normalize an abort to `stop` to keep Pi's UI quiet;
+      // the marker preserves the interruption intent across that normalization.
+      suppressNotification = typed.stopReason === "aborted" || typed.cmuxSuppressNotification === true;
+      inspectedLatestAssistant = true;
+    }
     const text = firstString(textFromContent(typed.content));
-    if (text) return text;
+    if (text) return { lastAssistantMessage: text, suppressNotification };
   }
-  return undefined;
+  return { suppressNotification };
 }
 
 function sessionIdFrom(ctx: ExtensionContext): string | null {
@@ -259,10 +459,25 @@ function cwdFrom(ctx: ExtensionContext): string {
   return firstString(ctx.cwd, process.cwd()) || process.cwd();
 }
 
-function stateFor(sessionId: string): SessionState {
+function snapshotContext(ctx: ExtensionContext): PiExtensionContextSnapshot {
+  let notifyWarning: (() => void) | undefined;
+  try {
+    const ui = (ctx as unknown as { ui?: { notify?: (message: string, type?: string) => void } }).ui;
+    if (typeof ui?.notify === "function") {
+      notifyWarning = () => ui.notify?.("cmux Pi integration warning - check the terminal for details", "warning");
+    }
+  } catch (_) {}
+  return {
+    sessionId: sessionIdFrom(ctx),
+    cwd: cwdFrom(ctx),
+    notifyWarning,
+  };
+}
+
+function stateFor(sessionStates: Map<string, SessionState>, sessionId: string): SessionState {
   let state = sessionStates.get(sessionId);
   if (!state) {
-    state = { nextTurn: 0, stopped: false };
+    state = { nextTurn: 0, feedDeliveryFailed: false, stopped: false };
     sessionStates.set(sessionId, state);
   }
   return state;
@@ -274,8 +489,8 @@ function eventTurnId(event: unknown): string | null {
   );
 }
 
-function beginTurn(sessionId: string, event: unknown): string {
-  const state = stateFor(sessionId);
+function beginTurn(sessionStates: Map<string, SessionState>, sessionId: string, event: unknown): string {
+  const state = stateFor(sessionStates, sessionId);
   const turnId = eventTurnId(event) || `${sessionId}:turn-${state.nextTurn + 1}`;
   if (!eventTurnId(event)) state.nextTurn += 1;
   state.activeTurnId = turnId;
@@ -284,15 +499,15 @@ function beginTurn(sessionId: string, event: unknown): string {
   return turnId;
 }
 
-function currentTurnId(sessionId: string, event: unknown): string {
-  const state = stateFor(sessionId);
+function currentTurnId(sessionStates: Map<string, SessionState>, sessionId: string, event: unknown): string {
+  const state = stateFor(sessionStates, sessionId);
   const turnId = eventTurnId(event) || state.activeTurnId || `${sessionId}:turn-${state.nextTurn + 1}`;
   if (!eventTurnId(event) && !state.activeTurnId) state.nextTurn += 1;
   return turnId;
 }
 
-function finishTurn(sessionId: string, event: unknown): string {
-  const state = stateFor(sessionId);
+function finishTurn(sessionStates: Map<string, SessionState>, sessionId: string, event: unknown): string {
+  const state = stateFor(sessionStates, sessionId);
   const turnId = eventTurnId(event) || state.activeTurnId || `${sessionId}:turn-${state.nextTurn + 1}`;
   if (!eventTurnId(event) && !state.activeTurnId) state.nextTurn += 1;
   state.activeTurnId = undefined;
@@ -301,52 +516,56 @@ function finishTurn(sessionId: string, event: unknown): string {
   return turnId;
 }
 
-function settleTurn(sessionId: string): PendingCompletion | undefined {
+function settleTurn(sessionStates: Map<string, SessionState>, sessionId: string): PendingCompletion | undefined {
   const state = sessionStates.get(sessionId);
   const completion = state?.pendingCompletion;
   if (!state || !completion || state.stopped) return undefined;
   state.activeTurnId = undefined;
   state.pendingCompletion = undefined;
+  // Keep the settlement claim while awaiting delivery so session_shutdown cannot
+  // emit a second Stop when terminal-feed delivery degrades.
   state.stopped = true;
   return completion;
 }
 
-function warn(ctx: ExtensionContext | null, message: string, details: Record<string, unknown> = {}): void {
+function warn(
+  ctx: PiExtensionContextSnapshot | null,
+  message: string,
+  details: Record<string, unknown> = {},
+  notifyUser = false,
+): void {
   const payload = { source: "cmux-pi-extension", level: "warning", message, ...details };
   try {
     console.warn(JSON.stringify(payload));
   } catch (_) {
     console.warn(`[cmux-pi-extension] ${message}`);
   }
-  const ui = (ctx as unknown as { ui?: { notify?: (message: string, type?: string) => void } } | null)?.ui;
-  try {
-    ui?.notify?.("cmux Pi integration warning - check the terminal for details", "warning");
-  } catch (_) {}
+  // Hook transport is best-effort telemetry. Keep routine command failures in
+  // the terminal instead of interrupting Pi with a generic toast; reserve the
+  // UI warning for an unexpected extension-task exception.
+  if (notifyUser) {
+    try {
+      ctx?.notifyWarning?.();
+    } catch (_) {}
+  }
 }
 
 function cmuxExecutable(): string {
   return process.env.CMUX_PI_CMUX_BIN || "cmux";
 }
 
-function runCmux(args: string[], cwd: string, input?: string): CommandResult {
-  try {
-    const result = spawnSync(cmuxExecutable(), args, {
-      input,
-      encoding: "utf8",
-      env: hookEnvironment(cwd, true),
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 5000,
-    });
-    const status = typeof result.status === "number" ? result.status : null;
-    return {
-      ok: status === 0 && !result.error,
-      status,
-      stdout: typeof result.stdout === "string" ? result.stdout : "",
-      stderr: typeof result.stderr === "string" ? result.stderr : "",
-      error: result.error,
-    };
-  } catch (error) {
-    return { ok: false, status: null, stdout: "", stderr: "", error };
-  }
+interface PiFeedCommand {
+  readonly args: string[];
+  readonly cwd: string;
+  readonly payload: Record<string, unknown>;
+  readonly context: PiExtensionContextSnapshot;
+  readonly terminal: boolean;
+  readonly onFailure?: () => void;
+}
+
+interface PiCommandCancellation {
+  cancelled: boolean;
+  cancel?: () => void;
+}
 """#
 }

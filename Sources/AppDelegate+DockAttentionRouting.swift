@@ -11,6 +11,12 @@ extension AppDelegate {
         surfaceID: UUID,
         preferredTabID: UUID? = nil
     ) -> (tabID: UUID, surfaceID: UUID, tabManager: TabManager)? {
+        if let preferredTabID,
+           let manager = tabManagerFor(tabId: preferredTabID),
+           let workspace = manager.workspacesById[preferredTabID],
+           let target = workspace.surfaceOwnershipTarget(for: surfaceID) {
+            return (preferredTabID, target.surfaceID, manager)
+        }
         if let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(surfaceID) }) {
             let manager = dock.scope == .global
                 ? tabManagerFor(windowId: dock.workspaceId)
@@ -22,9 +28,32 @@ extension AppDelegate {
             panelId: surfaceID,
             preferredWorkspaceId: preferredTabID
         ) else {
+            var seenManagers = Set<ObjectIdentifier>()
+            for summary in listMainWindowSummaries() {
+                guard let manager = tabManagerFor(windowId: summary.windowId),
+                      seenManagers.insert(ObjectIdentifier(manager)).inserted,
+                      let workspace = manager.tabs.first(where: {
+                          $0.surfaceOwnershipTarget(for: surfaceID) != nil
+                      }),
+                      let target = workspace.surfaceOwnershipTarget(for: surfaceID) else {
+                    continue
+                }
+                return (workspace.id, target.surfaceID, manager)
+            }
+            if let manager = tabManager,
+               seenManagers.insert(ObjectIdentifier(manager)).inserted,
+               let workspace = manager.tabs.first(where: {
+                   $0.surfaceOwnershipTarget(for: surfaceID) != nil
+               }),
+               let target = workspace.surfaceOwnershipTarget(for: surfaceID) {
+                return (workspace.id, target.surfaceID, manager)
+            }
             return nil
         }
-        return (owner.workspace.id, surfaceID, owner.tabManager)
+        guard let target = owner.workspace.surfaceOwnershipTarget(for: surfaceID) else {
+            return nil
+        }
+        return (owner.workspace.id, target.surfaceID, owner.tabManager)
     }
 
     /// Shared notification-attention route for every surface container. Dock
@@ -41,7 +70,6 @@ extension AppDelegate {
         if DockSplitStore.routeAttentionFlash(
             panelID: panelID,
             reason: reason,
-            requiresSplit: requiresSplit,
             shouldFocus: shouldFocus
         ) {
             return true
@@ -49,19 +77,19 @@ extension AppDelegate {
 
         guard let workspace = workspaceFor(tabId: workspaceID) ??
                 tabManager?.tabs.first(where: { $0.id == workspaceID }),
-              let panel = workspace.panels[panelID],
-              panel.panelType == .terminal else {
+              let target = workspace.surfaceOwnershipTarget(for: panelID),
+              target.panel.panelType == .terminal else {
             return false
         }
         if shouldFocus {
-            workspace.focusPanel(panelID)
+            workspace.focusPanel(target.surfaceID)
         }
         if requiresSplit,
            workspace.bonsplitController.allPaneIds.count <= 1,
            workspace.panels.count <= 1 {
             return true
         }
-        workspace.requestAttentionFlash(panelId: panelID, reason: reason)
+        target.panel.triggerFlash(reason: reason)
         return true
     }
 

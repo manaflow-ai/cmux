@@ -85,7 +85,8 @@ final class CommandEquivalentTransientFocusRepairTests: XCTestCase {
             shouldRepairFocusedTerminalCommandEquivalentInputs(
                 flags: [.command],
                 responderIsWindow: true,
-                responderHasViableKeyRoutingOwner: false
+                responderHasViableKeyRoutingOwner: false,
+                responderMatchesPreferredKeyboardFocus: false
             )
         )
     }
@@ -95,17 +96,19 @@ final class CommandEquivalentTransientFocusRepairTests: XCTestCase {
             shouldRepairFocusedTerminalCommandEquivalentInputs(
                 flags: [.command],
                 responderIsWindow: false,
-                responderHasViableKeyRoutingOwner: false
+                responderHasViableKeyRoutingOwner: false,
+                responderMatchesPreferredKeyboardFocus: false
             )
         )
     }
 
-    func testDoesNotRepairCommandEquivalentWhenLiveResponderDiffersFromSelectedPane() {
-        XCTAssertFalse(
+    func testRepairsCommandEquivalentWhenLiveTerminalResponderDiffersFromSelectedPane() {
+        XCTAssertTrue(
             shouldRepairFocusedTerminalCommandEquivalentInputs(
                 flags: [.command],
                 responderIsWindow: false,
-                responderHasViableKeyRoutingOwner: true
+                responderHasViableKeyRoutingOwner: true,
+                responderMatchesPreferredKeyboardFocus: false
             )
         )
     }
@@ -115,7 +118,8 @@ final class CommandEquivalentTransientFocusRepairTests: XCTestCase {
             shouldRepairFocusedTerminalCommandEquivalentInputs(
                 flags: [.command],
                 responderIsWindow: false,
-                responderHasViableKeyRoutingOwner: true
+                responderHasViableKeyRoutingOwner: true,
+                responderMatchesPreferredKeyboardFocus: true
             )
         )
     }
@@ -125,7 +129,8 @@ final class CommandEquivalentTransientFocusRepairTests: XCTestCase {
             shouldRepairFocusedTerminalCommandEquivalentInputs(
                 flags: [],
                 responderIsWindow: true,
-                responderHasViableKeyRoutingOwner: false
+                responderHasViableKeyRoutingOwner: false,
+                responderMatchesPreferredKeyboardFocus: false
             )
         )
     }

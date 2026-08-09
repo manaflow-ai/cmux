@@ -258,6 +258,47 @@ struct AgentHibernationTests {
 
     @MainActor
     @Test
+    func testClearingMissingSupersededPIDPreservesReplacementLifecycle() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+
+        workspace.recordAgentPID(
+            key: "omp.current",
+            pid: 12345,
+            panelId: panelId,
+            refreshPorts: false
+        )
+        workspace.setAgentLifecycle(key: "omp", panelId: panelId, lifecycle: .running)
+
+        expectFalse(
+            workspace.clearAgentPID(
+                key: "omp.superseded",
+                panelId: panelId,
+                clearStatus: true,
+                requireOwnedKey: true,
+                refreshPorts: false
+            )
+        )
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .running)
+        expectEqual(workspace.agentPIDs["omp.current"], 12345)
+    }
+
+    @MainActor
+    @Test
+    func testDetachedAgentRuntimeExcludesWorkspaceManualLifecycle() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+
+        workspace.setAgentLifecycle(key: "manual:loader", panelId: panelId, lifecycle: .running)
+        workspace.setAgentLifecycle(key: "omp", panelId: panelId, lifecycle: .idle)
+
+        let runtime = try #require(workspace.agentRuntimeState(forPanelId: panelId))
+        expectEqual(runtime.agentLifecycleStates["omp"], .idle)
+        expectNil(runtime.agentLifecycleStates["manual:loader"])
+    }
+
+    @MainActor
+    @Test
     func testClearingAgentPIDByPanelClearsOnlyThatPanelLifecycleWhenSameStatusKeyRemains() throws {
         let workspace = Workspace()
         let firstPanelId = try #require(workspace.focusedPanelId)
@@ -847,6 +888,76 @@ struct AgentHibernationTests {
             TabManager.restorableAgentSnapshotFingerprint(snapshot)
 
         expectNil(workspace.restorableAgentForHibernation(panelId: panelId, index: index))
+    }
+
+    @MainActor
+    @Test
+    func testHibernationRetiresPanelPortsAndScannerLifecycle() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-port-retirement",
+            workingDirectory: "/tmp/cmux-agent-hibernation",
+            launchCommand: launch("codex", "/usr/local/bin/codex", cwd: "/tmp/cmux-agent-hibernation")
+        )
+        let scannerKey = PortScanner.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let staleTTYName = "/dev/ttys9152"
+        PortScanner.shared.registerTTY(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            ttyName: staleTTYName
+        )
+        defer {
+            PortScanner.shared.unregisterPanel(workspaceId: workspace.id, panelId: panelId)
+        }
+        workspace.surfaceListeningPorts[panelId] = [4321]
+        workspace.recomputeListeningPorts()
+
+        try #require(workspace.enterAgentHibernation(
+            panelId: panelId,
+            agent: agent,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        ))
+
+        expectNil(workspace.surfaceListeningPorts[panelId])
+        expectTrue(workspace.listeningPorts.isEmpty)
+        expectNil(PortScanner.shared.publicationState.registeredPanelTTYName(for: scannerKey))
+        let persistedPanel = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == panelId }
+        )
+        expectTrue(persistedPanel.listeningPorts.isEmpty)
+    }
+
+    @MainActor
+    @Test
+    func testRestoringHibernatedPanelDiscardsPersistedPorts() throws {
+        let source = Workspace()
+        let sourcePanelId = try #require(source.focusedPanelId)
+        let sourcePanel = try #require(source.panels[sourcePanelId] as? TerminalPanel)
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-restored-port-retirement",
+            workingDirectory: "/tmp/cmux-agent-hibernation",
+            launchCommand: launch("codex", "/usr/local/bin/codex", cwd: "/tmp/cmux-agent-hibernation")
+        )
+        try #require(sourcePanel.enterAgentHibernation(
+            agent: agent,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        ))
+        var legacyPanelSnapshot = try #require(
+            source.sessionSnapshot(includeScrollback: false).panels.first { $0.id == sourcePanelId }
+        )
+        try #require(legacyPanelSnapshot.terminal?.hibernation != nil)
+        legacyPanelSnapshot.listeningPorts = [4321]
+
+        let restored = Workspace()
+        let restoredPanelId = try #require(restored.focusedPanelId)
+        restored.applySessionPanelMetadata(legacyPanelSnapshot, toPanelId: restoredPanelId)
+        restored.recomputeListeningPorts()
+
+        expectNil(restored.surfaceListeningPorts[restoredPanelId])
+        expectTrue(restored.listeningPorts.isEmpty)
     }
 
     @MainActor

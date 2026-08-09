@@ -8,6 +8,7 @@ import Bonsplit
 import UserNotifications
 import Darwin
 import Testing
+import CMUXMobileCore
 import CmuxBrowser
 
 #if canImport(cmux_DEV)
@@ -122,6 +123,7 @@ private final class BrowserHiddenWebViewDiscardTestDelegate: BrowserHiddenWebVie
 private func makeHiddenWebViewDiscardBlockerSnapshot(
     hasActiveMainFrameProvisionalNavigation: Bool = false,
     isVisualAutomationCaptureActive: Bool = false,
+    isMobileBrowserStreamActive: Bool = false,
     isCapturingMedia: Bool = false,
     isPlayingMedia: Bool = false
 ) -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
@@ -141,6 +143,7 @@ private func makeHiddenWebViewDiscardBlockerSnapshot(
         isElementFullscreenActive: false,
         isReactGrabActive: false,
         isVisualAutomationCaptureActive: isVisualAutomationCaptureActive,
+        isMobileBrowserStreamActive: isMobileBrowserStreamActive,
         hasPopups: false,
         isCapturingMedia: isCapturingMedia,
         isPlayingMedia: isPlayingMedia
@@ -256,6 +259,21 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
         XCTAssertEqual(delegate.discardRequestCount, 0)
     }
 
+    func testMobileBrowserStreamBlocksHiddenWebViewDiscardScheduling() {
+        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(isMobileBrowserStreamActive: true)
+
+        let manager = BrowserHiddenWebViewDiscardManager()
+        let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
+        manager.delegate = delegate
+
+        XCTAssertEqual(manager.blockers(for: snapshot), ["mobile_browser_stream"])
+
+        manager.scheduleIfNeeded(reason: "test.mobileBrowserStream")
+
+        XCTAssertFalse(manager.hasScheduledDiscard)
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+    }
+
     // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5261:
     // a main-frame provisional navigation (e.g. a cross-origin process swap in
     // flight) must block a hidden-webview discard from replacing the WKWebView.
@@ -324,6 +342,27 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelVisualAutomationRestoreHostTests: XCTestCase {
+    /// Waits until the panel is settled enough to be discarded.
+    ///
+    /// Waiting on `webView.isLoading` alone is not enough: `BrowserPanel` keeps its
+    /// own `isLoading` set for a minimum indicator duration after WebKit finishes so
+    /// the spinner cannot flicker on a fast navigation, and the discard gate refuses
+    /// while it is set. Wait for the same condition the gate reads.
+    private func waitForBrowserPanelLoadingToSettle(
+        _ panel: BrowserPanel,
+        timeout: TimeInterval = 5.0,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while panel.isLoading || panel.webView.isLoading {
+            if Date() >= deadline { break }
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for the page to finish loading", file: file, line: line)
+        XCTAssertFalse(panel.isLoading, "Timed out waiting for the panel loading flag to clear", file: file, line: line)
+    }
+
     func testRestoredDiscardedHiddenWebViewGetsRestoreHostBeforeOffscreenCapture() {
         let discardedAt = Date(timeIntervalSince1970: 400)
         let panel = BrowserPanel(
@@ -333,16 +372,15 @@ final class BrowserPanelVisualAutomationRestoreHostTests: XCTestCase {
         )
         defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        waitForBrowserPanelLoadingToSettle(panel)
 
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
         let originalWebView = panel.webView
 
-        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        XCTAssertTrue(
+            panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt),
+            "Discard refused; blockers: \(panel.webViewLifecycleTopPayload()["discard_blockers"] ?? "unknown")"
+        )
         XCTAssertFalse(panel.webView === originalWebView)
         XCTAssertNil(panel.webView.superview)
         XCTAssertFalse(panel.hasBackgroundPreloadHost)
@@ -359,13 +397,30 @@ final class BrowserPanelVisualAutomationRestoreHostTests: XCTestCase {
     }
 }
 
+/// Creates a throwaway browser profile and deletes it when the test ends.
+///
+/// `createProfile` writes the profile into the shared `UserDefaults` and marks it
+/// last-used, and that selection outlives the process. Left behind, the profile
+/// stays the ambient choice for every later panel built without an explicit
+/// profile, so unrelated suites silently get a profile-scoped website data store
+/// instead of the default one. Deleting the profile also restores the last-used
+/// selection to the built-in default.
 @MainActor
-private func makeTemporaryBrowserPanelProfile(named prefix: String) throws -> BrowserProfileDefinition {
-    try XCTUnwrap(
+private func makeTemporaryBrowserPanelProfile(
+    named prefix: String,
+    cleanUpWith testCase: XCTestCase
+) throws -> BrowserProfileDefinition {
+    let profile = try XCTUnwrap(
         BrowserProfileStore.shared.createProfile(
             named: "\(prefix)-\(UUID().uuidString)"
         )
     )
+    testCase.addTeardownBlock {
+        await MainActor.run {
+            _ = BrowserProfileStore.shared.deleteProfile(id: profile.id)
+        }
+    }
+    return profile
 }
 
 final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
@@ -920,7 +975,7 @@ final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
 @MainActor
 final class BrowserPanelProfileIsolationTests: XCTestCase {
     func testStaleDidFinishDoesNotRecordVisitIntoSwitchedProfileHistory() throws {
-        let alternateProfile = try makeTemporaryBrowserPanelProfile(named: "Switched")
+        let alternateProfile = try makeTemporaryBrowserPanelProfile(named: "Switched", cleanUpWith: self)
         let defaultStore = BrowserHistoryStore.shared
         let alternateStore = BrowserProfileStore.shared.historyStore(for: alternateProfile.id)
         defaultStore.clearHistory()
@@ -3888,10 +3943,16 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             hiddenDisplayCount,
             "Revealing an existing portal-hosted browser should refresh WebKit presentation immediately"
         )
-        XCTAssertGreaterThan(
+        // A tab/workspace visibility change hides and reveals the slot without
+        // taking the web view out of the window, so it must not cycle WebKit's
+        // `_exitInWindow`/`_enterInWindow` pair. Cycling them fires visibilitychange
+        // and can reload the page or break an attached inspector, which is what
+        // broke the DevTools pane across workspace switch round-trips. The reveal
+        // still has to refresh presentation, asserted above.
+        XCTAssertEqual(
             webView.reattachRenderingStateCount,
             hiddenReattachCount,
-            "Revealing an existing portal-hosted browser should trigger the WebKit reattach path"
+            "A visibility-only reveal refreshes presentation but must not run the enter/exit-window reattach lifecycle, or every tab switch fires page visibilitychange"
         )
     }
 
@@ -4006,6 +4067,59 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertTrue(webView.superview === slot, "Rebinding after off-window reparent should reuse the existing portal slot")
         XCTAssertFalse(slot.isHidden)
         XCTAssertEqual(portal.debugEntryCount(), 1)
+    }
+
+    func testVisiblePortalEntryHidesWhenAnchorMovesToAnotherWindow() {
+        let sourceWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { sourceWindow.orderOut(nil) }
+        realizeWindowLayout(sourceWindow)
+
+        let destinationWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { destinationWindow.orderOut(nil) }
+        realizeWindowLayout(destinationWindow)
+
+        let portal = WindowBrowserPortal(window: sourceWindow)
+        guard let sourceContentView = sourceWindow.contentView,
+              let destinationContentView = destinationWindow.contentView else {
+            XCTFail("Expected content views")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
+        sourceContentView.addSubview(anchor)
+
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+        XCTAssertFalse(slot.isHidden)
+
+        anchor.removeFromSuperview()
+        destinationContentView.addSubview(anchor)
+        XCTAssertTrue(anchor.window === destinationWindow, "Precondition: anchor moved to the destination window")
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        XCTAssertTrue(webView.superview === slot, "Wrong-window recovery should preserve the hosted web view")
+        XCTAssertTrue(
+            slot.isHidden,
+            "An anchor owned by another window must hide the stale slot instead of rendering over the old pane"
+        )
+        XCTAssertEqual(portal.debugEntryCount(), 1, "Recovery keeps the entry available for an eventual rebind")
     }
 
     func testRegistryDetachRemovesPortalHostedWebView() {
@@ -4382,5 +4496,131 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
             NSRange(location: 0, length: textLength),
             "Explicit omnibar focus requests such as Cmd+L must still select the whole URL"
         )
+    }
+}
+
+@MainActor
+final class MobileBrowserStreamInputFocusTests: XCTestCase {
+    /// Loads a panel whose page is one fixed-position text field at the origin.
+    private func loadInputTestPanel() async throws -> BrowserPanel {
+        let panel = BrowserPanel(workspaceId: UUID())
+        panel.webView.frame = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let baseURL = try XCTUnwrap(URL(string: "https://example.test/mobile-focus"))
+        let loaded = expectation(description: "input test page loaded")
+        let previousDelegate = panel.webView.navigationDelegate
+        let loadDelegate = BrowserPanelTestNavigationDelegate(expectation: loaded)
+        panel.webView.navigationDelegate = loadDelegate
+        defer { panel.webView.navigationDelegate = previousDelegate }
+        panel.webView.loadHTMLString(
+            """
+            <!doctype html><html><body style="margin:0">
+            <input id="field" style="position:fixed;left:0;top:0;width:200px;height:60px">
+            </body></html>
+            """,
+            baseURL: baseURL
+        )
+        await fulfillment(of: [loaded], timeout: 5)
+        if let error = loadDelegate.error { throw error }
+        return panel
+    }
+
+    private func activeElementID(_ panel: BrowserPanel) async -> String {
+        let value = try? await panel.webView.evaluateJavaScript(
+            "document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : 'none'",
+            contentWorld: .page
+        )
+        return (value as? String) ?? "none"
+    }
+
+    func testReplayedClickFocusesEditableUnderTap() async throws {
+        // RED: replayed phone clicks reach the page as DOM events, but WebKit
+        // refuses to move field focus for clicks in a window that is never key
+        // (the offscreen render host), so a tapped text field never focuses,
+        // the phone keyboard never rises, and backspace falls through as
+        // page-level history back-navigation.
+        let panel = try await loadInputTestPanel()
+        defer { panel.close() }
+        let click = MobileBrowserPointerInput(
+            panelID: panel.id.uuidString,
+            kind: .click,
+            x: 100,
+            y: 30,
+            clickCount: 1,
+            button: .left
+        )
+        _ = try await panel.replayMobileBrowserPointer(click)
+        let active = await activeElementID(panel)
+        XCTAssertEqual(active, "field", "A replayed click on a text field must focus it")
+    }
+}
+
+extension MobileBrowserStreamInputFocusTests {
+    func testBareBackspaceOutsideEditableIsSuppressed() async throws {
+        let panel = try await loadInputTestPanel()
+        defer { panel.close() }
+        let backspace = MobileBrowserKeyInput(
+            panelID: panel.id.uuidString,
+            key: "delete",
+            modifiers: []
+        )
+        let deliveredWithoutFocus = try await panel.replayMobileBrowserKey(backspace)
+        XCTAssertFalse(
+            deliveredWithoutFocus,
+            "A bare backspace with no focused editable must be suppressed, not navigate history"
+        )
+
+        let click = MobileBrowserPointerInput(
+            panelID: panel.id.uuidString,
+            kind: .click,
+            x: 100,
+            y: 30,
+            clickCount: 1,
+            button: .left
+        )
+        _ = try await panel.replayMobileBrowserPointer(click)
+        let deliveredWhileEditing = try await panel.replayMobileBrowserKey(backspace)
+        XCTAssertTrue(deliveredWhileEditing, "Backspace while editing must reach the field")
+    }
+
+    func testBackspaceDeliversToShadowRootInput() async throws {
+        // document.activeElement reports the shadow HOST when focus sits in a
+        // shadow root; the suppression check must descend to the real focused
+        // element or widget-wrapped inputs never receive backspace.
+        let panel = BrowserPanel(workspaceId: UUID())
+        panel.webView.frame = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let baseURL = try XCTUnwrap(URL(string: "https://example.test/shadow-focus"))
+        let loaded = expectation(description: "shadow test page loaded")
+        let previousDelegate = panel.webView.navigationDelegate
+        let loadDelegate = BrowserPanelTestNavigationDelegate(expectation: loaded)
+        panel.webView.navigationDelegate = loadDelegate
+        defer { panel.webView.navigationDelegate = previousDelegate }
+        panel.webView.loadHTMLString(
+            """
+            <!doctype html><html><body style="margin:0"><div id="host"></div>
+            <script>
+              const root = document.getElementById('host').attachShadow({ mode: 'open' });
+              const field = document.createElement('input');
+              field.id = 'shadow-field';
+              root.appendChild(field);
+            </script>
+            </body></html>
+            """,
+            baseURL: baseURL
+        )
+        await fulfillment(of: [loaded], timeout: 5)
+        if let error = loadDelegate.error { throw error }
+        defer { panel.close() }
+
+        _ = try await panel.webView.evaluateJavaScript(
+            "document.getElementById('host').shadowRoot.getElementById('shadow-field').focus()",
+            contentWorld: .page
+        )
+        let backspace = MobileBrowserKeyInput(
+            panelID: panel.id.uuidString,
+            key: "delete",
+            modifiers: []
+        )
+        let delivered = try await panel.replayMobileBrowserKey(backspace)
+        XCTAssertTrue(delivered, "Backspace must reach an input focused inside a shadow root")
     }
 }

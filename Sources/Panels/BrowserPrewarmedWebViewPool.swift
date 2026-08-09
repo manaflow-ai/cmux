@@ -48,6 +48,7 @@ final class BrowserPrewarmedWebViewPool: NSObject {
             BrowserPanel.makeWebView(profileID: profileID)
         },
         startLoad: @escaping @MainActor (CmuxWebView, URLRequest) -> Void = { webView, request in
+            webView.applyBrowserUserAgentPolicy(for: request.url)
             webView.load(request)
         },
         expirySleep: @escaping @Sendable (Duration) async throws -> Void = { duration in

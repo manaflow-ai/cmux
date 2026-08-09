@@ -41,6 +41,10 @@ extension TerminalController {
         )
     }
 
+    func controlSurfaceNotFoundMessage() -> String {
+        String(localized: "socket.surface.error.surfaceNotFound", defaultValue: "Surface not found")
+    }
+
     /// The byte-faithful twin of `v2BrowserDisabledExternalOpenResult`, mapped onto
     /// the shared ``ControlSurfaceBrowserDisabledOutcome``.
     private func surfaceBrowserDisabledOutcome(
@@ -435,12 +439,21 @@ extension TerminalController {
 
     func controlSurfaceClose(
         routing: ControlRoutingSelectors,
-        surfaceID: UUID?
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool
     ) -> ControlSurfaceCloseResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        if let resolution = controlWindowDockSurfaceClose(routing: routing, surfaceID: surfaceID, tabManager: tabManager) {
+        if hasSurfaceIDParam, surfaceID == nil {
+            return .invalidSurfaceID
+        }
+        if let resolution = controlWindowDockSurfaceClose(
+            routing: routing,
+            surfaceID: surfaceID,
+            hasSurfaceIDParam: hasSurfaceIDParam,
+            tabManager: tabManager
+        ) {
             return resolution
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
@@ -448,6 +461,7 @@ extension TerminalController {
         }
         guard let surfaceId = resolvedSurfaceIdForClose(
             explicitSurfaceID: surfaceID,
+            hasSurfaceIDParam: hasSurfaceIDParam,
             routing: routing,
             fallbackWorkspace: ws
         ) else {

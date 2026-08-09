@@ -16,7 +16,7 @@ struct OnboardingNotificationsView: View {
                 title: title,
                 message: L10n.string(
                     "mobile.onboarding.notifications.body",
-                    defaultValue: "The Notifications feed keeps every agent alert from your paired Macs in chronological order, even when push alerts are off. Tap one to open its workspace."
+                    defaultValue: "Review every agent alert in one feed."
                 ),
                 visual: OnboardingScreenshot(
                     content: .notifications,

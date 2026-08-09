@@ -361,6 +361,67 @@ struct SidebarWorkspaceTableTests {
     }
 
     @Test
+    @MainActor
+    func heightChangingReorderPreservesVisibleRowOffset() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let ids = (0..<40).map { _ in UUID() }
+        let initialRows = ids.map {
+            makeRowConfiguration(workspaceId: $0, fixedHeight: 30)
+        }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        controller.apply(
+            rows: initialRows,
+            actions: makeTableActions(),
+            workspaceIds: ids,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        let table = container.tableView
+        let anchorIndex = 10
+        let anchorId = initialRows[anchorIndex].id
+        let requestedOrigin = table.rect(ofRow: anchorIndex).minY + 7
+        container.clipView.scroll(to: NSPoint(x: 0, y: requestedOrigin))
+        container.scrollView.reflectScrolledClipView(container.clipView)
+        let offsetBefore = table.rect(ofRow: anchorIndex).minY - table.visibleRect.minY
+
+        var reorderedIds = ids
+        let movedId = reorderedIds.remove(at: 5)
+        reorderedIds.insert(movedId, at: 20)
+        let nextRows = reorderedIds.map { id in
+            makeRowConfiguration(
+                workspaceId: id,
+                contentToken: id == movedId ? 1 : 0,
+                fixedHeight: id == movedId ? 80 : 30
+            )
+        }
+        controller.apply(
+            rows: nextRows,
+            actions: makeTableActions(),
+            workspaceIds: reorderedIds,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        table.layoutSubtreeIfNeeded()
+
+        let nextAnchorIndex = try #require(nextRows.firstIndex { $0.id == anchorId })
+        let offsetAfter = table.rect(ofRow: nextAnchorIndex).minY - table.visibleRect.minY
+        #expect(abs(offsetAfter - offsetBefore) < 0.5)
+    }
+
+    @Test
     func reorderIndicatorPainterMatchesPredicateAndSuppressesDraggedRow() {
         let ids = (0..<5).map { _ in UUID() }
 
@@ -431,7 +492,8 @@ struct SidebarWorkspaceTableTests {
         workspaceId: UUID = UUID(),
         contentToken: Int = 0,
         fontMagnificationPercent: Int = 100,
-        colorScheme: ColorScheme = .light
+        colorScheme: ColorScheme = .light,
+        fixedHeight: CGFloat? = nil
     ) -> SidebarWorkspaceTableRowConfiguration {
 #if DEBUG
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
@@ -452,9 +514,9 @@ struct SidebarWorkspaceTableTests {
             isGroupHeader: false,
             isPinned: false,
             environment: environment,
-            equivalenceValue: TestRowContent(token: contentToken)
+            equivalenceValue: TestRowContent(token: contentToken, fixedHeight: fixedHeight)
         ) { _, _ in
-            AnyView(TestRowContent(token: contentToken))
+            AnyView(TestRowContent(token: contentToken, fixedHeight: fixedHeight))
         }
     }
 
@@ -493,6 +555,7 @@ struct SidebarWorkspaceTableTests {
             createWorkspaceAtEnd: {},
             createEmptyWorkspaceGroup: {},
             beginWorkspaceDrag: { _ in },
+            movingWorkspaceCount: { _ in 1 },
             endWorkspaceDrag: {},
             isValidWorkspaceDrag: { true },
             updateWorkspaceDrag: updateWorkspaceDrag,
@@ -514,9 +577,15 @@ struct SidebarWorkspaceTableTests {
 
     private struct TestRowContent: View, Equatable {
         let token: Int
+        let fixedHeight: CGFloat?
 
+        @ViewBuilder
         var body: some View {
-            EmptyView()
+            if let fixedHeight {
+                Color.clear.frame(height: fixedHeight)
+            } else {
+                EmptyView()
+            }
         }
     }
 }

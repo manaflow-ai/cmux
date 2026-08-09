@@ -8,6 +8,19 @@ import Foundation
 /// that file's doc comment for the overview.
 extension TerminalController {
 
+    func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings {
+        ControlSurfaceResumeStrings(
+            agentSessionEndedMustBeBoolean: String(
+                localized: "socket.surface.resume.agentSessionEndedMustBeBoolean",
+                defaultValue: "agent_session_ended must be a boolean"
+            ),
+            launchCommandMustBeValid: String(
+                localized: "socket.surface.resume.launchCommandMustBeValid",
+                defaultValue: "launch_command.arguments must be a non-empty array of strings"
+            )
+        )
+    }
+
     // MARK: - move (bridge to still-app-side v2SurfaceMove)
 
     func controlSurfaceMove(params: [String: JSONValue]) -> ControlCallResult {

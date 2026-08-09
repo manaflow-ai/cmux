@@ -28,6 +28,7 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
     private var isAnchorSelected: Bool { value.isAnchorSelected }
 
     @State private var isRenaming = false
+    @State private var renameDraft = ""
     @State private var pendingDestructiveAction: WorkspaceGroupHeaderPendingDestructiveAction?
 
     /// The leading disclosure chevron. Its own hit target, so tapping it only
@@ -68,7 +69,7 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
     /// the desktop header whose body focuses the anchor.
     private var nameLabel: some View {
         HStack(spacing: 6) {
-            Image(systemName: "folder.fill")
+            Image(systemName: group.iconSymbol ?? "folder.fill")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
@@ -133,11 +134,12 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
                 : Color.clear
         )
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .contextMenu { contextMenu }
-        .sheet(isPresented: $isRenaming) {
-            WorkspaceGroupRenameSheet(currentName: group.name) { newName in
-                actions.renameGroup?(group.id, newName)
-            }
+        .workspaceGroupRowContextMenu { contextMenu }
+        .workspaceGroupRenameDialog(
+            isPresented: $isRenaming,
+            text: $renameDraft
+        ) { newName in
+            actions.renameGroup?(group.id, newName)
         }
         .confirmationDialog(
             destructiveDialogTitle,
@@ -180,65 +182,70 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
 
     @ViewBuilder
     private var contextMenu: some View {
-        if value.canSetGroupPinned, let setGroupPinned = actions.setGroupPinned {
-            Button {
-                setGroupPinned(group.id, !group.isPinned)
-            } label: {
-                if group.isPinned {
-                    Label(L10n.string("mobile.workspaceGroup.unpin", defaultValue: "Unpin Group"), systemImage: "pin.slash")
-                } else {
-                    Label(L10n.string("mobile.workspaceGroup.pin", defaultValue: "Pin Group"), systemImage: "pin")
+        if value.canSetGroupPinned || value.canRenameGroup {
+            Section {
+                if value.canSetGroupPinned, let setGroupPinned = actions.setGroupPinned {
+                    Button {
+                        setGroupPinned(group.id, !group.isPinned)
+                    } label: {
+                        if group.isPinned {
+                            Label(L10n.string("mobile.workspaceGroup.unpin", defaultValue: "Unpin Group"), systemImage: "pin.slash")
+                        } else {
+                            Label(L10n.string("mobile.workspaceGroup.pin", defaultValue: "Pin Group"), systemImage: "pin")
+                        }
+                    }
+                    .accessibilityIdentifier("MobileWorkspaceGroupPinButton-\(group.id.rawValue)")
+                }
+                if value.canRenameGroup {
+                    Button {
+                        renameDraft = group.name
+                        isRenaming = true
+                    } label: {
+                        Label(L10n.string("mobile.workspaceGroup.rename.action", defaultValue: "Rename Group"), systemImage: "pencil")
+                    }
+                    .accessibilityIdentifier("MobileWorkspaceGroupRenameButton-\(group.id.rawValue)")
                 }
             }
-            .accessibilityIdentifier("MobileWorkspaceGroupPinButton-\(group.id.rawValue)")
-        }
-        if value.canRenameGroup {
-            Button {
-                isRenaming = true
-            } label: {
-                Label(L10n.string("mobile.workspaceGroup.rename.action", defaultValue: "Rename Group"), systemImage: "pencil")
-            }
-            .accessibilityIdentifier("MobileWorkspaceGroupRenameButton-\(group.id.rawValue)")
-        }
-        if value.canRenameGroup || value.canSetGroupPinned {
-            Divider()
         }
         if value.canCreateWorkspaceInGroup,
            let createWorkspaceInGroup = actions.createWorkspaceInGroup {
-            Button {
-                createWorkspaceInGroup(group.id)
-            } label: {
-                Label(
-                    L10n.string("mobile.workspaceGroup.newWorkspace", defaultValue: "New Workspace in Group"),
-                    systemImage: "plus"
-                )
+            Section {
+                Button {
+                    createWorkspaceInGroup(group.id)
+                } label: {
+                    Label(
+                        L10n.string("mobile.workspaceGroup.newWorkspace", defaultValue: "New Workspace in Group"),
+                        systemImage: "plus"
+                    )
+                }
+                .accessibilityIdentifier("MobileWorkspaceGroupNewWorkspace-\(group.id.rawValue)")
             }
-            .accessibilityIdentifier("MobileWorkspaceGroupNewWorkspace-\(group.id.rawValue)")
         }
         if value.canUngroupWorkspaceGroup || value.canDeleteWorkspaceGroup {
-            Divider()
-        }
-        if value.canUngroupWorkspaceGroup {
-            Button(role: .destructive) {
-                pendingDestructiveAction = .ungroup
-            } label: {
-                Label(
-                    L10n.string("mobile.workspaceGroup.ungroup", defaultValue: "Ungroup (Keep Workspaces)"),
-                    systemImage: "rectangle.3.group"
-                )
+            Section {
+                if value.canUngroupWorkspaceGroup {
+                    Button(role: .destructive) {
+                        pendingDestructiveAction = .ungroup
+                    } label: {
+                        Label(
+                            L10n.string("mobile.workspaceGroup.ungroup", defaultValue: "Ungroup (Keep Workspaces)"),
+                            systemImage: "rectangle.3.group"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileWorkspaceGroupUngroupButton-\(group.id.rawValue)")
+                }
+                if value.canDeleteWorkspaceGroup {
+                    Button(role: .destructive) {
+                        pendingDestructiveAction = .delete
+                    } label: {
+                        Label(
+                            L10n.string("mobile.workspaceGroup.delete", defaultValue: "Delete Group (Close Workspaces)"),
+                            systemImage: "trash"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileWorkspaceGroupDeleteButton-\(group.id.rawValue)")
+                }
             }
-            .accessibilityIdentifier("MobileWorkspaceGroupUngroupButton-\(group.id.rawValue)")
-        }
-        if value.canDeleteWorkspaceGroup {
-            Button(role: .destructive) {
-                pendingDestructiveAction = .delete
-            } label: {
-                Label(
-                    L10n.string("mobile.workspaceGroup.delete", defaultValue: "Delete Group (Close Workspaces)"),
-                    systemImage: "trash"
-                )
-            }
-            .accessibilityIdentifier("MobileWorkspaceGroupDeleteButton-\(group.id.rawValue)")
         }
     }
 
@@ -279,5 +286,21 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
                 }
             }
         )
+    }
+}
+
+private extension View {
+    /// The iOS workspace list is backed by `UITableView`, whose delegate owns
+    /// the group-scoped context menu. The non-iOS list has no UIKit delegate,
+    /// so it keeps this row-local menu.
+    @ViewBuilder
+    func workspaceGroupRowContextMenu<MenuContent: View>(
+        @ViewBuilder content: () -> MenuContent
+    ) -> some View {
+        #if os(iOS)
+        self
+        #else
+        contextMenu(menuItems: content)
+        #endif
     }
 }

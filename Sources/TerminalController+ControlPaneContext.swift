@@ -15,6 +15,10 @@ extension TerminalController: ControlPaneContext {
         String(localized: "socket.pane.resize.invalidParameters", defaultValue: "Invalid pane resize parameters")
     }
 
+    func controlPaneSurfaceNotFoundMessage() -> String {
+        String(localized: "socket.pane.error.surfaceNotFound", defaultValue: "Surface not found")
+    }
+
     // MARK: - Routing helpers
 
     /// The routing twin of the legacy `v2ResolveWorkspace(params:tabManager:)`,

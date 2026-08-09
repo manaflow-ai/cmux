@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 import Testing
 
-@Suite("CLI hook no-response telemetry")
+@Suite("CLI hook no-response telemetry", .serialized)
 struct CLIHookNoResponseTests {
     final class BundleProbe {}
 
@@ -52,7 +52,9 @@ struct CLIHookNoResponseTests {
             FeedHookCase(source: "gemini", event: "PreToolUse", toolName: "read", pidKey: "CMUX_GEMINI_PID"),
             FeedHookCase(source: "kiro", event: "postToolUse", toolName: "fs_write", pidKey: "CMUX_KIRO_PID"),
             FeedHookCase(source: "hermes-agent", event: "pre_tool_call", toolName: "terminal", pidKey: "CMUX_HERMES_AGENT_PID"),
+            FeedHookCase(source: "antigravity", event: "PreToolUse", toolName: "Bash", pidKey: "CMUX_ANTIGRAVITY_PID"),
             FeedHookCase(source: "antigravity", event: "PostToolUse", toolName: "run_command", pidKey: "CMUX_ANTIGRAVITY_PID"),
+            FeedHookCase(source: "cursor", event: "beforeShellExecution", toolName: "Bash", pidKey: "CMUX_CURSOR_PID"),
         ]
 
         for testCase in cases {
@@ -190,7 +192,7 @@ struct CLIHookNoResponseTests {
                 "CMUX_SOCKET_PASSWORD": "test-password",
             ],
             standardInput: #"{"session_id":"kiro-lifecycle-no-response","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
-            timeout: 0.5
+            timeout: 1.0
         )
 
         #expect(server.wait(timeout: 5), "socket server did not observe lifecycle feed.push")
@@ -217,8 +219,12 @@ struct CLIHookNoResponseTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        let server = Self.startAcceptedSocketThatDoesNotRead(listenerFD: listenerFD, holdFor: 1.0)
-        let largeToolInput = String(repeating: "x", count: 8 * 1024 * 1024)
+        let server = try Self.startAcceptedSocketThatDoesNotRead(listenerFD: listenerFD, holdFor: 1.0)
+        // Stay under the CLI's 1 MiB codex feed-hook stdin cap so the payload still
+        // reaches the socket, but far above what the non-reading peer will absorb
+        // (the fixture pins its receive buffer to 4 KiB) so the write stalls and has
+        // to be abandoned by the 0.05s write timeout.
+        let largeToolInput = String(repeating: "x", count: 512 * 1024)
         let input = """
         {"hook_event_name":"PreToolUse","session_id":"codex-session-no-read","cwd":"\(root.path)","tool_name":"apply_patch","tool_input":{"payload":"\(largeToolInput)"}}
         """
@@ -417,7 +423,21 @@ struct CLIHookNoResponseTests {
         return MockSocketServer(handled: handled)
     }
 
-    private static func startAcceptedSocketThatDoesNotRead(listenerFD: Int32, holdFor: TimeInterval) -> MockSocketServer {
+    private static func startAcceptedSocketThatDoesNotRead(
+        listenerFD: Int32,
+        holdFor: TimeInterval
+    ) throws -> MockSocketServer {
+        var receiveBufferBytes: Int32 = 4 * 1024
+        guard setsockopt(
+            listenerFD,
+            SOL_SOCKET,
+            SO_RCVBUF,
+            &receiveBufferBytes,
+            socklen_t(MemoryLayout.size(ofValue: receiveBufferBytes))
+        ) == 0 else {
+            throw posixError("failed to constrain non-reading socket receive buffer")
+        }
+
         let handled = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
             var clientAddr = sockaddr_un()
