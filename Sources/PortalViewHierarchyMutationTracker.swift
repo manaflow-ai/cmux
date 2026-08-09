@@ -4,21 +4,19 @@ import ObjectiveC
 /// Owns the divider-relevant structural generation for one AppKit window.
 @MainActor
 final class PortalViewHierarchyMutationTracker: NSObject {
-    struct SubviewOrderBeforeSort {
-        fileprivate let tracker: PortalViewHierarchyMutationTracker
-        fileprivate let subviews: [NSView]
-    }
-
-    struct SubviewsBeforeReplacement {
-        fileprivate let tracker: PortalViewHierarchyMutationTracker
-        fileprivate let subviews: [NSView]
-        fileprivate let newSubviewWasInTrackedWindow: [Bool]
-    }
-
-    struct ArrangedSubviewsBeforeMutation {
-        fileprivate let tracker: PortalViewHierarchyMutationTracker
-        fileprivate let arrangedSubviews: [NSView]
-    }
+    typealias SubviewOrderBeforeSort = (
+        tracker: PortalViewHierarchyMutationTracker,
+        subviews: [NSView]
+    )
+    typealias SubviewsBeforeReplacement = (
+        tracker: PortalViewHierarchyMutationTracker,
+        subviews: [NSView],
+        newSubviewWasInTrackedWindow: [Bool]
+    )
+    typealias ArrangedSubviewsBeforeMutation = (
+        tracker: PortalViewHierarchyMutationTracker,
+        arrangedSubviews: [NSView]
+    )
 
     private static let windowAssociationKey = NSObject()
     private static let nodeStateAssociationKey = NSObject()
@@ -126,7 +124,7 @@ final class PortalViewHierarchyMutationTracker: NSObject {
               tracker.hasActiveCaches else {
             return nil
         }
-        return SubviewsBeforeReplacement(
+        return (
             tracker: tracker,
             subviews: parentView.subviews,
             newSubviewWasInTrackedWindow: newSubviews.map {
@@ -157,7 +155,7 @@ final class PortalViewHierarchyMutationTracker: NSObject {
               tracker.currentNodeState(for: splitView)?.containsSplitView == true else {
             return nil
         }
-        return ArrangedSubviewsBeforeMutation(
+        return (
             tracker: tracker,
             arrangedSubviews: splitView.arrangedSubviews
         )
@@ -188,7 +186,7 @@ final class PortalViewHierarchyMutationTracker: NSObject {
             return nil
         }
         tracker.beginSort(parentView: parentView)
-        return SubviewOrderBeforeSort(tracker: tracker, subviews: parentView.subviews)
+        return (tracker: tracker, subviews: parentView.subviews)
     }
 
     static func recordSortIfNeeded(
