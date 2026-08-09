@@ -3977,7 +3977,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // from the renderer-callback path.
     fileprivate let hoverCallbackMirror = HoverCallbackMirror()
     private let externalHoverRecomputeScheduler = MainActorDeferredActionScheduler()
-    private var hoverIndicatorOwner: TerminalHoverIndicatorOwner = .none
+    // Pure reducer (see `TerminalHoverIndicatorState`'s own doc) — the
+    // sole owner of "which mechanism is currently displayed" and "what
+    // native result is being held back while external is active". This
+    // AppKit code only ever feeds it inputs and projects its
+    // `displayedURL` straight to `setLinkHoverURL`; it makes no
+    // displacement decisions of its own.
+    private var hoverIndicatorState = TerminalHoverIndicatorState()
     fileprivate lazy var externalHoverOwnerCoordinator = ExternalHoverOwnerCoordinator(
         scheduler: { DispatchQueue.main.async(execute: $0) },
         project: { [weak self] entry in self?.applyExternalHoverProjection(entry) }
@@ -6825,7 +6831,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     #if DEBUG
     private static let externalHoverSignposter = OSSignposter(
         subsystem: "com.cmux.terminal.external-hover",
-        category: .dynamicTracing
+        category: .pointsOfInterest
     )
     #endif
 
@@ -6971,38 +6977,42 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     /// `ExternalHoverOwnerCoordinator`'s `project` closure — applies an
-    /// accepted-owner snapshot (or `nil`) to the bottom-left link
-    /// indicator. A `nil` projection only ever clears `.external` —
-    /// `.native` must survive untouched (review Blocking 7's closing
-    /// requirement).
+    /// accepted-owner snapshot (or `nil`) to `hoverIndicatorState`, then
+    /// projects its `displayedURL` unconditionally. Both directions route
+    /// through the SAME reducer entry points a real Ghostty ack uses
+    /// (`TerminalHoverIndicatorState`'s doc, "Host-initiated withdrawal"):
+    /// a non-nil entry is a newly accepted external candidate
+    /// (`receiveExternalActive`); a nil entry — whether from a genuine
+    /// Ghostty `inactive` ack or a host-initiated withdrawal
+    /// (`withdrawUnconditionally()`, Cmd release/selection/remote/cwd/
+    /// scroll/resize/visibility-loss/teardown) — feeds the state's OWN
+    /// current `.external` owner's `(event, token)` back into
+    /// `receiveExternalInactive`, so a deferred native still promotes on
+    /// a host-initiated clear exactly as it would on a real ack. A nil
+    /// entry while `displayedOwner` is anything else is a no-op — never
+    /// touches `.native`.
     private func applyExternalHoverProjection(_ entry: ExternalHoverMailbox.Entry?) {
         if let entry {
-            hoverIndicatorOwner = .external(hoverEventID: entry.event, token: entry.token)
-            terminalSurface?.hostedView.setLinkHoverURL(entry.path)
-        } else if case .external = hoverIndicatorOwner {
-            hoverIndicatorOwner = .none
-            terminalSurface?.hostedView.setLinkHoverURL(nil)
+            hoverIndicatorState.receiveExternalActive(event: entry.event, token: entry.token, path: entry.path)
+        } else if case .external(let event, let token) = hoverIndicatorState.displayedOwner {
+            hoverIndicatorState.receiveExternalInactive(event: event, token: token)
         }
+        terminalSurface?.hostedView.setLinkHoverURL(hoverIndicatorState.displayedURL)
     }
 
     /// Applies a native `MOUSE_OVER_LINK` result, captured synchronously
     /// (via `captureHoverCallbackSnapshot()`) at the point the callback
     /// actually fired — see `GhosttyApp.handleAction`'s
-    /// `GHOSTTY_ACTION_MOUSE_OVER_LINK` case. An external owner already
-    /// active for the SAME event is never displaced by that event's
-    /// (possibly delayed) native result.
+    /// `GHOSTTY_ACTION_MOUSE_OVER_LINK` case. Feeds `hoverIndicatorState`
+    /// and projects its `displayedURL` unconditionally — the reducer
+    /// itself decides whether this result is shown immediately, held back
+    /// (`deferredNative`) while an external owner is active, or discarded
+    /// outright as stale (see `TerminalHoverIndicatorState`'s doc).
     // `fileprivate`: called from `GhosttyApp.handleAction`'s
     // `GHOSTTY_ACTION_MOUSE_OVER_LINK` case (a different type, same file).
     fileprivate func applyNativeHoverResult(hoverEventID: UInt64, url: String?) {
-        hoverIndicatorOwner = hoverIndicatorOwner.receivingNativeResult(hoverEventID: hoverEventID, url: url)
-        switch hoverIndicatorOwner {
-        case .native:
-            terminalSurface?.hostedView.setLinkHoverURL(url)
-        case .none:
-            terminalSurface?.hostedView.setLinkHoverURL(nil)
-        case .external:
-            break // leave the external candidate's indicator showing.
-        }
+        hoverIndicatorState.receiveNative(event: hoverEventID, url: url)
+        terminalSurface?.hostedView.setLinkHoverURL(hoverIndicatorState.displayedURL)
     }
 
     /// One physical row of visible viewport text per array entry, from a

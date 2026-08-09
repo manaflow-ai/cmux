@@ -273,26 +273,82 @@ public struct TerminalPathResolver: Sendable {
     ///   - cwd: The surface's working directory.
     /// - Returns: A seed naming which adjacent row would complete the
     ///   token, or `nil` when no wrapped-path candidate touches `column`.
+    /// review-slash-boundary-and-codex-comparison.md §2's row1/leading-side
+    /// fix (issue #8810 bug A): a row-local hit no longer unconditionally
+    /// wins. Token/range extraction now runs BEFORE the row-local check, and
+    /// row-local resolving still returns `nil` here in every case EXCEPT one
+    /// narrow exception — an explicit `/` continuation seam — mirroring
+    /// Ghostty's own `link_wrap.zig` treating a trailing `/` as stronger
+    /// continuation evidence than ordinary mid-word adjacency.
+    ///
+    /// The exception requires: the match has a `.next` direction (which,
+    /// by ``String/wrapContinuationToken(atColumn:maxIndentation:)``'s own
+    /// construction, already implies the token touches the row's trailing
+    /// boundary — condition 3 in the design doc is structurally guaranteed
+    /// by condition 1, not checked separately), and the clicked token
+    /// itself ends with `/`. Meeting this only produces a PROVISIONAL
+    /// seed: the actual decision still requires the adjacent row's
+    /// fragment to be unindented and the exact joined candidate to exist
+    /// (``resolveSingleDirection(_:seed:adjacentRow:cwd:)``'s matching
+    /// `explicitSlashSeam` bypass of the `fragmentAloneExists` guard). If
+    /// that later join fails, ``resolveWrappedCandidate(seed:previousRow:nextRow:cwd:)``
+    /// returns `nil` exactly as if this method had returned `nil` directly,
+    /// so a caller's existing row-local fallback (triggered by a `nil`
+    /// candidate, not by a `nil` seed specifically) still applies
+    /// identically either way.
     public func wrappedPathSeed(
         in clickedRow: String,
         column: Int,
         cwd: String
     ) -> TerminalWrappedPathSeed? {
-        guard resolveVisibleLinePath(clickedRow, column: column, cwd: cwd) == nil else {
-            return nil
-        }
         guard let match = clickedRow.wrapContinuationToken(
             atColumn: column,
             maxIndentation: Self.maxContinuationIndentation
         ), match.token.count <= Self.maxWrappedFragmentLength else {
             return nil
         }
+
+        if resolveVisibleLinePath(clickedRow, column: column, cwd: cwd) != nil {
+            guard match.directions.contains(.next), match.token.hasSuffix("/") else {
+                return nil
+            }
+        }
+
         return TerminalWrappedPathSeed(
             directions: match.directions,
             token: match.token,
             tokenStartColumn: match.startColumn,
             tokenEndColumn: match.endColumn
         )
+    }
+
+    /// DEBUG dogfood diagnostic for why ``wrappedPathSeed(in:column:cwd:)``
+    /// returned `nil` for `column` on `clickedRow` — issue #8810 bug B,
+    /// review §"次に確認すべきもの" item 1. Purely classification: never
+    /// called by ``wrappedPathSeed(in:column:cwd:)`` itself and never
+    /// changes what it decides. Buckets are checked in the same order
+    /// ``wrappedPathSeed(in:column:cwd:)`` itself would hit them.
+    public func diagnoseSeedAbsence(in clickedRow: String, column: Int, cwd: String) -> String {
+        let characters = Array(clickedRow)
+        guard !characters.isEmpty, column >= 0, column < characters.count else {
+            return "columnOutOfBounds"
+        }
+        guard clickedRow.unicodeScalars.allSatisfy(\.isASCII) else {
+            return "nonASCIIRow"
+        }
+        guard let match = clickedRow.wrapContinuationToken(
+            atColumn: column,
+            maxIndentation: Self.maxContinuationIndentation
+        ) else {
+            return "noBoundaryTouched"
+        }
+        guard match.token.count <= Self.maxWrappedFragmentLength else {
+            return "tokenTooLong"
+        }
+        if resolveVisibleLinePath(clickedRow, column: column, cwd: cwd) != nil {
+            return "rowLocalHitNotExplicitSlashSeam"
+        }
+        return "unknown"
     }
 
     /// Resolves a ``TerminalWrappedPathSeed`` against the adjacent row(s)
@@ -426,7 +482,37 @@ public struct TerminalPathResolver: Sendable {
         let leadingPiece = direction == .next ? token : fragment
         guard leadingPiece.isWrappedPathPrefixShaped else { return .leadingPieceNotPathPrefixShaped }
 
-        guard probeExists(fragment, cwd: cwd) == nil else { return .fragmentAloneExists }
+        // review-slash-boundary-and-codex-comparison.md §2's row2/
+        // continuation-side fix (issue #8810 bug A): an explicit `/`
+        // continuation seam is stronger join evidence than ordinary
+        // adjacency, so it alone bypasses the fragment-alone-existence
+        // guard below — never "the fragment happens to be a directory"
+        // (rejected explicitly by review §2: that would admit any
+        // coincidentally-adjacent existing directory, not just a real
+        // continuation). The seam is direction-specific:
+        //   .next:     `token` (the leading piece) ends with `/`, AND the
+        //              adjacent row's fragment starts at column 0
+        //              (unindented) — the row-local/leading-side click.
+        //   .previous: `fragment` (the leading piece) ends with `/`, AND
+        //              the CLICKED token starts at column 0 (unindented)
+        //              — the continuation/row2-side click.
+        // Requiring the continuation row be unindented mirrors Ghostty's
+        // own `link_wrap.zig` `startsIndependentLink`, which fail-closes
+        // exactly this shape (an indented bare-relative row after `/`) as
+        // indistinguishable from an unrelated adjacent list item — see
+        // that function's own doc for the ambiguity this guards against
+        // (`/some/dir/` followed by an indented, independently-real
+        // `child.md`).
+        let explicitSlashSeam: Bool
+        switch direction {
+        case .next:
+            explicitSlashSeam = token.hasSuffix("/") && fragmentMatch.startColumn == 0
+        case .previous:
+            explicitSlashSeam = fragment.hasSuffix("/") && seed.tokenStartColumn == 0
+        }
+        if !explicitSlashSeam {
+            guard probeExists(fragment, cwd: cwd) == nil else { return .fragmentAloneExists }
+        }
 
         let candidateRaw: String
         switch direction {
