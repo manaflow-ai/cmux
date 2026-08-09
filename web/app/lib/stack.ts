@@ -27,6 +27,7 @@ export function getStackServerApp(): StackServerApp<true> {
     urls: {
       afterSignIn: "/handler/after-sign-in",
       afterSignUp: "/handler/after-sign-in",
+      accountSettings: "/dashboard/team",
     },
   });
   return stackServerAppCache;
@@ -49,6 +50,7 @@ export function getNonRedirectingStackServerApp(): StackServerApp<true> {
     urls: {
       afterSignIn: "/handler/after-sign-in",
       afterSignUp: "/handler/after-sign-in",
+      accountSettings: "/dashboard/team",
     },
   });
   return nonRedirectingStackServerAppCache;

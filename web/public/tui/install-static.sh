@@ -82,3 +82,8 @@ case ":$PATH:" in
 esac
 
 echo "Installed cmux to $bin_dir/cmux"
+
+curl --proto '=https' --tlsv1.2 -fsS --max-time 2 \
+  -H 'content-type: application/json' \
+  -d "{\"product\":\"tui\",\"platform\":\"$os-$arch\",\"method\":\"curl\"}" \
+  https://cmux.com/api/install-events >/dev/null 2>&1 || true
