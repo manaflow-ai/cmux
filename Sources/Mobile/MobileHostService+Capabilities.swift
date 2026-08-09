@@ -5,6 +5,12 @@ extension MobileHostService {
     nonisolated static let irohArtifactLaneCapability = "iroh.artifact_lane.v1"
     nonisolated static let terminalInputOrderedCapability = "terminal.input.ordered.v1"
     nonisolated static let workspaceChangesCapability = "workspace.changes.v1"
+    /// Authenticated status includes the Mac's independent phone-forwarding
+    /// gate, presence mode, account proof, and API endpoint identity.
+    nonisolated static let phonePushStatusCapability = "phone_push.status.v1"
+    nonisolated static let phonePushSettingsCapability = "phone_push.settings.v1"
+    /// Authenticated request to enqueue a truthful, correlated test alert.
+    nonisolated static let phonePushTestCapability = "phone_push.test.v1"
 
     /// The single source of truth for the capabilities advertised to mobile
     /// clients via `mobile.host.status`. Every status path (the public-status
@@ -39,6 +45,7 @@ extension MobileHostService {
             MobileBrowserStreamCapability.identifier,
             MobileBrowserStreamCapability.viewportIdentifier,
             MobileBrowserStreamCapability.dialogIdentifier,
+            MobileBrowserStreamCapability.createIdentifier,
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
@@ -73,6 +80,8 @@ extension MobileHostService {
             // expiry only against hosts that advertise this.
             "workspace.mutations.account_auth.v1",
             "workspace.task_create.v1",
+            "task.attachments.v1",
+            "task.models.v1",
             "workspace.directory_browse.v1",
             "workspace.directory_search.v1",
             "workspace.directory_search.v2",
@@ -89,6 +98,12 @@ extension MobileHostService {
         if !includingWorkspaceChanges {
             capabilities.removeAll { $0 == Self.workspaceChangesCapability }
         }
+        return applyingDebugCapabilitySuppressions(capabilities)
+    }
+
+    nonisolated static func applyingDebugCapabilitySuppressions(
+        _ capabilities: [String]
+    ) -> [String] {
         #if DEBUG
         // Lets a dev Mac impersonate an older host while dogfooding the iOS update hint.
         let suppressed = Set(

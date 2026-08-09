@@ -39,6 +39,7 @@ extension MobileHostService {
 
         switch request.method {
         case "mobile.workspace.list", "workspace.list", "mobile.workspace.changes.summary",
+             "mobile.task.models.list",
              "mobile.directory.list", "mobile.directory.search":
             // List-shaped reads may span the Mac's workspaces; same-account
             // Stack authorization remains the authoritative data-plane gate.
@@ -61,6 +62,10 @@ extension MobileHostService {
             guard request.params["group_id"] == nil || request.params["group_id"] is NSNull else {
                 return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
             }
+            return nil
+        case "mobile.task.attachment.upload":
+            // Task uploads share the Mac-scoped authorization class of the
+            // workspace.create operation they precede.
             return nil
         case "workspace.move":
             return ticketMacScopedWorkspaceMutationAuthorizationError(
@@ -110,9 +115,9 @@ extension MobileHostService {
             // complete topic set is installed atomically, so ticket-scoping one
             // topic here would also disable unrelated terminal live events.
             return nil
-        case "mobile.events.unsubscribe":
+        case "mobile.events.unsubscribe", "mobile.events.probe":
             return nil
-        case "mobile.host.status":
+        case "mobile.host.status", "phone_push.status.get":
             return nil
         default:
             return scopedTicketError

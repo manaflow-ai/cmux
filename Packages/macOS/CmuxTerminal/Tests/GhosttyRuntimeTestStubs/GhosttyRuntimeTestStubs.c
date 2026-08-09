@@ -18,6 +18,7 @@ typedef struct {
 static bool cmux_test_needs_confirm_quit = false;
 static uint64_t cmux_test_foreground_pid = 0;
 static const char* cmux_test_tty_name = NULL;
+static uint32_t cmux_test_tty_name_call_count = 0;
 static void* cmux_test_renderer_realized_target = NULL;
 static bool cmux_test_renderer_realized_calls[16];
 static uint32_t cmux_test_renderer_realized_call_count = 0;
@@ -39,6 +40,7 @@ void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_needs_confirm_quit = false;
     cmux_test_foreground_pid = 0;
     cmux_test_tty_name = NULL;
+    cmux_test_tty_name_call_count = 0;
 }
 
 void cmux_test_ghostty_renderer_realized_begin(void* surface) {
@@ -320,10 +322,15 @@ void ghostty_surface_update_config(void *surface, void *raw_config) {
 }
 ghostty_string_s ghostty_surface_tty_name(void *surface) {
     (void)surface;
+    cmux_test_tty_name_call_count++;
     if (cmux_test_tty_name == NULL) {
         return (ghostty_string_s){0};
     }
     return (ghostty_string_s){.ptr = cmux_test_tty_name, .len = strlen(cmux_test_tty_name), .sentinel = false};
+}
+
+uint32_t cmux_test_ghostty_tty_name_call_count(void) {
+    return cmux_test_tty_name_call_count;
 }
 
 bool cmux_test_ghostty_surface_was_updated(void *surface) {

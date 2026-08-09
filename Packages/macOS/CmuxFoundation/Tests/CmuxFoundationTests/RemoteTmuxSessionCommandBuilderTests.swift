@@ -25,7 +25,9 @@ struct RemoteTmuxSessionCommandBuilderTests {
                     "-e", "CMUX_SHELL_INTEGRATION=",
                     "-e", "CMUX_SHELL_INTEGRATION_DIR=",
                     "-e", "CMUX_SOCKET_PATH=",
+                    "-e", "CMUX_SSH_ATTEMPT_ID=",
                     "-e", "CMUX_TAB_ID=",
+                    "-e", "CMUX_TERMINAL_LIFECYCLE_ID=",
                     "-e", "CMUX_WORKSPACE_ID=",
                     "-e", "CMUX_INITIAL_COMMAND_FILE=",
                     "-e", "CMUX_PANEL_ID=",
@@ -37,7 +39,9 @@ struct RemoteTmuxSessionCommandBuilderTests {
                 ["set-environment", "-t", "=agent main", "-u", "CMUX_SHELL_INTEGRATION"],
                 ["set-environment", "-t", "=agent main", "-u", "CMUX_SHELL_INTEGRATION_DIR"],
                 ["set-environment", "-t", "=agent main", "-u", "CMUX_SOCKET_PATH"],
+                ["set-environment", "-t", "=agent main", "-u", "CMUX_SSH_ATTEMPT_ID"],
                 ["set-environment", "-t", "=agent main", "-u", "CMUX_TAB_ID"],
+                ["set-environment", "-t", "=agent main", "-u", "CMUX_TERMINAL_LIFECYCLE_ID"],
                 ["set-environment", "-t", "=agent main", "-u", "CMUX_WORKSPACE_ID"],
                 ["set-environment", "-t", "=agent main", "-u", "CMUX_INITIAL_COMMAND_FILE"],
                 ["set-environment", "-t", "=agent main", "-u", "CMUX_PANEL_ID"],
@@ -86,7 +90,9 @@ struct RemoteTmuxSessionCommandBuilderTests {
                 "-e", "CMUX_SHELL_INTEGRATION=1",
                 "-e", "CMUX_SHELL_INTEGRATION_DIR=/home/dev/.cmux/relay/55272.shell",
                 "-e", "CMUX_SOCKET_PATH=\(currentSocket)",
+                "-e", "CMUX_SSH_ATTEMPT_ID=",
                 "-e", "CMUX_TAB_ID=\(currentWorkspace)",
+                "-e", "CMUX_TERMINAL_LIFECYCLE_ID=",
                 "-e", "CMUX_WORKSPACE_ID=\(currentWorkspace)",
                 "-e", "CMUX_INITIAL_COMMAND_FILE=",
                 "-e", "CMUX_PANEL_ID=",
@@ -148,14 +154,18 @@ struct RemoteTmuxSessionCommandBuilderTests {
             )
             let currentWorkspace = "11111111-1111-1111-1111-111111111111"
             let currentSocket = "127.0.0.1:55272"
+            let currentLifecycle = "33333333-3333-3333-3333-333333333333"
+            let currentAttempt = "44444444-4444-4444-4444-444444444444"
             let result = try run(builder.remoteShellCommand, environment: environment.merging([
                 "CMUX_BUNDLED_CLI_PATH": "/home/dev/.cmux/bin/cmux",
                 "CMUX_PERSISTENT_PTY_EXEC_HELPER": "/home/dev/.cmux/bin/cmux",
                 "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
                 "CMUX_SHELL_INTEGRATION_DIR": "/home/dev/.cmux/relay/55272.shell",
                 "CMUX_SOCKET_PATH": currentSocket,
+                "CMUX_SSH_ATTEMPT_ID": currentAttempt,
                 "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
                 "CMUX_TAB_ID": currentWorkspace,
+                "CMUX_TERMINAL_LIFECYCLE_ID": currentLifecycle,
                 "CMUX_WORKSPACE_ID": currentWorkspace,
             ]) { _, current in current })
 
@@ -168,7 +178,9 @@ struct RemoteTmuxSessionCommandBuilderTests {
                 ["set-environment", "-t", "=existing", "CMUX_PERSISTENT_PTY_EXEC_HELPER", "/home/dev/.cmux/bin/cmux"],
                 ["set-environment", "-t", "=existing", "CMUX_SHELL_INTEGRATION_DIR", "/home/dev/.cmux/relay/55272.shell"],
                 ["set-environment", "-t", "=existing", "CMUX_SOCKET_PATH", currentSocket],
+                ["set-environment", "-t", "=existing", "CMUX_SSH_ATTEMPT_ID", currentAttempt],
                 ["set-environment", "-t", "=existing", "CMUX_TAB_ID", currentWorkspace],
+                ["set-environment", "-t", "=existing", "CMUX_TERMINAL_LIFECYCLE_ID", currentLifecycle],
                 ["set-environment", "-t", "=existing", "CMUX_WORKSPACE_ID", currentWorkspace],
                 ["set-environment", "-t", "=existing", "-u", "CMUX_PANEL_ID"],
                 ["set-environment", "-t", "=existing", "-u", "CMUX_SURFACE_ID"],

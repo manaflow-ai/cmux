@@ -57,12 +57,16 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public typealias CodexCommandShim = TerminalSurfaceCodexCommandShim
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
     private var runtimeSurface: ghostty_surface_t?
+    var runtimeControllingTTYName: String?
+    var runtimeControllingTTYDeviceIdentifier: Int64?
     /// The live runtime surface pointer, or nil before creation/after teardown.
     public internal(set) var surface: ghostty_surface_t? {
         get { runtimeSurface }
         set {
             guard runtimeSurface != newValue else { return }
             runtimeSurface = newValue
+            runtimeControllingTTYName = nil
+            runtimeControllingTTYDeviceIdentifier = nil
             runtimeSurfaceGeneration &+= 1
         }
     }
@@ -83,6 +87,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
     let restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling
     let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
+    let claudeCommandShimInstallDeadline: Duration
+    let claudeCommandShimInstallDeadlineClock: any Clock<Duration>
     /// Port ordinal base/range for CMUX_PORT assignment, snapshotted by the app composition root.
     let sessionPortBase: Int
     let sessionPortRangeSize: Int
@@ -284,6 +290,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var claudeCommandShim: ClaudeCommandShim?
     var claudeCommandShimInstallTask: Task<ClaudeCommandShim?, Never>?
     var claudeCommandShimCompletionTask: Task<Void, Never>?
+    var claudeCommandShimDeadlineTask: Task<Void, Never>?
     var claudeCommandShimInstallCompleted = false
     var claudeCommandShimPendingCreationSource: RuntimeSurfaceCreationSource?
     /// The retained byte-tee lease for the libghostty PTY tee callback (cmux
@@ -537,6 +544,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.runtimeTeardown = dependencies.runtimeTeardown
         self.restoreSpawnScheduler = dependencies.restoreSpawnScheduler
         self.runtimeFilesystem = dependencies.runtimeFilesystem
+        self.claudeCommandShimInstallDeadline = dependencies.claudeCommandShimInstallDeadline
+        self.claudeCommandShimInstallDeadlineClock = dependencies.claudeCommandShimInstallDeadlineClock
         self.requiresRestoreSpawnPacing = runtimeSpawnPolicy == .pacedSessionRestore
         self.sessionPortBase = dependencies.sessionPortBase
         self.sessionPortRangeSize = dependencies.sessionPortRangeSize

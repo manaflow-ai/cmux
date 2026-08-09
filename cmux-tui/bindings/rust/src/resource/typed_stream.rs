@@ -1206,6 +1206,7 @@ mod tests {
             "value": {
                 "id": TERMINAL,
                 "tab_id": "tab_00000000000000000000000000000002",
+                "tab_ids": ["tab_00000000000000000000000000000002"],
                 "title": "strict",
                 "cols": 80,
                 "rows": 24,

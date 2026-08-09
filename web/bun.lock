@@ -5,6 +5,7 @@
     "": {
       "name": "web",
       "dependencies": {
+        "@aws-sdk/client-kms": "^3.1045.0",
         "@aws-sdk/client-s3": "^3.1045.0",
         "@aws-sdk/rds-signer": "^3.1045.0",
         "@aws-sdk/s3-request-presigner": "^3.1045.0",

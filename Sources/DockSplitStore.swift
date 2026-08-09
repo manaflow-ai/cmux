@@ -85,6 +85,15 @@ final class DockSplitStore: BonsplitDelegate {
     @ObservationIgnored var forceCloseDockTabIds: Set<TabID> = []
     @ObservationIgnored var pendingCloseConfirmDockTabIds: Set<TabID> = []
     @ObservationIgnored var tabCloseButtonCloseDockTabIds: Set<TabID> = []
+    @ObservationIgnored var closeHistoryEligibleDockTabIds: Set<TabID> = []
+    @ObservationIgnored var pendingClosedPanelHistoryEntries:
+        [TabID: ClosedPanelHistoryEntry] = [:]
+    @ObservationIgnored var pendingClosedPaneHistoryEntries:
+        [UUID: [ClosedPanelHistoryEntry]] = [:]
+    @ObservationIgnored let closedItemHistoryStore: ClosedItemHistoryStore
+    @ObservationIgnored var reactGrabTask: Task<Void, Never>?
+    @ObservationIgnored var reactGrabTaskID: UUID?
+    @ObservationIgnored var reactGrabTaskPanelId: UUID?
     @ObservationIgnored var terminalViewReattachCoalescingDepth = 0
     @ObservationIgnored var pendingTerminalViewReattachPanelIds: Set<UUID> = []
     @ObservationIgnored let focusHistoryNavigation: any FocusHistoryNavigating
@@ -248,7 +257,8 @@ final class DockSplitStore: BonsplitDelegate {
         browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
-        terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver()
+        terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
+        closedItemHistoryStore: ClosedItemHistoryStore? = nil
     ) {
         self.workspaceId = workspaceId
         self.scope = scope
@@ -258,6 +268,12 @@ final class DockSplitStore: BonsplitDelegate {
         self.settings = settings
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.terminalWorkingDirectoryResolver = terminalWorkingDirectoryResolver
+        self.closedItemHistoryStore =
+            closedItemHistoryStore
+            ?? ClosedItemHistoryStore(
+                capacity: 100,
+                loadPersisted: false
+            )
         let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs
         self.focusHistoryNavigation = FocusHistoryModel(navigationScope: {
             settings.value(for: focusHistoryScopeKey) ? .panesAndTabs : .workspacesOnly
@@ -426,6 +442,7 @@ final class DockSplitStore: BonsplitDelegate {
         focus: Bool = true,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
+        allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> UUID? {
         ensureLoaded()
@@ -447,6 +464,7 @@ final class DockSplitStore: BonsplitDelegate {
             tmuxStartCommand: tmuxStartCommand,
             preferredProfileID: preferredProfileID,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+            allowsExternalBrowserFallback: allowsExternalBrowserFallback,
             websiteDataStore: websiteDataStore
         ) else { return nil }
         let previousFocus = focus ? nil : focusedDockPaneSelection()
@@ -481,6 +499,7 @@ final class DockSplitStore: BonsplitDelegate {
         tmuxStartCommand: String? = nil,
         initialDividerPosition: CGFloat? = nil,
         preferredProfileID: UUID? = nil,
+        allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil,
         focus: Bool = true
     ) -> UUID? {
@@ -502,6 +521,7 @@ final class DockSplitStore: BonsplitDelegate {
             ),
             tmuxStartCommand: tmuxStartCommand,
             preferredProfileID: preferredProfileID,
+            allowsExternalBrowserFallback: allowsExternalBrowserFallback,
             websiteDataStore: websiteDataStore
         ) else { return nil }
 
@@ -750,6 +770,7 @@ final class DockSplitStore: BonsplitDelegate {
         tmuxStartCommand: String? = nil,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
+        allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> (any Panel)? {
         switch kind {
@@ -766,7 +787,10 @@ final class DockSplitStore: BonsplitDelegate {
             )
         case .browser:
             guard browserAvailabilityProvider() else {
-                if let externalURL = url ?? initialRequest?.url { _ = NSWorkspace.shared.open(externalURL) }
+                if allowsExternalBrowserFallback,
+                   let externalURL = url ?? initialRequest?.url {
+                    _ = NSWorkspace.shared.open(externalURL)
+                }
                 return nil
             }
             return makeBrowserPanel(
@@ -892,7 +916,10 @@ final class DockSplitStore: BonsplitDelegate {
                 // guarded path in Workspace.installBrowserPanelSubscription.
                 let resolvedTitle = browser.displayTitle
                 let favicon = browser.faviconPNGData
-                let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+                let titleUpdate: String? =
+                    existing.hasCustomTitle || existing.title == resolvedTitle
+                    ? nil
+                    : resolvedTitle
                 let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
                 let loadingUpdate: Bool? = existing.isLoading == browser.isLoading ? nil : browser.isLoading
                 let mutedUpdate: Bool? = existing.isAudioMuted == browser.isMuted ? nil : browser.isMuted
@@ -917,7 +944,10 @@ final class DockSplitStore: BonsplitDelegate {
                     // unchanged, so a terminal re-emitting the same title does not
                     // re-render the Dock tree.
                     let resolvedTitle = terminal.displayTitle
-                    guard existing.title != resolvedTitle else { return }
+                    guard !existing.hasCustomTitle,
+                          existing.title != resolvedTitle else {
+                        return
+                    }
                     self.bonsplitController.updateTab(tabId, title: resolvedTitle)
                 }
             panelCancellables[panel.id] = cancellable

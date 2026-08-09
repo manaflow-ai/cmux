@@ -132,17 +132,33 @@ extension CmxIrohHostRuntime {
         try validateLocalBinding(registration.binding, endpointID: expectedEndpointID)
         let discovery: CmxIrohDiscoveryResponse
         do {
-            if let embedded = registration.discovery {
+            if let embedded = registration.discovery,
+               registration.embeddedDiscoveryComplete {
                 guard let snapshotRevision = embedded.revision,
                       let registrationRevision = registration.revision,
                       snapshotRevision == registrationRevision,
                       snapshotRevision >= (authoritativeDiscovery?.revision ?? 0) else {
                     throw CmxIrohTrustBrokerClientError.invalidResponse
                 }
-                authoritativeDiscovery = embedded
-                discovery = embedded
+                if embedded.bindings.contains(where: {
+                    $0.bindingID == registration.binding.bindingID
+                }) {
+                    authoritativeDiscovery = embedded
+                    discovery = embedded
+                } else {
+                    // Legacy registration responses embed only the first
+                    // discovery page. Once an account has enough dev builds,
+                    // the binding just registered can land on a later page.
+                    // Resolve the complete snapshot instead of misclassifying
+                    // pagination as a replaced local identity.
+                    discovery = try await discoverAuthoritatively(
+                        minimumRevision: registration.revision
+                    )
+                }
             } else {
-                discovery = try await discoverAuthoritatively()
+                discovery = try await discoverAuthoritatively(
+                    minimumRevision: registration.revision
+                )
             }
         } catch {
             return try cachedPolicy(
@@ -190,10 +206,15 @@ extension CmxIrohHostRuntime {
         )
     }
 
-    func discoverAuthoritatively() async throws -> CmxIrohDiscoveryResponse {
+    func discoverAuthoritatively(
+        minimumRevision: UInt64? = nil
+    ) async throws -> CmxIrohDiscoveryResponse {
         let discovery = try await CmxAuthoritativeDiscoveryResolver(
             broker: broker
-        ).resolve(cached: authoritativeDiscovery)
+        ).resolve(
+            cached: authoritativeDiscovery,
+            minimumRevision: minimumRevision
+        )
         authoritativeDiscovery = discovery
         return discovery
     }
@@ -406,11 +427,24 @@ extension CmxIrohHostRuntime {
         binding: CmxIrohBrokerBinding,
         now: Date
     ) -> Date? {
-        guard let expiry = binding.pathHints.compactMap(\.expiresAt).min(),
-              expiry > now else { return nil }
-        let remaining = expiry.timeIntervalSince(now)
-        let safetyWindow = min(15 * 60, max(30, remaining / 4))
-        return max(now, expiry.addingTimeInterval(-safetyWindow))
+        // Clients accept the binding's signed direct ports for private-path
+        // synthesis only while `lastSeenAt` is younger than this same window.
+        // Keep that broker lease fresh even when the endpoint has no public
+        // path hints, otherwise an unchanged Mac silently becomes undialable.
+        let bindingFreshnessExpiry = CmxIrohISO8601Date
+            .parse(binding.lastSeenAt)?
+            .addingTimeInterval(CmxIrohPathHint.maximumPrivateHintTTL)
+        let expiries = ([bindingFreshnessExpiry] + binding.pathHints.map(\.expiresAt))
+            .compactMap { $0 }
+        return expiries.compactMap { expiry -> Date? in
+            let remaining = expiry.timeIntervalSince(now)
+            guard remaining > 0 else { return nil }
+            let safetyWindow = min(15 * 60, max(30, remaining / 4))
+            let deadline = expiry.addingTimeInterval(-safetyWindow)
+            // A stale or near-expiry authority cannot safely arm an immediate
+            // renewal: another unchanged success would otherwise spin.
+            return deadline > now ? deadline : nil
+        }.min()
     }
 
     func refreshRegistration(revision: UInt64) async {
@@ -459,7 +493,10 @@ extension CmxIrohHostRuntime {
             await handleRoute(policy.binding, policy.routePathHints)
             try requireCurrent(revision)
             if let routeRevision = discovery.revision {
-                await connectivityEngine.didInstallRouteRevision(routeRevision)
+                await connectivityEngine.didInstallRouteRevision(
+                    routeRevision,
+                    routes: discovery
+                )
             }
             scheduleLANPublication(
                 binding: policy.binding,

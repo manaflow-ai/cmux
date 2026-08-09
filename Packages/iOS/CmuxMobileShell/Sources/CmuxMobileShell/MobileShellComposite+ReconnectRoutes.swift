@@ -110,9 +110,9 @@ extension MobileShellComposite {
         return nil
     }
 
-    /// The Tailscale ordering preference for one paired Mac: which grant routes
-    /// may promote an exact stored Tailscale route ahead of the Iroh pin.
-    struct TailscaleRoutePreference {
+    /// The strict Tailscale policy for one paired Mac: only exact grant routes
+    /// remain dialable while the user has selected Tailscale.
+    struct TailscaleRouteRequirement {
         let macDeviceID: String
         let grantRoutes: [CmxAttachRoute]
     }
@@ -127,16 +127,15 @@ extension MobileShellComposite {
     /// or revocation failure could silently downgrade around the Iroh device
     /// grant. Pairings without an authenticated Iroh identity remain fail-closed.
     ///
-    /// `tailscalePreference` (the user's explicit Tailscale connection-method
-    /// choice) relaxes only the ORDER of that pin: stored Tailscale routes that
-    /// carry a device-local grant dial first, and the Iroh routes stay as the
-    /// fallback instead of being exclusive. Unauthorized Tailscale routes are
-    /// still never dialable, so a preference flip alone grants nothing.
+    /// `tailscaleRequirement` represents the user's explicit Tailscale-only
+    /// connection method. Only stored Tailscale routes carrying a device-local
+    /// grant remain; Iroh is not retained as a fallback, and a method change
+    /// alone grants nothing.
     static func storedReconnectRoutes(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool = false,
-        tailscalePreference: TailscaleRoutePreference? = nil
+        tailscaleRequirement: TailscaleRouteRequirement? = nil
     ) -> [CmxAttachRoute] {
         let supportedKinds = Set(supportedKinds)
         var ordered = CmxAttachRoute.addingIrohPrivatePaths(
@@ -149,20 +148,15 @@ extension MobileShellComposite {
             ordered.removeAll { $0.kind == .debugLoopback }
         }
         let irohRoutes = ordered.filter { $0.kind == .iroh }
-        if let tailscalePreference {
+        if let tailscaleRequirement {
             let authorizedTailscale = ordered.filter { route in
                 legacyTailscaleAuthorizationEvidence(
                     for: route,
-                    macDeviceID: tailscalePreference.macDeviceID,
-                    persistedRoutes: tailscalePreference.grantRoutes
+                    macDeviceID: tailscaleRequirement.macDeviceID,
+                    persistedRoutes: tailscaleRequirement.grantRoutes
                 ) != nil
             }
-            if !authorizedTailscale.isEmpty {
-                let rest = ordered.filter { route in
-                    route.kind != .iroh && route.kind != .tailscale
-                }
-                return authorizedTailscale + irohRoutes + rest
-            }
+            return authorizedTailscale
         }
         if !irohRoutes.isEmpty {
             return irohRoutes
@@ -172,7 +166,7 @@ extension MobileShellComposite {
 
     /// The dial order for one stored Mac, honoring the user's connection-method
     /// choice. With the default automatic method this is exactly
-    /// ``storedReconnectRoutes(_:supportedKinds:preferNonLoopback:tailscalePreference:)``
+    /// ``storedReconnectRoutes(_:supportedKinds:preferNonLoopback:tailscaleRequirement:)``
     /// without a preference.
     func orderedReconnectRoutes(
         for mac: MobilePairedMac,
@@ -182,8 +176,8 @@ extension MobileShellComposite {
             mac.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
-            tailscalePreference: connectionMethodStore?.method == .tailscale
-                ? TailscaleRoutePreference(
+            tailscaleRequirement: connectionMethodStore?.method == .tailscale
+                ? TailscaleRouteRequirement(
                     macDeviceID: mac.macDeviceID,
                     grantRoutes: mac.legacyTailscaleRoutes ?? []
                 )
@@ -301,6 +295,7 @@ extension MobileShellComposite {
 
     /// Resume foreground-only refresh loops after the app becomes active.
     public func resumeForegroundRefresh() {
+        foregroundRefreshIsActive = true
         foregroundResumeEpoch &+= 1
         startObservingNetworkPathChanges()
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
@@ -319,17 +314,21 @@ extension MobileShellComposite {
         restartActiveMobileBrowserStreams()
         recoverForegroundConnectionIfNeeded(resyncAfterHealthy: shouldResync)
         recoverDisconnectedOnForegroundIfNeeded()
+        recoverPendingInactiveRecoveryIfNeeded()
         // The foreground Mac's workspace list updates live over the sync stream,
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
         // appear without a manual pull-to-refresh.
-        if multiMacAggregationEnabled, connectionState == .connected {
+        if multiMacAggregationEnabled,
+           connectionState == .connected,
+           remoteClient != nil {
             self.scheduleSecondaryAggregation()
         }
     }
 
     /// Record that the app left the active scene phase.
     public func suspendForegroundRefresh() {
+        foregroundRefreshIsActive = false
         if connectionRecoveryOwner.cancelProbing() {
             applyConnectionRecoveryOwnerState()
         }

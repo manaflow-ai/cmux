@@ -110,7 +110,6 @@ export async function POST(request: Request): Promise<Response> {
     },
   );
 }
-
 function hashDeviceCode(deviceCode: string): string {
   return createHash("sha256").update(deviceCode).digest("hex");
 }

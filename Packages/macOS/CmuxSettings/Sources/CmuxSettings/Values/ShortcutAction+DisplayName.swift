@@ -93,6 +93,10 @@ extension ShortcutAction {
         case .focusRight: return "Focus Pane Right"
         case .focusUp: return "Focus Pane Up"
         case .focusDown: return "Focus Pane Down"
+        case .focusPreviousPane:
+            return String(localized: "shortcut.focusPreviousPane.label", defaultValue: "Focus Previous Pane")
+        case .focusNextPane:
+            return String(localized: "shortcut.focusNextPane.label", defaultValue: "Focus Next Pane")
         case .splitRight: return "Split Right"
         case .splitDown: return "Split Down"
         case .toggleSplitZoom: return "Toggle Pane Zoom"

@@ -83,6 +83,14 @@ import {
   type CmuxAuthority,
 } from "./generated/metadata.js";
 import type { Transport, Unsubscribe } from "../transport.js";
+import { validateRequestTimeout } from "../internal/request-timeout.js";
+import {
+  RENDER_ATTACH_MAX_ENCODED_CHARS,
+  RENDER_GRAPHIC_MAX_ENCODED_CHARS,
+  RENDER_GRAPHIC_MAX_IMAGES,
+  RENDER_GRAPHIC_MAX_PLACEMENTS,
+  utf8ByteLength,
+} from "../transport-limits.js";
 import { parseWireJson, stringifyWireJson } from "../wire-json.js";
 
 export interface CmuxClientOptions {
@@ -96,8 +104,14 @@ export interface CmuxClientOptions {
   authorities?: readonly CmuxAuthority[];
   /** Explicitly enables provider-owned workspace mutation commands. */
   enableProviderAuthority?: boolean;
-  /** Command acknowledgement timeout. It does not limit idle event streams. */
+  /**
+   * Command acknowledgement timeout from 0 through 2147483647 milliseconds.
+   * Zero permits dispatch only when it starts synchronously.
+   * It does not limit idle event streams.
+   */
   timeoutMs?: number;
+  /** Maximum time to establish an attach stream. */
+  attachHandshakeTimeoutMs?: number;
   /** Optional default timeout for an idle stream read. The default waits indefinitely. */
   streamIdleTimeoutMs?: number;
   allowProtocolV6Attach?: boolean;
@@ -111,11 +125,37 @@ export interface CmuxClientOptions {
   streamTransportFactory?: () => Transport;
 }
 
+export interface SendRawOptions {
+  /**
+   * Overrides the client command acknowledgement timeout with a finite value
+   * from 0 through 2147483647 milliseconds. Zero permits dispatch only when
+   * it starts synchronously.
+   */
+  timeoutMs?: number;
+  /** Cancels the request and any transport frame that has not started dispatch. */
+  signal?: AbortSignal;
+}
+
 export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
-export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = 16 * 1024 * 1024;
+export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = RENDER_ATTACH_MAX_ENCODED_CHARS;
 export const DEFAULT_MAX_PENDING_RESPONSES = 256;
+export const MIN_ATTACH_HANDSHAKE_BYTES_PER_SECOND = 64 * 1024;
+export const MAX_ATTACH_HANDSHAKE_TIMEOUT_MS = 15 * 60 * 1_000;
 const DEFAULT_CLIENT_AUTHORITIES =
   Object.freeze(["control", "frontend"] as const satisfies readonly CmuxAuthority[]);
+
+export function defaultAttachHandshakeTimeoutMs(
+  requestTimeoutMs: number,
+  maxAttachEncodedChars: number,
+): number {
+  const transferMs = Math.ceil(
+    maxAttachEncodedChars * 1_000 / MIN_ATTACH_HANDSHAKE_BYTES_PER_SECOND,
+  );
+  return Math.max(
+    requestTimeoutMs,
+    Math.min(MAX_ATTACH_HANDSHAKE_TIMEOUT_MS, requestTimeoutMs + transferMs),
+  );
+}
 
 function workspaceMutationResult(result: WorkspaceMutation): WorkspaceMutation {
   return result;
@@ -193,14 +233,17 @@ export type BrowserStreamEvent = BrowserAttachEvent | UnknownBrowserAttachEvent;
 interface PendingResponse {
   resolve: (response: CmuxResponse<unknown>) => void;
   reject: (error: Error) => void;
+  readonly dispatchDeadline: number;
   timer?: ReturnType<typeof setTimeout>;
   signal?: AbortSignal;
   abort?: () => void;
+  cancelUndispatched?: Unsubscribe;
 }
 
 class MessageRouter {
   private readonly pending = new Map<string, PendingResponse>();
-  private readonly eventHandlers = new Set<(event: UnknownEvent) => void>();
+  private readonly eventHandlers =
+    new Set<(event: UnknownEvent, receivedBytes: number) => void>();
   private readonly terminalHandlers = new Set<(error: Error) => void>();
   private terminalError: Error | null = null;
   private decodeContext: ProtocolDecodeContext | undefined;
@@ -224,17 +267,23 @@ class MessageRouter {
     const key = this.idKey(request.id);
     if (this.terminalError) return Promise.reject(this.terminalError);
     if (signal?.aborted) return Promise.reject(new CmuxAbortError("operation aborted"));
+    validateRequestTimeout(timeoutMs);
     if (this.pending.has(key)) return Promise.reject(new CmuxProtocolError(`duplicate request id ${key}`));
     if (this.pending.size >= this.maxPendingResponses) {
       return Promise.reject(new CmuxProtocolError("pending response buffer is full"));
     }
 
     return new Promise((resolve, reject) => {
-      const pending: PendingResponse = { resolve, reject };
-      pending.timer = setTimeout(() => {
+      const pending: PendingResponse = {
+        resolve,
+        reject,
+        dispatchDeadline: performance.now() + timeoutMs,
+      };
+      const expire = () => {
         if (!this.takePending(key, pending)) return;
         reject(new CmuxTimeoutError("session did not respond"));
-      }, timeoutMs);
+      };
+      pending.timer = setTimeout(expire, timeoutMs);
       if (signal) {
         pending.signal = signal;
         pending.abort = () => {
@@ -251,14 +300,46 @@ class MessageRouter {
         }
       }
       try {
-        this.transport.send(stringifyWireJson(request));
+        const json = stringifyWireJson(request);
+        if (
+          this.transport.supportsDispatchGuard === true
+          && this.transport.sendCancellable
+        ) {
+          let dispatchStarted = false;
+          let synchronousDispatchWindow = true;
+          const cancelUndispatched = this.transport.sendCancellable(
+            json,
+            () => {
+              if (dispatchStarted) return;
+              dispatchStarted = true;
+              const release = pending.cancelUndispatched;
+              pending.cancelUndispatched = undefined;
+              release?.();
+            },
+            () => {
+              if (this.pending.get(key) !== pending) return false;
+              if (timeoutMs === 0 && synchronousDispatchWindow) return true;
+              if (performance.now() < pending.dispatchDeadline) return true;
+              expire();
+              return false;
+            },
+          );
+          synchronousDispatchWindow = false;
+          if (!dispatchStarted && this.pending.get(key) === pending) {
+            pending.cancelUndispatched = cancelUndispatched;
+          } else {
+            cancelUndispatched();
+          }
+        } else {
+          this.transport.send(json);
+        }
       } catch (error) {
         if (this.takePending(key, pending)) reject(this.connectionError(error));
       }
     });
   }
 
-  onEvent(handler: (event: UnknownEvent) => void): Unsubscribe {
+  onEvent(handler: (event: UnknownEvent, receivedBytes: number) => void): Unsubscribe {
     this.eventHandlers.add(handler);
     return () => this.eventHandlers.delete(handler);
   }
@@ -299,7 +380,8 @@ class MessageRouter {
         );
         return;
       }
-      for (const handler of this.eventHandlers) handler(event);
+      const receivedBytes = utf8ByteLength(json);
+      for (const handler of this.eventHandlers) handler(event, receivedBytes);
       return;
     }
 
@@ -327,6 +409,9 @@ class MessageRouter {
     if (pending.signal && pending.abort) {
       pending.signal.removeEventListener("abort", pending.abort);
     }
+    const cancelUndispatched = pending.cancelUndispatched;
+    pending.cancelUndispatched = undefined;
+    cancelUndispatched?.();
     return true;
   }
 
@@ -346,9 +431,14 @@ interface StreamWaiter<T> {
   reject: (error: Error) => void;
 }
 
+interface BufferedStreamEvent<T> {
+  event: T;
+  retainedBytes: number;
+}
+
 /** A closeable async event stream that waits indefinitely unless an idle timeout is configured. */
 export class CmuxStream<T extends { event: string }> implements AsyncIterable<T> {
-  private readonly buffered: T[] = [];
+  private readonly buffered: BufferedStreamEvent<T>[] = [];
   private bufferedBytes = 0;
   private readonly waiters: StreamWaiter<T>[] = [];
   private closed = false;
@@ -373,10 +463,10 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
     if (timeoutMs !== undefined) this.validateIdleTimeout(timeoutMs);
     if (options.signal?.aborted) throw new CmuxAbortError("stream read aborted");
     if (this.buffered.length > 0) {
-      const event = this.buffered.shift()!;
-      this.bufferedBytes = Math.max(0, this.bufferedBytes - this.retainedBytes(event));
+      const buffered = this.buffered.shift()!;
+      this.bufferedBytes = Math.max(0, this.bufferedBytes - buffered.retainedBytes);
       if (this.endsAfterDrain && this.buffered.length === 0) this.finish();
-      return event;
+      return buffered.event;
     }
     if (this.terminalError) throw this.terminalError;
     if (this.closed) throw new CmuxConnectionError("stream is closed");
@@ -438,8 +528,17 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
     this.rejectWaiters(new CmuxConnectionError("stream is closed"));
   }
 
-  push(event: T, terminal = false): void {
+  push(event: T, terminal = false, retainedBytesOverride?: number): void {
     if (this.closed) return;
+    const retainedBytes = retainedBytesOverride ?? this.retainedBytes(event);
+    if (retainedBytes > this.maxBufferedBytes) {
+      this.fail(
+        new CmuxProtocolError(
+          `stream event data exceeds ${this.maxBufferedBytes} bytes`,
+        ),
+      );
+      return;
+    }
     let delivered = false;
     while (this.waiters.length > 0) {
       const waiter = this.waiters.shift()!;
@@ -453,7 +552,6 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
         this.fail(new CmuxProtocolError("stream event buffer overflow"));
         return;
       }
-      const retainedBytes = this.retainedBytes(event);
       if (retainedBytes > this.maxBufferedBytes - this.bufferedBytes) {
         this.fail(
           new CmuxProtocolError(
@@ -462,7 +560,7 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
         );
         return;
       }
-      this.buffered.push(event);
+      this.buffered.push({ event, retainedBytes });
       this.bufferedBytes += retainedBytes;
     }
     if (terminal) this.endsAfterDrain = true;
@@ -516,6 +614,7 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
 /** Promise-based typed client for any cmux JSON transport. */
 export class CmuxClient {
   readonly timeoutMs: number;
+  readonly attachHandshakeTimeoutMs: number;
   readonly streamIdleTimeoutMs: number | undefined;
   readonly allowProtocolV6Attach: boolean;
   readonly maxBufferedEvents: number;
@@ -533,13 +632,14 @@ export class CmuxClient {
   private sharedSubscriptionActive = false;
 
   constructor(options: CmuxClientOptions) {
+    const timeoutMs = validateRequestTimeout(options.timeoutMs ?? 10_000);
     this.transport = options.transport;
     this.authoritySet = this.resolveAuthorities(
       options.authorities ?? DEFAULT_CLIENT_AUTHORITIES,
       options.enableProviderAuthority ?? false,
     );
     this.authorities = Object.freeze([...this.authoritySet]);
-    this.timeoutMs = options.timeoutMs ?? 10_000;
+    this.timeoutMs = timeoutMs;
     this.streamIdleTimeoutMs = options.streamIdleTimeoutMs;
     if (this.streamIdleTimeoutMs !== undefined) {
       this.streamIdleTimeout(
@@ -563,6 +663,20 @@ export class CmuxClient {
       options.maxAttachEncodedChars,
       DEFAULT_MAX_ATTACH_ENCODED_CHARS,
     );
+    const defaultAttachTimeout = defaultAttachHandshakeTimeoutMs(
+      this.timeoutMs,
+      this.maxAttachEncodedChars,
+    );
+    this.attachHandshakeTimeoutMs = options.attachHandshakeTimeoutMs === undefined
+      ? defaultAttachTimeout
+      : Math.max(
+        this.timeoutMs,
+        this.securityLimit(
+          "attachHandshakeTimeoutMs",
+          options.attachHandshakeTimeoutMs,
+          MAX_ATTACH_HANDSHAKE_TIMEOUT_MS,
+        ),
+      );
     this.streamTransportFactory = options.streamTransportFactory;
     this.router = new MessageRouter(this.transport, this.maxPendingResponses);
   }
@@ -571,7 +685,10 @@ export class CmuxClient {
     this.transport.close();
   }
 
-  async sendRaw(obj: JsonObject): Promise<CmuxResponse<unknown>> {
+  async sendRaw(
+    obj: JsonObject,
+    options: SendRawOptions = {},
+  ): Promise<CmuxResponse<unknown>> {
     const payload = this.dropUndefined({ ...obj });
     if (
       typeof payload.cmd === "string"
@@ -580,7 +697,11 @@ export class CmuxClient {
       this.assertCommandAuthority(payload.cmd as CmuxCommand);
     }
     if (!("id" in payload)) payload.id = this.nextId();
-    return this.router.send(payload, this.timeoutMs);
+    return this.router.send(
+      payload,
+      options.timeoutMs ?? this.timeoutMs,
+      options.signal,
+    );
   }
 
   request<C extends CmuxRequest>(request: C): Promise<CmuxResponseData<C>>;
@@ -700,7 +821,22 @@ export class CmuxClient {
   ): Promise<CmuxResponseDataFor<"set-cell-pixels">> {
     return this.request("set-cell-pixels", params);
   }
-  vtState(surface: Id): Promise<VtStateResult> { return this.request("vt-state", { surface }); }
+  async vtState(surface: Id): Promise<VtStateResult> {
+    await this.ensureCommandAvailable("vt-state", { surface });
+    const params = encodeCommandParams("vt-state", { surface });
+    const response = await this.sendRaw(
+      { cmd: "vt-state", ...params },
+      { timeoutMs: this.attachHandshakeTimeoutMs },
+    );
+    if (response.ok) {
+      return decodeCommandResult(
+        "vt-state",
+        response.data,
+        this.protocolDecodeContext(),
+      ) as VtStateResult;
+    }
+    throw new CmuxCommandError(response.error || "unknown error", response.id, response);
+  }
   resolveTerminal(terminalId: string): Promise<ResolveTerminalResult> {
     return this.request("resolve-terminal", { terminal_id: terminalId });
   }
@@ -940,11 +1076,14 @@ export class CmuxClient {
     if (mode === "render") {
       return this.openStream(
         request,
-        (event) => event as RenderAttachEvent,
+        (event) => this.validateRenderAttachEvent(event),
         (event, dedicated) => dedicated || this.matchesAttachEvent(event, surface, mode),
         (event) => event.event === "detached" || this.isSurfaceOverflow(event, surface),
         false,
-        undefined,
+        {
+          maxBytes: this.maxAttachEncodedChars,
+          retainedBytes: (_event, receivedBytes) => receivedBytes,
+        },
         options,
       );
     }
@@ -1156,7 +1295,10 @@ export class CmuxClient {
     accept: (event: UnknownEvent, dedicated: boolean) => boolean,
     terminal: (event: T) => boolean = () => false,
     exclusiveSharedSubscription = false,
-    buffering?: { maxBytes: number; retainedBytes: (event: T) => number },
+    buffering?: {
+      maxBytes: number;
+      retainedBytes: (event: T, receivedBytes: number) => number;
+    },
     streamOptions: StreamOpenOptions = {},
   ): Promise<CmuxStream<T>> {
     if (streamOptions.signal?.aborted) {
@@ -1206,12 +1348,16 @@ export class CmuxClient {
         this.sharedSubscriptionActive = false;
       }
       if (dedicated) transport.close();
-    }, this.maxBufferedEvents, buffering?.maxBytes, buffering?.retainedBytes);
-    eventSubscription = router.onEvent((event) => {
+    }, this.maxBufferedEvents, buffering?.maxBytes);
+    eventSubscription = router.onEvent((event, receivedBytes) => {
       if (!accept(event, dedicated)) return;
       try {
         const mapped = map(event);
-        stream.push(mapped, terminal(mapped));
+        stream.push(
+          mapped,
+          terminal(mapped),
+          buffering?.retainedBytes(mapped, receivedBytes),
+        );
         streamError ??= stream.error;
       } catch (error) {
         streamError = error instanceof CmuxProtocolError
@@ -1230,7 +1376,7 @@ export class CmuxClient {
     });
     const response = await router.send(
       payload,
-      this.timeoutMs,
+      buffering === undefined ? this.timeoutMs : this.attachHandshakeTimeoutMs,
       streamOptions.signal,
     ).catch((error) => {
       stream.fail(error as Error);
@@ -1325,17 +1471,86 @@ export class CmuxClient {
     }
   }
 
+  private validateRenderAttachEvent(event: UnknownEvent): RenderAttachEvent {
+    if (event.event !== "render-state" && event.event !== "render-delta") {
+      return event as RenderAttachEvent;
+    }
+    const graphics = event.graphics;
+    if (graphics === undefined) return event as RenderAttachEvent;
+    if (graphics === null || typeof graphics !== "object" || Array.isArray(graphics)) {
+      throw new CmuxProtocolError(`${event.event} graphics is not an object`);
+    }
+    const placements = (graphics as { placements?: unknown }).placements;
+    if (placements === undefined && event.event === "render-state") {
+      throw new CmuxProtocolError(`${event.event} graphics placements is not an array`);
+    }
+    if (placements !== undefined && !Array.isArray(placements)) {
+      throw new CmuxProtocolError(`${event.event} graphics placements is not an array`);
+    }
+    if (Array.isArray(placements) && placements.length > RENDER_GRAPHIC_MAX_PLACEMENTS) {
+      throw new CmuxProtocolError(
+        `${event.event} graphics exceeds ${RENDER_GRAPHIC_MAX_PLACEMENTS} placements`,
+      );
+    }
+    const removedImageIds =
+      (graphics as { removed_image_ids?: unknown }).removed_image_ids;
+    if (removedImageIds !== undefined) {
+      if (!Array.isArray(removedImageIds)) {
+        throw new CmuxProtocolError(
+          `${event.event} graphics removed_image_ids is not an array`,
+        );
+      }
+      if (removedImageIds.length > RENDER_GRAPHIC_MAX_IMAGES) {
+        throw new CmuxProtocolError(
+          `${event.event} graphics exceeds ${RENDER_GRAPHIC_MAX_IMAGES} removed image IDs`,
+        );
+      }
+      if (removedImageIds.some((id) =>
+        !Number.isSafeInteger(id) || id <= 0 || id > 0xffff_ffff
+      )) {
+        throw new CmuxProtocolError(
+          `${event.event} graphics removed_image_ids contains an invalid image ID`,
+        );
+      }
+    }
+    const images = (graphics as { images?: unknown }).images;
+    if (images === undefined) return event as RenderAttachEvent;
+    if (!Array.isArray(images)) {
+      throw new CmuxProtocolError(`${event.event} graphics images is not an array`);
+    }
+    if (images.length > RENDER_GRAPHIC_MAX_IMAGES) {
+      throw new CmuxProtocolError(
+        `${event.event} graphics exceeds ${RENDER_GRAPHIC_MAX_IMAGES} images`,
+      );
+    }
+    for (const image of images) {
+      if (image === null || typeof image !== "object" || Array.isArray(image)) {
+        throw new CmuxProtocolError(`${event.event} graphics image is not an object`);
+      }
+      this.validateAttachEncodedData(
+        (image as { data?: unknown }).data,
+        `${event.event} graphics image`,
+        Math.min(this.maxAttachEncodedChars, RENDER_GRAPHIC_MAX_ENCODED_CHARS),
+      );
+    }
+    return event as RenderAttachEvent;
+  }
+
   private decodeAttachData(value: unknown, eventName: string): Uint8Array {
     return decodeBase64(this.validateAttachEncodedData(value, eventName));
   }
 
-  private validateAttachEncodedData(value: unknown, eventName: string): string {
+  private validateAttachEncodedData(
+    value: unknown,
+    eventName: string,
+    maxEncodedChars = this.maxAttachEncodedChars,
+  ): string {
     if (typeof value !== "string") {
       throw new CmuxProtocolError(`${eventName} data is not base64 text`);
     }
-    if (value.length > this.maxAttachEncodedChars) {
+    if (value.length > maxEncodedChars) {
       throw new CmuxProtocolError(
-        `${eventName} data exceeds ${this.maxAttachEncodedChars} encoded characters`,
+        `${eventName} data exceeds ${maxEncodedChars} encoded characters`,
       );
     }
     return value;

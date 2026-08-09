@@ -61,7 +61,7 @@ impl StreamCancellation {
         }
         let request_id = self.request_id();
         let envelope = json!({
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "request",
             "id": request_id,
             "operation": ops::STREAM_CANCEL,
@@ -633,9 +633,9 @@ impl Drop for ResourceStream {
 }
 
 fn validate_protocol(object: &serde_json::Map<String, Value>) -> Result<()> {
-    if object.get("protocol").and_then(Value::as_str) != Some("cmux.protocol/1") {
+    if object.get("protocol").and_then(Value::as_str) != Some("cmux.protocol/2") {
         return Err(Error::UnexpectedEnvelope(
-            "stream envelope protocol must be cmux.protocol/1".to_string(),
+            "stream envelope protocol must be cmux.protocol/2".to_string(),
         ));
     }
     Ok(())
@@ -715,7 +715,7 @@ mod tests {
         })
         .unwrap();
         let base = json!({
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "stream_item",
             "stream_id": id.as_str(),
             "sequence": "0",

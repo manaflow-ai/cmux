@@ -800,6 +800,88 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertTrue(legacyCommand.contains("SPACED=  keep exact  "), legacyCommand)
     }
 
+    func testManualAgentRestoreRecordSurvivesShellPreexecInvalidation() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let checkpointID = UUID().uuidString.lowercased()
+        let workingDirectory = "/tmp/grok-manual-restore"
+        let launchCommand = AgentLaunchCommandSnapshot(
+            launcher: "grok",
+            executablePath: "/usr/local/bin/grok",
+            arguments: ["/usr/local/bin/grok", "--no-alt-screen"],
+            workingDirectory: workingDirectory
+        )
+        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                name: "Grok",
+                kind: "grok",
+                command: "grok -r \(checkpointID) --no-alt-screen",
+                cwd: workingDirectory,
+                checkpointId: checkpointID,
+                source: "agent-hook",
+                launchCommand: launchCommand,
+                autoResume: true
+            ),
+            panelId: panelId
+        ))
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+        workspace.restoredAgentSnapshotsByPanelId[panelId] = SessionRestorableAgentSnapshot(
+            kind: .grok,
+            sessionId: checkpointID,
+            workingDirectory: workingDirectory,
+            launchCommand: launchCommand
+        )
+        workspace.restoredAgentResumeStatesByPanelId[panelId] = .manualResumeAvailable
+
+        // Shell integration reports commandRunning before `cmux restore` starts.
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+
+        XCTAssertNil(workspace.restoredAgentSnapshotsByPanelId[panelId])
+        let retainedBinding = try XCTUnwrap(workspace.surfaceResumeBinding(panelId: panelId))
+        XCTAssertEqual(retainedBinding.checkpointId, checkpointID)
+        XCTAssertEqual(retainedBinding.autoResume, false)
+
+        let getResult = try v2Result(
+            method: "surface.resume.get",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+            ]
+        )
+        let restoreRecord = try XCTUnwrap(getResult["restore_record"] as? [String: Any])
+        XCTAssertEqual(restoreRecord["kind"] as? String, "grok")
+        XCTAssertEqual(restoreRecord["checkpoint_id"] as? String, checkpointID)
+        let resumeBinding = try XCTUnwrap(getResult["resume_binding"] as? [String: Any])
+        XCTAssertEqual(resumeBinding["auto_resume"] as? Bool, false)
+    }
+
     func testSurfaceRestoreRecordBootstrapsCommandOnlyLocalHermesBinding() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

@@ -352,11 +352,13 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                         self.relayPolicyDiagnostics = await service.diagnosticsSnapshot()
                         self.publishIrohSettingsUpdate()
                     }
-                    let retryDelay = CmxIrohRetrySchedule().delay(
+                    let retryDelay = CmxIrohRetrySchedule.relayPolicy(
+                        for: Self.diagnosticFailureKind(for: error)
+                    ).delay(
                         failureCount: failureCount,
                         retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
                             .retryAfterSeconds,
-                        jitterUnitInterval: Double.random(in: 0 ... 1)
+                        jitterUnitInterval: self.relayPolicyRetryJitter()
                     )
                     failureCount = min(failureCount + 1, 20)
                     retryAt = failureDate.addingTimeInterval(retryDelay)

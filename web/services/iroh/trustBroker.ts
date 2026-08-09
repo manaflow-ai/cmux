@@ -81,6 +81,11 @@ import {
   MANAGED_RELAY_URLS,
   accountPrivateIrohPathHints,
 } from "./publicationPolicy";
+import {
+  discoveryScopeMatchesRegistration,
+  irohDiscoveryScopeJSON,
+  type IrohDiscoveryScope,
+} from "./discoveryScope";
 
 export type IrohTrustBrokerShape = {
   readonly issueChallenge: (
@@ -97,6 +102,15 @@ export type IrohTrustBrokerShape = {
     userId: string,
     now?: Date,
     request?: unknown,
+  ) => Effect.Effect<unknown, IrohExpectedError>;
+  readonly discoverComplete: (
+    userId: string,
+    now?: Date,
+  ) => Effect.Effect<unknown, IrohExpectedError>;
+  readonly discoverScoped: (
+    userId: string,
+    scope: IrohDiscoveryScope,
+    now?: Date,
   ) => Effect.Effect<unknown, IrohExpectedError>;
   readonly revoke: (
     userId: string,
@@ -208,6 +222,57 @@ export function makeIrohTrustBroker(
       pageSize: request.pageSize,
       ...(request.cursor ? { cursor: request.cursor } : {}),
     });
+    const response = yield* serializeDiscovery(
+      userId,
+      now,
+      snapshot,
+      knownCustomRelayURLs,
+    );
+    return request.paginated
+      ? {
+        ...response,
+        next_cursor: snapshot.nextCursor
+          ? encodeIrohDiscoveryCursor(snapshot.nextCursor)
+          : null,
+      }
+      : response;
+  });
+
+  const discoverComplete = (
+    userId: string,
+    now = new Date(),
+  ): Effect.Effect<unknown, IrohExpectedError> => Effect.gen(function* () {
+    yield* repository.pruneExpiredState({ userId, now });
+    const snapshot = yield* repository.discoverySnapshot({ userId, now });
+    return yield* serializeDiscovery(userId, now, snapshot);
+  });
+
+  const discoverScoped = (
+    userId: string,
+    scope: IrohDiscoveryScope,
+    now = new Date(),
+    knownCustomRelayURLs?: ReadonlySet<string>,
+  ): Effect.Effect<unknown, IrohExpectedError> => Effect.gen(function* () {
+    yield* repository.pruneExpiredState({ userId, now });
+    const snapshot = yield* repository.discoverySnapshot({ userId, now, scope });
+    return yield* serializeDiscovery(
+      userId,
+      now,
+      snapshot,
+      knownCustomRelayURLs,
+    );
+  });
+
+  const serializeDiscovery = (
+    userId: string,
+    now: Date,
+    snapshot: {
+      readonly bindings: readonly IrohBindingRecord[];
+      readonly lanDiscoveryGeneration: number;
+      readonly accountRevision: number;
+    },
+    knownCustomRelayURLs?: ReadonlySet<string>,
+  ): Effect.Effect<Record<string, unknown>, IrohExpectedError> => Effect.gen(function* () {
     const savedCustomRelayURLs = knownCustomRelayURLs
       ?? customRelayURLs(yield* accountRelayPreference(userId));
     const rendezvousKey = yield* parseEffect(() => deriveLanRendezvousKey(
@@ -216,7 +281,7 @@ export function makeIrohTrustBroker(
       snapshot.lanDiscoveryGeneration,
     ));
     const verificationKeys = yield* parseEffect(() => signingVerificationKeys(config));
-    const response = {
+    return {
       route_contract_version: 1 as const,
       revision: snapshot.accountRevision,
       bindings: snapshot.bindings.map((binding) => publicBinding(
@@ -231,14 +296,6 @@ export function makeIrohTrustBroker(
       },
       grant_verification_keys: verificationKeys.keySet,
     };
-    return request.paginated
-      ? {
-        ...response,
-        next_cursor: snapshot.nextCursor
-          ? encodeIrohDiscoveryCursor(snapshot.nextCursor)
-          : null,
-      }
-      : response;
   });
 
   return {
@@ -278,6 +335,17 @@ export function makeIrohTrustBroker(
         return yield* Effect.fail(new IrohForbiddenError({ code: "invalid_challenge_nonce" }));
       }
       yield* parseEffect(() => assertChallengeMatchesPayload(challenge, decoded.payload));
+      if (
+        request.discoveryScope
+        && !discoveryScopeMatchesRegistration(
+          request.discoveryScope,
+          decoded.payload,
+        )
+      ) {
+        return yield* Effect.fail(new IrohInvalidInputError({
+          code: "invalid_discovery_scope",
+        }));
+      }
       yield* parseEffect(() => verifyEndpointRegistrationSignature({
         endpointId: decoded.payload.endpointId,
         challengeId: request.challengeId,
@@ -310,21 +378,39 @@ export function makeIrohTrustBroker(
           Effect.catchAll(() => Effect.succeed({ status: "unavailable" as const })),
         )
         : { status: "not_requested" as const };
-      const discovery = yield* discover(
-        userId,
-        now,
-        undefined,
-        savedCustomRelayURLs,
-      );
+      const discovery = request.discoveryScope
+        ? (yield* discoverScoped(
+          userId,
+          request.discoveryScope,
+          now,
+          savedCustomRelayURLs,
+        )) as Record<string, unknown>
+        : (yield* discover(
+          userId,
+          now,
+          { pageSize: "128" },
+          savedCustomRelayURLs,
+        )) as Record<string, unknown>;
       return {
         revision: registration.accountRevision,
         binding: publicBinding(registration.binding, now, savedCustomRelayURLs),
         relay,
         discovery,
+        discovery_complete: request.discoveryScope
+          ? false
+          : discovery.next_cursor === null,
+        ...(request.discoveryScope
+          ? {
+            discovery_scope: irohDiscoveryScopeJSON(request.discoveryScope),
+            discovery_scope_complete: true as const,
+          }
+          : {}),
       };
     }),
 
     discover,
+    discoverComplete,
+    discoverScoped,
 
     revoke: (userId, raw, now = new Date()) => Effect.gen(function* () {
       const { bindingId } = yield* parseEffect(() => parseBindingIdBody(raw));

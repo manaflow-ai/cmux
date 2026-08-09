@@ -18,6 +18,14 @@ export function validatedNativeCallbackScheme(
   return DEFAULT_NATIVE_CALLBACK_SCHEME;
 }
 
+export function trustedNativeCallbackScheme(
+  rawScheme: string | null | undefined,
+): string | null {
+  const scheme = rawScheme?.trim().toLowerCase() ?? "";
+  if (NATIVE_SCHEMES.has(scheme) || scheme === "cmux-dev") return scheme;
+  return /^cmux-dev-[a-z0-9-]+$/.test(scheme) ? scheme : null;
+}
+
 export function isAllowedNativeReturnTo(
   href: string,
   request: NextRequest,

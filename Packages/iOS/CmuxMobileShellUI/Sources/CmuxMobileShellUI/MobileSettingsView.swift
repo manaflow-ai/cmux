@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -28,8 +29,8 @@ struct MobileSettingsView: View {
     let connectedHostName: String
     let startPairingScanner: (() -> Void)?
     let signOut: (() -> Void)?
-    /// The shell store, used to drive the multi-Mac switcher. `nil` in previews,
-    /// where the "Switch Mac" entry is hidden.
+    /// The shell store, used for the live connection rows and the onboarding
+    /// replay's connection state. `nil` in previews.
     var store: CMUXMobileShellStore?
     @AppStorage(MobileSettingsView.sendAnonymousTelemetryKey) private var sendAnonymousTelemetry = false
 
@@ -40,7 +41,6 @@ struct MobileSettingsView: View {
     /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
     /// directly in `body` would not re-render when it flips.
     @State private var notificationsEnabled = false
-    @State private var showingHostPicker = false
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
     #if DEBUG
@@ -90,10 +90,11 @@ struct MobileSettingsView: View {
                     }
                 }
 
-                // Hidden entirely when there is nothing to show (no connected
-                // Mac and no store to switch with), so the no-devices screen's
-                // reuse of this sheet does not render an empty header.
-                if hasConnectionSection {
+                // Hidden when there is no live connection row to show, so the
+                // no-devices screen's reuse of this sheet does not render an
+                // empty header. Switching Macs lives in the workspace list's
+                // computer picker.
+                if hasConnectionRows {
                     Section(L10n.string("mobile.settings.connection", defaultValue: "Connection")) {
                         if let connections = store?.liveMacConnections,
                            !connections.isEmpty {
@@ -120,18 +121,21 @@ struct MobileSettingsView: View {
                                 value: connectedHostName
                             )
                         }
-                        if store != nil {
-                            Button {
-                                showingHostPicker = true
-                            } label: {
-                                Label(
-                                    L10n.string("mobile.settings.switchMac", defaultValue: "Switch Computer"),
-                                    systemImage: "macbook.and.iphone"
-                                )
-                            }
-                            .accessibilityIdentifier("MobileSettingsSwitchMac")
+                        if let store,
+                           store.connectionState == .connected,
+                           let routeKind = store.activeRoute?.kind {
+                            LabeledContent(
+                                L10n.string(
+                                    "mobile.settings.activeTransport",
+                                    defaultValue: "Active Transport"
+                                ),
+                                value: activeTransportName(routeKind)
+                            )
+                            .accessibilityIdentifier("MobileSettingsActiveTransport")
                         }
                     }
+                }
+                if hasConnectionSection {
                     Button {
                         showingSetupHelp = true
                     } label: {
@@ -333,6 +337,19 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsShellIconLab")
+
+                    NavigationLink {
+                        TaskComposerModelPickerLabView()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.modelPickerLab",
+                                defaultValue: "New Task Model Lab"
+                            ),
+                            systemImage: "cpu"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsModelPickerLab")
                 }
                 #endif
 
@@ -376,24 +393,20 @@ struct MobileSettingsView: View {
                 }
 
                 Section(L10n.string("mobile.settings.notifications", defaultValue: "Push Alerts")) {
-                    Button {
-                        Task {
-                            if notificationsEnabled {
-                                await pushCoordinator.disable()
-                                notificationsEnabled = false
-                            } else {
-                                notificationsEnabled = await pushCoordinator.enable()
-                            }
-                        }
-                    } label: {
-                        Label(
-                            notificationsEnabled
-                                ? L10n.string("mobile.notifications.disable", defaultValue: "Turn Off Push Alerts")
-                                : L10n.string("mobile.notifications.enable", defaultValue: "Notify Me When Agents Need Me"),
-                            systemImage: notificationsEnabled ? "bell.slash" : "bell"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsNotifications")
+                    MobilePushSettingsContent(
+                        readiness: pushCoordinator.readiness(
+                            macStatus: store?.phonePushMacStatus,
+                            macAccountMismatch: store?.connectionRequiresReauth == true
+                        ),
+                        phoneEnabled: $notificationsEnabled,
+                        macStatus: store?.phonePushMacStatus,
+                        supportsMacSettings: store?.supportsPhonePushSettings == true,
+                        supportsMacTest: store?.supportsPhonePushTest == true,
+                        onPhoneEnabledChange: updatePhonePushEnabled,
+                        onRepair: repairPhonePush,
+                        onMacMutation: updateMacPhonePush,
+                        onSendTest: sendPhonePushTest
+                    )
                 }
 
                 Section {
@@ -437,7 +450,13 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsVersionRow")
                 }
             }
-            .onAppear { notificationsEnabled = pushCoordinator.isEnabled }
+            .task {
+                notificationsEnabled = pushCoordinator.isEnabled
+                await pushCoordinator.refreshReadiness()
+            }
+            .onChange(of: pushCoordinator.isEnabled) { _, enabled in
+                notificationsEnabled = enabled
+            }
             .navigationTitle(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -462,11 +481,6 @@ struct MobileSettingsView: View {
                 ToastGalleryView()
             }
             #endif
-            .sheet(isPresented: $showingHostPicker) {
-                if let store {
-                    MobileHostPickerView(store: store)
-                }
-            }
             .sheet(isPresented: $showingOnboarding) {
                 // Re-entry never writes first-run progress. The final scene reads
                 // live connection state and can reopen pairing from offline Settings.
@@ -502,6 +516,102 @@ struct MobileSettingsView: View {
         .accessibilityIdentifier("MobileSettingsView")
     }
 
+    private func activeTransportName(_ kind: CmxAttachTransportKind) -> String {
+        switch kind {
+        case .tailscale:
+            L10n.string(
+                "mobile.settings.activeTransport.tailscale",
+                defaultValue: "Tailscale"
+            )
+        case .iroh:
+            L10n.string(
+                "mobile.settings.activeTransport.iroh",
+                defaultValue: "Iroh"
+            )
+        case .websocket:
+            L10n.string(
+                "mobile.settings.activeTransport.websocket",
+                defaultValue: "WebSocket"
+            )
+        case .debugLoopback:
+            L10n.string(
+                "mobile.settings.activeTransport.simulator",
+                defaultValue: "Simulator"
+            )
+        }
+    }
+
+    @MainActor
+    private func updatePhonePushEnabled(_ enabled: Bool) async -> Bool {
+        if enabled {
+            _ = await pushCoordinator.enable()
+            // A denied OS authorization still accepts the user's app-level
+            // intent. Keep the toggle on so readiness can surface the Settings
+            // recovery action instead of rolling the preference back.
+            return pushCoordinator.isEnabled
+        }
+        await pushCoordinator.disable()
+        return !pushCoordinator.isEnabled
+    }
+
+    @MainActor
+    private func repairPhonePush(
+        _ repair: MobilePushReadiness.Repair
+    ) async -> Bool {
+        switch repair {
+        case .enableOnPhone:
+            return await updatePhonePushEnabled(true)
+        case .openSystemSettings:
+            pushCoordinator.openSystemSettings()
+            return true
+        case .retryDeviceTokenRegistration:
+            pushCoordinator.retryDeviceTokenRegistration()
+            await pushCoordinator.refreshReadiness()
+            return true
+        case .retryRegistration:
+            await pushCoordinator.syncTokenIfPossible()
+            await pushCoordinator.refreshReadiness()
+            return true
+        case .signInAgain, .signIntoMatchingAccount:
+            signOut?()
+            return signOut != nil
+        case .connectMac:
+            startPairingScanner?()
+            return startPairingScanner != nil
+        case .leaveMacOrUseAlwaysMode:
+            return await store?.updatePhonePushSettings(mode: .always) == true
+        case .enableOnMac:
+            return await store?.updatePhonePushSettings(
+                forwardingEnabled: true
+            ) == true
+        case .waitForDeviceToken, .finishAccountDeletion,
+             .disablePushOnAnotherDevice, .rebuildMatchingApps:
+            return false
+        }
+    }
+
+    @MainActor
+    private func updateMacPhonePush(
+        _ mutation: MobilePushMacMutation
+    ) async -> Bool {
+        guard let store else { return false }
+        switch mutation {
+        case let .forwardingEnabled(enabled):
+            return await store.updatePhonePushSettings(
+                forwardingEnabled: enabled
+            )
+        case let .mode(mode):
+            return await store.updatePhonePushSettings(mode: mode)
+        case let .hideContent(hidden):
+            return await store.updatePhonePushSettings(hideContent: hidden)
+        }
+    }
+
+    @MainActor
+    private func sendPhonePushTest() async -> MobilePhonePushTestStage {
+        await store?.sendPhonePushTest() ?? .unavailable
+    }
+
     private static var crashReportingEnabled: Bool {
         switch Bundle.main.object(forInfoDictionaryKey: "CMUXCrashReportingEnabled") {
         case let enabled as Bool:
@@ -529,9 +639,15 @@ struct MobileSettingsView: View {
         nil
     }
 
-    /// Whether the Connection section has any rows to show. When this sheet is
-    /// reused from the no-devices screen there is no connected Mac or store to
-    /// switch with, so the section is omitted entirely.
+    /// Whether the Connection section has any rows to show. When nothing is
+    /// connected the section is omitted entirely so its header never sits empty.
+    private var hasConnectionRows: Bool {
+        store?.liveMacConnections.isEmpty == false || !connectedHostName.isEmpty
+    }
+
+    /// Whether the setup and introduction entries apply. When this sheet is
+    /// reused from the no-devices screen there is no connected Mac or store,
+    /// so they are hidden.
     private var hasConnectionSection: Bool {
         !connectedHostName.isEmpty || store != nil
     }

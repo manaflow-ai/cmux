@@ -475,7 +475,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
         let userCommandSnapshot = restored.sessionSnapshot(includeScrollback: false)
         XCTAssertNil(userCommandSnapshot.panels.first?.terminal?.agent)
-        XCTAssertNil(userCommandSnapshot.panels.first?.terminal?.resumeBinding)
+        let retainedBinding = try XCTUnwrap(userCommandSnapshot.panels.first?.terminal?.resumeBinding)
+        XCTAssertEqual(retainedBinding.checkpointId, "codex-binding-auto-resume-disabled-session")
+        XCTAssertFalse(retainedBinding.allowsAutomaticResume)
     }
 
     @MainActor
@@ -529,7 +531,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
-    func testAgentHookResumeBindingClearsAfterStartupCommandCompletes() throws {
+    func testAgentHookResumeBindingBecomesManualAfterStartupCommandCompletes() throws {
         let defaults = UserDefaults.standard
         let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
         let previous = defaults.object(forKey: key)
@@ -587,7 +589,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
         let completedSnapshot = restored.sessionSnapshot(includeScrollback: false)
         XCTAssertNil(completedSnapshot.panels.first?.terminal?.agent)
-        XCTAssertNil(completedSnapshot.panels.first?.terminal?.resumeBinding)
+        let retainedBinding = try XCTUnwrap(completedSnapshot.panels.first?.terminal?.resumeBinding)
+        XCTAssertEqual(retainedBinding.checkpointId, "codex-binding-auto-resume-session")
+        XCTAssertFalse(retainedBinding.allowsAutomaticResume)
     }
 
     @MainActor

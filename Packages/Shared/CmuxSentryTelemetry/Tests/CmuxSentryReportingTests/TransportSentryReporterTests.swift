@@ -13,7 +13,7 @@ import os
         struct LogLine: Sendable {
             let level: TransportSentryReporter.LogLevel
             let message: String
-            let attributeKeys: [String]
+            let attributes: [String: String]
         }
 
         struct CapturedEvent: Sendable {
@@ -29,6 +29,7 @@ import os
             let category: String
             let message: String?
             let level: SentryLevel
+            let data: [String: String]
         }
 
         let breadcrumbs = OSAllocatedUnfairLock<[CapturedBreadcrumb]>(initialState: [])
@@ -43,7 +44,10 @@ import os
                     let captured = CapturedBreadcrumb(
                         category: crumb.category,
                         message: crumb.message,
-                        level: crumb.level
+                        level: crumb.level,
+                        data: crumb.data?.reduce(into: [:]) { result, entry in
+                            result[entry.key] = String(describing: entry.value)
+                        } ?? [:]
                     )
                     self.breadcrumbs.withLock { $0.append(captured) }
                 },
@@ -62,7 +66,9 @@ import os
                     let line = LogLine(
                         level: level,
                         message: message,
-                        attributeKeys: attributes.keys.sorted()
+                        attributes: attributes.reduce(into: [:]) { result, entry in
+                            result[entry.key] = String(describing: entry.value)
+                        }
                     )
                     self.logs.withLock { $0.append(line) }
                 }
@@ -112,13 +118,17 @@ import os
         let crumbs = recorder.breadcrumbs.withLock { $0 }
         #expect(crumbs.count == 2)
         #expect(crumbs.allSatisfy { $0.category == "transport" })
-        #expect(crumbs.map(\.message) == ["endpointStarting", "endpointActive"])
+        #expect(crumbs.map(\.message) == ["Iroh endpoint starting", "Iroh endpoint active"])
         #expect(crumbs.allSatisfy { $0.level == .info })
+        #expect(crumbs[0].data["event_code"] == "endpointStarting")
+        #expect(crumbs[1].data["event_code"] == "endpointActive")
 
         let logs = recorder.logs.withLock { $0 }
-        #expect(logs.map(\.message) == ["transport.endpointStarting", "transport.endpointActive"])
+        #expect(logs.map(\.message) == ["Iroh endpoint starting", "Iroh endpoint active"])
         #expect(logs.allSatisfy { $0.level == .info })
-        #expect(logs.allSatisfy { $0.attributeKeys.contains("transport.role") })
+        #expect(logs.allSatisfy { $0.attributes["transport.role"] == "iOS client" })
+        #expect(logs[0].attributes["transport.event_code"] == "endpointStarting")
+        #expect(logs[1].attributes["transport.event_code"] == "endpointActive")
     }
 
     @Test func failureEventsAreWarningsAndCaptureIncidents() async {
@@ -130,11 +140,18 @@ import os
 
         let crumbs = recorder.breadcrumbs.withLock { $0 }
         #expect(crumbs.first?.level == .warning)
+        #expect(
+            crumbs.first?.message
+                == "Transport dial failed (Transport: Iroh, Failure: Relay policy unavailable, Attempt: 7)"
+        )
 
         let events = recorder.events.withLock { $0 }
         #expect(events.count == 1)
         let event = events[0]
-        #expect(event.title == "Transport failure: transportDialFailed/policyUnavailable/iroh")
+        #expect(
+            event.title
+                == "Transport dial failed (Transport: Iroh, Failure: Relay policy unavailable, Attempt: 7)"
+        )
         #expect(event.level == .warning)
         #expect(event.fingerprint == [
             "cmux-transport", "mobileClient", "transportDialFailed/policyUnavailable/iroh",
@@ -198,7 +215,7 @@ import os
 
         let logs = recorder.logs.withLock { $0 }
         #expect(logs.count == 3)
-        #expect(logs[2].attributeKeys.contains("transport.log_dropped_before_this"))
+        #expect(logs[2].attributes["transport.log_dropped_before_this"] == "1")
         // Breadcrumbs are unbudgeted: they only ship attached to events.
         #expect(recorder.breadcrumbs.withLock { $0.count } == 4)
     }

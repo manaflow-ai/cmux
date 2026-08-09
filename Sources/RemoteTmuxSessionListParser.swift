@@ -43,12 +43,15 @@ enum RemoteTmuxSessionListParser {
     /// - Returns: one ``RemoteTmuxSession`` per well-formed line, in input order.
     static func parse(_ output: String) -> [RemoteTmuxSession] {
         var sessions: [RemoteTmuxSession] = []
-        for rawLine in output.split(separator: "\n", omittingEmptySubsequences: true) {
-            var line = String(rawLine)
-            if line.last == "\r" {
-                line.removeLast()
-            }
-            if line.isEmpty { continue }
+        // Swift treats CRLF as one Character, so `split(separator: "\n")` finds no
+        // separator in a CRLF listing and `line.last == "\r"` never matches either:
+        // the last Character of `…crlf\r\n` is `"\r\n"`. The whole listing then parses
+        // as one session whose name swallows the rest. A remote running the command
+        // under a pty sends CRLF, because ONLCR rewrites every `\n`. `isNewline`
+        // matches `\n`, `\r` and CRLF, and empty subsequences are omitted, so blank
+        // lines drop out. The sibling parser in RemoteTmuxVersion.swift already does this.
+        for rawLine in output.split(whereSeparator: \.isNewline) {
+            let line = String(rawLine)
             // Unbounded split: the first four fields are id/windows/attached/
             // created, and the name (which may itself contain `:`) is reassembled
             // from the remainder below via `fields[4...].joined`, so a name with

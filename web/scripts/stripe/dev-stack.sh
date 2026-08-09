@@ -158,7 +158,7 @@ if [[ -z "$slug" ]]; then
 fi
 db_container="${CMUX_DB_CONTAINER_NAME:-cmux-postgres-${slug}-dev-${PORT}}"
 
-events="checkout.session.completed,checkout.session.async_payment_succeeded,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,invoice.paid,invoice.payment_failed"
+events="checkout.session.completed,checkout.session.async_payment_succeeded,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,invoice.paid,invoice.payment_failed,charge.refunded"
 
 echo "cmux Stripe dev stack"
 echo "  Web log: $web_log"

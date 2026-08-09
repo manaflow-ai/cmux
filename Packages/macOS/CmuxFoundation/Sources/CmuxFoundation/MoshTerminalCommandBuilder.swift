@@ -135,6 +135,10 @@ public struct MoshTerminalCommandBuilder: Sendable {
             "fi",
             "unset cmux_mosh_probe_status",
         ]
+        let reportsTerminalLifecycle = remoteRelayPort.map { (1...65_535).contains($0) } ?? false
+        if reportsTerminalLifecycle {
+            script += terminalLifecycleAttemptShellLines()
+        }
         if let preparationShellScript = preparationShellScript?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !preparationShellScript.isEmpty {
@@ -153,9 +157,8 @@ public struct MoshTerminalCommandBuilder: Sendable {
            !managementReadyShellScript.isEmpty {
             script.append(managementReadyShellScript)
         }
-        if let remoteRelayPort,
-           (1...65_535).contains(remoteRelayPort) {
-            script += terminalLifecycleLaunchingShellLines()
+        if reportsTerminalLifecycle {
+            script += terminalLifecycleRegistrationShellLines()
         }
         // Mosh exposes no reliable post-UDP-handshake callback, so this
         // pre-exec launcher must not claim authoritative connected readiness.
@@ -163,13 +166,18 @@ public struct MoshTerminalCommandBuilder: Sendable {
         return "/bin/sh -c \(script.joined(separator: "\n").remoteCommandShellQuoted)"
     }
 
-    private func terminalLifecycleLaunchingShellLines() -> [String] {
+    private func terminalLifecycleAttemptShellLines() -> [String] {
+        [
+            "CMUX_SSH_ATTEMPT_ID=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || cmux_mosh_fallback",
+            "export CMUX_SSH_ATTEMPT_ID",
+        ]
+    }
+
+    private func terminalLifecycleRegistrationShellLines() -> [String] {
         [
             "cmux_mosh_lifecycle_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_mosh_lifecycle_cli\" ] || [ ! -x \"$cmux_mosh_lifecycle_cli\" ]; then cmux_mosh_lifecycle_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
             "if [ -z \"$cmux_mosh_lifecycle_cli\" ] || [ -z \"${CMUX_SOCKET_PATH:-}\" ] || [ -z \"${CMUX_WORKSPACE_ID:-}\" ] || [ -z \"${CMUX_SURFACE_ID:-}\" ] || [ -z \"${CMUX_TERMINAL_LIFECYCLE_ID:-}\" ]; then cmux_mosh_fallback; fi",
-            "CMUX_SSH_ATTEMPT_ID=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || cmux_mosh_fallback",
-            "export CMUX_SSH_ATTEMPT_ID",
             "cmux_mosh_lifecycle_rpc() { cmux_mosh_lifecycle_method=\"$1\"; cmux_mosh_lifecycle_payload=\"$2\"; cmux_mosh_lifecycle_retry=0; while ! CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 \"$cmux_mosh_lifecycle_cli\" --socket \"$CMUX_SOCKET_PATH\" rpc \"$cmux_mosh_lifecycle_method\" \"$cmux_mosh_lifecycle_payload\" >/dev/null 2>&1; do cmux_mosh_lifecycle_retry=$((cmux_mosh_lifecycle_retry + 1)); if [ \"$cmux_mosh_lifecycle_retry\" -ge 4 ]; then return 1; fi; /bin/sleep 0.1; done; }",
             "cmux_mosh_launch_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"$CMUX_SURFACE_ID\\\",\\\"terminal_lifecycle_id\\\":\\\"$CMUX_TERMINAL_LIFECYCLE_ID\\\",\\\"attempt_id\\\":\\\"$CMUX_SSH_ATTEMPT_ID\\\"}\"",
             "cmux_mosh_lifecycle_rpc workspace.remote.terminal_session_launching \"$cmux_mosh_launch_payload\" || cmux_mosh_fallback",

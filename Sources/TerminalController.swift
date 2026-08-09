@@ -117,12 +117,18 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 @MainActor
 class TerminalController {
     static let shared = TerminalController()
+#if DEBUG
+    nonisolated let windowScreenshotCaptureCoordinator =
+        WindowScreenshotCaptureCoordinator()
+#endif
     private nonisolated static let maximumConcurrentReloadConfigurationWaiters =
         4
     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
     /// One process-wide admission budget shared by every mobile connection.
     nonisolated let mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota
+    /// Actor-isolated ten-minute cache for mobile task model discovery.
+    nonisolated let mobileTaskModelDiscovery: MobileTaskModelDiscovery
     var tabManager: TabManager?
     let workspaceCreateIdempotencyCache = WorkspaceCreateIdempotencyCache(capacity: 256)
     /// The shared auth coordinator + account flow, injected once via
@@ -373,6 +379,10 @@ class TerminalController {
             maximumConcurrentClaims: 32
         ),
         mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota = .init(),
+        mobileTaskModelDiscovery: MobileTaskModelDiscovery = .live(
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
+            shellPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        ),
         terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
@@ -387,6 +397,7 @@ class TerminalController {
         self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
+        self.mobileTaskModelDiscovery = mobileTaskModelDiscovery
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
@@ -1072,6 +1083,34 @@ class TerminalController {
                     return response
                 }
             }
+            if request.method == "mobile.task.models.list" {
+                return v2AsyncResultCall(
+                    id: request.id,
+                    timeoutSeconds: 7
+                ) {
+                    guard let result = await self.controlCommandCoordinator
+                        .handleMobileHostAsync(
+                            parsedRequest,
+                            context: self
+                        ) else {
+                        return .err(
+                            code: "method_not_found",
+                            message: "Unknown method",
+                            data: nil
+                        )
+                    }
+                    switch result {
+                    case .ok(let payload):
+                        return .ok(payload.foundationObject)
+                    case let .err(code, message, data):
+                        return .err(
+                            code: code,
+                            message: message,
+                            data: data?.foundationObject
+                        )
+                    }
+                }
+            }
             // Coordinator-owned worker-lane bodies (the tranche-D resolution
             // reads): nonisolated coordinator code runs on this worker thread
             // — pure parse plus JSON payload build — with ONE
@@ -1188,6 +1227,12 @@ class TerminalController {
                 // reply instead of the internal-error backstop below (the
                 // debug.sidebar.simulate_drag precedent).
                 return (true, "ERROR: Unknown command 'send_workspace'. Use 'help' for available commands.")
+#endif
+            case "screenshot":
+#if DEBUG
+                return (true, captureScreenshot(args))
+#else
+                return (true, "ERROR: Unknown command 'screenshot'. Use 'help' for available commands.")
 #endif
             case "reload_config":
                 return (true, reloadConfigurationAndWait(args))
@@ -1440,6 +1485,54 @@ class TerminalController {
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
+        case "debug.window.screenshot":
+            let label = (request.params["label"] as? String) ?? ""
+            let response = captureScreenshot(label)
+            guard response.hasPrefix("OK ") else {
+                return v2Error(
+                    id: request.id,
+                    code: "internal_error",
+                    message: response
+                )
+            }
+            let payload = String(response.dropFirst(3))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let parts = payload.split(separator: " ", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else {
+                return v2Error(
+                    id: request.id,
+                    code: "internal_error",
+                    message: "screenshot parse failed",
+                    data: ["payload": payload]
+                )
+            }
+            return v2Ok(id: request.id, result: [
+                "screenshot_id": parts[0],
+                "path": parts[1],
+            ])
+        case "debug.mobile.transport.disconnect":
+            let selectedConnectionID: UUID?
+            if let rawConnectionID = request.params["connection_id"] {
+                guard let value = rawConnectionID as? String,
+                      let parsed = UUID(uuidString: value) else {
+                    return v2Error(
+                        id: request.id,
+                        code: "invalid_params",
+                        message: "connection_id must be a UUID"
+                    )
+                }
+                selectedConnectionID = parsed
+            } else {
+                selectedConnectionID = nil
+            }
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 10) {
+                let closed = await MobileHostConnectionRegistry.shared
+                    .debugCloseConnections(connectionID: selectedConnectionID)
+                return .ok([
+                    "closed_connection_ids": closed.map(\.uuidString),
+                    "closed_count": closed.count,
+                ])
+            }
 #endif
         case let method where method.hasPrefix("vm."):
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
@@ -1453,7 +1546,9 @@ class TerminalController {
             // its worker case above is compiled out; the Release main lane
             // answers method_not_found for debug verbs, so mirror that reply
             // instead of the internal-error backstop below.
-            if request.method == "debug.sidebar.simulate_drag" {
+            if request.method == "debug.sidebar.simulate_drag"
+                || request.method == "debug.window.screenshot"
+                || request.method == "debug.mobile.transport.disconnect" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
 #endif
@@ -2330,6 +2425,9 @@ class TerminalController {
             return v2Result(id: id, self.v2NotificationCreateForCaller(params: params))
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
 
+        // Diff review comments
+        case "comments.list": return v2Result(id: id, self.v2CommentsList(params: params))
+
         // App focus (app.focus_override.set/app.simulate_active) handled by ControlCommandCoordinator.
 
         // Browser
@@ -2442,15 +2540,19 @@ class TerminalController {
             "sidebar.custom.open",
             "system.top",
             "system.memory",
+            "comments.list",
             "mobile.host.status",
             "mobile.attach_ticket.create",
             "mobile.terminal.set_font",
+            "mobile.task.attachment.upload",
+            "mobile.task.models.list",
             "mobile.workspace.list",
             "mobile.terminal.create",
             "mobile.terminal.input",
             "mobile.terminal.paste",
             "mobile.terminal.replay",
             "mobile.browser.list",
+            "mobile.browser.create",
             "mobile.browser.stream.start",
             "mobile.browser.stream.stop",
             "mobile.browser.viewport",
@@ -4530,7 +4632,14 @@ class TerminalController {
                     focusWorkspace: v2FocusAllowed(),
                     debugSource: "cli.workspaceAction.mobileConnect"
                 ) else {
-                    result = .err(code: "unavailable", message: "Mobile Connect is unavailable", data: nil)
+                    result = .err(
+                        code: "unavailable",
+                        message: String(
+                            localized: "cli.workspaceAction.tailscalePairingUnavailable",
+                            defaultValue: "Tailscale Pairing is unavailable"
+                        ),
+                        data: nil
+                    )
                     return
                 }
                 result = .ok([
@@ -10927,10 +11036,10 @@ class TerminalController {
     /// base64 encode/decode round-trip — kept verbatim so the reply bytes
     /// match the legacy `readTerminalTextBase64` pipeline exactly — run off
     /// the main actor.
-    /// Serves the v1 `iroh_diag` socket command: the host's iroh Connection
-    /// Report in the same `cmuxdiag v1` compact format the Settings pane
-    /// exports, read from the same `DiagnosticLog` snapshot path so the two
-    /// can never disagree. Empty ring prints just the header (count=0).
+    /// Serves the v1 `iroh_diag` socket command: the host's Iroh Connection
+    /// Report in the same plain-language format the Settings pane exports,
+    /// read from the same `DiagnosticLog` snapshot path so the two can never
+    /// disagree.
     private nonisolated func irohDiagText() -> String {
         let semaphore = DispatchSemaphore(value: 0)
         nonisolated(unsafe) var export = ""
@@ -10941,7 +11050,7 @@ class TerminalController {
             // log's own drain actor, and the execution policy keeps this
             // command off the main thread, so the wait cannot self-deadlock.
             let report = await MobileHostIrohRuntime.hostDiagnosticLog.snapshot()
-            export = String(decoding: report.compactExport(), as: UTF8.self)
+            export = String(decoding: report.humanReadableExport(), as: UTF8.self)
             semaphore.signal()
         }
         semaphore.wait()
@@ -13021,96 +13130,6 @@ class TerminalController {
         return "OK"
     }
 
-    func captureScreenshot(_ args: String) -> String {
-        // Parse optional label from args
-        let label = args.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Generate unique ID for this screenshot
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-            .replacingOccurrences(of: ":", with: "-")
-            .replacingOccurrences(of: "+", with: "_")
-        let shortId = UUID().uuidString.prefix(8)
-        let screenshotId = "\(timestamp)_\(shortId)"
-
-        // Determine output path
-        let outputDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-screenshots")
-        try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-
-        let filename = label.isEmpty ? "\(screenshotId).png" : "\(label)_\(screenshotId).png"
-        let outputPath = outputDir.appendingPathComponent(filename)
-
-        // Capture the main window on main thread
-        var captureError: String?
-        v2MainSync {
-            let candidateWindows = NSApp.windows.filter { window in
-                window.isVisible &&
-                !window.isMiniaturized &&
-                window.contentView != nil &&
-                !window.frame.isEmpty
-            }
-            let preferredWindow = [NSApp.keyWindow, NSApp.mainWindow]
-                .compactMap { $0 }
-                .first { candidateWindows.contains($0) }
-            let window = preferredWindow ?? candidateWindows.max { lhs, rhs in
-                (lhs.frame.width * lhs.frame.height) < (rhs.frame.width * rhs.frame.height)
-            } ?? NSApp.mainWindow ?? NSApp.windows.first
-
-            guard let window else {
-                captureError = "No window available"
-                return
-            }
-
-            guard let pngData = self.captureCompositedWindowPNGData(window)
-                ?? self.captureAppKitWindowPNGData(window) else {
-                captureError = "Failed to create PNG data"
-                return
-            }
-
-            do {
-                try pngData.write(to: outputPath)
-            } catch {
-                captureError = "Failed to write file: \(error.localizedDescription)"
-            }
-        }
-
-        if let error = captureError {
-            return "ERROR: \(error)"
-        }
-
-        // Return OK with screenshot ID and path for easy reference
-        return "OK \(screenshotId) \(outputPath.path)"
-    }
-
-    private func captureCompositedWindowPNGData(_ window: NSWindow) -> Data? {
-        guard let cgImage = CGWindowListCreateImage(
-            .null,
-            .optionIncludingWindow,
-            CGWindowID(window.windowNumber),
-            [.boundsIgnoreFraming, .nominalResolution]
-        ) else {
-            return nil
-        }
-        return NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:])
-    }
-
-    private func captureAppKitWindowPNGData(_ window: NSWindow) -> Data? {
-        guard let contentView = window.contentView else {
-            return nil
-        }
-
-        let bounds = contentView.bounds
-        guard !bounds.isEmpty,
-              let bitmap = contentView.bitmapImageRepForCachingDisplay(in: bounds) else {
-            return nil
-        }
-        bitmap.size = bounds.size
-
-        contentView.displayIfNeeded()
-        contentView.cacheDisplay(in: bounds, to: bitmap)
-
-        return bitmap.representation(using: .png, properties: [:])
-    }
 #endif
 
     func parseSplitDirection(_ value: String) -> SplitDirection? {
@@ -14047,6 +14066,10 @@ class TerminalController {
             )
         case "workspace.create":
             result = await v2MobileWorkspaceCreate(params: request.params)
+        case "mobile.task.attachment.upload":
+            result = v2MobileTaskAttachmentUpload(params: request.params)
+        case "mobile.task.models.list":
+            result = await v2MobileTaskModelsList(params: request.params)
         case "mobile.terminal.create", "terminal.create":
             result = v2MobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":
@@ -14112,6 +14135,15 @@ class TerminalController {
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
         case "mobile.sync.fetch":
             result = v2MobileSyncFetch(params: request.params)
+        case "phone_push.settings.update":
+            result = v2MobilePhonePushSettingsUpdate(params: request.params)
+        case "phone_push.status.get":
+            // The payload is intentionally content-free. This authenticated
+            // request supplies the same-account token that the client's paired
+            // host-status exchange reuses for the private readiness block.
+            result = .ok(["ok": true])
+        case "phone_push.test":
+            result = v2MobilePhonePushTest()
         default:
             result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": request.method

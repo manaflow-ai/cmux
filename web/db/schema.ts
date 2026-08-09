@@ -85,13 +85,21 @@ export const accountDeletionTombstones = pgTable(
   {
     userIdHash: text("user_id_hash").primaryKey(),
     userId: text("user_id"),
-    status: text("status").$type<"pending" | "in_progress" | "stack_delete_pending" | "stack_delete_in_progress" | "completed" | "cleanup_incomplete" | "failed">().notNull().default("pending"),
+    status: text("status").$type<"pending" | "in_progress" | "legacy_delete_pending" | "hosted_delete_pending" | "stack_delete_pending" | "stack_delete_in_progress" | "completed" | "cleanup_incomplete" | "failed">().notNull().default("pending"),
     attemptCount: integer("attempt_count").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     analyticsDeletedAt: timestamp("analytics_deleted_at", { withTimezone: true }),
+    legacySubrouterRetiredTenantIds: jsonb("legacy_subrouter_retired_tenant_ids")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    hostedSubrouterDeletedTeamIds: jsonb("hosted_subrouter_deleted_team_ids")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     errorMessage: text("error_message"),
   },
   (table) => [
@@ -371,6 +379,8 @@ export const deviceTokens = pgTable(
     // "sandbox" for development builds, "production" for TestFlight/App Store —
     // selects which APNs host the sender uses.
     environment: text("environment").notNull().default("production"),
+    deliveryLeaseUntil: timestamp("delivery_lease_until", { withTimezone: true }),
+    deliveryLeaseToken: uuid("delivery_lease_token"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -386,10 +396,184 @@ export const notificationSendEvents = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     userId: text("user_id").notNull(),
     deviceCount: integer("device_count").notNull(),
+    // Opaque logical event id from the Mac. Retries reuse it so the database
+    // limiter counts one source event and the route can return the completed
+    // aggregate without resending successful devices.
+    correlationId: text("correlation_id"),
+    // SHA-256 of the canonical logical payload. This binds a correlation id to
+    // one event without persisting notification content or routing identifiers.
+    payloadFingerprint: text("payload_fingerprint"),
+    eventKind: text("event_kind").notNull().default("notify"),
+    initialTargets: jsonb("initial_targets").$type<Array<{
+      targetId: string;
+      bundleId: string;
+      environment: string;
+    }>>(),
+    resultSummary: jsonb("result_summary").$type<{
+      sent: number;
+      devices: number;
+      pruned: number;
+      transientFailures: number;
+      permanentFailures: number;
+      retryAfterSeconds?: number;
+    }>(),
+    resultOutcomes: jsonb("result_outcomes").$type<Array<{
+      targetId: string;
+      status: number;
+      reason?: string;
+      retryAfterSeconds?: number;
+      prune: boolean;
+    }>>(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    leaseToken: uuid("lease_token"),
+    retryNotBefore: timestamp("retry_not_before", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("notification_send_events_user_created_idx").on(table.userId, table.createdAt),
+  ],
+);
+
+// Hosted Subrouter owns live tenant state. This legacy mapping remains only so
+// account deletion can purge credential-bearing rows retained for recovery.
+export const subrouterTenants = pgTable(
+  "subrouter_tenants",
+  {
+    teamId: text("team_id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    tenantName: text("tenant_name").notNull(),
+    encryptedTenantKey: text("encrypted_tenant_key").notNull(),
+    // Durable recovery marker for the external source-finalization phase.
+    hostedFinalizationStartedAt: timestamp("hosted_finalization_started_at", {
+      withTimezone: true,
+    }),
+    // The hosted control plane must not serve a mapped legacy tenant until
+    // the credential-safe operator has verified its hosted copy.
+    hostedReadyAt: timestamp("hosted_ready_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("subrouter_tenants_tenant_id_unique").on(table.tenantId),
+  ],
+);
+
+/**
+ * Non-secret routing metadata for coderouter accounts. Provider credentials
+ * live in the envelope-encrypted coderouterCredentials table; this table
+ * coordinates selection and rotating refresh-token leases.
+ */
+export const coderouterAccounts = pgTable(
+  "coderouter_accounts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    teamId: text("team_id").notNull(),
+    provider: text("provider").$type<"codex" | "opencode-go">().notNull(),
+    providerAccountId: text("provider_account_id").notNull(),
+    label: text("label").notNull(),
+    state: text("state")
+      .$type<"active" | "refreshing" | "expired" | "broken">()
+      .notNull()
+      .default("active"),
+    vaultRevision: bigint("vault_revision", { mode: "number" }).notNull().default(1),
+    credentialExpiresAt: timestamp("credential_expires_at", { withTimezone: true }),
+    refreshLeaseId: uuid("refresh_lease_id"),
+    refreshLeaseExpiresAt: timestamp("refresh_lease_expires_at", { withTimezone: true }),
+    cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    lastFailureCode: text("last_failure_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("coderouter_accounts_team_provider_account_unique").on(
+      table.teamId,
+      table.provider,
+      table.providerAccountId,
+    ),
+    index("coderouter_accounts_team_provider_state_idx").on(
+      table.teamId,
+      table.provider,
+      table.state,
+    ),
+    index("coderouter_accounts_refresh_lease_expiry_idx").on(
+      table.refreshLeaseExpiresAt,
+    ),
+    index("coderouter_accounts_cooldown_idx").on(table.cooldownUntil),
+  ],
+);
+
+export const coderouterRouteTokens = pgTable(
+  "coderouter_route_tokens",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    teamId: text("team_id").notNull(),
+    stackUserId: text("stack_user_id").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    label: text("label").notNull().default("cli"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("coderouter_route_tokens_hash_unique").on(table.tokenHash),
+    index("coderouter_route_tokens_team_expiry_idx").on(table.teamId, table.expiresAt),
+    index("coderouter_route_tokens_user_expiry_idx").on(
+      table.stackUserId,
+      table.expiresAt,
+    ),
+  ],
+);
+
+/**
+ * Envelope-encrypted provider credentials. Every secret-bearing field is
+ * ciphertext; the plaintext data key exists only briefly in Vercel memory.
+ */
+export const coderouterCredentials = pgTable(
+  "coderouter_credentials",
+  {
+    accountId: uuid("account_id")
+      .primaryKey()
+      .references(() => coderouterAccounts.id, { onDelete: "cascade" }),
+    teamId: text("team_id").notNull(),
+    provider: text("provider").$type<"codex" | "opencode-go">().notNull(),
+    credentialRevision: bigint("credential_revision", { mode: "number" })
+      .notNull(),
+    algorithm: text("algorithm").notNull().default("aes-256-gcm"),
+    ciphertext: text("ciphertext").notNull(),
+    nonce: text("nonce").notNull(),
+    authTag: text("auth_tag").notNull(),
+    encryptedDataKey: text("encrypted_data_key").notNull(),
+    kmsKeyId: text("kms_key_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      "coderouter_credentials_revision_positive",
+      sql`${table.credentialRevision} > 0`,
+    ),
+    check(
+      "coderouter_credentials_algorithm_check",
+      sql`${table.algorithm} = 'aes-256-gcm'`,
+    ),
+    index("coderouter_credentials_team_idx").on(table.teamId),
+  ],
+);
+
+export const coderouterVaultLeases = pgTable(
+  "coderouter_vault_leases",
+  {
+    teamId: text("team_id").primaryKey(),
+    leaseId: uuid("lease_id").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("coderouter_vault_leases_expiry_idx").on(table.expiresAt),
   ],
 );
 
@@ -432,11 +616,16 @@ export const stripeSubscriptions = pgTable(
     raw: jsonb("raw").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
   },
   (table) => [
     index("stripe_subscriptions_customer_id_idx").on(table.customerId),
     index("stripe_subscriptions_stack_user_id_idx").on(table.stackUserId),
     index("stripe_subscriptions_stack_team_id_idx").on(table.stackTeamId),
+    index("stripe_subscriptions_reconcile_cursor_idx").on(
+      table.lastReconciledAt.asc().nullsFirst(),
+      table.id.asc(),
+    ),
   ],
 );
 
@@ -481,21 +670,6 @@ export const billingEmailClaims = pgTable(
   },
   (table) => [
     index("billing_email_claims_email_idx").on(table.email),
-  ],
-);
-
-export const subrouterTenants = pgTable(
-  "subrouter_tenants",
-  {
-    teamId: text("team_id").primaryKey(),
-    tenantId: text("tenant_id").notNull(),
-    tenantName: text("tenant_name").notNull(),
-    encryptedTenantKey: text("encrypted_tenant_key").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    uniqueIndex("subrouter_tenants_tenant_id_unique").on(table.tenantId),
   ],
 );
 
@@ -804,6 +978,12 @@ export const irohEndpointBindings = pgTable(
     index("iroh_endpoint_bindings_user_active_page_idx")
       .on(table.userId, table.id)
       .where(sql`${table.revokedAt} is null`),
+    index("iroh_endpoint_bindings_active_pairable_mac_scope_idx")
+      .on(table.userId, sql`lower(${table.tag})`, table.id)
+      .where(sql`${table.revokedAt} is null and ${table.platform} = 'mac' and ${table.pairingEnabled} = true`),
+    index("iroh_endpoint_bindings_active_ios_scope_idx")
+      .on(table.userId, table.id)
+      .where(sql`${table.revokedAt} is null and ${table.platform} = 'ios'`),
     index("iroh_endpoint_bindings_user_idx")
       .on(table.userId),
     index("iroh_endpoint_bindings_user_revoked_idx")
