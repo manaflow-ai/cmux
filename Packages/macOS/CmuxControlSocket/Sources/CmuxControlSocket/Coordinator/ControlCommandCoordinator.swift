@@ -42,6 +42,10 @@ public final class ControlCommandCoordinator {
     @ObservationIgnored
     public var handles: ControlHandleRegistry
 
+    /// Per-request memo for ``identityKinds(for:)``, cleared by
+    /// ``resetIdentityKindCache()`` at each request boundary.
+    var identityKindCache: [UUID: (kinds: Set<ControlHandleKind>, authoritative: Bool)] = [:]
+
     @ObservationIgnored
     nonisolated let simulatorOperationAdmissionGate =
         ControlSimulatorOperationAdmissionGate(maximumConcurrentOperations: 4)
@@ -68,6 +72,9 @@ public final class ControlCommandCoordinator {
     /// - Parameter request: The decoded request envelope.
     /// - Returns: The command result, or `nil` if not owned here.
     public func handle(_ request: ControlRequest) -> ControlCallResult? {
+        // Identity classification is a per-request snapshot of live topology,
+        // exactly as the conformer's handle-ref refresh already is.
+        resetIdentityKindCache()
         // Each domain's handler (in its own `+<Domain>.swift` extension) owns its
         // methods and returns `nil` for anything else, so the chain falls through
         // to the next domain and finally to the legacy app-side dispatcher.
@@ -242,13 +249,188 @@ public final class ControlCommandCoordinator {
 
     /// A UUID param, accepting either a UUID string or a `kind:N` ref resolved
     /// through the handle registry (matches legacy `v2UUID`).
+    ///
+    /// An identifier only resolves when its kind is one the param key expects,
+    /// so `group_id: "surface:1"` no longer resolves to a surface, misses its
+    /// group lookup, and degrades to the active window
+    /// (https://github.com/manaflow-ai/cmux/issues/9424).
+    ///
+    /// This holds for both wire representations. A `kind:N` ref names its kind
+    /// outright. A raw UUID does not, but the registry knows the kinds it has
+    /// already minted refs for, so a surface UUID supplied as `group_id` is
+    /// rejected too. A UUID the registry has never seen has no known kind and
+    /// still passes through — that is gap 1 of the issue, which needs a product
+    /// call on distinguishing caller-injected context from user-specified
+    /// targets on the wire.
+    ///
+    /// Keys with no declared expectation (`id`, notification/todo ids) keep the
+    /// unrestricted lookup.
     func uuid(_ params: [String: JSONValue], _ key: String) -> UUID? {
         guard let raw = string(params, key) else { return nil }
-        if let parsed = UUID(uuidString: raw) {
+        return resolveIdentifier(raw, forParamKey: key)
+    }
+
+    /// The routing-lane twin of ``uuid(_:_:)``: identical, except the Window
+    /// Dock's window-as-`workspace_id` alias is accepted. Only the routing walk
+    /// may take that alias, so it is never granted by param name alone.
+    func routingUUID(_ params: [String: JSONValue], _ key: String) -> UUID? {
+        guard let raw = string(params, key) else { return nil }
+        return resolveIdentifier(raw, forParamKey: key, routing: true)
+    }
+
+    /// Resolves either wire representation of an identifier — a raw UUID string
+    /// or a `kind:N` ref — for a named param key, rejecting kinds that key does
+    /// not accept. The single entrypoint both the typed params and the legacy
+    /// `[String: Any]` `v2UUID` path go through.
+    ///
+    /// - Parameters:
+    ///   - raw: The trimmed, non-empty param value.
+    ///   - key: The param key the value arrived under.
+    ///   - routing: Whether this resolution feeds the routing walk, which is the
+    ///     only caller allowed the window-as-`workspace_id` alias.
+    /// - Returns: The identifier, or `nil` if unknown or of the wrong kind.
+    public func resolveIdentifier(
+        _ raw: String,
+        forParamKey key: String,
+        routing: Bool = false
+    ) -> UUID? {
+        guard let expected = acceptedKinds(forParamKey: key, routing: routing) else {
+            // No declared expectation (`id`, notification/todo ids): unrestricted.
+            return UUID(uuidString: raw) ?? handles.uuid(forRef: raw)
+        }
+        guard let parsed = UUID(uuidString: raw) else {
+            return handles.uuid(forRef: raw, kinds: expected)
+        }
+        let known = identityKinds(for: parsed)
+        if !known.kinds.isEmpty {
+            guard !known.kinds.isDisjoint(with: expected) else { return nil }
             return parsed
         }
-        return handles.uuid(forRef: raw)
+        // Live topology says this id names nothing. For a key the CLI never
+        // fills from caller context, that is unambiguously a user-specified
+        // target that does not exist, so it fails closed.
+        if known.authoritative, !Self.callerInjectableKeys.contains(key) {
+            return nil
+        }
+        // Otherwise it stays acceptable. That is gap 1 of the issue: the CLI
+        // injects the caller's own CMUX_WORKSPACE_ID / CMUX_SURFACE_ID into
+        // most commands, so failing closed on these keys would also fail
+        // ordinary commands issued from a since-closed workspace. Telling those
+        // apart needs the wire-format change the issue defers to a product
+        // call. Non-authoritative classification (no app attached) also stays
+        // permissive, since absence of evidence is not evidence of absence.
+        return parsed
     }
+
+    /// The param keys the CLI fills from the caller's own environment
+    /// (`CMUX_WORKSPACE_ID` / `CMUX_SURFACE_ID`), where a stale id is ordinary
+    /// rather than a mistargeted command. Every other key is user-specified.
+    static let callerInjectableKeys: Set<String> = [
+        "workspace_id", "surface_id", "terminal_id", "tab_id", "panel_id",
+    ]
+
+    /// The kinds an identity is known to have, preferring the app's live
+    /// topology over the handle registry's mint history, plus whether that
+    /// answer is authoritative.
+    ///
+    /// Mint history alone is not a sound oracle: dock-hosted objects may not be
+    /// minted yet, and ``ControlHandleRegistry/removeRef(kind:uuid:)`` erases
+    /// what the registry knew. The conformer answers from live topology when it
+    /// can; the registry is the fallback for contexts with no app attached
+    /// (tests, and any conformer that does not implement the seam), and that
+    /// fallback is never treated as authoritative.
+    ///
+    /// Memoized for the current request: classification sweeps live topology,
+    /// and one request resolves the same id repeatedly (rejection checking,
+    /// routing, then the command body).
+    func identityKinds(for uuid: UUID) -> (kinds: Set<ControlHandleKind>, authoritative: Bool) {
+        if let cached = identityKindCache[uuid] { return cached }
+        let resolved: (kinds: Set<ControlHandleKind>, authoritative: Bool)
+        if let authoritative = context?.controlIdentityKinds(for: uuid) {
+            resolved = (authoritative, true)
+        } else {
+            resolved = (handles.mintedKinds(for: uuid), false)
+        }
+        identityKindCache[uuid] = resolved
+        return resolved
+    }
+
+    /// Drops the memoized identity classifications.
+    ///
+    /// Called at each request boundary, alongside the conformer's ref refresh,
+    /// so classification is a per-request snapshot of topology exactly as the
+    /// handle refs already are.
+    public func resetIdentityKindCache() {
+        identityKindCache.removeAll(keepingCapacity: true)
+    }
+
+    /// Resolves a `kind:N` ref for a named param key, restricted to the handle
+    /// kinds that key accepts. Unknown keys keep the unrestricted search.
+    ///
+    /// - Parameters:
+    ///   - ref: The ref string.
+    ///   - key: The param key the ref arrived under.
+    /// - Returns: The identifier, or `nil` if unknown or of the wrong kind.
+    public func resolveRef(_ ref: String, forParamKey key: String) -> UUID? {
+        guard let kinds = Self.expectedHandleKinds[key] else {
+            return handles.uuid(forRef: ref)
+        }
+        return handles.uuid(forRef: ref, kinds: kinds)
+    }
+
+    /// The kinds a param key accepts, widened only for the routing lane.
+    ///
+    /// - Parameters:
+    ///   - key: The param key.
+    ///   - routing: Whether the resolution feeds the routing walk.
+    /// - Returns: The accepted kinds, or `nil` when the key declares none.
+    func acceptedKinds(forParamKey key: String, routing: Bool) -> [ControlHandleKind]? {
+        if routing, let widened = Self.routingHandleKinds[key] { return widened }
+        return Self.expectedHandleKinds[key]
+    }
+
+    /// The extra kinds the routing walk alone accepts.
+    ///
+    /// The Window Dock legitimately routes by passing a *window* identity as
+    /// `workspace_id`, because a Dock owner id IS its owning window's id. That
+    /// is a property of the routing walk, not of the parameter: a command that
+    /// uses `workspace_id` as an actual workspace target must still reject a
+    /// window, so the alias is granted per call site rather than by name.
+    static let routingHandleKinds: [String: [ControlHandleKind]] = [
+        "workspace_id": [.workspace, .window],
+    ]
+
+    /// The handle kinds each routing/target param key accepts.
+    ///
+    /// `tab:N` for surfaces is the one alias handled inside the registry. The
+    /// window-as-`workspace_id` alias is NOT here: see ``routingHandleKinds``.
+    ///
+    /// `from_tab_id`/`to_tab_id` are workspaces despite the name: they are
+    /// matched against a window's workspace list, not against surfaces.
+    static let expectedHandleKinds: [String: [ControlHandleKind]] = [
+        "window_id": [.window],
+        "workspace_id": [.workspace],
+        "reference_workspace_id": [.workspace],
+        "group_reference_workspace_id": [.workspace],
+        "before_workspace_id": [.workspace],
+        "after_workspace_id": [.workspace],
+        "_cmux_remote_workspace_id": [.workspace],
+        "from_tab_id": [.workspace],
+        "to_tab_id": [.workspace],
+        "group_id": [.workspaceGroup],
+        "before_group_id": [.workspaceGroup],
+        "after_group_id": [.workspaceGroup],
+        "pane_id": [.pane],
+        "target_pane_id": [.pane],
+        "surface_id": [.surface],
+        "target_surface_id": [.surface],
+        "before_surface_id": [.surface],
+        "after_surface_id": [.surface],
+        "terminal_id": [.surface],
+        "tab_id": [.surface],
+        "panel_id": [.surface],
+        "return_to": [.surface],
+    ]
 
     /// Whether a param is present and not JSON `null` (matches legacy
     /// `v2HasNonNullParam`).
@@ -262,15 +444,39 @@ public final class ControlCommandCoordinator {
     /// selector through the handle registry exactly as the legacy
     /// `v2ResolveTabManager` did before walking its precedence.
     func routingSelectors(_ params: [String: JSONValue]) -> ControlRoutingSelectors {
-        ControlRoutingSelectors(
+        // Each key is resolved exactly once: classification sweeps live
+        // topology, so resolving a second time to compute the rejection flag
+        // would double the cost of every routed request.
+        var rejected = false
+        func selector(_ key: String) -> UUID? {
+            let resolved = routingUUID(params, key)
+            if resolved == nil, hasNonNull(params, key) { rejected = true }
+            return resolved
+        }
+
+        // `window_id` is resolved without the rejection flag: its presence is
+        // carried separately by `hasWindowIDParam`, which the walk already
+        // fails closed on.
+        let windowID = routingUUID(params, "window_id")
+        let groupID = selector("group_id")
+        let workspaceID = selector("workspace_id")
+        let surfaceID = selector("surface_id") ?? selector("terminal_id") ?? selector("tab_id")
+        let paneID = selector("pane_id")
+
+        return ControlRoutingSelectors(
             hasWindowIDParam: hasNonNull(params, "window_id"),
-            windowID: uuid(params, "window_id"),
-            groupID: uuid(params, "group_id"),
-            workspaceID: uuid(params, "workspace_id"),
-            surfaceID: uuid(params, "surface_id")
-                ?? uuid(params, "terminal_id")
-                ?? uuid(params, "tab_id"),
-            paneID: uuid(params, "pane_id")
+            windowID: windowID,
+            groupID: groupID,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            paneID: paneID,
+            hasRejectedSelector: rejected
         )
     }
+
+    /// The routing selector keys whose supplied-but-invalid state fails closed.
+    /// `public` so the legacy `[String: Any]` routing walk applies the same set.
+    public static let routingSelectorKeys = [
+        "group_id", "workspace_id", "surface_id", "terminal_id", "tab_id", "pane_id",
+    ]
 }

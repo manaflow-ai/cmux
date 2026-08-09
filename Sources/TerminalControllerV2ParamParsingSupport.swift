@@ -86,10 +86,20 @@ extension TerminalController {
 
     nonisolated func v2UUID(_ params: [String: Any], _ key: String) -> UUID? {
         guard let s = v2String(params, key) else { return nil }
-        if let uuid = UUID(uuidString: s) {
-            return uuid
-        }
-        return v2MainSync { v2ResolveHandleRef(s) }
+        // An identifier only resolves for the kinds this param key expects, so a
+        // wrong-kind target (`group_id: "surface:1"`, or a raw surface UUID under
+        // `group_id`) fails outright instead of resolving, missing its lookup,
+        // and degrading to the active window
+        // (https://github.com/manaflow-ai/cmux/issues/9424).
+        return v2MainSync { v2ResolveIdentifier(s, forParamKey: key) }
+    }
+
+    /// The routing-lane twin of ``v2UUID(_:_:)``: identical, except the Window
+    /// Dock's window-as-`workspace_id` alias is accepted. Only the routing walk
+    /// may take that alias, so it is never granted by param name alone.
+    nonisolated func v2RoutingUUID(_ params: [String: Any], _ key: String) -> UUID? {
+        guard let s = v2String(params, key) else { return nil }
+        return v2MainSync { v2ResolveIdentifier(s, forParamKey: key, routing: true) }
     }
 
     func v2UUIDAny(_ raw: Any?) -> UUID? {

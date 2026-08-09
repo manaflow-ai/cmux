@@ -18,6 +18,18 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var reportGitResolution: ControlSurfaceReportGitBranchResolution = .recorded(surfaceID: UUID())
     var reportedGit: (workspaceID: UUID, requestedSurfaceID: UUID?, branch: String, isDirty: Bool?)?
     var clearedGit: (workspaceID: UUID, requestedSurfaceID: UUID?)?
+    /// Live-topology kinds per identity; `nil` opts out of authoritative
+    /// classification so the coordinator falls back to the handle registry.
+    var identityKinds: [UUID: Set<ControlHandleKind>]?
+
+    /// How many times each identity was classified, for memoization coverage.
+    var identityKindQueries: [UUID: Int] = [:]
+
+    func controlIdentityKinds(for uuid: UUID) -> Set<ControlHandleKind>? {
+        identityKindQueries[uuid, default: 0] += 1
+        guard let identityKinds else { return nil }
+        return identityKinds[uuid] ?? []
+    }
 
     func controlWindowSummaries() -> [ControlWindowSummary] { [] }
     func controlResolveCurrentWindow(routing: ControlRoutingSelectors) -> ControlCurrentWindowResolution {
@@ -30,7 +42,12 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     func controlWindowExists(id: UUID) -> Bool { false }
     func controlMoveWindow(id: UUID, toDisplayMatching query: String) -> String? { nil }
     func controlMoveAllWindows(toDisplayMatching query: String) -> ControlMoveAllWindowsResult? { nil }
-    func controlSurfaceRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { true }
+    /// Overridable routing rule; defaults to the app's "always resolves".
+    var routingResolvesTabManager: (ControlRoutingSelectors) -> Bool = { _ in true }
+
+    func controlSurfaceRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool {
+        routingResolvesTabManager(routing)
+    }
     func controlSurfaceList(routing: ControlRoutingSelectors) -> ControlSurfaceListSnapshot? {
         surfaceListSnapshot
     }

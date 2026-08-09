@@ -29,6 +29,22 @@ public struct ControlRoutingSelectors: Sendable, Equatable {
     public let surfaceID: UUID?
     /// The resolved `pane_id` target, if any.
     public let paneID: UUID?
+    /// Whether any routing selector was supplied but could not be resolved —
+    /// a wrong-kind ref or id, an unknown `kind:N` ref, or a blank/non-string
+    /// value.
+    ///
+    /// A supplied-but-invalid selector is NOT the same as an absent one: a
+    /// `nil` id alone reads as "caller did not target this", so the walk would
+    /// slide past it to the active window and run the command against an
+    /// implicit target the caller never named
+    /// (https://github.com/manaflow-ai/cmux/issues/9424). The walk must fail
+    /// closed when this is set, exactly as it already does for a
+    /// present-but-unresolvable `window_id`.
+    ///
+    /// This deliberately does not cover a well-formed id that names nothing
+    /// live: that is the issue's gap 1, where the CLI's injected caller
+    /// context is indistinguishable on the wire from a user-specified target.
+    public let hasRejectedSelector: Bool
 
     /// Creates a routing-selectors value.
     ///
@@ -39,13 +55,15 @@ public struct ControlRoutingSelectors: Sendable, Equatable {
     ///   - workspaceID: The resolved `workspace_id` target.
     ///   - surfaceID: The resolved surface target.
     ///   - paneID: The resolved `pane_id` target.
+    ///   - hasRejectedSelector: Whether a supplied selector failed to resolve.
     public init(
         hasWindowIDParam: Bool,
         windowID: UUID?,
         groupID: UUID?,
         workspaceID: UUID?,
         surfaceID: UUID?,
-        paneID: UUID?
+        paneID: UUID?,
+        hasRejectedSelector: Bool = false
     ) {
         self.hasWindowIDParam = hasWindowIDParam
         self.windowID = windowID
@@ -53,5 +71,6 @@ public struct ControlRoutingSelectors: Sendable, Equatable {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
         self.paneID = paneID
+        self.hasRejectedSelector = hasRejectedSelector
     }
 }
