@@ -934,15 +934,13 @@ final class DockSplitStore: BonsplitDelegate {
             }
             panelCancellables[panel.id] = cancellable
         } else if let filePreview = panel as? FilePreviewPanel {
-            let panelId = filePreview.id
-            let updates = filePreview.makeTabMetadataUpdates()
-            let observationTask = Task { @MainActor [weak self] in
-                for await update in updates {
-                    guard !Task.isCancelled,
-                      let self,
-                      let tabId = self.surfaceId(forPanelId: panelId),
-                      let existing = self.bonsplitController.tab(tabId) else {
-                        continue
+            let cancellable = filePreview.tabMetadataPublisher
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self, weak filePreview] update in
+                    guard let self, let filePreview,
+                          let tabId = self.surfaceId(forPanelId: filePreview.id),
+                          let existing = self.bonsplitController.tab(tabId) else {
+                        return
                     }
                     let icon = RenderableSystemSymbol.resolvedSurfaceTabIcon(
                         update.displayIcon
@@ -955,7 +953,7 @@ final class DockSplitStore: BonsplitDelegate {
                     let dirtyUpdate: Bool? =
                         existing.isDirty == update.isDirty ? nil : update.isDirty
                     guard titleUpdate != nil || iconUpdate != nil || dirtyUpdate != nil else {
-                        continue
+                        return
                     }
                     self.bonsplitController.updateTab(
                         tabId,
@@ -964,10 +962,7 @@ final class DockSplitStore: BonsplitDelegate {
                         isDirty: dirtyUpdate
                     )
                 }
-            }
-            panelCancellables[panelId] = AnyCancellable {
-                observationTask.cancel()
-            }
+            panelCancellables[filePreview.id] = cancellable
         } else if tracksTerminalTitle, let terminal = panel as? TerminalPanel {
             let cancellable = terminal.$title
                 .removeDuplicates()

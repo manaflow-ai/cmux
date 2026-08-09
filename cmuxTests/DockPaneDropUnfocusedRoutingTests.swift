@@ -355,19 +355,18 @@ struct DockPaneDropUnfocusedRoutingTests {
     @Test("Shift-preview Finder file drop creates its split in the global Dock")
     @MainActor
     func shiftPreviewFinderFileDropCreatesSplitInGlobalDock() async throws {
+        // NSDraggingInfo does not expose modifier flags. Verify Shift resolves to
+        // preview, then exercise that resolved branch through the real AppKit entry point.
         #expect(DragOverlayRoutingPolicy.resolvedFileDropBehavior(
             pasteboardTypes: [.fileURL],
             modifierFlags: [.shift],
             defaultBehavior: .text
         ) == .preview)
 
-        try await withGlobalDockTerminalFileDrop(defaultBehavior: .text) {
+        try await withGlobalDockTerminalFileDrop(defaultBehavior: .preview) {
             target, draggingInfo, dock, terminalPanel, fileURL, _ in
             #expect(target.draggingEntered(draggingInfo) == .copy)
-            #expect(target.performDragOperation(
-                draggingInfo,
-                modifierFlags: [.shift]
-            ))
+            #expect(target.performDragOperation(draggingInfo))
             #expect(dock.bonsplitController.allPaneIds.count == 2)
 
             let previewPanels = dock.panels.values.compactMap { $0 as? FilePreviewPanel }

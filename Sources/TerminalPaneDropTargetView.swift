@@ -100,18 +100,7 @@ final class PaneDropTargetView: NSView {
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        performDragOperation(
-            sender,
-            modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags
-        )
-    }
-
-    /// Executes a drop against one modifier snapshot so policy resolution and
-    /// the resulting mutation cannot observe different keyboard states.
-    func performDragOperation(
-        _ sender: any NSDraggingInfo,
-        modifierFlags: NSEvent.ModifierFlags
-    ) -> Bool {
+        let modifierFlags = DragOverlayRoutingPolicy.currentModifierFlags
         defer {
             dropRoutingRegistration.clear(sender)
             clearDragState(phase: "perform.clear")

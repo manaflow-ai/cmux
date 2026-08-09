@@ -4271,39 +4271,37 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func installFilePreviewPanelSubscription(_ filePreviewPanel: FilePreviewPanel) {
-        let titleAndDirty = Publishers.CombineLatest(
-            filePreviewPanel.$displayTitle.removeDuplicates(),
-            filePreviewPanel.$isDirty.removeDuplicates()
-        )
-        let subscription = Publishers.CombineLatest(
-            titleAndDirty,
-            filePreviewPanel.$displayIcon.removeDuplicates()
-        )
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self, weak filePreviewPanel] titleAndDirty, displayIcon in
-            guard let self,
-                  let filePreviewPanel,
-                  let tabId = self.surfaceIdFromPanelId(filePreviewPanel.id) else { return }
-            let (newTitle, isDirty) = titleAndDirty
-            guard let existing = self.bonsplitController.tab(tabId) else { return }
+        let subscription = filePreviewPanel.tabMetadataPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak filePreviewPanel] metadata in
+                guard let self,
+                      let filePreviewPanel,
+                      let tabId = self.surfaceIdFromPanelId(filePreviewPanel.id) else { return }
+                guard let existing = self.bonsplitController.tab(tabId) else { return }
 
-            if self.panelTitles[filePreviewPanel.id] != newTitle {
-                self.panelTitles[filePreviewPanel.id] = newTitle
+                if self.panelTitles[filePreviewPanel.id] != metadata.title {
+                    self.panelTitles[filePreviewPanel.id] = metadata.title
+                }
+                let resolvedTitle = self.resolvedPanelTitle(
+                    panelId: filePreviewPanel.id,
+                    fallback: metadata.title
+                )
+                let resolvedIcon = RenderableSystemSymbol.resolvedSurfaceTabIcon(
+                    metadata.displayIcon
+                )
+                let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+                let iconUpdate: String?? = existing.icon == resolvedIcon ? nil : .some(resolvedIcon)
+                let dirtyUpdate: Bool? =
+                    existing.isDirty == metadata.isDirty ? nil : metadata.isDirty
+                guard titleUpdate != nil || iconUpdate != nil || dirtyUpdate != nil else { return }
+                self.bonsplitController.updateTab(
+                    tabId,
+                    title: titleUpdate,
+                    icon: iconUpdate,
+                    hasCustomTitle: self.panelCustomTitles[filePreviewPanel.id] != nil,
+                    isDirty: dirtyUpdate
+                )
             }
-            let resolvedTitle = self.resolvedPanelTitle(panelId: filePreviewPanel.id, fallback: newTitle)
-            let resolvedIcon = RenderableSystemSymbol.resolvedSurfaceTabIcon(displayIcon)
-            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
-            let iconUpdate: String?? = existing.icon == resolvedIcon ? nil : .some(resolvedIcon)
-            let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
-            guard titleUpdate != nil || iconUpdate != nil || dirtyUpdate != nil else { return }
-            self.bonsplitController.updateTab(
-                tabId,
-                title: titleUpdate,
-                icon: iconUpdate,
-                hasCustomTitle: self.panelCustomTitles[filePreviewPanel.id] != nil,
-                isDirty: dirtyUpdate
-            )
-        }
         panelSubscriptions[filePreviewPanel.id] = subscription
     }
 

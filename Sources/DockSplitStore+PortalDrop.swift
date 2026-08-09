@@ -116,21 +116,26 @@ extension DockSplitStore {
             ).isEmpty
 
         case .split(let sourcePaneId, let orientation, let insertFirst):
+            let remainingPaths = Array(filePaths.dropFirst())
             guard let firstPath = filePaths.first,
-                  let firstPanel = splitPaneWithFilePreview(
+                  let splitResult = splitPaneWithFilePreview(
                       targetPane: sourcePaneId,
                       orientation: orientation,
                       insertFirst: insertFirst,
-                      filePath: firstPath
+                      filePath: firstPath,
+                      focus: remainingPaths.isEmpty
                   ) else {
                 return false
             }
-            let targetPane = paneId(forPanelId: firstPanel.id) ?? sourcePaneId
-            _ = openFilePreviewSurfaces(
-                inPane: targetPane,
-                filePaths: Array(filePaths.dropFirst()),
+            guard !remainingPaths.isEmpty else { return true }
+            let remainingPanels = openFilePreviewSurfaces(
+                inPane: splitResult.pane,
+                filePaths: remainingPaths,
                 focus: true
             )
+            if remainingPanels.isEmpty {
+                focusPanel(splitResult.panel.id)
+            }
             return true
         }
     }
@@ -215,18 +220,17 @@ extension DockSplitStore {
             _ = bonsplitController.reorderTab(tabId, toIndex: targetIndex)
         }
         installSubscription(for: panel, tracksTerminalTitle: false)
-        applyVisibility(to: panel)
         recordExplicitPanelCreation()
         return panel
     }
 
-    @discardableResult
-    func splitPaneWithFilePreview(
+    private func splitPaneWithFilePreview(
         targetPane paneId: PaneID,
         orientation: SplitOrientation,
         insertFirst: Bool,
-        filePath: String
-    ) -> FilePreviewPanel? {
+        filePath: String,
+        focus: Bool
+    ) -> (panel: FilePreviewPanel, pane: PaneID)? {
         guard containsPane(paneId.id) else { return nil }
         let panel = FilePreviewPanel(workspaceId: workspaceId, filePath: filePath)
         let tab = Bonsplit.Tab(
@@ -246,14 +250,15 @@ extension DockSplitStore {
                 insertFirst: insertFirst
             )
         }
-        guard newPane != nil else {
+        guard let newPane else {
             discardPanelOwnershipAndClose(panelId: panel.id)
             return nil
         }
         installSubscription(for: panel, tracksTerminalTitle: false)
-        applyVisibility(to: panel)
         recordExplicitPanelCreation()
-        focusPanel(panel.id)
-        return panel
+        if focus {
+            focusPanel(panel.id)
+        }
+        return (panel, newPane)
     }
 }
