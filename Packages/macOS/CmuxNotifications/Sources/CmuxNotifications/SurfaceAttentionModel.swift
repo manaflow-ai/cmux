@@ -65,12 +65,17 @@ public final class SurfaceAttentionModel {
         _ receive: @escaping @MainActor (Owner, Set<UUID>) -> Void
     ) -> SurfaceAttentionObservation {
         let id = UUID()
-        observers[id] = { [weak owner] surfaceIds in
-            guard let owner else { return false }
+        let deliveryLifetime = ObservationDeliveryLifetime()
+        observers[id] = { [weak owner, weak deliveryLifetime] surfaceIds in
+            guard deliveryLifetime != nil, let owner else { return false }
             receive(owner, surfaceIds)
             return true
         }
-        return SurfaceAttentionObservation(model: self, id: id)
+        return SurfaceAttentionObservation(
+            deliveryLifetime: deliveryLifetime,
+            model: self,
+            id: id
+        )
     }
 
     private func publishPendingValues() {

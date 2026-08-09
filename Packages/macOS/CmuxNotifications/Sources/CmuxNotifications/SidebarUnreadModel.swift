@@ -88,12 +88,18 @@ public final class SidebarUnreadModel {
         _ receive: @escaping @MainActor (Owner, SidebarUnreadSnapshot) -> Void
     ) -> SidebarUnreadObservation {
         let id = UUID()
-        snapshotObservers[id] = { [weak owner] snapshot in
-            guard let owner else { return false }
+        let deliveryLifetime = ObservationDeliveryLifetime()
+        snapshotObservers[id] = { [weak owner, weak deliveryLifetime] snapshot in
+            guard deliveryLifetime != nil, let owner else { return false }
             receive(owner, snapshot)
             return true
         }
-        return SidebarUnreadObservation(model: self, id: id, channel: .snapshot)
+        return SidebarUnreadObservation(
+            deliveryLifetime: deliveryLifetime,
+            model: self,
+            id: id,
+            channel: .snapshot
+        )
     }
 
     /// Observes only changed per-workspace summaries.
@@ -110,12 +116,18 @@ public final class SidebarUnreadModel {
         _ receive: @escaping @MainActor (Owner, SidebarUnreadSnapshot) -> Void
     ) -> SidebarUnreadObservation {
         let id = UUID()
-        summaryObservers[id] = { [weak owner] snapshot in
-            guard let owner else { return false }
+        let deliveryLifetime = ObservationDeliveryLifetime()
+        summaryObservers[id] = { [weak owner, weak deliveryLifetime] snapshot in
+            guard deliveryLifetime != nil, let owner else { return false }
             receive(owner, snapshot)
             return true
         }
-        return SidebarUnreadObservation(model: self, id: id, channel: .summary)
+        return SidebarUnreadObservation(
+            deliveryLifetime: deliveryLifetime,
+            model: self,
+            id: id,
+            channel: .summary
+        )
     }
 
     /// Observes exact surface changes for one owner.
@@ -133,12 +145,15 @@ public final class SidebarUnreadModel {
         _ receive: @escaping @MainActor (Owner, SidebarSurfaceUnreadProjection) -> Void
     ) -> SidebarUnreadObservation {
         let id = UUID()
-        surfaceObserversByOwnerId[ownerId, default: [:]][id] = { [weak owner] projection in
-            guard let owner else { return false }
+        let deliveryLifetime = ObservationDeliveryLifetime()
+        surfaceObserversByOwnerId[ownerId, default: [:]][id] = {
+            [weak owner, weak deliveryLifetime] projection in
+            guard deliveryLifetime != nil, let owner else { return false }
             receive(owner, projection)
             return true
         }
         return SidebarUnreadObservation(
+            deliveryLifetime: deliveryLifetime,
             model: self,
             id: id,
             channel: .surface(ownerId: ownerId)
