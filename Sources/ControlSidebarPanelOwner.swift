@@ -47,9 +47,9 @@ enum ControlSidebarPanelOwner {
         guard let panelId else { return nil }
         switch self {
         case .workspace(let workspace):
-            workspace.agentLifecycleStatesByPanelId[panelId]?[key]
+            return workspace.agentLifecycleStatesByPanelId[panelId]?[key]
         case .dock(let dock):
-            dock.agentRuntimeByPanelId[panelId]?.agentLifecycleStates[key]
+            return dock.agentRuntimeByPanelId[panelId]?.agentLifecycleStates[key]
         }
     }
 
