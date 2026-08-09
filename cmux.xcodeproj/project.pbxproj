@@ -133,8 +133,6 @@
 		79390003AA11BB22CC33DD03 /* AgentNotificationLiveRetargetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390004AA11BB22CC33DD04 /* AgentNotificationLiveRetargetTests.swift */; };
 		7939000FAA11BB22CC33DD0F /* AgentNotificationMoveRaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390010AA11BB22CC33DD10 /* AgentNotificationMoveRaceTests.swift */; };
 		79460001AA11BB22CC33EE01 /* AgentNotificationMutationBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79460002AA11BB22CC33EE02 /* AgentNotificationMutationBoundaryTests.swift */; };
-		A9523F00000000000000002B /* AgentObservedAttentionConclusionKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F00000000000000000A /* AgentObservedAttentionConclusionKey.swift */; };
-		A9523F00000000000000002C /* AgentObservedAttentionConclusionLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F00000000000000000B /* AgentObservedAttentionConclusionLedger.swift */; };
 		C3744E030000000000000001 /* AgentPIDProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */; };
 		C3744E030000000000000002 /* AgentPIDProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */; };
 		C3744E030000000000000003 /* AgentPIDProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */; };
@@ -2871,8 +2869,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		79390004AA11BB22CC33DD04 /* AgentNotificationLiveRetargetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationLiveRetargetTests.swift; sourceTree = "<group>"; };
 		79390010AA11BB22CC33DD10 /* AgentNotificationMoveRaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationMoveRaceTests.swift; sourceTree = "<group>"; };
 		79460002AA11BB22CC33EE02 /* AgentNotificationMutationBoundaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationMutationBoundaryTests.swift; sourceTree = "<group>"; };
-		A9523F00000000000000000A /* AgentObservedAttentionConclusionKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentObservedAttentionConclusionKey.swift; sourceTree = "<group>"; };
-		A9523F00000000000000000B /* AgentObservedAttentionConclusionLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentObservedAttentionConclusionLedger.swift; sourceTree = "<group>"; };
 		C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPIDProcessIdentity.swift; sourceTree = "<group>"; };
 		B79500130000000000000002 /* AgentPortPublicationHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPortPublicationHistory.swift; sourceTree = "<group>"; };
 		B79500120000000000000002 /* AgentPortRootIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPortRootIdentity.swift; sourceTree = "<group>"; };
@@ -8080,8 +8076,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		FEED0000000000000000F003 /* Feed */ = {
 			isa = PBXGroup;
 			children = (
-				A9523F00000000000000000A /* AgentObservedAttentionConclusionKey.swift */,
-				A9523F00000000000000000B /* AgentObservedAttentionConclusionLedger.swift */,
 				FEED0000000000000000F001 /* FeedCoordinator.swift */,
 				A9523F00000000000000000C /* FeedAttentionTarget.swift */,
 				A9523F00000000000000000F /* FeedPendingAttentionState.swift */,
@@ -8666,8 +8660,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A95230000000000000000006 /* AgentLifecycleReconciliationState.swift in Sources */,
 				0A1107110000000000000010 /* AgentNotificationDelivery.swift in Sources */,
 				A5D41234A1B2C3D4E5F60718 /* AgentNotificationGate.swift in Sources */,
-				A9523F00000000000000002B /* AgentObservedAttentionConclusionKey.swift in Sources */,
-				A9523F00000000000000002C /* AgentObservedAttentionConclusionLedger.swift in Sources */,
 				C3744E030000000000000001 /* AgentPIDProcessIdentity.swift in Sources */,
 				B79500130000000000000001 /* AgentPortPublicationHistory.swift in Sources */,
 				B79500120000000000000001 /* AgentPortRootIdentity.swift in Sources */,

@@ -3,6 +3,116 @@ import Testing
 
 @Suite(.serialized)
 struct AgentLifecycleCLIDurabilityTests {
+    @Test func deferredSettlementReplayClaimsAreExclusiveAndLeaseBound() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-deferred-settlement-claim-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let clock = LockedTestClock(
+            date: Date(timeIntervalSince1970: 1_000)
+        )
+        let store = ClaudeHookSessionStore(
+            processEnv: [
+                "CMUX_CLAUDE_HOOK_STATE_PATH": root
+                    .appendingPathComponent("state.json")
+                    .path,
+            ],
+            clock: { clock.now() }
+        )
+        let generation = AgentPIDProcessIdentity(
+            pid: 7_777,
+            startSeconds: 100,
+            startMicroseconds: 200
+        )
+        let sessionID = "claim-session"
+        let turnID = "claim-turn"
+        let workID = "claim-work"
+
+        _ = try store.recordStructuredBackgroundWorkEvent(
+            sessionId: sessionID,
+            eventName: "SubagentStart",
+            workId: workID,
+            turnId: turnID,
+            processGeneration: generation,
+            workspaceId: "workspace",
+            surfaceId: "surface",
+            cwd: "/tmp"
+        )
+        #expect(
+            try store.deferTurnSettlementIfStructuredWorkActive(
+                sessionId: sessionID,
+                workspaceId: "workspace",
+                surfaceId: "surface",
+                cwd: "/tmp",
+                turnId: turnID,
+                processGeneration: generation,
+                transcriptPath: nil,
+                lastAssistantMessage: nil
+            ) == 1
+        )
+        let firstClaim = try #require(
+            try store.recordStructuredBackgroundWorkEvent(
+                sessionId: sessionID,
+                eventName: "SubagentStop",
+                workId: workID,
+                turnId: turnID,
+                processGeneration: generation,
+                workspaceId: "workspace",
+                surfaceId: "surface",
+                cwd: "/tmp"
+            ).deferredSettlement
+        )
+        #expect(firstClaim.replayClaimID != nil)
+        #expect(
+            try store.recordStructuredBackgroundWorkEvent(
+                sessionId: sessionID,
+                eventName: "SubagentStop",
+                workId: workID,
+                turnId: turnID,
+                processGeneration: generation,
+                workspaceId: "workspace",
+                surfaceId: "surface",
+                cwd: "/tmp"
+            ).deferredSettlement == nil
+        )
+
+        clock.advance(by: 11)
+        let replacementClaim = try #require(
+            try store.recordStructuredBackgroundWorkEvent(
+                sessionId: sessionID,
+                eventName: "SubagentStop",
+                workId: workID,
+                turnId: turnID,
+                processGeneration: generation,
+                workspaceId: "workspace",
+                surfaceId: "surface",
+                cwd: "/tmp"
+            ).deferredSettlement
+        )
+        #expect(replacementClaim.id == firstClaim.id)
+        #expect(replacementClaim.replayClaimID != firstClaim.replayClaimID)
+
+        try store.releaseDeferredTurnSettlementReplayClaim(
+            sessionId: sessionID,
+            settlement: firstClaim
+        )
+        #expect(
+            try store.recordStructuredBackgroundWorkEvent(
+                sessionId: sessionID,
+                eventName: "SubagentStop",
+                workId: workID,
+                turnId: turnID,
+                processGeneration: generation,
+                workspaceId: "workspace",
+                surfaceId: "surface",
+                cwd: "/tmp"
+            ).deferredSettlement == nil,
+            "An expired owner must not release its replacement's exact claim."
+        )
+    }
+
     @Test func cursorApprovalDiscoveryDoesNotMaterializeTheLogDirectory() throws {
         let fileManager = RefusingDirectoryMaterializationFileManager()
         let root = FileManager.default.temporaryDirectory
@@ -121,6 +231,25 @@ struct AgentLifecycleCLIDurabilityTests {
             options mask: DirectoryEnumerationOptions
         ) throws -> [URL] {
             throw CocoaError(.fileReadTooLarge)
+        }
+    }
+
+    private final class LockedTestClock: @unchecked Sendable {
+        private let lock = NSLock()
+        private var date: Date
+
+        init(date: Date) {
+            self.date = date
+        }
+
+        func now() -> Date {
+            lock.withLock { date }
+        }
+
+        func advance(by seconds: TimeInterval) {
+            lock.withLock {
+                date = date.addingTimeInterval(seconds)
+            }
         }
     }
 }

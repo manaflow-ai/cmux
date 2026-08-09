@@ -8,4 +8,8 @@ struct AgentDeferredTurnSettlement: Codable, Equatable, Sendable {
     let surfaceId: String?
     let transcriptPath: String?
     let lastAssistantMessage: String?
+    /// Durable single-owner replay claim. Optional fields preserve decoding of
+    /// state written before overlapping hook replay was serialized.
+    var replayClaimID: UUID? = nil
+    var replayClaimedAt: TimeInterval? = nil
 }

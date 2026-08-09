@@ -67,10 +67,16 @@ extension TerminalController: ControlFeedContext {
     ) -> V2CallResult {
         let boundaryEpochValue = params["boundary_epoch"]
         let boundaryEpoch = agentAttentionEpoch(boundaryEpochValue)
+        let observationIdValue = params["observation_id"]
+        let observationId = agentAttentionOpaqueID(observationIdValue)
+        let scopeIdValue = params["scope_id"]
+        let scopeId = agentAttentionOpaqueID(scopeIdValue)
         guard let source = agentAttentionSource(params["source"]),
               let sessionId = agentAttentionOpaqueID(params["session_id"]),
               let generation = agentAttentionProcessGeneration(params),
-              boundaryEpochValue == nil || boundaryEpoch != nil
+              boundaryEpochValue == nil || boundaryEpoch != nil,
+              observationIdValue == nil || observationId != nil,
+              scopeIdValue == nil || scopeId != nil
         else {
             return .err(
                 code: "invalid_params",
@@ -84,10 +90,8 @@ extension TerminalController: ControlFeedContext {
         let ended = FeedCoordinator.shared.endObservedAgentAttention(
             source: source,
             sessionId: sessionId,
-            observationId: agentAttentionOpaqueID(
-                params["observation_id"]
-            ),
-            scopeId: agentAttentionOpaqueID(params["scope_id"]),
+            observationId: observationId,
+            scopeId: scopeId,
             processGeneration: generation,
             boundaryEpoch: boundaryEpoch
         )

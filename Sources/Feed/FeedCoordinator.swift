@@ -889,22 +889,31 @@ extension FeedCoordinator {
             case .workspace(let workspace): (false, workspace)
         }
         let movedStatusKeys = Set(movedTargets.map(\.statusKey))
+        var movedEntriesByStatusKey: [String: SidebarStatusEntry] = [:]
         for target in movedTargets {
             guard var state = pendingAttentionStates[target] else { continue }
+            if movedEntriesByStatusKey[target.statusKey] == nil {
+                movedEntriesByStatusKey[target.statusKey] = state.statusEntry
+            }
             state.statusOwnerId = owner.id
             state.statusIsPanelScoped = statusIsPanelScoped
             state.fallbackWorkspace = fallbackWorkspace
             pendingAttentionStates[target] = state
         }
 
+        var scopedTargetsByStatusKey: [String: [FeedAttentionTarget]] = [:]
+        for (target, state) in pendingAttentionStates
+        where movedStatusKeys.contains(target.statusKey)
+            && state.statusOwnerId == owner.id
+            && (!statusIsPanelScoped || target.panelId == panelId) {
+            scopedTargetsByStatusKey[target.statusKey, default: []]
+                .append(target)
+        }
         for statusKey in movedStatusKeys {
-            let movedEntry = movedTargets.lazy.compactMap {
-                self.pendingAttentionStates[$0]?.statusEntry
-            }.first
             guard let statusEntry = owner.statusEntry(
                 key: statusKey,
                 panelId: panelId
-            ) ?? movedEntry else {
+            ) ?? movedEntriesByStatusKey[statusKey] else {
                 continue
             }
             if owner.statusEntry(key: statusKey, panelId: panelId) == nil {
@@ -914,16 +923,7 @@ extension FeedCoordinator {
                     panelId: panelId
                 )
             }
-            let scopedTargets = pendingAttentionStates.keys.filter {
-                target in
-                guard target.statusKey == statusKey,
-                      let state = self.pendingAttentionStates[target],
-                      state.statusOwnerId == owner.id else {
-                    return false
-                }
-                return !statusIsPanelScoped || target.panelId == panelId
-            }
-            for target in scopedTargets {
+            for target in scopedTargetsByStatusKey[statusKey] ?? [] {
                 pendingAttentionStates[target]?.statusEntry = statusEntry
             }
         }
