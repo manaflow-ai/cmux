@@ -39,6 +39,7 @@ TYPE_DECLARATION_RE = re.compile(
     r"(?:class|struct|actor|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\b"
 )
 SWIFT_TEST_ATTRIBUTE_RE = re.compile(r"(?<![A-Za-z0-9_])@Test\b")
+SWIFT_SUITE_ATTRIBUTE_RE = re.compile(r"(?<![A-Za-z0-9_])@Suite\b")
 FUNCTION_DECLARATION_RE = re.compile(r"\bfunc\s+([A-Za-z_][A-Za-z0-9_]*)\b")
 XCTEST_METHOD_RE = re.compile(
     r"^\s*(?:(?:final|private|fileprivate|internal|public)\s+)*"
@@ -303,6 +304,27 @@ def has_only_optional_type_cast(source: str) -> bool:
     return re.fullmatch(r"as\s+[A-Za-z0-9_?.<>, ()\[\]:]+", suffix) is not None
 
 
+def argument_collections_count(
+    source: str, start: int, end: int, named_counts: dict[str, int]
+) -> int | None:
+    """Count the Cartesian product of statically known @Test collections."""
+    collection_ranges = top_level_slices(source, start, end)
+    if not collection_ranges:
+        return None
+
+    case_count = 1
+    for collection_start, collection_end in collection_ranges:
+        result = collection_expression_count(
+            source, collection_start, collection_end, named_counts
+        )
+        if result is None or not has_only_optional_type_cast(
+            source[result[1] : collection_end]
+        ):
+            return None
+        case_count *= result[0]
+    return max(1, case_count)
+
+
 def swift_test_case_count(
     source: str, attribute_start: int, named_counts: dict[str, int]
 ) -> int | None:
@@ -323,12 +345,9 @@ def swift_test_case_count(
         return 1
 
     expression_start = contents_start + arguments_match.end()
-    result = collection_expression_count(
+    return argument_collections_count(
         source, expression_start, closing, named_counts
     )
-    if result is None or not has_only_optional_type_cast(source[result[1] : closing]):
-        return None
-    return max(1, result[0])
 
 
 def test_methods(
@@ -400,13 +419,35 @@ def test_methods(
 
 def contains_nested_test_suite(body: str) -> bool:
     """Return whether a suite fragment declares a recursively selected suite."""
-    for line in mask_swift_noncode(body).split("\n")[1:]:
+    masked_body = mask_swift_noncode(body)
+    first_line = masked_body.split("\n", 1)[0]
+    owner = TYPE_DECLARATION_RE.match(first_line) or EXTENSION_RE.match(first_line)
+    if owner is None:
+        return False
+    opening = masked_body.find("{", owner.end())
+    if opening < 0:
+        return False
+    closing = matching_delimiter(masked_body, opening, "{", "}")
+    if closing is None:
+        return False
+
+    depth = 0
+    pending_suite_attribute_depth: int | None = None
+    for line in masked_body[opening + 1 : closing].split("\n"):
         declaration = TYPE_DECLARATION_RE.match(line)
-        if (
-            declaration is not None
-            and declaration.group(1).endswith(TEST_SUITE_SUFFIXES)
-        ):
-            return True
+        has_suite_attribute = SWIFT_SUITE_ATTRIBUTE_RE.search(line) is not None
+        if declaration is not None:
+            if (
+                declaration.group(1).endswith(TEST_SUITE_SUFFIXES)
+                or has_suite_attribute
+                or pending_suite_attribute_depth == depth
+            ):
+                return True
+            pending_suite_attribute_depth = None
+        elif has_suite_attribute:
+            pending_suite_attribute_depth = depth
+
+        depth += line.count("{") - line.count("}")
     return False
 
 
