@@ -104,8 +104,11 @@ struct GhosttyEnsureFocusWindowActivationTests {
 
         let target = try #require(attentionTarget)
         let panelID = try #require(target.panelId)
-        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["claude_code"] == .needsInput)
-        #expect(workspace.statusEntries["claude_code"]?.value == FeedCoordinator.needsInputStatusValue)
+        let attentionKey = FeedCoordinator.attentionStatusKey(forSource: "claude")
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?[attentionKey] == .needsInput)
+        #expect(workspace.statusEntries[attentionKey]?.value == FeedCoordinator.needsInputStatusValue)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["claude_code"] == nil)
+        #expect(workspace.statusEntries["claude_code"] == nil)
     }
 
     @Test
@@ -144,9 +147,11 @@ struct GhosttyEnsureFocusWindowActivationTests {
         )
 
         let target = try #require(attentionTarget)
+        let attentionKey = FeedCoordinator.attentionStatusKey(forSource: "pi")
         #expect(target.panelId == dockPanelID)
-        #expect(workspace.agentLifecycleStatesByPanelId[dockPanelID]?["pi"] == .needsInput)
-        #expect(workspace.agentLifecycleStatesByPanelId[mainPanelID]?["pi"] != .needsInput)
+        #expect(workspace.agentLifecycleStatesByPanelId[dockPanelID]?[attentionKey] == .needsInput)
+        #expect(workspace.agentLifecycleStatesByPanelId[mainPanelID]?[attentionKey] == nil)
+        #expect(workspace.agentLifecycleStatesByPanelId[dockPanelID]?["pi"] == nil)
     }
 
     @Test
@@ -174,7 +179,9 @@ struct GhosttyEnsureFocusWindowActivationTests {
         )
 
         #expect(attentionTarget == nil)
-        #expect(workspace.agentLifecycleStatesByPanelId.values.allSatisfy { $0["pi"] != .needsInput })
+        let attentionKey = FeedCoordinator.attentionStatusKey(forSource: "pi")
+        #expect(workspace.agentLifecycleStatesByPanelId.values.allSatisfy { $0[attentionKey] == nil })
+        #expect(workspace.agentLifecycleStatesByPanelId.values.allSatisfy { $0["pi"] == nil })
     }
 
     @Test

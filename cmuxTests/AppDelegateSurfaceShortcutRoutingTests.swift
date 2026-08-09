@@ -81,6 +81,38 @@ struct AppDelegateSurfaceShortcutRoutingTests {
         }
     }
 
+    @Test func rightSidebarModeShortcutDoesNotClearTerminalUnread() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let panelId = try #require(workspace.focusedPanelId)
+            let terminalPanel = try #require(workspace.terminalPanel(for: panelId))
+            let event = try #require(makeKeyDownEvent(
+                key: "1",
+                keyCode: 18,
+                windowNumber: window.windowNumber
+            ))
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            terminalPanel.hostedView.setVisibleInUI(true)
+            terminalPanel.hostedView.setActive(true)
+            #expect(window.makeFirstResponder(terminalPanel.hostedView.surfaceView))
+            workspace.markPanelUnread(panelId)
+            #expect(workspace.manualUnreadPanelIds.contains(panelId))
+
+            terminalPanel.hostedView.surfaceView.keyDown(with: event)
+
+            #expect(appDelegate.fileExplorerState?.mode == .files)
+            #expect(workspace.manualUnreadPanelIds.contains(panelId))
+        }
+    }
+
     @Test func rightSidebarModeShortcutsDoNotUseStaleIntentForUnrelatedResponder() throws {
         try withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)

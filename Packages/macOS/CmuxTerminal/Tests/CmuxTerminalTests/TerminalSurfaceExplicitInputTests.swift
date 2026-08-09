@@ -24,6 +24,30 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.paneHost.explicitInputCount == 1)
     }
 
+    @Test func queuedParsedInputNotifiesItsOwner() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        var acceptedInputCount = 0
+        fixture.surface.onExplicitInput = { acceptedInputCount += 1 }
+
+        #expect(fixture.surface.sendInputResult("hello") == .queued)
+
+        #expect(acceptedInputCount == 1)
+    }
+
+    @Test func rejectedParsedInputDoesNotNotifyItsOwner() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        var acceptedInputCount = 0
+        fixture.surface.onExplicitInput = { acceptedInputCount += 1 }
+        fixture.surface.pendingSocketInputBytes = fixture.surface.maxPendingSocketInputBytes
+
+        #expect(fixture.surface.sendInputResult("hello") == .inputQueueFull)
+
+        #expect(fixture.paneHost.explicitInputCount == 1)
+        #expect(acceptedInputCount == 0)
+    }
+
     @Test func namedKeyNotifiesPaneHostBeforeQueueingOnAColdSurface() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
