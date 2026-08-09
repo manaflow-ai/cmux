@@ -121,15 +121,13 @@ fn resume_suspended_hook_child(child: &std::process::Child) -> std::io::Result<(
         }
         loop {
             if thread_entry.th32OwnerProcessID == child.id() {
-                let thread = unsafe {
-                    OpenThread(THREAD_SUSPEND_RESUME, 0, thread_entry.th32ThreadID)
-                };
+                let thread =
+                    unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, thread_entry.th32ThreadID) };
                 if thread.is_null() {
                     return Err(std::io::Error::last_os_error());
                 }
                 let resume_result = unsafe { ResumeThread(thread) };
-                let resume_error =
-                    (resume_result == u32::MAX).then(std::io::Error::last_os_error);
+                let resume_error = (resume_result == u32::MAX).then(std::io::Error::last_os_error);
                 unsafe {
                     CloseHandle(thread);
                 }
