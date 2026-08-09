@@ -365,6 +365,23 @@ _NO_ARGUMENT_LABELS: frozenset[str] = frozenset()
 _JAVASCRIPT_SUFFIXES = frozenset(
     {".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx"}
 )
+_JAVASCRIPT_REGEX_PREFIX_KEYWORDS = frozenset(
+    {
+        "await",
+        "case",
+        "delete",
+        "do",
+        "else",
+        "in",
+        "instanceof",
+        "of",
+        "return",
+        "throw",
+        "typeof",
+        "void",
+        "yield",
+    }
+)
 
 _SHELL_COMMAND_FLAG = re.compile(r"^(?:-[A-Za-z]*c[A-Za-z]*|--command)$")
 _SHELL_OPTIONS_WITH_VALUES = frozenset(
@@ -542,6 +559,64 @@ def _line_comment_marker_length(
     return 2 if source.startswith("//", index) else 0
 
 
+def _javascript_regex_literal_starts_at(
+    source: str,
+    index: int,
+    executable: bytearray,
+    comments: bytearray,
+) -> bool:
+    """Return whether a slash starts a JavaScript regex literal."""
+    previous = index - 1
+    while previous >= 0 and (
+        source[previous].isspace() or comments[previous]
+    ):
+        previous -= 1
+    if previous < 0:
+        return True
+
+    character = source[previous]
+    # A literal (string, template, or prior regex) ends an expression. Its
+    # delimiter is deliberately non-executable in the lexical mask. The one
+    # opening delimiter that can prefix a regex is a template's `${` field.
+    if not executable[previous]:
+        return (
+            character == "{"
+            and previous > 0
+            and source[previous - 1] == "$"
+        )
+
+    if character.isascii() and (character.isalnum() or character in "_$"):
+        token_start = previous
+        while token_start > 0:
+            candidate = source[token_start - 1]
+            if not (
+                candidate.isascii()
+                and (candidate.isalnum() or candidate in "_$")
+            ):
+                break
+            token_start -= 1
+        token = source[token_start : previous + 1]
+        before_token = token_start - 1
+        while before_token >= 0 and (
+            source[before_token].isspace() or comments[before_token]
+        ):
+            before_token -= 1
+        if before_token >= 0 and source[before_token] == ".":
+            return False
+        return token in _JAVASCRIPT_REGEX_PREFIX_KEYWORDS
+
+    if character in ")]}'\"`.":
+        return False
+    if (
+        character in "+-"
+        and previous > 0
+        and source[previous - 1] == character
+        and executable[previous - 1]
+    ):
+        return False
+    return True
+
+
 def _lexical_positions(
     line: str,
     path_suffix: str = "",
@@ -598,6 +673,28 @@ def _lexical_positions(
             if line.startswith(delimiter, index):
                 contexts.pop()
                 index += len(delimiter)
+                continue
+            index += 1
+            continue
+
+        if kind == "regex-text":
+            if character == "\\":
+                index += 2
+                continue
+            if character in "\r\n":
+                contexts.pop()
+                executable[index] = True
+                index += 1
+                continue
+            if character == "[" and brace_depth == 0:
+                contexts[-1] = (kind, 1, delimiter)
+            elif character == "]" and brace_depth == 1:
+                contexts[-1] = (kind, 0, delimiter)
+            elif character == "/" and brace_depth == 0:
+                contexts.pop()
+                index += 1
+                while index < len(line) and line[index] in "dgimsuvy":
+                    index += 1
                 continue
             index += 1
             continue
@@ -684,6 +781,20 @@ def _lexical_positions(
                 comment_end = len(line)
             comments[index:comment_end] = b"\x01" * (comment_end - index)
             index = comment_end
+            continue
+
+        if (
+            path_suffix in _JAVASCRIPT_SUFFIXES
+            and character == "/"
+            and _javascript_regex_literal_starts_at(
+                line,
+                index,
+                executable,
+                comments,
+            )
+        ):
+            contexts.append(("regex-text", 0, "/"))
+            index += 1
             continue
 
         executable[index] = True
@@ -2249,10 +2360,19 @@ def _direct_network_target_ranges(
         )
     target_verb = line[match.start() : opening_paren + 1]
     spec = _network_target_spec(target_verb)
+    positional_index = spec.positional_index
+    if matched_verb.strip().startswith("superagent"):
+        positional_arguments = [
+            argument
+            for argument in target_arguments
+            if argument.label is None
+        ]
+        if len(positional_arguments) >= 2:
+            positional_index = 1
     target = _select_call_argument(
         target_arguments,
         spec.labels,
-        spec.positional_index,
+        positional_index,
     )
     if target is None:
         return []
@@ -2922,6 +3042,54 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/regex_quote_then_fetch.ts",
+            (
+                'const quoted = /"/;\n'
+                'await fetch("https://api.openai.com/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/regex_character_class_then_fetch.ts",
+            (
+                'const quoted = /["/]/;\n'
+                'await fetch("https://api.openai.com/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/regex_escape_then_fetch.ts",
+            (
+                'const escaped = /\\/"/;\n'
+                'await fetch("https://api.openai.com/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/template_regex_then_fetch.ts",
+            (
+                'const matched = `${/"/.test(value)}`;\n'
+                'await fetch("https://api.openai.com/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/return_regex_then_fetch.ts",
+            (
+                'function quoted() { return /"/; }\n'
+                'await fetch("https://api.openai.com/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/division_then_fetch.ts",
+            (
+                "const ratio = total / divisor;\n"
+                'await fetch("https://api.openai.com/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/fstring_network.py",
             'payload = f"{requests.get(\'https://api.openai.com/v1/items\')}"\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -3013,6 +3181,21 @@ def _self_test() -> int:
         (
             "tests/requests_request.py",
             'requests.request("GET", "https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/superagent_method_first.ts",
+            'superagent("GET", "https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/superagent_dynamic_method.ts",
+            'superagent(method, "https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/superagent_url_only.ts",
+            'superagent("https://api.openai.com/v1/items")\n',
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
