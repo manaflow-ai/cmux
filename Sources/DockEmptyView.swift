@@ -135,7 +135,7 @@ struct DockEmptyView: View {
             - Keep ids stable, lowercase, and unique.
             - `type` is optional: `terminal` is the default, or use `browser`.
             - Terminal controls require `command`; browser controls require `url`.
-            - Browser controls default to `chrome: true`. Set `chrome: false` to hide the address bar; Focus Address Bar then does nothing for that pane, while `cmux browser goto` and `cmux browser reload` remain available.
+            - Browser controls default to `chrome: true`. Set `chrome: false` to hide browser chrome, including the address bar and toolbar; Focus Address Bar then does nothing for that pane, while `cmux browser goto` and `cmux browser reload` remain available.
             - Use `cwd` for subdirectories; relative paths resolve from the config base.
             - Use `height` only when a control needs a fixed amount of vertical space.
             - Use `env` only for non-secret values needed by one control.

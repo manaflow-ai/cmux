@@ -95,7 +95,7 @@ Fields:
 - `type`: optional, `terminal` (default) or `browser`.
 - `command`: command to run in the Dock terminal. Required for `terminal` controls.
 - `url`: page to open. Required for `browser` controls.
-- `chrome`: optional browser toolbar visibility. Defaults to `true`; set it to `false` for a chromeless browser pane without an address bar.
+- `chrome`: optional browser chrome visibility. Defaults to `true`; set it to `false` for a chromeless browser pane without an address bar or toolbar.
 - `cwd`: optional working directory (terminal controls).
 - `height`: optional requested control height in points. Controls without a height share remaining space.
 - `env`: optional non-secret environment variables passed only to that control (terminal controls).
