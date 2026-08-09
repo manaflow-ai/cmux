@@ -106,7 +106,7 @@ struct WindowDockRoutingSocketTests {
     func dockFocusCommandsFailWhenRevealIsUnavailable() throws {
 #if DEBUG
         try withDockEnabled {
-            try withSocketAppContext(fileExplorerState: FileExplorerState()) { _, _, windowId in
+            try withSocketAppContext(fileExplorerState: nil) { _, _, windowId in
                 let appDelegate = try #require(AppDelegate.shared)
                 let dock = appDelegate.windowDock(forWindowId: windowId)
                 let firstPane = try #require(dock.bonsplitController.allPaneIds.first)
@@ -128,11 +128,6 @@ struct WindowDockRoutingSocketTests {
                 dock.bonsplitController.focusPane(firstPane)
                 #expect(dock.focusedPanelId == firstSurfaceID)
                 #expect(dock.bonsplitController.focusedPaneId == firstPane)
-
-                let defaults = UserDefaults.standard
-                let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
-                defaults.set(false, forKey: dockEnabledKey)
-                defer { defaults.set(true, forKey: dockEnabledKey) }
 
                 let surfaceEnvelope = try v2Envelope(method: "surface.focus", params: [
                     "workspace_id": windowId.uuidString,

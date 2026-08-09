@@ -417,14 +417,24 @@ struct GhosttyEnsureFocusWindowActivationTests {
                 AppDelegate.shared = previousAppDelegate
             }
 
-            ownerWindow.makeKeyAndOrderFront(nil)
-            #expect(NSApp.keyWindow === ownerWindow)
+            // A programmatic peer window is not guaranteed to become key in a
+            // headless AppKit host. Keep it non-key and prove the same routing
+            // precondition through the authoritative focus coordinator.
+            ownerWindow.orderOut(nil)
+            #expect(NSApp.keyWindow !== ownerWindow)
             #expect(ownerWindow.makeFirstResponder(rightSidebarResponder))
-            appDelegate.keyboardFocusCoordinator(for: ownerWindow)?
-                .noteRightSidebarInteraction(mode: .feed)
+            let focusCoordinator = try #require(
+                appDelegate.keyboardFocusCoordinator(for: ownerWindow)
+            )
+            focusCoordinator.noteRightSidebarInteraction(mode: .feed)
 
             #expect(tabManager.selectedTabId == workspace.id)
             #expect(workspace.isFocusedTerminalInputSurface(terminal.id))
+            #expect(!focusCoordinator.ownsMainPanelInputFocus(
+                workspaceId: workspace.id,
+                containerPanelId: panelID,
+                surfaceId: terminal.id
+            ))
             #expect(workspace.manualUnreadPanelIds.isEmpty)
 
             let visualBell = try #require(terminal.surface.onVisualBell)

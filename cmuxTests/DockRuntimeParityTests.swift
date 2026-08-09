@@ -817,20 +817,12 @@ struct DockRuntimeParityTests {
 
     @Test("Unavailable window Dock remains unread and jump falls through to workspace")
     func unavailableWindowDockUnreadFallsThroughToWorkspace() async throws {
-        try await withAppContext { appDelegate, manager, workspace, windowID in
+        try await withAppContext(fileExplorerState: nil) { appDelegate, manager, workspace, windowID in
             let notificationStore = TerminalNotificationStore.shared
             let previousNotificationStore = appDelegate.notificationStore
-            let defaults = UserDefaults.standard
-            let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
-            let previousDockEnabled = defaults.object(forKey: dockEnabledKey)
             notificationStore.replaceNotificationsForTesting([])
             appDelegate.notificationStore = notificationStore
             defer {
-                if let previousDockEnabled {
-                    defaults.set(previousDockEnabled, forKey: dockEnabledKey)
-                } else {
-                    defaults.removeObject(forKey: dockEnabledKey)
-                }
                 notificationStore.markRead(forTabId: windowID)
                 notificationStore.replaceNotificationsForTesting([])
                 appDelegate.notificationStore = previousNotificationStore
@@ -848,7 +840,6 @@ struct DockRuntimeParityTests {
             )
             let workspacePanelID = try #require(workspace.focusedPanelId)
             workspace.markPanelUnread(workspacePanelID)
-            defaults.set(false, forKey: dockEnabledKey)
 
             _ = appDelegate.jumpToLatestUnread()
 
