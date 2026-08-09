@@ -399,34 +399,12 @@ extension DockSplitStore {
         }
         surfaceIdToPanelId[tabId] = panel.id
         installSubscription(for: panel, tracksTerminalTitle: true)
-        restoreWindowDockUnreadState(
+        applyWindowDockUnreadState(
             snapshot.isManuallyUnread,
             panelId: panel.id
         )
         applyVisibility(to: panel)
         return tabId
-    }
-
-    /// Rehydrates global-Dock unread into its live store authority after panel creation.
-    private func restoreWindowDockUnreadState(
-        _ isUnread: Bool,
-        panelId: UUID
-    ) {
-        guard scope == .global,
-              let notificationStore = AppDelegate.shared?.notificationStore else {
-            return
-        }
-        if isUnread {
-            notificationStore.markWindowDockSurfaceUnread(
-                windowId: workspaceId,
-                surfaceId: panelId
-            )
-        } else {
-            notificationStore.clearWindowDockSurfaceUnread(
-                windowId: workspaceId,
-                surfaceId: panelId
-            )
-        }
     }
 
     private func focusDockController(panelId: UUID) {

@@ -103,6 +103,9 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             terminalPanel.hostedView.setVisibleInUI(true)
             terminalPanel.hostedView.setActive(true)
             #expect(window.makeFirstResponder(terminalPanel.hostedView.surfaceView))
+            #expect(terminalPanel.hostedView.surfaceView.prepareSurfaceForPaste(
+                reason: "test.rightSidebarModeShortcut"
+            ))
             workspace.markPanelUnread(panelId)
             #expect(workspace.manualUnreadPanelIds.contains(panelId))
 
@@ -137,6 +140,9 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             terminalPanel.hostedView.setVisibleInUI(true)
             terminalPanel.hostedView.setActive(true)
             #expect(window.makeFirstResponder(surfaceView))
+            #expect(surfaceView.prepareSurfaceForPaste(
+                reason: "test.keyboardCopyModeKey"
+            ))
             #expect(terminalPanel.surface.toggleKeyboardCopyMode())
             defer {
                 if terminalPanel.surface.keyboardCopyModeActive {

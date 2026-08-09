@@ -687,6 +687,7 @@ extension FeedCoordinator {
         let owner: ControlSidebarPanelOwner
         let ownerKind: AttentionTarget.OwnerKind
         let panelId: UUID?
+        let reorderWorkspaceId: UUID?
         if let dock = AppDelegate.shared?.existingWindowDock(forWindowId: resolved.ownerId) {
             guard let resolvedPanelId = resolved.surfaceId ?? dock.focusedPanelId,
                   dock.containsPanel(resolvedPanelId) else {
@@ -700,6 +701,7 @@ extension FeedCoordinator {
             owner = .dock(dock)
             ownerKind = .dock
             panelId = resolvedPanelId
+            reorderWorkspaceId = nil
         } else {
             guard let tabManager,
                   let tab = tabManager.tabs.first(where: { $0.id == resolved.ownerId }) else {
@@ -710,11 +712,23 @@ extension FeedCoordinator {
                 #endif
                 return nil
             }
-            owner = .workspace(tab)
-            ownerKind = .workspace
-            panelId = resolved.surfaceId.flatMap {
-                Self.resolvePanelId(surfaceId: $0, tab: tab)
-            } ?? (resolved.surfaceId == nil ? tab.focusedPanelId : nil)
+            reorderWorkspaceId = tab.id
+            if let surfaceId = resolved.surfaceId,
+               let target = tab.surfaceOwnershipTarget(for: surfaceId) {
+                owner = .workspace(tab)
+                ownerKind = .workspace
+                panelId = target.containerPanelID
+            } else if let surfaceId = resolved.surfaceId,
+                      let dock = tab._dockSplit,
+                      dock.containsPanel(surfaceId) {
+                owner = .dock(dock)
+                ownerKind = .dock
+                panelId = surfaceId
+            } else {
+                owner = .workspace(tab)
+                ownerKind = .workspace
+                panelId = resolved.surfaceId == nil ? tab.focusedPanelId : nil
+            }
         }
         guard resolved.surfaceId == nil || panelId != nil else {
             #if DEBUG
@@ -747,12 +761,12 @@ extension FeedCoordinator {
 
         // Elevate the workspace so it floats to the top of the sidebar,
         // honoring the user's Reorder on Notification preference.
-        if ownerKind == .workspace,
+        if let reorderWorkspaceId,
            let tabManager,
            UserDefaultsSettingsClient(defaults: .standard).value(
                for: SettingCatalog().app.reorderOnNotification
            ) {
-            tabManager.moveTabToTopForNotification(resolved.ownerId)
+            tabManager.moveTabToTopForNotification(reorderWorkspaceId)
         }
 
         return target
@@ -888,20 +902,6 @@ extension FeedCoordinator {
         return (ownerId, surfaceId)
     }
 
-    /// Maps a surface id from the hook-session store to its owning panel id,
-    /// tolerating stores that already record the panel id directly.
-    @MainActor
-    private static func resolvePanelId(surfaceId: UUID?, tab: Workspace) -> UUID? {
-        guard let surfaceId else { return nil }
-        if tab.panels[surfaceId] != nil || tab.containsDockPanel(surfaceId) {
-            return surfaceId
-        }
-        guard let panelId = tab.panelIdFromSurfaceId(TabID(uuid: surfaceId)),
-              tab.panels[panelId] != nil || tab.containsDockPanel(panelId) else {
-            return nil
-        }
-        return panelId
-    }
 }
 
 @MainActor
