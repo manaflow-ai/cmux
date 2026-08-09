@@ -319,14 +319,18 @@ function TeamMetricsSection({
         </span>
       </div>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricCard
-          label={copy.requests}
-          value={number.format(metrics.totals.requestCount)}
-        />
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
         <MetricCard
           label={copy.tokens}
           value={number.format(metrics.totals.totalTokens)}
+        />
+        <MetricCard
+          label={copy.inputTokens}
+          value={number.format(metrics.totals.inputTokens)}
+        />
+        <MetricCard
+          label={copy.outputTokens}
+          value={number.format(metrics.totals.outputTokens)}
         />
         <MetricCard
           label={copy.apiEquivalent}
@@ -383,7 +387,8 @@ function metricsCopy(locale: string) {
       title: "30日間の使用状況",
       scope: "{team} のチーム集計",
       period: "過去{days}日間",
-      requests: "リクエスト",
+      inputTokens: "入力トークン",
+      outputTokens: "出力トークン",
       tokens: "合計トークン",
       apiEquivalent: "API換算額",
       pricingCoverage: "価格対応率",
@@ -399,7 +404,8 @@ function metricsCopy(locale: string) {
     title: "30-day usage",
     scope: "Team aggregate for {team}",
     period: "Last {days} days",
-    requests: "Requests",
+    inputTokens: "Input tokens",
+    outputTokens: "Output tokens",
     tokens: "Total tokens",
     apiEquivalent: "API-equivalent value",
     pricingCoverage: "Pricing coverage",

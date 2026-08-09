@@ -4,6 +4,11 @@ type ApiRate = {
   readonly inputUsdPerMillion: number;
   readonly cachedInputUsdPerMillion: number;
   readonly outputUsdPerMillion: number;
+  readonly longContext?: {
+    readonly inputTokensAbove: number;
+    readonly inputMultiplier: number;
+    readonly outputMultiplier: number;
+  };
 };
 
 export type AggregateModelUsage = {
@@ -31,14 +36,30 @@ const RATES: readonly {
   readonly matches: (model: string) => boolean;
   readonly rate: ApiRate;
 }[] = [
-  rate(/^gpt-5\.6-sol(?:-|$)|^gpt-5\.6$/, 5, 0.5, 30),
-  rate(/^gpt-5\.6-terra(?:-|$)/, 2.5, 0.25, 15),
-  rate(/^gpt-5\.6-luna(?:-|$)/, 1, 0.1, 6),
+  rate(/^gpt-5\.6-sol(?:-|$)|^gpt-5\.6$/, 5, 0.5, 30, {
+    inputTokensAbove: 272_000,
+    inputMultiplier: 2,
+    outputMultiplier: 1.5,
+  }),
+  rate(/^gpt-5\.6-terra(?:-|$)/, 2.5, 0.25, 15, {
+    inputTokensAbove: 272_000,
+    inputMultiplier: 2,
+    outputMultiplier: 1.5,
+  }),
+  rate(/^gpt-5\.6-luna(?:-|$)/, 1, 0.1, 6, {
+    inputTokensAbove: 272_000,
+    inputMultiplier: 2,
+    outputMultiplier: 1.5,
+  }),
   rate(/^gpt-5\.(?:3-codex|2(?:-codex)?)(?:-|$)/, 1.75, 0.175, 14),
   rate(/^gpt-5(?:\.1)?-codex(?:-|$)/, 1.25, 0.125, 10),
   rate(/^claude-sonnet-5(?:-|$)/, 2, 0.2, 10),
   rate(/^claude-(?:opus-4\.[5-8]|opus-4-5|opus-4-6|opus-4-7|opus-4-8)(?:-|$)/, 5, 0.5, 25),
-  rate(/^claude-sonnet-4(?:[.-][456])?(?:-|$)/, 3, 0.3, 15),
+  rate(/^claude-sonnet-4(?:[.-][456])?(?:-|$)/, 3, 0.3, 15, {
+    inputTokensAbove: 200_000,
+    inputMultiplier: 2,
+    outputMultiplier: 1.5,
+  }),
   rate(/^claude-haiku-4[.-]5(?:-|$)/, 1, 0.1, 5),
 ];
 
@@ -65,11 +86,27 @@ export function estimateApiEquivalent(
     0,
     usage.inputTokens - cachedInputTokens,
   );
+  const longContext = matched.rate.longContext;
+  const usesLongContext = longContext
+    ? usage.inputTokens > longContext.inputTokensAbove
+    : false;
+  const inputMultiplier = usesLongContext
+    ? longContext!.inputMultiplier
+    : 1;
+  const outputMultiplier = usesLongContext
+    ? longContext!.outputMultiplier
+    : 1;
   const usd =
     (
-      uncachedInputTokens * matched.rate.inputUsdPerMillion +
-      cachedInputTokens * matched.rate.cachedInputUsdPerMillion +
-      usage.outputTokens * matched.rate.outputUsdPerMillion
+      uncachedInputTokens *
+        matched.rate.inputUsdPerMillion *
+        inputMultiplier +
+      cachedInputTokens *
+        matched.rate.cachedInputUsdPerMillion *
+        inputMultiplier +
+      usage.outputTokens *
+        matched.rate.outputUsdPerMillion *
+        outputMultiplier
     ) / 1_000_000;
   return {
     usd,
@@ -83,6 +120,7 @@ function rate(
   inputUsdPerMillion: number,
   cachedInputUsdPerMillion: number,
   outputUsdPerMillion: number,
+  longContext?: ApiRate["longContext"],
 ) {
   return {
     matches: (model: string) => pattern.test(model),
@@ -90,6 +128,7 @@ function rate(
       inputUsdPerMillion,
       cachedInputUsdPerMillion,
       outputUsdPerMillion,
+      ...(longContext ? { longContext } : {}),
     },
   };
 }

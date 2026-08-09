@@ -1,8 +1,12 @@
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 
-export function coderouterTeamAnalyticsId(teamId: string): string {
-  const digest = createHash("sha256")
-    .update(`coderouter-team-usage:v1:${teamId}`)
+export function coderouterTeamAnalyticsId(
+  teamId: string,
+  scopeSecret: string,
+): string {
+  const digest = createHmac("sha256", scopeSecret)
+    .update("coderouter-team-usage:v2\0")
+    .update(teamId)
     .digest("hex");
   return `coderouter-team-${digest}`;
 }

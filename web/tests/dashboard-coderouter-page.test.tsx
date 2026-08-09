@@ -104,7 +104,6 @@ mock.module("../services/coderouter/teamMetrics", () => ({
       generatedAt: "2026-08-08T12:00:00.000Z",
       rateCardVersion: "2026-08-08",
       totals: {
-        requestCount: 12,
         inputTokens: 1_000,
         cachedInputTokens: 200,
         outputTokens: 300,
@@ -115,7 +114,6 @@ mock.module("../services/coderouter/teamMetrics", () => ({
       },
       daily: [{
         day: "2026-08-08",
-        requestCount: 12,
         totalTokens: 1_300,
         apiEquivalentUsd: 4.25,
       }],

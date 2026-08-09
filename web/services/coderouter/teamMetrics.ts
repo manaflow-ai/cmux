@@ -1,46 +1,29 @@
 import { unstable_cache } from "next/cache";
 
-import {
-  CODEROUTER_API_RATE_CARD_VERSION,
-  estimateApiEquivalent,
-  type AggregateModelUsage,
-} from "./apiEquivalentPricing";
 import { coderouterTeamAnalyticsId } from "./analyticsIdentity";
+import { CODEROUTER_API_RATE_CARD_VERSION } from "./apiEquivalentPricing";
 
 const PERIOD_DAYS = 30;
 const QUERY_TIMEOUT_MS = 5_000;
+const MAX_ROWS = PERIOD_DAYS;
+const DEFAULT_ENDPOINT_NAME = "coderouter-team-usage-30d";
 const EXPECTED_COLUMNS = [
   "day",
-  "model",
-  "request_count",
   "input_tokens",
   "cached_input_tokens",
   "output_tokens",
   "total_tokens",
+  "api_equivalent_usd",
+  "priced_tokens",
+  "unpriced_tokens",
 ] as const;
-
-const TEAM_METRICS_QUERY = `
-SELECT
-  toString(toDate(timestamp)) AS day,
-  toString(properties.model) AS model,
-  count() AS request_count,
-  sum(toUInt64(properties.input_tokens)) AS input_tokens,
-  sum(toUInt64(properties.cached_input_tokens)) AS cached_input_tokens,
-  sum(toUInt64(properties.output_tokens)) AS output_tokens,
-  sum(toUInt64(properties.total_tokens)) AS total_tokens
-FROM events
-WHERE event = 'coderouter_model_request_completed'
-  AND timestamp >= now() - INTERVAL 30 DAY
-  AND properties.coderouter_team_scope = {team_scope}
-GROUP BY day, model
-ORDER BY day ASC, model ASC
-LIMIT 500
-`.trim();
 
 type PostHogMetricsConfig = {
   readonly apiHost: string;
   readonly environmentId: string;
-  readonly queryApiKey: string;
+  readonly endpointSecret: string;
+  readonly endpointName: string;
+  readonly scopeSecret: string;
 };
 
 type MetricsDependencies = {
@@ -50,7 +33,6 @@ type MetricsDependencies = {
 };
 
 export type CoderouterTeamMetricsTotals = {
-  readonly requestCount: number;
   readonly inputTokens: number;
   readonly cachedInputTokens: number;
   readonly outputTokens: number;
@@ -62,7 +44,6 @@ export type CoderouterTeamMetricsTotals = {
 
 export type CoderouterTeamMetricsDay = {
   readonly day: string;
-  readonly requestCount: number;
   readonly totalTokens: number;
   readonly apiEquivalentUsd: number;
 };
@@ -87,7 +68,7 @@ const defaultDependencies: MetricsDependencies = {
 const cachedTeamMetrics = unstable_cache(
   async (teamId: string) =>
     await queryCoderouterTeamMetrics(teamId, defaultDependencies),
-  ["coderouter-team-metrics-v1"],
+  ["coderouter-team-metrics-v2"],
   { revalidate: 300 },
 );
 
@@ -105,20 +86,21 @@ async function queryCoderouterTeamMetrics(
   if (!config) return { kind: "unavailable" };
   try {
     const response = await dependencies.fetch(
-      `${config.apiHost}/api/projects/${encodeURIComponent(config.environmentId)}/query/`,
+      `${config.apiHost}/api/environments/${
+        encodeURIComponent(config.environmentId)
+      }/endpoints/${encodeURIComponent(config.endpointName)}/run`,
       {
         method: "POST",
         headers: {
-          authorization: `Bearer ${config.queryApiKey}`,
+          authorization: `Bearer ${config.endpointSecret}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          query: {
-            kind: "HogQLQuery",
-            query: TEAM_METRICS_QUERY,
-            values: {
-              team_scope: coderouterTeamAnalyticsId(authorizedTeamId),
-            },
+          variables: {
+            team_scope: coderouterTeamAnalyticsId(
+              authorizedTeamId,
+              config.scopeSecret,
+            ),
           },
         }),
         signal: AbortSignal.timeout(QUERY_TIMEOUT_MS),
@@ -128,19 +110,24 @@ async function queryCoderouterTeamMetrics(
     const body = await response.json() as {
       readonly columns?: unknown;
       readonly results?: unknown;
+      readonly hasMore?: unknown;
     };
     const columns = body.columns;
     const results = body.results;
     if (
+      body.hasMore !== false ||
       !Array.isArray(columns) ||
       columns.length !== EXPECTED_COLUMNS.length ||
-      !EXPECTED_COLUMNS.every((column, index) => columns[index] === column) ||
+      !EXPECTED_COLUMNS.every(
+        (column, index) => columns[index] === column,
+      ) ||
       !Array.isArray(results) ||
-      results.length > 500
+      results.length > MAX_ROWS
     ) {
       return { kind: "unavailable" };
     }
-    return metricsFromRows(results, dependencies.now());
+    return metricsFromRows(results, dependencies.now()) ??
+      { kind: "unavailable" };
   } catch {
     return { kind: "unavailable" };
   }
@@ -149,13 +136,13 @@ async function queryCoderouterTeamMetrics(
 function metricsFromRows(
   rows: readonly unknown[],
   now: Date,
-): Extract<CoderouterTeamMetrics, { kind: "ready" }> {
+): Extract<CoderouterTeamMetrics, { kind: "ready" }> | null {
   const daily = new Map<string, MutableMetrics>();
   for (const row of rows) {
     const parsed = parseRow(row);
-    if (!parsed) continue;
+    if (!parsed) return null;
     const bucket = daily.get(parsed.day) ?? emptyMutableMetrics();
-    addUsage(bucket, parsed);
+    addTotals(bucket, parsed);
     daily.set(parsed.day, bucket);
   }
 
@@ -166,7 +153,6 @@ function metricsFromRows(
     addTotals(totals, bucket);
     return {
       day,
-      requestCount: bucket.requestCount,
       totalTokens: bucket.totalTokens,
       apiEquivalentUsd: bucket.apiEquivalentUsd,
     };
@@ -181,52 +167,62 @@ function metricsFromRows(
   };
 }
 
-type ParsedRow = AggregateModelUsage & {
-  readonly day: string;
-  readonly requestCount: number;
-};
-
+type ParsedRow = CoderouterTeamMetricsTotals & { readonly day: string };
 type MutableMetrics = {
   -readonly [Key in keyof CoderouterTeamMetricsTotals]:
     CoderouterTeamMetricsTotals[Key];
 };
 
 function parseRow(value: unknown): ParsedRow | null {
-  if (!Array.isArray(value) || value.length !== EXPECTED_COLUMNS.length) {
+  if (!isPlainRecord(value)) return null;
+  const keys = Object.keys(value).sort();
+  if (
+    keys.length !== EXPECTED_COLUMNS.length ||
+    ![...EXPECTED_COLUMNS].sort().every((key, index) => keys[index] === key)
+  ) {
     return null;
   }
-  const day = typeof value[0] === "string" &&
-      /^\d{4}-\d{2}-\d{2}$/.test(value[0])
-    ? value[0]
+  const day = typeof value.day === "string" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(value.day)
+    ? value.day
     : null;
-  const model = typeof value[1] === "string" ? value[1] : null;
-  const numbers = value.slice(2).map(nonNegativeNumber);
-  if (!day || !model || numbers.some((number) => number === null)) return null;
+  const inputTokens = nonNegativeNumber(value.input_tokens);
+  const cachedInputTokens = nonNegativeNumber(value.cached_input_tokens);
+  const outputTokens = nonNegativeNumber(value.output_tokens);
+  const totalTokens = nonNegativeNumber(value.total_tokens);
+  const apiEquivalentUsd = nonNegativeNumber(value.api_equivalent_usd);
+  const pricedTokens = nonNegativeNumber(value.priced_tokens);
+  const unpricedTokens = nonNegativeNumber(value.unpriced_tokens);
+  if (
+    !day ||
+    inputTokens === null ||
+    cachedInputTokens === null ||
+    outputTokens === null ||
+    totalTokens === null ||
+    apiEquivalentUsd === null ||
+    pricedTokens === null ||
+    unpricedTokens === null ||
+    cachedInputTokens > inputTokens ||
+    pricedTokens + unpricedTokens !== totalTokens
+  ) {
+    return null;
+  }
   return {
     day,
-    model,
-    requestCount: numbers[0]!,
-    inputTokens: numbers[1]!,
-    cachedInputTokens: numbers[2]!,
-    outputTokens: numbers[3]!,
-    totalTokens: numbers[4]!,
+    inputTokens,
+    cachedInputTokens,
+    outputTokens,
+    totalTokens,
+    apiEquivalentUsd,
+    pricedTokens,
+    unpricedTokens,
   };
 }
 
-function addUsage(target: MutableMetrics, usage: ParsedRow): void {
-  const estimate = estimateApiEquivalent(usage);
-  target.requestCount += usage.requestCount;
-  target.inputTokens += usage.inputTokens;
-  target.cachedInputTokens += usage.cachedInputTokens;
-  target.outputTokens += usage.outputTokens;
-  target.totalTokens += usage.totalTokens;
-  target.apiEquivalentUsd += estimate.usd;
-  target.pricedTokens += estimate.pricedTokens;
-  target.unpricedTokens += estimate.unpricedTokens;
-}
-
-function addTotals(target: MutableMetrics, source: MutableMetrics): void {
-  target.requestCount += source.requestCount;
+function addTotals(
+  target: MutableMetrics,
+  source: CoderouterTeamMetricsTotals,
+): void {
   target.inputTokens += source.inputTokens;
   target.cachedInputTokens += source.cachedInputTokens;
   target.outputTokens += source.outputTokens;
@@ -238,7 +234,6 @@ function addTotals(target: MutableMetrics, source: MutableMetrics): void {
 
 function emptyMutableMetrics(): MutableMetrics {
   return {
-    requestCount: 0,
     inputTokens: 0,
     cachedInputTokens: 0,
     outputTokens: 0,
@@ -271,18 +266,40 @@ function nonNegativeNumber(value: unknown): number | null {
   return Number.isFinite(number) && number >= 0 ? number : null;
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 function postHogMetricsConfig(): PostHogMetricsConfig | null {
-  const queryApiKey =
-    process.env.POSTHOG_CODEROUTER_QUERY_API_KEY?.trim();
-  const environmentId = (
-    process.env.POSTHOG_ENVIRONMENT_ID ??
-    process.env.POSTHOG_PROJECT_ID
-  )?.trim();
-  if (!queryApiKey || !environmentId) return null;
-  const apiHost = (
-    process.env.POSTHOG_API_HOST ?? "https://us.posthog.com"
-  ).replace(/\/$/, "");
-  return { apiHost, environmentId, queryApiKey };
+  const endpointSecret =
+    process.env.POSTHOG_CODEROUTER_ENDPOINT_SECRET?.trim();
+  const environmentId =
+    process.env.POSTHOG_CODEROUTER_ENVIRONMENT_ID?.trim();
+  const scopeSecret =
+    process.env.CODEROUTER_ANALYTICS_SCOPE_SECRET?.trim();
+  if (
+    !endpointSecret ||
+    !environmentId ||
+    !scopeSecret ||
+    scopeSecret.length < 32
+  ) {
+    return null;
+  }
+  const endpointName = (
+    process.env.POSTHOG_CODEROUTER_ENDPOINT_NAME ??
+    DEFAULT_ENDPOINT_NAME
+  ).trim();
+  if (!endpointName) return null;
+  return {
+    endpointSecret,
+    environmentId,
+    scopeSecret,
+    endpointName,
+    apiHost: (
+      process.env.POSTHOG_CODEROUTER_API_HOST ??
+      "https://us.posthog.com"
+    ).replace(/\/$/, ""),
+  };
 }
 
 export const __test = {
