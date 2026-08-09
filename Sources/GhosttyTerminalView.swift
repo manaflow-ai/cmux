@@ -7337,10 +7337,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         cwd: String
     ) -> TerminalWrappedPathResolution? {
         guard cell.row >= 0, cell.row < snapshot.lines.count else { return nil }
+        let clickedRow = snapshot.lines[cell.row]
         guard let seed = resolver.wrappedPathSeed(
-            in: snapshot.lines[cell.row], column: cell.column, cwd: cwd, columns: snapshot.columns
+            in: clickedRow, column: cell.column, cwd: cwd, columns: snapshot.columns
         ) else {
-            return nil
+            let nextRow = cell.row + 1 < snapshot.lines.count ? snapshot.lines[cell.row + 1] : nil
+            return resolver.resolveTextOnlyLeadingRowFallback(
+                clickedRow: clickedRow,
+                column: cell.column,
+                nextRow: nextRow,
+                cwd: cwd,
+                purpose: .click
+            )
         }
         return resolver.resolveWrappedCandidate(
             seed: seed, rows: snapshot.lines, clickedIndex: cell.row, columns: snapshot.columns, cwd: cwd,

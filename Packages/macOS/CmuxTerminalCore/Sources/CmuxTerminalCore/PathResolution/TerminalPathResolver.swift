@@ -917,14 +917,16 @@ public struct TerminalPathResolver: Sendable {
     ///   non-ASCII clicked row at all) but is re-checked here anyway, so
     ///   this function's own safety never depends on that invariant
     ///   silently holding elsewhere.
-    /// - review R2-B1/rule 2 condition 6 — every row in `window` OTHER
-    ///   than `previousRow` must be ASCII, checked explicitly. Without
-    ///   this, a non-ASCII `.next` row would independently fail its OWN
-    ///   direction (`resolveSingleDirection` never text-only-falls-back
-    ///   for `.next`), which looks identical to ".next simply wasn't
-    ///   there" from `evaluation.outcomes[.next]`'s perspective alone —
-    ///   masking that the window contains MORE non-ASCII content than
-    ///   just the one row rule 2 licenses this exception for.
+    /// - review R2-B1/rule 2 condition 6 — only rows whose information this
+    ///   two-row decision consumes must be ASCII. The clicked row is used
+    ///   for terminal-cell tokenization and is therefore required to be
+    ///   ASCII. The previous row is the explicit exception: its trailing
+    ///   fragment is extracted textually and never projected onto cell
+    ///   columns. A next row is required to be ASCII only when `seed`
+    ///   names `.next`, because otherwise the exactly-one-direction
+    ///   rule could mistake an unreadable competing candidate for no
+    ///   candidate. Rows farther away in the evaluator's bounded window
+    ///   are not consumed by this fallback and must not affect its result.
     /// - **The load-bearing check**: the result must carry
     ///   `cellSpans == .unavailableNonASCIIRow` (rule 3). This can only be
     ///   true when `resolveSingleDirection` ACTUALLY took the text-only
@@ -944,12 +946,20 @@ public struct TerminalPathResolver: Sendable {
     ) -> TerminalWrappedPathResolution? {
         let clickedIndex = window.clickedIndex
         guard clickedIndex > 0 else { return nil }
-        // review R2-B1/rule 2 condition 6 — non-ASCII must be CONFINED to
-        // `previousRow`: every other row in the window (the clicked row
-        // itself, `.next`, and any row further out the window happens to
-        // carry) must be ASCII. Subsumes the old clicked-row-only check.
-        for index in window.rows.indices where index != clickedIndex - 1 {
-            guard window.rows[index].unicodeScalars.allSatisfy(\.isASCII) else { return nil }
+        // Revised rule 2 condition 6: check only the rows whose information
+        // the fallback actually consumes. The previous row is deliberately
+        // omitted; its text-only trailing fragment does not use cell
+        // columns. Unrelated rows in the bounded evaluator window are
+        // intentionally ignored.
+        guard window.rows[clickedIndex].unicodeScalars.allSatisfy(\.isASCII) else {
+            return nil
+        }
+        if seed.directions.contains(.next) {
+            let nextIndex = clickedIndex + 1
+            guard nextIndex < window.rows.count,
+                  window.rows[nextIndex].unicodeScalars.allSatisfy(\.isASCII) else {
+                return nil
+            }
         }
 
         let previousRow = window.rows[clickedIndex - 1]
@@ -964,6 +974,89 @@ public struct TerminalPathResolver: Sendable {
         guard evaluation.candidate == resolution else { return nil }
         guard resolution.cellSpans == .unavailableNonASCIIRow else { return nil }
         return resolution
+    }
+
+    /// issue #8810 symptom 1 — resolves a leading/bullet row when the
+    /// clicked physical row itself is non-ASCII and therefore cannot yield
+    /// a column-ranged ``TerminalWrappedPathSeed``. This is deliberately a
+    /// separate, click-only path from
+    /// ``resolveTextOnlyPreviousFallback(seed:window:cwd:)``: the latter
+    /// handles a click on the ASCII continuation row, while this handles a
+    /// click on the non-ASCII leading row.
+    ///
+    /// The returned resolution always carries
+    /// `.unavailableNonASCIIRow`; the candidate may be opened by click, but
+    /// no caller may derive an underline range from the prefix row's text
+    /// indices. All ordinary `.next` guards (prefix shape, fragment-alone
+    /// existence, candidate shape, cwd resolution, and file existence) are
+    /// still applied by the existing evaluator.
+    public func resolveTextOnlyLeadingRowFallback(
+        clickedRow: String,
+        column: Int,
+        nextRow: String?,
+        cwd: String,
+        purpose: TerminalWrappedResolutionPurpose
+    ) -> TerminalWrappedPathResolution? {
+        guard purpose == .click else { return nil }
+        guard !clickedRow.unicodeScalars.allSatisfy(\.isASCII) else { return nil }
+        guard let nextRow else { return nil }
+
+        let characters = Array(clickedRow)
+        guard let bodyStart = characters.firstIndex(where: { $0.unicodeScalars.allSatisfy(\.isASCII) }) else {
+            return nil
+        }
+        let prefix = characters[..<bodyStart]
+        // `column` is a terminal-cell coordinate while `characters` is a
+        // Swift Character array. There is no authoritative Ghostty width in
+        // this text-only API, so use a conservative upper bound: two cells
+        // per prefix scalar. A false negative is preferable to treating an
+        // ambiguous-width prefix cell as an ASCII body click.
+        let prefixCellUpperBound = prefix.reduce(into: 0) { width, character in
+            width += max(1, character.unicodeScalars.count * 2)
+        }
+        let body = characters[bodyStart...]
+        guard body.allSatisfy({ $0.unicodeScalars.allSatisfy(\.isASCII) }),
+              column >= prefixCellUpperBound else {
+            return nil
+        }
+
+        let pathTokens: [String] = body
+            .split(whereSeparator: { $0.isWhitespace })
+            .map { String($0) }
+            .filter { $0.isWrappedPathPrefixShaped }
+        guard pathTokens.count == 1, let token = pathTokens.first else { return nil }
+        // Row-local priority must not reinterpret a terminal-cell column as a
+        // Swift String index. Resolve the unique body token itself instead;
+        // if it already exists, this is not a wrapped candidate.
+        guard resolveQuicklookPath(token, cwd: cwd) == nil else { return nil }
+
+        // The leading row has no trustworthy cell range. The existing
+        // evaluator only needs the token text for its `.next` guards; the
+        // fabricated range is discarded when the successful resolution is
+        // re-expressed as `.unavailableNonASCIIRow` below.
+        let seed = TerminalWrappedPathSeed(
+            directions: [.next],
+            token: token,
+            tokenStartColumn: 0,
+            tokenEndColumn: 0,
+            disposition: .noRowLocalHit
+        )
+        let evaluation = evaluateWrappedCandidate(
+            seed: seed,
+            previousRow: nil,
+            nextRow: nextRow,
+            cwd: cwd
+        )
+        guard case .succeeded(let resolution) = evaluation.outcomes[TerminalWrapDirection.next],
+              evaluation.candidate == resolution else {
+            return nil
+        }
+
+        return TerminalWrappedPathResolution(
+            path: resolution.path,
+            nativeMatchKeys: resolution.nativeMatchKeys,
+            cellSpans: .unavailableNonASCIIRow
+        )
     }
 
     /// Runs the same independent-per-direction resolution as
@@ -1467,37 +1560,31 @@ public struct TerminalPathResolver: Sendable {
             return lowerRow.first == "/"
         }
 
-        // final-spec §4.1: the clicked row always contributes `seed.token`
-        // (regardless of whether it also happens to be a span endpoint);
-        // an endpoint that ISN'T the clicked row contributes its
-        // trailing/leading fragment (mirroring the existing 2-row
-        // `.previous`/`.next` extraction); every other row contributes its
-        // whole grid-padding-trimmed content.
-        func piece(at row: Int, spanStart: Int, spanEnd: Int) -> SpanPiece? {
-            if row == clickedIndex {
-                return SpanPiece(text: seed.token, startColumn: seed.tokenStartColumn, endColumn: seed.tokenEndColumn)
-            }
+        // final-spec §4.1: derive every row's canonical contribution from
+        // its position in the candidate span, independently of which row
+        // was clicked. The leading row contributes its trailing fragment;
+        // every continuation row contributes its bounded leading fragment
+        // and must consume all non-padding text on that row.
+        func piece(at row: Int, spanStart: Int) -> SpanPiece? {
+            let canonicalPiece: SpanPiece
             if row == spanStart {
                 guard let match = window.rows[row].trailingContinuationFragmentWithRange() else { return nil }
-                return SpanPiece(text: match.fragment, startColumn: match.startColumn, endColumn: match.endColumn)
-            }
-            if row == spanEnd {
+                canonicalPiece = SpanPiece(text: match.fragment, startColumn: match.startColumn, endColumn: match.endColumn)
+            } else {
                 guard let match = window.rows[row].leadingContinuationFragmentWithRange(
                     maxIndentation: Self.maxContinuationIndentation
                 ) else { return nil }
-                return SpanPiece(text: match.fragment, startColumn: match.startColumn, endColumn: match.endColumn)
+                guard let trimmed = window.rows[row].gridPaddingTrimmedWithRange(),
+                      trimmed.fragment == match.fragment,
+                      trimmed.startColumn == match.startColumn,
+                      trimmed.endColumn == match.endColumn else { return nil }
+                canonicalPiece = SpanPiece(text: match.fragment, startColumn: match.startColumn, endColumn: match.endColumn)
             }
-            guard let match = window.rows[row].gridPaddingTrimmedWithRange(), match.startColumn == 0 else {
-                // A middle row (fully enclosed by the span on both sides)
-                // that's still INDENTED is exactly the "independent list
-                // item after a directory line" shape final-spec §3.1 and
-                // Ghostty's own `link_wrap.zig` `startsIndependentLink`
-                // fail-close on for the 2-row case — an indented row is
-                // ambiguous with an unrelated sibling line, not proof of
-                // continuation, regardless of how full its neighbors are.
-                return nil
+            if row == clickedIndex {
+                guard seed.tokenStartColumn >= canonicalPiece.startColumn,
+                      seed.tokenEndColumn <= canonicalPiece.endColumn else { return nil }
             }
-            return SpanPiece(text: match.fragment, startColumn: match.startColumn, endColumn: match.endColumn)
+            return canonicalPiece
         }
 
         // final-spec §3.2 rules 1-4 — a seed in this disposition may
@@ -1608,7 +1695,7 @@ public struct TerminalPathResolver: Sendable {
                 var extractionOK = true
                 var extractionNotEvaluable = false
                 for row in spanStart...spanEnd {
-                    guard let piece = piece(at: row, spanStart: spanStart, spanEnd: spanEnd),
+                    guard let piece = piece(at: row, spanStart: spanStart),
                           piece.text.count <= Self.maxWrappedFragmentLength else {
                         extractionOK = false
                         if !window.rows[row].unicodeScalars.allSatisfy(\.isASCII) {
