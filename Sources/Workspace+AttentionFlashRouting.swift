@@ -8,22 +8,21 @@ extension Workspace {
     func installTerminalVisualBellRouting(for terminalPanel: TerminalPanel) {
         terminalPanel.surface.onVisualBell = { [weak self, weak terminalPanel] in
             guard let self, let terminalPanel,
-                  let mountedTerminal = self.panels[terminalPanel.id] as? TerminalPanel,
-                  mountedTerminal === terminalPanel,
                   let target = self.surfaceOwnershipTarget(for: terminalPanel.id),
-                  target.panel.panelType == .terminal else {
+                  let ownedTerminal = target.panel as? TerminalPanel,
+                  ownedTerminal === terminalPanel else {
                 return
             }
             let ownsActiveFocus = AppFocusState.isOwnerWindowFocused(
                 self.owningTabManager?.window
             )
                 && self.owningTabManager?.selectedTabId == self.id
-                && self.focusedPanelId == target.containerPanelID
+                && self.isFocusedTerminalInputSurface(target.surfaceID)
             if !ownsActiveFocus,
                !self.manualUnreadPanelIds.contains(target.containerPanelID) {
                 self.markPanelUnread(target.containerPanelID)
             }
-            mountedTerminal.triggerFlash(reason: .notificationArrival)
+            ownedTerminal.triggerFlash(reason: .notificationArrival)
         }
     }
 
