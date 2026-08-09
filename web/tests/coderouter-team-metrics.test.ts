@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 
 import {
   __test as metricsTest,
@@ -157,5 +158,54 @@ describe("CodeRouter team metrics", () => {
       now: () => new Date("2026-08-08T12:00:00.000Z"),
     });
     expect(result).toEqual({ kind: "unavailable" });
+  });
+
+  test("rejects a 31st UTC day instead of silently truncating", async () => {
+    const result = await metricsTest.queryCoderouterTeamMetrics("team-1", {
+      config: () => config,
+      fetch: mock(async () =>
+        Response.json({
+          columns: [
+            "day",
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "total_tokens",
+            "api_equivalent_usd",
+            "priced_tokens",
+            "unpriced_tokens",
+          ],
+          results: Array.from({ length: 31 }, (_, index) => ({
+            day: `2026-07-${String(index + 1).padStart(2, "0")}`,
+            input_tokens: 1,
+            cached_input_tokens: 0,
+            output_tokens: 1,
+            total_tokens: 2,
+            api_equivalent_usd: 0,
+            priced_tokens: 0,
+            unpriced_tokens: 2,
+          })),
+          hasMore: false,
+        })) as typeof fetch,
+      now: () => new Date("2026-08-08T12:00:00.000Z"),
+    });
+    expect(result).toEqual({ kind: "unavailable" });
+  });
+
+  test("endpoint query uses exactly 30 UTC calendar days plus an overflow sentinel", async () => {
+    const query = await readFile(
+      new URL(
+        "../../docs/posthog/coderouter-team-usage-30d.hogql",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(query).toContain("toString(toDate(timestamp)) AS day");
+    expect(query).toContain(
+      "toDate(timestamp) >= toDate(now()) - INTERVAL 29 DAY",
+    );
+    expect(query).toContain("toDate(timestamp) <= toDate(now())");
+    expect(query).toContain("LIMIT 31");
+    expect(query).not.toContain("now() - INTERVAL 30 DAY");
   });
 });

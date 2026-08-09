@@ -71,7 +71,8 @@ the authenticated output if it contains a principal identifier.
 - Sentry project: `coderouter-web`; alert on new coderouter errors,
   reconciliation failure, refresh failure, and sustained provider failure.
 - PostHog project: a dedicated CodeRouter-only project with AI Observability
-  enabled. Do not ingest ordinary cmux product analytics into it.
+  enabled and its project timezone pinned to UTC. Do not ingest ordinary cmux
+  product analytics into it.
 - CodeRouter model-usage events use PostHog's standard `$ai_generation`
   schema in content-free privacy mode. They contain token counts, the
   model/provider category required for pricing, and a pre-calculated
