@@ -143,13 +143,13 @@ extension DockSplitStore {
         targetIndex: Int? = nil
     ) -> [FilePreviewPanel] {
         guard containsPane(paneId.id) else { return [] }
+        let previousFocus = focusedDockPaneSelection()
         var nextIndex = targetIndex
         var openedPanels: [FilePreviewPanel] = []
         for filePath in filePaths {
             guard let panel = newFilePreviewSurfaceInValidatedPane(
                 inPane: paneId,
                 filePath: filePath,
-                focus: focus,
                 targetIndex: nextIndex
             ) else {
                 continue
@@ -158,6 +158,11 @@ extension DockSplitStore {
             if let index = nextIndex {
                 nextIndex = index + 1
             }
+        }
+        if focus, let finalPanel = openedPanels.last {
+            focusPanel(finalPanel.id)
+        } else {
+            restoreDockPaneSelection(previousFocus)
         }
         return openedPanels
     }
@@ -170,21 +175,28 @@ extension DockSplitStore {
         targetIndex: Int? = nil
     ) -> FilePreviewPanel? {
         guard containsPane(paneId.id) else { return nil }
-        return newFilePreviewSurfaceInValidatedPane(
+        let previousFocus = focusedDockPaneSelection()
+        guard let panel = newFilePreviewSurfaceInValidatedPane(
             inPane: paneId,
             filePath: filePath,
-            focus: focus,
             targetIndex: targetIndex
-        )
+        ) else {
+            restoreDockPaneSelection(previousFocus)
+            return nil
+        }
+        if focus {
+            focusPanel(panel.id)
+        } else {
+            restoreDockPaneSelection(previousFocus)
+        }
+        return panel
     }
 
     private func newFilePreviewSurfaceInValidatedPane(
         inPane paneId: PaneID,
         filePath: String,
-        focus: Bool,
         targetIndex: Int?
     ) -> FilePreviewPanel? {
-        let previousFocus = focus ? nil : focusedDockPaneSelection()
         let panel = FilePreviewPanel(workspaceId: workspaceId, filePath: filePath)
         panels[panel.id] = panel
         guard let tabId = bonsplitController.createTab(
@@ -205,11 +217,6 @@ extension DockSplitStore {
         installSubscription(for: panel, tracksTerminalTitle: false)
         applyVisibility(to: panel)
         recordExplicitPanelCreation()
-        if focus {
-            focusPanel(panel.id)
-        } else {
-            restoreDockPaneSelection(previousFocus)
-        }
         return panel
     }
 
