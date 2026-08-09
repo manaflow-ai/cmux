@@ -405,10 +405,27 @@ struct DockRuntimeParityTests {
             let notificationStore = TerminalNotificationStore.shared
             let previousNotificationStore = appDelegate.notificationStore
             let previousFocusOverride = AppFocusState.overrideIsFocused
+            let defaults = UserDefaults.standard
+            let paneFlashHadValue = defaults.object(
+                forKey: NotificationPaneFlashSettings.enabledKey
+            ) != nil
+            let previousPaneFlashEnabled = defaults.bool(
+                forKey: NotificationPaneFlashSettings.enabledKey
+            )
             notificationStore.replaceNotificationsForTesting([])
             appDelegate.notificationStore = notificationStore
             AppFocusState.overrideIsFocused = false
             defer {
+                if paneFlashHadValue {
+                    defaults.set(
+                        previousPaneFlashEnabled,
+                        forKey: NotificationPaneFlashSettings.enabledKey
+                    )
+                } else {
+                    defaults.removeObject(
+                        forKey: NotificationPaneFlashSettings.enabledKey
+                    )
+                }
                 AppFocusState.overrideIsFocused = previousFocusOverride
                 notificationStore.replaceNotificationsForTesting([])
                 appDelegate.notificationStore = previousNotificationStore
@@ -449,8 +466,11 @@ struct DockRuntimeParityTests {
 
             #expect(workspacePanel.surface.onVisualBell == nil)
             let globalVisualBell = try #require(globalPanel.surface.onVisualBell)
+            GhosttySurfaceScrollView.resetFlashCounts()
+            defaults.set(false, forKey: NotificationPaneFlashSettings.enabledKey)
             globalVisualBell()
             let publicationCountAfterFirstBell = unreadObserver.publicationCount
+            defaults.set(true, forKey: NotificationPaneFlashSettings.enabledKey)
             globalVisualBell()
 
             #expect(workspaceProjection.unreadPanelIDs.isEmpty)
@@ -458,6 +478,7 @@ struct DockRuntimeParityTests {
             #expect(notificationStore.unreadCount == 1)
             #expect(publicationCountAfterFirstBell == 1)
             #expect(unreadObserver.publicationCount == publicationCountAfterFirstBell)
+            #expect(GhosttySurfaceScrollView.flashCount(for: globalPanel.id) == 1)
             #expect(TerminalNotificationStore.dockBadgeLabel(
                 unreadCount: notificationStore.unreadCount,
                 isEnabled: true

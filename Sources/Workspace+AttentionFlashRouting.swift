@@ -17,10 +17,8 @@ extension Workspace {
             let ownsActiveFocus = AppFocusState.isAppFocused()
                 && self.owningTabManager?.selectedTabId == self.id
                 && self.focusedPanelId == target.containerPanelID
-            if !ownsActiveFocus {
-                guard !self.manualUnreadPanelIds.contains(target.containerPanelID) else {
-                    return
-                }
+            if !ownsActiveFocus,
+               !self.manualUnreadPanelIds.contains(target.containerPanelID) {
                 self.markPanelUnread(target.containerPanelID)
             }
             mountedTerminal.triggerFlash(reason: .notificationArrival)

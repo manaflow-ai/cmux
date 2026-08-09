@@ -58,13 +58,11 @@ extension DockSplitStore {
                     preferredWindow: terminal.surface.uiWindow
                 ) === self
             if !ownsActiveFocus,
-               let notificationStore = AppDelegate.shared?.notificationStore {
-                guard !notificationStore.hasManualUnread(
+               let notificationStore = AppDelegate.shared?.notificationStore,
+               !notificationStore.hasManualUnread(
                     forTabId: self.workspaceId,
                     surfaceId: terminal.id
-                ) else {
-                    return
-                }
+               ) {
                 notificationStore.markWindowDockSurfaceUnread(
                     windowId: self.workspaceId,
                     surfaceId: terminal.id
