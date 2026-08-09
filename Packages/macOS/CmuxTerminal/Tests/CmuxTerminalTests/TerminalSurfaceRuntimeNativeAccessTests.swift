@@ -65,7 +65,7 @@ import Testing
             nativeAccessGate: nativeAccessGate
         )
 
-        #expect(coordinator.acquireScreenTailBorrow(for: request) == nil)
+        #expect(request.nativeAccessGate.acquireBorrow() == nil)
         #expect(teardownBegun.withLock { $0 } == 1)
 
         releaseNativeFree.signal()
@@ -98,11 +98,8 @@ import Testing
             maxBytes: 1,
             nativeAccessGate: nativeAccessGate
         )
-        let borrow = try #require(
-            coordinator.acquireScreenTailBorrow(for: request)
-        )
         let readTask = Task {
-            await coordinator.readScreenTailVT(request, borrow: borrow)
+            await coordinator.readScreenTailVT(request)
         }
         let readStarted = AsyncStream<Bool>.makeStream()
         DispatchQueue.global(qos: .userInitiated).async {
@@ -168,15 +165,8 @@ import Testing
             maxBytes: 1,
             nativeAccessGate: TerminalSurfaceRuntimeNativeAccessGate()
         )
-        let firstBorrow = try #require(
-            coordinator.acquireScreenTailBorrow(for: firstRequest)
-        )
-        let secondBorrow = try #require(
-            coordinator.acquireScreenTailBorrow(for: secondRequest)
-        )
-
         let firstRead = Task {
-            await coordinator.readScreenTailVT(firstRequest, borrow: firstBorrow)
+            await coordinator.readScreenTailVT(firstRequest)
         }
         let firstReadStarted = AsyncStream<Bool>.makeStream()
         DispatchQueue.global(qos: .userInitiated).async {
@@ -189,7 +179,7 @@ import Testing
         try #require(await firstReadStartedIterator.next() == true)
 
         let secondRead = Task(priority: .high) {
-            await coordinator.readScreenTailVT(secondRequest, borrow: secondBorrow)
+            await coordinator.readScreenTailVT(secondRequest)
         }
         let overlapProbe = AsyncStream<Bool>.makeStream()
         DispatchQueue.global(qos: .userInitiated).async {
@@ -218,7 +208,7 @@ import Testing
         )
     }
 
-    @Test func cancelledQueuedScreenTailReadReleasesBorrowWithoutNativeAccess() async throws {
+    @Test func cancelledQueuedScreenTailReadDoesNotAcquireNativeAccess() async throws {
         let teardownBegun = OSAllocatedUnfairLock(initialState: 0)
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let firstSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
@@ -244,15 +234,8 @@ import Testing
             maxBytes: 1,
             nativeAccessGate: cancelledGate
         )
-        let firstBorrow = try #require(
-            coordinator.acquireScreenTailBorrow(for: firstRequest)
-        )
-        let cancelledBorrow = try #require(
-            coordinator.acquireScreenTailBorrow(for: cancelledRequest)
-        )
-
         let firstRead = Task {
-            await coordinator.readScreenTailVT(firstRequest, borrow: firstBorrow)
+            await coordinator.readScreenTailVT(firstRequest)
         }
         let firstReadStarted = AsyncStream<Bool>.makeStream()
         DispatchQueue.global(qos: .userInitiated).async {
@@ -268,10 +251,7 @@ import Testing
             withUnsafeCurrentTask { task in
                 task?.cancel()
             }
-            return await coordinator.readScreenTailVT(
-                cancelledRequest,
-                borrow: cancelledBorrow
-            )
+            return await coordinator.readScreenTailVT(cancelledRequest)
         }
         cancelledGate.requestTeardown {
             teardownBegun.withLock { $0 += 1 }

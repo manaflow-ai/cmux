@@ -23,11 +23,6 @@ extension TerminalSurface {
             maxBytes: maxBytes,
             nativeAccessGate: runtimeNativeAccessGate
         )
-        guard let borrow = runtimeTeardown.acquireScreenTailBorrow(
-            for: request
-        ) else {
-            return nil
-        }
-        return await runtimeTeardown.readScreenTailVT(request, borrow: borrow)
+        return await runtimeTeardown.readScreenTailVT(request)
     }
 }

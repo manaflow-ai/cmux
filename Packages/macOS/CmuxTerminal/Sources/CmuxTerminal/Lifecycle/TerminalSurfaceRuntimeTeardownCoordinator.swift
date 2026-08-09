@@ -90,22 +90,11 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         isolatedHibernationAdmission.release(reservation)
     }
 
-    /// Admits a bounded screen-tail read before its first suspension.
-    ///
-    /// A close that wins admission first rejects the borrow. A borrow that wins
-    /// first defers both process termination and native free until release.
-    nonisolated func acquireScreenTailBorrow(
-        for request: TerminalSurfaceRuntimeScreenTailRequest
-    ) -> TerminalSurfaceRuntimeNativeAccessBorrow? {
-        request.nativeAccessGate.acquireBorrow()
-    }
-
     /// Reads a bounded screen tail under globally serialized native admission.
     nonisolated func readScreenTailVT(
-        _ request: TerminalSurfaceRuntimeScreenTailRequest,
-        borrow: TerminalSurfaceRuntimeNativeAccessBorrow
+        _ request: TerminalSurfaceRuntimeScreenTailRequest
     ) async -> String? {
-        await screenTailReader.read(request, borrow: borrow)
+        await screenTailReader.read(request)
     }
 
     /// Queues a native-surface free from any isolation (the surface model's

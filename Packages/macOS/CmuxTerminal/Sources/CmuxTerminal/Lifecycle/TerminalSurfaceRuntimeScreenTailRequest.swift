@@ -3,11 +3,11 @@ internal import GhosttyKit
 
 /// A bounded native screen-tail read ordered before later teardown requests.
 ///
-/// The raw surface pointer remains owned by its ``TerminalSurface``. The caller
-/// admits a native-access borrow before its first suspension, and the runtime
-/// coordinator executes this request without suspension while that borrow
-/// defers process termination and native free. `@unchecked Sendable` is limited
-/// to transporting the borrowed pointer onto the concurrent read executor.
+/// The raw surface pointer remains owned by its ``TerminalSurface``. The request
+/// carries the matching runtime-generation gate while it waits for global read
+/// admission. The reader must acquire that gate before dereferencing the pointer;
+/// a teardown that wins first permanently rejects the read. `@unchecked Sendable`
+/// is limited to transporting that guarded pointer to the reader actor.
 struct TerminalSurfaceRuntimeScreenTailRequest: @unchecked Sendable {
     let surface: ghostty_surface_t
     let maxRows: Int
