@@ -18,10 +18,7 @@ public final class SurfaceAttentionObservation {
         cancellation?()
     }
 
-    deinit {
-        guard let cancellation else { return }
-        Task { @MainActor in
-            cancellation()
-        }
+    isolated deinit {
+        cancellation?()
     }
 }
