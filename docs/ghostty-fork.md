@@ -143,8 +143,8 @@ gitlinks (`cd1f8e012` and `80d7fb35a`).
   - Keeps `ghostty_surface_free` as the final synchronization and ownership
     boundary for renderer, IO, callback userdata, and native allocation release.
 - Artifact:
-  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-47e9bd4c90dec35b55b550095eea14498a37508f-crashsubdir-cmux-crash-sentry-off-v1
-  - SHA-256 `f0b268f74bff5866fc8f28be701d57fdcd0cf143ad9629e397eb545a29aea99e`
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f66cfbd6f2d43ef903376b366476fa0af1d7d7d3-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `284d4af7516a50a893e1c03d6870c3b39ae8678aed16a1fad67475f1c32a1c83`
     is pinned in `scripts/ghosttykit-checksums.txt`; the downloaded archive
     passed `scripts/validate-xcframework-archive.py`.
 - Conflict note:
