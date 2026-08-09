@@ -10035,6 +10035,9 @@ struct ContentView: View {
 
     private func focusFocusedBrowserAddressBar() -> Bool {
         guard let panel = tabManager.focusedBrowserPanel else { return false }
+        guard panel.chromeVisibility.allowsAddressBarFocus else {
+            return true
+        }
         guard panel.requestAddressBarFocus(selectionIntent: .selectAll) != nil else {
             return false
         }

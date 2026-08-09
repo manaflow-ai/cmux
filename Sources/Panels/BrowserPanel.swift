@@ -7993,6 +7993,7 @@ extension BrowserPanel {
 
     @discardableResult
     func setOmnibarVisible(_ visible: Bool) -> Bool {
+        guard chromeVisibility.allowsOmnibarToggle else { return false }
         setChromeVisibility(BrowserChromeVisibility(omnibarVisible: visible))
     }
 

@@ -232,6 +232,9 @@ struct DockControlDefinitionDecodingTests {
         #expect(!panel.isOmnibarVisible)
         #expect(panel.requestAddressBarFocus(selectionIntent: .selectAll) == nil)
         #expect(!panel.isOmnibarVisible)
+        #expect(!panel.setOmnibarVisible(true))
+        #expect(!panel.toggleOmnibarVisibility())
+        #expect(panel.chromeVisibility == .chromeless)
 
         let snapshot = store.sessionSnapshot(includeScrollback: false)
         let encodedSnapshot = try JSONEncoder().encode(snapshot)
