@@ -1748,6 +1748,203 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
 // hover production call sites now go through, instead of each choosing
 // its own overload independently.
 @Suite struct TerminalSharedResolutionEntryPointTests {
+    @Test func clickResolvesBulletPrefixedLeadingRowThroughTextOnlyFallback() throws {
+        let cwd = "/Users/yosuke/workspace/github.com/TMLlaboratory/s-code"
+        let clickedRow = "● research/docs/notes/2026-07-31_key_cost_volume_price"
+        let nextRow = "_and_probability_floor.md"
+        let expectedPath = cwd + "/research/docs/notes/2026-07-31_key_cost_volume_price_and_probability_floor.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([expectedPath]))
+
+        let resolution = try #require(
+            resolver.resolveTextOnlyLeadingRowFallback(
+                clickedRow: clickedRow,
+                column: 19,
+                nextRow: nextRow,
+                cwd: cwd,
+                purpose: .click
+            )
+        )
+        #expect(resolution.path == expectedPath)
+        #expect(resolution.cellSpans == .unavailableNonASCIIRow)
+    }
+
+    @Test func hoverNeverUsesTheLeadingRowTextOnlyFallback() {
+        let cwd = "/tmp/leading-row"
+        let clickedRow = "● research/docs/notes/2026-07-31_key_cost_volume_price"
+        let nextRow = "_and_probability_floor.md"
+        let expectedPath = cwd + "/research/docs/notes/2026-07-31_key_cost_volume_price_and_probability_floor.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([expectedPath]))
+
+        #expect(
+            resolver.resolveTextOnlyLeadingRowFallback(
+                clickedRow: clickedRow,
+                column: 12,
+                nextRow: nextRow,
+                cwd: cwd,
+                purpose: .hover
+            ) == nil
+        )
+    }
+
+    @Test func leadingRowFallbackRejectsMultiplePathShapedBodyTokens() {
+        let cwd = "/tmp/leading-row"
+        let clickedRow = "● research/docs/notes/price /tmp/other"
+        let nextRow = "  .md"
+        let firstCandidate = cwd + "/research/docs/notes/price.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([firstCandidate]))
+
+        #expect(
+            resolver.resolveTextOnlyLeadingRowFallback(
+                clickedRow: clickedRow,
+                column: 12,
+                nextRow: nextRow,
+                cwd: cwd,
+                purpose: .click
+            ) == nil
+        )
+    }
+
+    @Test func leadingRowFallbackRejectsClickInNonASCIIOrPrefixRegion() {
+        let cwd = "/tmp/leading-row"
+        let clickedRow = "● research/docs/notes/2026-07-31_key_cost_volume_price"
+        let nextRow = "_and_probability_floor.md"
+        let expectedPath = cwd + "/research/docs/notes/2026-07-31_key_cost_volume_price_and_probability_floor.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([expectedPath]))
+
+        #expect(
+            resolver.resolveTextOnlyLeadingRowFallback(
+                clickedRow: clickedRow,
+                column: 0,
+                nextRow: nextRow,
+                cwd: cwd,
+                purpose: .click
+            ) == nil
+        )
+    }
+
+    @Test func leadingRowFallbackRejectsExistingRowLocalTokenBeforeJoining() {
+        let cwd = "/tmp"
+        let clickedRow = "● /tmp/dir suffix"
+        let nextRow = "file.md"
+        let rowLocalPath = "/tmp/dir"
+        let joinedPath = "/tmp/dirfile.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([rowLocalPath, joinedPath]))
+
+        #expect(
+            resolver.resolveTextOnlyLeadingRowFallback(
+                clickedRow: clickedRow,
+                column: 10,
+                nextRow: nextRow,
+                cwd: cwd,
+                purpose: .click
+            ) == nil
+        )
+    }
+
+    @Test func leadingRowFallbackRejectsAmbiguousBulletSecondCell() {
+        let cwd = "/tmp"
+        let clickedRow = "● research/docs/price"
+        let nextRow = ".md"
+        let expectedPath = cwd + "/research/docs/price.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([expectedPath]))
+
+        #expect(
+            resolver.resolveTextOnlyLeadingRowFallback(
+                clickedRow: clickedRow,
+                column: 1,
+                nextRow: nextRow,
+                cwd: cwd,
+                purpose: .click
+            ) == nil
+        )
+    }
+
+    @Test func leadingRowFallbackRejectsNonASCIIInsideTheBody() {
+        let cwd = "/tmp/leading-row"
+        let clickedRow = "● research/docs/notes/price_日本"
+        let nextRow = "  .md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([cwd + "/research/docs/notes/price_日本.md"]))
+
+        #expect(
+            resolver.resolveTextOnlyLeadingRowFallback(
+                clickedRow: clickedRow,
+                column: 12,
+                nextRow: nextRow,
+                cwd: cwd,
+                purpose: .click
+            ) == nil
+        )
+    }
+
+    @Test func leadingRowFallbackNeverExtendsPastItsTwoRowSpan() {
+        let cwd = "/tmp/leading-row"
+        let clickedRow = "● research/docs/notes/price"
+        let nextRow = "  _and_probability_floor"
+        let threeRowPath = cwd + "/research/docs/notes/price_and_probability_floor.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([threeRowPath]))
+
+        #expect(
+            resolver.resolveTextOnlyLeadingRowFallback(
+                clickedRow: clickedRow,
+                column: 12,
+                nextRow: nextRow,
+                cwd: cwd,
+                purpose: .click
+            ) == nil
+        )
+    }
+
+    @Test func leadingRowFallbackLeavesPreviousRowFallbackUnchanged() throws {
+        let cwd = "/tmp/leading-row"
+        let previousRow = "● research/docs/notes/2026-07-31_key_cost_volume_price_and_probab"
+        let clickedRow = "  ility_floor.md"
+        let nextRow = "  unrelated status"
+        let expectedPath = cwd + "/research/docs/notes/2026-07-31_key_cost_volume_price_and_probability_floor.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([expectedPath]))
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 4, cwd: cwd, columns: 65))
+
+        let resolution = try #require(
+            resolver.resolveWrappedCandidate(
+                seed: seed,
+                rows: [previousRow, clickedRow, nextRow],
+                clickedIndex: 1,
+                columns: 65,
+                cwd: cwd,
+                purpose: .click
+            )
+        )
+        #expect(resolution.path == expectedPath)
+        #expect(resolution.cellSpans == .unavailableNonASCIIRow)
+    }
+
+    @Test func allASCIILeadingRowStillUsesTheExistingSeedPath() throws {
+        let cwd = "/tmp/leading-row"
+        let clickedRow = "research/docs/notes/price"
+        let nextRow = "  _and_probability_floor.md"
+        let expectedPath = cwd + "/research/docs/notes/price_and_probability_floor.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([expectedPath]))
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 12, cwd: cwd))
+
+        let regularResolution = try #require(
+            resolver.resolveWrappedCandidate(
+                seed: seed,
+                previousRow: nil,
+                nextRow: nextRow,
+                cwd: cwd
+            )
+        )
+        #expect(regularResolution.path == expectedPath)
+        #expect(
+            resolver.resolveTextOnlyLeadingRowFallback(
+                clickedRow: clickedRow,
+                column: 12,
+                nextRow: nextRow,
+                cwd: cwd,
+                purpose: .click
+            ) == nil
+        )
+    }
+
     // design-decision-b1-fallback-policy.md rule 2 — bug B's non-ASCII
     // `.previous` row IS the narrow, click-only fallback exception: the
     // geometry-aware evaluator can't judge it at all (row30 is
@@ -1763,12 +1960,24 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         let mdFile = cwd + "/research/docs/notes/2026-07-31_key_cost_volume_price_and_probability_floor.md"
         let htmlFile = cwd + "/research/docs/notes/2026-07-31_scaffold_kl_foundations_and_measurement_limits.html"
         let resolver = TerminalPathResolver(fileExists: existsIn([mdFile, htmlFile]))
-        let rows = [row30, row31, row32]
+        // Exact dogfood-shaped surrounding output: only the immediate
+        // previous row is consumed by the winning previous fallback.
+        // Japanese UI/status text in the rest of the 7-row window must not
+        // make this two-row decision fail closed.
+        let rows = [
+            "● 以下が最新のノートのパスです。",
+            "  現在からの相対pathで noteを出して．",
+            row30,
+            row31,
+            row32,
+            "  └ Stop says: ⚠ dotfiles に未コミット変更が 1",
+            "    件あります (claude/settings.json …) 。symlink 管理のため commit を忘れずに。",
+        ]
 
         let seed = try #require(resolver.wrappedPathSeed(in: row31, column: 12, cwd: cwd, columns: 65))
         let candidate = try #require(
             resolver.resolveWrappedCandidate(
-                seed: seed, rows: rows, clickedIndex: 1, columns: 65, cwd: cwd, purpose: .click
+                seed: seed, rows: rows, clickedIndex: 3, columns: 65, cwd: cwd, purpose: .click
             )
         )
         #expect(candidate.path == mdFile)
@@ -1872,22 +2081,20 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
         #expect(seed.directions == [.next])
         let candidate = resolver.resolveWrappedCandidate(
-            seed: seed, rows: rows, clickedIndex: 0, columns: 80, cwd: cwd, purpose: .click
+            seed: seed, rows: rows, clickedIndex: 0, columns: clickedRow.count, cwd: cwd, purpose: .click
         )
         #expect(candidate == nil)
     }
 
     // review R2-B1/design-decision-b1-fallback-policy.md rule 2
-    // condition 6 — non-ASCII must be CONFINED to the previous row.
-    // `row32` here is a DIFFERENT non-ASCII row (not the original bug-B
-    // fixture's ASCII `row32`) with no candidate registered for it at
-    // all — `.next` independently fails (a non-ASCII row's guarded
-    // extractor returns nil, same as if it had no fragment), which
-    // looks identical, from `evaluation.outcomes[.next]` alone, to
-    // "there simply wasn't a `.next` candidate." Without the explicit
-    // "every non-previous row is ASCII" guard, the narrow fallback would
-    // still accept the `.previous`-only success here — exactly the
-    // regression review caught.
+    // condition 6 — only rows whose information the fallback consumes
+    // must be ASCII: the clicked row, plus the next row when the seed
+    // names `.next`; the previous row is the text-only exception and
+    // unrelated rows are ignored. `row32` is a DIFFERENT non-ASCII row
+    // (not the original bug-B fixture's ASCII `row32`) with no candidate
+    // registered for it. Because this seed names `.next`, that unreadable
+    // next row must still make the fallback fail closed rather than
+    // allowing the previous-only success.
     @Test func nonASCIINextRowAlongsideANonASCIIPreviousRowNeverFallsBack() throws {
         let cwd = "/tmp/bugB"
         let row30 = "\u{25CF} research/docs/notes/2026-07-31_key_cost_volume_price_and_probab"
@@ -1909,6 +2116,43 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(
             resolver.resolveWrappedCandidate(
                 seed: seed, rows: rows, clickedIndex: 1, columns: 65, cwd: cwd, purpose: .hover
+            ) == nil
+        )
+    }
+
+    @Test func previousOnlyFallbackIgnoresNonASCIINextRow() throws {
+        let cwd = "/tmp/bugB"
+        let previousRow = "\u{25CF} research/docs/notes/2026-07-31_key_cost_volume_price_and_probab"
+        let clickedRow = "  ility_floor.md suffix"
+        let nextRow = "● unrelated status"
+        let mdFile = cwd + "/research/docs/notes/2026-07-31_key_cost_volume_price_and_probability_floor.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([mdFile]))
+
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 2, cwd: cwd, columns: 65))
+        #expect(seed.directions == [.previous])
+        let candidate = try #require(
+            resolver.resolveWrappedCandidate(
+                seed: seed, rows: [previousRow, clickedRow, nextRow], clickedIndex: 1,
+                columns: 65, cwd: cwd, purpose: .click
+            )
+        )
+        #expect(candidate.path == mdFile)
+        #expect(candidate.cellSpans == .unavailableNonASCIIRow)
+    }
+
+    @Test func nextFallbackFailsClosedWhenNextRowIsOutsideTheWindow() throws {
+        let cwd = "/tmp/bugB"
+        let previousRow = "\u{25CF} research/docs/notes/2026-07-31_key_cost_volume_price_and_probab"
+        let clickedRow = "  ility_floor.md"
+        let mdFile = cwd + "/research/docs/notes/2026-07-31_key_cost_volume_price_and_probability_floor.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([mdFile]))
+
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 2, cwd: cwd, columns: 65))
+        #expect(seed.directions == [.previous, .next])
+        #expect(
+            resolver.resolveWrappedCandidate(
+                seed: seed, rows: [previousRow, clickedRow], clickedIndex: 1,
+                columns: 65, cwd: cwd, purpose: .click
             ) == nil
         )
     }

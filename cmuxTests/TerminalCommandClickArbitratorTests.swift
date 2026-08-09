@@ -265,6 +265,31 @@ struct TerminalCommandClickArbitratorTests {
         #expect(candidate.path == existingFile)
     }
 
+    @Test("The shared click composition resolves a bullet-prefixed leading row")
+    func sharedClickCompositionResolvesBulletPrefixedLeadingRow() throws {
+        let cwd = "/Users/yosuke/workspace/github.com/TMLlaboratory/s-code"
+        let clickedRow = "● research/docs/notes/2026-07-31_key_cost_volume_price"
+        let nextRow = "_and_probability_floor.md"
+        let expectedPath = cwd + "/research/docs/notes/2026-07-31_key_cost_volume_price_and_probability_floor.md"
+        let resolver = TerminalPathResolver(fileExists: { path in path == expectedPath })
+        let snapshot = GhosttyNSView.TerminalPhysicalViewportSnapshot(
+            lines: [clickedRow, nextRow],
+            columns: 56
+        )
+        let cell = GhosttyNSView.TerminalGridCell(row: 0, column: 19)
+
+        let candidate = try #require(
+            GhosttyNSView.resolveCommandClickWrappedCandidate(
+                resolver: resolver,
+                snapshot: snapshot,
+                cell: cell,
+                cwd: cwd
+            )
+        )
+        #expect(candidate.path == expectedPath)
+        #expect(candidate.cellSpans == .unavailableNonASCIIRow)
+    }
+
     // review §R2-B3/B4 closing requirement — connects this composition's
     // OUTPUT to the existing arbitrator tests above: a candidate this
     // function resolves, wrapped in `.prepared` exactly as

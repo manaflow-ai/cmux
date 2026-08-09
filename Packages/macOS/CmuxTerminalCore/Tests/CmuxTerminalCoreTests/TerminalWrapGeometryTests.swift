@@ -279,6 +279,69 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         }
     }
 
+    @Test("An indented interior row resolves the same span from every clicked row")
+    func indentedInteriorRowIsClickPositionInvariant() throws {
+        let rowsWithoutPadding = [
+            "/Users/dev/project42/TMLlaborato",
+            "  ry/s-code/research/docs/notes/",
+            "  report.md",
+        ]
+        let expectedCandidate = "/Users/dev/project42/TMLlaboratory/s-code/research/docs/notes/report.md"
+        let columns = rowsWithoutPadding.map(\.count).max()!
+        let rows = rowsWithoutPadding.map { row in
+            row + String(repeating: " ", count: columns - row.count)
+        }
+        let resolver = TerminalPathResolver(fileExists: existsIn([expectedCandidate]))
+        let geometry = try #require(TerminalWrapGeometry(fullnessTolerance: 0))
+
+        func absoluteRows(_ resolution: TerminalWrappedPathResolution?, clickedIndex: Int) -> Set<Int> {
+            guard case .available(let spans) = resolution?.cellSpans else { return [] }
+            return Set(spans.map { clickedIndex + $0.rowOffsetFromClicked })
+        }
+
+        func assertCellSpansWithinBounds(_ resolution: TerminalWrappedPathResolution, columns: Int) {
+            guard case .available(let spans) = resolution.cellSpans else {
+                Issue.record("Expected available cell spans")
+                return
+            }
+            for span in spans {
+                #expect(span.startColumn >= 0)
+                #expect(span.startColumn < span.endColumn)
+                #expect(span.endColumn <= columns)
+            }
+        }
+
+        var candidates: [TerminalWrappedPathResolution] = []
+        for clickedIndex in rows.indices {
+            let clickColumn = clickedIndex == 0 ? 10 : 2
+            let seed = try #require(
+                resolver.wrappedPathSeed(in: rows[clickedIndex], column: clickColumn, cwd: "/tmp", columns: columns)
+            )
+            let window = try #require(
+                TerminalPhysicalRowWindow(rows: rows, clickedIndex: clickedIndex, columns: columns)
+            )
+            let candidate = try #require(
+                resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: "/tmp", geometry: geometry)
+            )
+            assertCellSpansWithinBounds(candidate, columns: columns)
+            candidates.append(candidate)
+        }
+
+        #expect(candidates.allSatisfy { $0.path == expectedCandidate })
+        #expect(candidates.enumerated().allSatisfy { absoluteRows($0.element, clickedIndex: $0.offset) == [0, 1, 2] })
+
+        let hoverSeed = try #require(
+            resolver.wrappedPathSeed(in: rows[1], column: 2, cwd: "/tmp", columns: columns)
+        )
+        let hoverCandidate = try #require(
+            resolver.resolveWrappedCandidate(
+                seed: hoverSeed, rows: rows, clickedIndex: 1, columns: columns, cwd: "/tmp", purpose: .hover
+            )
+        )
+        #expect(hoverCandidate.path == expectedCandidate)
+        assertCellSpansWithinBounds(hoverCandidate, columns: columns)
+    }
+
     @Test("Incomparable multi-row successes are nil; a success contained by another adopts the dominating span")
     func incomparableSuccessesAreNilDominatingSpanIsAdopted() {
         let cwd = "/tmp"
