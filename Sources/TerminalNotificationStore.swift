@@ -1815,9 +1815,9 @@ final class TerminalNotificationStore: ObservableObject {
         notification.isRead = false
         let insertionIndex = updated.lastIndex(where: { !$0.isRead }).map { $0 + 1 } ?? updated.endIndex
         updated.insert(notification, at: insertionIndex)
-        setWorkspaceManualUnread(false, forTabId: notification.tabId)
+        mutateWorkspaceManualUnread(false, forTabId: notification.tabId)
         if let notificationSurfaceId = notification.surfaceId {
-            setSurfaceManualUnread(
+            mutateSurfaceManualUnread(
                 false,
                 forTabId: notification.tabId,
                 surfaceId: notificationSurfaceId

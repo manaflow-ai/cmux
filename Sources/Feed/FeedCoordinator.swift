@@ -815,6 +815,22 @@ extension FeedCoordinator {
         guard let appDelegate = AppDelegate.shared else { return fallback }
         switch target.location {
         case .panel(let panelId):
+            switch fallback {
+            case .workspace(let workspace):
+                if let registeredWorkspace = appDelegate
+                    .tabManagerFor(tabId: workspace.id)?
+                    .workspacesById[workspace.id],
+                   registeredWorkspace === workspace,
+                   workspace.surfaceOwnershipTarget(for: panelId) != nil {
+                    return fallback
+                }
+            case .dock(let dock):
+                if DockSplitStore.liveStores.contains(where: {
+                    $0 === dock && $0.containsPanel(panelId)
+                }) {
+                    return fallback
+                }
+            }
             if let dock = DockSplitStore.liveStore(containingPanel: panelId) {
                 return .dock(dock)
             }
