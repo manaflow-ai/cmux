@@ -222,7 +222,7 @@ struct WindowDockRoutingSocketTests {
             AppDelegate.shared = appDelegate
             appDelegate.tabManager = activeManager
             TerminalController.shared.setActiveTabManager(activeManager)
-            appDelegate.registerMainWindow(activeWindow, windowId: activeWindowId, tabManager: activeManager, sidebarState: SidebarState(), sidebarSelectionState: SidebarSelectionState())
+            appDelegate.registerMainWindow(activeWindow, windowId: activeWindowId, tabManager: activeManager, sidebarState: SidebarState(), sidebarSelectionState: SidebarSelectionState(), fileExplorerState: FileExplorerState())
             appDelegate.registerMainWindow(dockWindow, windowId: dockWindowId, tabManager: dockManager, sidebarState: SidebarState(), sidebarSelectionState: SidebarSelectionState(), fileExplorerState: fileExplorerState)
             dockWindow.orderFront(nil)
             defer {
