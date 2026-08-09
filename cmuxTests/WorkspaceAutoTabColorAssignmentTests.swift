@@ -391,6 +391,15 @@ import Testing
 
         #expect(counts.count == Self.palette.count)
         #expect(counts.values.max()! - counts.values.min()! <= 1)
+
+        let settled = WorkspaceAutoColorAssignmentStore.reconcile(
+            needingAssignment: ids,
+            liveIds: Set(ids),
+            manualColorHexes: [],
+            palette: Self.palette,
+            defaults: defaults
+        )
+        #expect(settled == after)
     }
 
     @Test
