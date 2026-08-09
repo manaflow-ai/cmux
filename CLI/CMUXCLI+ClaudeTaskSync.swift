@@ -375,6 +375,10 @@ extension CMUXCLI {
                 }
 
                 var cleanupTaskDirectoryName: String?
+                var deferredAutomaticTeamCleanup: (
+                    binding: ClaudeTeamTaskListBinding,
+                    workspaceIDs: [String]
+                )?
                 if let automaticTeamResolution {
                     cleanupTaskDirectoryName = automaticTeamResolution.binding.taskListID
                     let cleanupWorkspaceIDs: [String]
@@ -384,7 +388,7 @@ extension CMUXCLI {
                     } else {
                         cleanupWorkspaceIDs = [resolvedTarget.workspaceId]
                     }
-                    guard sendClaudeTaskFeedSnapshot(
+                    if sendClaudeTaskFeedSnapshot(
                         [],
                         client: client,
                         telemetry: telemetry,
@@ -393,22 +397,22 @@ extension CMUXCLI {
                         surfaceId: resolvedTarget.surfaceId,
                         socketPassword: socketPassword,
                         deadlineUptime: hookDeadlineUptime
-                    ) else { return }
-                    let cleanup = clearClaudeTaskChecklistOwner(
-                        taskDirectoryName: automaticTeamResolution.binding.taskListID,
-                        taskStoreIdentity: automaticTeamResolution.binding.taskStoreIdentity,
-                        client: client,
-                        telemetry: telemetry,
-                        workspaceIDs: cleanupWorkspaceIDs,
-                        deadlineUptime: hookDeadlineUptime
-                    )
-                    try sessionStore.retainClaudeTeamTaskBindingWorkspaces(
-                        cleanup.retainedWorkspaceIDs,
-                        for: automaticTeamResolution.binding
-                    )
-                    if cleanup.succeeded {
-                        try sessionStore.removeClaudeTeamTaskListBinding(
-                            automaticTeamResolution.binding
+                    ) {
+                        try clearRetainedClaudeTeamTaskOwner(
+                            binding: automaticTeamResolution.binding,
+                            workspaceIDs: cleanupWorkspaceIDs,
+                            sessionStore: sessionStore,
+                            client: client,
+                            telemetry: telemetry,
+                            deadlineUptime: hookDeadlineUptime
+                        )
+                    } else {
+                        // A personal snapshot can supersede the rejected empty
+                        // Feed update. Defer checklist cleanup until that
+                        // authoritative replacement is acknowledged below.
+                        deferredAutomaticTeamCleanup = (
+                            automaticTeamResolution.binding,
+                            cleanupWorkspaceIDs
                         )
                     }
                     // A retained team proof owns only the old cleanup delivery.
@@ -464,6 +468,30 @@ extension CMUXCLI {
                     telemetry.breadcrumb("claude-hook.task-sync.task-directory-unresolved")
                     return
                 }
+                let personalFeedAlreadyPublished: Bool
+                if let deferredAutomaticTeamCleanup {
+                    guard sendClaudeTaskFeedSnapshot(
+                        sessionSnapshot.todos,
+                        client: client,
+                        telemetry: telemetry,
+                        parsedInput: parsedInput,
+                        workspaceId: resolvedTarget.workspaceId,
+                        surfaceId: resolvedTarget.surfaceId,
+                        socketPassword: socketPassword,
+                        deadlineUptime: hookDeadlineUptime
+                    ) else { return }
+                    try clearRetainedClaudeTeamTaskOwner(
+                        binding: deferredAutomaticTeamCleanup.binding,
+                        workspaceIDs: deferredAutomaticTeamCleanup.workspaceIDs,
+                        sessionStore: sessionStore,
+                        client: client,
+                        telemetry: telemetry,
+                        deadlineUptime: hookDeadlineUptime
+                    )
+                    personalFeedAlreadyPublished = true
+                } else {
+                    personalFeedAlreadyPublished = false
+                }
                 let destinationTransition = try sessionStore
                     .claudeTaskListDestinationTransition(
                         taskListID: sessionSnapshot.directoryName,
@@ -498,22 +526,43 @@ extension CMUXCLI {
                     telemetry: telemetry,
                     deadlineUptime: hookDeadlineUptime
                 ) else { return }
-                guard let delivery = deliverClaudeTaskSnapshot(
-                    sessionSnapshot,
-                    taskStoreIdentity: taskStoreIdentity,
-                    client: client,
-                    telemetry: telemetry,
-                    parsedInput: parsedInput,
-                    workspaceId: resolvedTarget.workspaceId,
-                    surfaceId: resolvedTarget.surfaceId,
-                    reconciliationWorkspaceIDs: [resolvedTarget.workspaceId],
-                    socketPassword: socketPassword,
-                    deadlineUptime: hookDeadlineUptime
-                ) else { return }
+                let delivery: (
+                    reconciliationSucceeded: Bool,
+                    workspaceItemsAreEmpty: Bool,
+                    retainedWorkspaceIDs: [String]
+                )?
+                if personalFeedAlreadyPublished {
+                    delivery = reconcileClaudeTaskSnapshot(
+                        sessionSnapshot,
+                        taskStoreIdentity: taskStoreIdentity,
+                        client: client,
+                        telemetry: telemetry,
+                        reconciliationWorkspaceIDs: [resolvedTarget.workspaceId],
+                        deadlineUptime: hookDeadlineUptime
+                    )
+                } else {
+                    delivery = deliverClaudeTaskSnapshot(
+                        sessionSnapshot,
+                        taskStoreIdentity: taskStoreIdentity,
+                        client: client,
+                        telemetry: telemetry,
+                        parsedInput: parsedInput,
+                        workspaceId: resolvedTarget.workspaceId,
+                        surfaceId: resolvedTarget.surfaceId,
+                        reconciliationWorkspaceIDs: [resolvedTarget.workspaceId],
+                        socketPassword: socketPassword,
+                        deadlineUptime: hookDeadlineUptime
+                    )
+                }
+                guard let delivery else { return }
+                let retainedPersonalWorkspaceIDs = delivery.workspaceItemsAreEmpty
+                    && delivery.reconciliationSucceeded
+                    ? []
+                    : delivery.retainedWorkspaceIDs
                 try persistClaudeTaskListDestinations(
                     taskDirectoryName: sessionSnapshot.directoryName,
                     taskStoreIdentity: taskStoreIdentity,
-                    retainedWorkspaceIDs: delivery.retainedWorkspaceIDs,
+                    retainedWorkspaceIDs: retainedPersonalWorkspaceIDs,
                     sessionStore: sessionStore
                 )
                 let normalizedWorkspaceID = resolvedTarget.workspaceId.trimmingCharacters(
@@ -649,6 +698,32 @@ extension CMUXCLI {
         }
     }
 
+    /// Retries one retained automatic-team owner and preserves failed destinations.
+    private func clearRetainedClaudeTeamTaskOwner(
+        binding: ClaudeTeamTaskListBinding,
+        workspaceIDs: [String],
+        sessionStore: ClaudeHookSessionStore,
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry,
+        deadlineUptime: TimeInterval
+    ) throws {
+        let cleanup = clearClaudeTaskChecklistOwner(
+            taskDirectoryName: binding.taskListID,
+            taskStoreIdentity: binding.taskStoreIdentity,
+            client: client,
+            telemetry: telemetry,
+            workspaceIDs: workspaceIDs,
+            deadlineUptime: deadlineUptime
+        )
+        try sessionStore.retainClaudeTeamTaskBindingWorkspaces(
+            cleanup.retainedWorkspaceIDs,
+            for: binding
+        )
+        if cleanup.succeeded {
+            try sessionStore.removeClaudeTeamTaskListBinding(binding)
+        }
+    }
+
     /// Clears one pre-profile owner before namespaced delivery and stamps its proof.
     private func migrateLegacyClaudeTaskChecklistOwnerIfNeeded(
         currentRecord: ClaudeHookSessionRecord?,
@@ -747,13 +822,6 @@ extension CMUXCLI {
         workspaceItemsAreEmpty: Bool,
         retainedWorkspaceIDs: [String]
     )? {
-        guard let checklistOwnerID = claudeTaskChecklistOwnerID(
-            taskDirectoryName: snapshot.directoryName,
-            taskStoreIdentity: taskStoreIdentity
-        ) else {
-            telemetry.breadcrumb("claude-hook.task-sync.invalid-checklist-owner")
-            return nil
-        }
         let todos = snapshot.todos
         guard sendClaudeTaskFeedSnapshot(
             todos,
@@ -765,6 +833,38 @@ extension CMUXCLI {
             socketPassword: socketPassword,
             deadlineUptime: deadlineUptime
         ) else { return nil }
+
+        return reconcileClaudeTaskSnapshot(
+            snapshot,
+            taskStoreIdentity: taskStoreIdentity,
+            client: client,
+            telemetry: telemetry,
+            reconciliationWorkspaceIDs: reconciliationWorkspaceIDs,
+            deadlineUptime: deadlineUptime
+        )
+    }
+
+    /// Reconciles a task snapshot whose authoritative Feed update is acknowledged.
+    private func reconcileClaudeTaskSnapshot(
+        _ snapshot: ClaudeTaskSnapshot,
+        taskStoreIdentity: ClaudeTaskStoreIdentity,
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry,
+        reconciliationWorkspaceIDs: [String],
+        deadlineUptime: TimeInterval
+    ) -> (
+        reconciliationSucceeded: Bool,
+        workspaceItemsAreEmpty: Bool,
+        retainedWorkspaceIDs: [String]
+    )? {
+        guard let checklistOwnerID = claudeTaskChecklistOwnerID(
+            taskDirectoryName: snapshot.directoryName,
+            taskStoreIdentity: taskStoreIdentity
+        ) else {
+            telemetry.breadcrumb("claude-hook.task-sync.invalid-checklist-owner")
+            return nil
+        }
+        let todos = snapshot.todos
 
         // Claude removes an all-completed task list on its own grace timer
         // without firing another task-tool hook. Keep the complete snapshot in
