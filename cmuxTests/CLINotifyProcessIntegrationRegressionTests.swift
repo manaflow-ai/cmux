@@ -149,6 +149,58 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(record["autoNameLastAttemptAt"] as? Double, lastAttemptAt)
     }
 
+    func testClaudeCompactFallbackPersistsReconciliationForAuthoritativeStop() throws {
+        let context = try makeClaudeHookContext(name: "claude-compact-fallback")
+        defer { context.cleanup() }
+
+        let sessionId = "compact-fallback-session"
+        let recordedSurfaceId = "99999999-9999-9999-9999-999999999999"
+        let transcriptURL = context.root.appendingPathComponent("append-only-compact-fallback.jsonl")
+        try #"{"type":"user","message":{"content":"Fix the auth bug"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let unchangedBaseline = try autoNamingGrowthMetric(transcriptURL)
+        let now = Date().timeIntervalSince1970
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: unchangedBaseline,
+            lastTitle: "Fix auth bug",
+            lastNamedAt: now - 60,
+            lastAttemptAt: now - 30,
+            inFlightAt: nil,
+            surfaceId: recordedSurfaceId
+        )
+
+        let compact = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [context.surfaceId],
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: ["CMUX_SURFACE_ID": "", "CMUX_CLAUDE_PID": ""]
+        )
+        XCTAssertFalse(compact.timedOut, compact.stderr)
+        XCTAssertEqual(compact.status, 0, compact.stderr)
+        XCTAssertTrue(autoNamingApplyRequests(in: context).isEmpty)
+        var record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNotNil(record["autoNameTitleReconciliationGeneration"] as? String)
+        XCTAssertEqual(record["surfaceId"] as? String, recordedSurfaceId)
+
+        let stop = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [recordedSurfaceId],
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#,
+            extraEnvironment: ["CMUX_SURFACE_ID": "", "CMUX_CLAUDE_PID": ""]
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        let apply = try XCTUnwrap(autoNamingApplyRequests(in: context).first)
+        XCTAssertEqual(apply["panel_id"] as? String, recordedSurfaceId)
+        record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(record["autoNameTitleReconciliationGeneration"])
+    }
+
     func testClaudeCompactRetriesPendingReconciliationUntilAllTargetsResolve() throws {
         let context = try makeClaudeHookContext(name: "claude-compact-target-retry")
         defer { context.cleanup() }
