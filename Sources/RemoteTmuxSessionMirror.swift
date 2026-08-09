@@ -198,7 +198,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             onOverflow: { [weak self] in
                 guard let self else { return }
                 self.connection.record("manual-input-backpressure")
-                self.connection.beginReconnecting()
+                self.connection.beginReconnecting(preservingBackoff: false)
             }
         )
 
