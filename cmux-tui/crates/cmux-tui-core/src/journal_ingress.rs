@@ -310,9 +310,10 @@ impl JournalIngressState {
     }
 
     fn fail(&self, error: String) -> String {
-        let mut failure = self.failure.lock().unwrap();
-        let failure = failure.get_or_insert(error).clone();
-        self.queue_space_changed.notify_all();
+        let mut stored_failure = self.failure.lock().unwrap();
+        let failure = stored_failure.get_or_insert(error).clone();
+        drop(stored_failure);
+        self.publish_queue_space();
         failure
     }
 
