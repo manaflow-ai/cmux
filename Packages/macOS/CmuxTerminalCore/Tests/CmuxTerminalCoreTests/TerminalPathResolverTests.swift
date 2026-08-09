@@ -1241,3 +1241,135 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect("".splitPhysicalViewportRows(expectedRows: 3) == ["", "", ""])
     }
 }
+
+// impl-slashseam-and-diagnostics — bug B diagnostics (issue #8810,
+// review §"次に確認すべきもの" item 1). `diagnoseSeedAbsence` classifies
+// WHY `wrappedPathSeed` returned `nil`, purely for DEBUG dogfood log
+// triage — it never changes what `wrappedPathSeed` itself decides, so
+// each case here double-checks that against the real method too.
+@Suite struct TerminalSeedAbsenceDiagnosisTests {
+    @Test func classifiesColumnOutOfBounds() {
+        let resolver = TerminalPathResolver(fileExists: existsIn([]))
+        #expect(resolver.diagnoseSeedAbsence(in: "short", column: 99, cwd: "/tmp") == "columnOutOfBounds")
+        #expect(resolver.wrappedPathSeed(in: "short", column: 99, cwd: "/tmp") == nil)
+    }
+
+    @Test func classifiesNonASCIIRow() {
+        let resolver = TerminalPathResolver(fileExists: existsIn([]))
+        let row = "/Users/dev/caf\u{e9}proj"
+        #expect(resolver.diagnoseSeedAbsence(in: row, column: 5, cwd: "/tmp") == "nonASCIIRow")
+        #expect(resolver.wrappedPathSeed(in: row, column: 5, cwd: "/tmp") == nil)
+    }
+
+    @Test func classifiesNoBoundaryTouched() {
+        let resolver = TerminalPathResolver(fileExists: existsIn([]))
+        let row = "foo\tbar\tbaz"
+        #expect(resolver.diagnoseSeedAbsence(in: row, column: 4, cwd: "/tmp") == "noBoundaryTouched")
+        #expect(resolver.wrappedPathSeed(in: row, column: 4, cwd: "/tmp") == nil)
+    }
+
+    @Test func classifiesPlainRowLocalHit() {
+        let existingFile = "/tmp/cmux-wrap-row-local.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([existingFile]))
+        #expect(
+            resolver.diagnoseSeedAbsence(in: existingFile, column: 2, cwd: "/tmp")
+                == "rowLocalHitNotExplicitSlashSeam"
+        )
+        #expect(resolver.wrappedPathSeed(in: existingFile, column: 2, cwd: "/tmp") == nil)
+    }
+
+    // The narrow exception itself must NOT be classified as an absence —
+    // `wrappedPathSeed` returns a real (provisional) seed for this shape,
+    // so `diagnoseSeedAbsence` is never even called for it in practice;
+    // this only confirms the two methods' decisions stay in sync.
+    @Test func explicitSlashSeamRowLocalHitIsNotAnAbsence() {
+        let directoryRow = "/Users/dev/project/research/docs/"
+        let resolver = TerminalPathResolver(fileExists: existsIn([directoryRow]))
+        #expect(resolver.wrappedPathSeed(in: directoryRow, column: 5, cwd: "/tmp") != nil)
+    }
+}
+
+// impl-bugB-diagnostics-v2 — format/consistency checks only, no resolver
+// heuristic change (task's own boundary). `evaluateWrappedCandidate` must
+// make the EXACT same decision `resolveWrappedCandidate`/
+// `diagnoseWrappedCandidate` already did (it now delegates to it), and
+// `diagnoseCandidateShape` must report accurate, non-raw shape flags,
+// including for a direction the real resolution stops short of.
+@Suite struct TerminalWrappedCandidateDiagnosticsV2Tests {
+    @Test func evaluateWrappedCandidateMatchesTheExistingPublicAPIsExactly() throws {
+        let cwd = "/tmp"
+        let previousRow = "/Users/dev/project/research/docs/"
+        let clickedRow = "notes/report.md"
+        let joinedFile = previousRow + clickedRow
+        let resolver = TerminalPathResolver(fileExists: existsIn([previousRow, joinedFile]))
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
+
+        let evaluated = resolver.evaluateWrappedCandidate(seed: seed, previousRow: previousRow, nextRow: nil, cwd: cwd)
+        let resolved = resolver.resolveWrappedCandidate(seed: seed, previousRow: previousRow, nextRow: nil, cwd: cwd)
+        let diagnosed = resolver.diagnoseWrappedCandidate(seed: seed, previousRow: previousRow, nextRow: nil, cwd: cwd)
+
+        #expect(evaluated.candidate == resolved)
+        #expect(evaluated.outcomes == diagnosed)
+        #expect(evaluated.candidate?.path == joinedFile)
+    }
+
+    @Test func diagnoseCandidateShapeReportsAccurateNonRawFlagsPastAFailingGuard() throws {
+        // The review's own counter-example shape: clicked token alone
+        // doesn't exist, adjacent fragment alone doesn't exist, but the
+        // fragment has no `/` or `.` so `leadingPieceIsPathPrefixShaped`
+        // is false for `.previous` — the exact guard the real resolution
+        // stops at (`leadingPieceNotPathPrefixShaped`), while the
+        // diagnostic still reports every other flag past it.
+        let cwd = "/tmp"
+        let clickedRow = "bar"
+        let previousRow = "foo"
+        let resolver = TerminalPathResolver(fileExists: existsIn([]))
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
+
+        let shape = resolver.diagnoseCandidateShape(
+            seed: seed, previousRow: previousRow, nextRow: nil, cwd: cwd,
+            cellRow: 5, cellColumn: 0, gridColumns: 80
+        )
+
+        #expect(shape.cellRow == 5)
+        #expect(shape.cellColumn == 0)
+        #expect(shape.gridColumns == 80)
+        #expect(shape.tokenShape.length == 3)
+        #expect(shape.tokenShape.containsSlash == false)
+        #expect(shape.tokenShape.containsDot == false)
+        #expect(shape.tokenShape.firstCharacterClass == .alphanumeric)
+
+        let previousDiagnostic = try #require(shape.directions[.previous])
+        #expect(previousDiagnostic.outcome == .leadingPieceNotPathPrefixShaped)
+        let fragmentShape = try #require(previousDiagnostic.fragmentShape)
+        #expect(fragmentShape.length == 3)
+        #expect(fragmentShape.containsSlash == false)
+        #expect(previousDiagnostic.leadingPieceIsPathPrefixShaped == false)
+        // Computed PAST the failing guard, purely for diagnosis — the
+        // real resolution never reaches these two checks for this
+        // direction, but the diagnostic still reports them.
+        #expect(previousDiagnostic.candidateIsPathShaped == false)
+        #expect(previousDiagnostic.fragmentAloneExists == false)
+        #expect(previousDiagnostic.candidateExists == false)
+    }
+
+    @Test func diagnoseCandidateShapeReportsNoFragmentWhenExtractionFails() throws {
+        let cwd = "/tmp"
+        let clickedRow = "notes/report.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([]))
+        let seed = try #require(resolver.wrappedPathSeed(in: clickedRow, column: 0, cwd: cwd))
+
+        // A non-ASCII previous row fails fragment extraction outright.
+        let shape = resolver.diagnoseCandidateShape(
+            seed: seed, previousRow: "caf\u{e9}", nextRow: nil, cwd: cwd,
+            cellRow: 0, cellColumn: 0, gridColumns: 40
+        )
+        let previousDiagnostic = try #require(shape.directions[.previous])
+        #expect(previousDiagnostic.outcome == .noFragment)
+        #expect(previousDiagnostic.fragmentShape == nil)
+        #expect(previousDiagnostic.leadingPieceIsPathPrefixShaped == nil)
+        #expect(previousDiagnostic.candidateIsPathShaped == nil)
+        #expect(previousDiagnostic.fragmentAloneExists == nil)
+        #expect(previousDiagnostic.candidateExists == nil)
+    }
+}

@@ -210,4 +210,102 @@ struct TerminalHoverIndicatorStateTests {
         // Promotes exactly once, to the LATEST deferred result (latest-wins).
         #expect(state.displayedURL == "https://example.com/still-not-surfaced")
     }
+
+    // impl-flicker-fix (review-flicker-fix-confirm.md §5, cmux integration
+    // items 12-15) — confirms this EXISTING reducer, unmodified by the
+    // flicker fix itself, correctly handles the event sequence Ghostty's
+    // now-fixed core actually produces: no more spurious `inactive`
+    // while the pointer stays within a resolved link's ranges, and a
+    // real `inactive` exactly once when it truly leaves them.
+
+    // 12+13. Several same-range cell moves (Ghostty core no longer emits
+    // any `inactive` for these — see `Mouse.updateExternalHoverPointerCell`'s
+    // Zig-side tests) must never transition the indicator away from the
+    // external path; a REAL range-exit inactive (immediately after) must
+    // then promote whatever native result was deferred during that
+    // sequence, exactly once.
+    @Test("Same-range cell moves never transition away from external; a real range exit promotes deferred native")
+    func sameRangeMovesStayExternalThenRealExitPromotesDeferredNative() {
+        var state = TerminalHoverIndicatorState()
+        state.receiveExternalActive(event: 1, token: Self.token(1), path: "/full/two/line/path.md")
+
+        // Several same-range cell moves — Ghostty core produces NO
+        // `inactive` for any of these post-fix, so the reducer only ever
+        // sees native results (occasionally resent by Ghostty for
+        // adjacent cells) arriving while external stays active.
+        for event in UInt64(2)...5 {
+            state.receiveNative(event: event, url: "https://example.com/fragment-\(event)")
+            #expect(state.displayedOwner == .external(hoverEventID: 1, token: Self.token(1)))
+            #expect(state.displayedURL == "/full/two/line/path.md")
+        }
+
+        // The pointer genuinely leaves the range — Ghostty core's
+        // input-time invalidation produces exactly one real `inactive`.
+        state.receiveExternalInactive(event: 1, token: Self.token(1))
+
+        // Promotes to the LATEST deferred native from the sequence above.
+        #expect(state.displayedOwner == .native(hoverEventID: 5))
+        #expect(state.displayedURL == "https://example.com/fragment-5")
+    }
+
+    // 14. Moving back to the original range at native (post-fix) speed —
+    // i.e. before any fresh setter call has resolved a new candidate —
+    // must not revive the old external owner. Only a genuinely fresh
+    // `receiveExternalActive` (standing in for a fresh setter/ack) can
+    // reactivate it.
+    @Test("Returning to the original range does not revive the old owner without a fresh activation")
+    func returningToOriginalRangeDoesNotReviveWithoutFreshActivation() {
+        var state = TerminalHoverIndicatorState()
+        state.receiveExternalActive(event: 1, token: Self.token(1), path: "/external/path")
+        state.receiveExternalInactive(event: 1, token: Self.token(1))
+        #expect(state.displayedOwner == .none)
+
+        // A stale/duplicate redelivery of the same inactive (e.g. a
+        // retried ack) while nothing has re-activated is a no-op, not a
+        // revival.
+        state.receiveExternalInactive(event: 1, token: Self.token(1))
+        #expect(state.displayedOwner == .none)
+
+        // Only a genuinely fresh activation (a new event AND a new
+        // token, standing in for a real new setter call after the
+        // pointer re-entered the range and Ghostty re-resolved it)
+        // reactivates — never the OLD token.
+        state.receiveExternalActive(event: 2, token: Self.token(2), path: "/external/path")
+        #expect(state.displayedOwner == .external(hoverEventID: 2, token: Self.token(2)))
+    }
+
+    // 15. Scroll: the host's own scroll-triggered withdrawal
+    // (`GhosttyNSView`'s `GHOSTTY_ACTION_SCROLLBAR` handler, routed
+    // through this same `receiveExternalInactive` entry point per
+    // `TerminalHoverIndicatorState`'s "Host-initiated withdrawal" doc)
+    // can race Ghostty core's own viewport-identity invalidation (the
+    // physical-token mismatch from `row_space_revision`/offset changing
+    // — see `renderer/link.zig`'s viewport-identity tests) for the exact
+    // SAME scroll. Both ultimately funnel through `receiveExternalInactive`
+    // for the SAME `(event, token)`; regardless of delivery order or
+    // duplication, the reducer must converge to `.none` exactly once,
+    // idempotently.
+    @Test("Racing scroll-triggered withdrawal and core viewport invalidation converge idempotently")
+    func racingScrollWithdrawalAndCoreInvalidationConvergeIdempotently() {
+        var hostTriggered = TerminalHoverIndicatorState()
+        hostTriggered.receiveExternalActive(event: 1, token: Self.token(1), path: "/external/path")
+        // Host's scroll handler fires first.
+        hostTriggered.receiveExternalInactive(event: 1, token: Self.token(1))
+        // Core's own viewport-invalidation-driven inactive ack for the
+        // SAME token arrives after — a no-op, not a second transition.
+        hostTriggered.receiveExternalInactive(event: 1, token: Self.token(1))
+        #expect(hostTriggered.displayedOwner == .none)
+
+        var coreTriggered = TerminalHoverIndicatorState()
+        coreTriggered.receiveExternalActive(event: 1, token: Self.token(1), path: "/external/path")
+        // Reversed order: core's invalidation-driven inactive arrives
+        // first, the host's own scroll withdrawal for the same token
+        // arrives after.
+        coreTriggered.receiveExternalInactive(event: 1, token: Self.token(1))
+        coreTriggered.receiveExternalInactive(event: 1, token: Self.token(1))
+        #expect(coreTriggered.displayedOwner == .none)
+
+        // Both orderings converge to the exact same final state.
+        #expect(hostTriggered == coreTriggered)
+    }
 }

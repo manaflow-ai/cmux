@@ -1,4 +1,5 @@
 import Testing
+import os
 @testable import CmuxTerminalCore
 
 /// A deterministic task queue standing in for `DispatchQueue.main.async`:
@@ -439,5 +440,267 @@ struct ExternalHoverOwnerCoordinatorTests {
         #expect(removed == nil)
         #expect(coordinator.currentMailbox.pending == nil)
         #expect(queue.count == 0)
+    }
+
+    // (C) ExternalHover diagnostics — review B2's demand-leak fix: a
+    // withdrawn candidate (pending-only, or already the accepted owner)
+    // will never produce a future terminal ring entry, so
+    // `withdrawUnconditionally` must release whatever demand its own
+    // event armed rather than leaving it retained forever.
+
+    @Test("withdrawUnconditionally releases demand for a PENDING-only candidate that never became owner")
+    func withdrawUnconditionallyReleasesDemandForAPendingOnlyCandidate() {
+        let queue = DeterministicMainQueue()
+        let recorder = ProjectionRecorder()
+        let demandCalls = OSAllocatedUnfairLock(initialState: [Bool]())
+        let coordinator = ExternalHoverOwnerCoordinator(
+            scheduler: { queue.schedule($0) },
+            project: { recorder.record($0) },
+            manageDiagnosticsRenderDemand: { active in demandCalls.withLock { $0.append(active) } },
+            diagnosticsEnabled: { true }
+        )
+
+        _ = coordinator.callSetterAndRecordPending(event: 9, path: "/tmp/a") { Self.token(1) }
+        #expect(demandCalls.withLock { $0 } == [true])
+
+        let removed = coordinator.withdrawUnconditionally()
+
+        #expect(removed == nil, "there was no accepted owner, only a pending candidate")
+        #expect(
+            demandCalls.withLock { $0 } == [true, false],
+            "the withdrawn pending candidate's own event must release its demand, even though it never became owner"
+        )
+    }
+
+    @Test("withdrawUnconditionally releases demand for both a distinct pending event and the accepted owner's event")
+    func withdrawUnconditionallyReleasesDemandForBothDistinctEvents() {
+        let queue = DeterministicMainQueue()
+        let recorder = ProjectionRecorder()
+        let demandCalls = OSAllocatedUnfairLock(initialState: [Bool]())
+        let coordinator = ExternalHoverOwnerCoordinator(
+            scheduler: { queue.schedule($0) },
+            project: { recorder.record($0) },
+            manageDiagnosticsRenderDemand: { active in demandCalls.withLock { $0.append(active) } },
+            diagnosticsEnabled: { true }
+        )
+
+        acceptViaRealFlow(coordinator, seed: 1, event: 1, path: "/tmp/accepted")
+        // A DIFFERENT event's setter call is still pending (never
+        // accepted) — its own demand must ALSO release, distinctly from
+        // event 1's.
+        _ = coordinator.callSetterAndRecordPending(event: 2, path: "/tmp/pending") { Self.token(2) }
+        demandCalls.withLock { $0.removeAll() }
+
+        let removed = coordinator.withdrawUnconditionally()
+
+        #expect(removed == Self.entry(1, event: 1, path: "/tmp/accepted"))
+        #expect(
+            demandCalls.withLock { $0 } == [false],
+            "both events' own demand entries are released (the pending one silently, since the owner's event was still outstanding); the single shared render demand only actually calls back once the LAST outstanding event clears, never once per event"
+        )
+    }
+
+    @Test("teardown releases every still-armed demand for the surface, not just the accepted owner's")
+    func teardownReleasesEveryArmedDemand() {
+        let queue = DeterministicMainQueue()
+        let recorder = ProjectionRecorder()
+        let demandCalls = OSAllocatedUnfairLock(initialState: [Bool]())
+        let coordinator = ExternalHoverOwnerCoordinator(
+            scheduler: { queue.schedule($0) },
+            project: { recorder.record($0) },
+            manageDiagnosticsRenderDemand: { active in demandCalls.withLock { $0.append(active) } },
+            diagnosticsEnabled: { true }
+        )
+
+        acceptViaRealFlow(coordinator, seed: 1, event: 1, path: "/tmp/a")
+        _ = coordinator.callSetterAndRecordPending(event: 2, path: "/tmp/b") { Self.token(2) }
+        demandCalls.withLock { $0.removeAll() }
+
+        coordinator.teardown()
+
+        #expect(demandCalls.withLock { $0 } == [false], "teardown releases the whole retained demand exactly once, regardless of how many events armed it")
+    }
+
+    // (C) ExternalHover diagnostics — `manageDiagnosticsRenderDemand`
+    // (design v4 §3.4's "render 後" trigger retention). Review B2: armed
+    // BEFORE `setterCall` runs (never after `callSetterAndRecordPending`
+    // returns) — Ghostty's real setter triggers `queueRender()`
+    // synchronously from inside the C call itself, so arming after the
+    // fact could miss the one guaranteed frame for a static hover. A
+    // rejected setter's terminal outcome is known synchronously, so it
+    // releases immediately rather than staying armed forever. Every case
+    // here overrides `diagnosticsEnabled: { true }` — the real host gate
+    // is always off in a `swift test` process (see
+    // `ExternalHoverDiagnosticsGate`'s own doc); the gate-off case itself
+    // is covered by `ExternalHoverWorkServiceTests`'
+    // `gateOffProductionDefaultCompositionArmsNoDemandAndDrainsNothing`.
+
+    @Test("manageDiagnosticsRenderDemand arms true on every attempt, successful or not")
+    func manageDiagnosticsRenderDemandArmsOnEveryAttempt() {
+        let queue = DeterministicMainQueue()
+        let recorder = ProjectionRecorder()
+        let demandCalls = OSAllocatedUnfairLock(initialState: [Bool]())
+        let coordinator = ExternalHoverOwnerCoordinator(
+            scheduler: { queue.schedule($0) },
+            project: { recorder.record($0) },
+            manageDiagnosticsRenderDemand: { active in demandCalls.withLock { $0.append(active) } },
+            diagnosticsEnabled: { true }
+        )
+
+        let minted = coordinator.callSetterAndRecordPending(event: 1, path: "/tmp/a") { Self.token(1) }
+
+        #expect(minted != nil)
+        #expect(demandCalls.withLock { $0 } == [true])
+    }
+
+    @Test("a rejected setter call arms then immediately releases — it never stays retained")
+    func manageDiagnosticsRenderDemandReleasesImmediatelyOnRejection() {
+        let queue = DeterministicMainQueue()
+        let recorder = ProjectionRecorder()
+        let demandCalls = OSAllocatedUnfairLock(initialState: [Bool]())
+        let coordinator = ExternalHoverOwnerCoordinator(
+            scheduler: { queue.schedule($0) },
+            project: { recorder.record($0) },
+            manageDiagnosticsRenderDemand: { active in demandCalls.withLock { $0.append(active) } },
+            diagnosticsEnabled: { true }
+        )
+
+        let rejectedNil = coordinator.callSetterAndRecordPending(event: 1, path: "/tmp/a") { nil }
+        let rejectedZero = coordinator.callSetterAndRecordPending(event: 2, path: "/tmp/b") { .zero }
+
+        #expect(rejectedNil == nil)
+        #expect(rejectedZero == nil)
+        #expect(
+            demandCalls.withLock { $0 } == [true, false, true, false],
+            "each rejected attempt arms speculatively (before the render could fire) then releases immediately — its terminal outcome is already known synchronously"
+        )
+    }
+
+    @Test("manageDiagnosticsRenderDemand arms BEFORE setterCall runs, never after it returns")
+    func manageDiagnosticsRenderDemandArmsBeforeSetterCallRuns() {
+        let queue = DeterministicMainQueue()
+        let recorder = ProjectionRecorder()
+        let order = OSAllocatedUnfairLock(initialState: [String]())
+        let coordinator = ExternalHoverOwnerCoordinator(
+            scheduler: { queue.schedule($0) },
+            project: { recorder.record($0) },
+            manageDiagnosticsRenderDemand: { _ in order.withLock { $0.append("demand") } },
+            diagnosticsEnabled: { true }
+        )
+
+        _ = coordinator.callSetterAndRecordPending(event: 1, path: "/tmp/a") {
+            order.withLock { $0.append("setterCall") }
+            return Self.token(1)
+        }
+
+        #expect(
+            order.withLock { $0 } == ["demand", "setterCall"],
+            "demand must be armed strictly before setterCall runs, so it precedes Ghostty's own synchronous in-setter queueRender()"
+        )
+    }
+
+    // (C) ExternalHover diagnostics — design v4 §5's `transition` stage.
+    // `logTransition` reuses the SAME match/mutation checks
+    // `receiveTransition` already makes for its production accept/reject
+    // decision (design v4 §7 guard 1) — these tests pin the exact
+    // `TransitionVerdict` each real-world scenario produces.
+
+    private func makeCoordinatorWithTransitionLog(
+        queue: DeterministicMainQueue,
+        recorder: ProjectionRecorder,
+        verdicts: OSAllocatedUnfairLock<[ExternalHoverOwnerCoordinator.TransitionVerdict]>
+    ) -> ExternalHoverOwnerCoordinator {
+        ExternalHoverOwnerCoordinator(
+            scheduler: { queue.schedule($0) },
+            project: { recorder.record($0) },
+            logTransition: { verdict in verdicts.withLock { $0.append(verdict) } }
+        )
+    }
+
+    @Test("logTransition reports a matching accept as active/identityMatched/pendingMatched/committed, with the pending entry's event")
+    func logTransitionReportsAMatchingAccept() {
+        let queue = DeterministicMainQueue()
+        let recorder = ProjectionRecorder()
+        let verdicts = OSAllocatedUnfairLock(initialState: [ExternalHoverOwnerCoordinator.TransitionVerdict]())
+        let coordinator = makeCoordinatorWithTransitionLog(queue: queue, recorder: recorder, verdicts: verdicts)
+
+        let seed: UInt64 = 5
+        _ = coordinator.callSetterAndRecordPending(event: 42, path: "/tmp/a") { Self.token(seed) }
+        let committed = coordinator.receiveTransition(token: Self.token(seed), active: true)
+
+        #expect(committed)
+        #expect(verdicts.withLock { $0 } == [
+            .init(active: true, identityMatched: true, pendingMatched: true, committed: true, event: 42)
+        ])
+    }
+
+    @Test("logTransition reports a mismatched accept as active but neither matched nor committed, with no event")
+    func logTransitionReportsAMismatchedAccept() {
+        let queue = DeterministicMainQueue()
+        let recorder = ProjectionRecorder()
+        let verdicts = OSAllocatedUnfairLock(initialState: [ExternalHoverOwnerCoordinator.TransitionVerdict]())
+        let coordinator = makeCoordinatorWithTransitionLog(queue: queue, recorder: recorder, verdicts: verdicts)
+
+        _ = coordinator.callSetterAndRecordPending(event: 1, path: "/tmp/a") { Self.token(1) }
+        let committed = coordinator.receiveTransition(token: Self.token(99), active: true)
+
+        #expect(!committed)
+        #expect(verdicts.withLock { $0 } == [
+            .init(active: true, identityMatched: false, pendingMatched: false, committed: false, event: nil)
+        ])
+    }
+
+    @Test("logTransition reports a matching inactive ack against the accepted owner as identityMatched/committed, with the owner's event")
+    func logTransitionReportsAMatchingInactiveAgainstTheOwner() {
+        let queue = DeterministicMainQueue()
+        let recorder = ProjectionRecorder()
+        let verdicts = OSAllocatedUnfairLock(initialState: [ExternalHoverOwnerCoordinator.TransitionVerdict]())
+        let coordinator = makeCoordinatorWithTransitionLog(queue: queue, recorder: recorder, verdicts: verdicts)
+
+        let seed: UInt64 = 7
+        acceptViaRealFlow(coordinator, seed: seed, event: 11)
+        queue.drainOneRound()
+        verdicts.withLock { $0.removeAll() } // clear the accept's own verdict; this test is about the inactive ack
+
+        let alwaysTrue = coordinator.receiveTransition(token: Self.token(seed), active: false)
+
+        #expect(alwaysTrue)
+        #expect(verdicts.withLock { $0 } == [
+            .init(active: false, identityMatched: true, pendingMatched: false, committed: true, event: 11)
+        ])
+    }
+
+    @Test("logTransition reports an inactive ack that only matches pending (never became owner) as identityMatched but not committed")
+    func logTransitionReportsAnInactiveMatchingOnlyPending() {
+        let queue = DeterministicMainQueue()
+        let recorder = ProjectionRecorder()
+        let verdicts = OSAllocatedUnfairLock(initialState: [ExternalHoverOwnerCoordinator.TransitionVerdict]())
+        let coordinator = makeCoordinatorWithTransitionLog(queue: queue, recorder: recorder, verdicts: verdicts)
+
+        let seed: UInt64 = 3
+        _ = coordinator.callSetterAndRecordPending(event: 21, path: "/tmp/a") { Self.token(seed) }
+        verdicts.withLock { $0.removeAll() }
+
+        let alwaysTrue = coordinator.receiveTransition(token: Self.token(seed), active: false)
+
+        #expect(alwaysTrue)
+        #expect(verdicts.withLock { $0 } == [
+            .init(active: false, identityMatched: true, pendingMatched: true, committed: false, event: 21)
+        ])
+    }
+
+    @Test("logTransition reports a fully stale inactive ack (matches neither pending nor owner) as identityMatched=false, no event")
+    func logTransitionReportsAFullyStaleInactive() {
+        let queue = DeterministicMainQueue()
+        let recorder = ProjectionRecorder()
+        let verdicts = OSAllocatedUnfairLock(initialState: [ExternalHoverOwnerCoordinator.TransitionVerdict]())
+        let coordinator = makeCoordinatorWithTransitionLog(queue: queue, recorder: recorder, verdicts: verdicts)
+
+        let alwaysTrue = coordinator.receiveTransition(token: Self.token(123), active: false)
+
+        #expect(alwaysTrue)
+        #expect(verdicts.withLock { $0 } == [
+            .init(active: false, identityMatched: false, pendingMatched: false, committed: false, event: nil)
+        ])
     }
 }

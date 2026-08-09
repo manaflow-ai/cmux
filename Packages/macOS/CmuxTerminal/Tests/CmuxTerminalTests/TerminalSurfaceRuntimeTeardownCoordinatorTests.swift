@@ -496,4 +496,78 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         )
         await coordinator.cancelIsolatedHibernationTeardown(afterReservation)
     }
+
+    // (C) ExternalHover diagnostics — drain liveness #6 (design-hover-
+    // diagnostics-v4-final.md §8): "teardownとの競合でuse-after-free/
+    // deadlockが起きない". Both sub-cases below assert the SAME ordering
+    // invariant `admitTeardown` exists to guarantee: `drainDiagnostics`
+    // always runs on a still-live surface, strictly before `freeSurface`
+    // — never after, and never concurrently in a way that could race a
+    // free.
+
+    /// The straightforward admission path (no outstanding hover lease):
+    /// `enqueue` calls `admitTeardown` directly, so the drain must still
+    /// run before the free even with no deferral involved.
+    @Test func immediateTeardownDrainsDiagnosticsBeforeFreeingTheSurface() async {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+        let recorder = TeardownLifetimeRecorder()
+
+        let ticket = coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.drainBeforeFree",
+            surface: surface,
+            runtimeSurfaceGeneration: 0,
+            callbackContext: nil,
+            freeSurface: { _ in recorder.record("free") },
+            drainDiagnostics: { _, _ in recorder.record("drain") }
+        )
+
+        #expect(await ticket.wait(timeout: .seconds(1)))
+        #expect(recorder.snapshot() == ["drain", "free"], "drainDiagnostics must run before freeSurface, never after")
+    }
+
+    /// The deferred-admission path: a teardown request arrives while a
+    /// hover lease is still outstanding, is parked, and only admitted
+    /// once the lease releases — `admitTeardown` runs then, from inside
+    /// `releaseExternalHoverLease`. The drain must still land before the
+    /// free on THIS path too (not just the no-lease-outstanding path
+    /// above), and releasing the lease that was gating the free must not
+    /// deadlock or use-after-free the surface the drain itself just
+    /// touched.
+    @Test func deferredTeardownAfterLeaseReleaseStillDrainsBeforeFreeing() async {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        nonisolated(unsafe) let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+        let lifetimeID = RuntimeSurfaceLifetimeID(surfaceID: UUID(), runtimeSurfaceGeneration: 1)
+        let recorder = TeardownLifetimeRecorder()
+
+        let lease = try? await coordinator.acquireExternalHoverLease(lifetimeID: lifetimeID, surface: surface)
+        guard let lease else {
+            Issue.record("expected a lease to be granted")
+            return
+        }
+
+        let ticket = coordinator.enqueueRuntimeTeardown(
+            id: lifetimeID.surfaceID,
+            workspaceId: UUID(),
+            reason: "test.deferredDrainBeforeFree",
+            surface: surface,
+            runtimeSurfaceGeneration: lifetimeID.runtimeSurfaceGeneration,
+            callbackContext: nil,
+            freeSurface: { _ in recorder.record("free") },
+            drainDiagnostics: { _, _ in recorder.record("drain") }
+        )
+
+        // While the lease is outstanding, teardown must be fully parked
+        // — neither the drain nor the free has run yet.
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(recorder.snapshot().isEmpty, "a deferred teardown must not drain or free while a hover lease is still outstanding")
+
+        await coordinator.releaseExternalHoverLease(lease)
+        #expect(await ticket.wait(timeout: .seconds(1)))
+        #expect(recorder.snapshot() == ["drain", "free"], "the deferred admission must still drain before freeing")
+    }
 }
