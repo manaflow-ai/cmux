@@ -649,16 +649,17 @@ def _lexical_positions(
     such as ``expect(html).toContain("curl https://...")`` from looking like a
     network call while preserving the real ``fetch(...)`` case.
 
-    Interpolated strings need one extra distinction: JavaScript backtick and
-    Python f-string text is inert, while ``${...}`` and ``{...}`` replacement
-    fields are executable code. Shell double quotes also preserve executable
-    ``$(...)`` and backtick substitutions. This remains a conservative lexer,
-    not a full language parser.
+    Interpolated strings need one extra distinction: JavaScript backtick,
+    Python f-string, and Swift string text is inert, while ``${...}``, ``{...}``,
+    and ``\\(...)`` replacement fields are executable code. Shell double quotes
+    also preserve executable ``$(...)`` and backtick substitutions. This
+    remains a conservative lexer, not a full language parser.
     """
     executable = bytearray(len(line))
     comments = bytearray(len(line))
-    # Contexts are (kind, brace_depth, closing_delimiter). Only interpolation
-    # contexts use brace depth; nested quote/template contexts sit above them.
+    # Contexts are (kind, nesting, closing_delimiter). Interpolation contexts
+    # use nesting as their delimiter depth; Swift raw string text stores its
+    # opening hash count there. Nested quote/template contexts sit above them.
     contexts: list[tuple[str, int, str]] = [("code", 0, "")]
     is_shell = path_suffix == ".sh"
     index = 0
@@ -686,8 +687,24 @@ def _lexical_positions(
             continue
 
         if kind == "string-text":
+            swift_interpolation = (
+                "\\" + ("#" * brace_depth) + "("
+                if path_suffix == ".swift"
+                else ""
+            )
+            if swift_interpolation and line.startswith(
+                swift_interpolation,
+                index,
+            ):
+                interpolation_end = index + len(swift_interpolation)
+                executable[index:interpolation_end] = (
+                    b"\x01" * len(swift_interpolation)
+                )
+                contexts.append(("swift-string-expression", 1, ""))
+                index = interpolation_end
+                continue
             if character == "\\":
-                index += 2
+                index += 1 if path_suffix == ".swift" and brace_depth else 2
                 continue
             if line.startswith(delimiter, index):
                 contexts.pop()
@@ -830,8 +847,26 @@ def _lexical_positions(
             index += 2
             continue
         if character in ("'", '"'):
-            quote_delimiter = character if is_shell else _quote_delimiter_at(line, index)
-            for delimiter_index in range(index, min(index + len(quote_delimiter), len(line))):
+            opening_delimiter = (
+                character
+                if is_shell
+                else _quote_delimiter_at(line, index)
+            )
+            swift_raw_hashes = 0
+            if path_suffix == ".swift":
+                hash_index = index
+                while hash_index > 0 and line[hash_index - 1] == "#":
+                    hash_index -= 1
+                swift_raw_hashes = index - hash_index
+            closing_delimiter = (
+                opening_delimiter + ("#" * swift_raw_hashes)
+            )
+            opening_start = index - swift_raw_hashes
+            opening_end = min(
+                index + len(opening_delimiter),
+                len(line),
+            )
+            for delimiter_index in range(opening_start, opening_end):
                 executable[delimiter_index] = False
             string_kind = (
                 "shell-double-text"
@@ -842,8 +877,10 @@ def _lexical_positions(
                     else "string-text"
                 )
             )
-            contexts.append((string_kind, 0, quote_delimiter))
-            index += len(quote_delimiter)
+            contexts.append(
+                (string_kind, swift_raw_hashes, closing_delimiter)
+            )
+            index += len(opening_delimiter)
             continue
         if character == "`":
             if is_shell:
@@ -851,9 +888,15 @@ def _lexical_positions(
             else:
                 executable[index] = False
                 contexts.append(("template-text", 0, "`"))
-        elif kind == "shell-command-substitution" and character == "(":
+        elif kind in (
+            "shell-command-substitution",
+            "swift-string-expression",
+        ) and character == "(":
             contexts[-1] = (kind, brace_depth + 1, delimiter)
-        elif kind == "shell-command-substitution" and character == ")":
+        elif kind in (
+            "shell-command-substitution",
+            "swift-string-expression",
+        ) and character == ")":
             if brace_depth == 1:
                 contexts.pop()
             else:
@@ -1878,9 +1921,17 @@ def _launcher_target_ranges(
         opening_paren = line.find("(", launcher.start(), launcher.end())
         if opening_paren == -1:
             continue
-        bounds = _quoted_argument_bounds(line, opening_paren + 1)
-        if bounds is not None and _bounds_contain_offset(bounds, verb_start):
-            return [bounds]
+        arguments = _call_arguments(line, opening_paren, path_suffix)
+        if not arguments:
+            continue
+        command_bounds = arguments[0].value_bounds
+        first_literal = _quoted_argument_bounds(line, command_bounds[0])
+        if (
+            first_literal is not None
+            and first_literal[1] <= command_bounds[1]
+            and _bounds_contain_offset(command_bounds, verb_start)
+        ):
+            return [command_bounds]
 
     for launcher in _ARGV_CALL_LAUNCHER.finditer(line):
         if launcher.start() >= verb_start:
@@ -3965,6 +4016,14 @@ def _self_test() -> int:
         (
             "tests/n18f.py",
             'payload = f"{{requests.get(\'https://api.openai.com/v1/items\')}}"\n',
+        ),
+        # An escaped Swift interpolation marker is inert string text.
+        (
+            "cmuxTests/n18f_swift_escaped_interpolation.swift",
+            (
+                'let example = "\\\\(fetch('
+                '\\"https://api.openai.com/v1/items\\"))"\n'
+            ),
         ),
         # A rendered shell invocation remains inert when the shell launcher is
         # itself inside asserted fixture text.
