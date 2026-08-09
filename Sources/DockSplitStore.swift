@@ -15,6 +15,11 @@ import WebKit
 @MainActor
 @Observable
 final class DockSplitStore: BonsplitDelegate {
+    private struct PanelSurfaceMapping {
+        var primarySurfaceId: TabID
+        var surfaceIds: Set<TabID>
+    }
+
     let workspaceId: UUID
     let bonsplitController: BonsplitController
 
@@ -41,8 +46,8 @@ final class DockSplitStore: BonsplitDelegate {
     private let browserAvailabilityProvider: () -> Bool
     var panels: [UUID: any Panel] = [:]
     private(set) var surfaceIdToPanelId: [TabID: UUID] = [:]
-    /// Reverse index for O(1) panel-owned tab lookups.
-    @ObservationIgnored private var panelIdToSurfaceId: [UUID: TabID] = [:]
+    /// Reverse index for O(1) panel-owned tab lookups and alias promotion.
+    @ObservationIgnored private var panelSurfaceMappings: [UUID: PanelSurfaceMapping] = [:]
     private var lastTerminalFontSizeLineage: TerminalFontSizeLineage?
     weak var terminalFontSizeChangeCoordinator:
         WorkspaceTerminalFontSizeCoordinator?
@@ -351,26 +356,41 @@ final class DockSplitStore: BonsplitDelegate {
             removeSurfaceMapping(forSurfaceId: surfaceId)
         }
         surfaceIdToPanelId[surfaceId] = panelId
-        panelIdToSurfaceId[panelId] = surfaceId
+        if var mapping = panelSurfaceMappings[panelId] {
+            mapping.primarySurfaceId = surfaceId
+            mapping.surfaceIds.insert(surfaceId)
+            panelSurfaceMappings[panelId] = mapping
+        } else {
+            panelSurfaceMappings[panelId] = PanelSurfaceMapping(
+                primarySurfaceId: surfaceId,
+                surfaceIds: [surfaceId]
+            )
+        }
     }
 
     /// Removes one Dock tab mapping, promoting a remaining alias when necessary.
     func removeSurfaceMapping(forSurfaceId surfaceId: TabID) {
         guard let panelId = surfaceIdToPanelId.removeValue(forKey: surfaceId),
-              panelIdToSurfaceId[panelId] == surfaceId else {
+              var mapping = panelSurfaceMappings[panelId] else {
             return
         }
-        panelIdToSurfaceId[panelId] = surfaceIdToPanelId.first {
-            $0.value == panelId
-        }?.key
+        mapping.surfaceIds.remove(surfaceId)
+        guard let replacementSurfaceId = mapping.surfaceIds.first else {
+            panelSurfaceMappings.removeValue(forKey: panelId)
+            return
+        }
+        if mapping.primarySurfaceId == surfaceId {
+            mapping.primarySurfaceId = replacementSurfaceId
+        }
+        panelSurfaceMappings[panelId] = mapping
     }
 
     /// Removes every Dock tab mapping for a panel.
     func removeSurfaceMappings(forPanelId panelId: UUID) {
-        panelIdToSurfaceId.removeValue(forKey: panelId)
-        for surfaceId in surfaceIdToPanelId.compactMap({ entry in
-            entry.value == panelId ? entry.key : nil
-        }) {
+        guard let mapping = panelSurfaceMappings.removeValue(forKey: panelId) else {
+            return
+        }
+        for surfaceId in mapping.surfaceIds {
             surfaceIdToPanelId.removeValue(forKey: surfaceId)
         }
     }
@@ -378,11 +398,11 @@ final class DockSplitStore: BonsplitDelegate {
     /// Clears both directions of the Dock tab-to-panel registry.
     func removeAllSurfaceMappings() {
         surfaceIdToPanelId.removeAll()
-        panelIdToSurfaceId.removeAll()
+        panelSurfaceMappings.removeAll()
     }
 
     func surfaceId(forPanelId panelId: UUID) -> TabID? {
-        panelIdToSurfaceId[panelId]
+        panelSurfaceMappings[panelId]?.primarySurfaceId
     }
 
     func paneId(forPanelId panelId: UUID) -> PaneID? {
@@ -979,7 +999,7 @@ final class DockSplitStore: BonsplitDelegate {
             }
             panelCancellables[panel.id] = cancellable
         } else if let filePreview = panel as? FilePreviewPanel {
-            let updates = filePreview.tabMetadataUpdates
+            let updates = filePreview.makeTabMetadataUpdates()
             let observationTask = Task { @MainActor [weak self, weak filePreview] in
                 for await update in updates {
                     guard !Task.isCancelled else { break }

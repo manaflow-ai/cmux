@@ -134,7 +134,7 @@ extension DockSplitStore {
                 focus: true
             )
             if remainingPanels.isEmpty {
-                focusPanel(splitResult.panel.id)
+                focusPanelFromDockInteraction(splitResult.panel.id, window: nil)
             }
             return true
         }
@@ -166,7 +166,7 @@ extension DockSplitStore {
             }
         }
         if focus, let finalPanel = openedPanels.last {
-            focusPanel(finalPanel.id)
+            focusPanelFromDockInteraction(finalPanel.id, window: nil)
         } else {
             restoreDockPaneSelection(previousFocus)
         }
@@ -261,7 +261,7 @@ extension DockSplitStore {
         installSubscription(for: panel, tracksTerminalTitle: false)
         recordExplicitPanelCreation()
         if focus {
-            focusPanel(panel.id)
+            focusPanelFromDockInteraction(panel.id, window: nil)
         }
         return (panel, newPane)
     }

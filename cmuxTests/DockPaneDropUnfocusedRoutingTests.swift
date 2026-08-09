@@ -179,6 +179,8 @@ struct DockPaneDropUnfocusedRoutingTests {
             )
             #expect(dragHit === target)
             #expect(dropHit === target)
+            target.draggingEnded(draggingInfo)
+            #expect(!host.hasActivePaneDropDrag)
         }
     }
 
@@ -328,9 +330,10 @@ struct DockPaneDropUnfocusedRoutingTests {
     @MainActor
     func plainFinderFileDropIntoGlobalDockTerminalInsertsPath() async throws {
         try await withGlobalDockTerminalFileDrop(defaultBehavior: .text) {
-            target, draggingInfo, dock, terminalPanel, fileURL, terminalInputs in
+            target, draggingInfo, dock, terminalPanel, _, terminalInputs, terminalInputContinuation in
             #expect(target.draggingEntered(draggingInfo) == .copy)
             #expect(target.performDragOperation(draggingInfo))
+            terminalInputContinuation.finish()
 
             var inputIterator = terminalInputs.makeAsyncIterator()
             let nextInput = await inputIterator.next()
@@ -342,10 +345,7 @@ struct DockPaneDropUnfocusedRoutingTests {
             case .namedKey(let name):
                 inputText = name
             }
-            let expectedPathText = TerminalImageTransferPlanner.insertedText(
-                forFileURLs: [fileURL]
-            )
-            #expect(inputText.contains(expectedPathText))
+            #expect(inputText == "/tmp/cmux\\ issue\\ 9747/dragged\\ image.png")
             #expect(dock.panels.count == 1)
             #expect(dock.panels[terminalPanel.id] === terminalPanel)
             #expect(dock.focusedPanelId == terminalPanel.id)
@@ -364,7 +364,7 @@ struct DockPaneDropUnfocusedRoutingTests {
         ) == .preview)
 
         try await withGlobalDockTerminalFileDrop(defaultBehavior: .preview) {
-            target, draggingInfo, dock, terminalPanel, fileURL, _ in
+            target, draggingInfo, dock, terminalPanel, fileURL, _, _ in
             #expect(target.draggingEntered(draggingInfo) == .copy)
             #expect(target.performDragOperation(draggingInfo))
             #expect(dock.bonsplitController.allPaneIds.count == 2)
@@ -528,7 +528,8 @@ struct DockPaneDropUnfocusedRoutingTests {
             DockSplitStore,
             TerminalPanel,
             URL,
-            AsyncStream<TerminalManualInput>
+            AsyncStream<TerminalManualInput>,
+            AsyncStream<TerminalManualInput>.Continuation
         ) async throws -> Void
     ) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
@@ -640,7 +641,8 @@ struct DockPaneDropUnfocusedRoutingTests {
                 dock,
                 terminalPanel,
                 fileURL,
-                terminalInputs
+                terminalInputs,
+                terminalInputContinuation
             )
         }
     }

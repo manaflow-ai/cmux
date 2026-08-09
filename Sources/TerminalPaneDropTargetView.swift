@@ -114,6 +114,13 @@ final class PaneDropTargetView: NSView {
         clearActiveDropContainer()
     }
 
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        super.draggingEnded(sender)
+        dropRoutingRegistration.clear(sender)
+        clearDragState(phase: "ended")
+        clearActiveDropContainer()
+    }
+
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let modifierFlags = DragOverlayRoutingPolicy.currentModifierFlags
         defer {

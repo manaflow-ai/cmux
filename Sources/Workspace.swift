@@ -4274,7 +4274,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func installFilePreviewPanelSubscription(_ filePreviewPanel: FilePreviewPanel) {
-        let updates = filePreviewPanel.tabMetadataUpdates
+        let updates = filePreviewPanel.makeTabMetadataUpdates()
         let observationTask = Task { @MainActor [weak self, weak filePreviewPanel] in
             for await metadata in updates {
                 guard !Task.isCancelled else { break }

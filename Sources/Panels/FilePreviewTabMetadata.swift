@@ -12,7 +12,7 @@ nonisolated struct FilePreviewTabMetadata: Equatable, Sendable {
 
 extension FilePreviewPanel {
     /// Creates a latest-value stream owned and emitted by this panel.
-    var tabMetadataUpdates: AsyncStream<FilePreviewTabMetadata> {
+    func makeTabMetadataUpdates() -> AsyncStream<FilePreviewTabMetadata> {
         let observationID = UUID()
         let (stream, continuation) = AsyncStream<FilePreviewTabMetadata>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
