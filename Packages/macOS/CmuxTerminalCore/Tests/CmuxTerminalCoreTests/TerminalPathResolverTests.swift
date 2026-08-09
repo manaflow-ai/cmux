@@ -1305,12 +1305,10 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
 
 // final-spec-scope-expansion-8810.md §10/§14 — bug A's 10 fixtures above
 // (`TerminalSlashSeamContinuationTests`), each re-run through the
-// geometry-aware, window-based overload and checked against the SAME
-// legacy (non-geometry) result: identical `path`/`cellSpans`/
-// `nativeMatchKeys` when a candidate resolves, identical `nil` when it
-// doesn't. This is final-spec §10's actual compatibility guarantee — a
-// fixture that only stays green through `geometry: nil` would never catch
-// a regression in the geometry-aware path production eventually adopts.
+// geometry-aware, window-based overload. The legacy result remains the
+// parity oracle for the existing shapes; fixture #5 is the intentional
+// symptom-2 exception because the geometry evaluator now accepts its
+// bounded leading indentation while the legacy pin stays nil.
 // Fixture #8 (`rowLocalRegularFileHitIsNeverOverriddenByAnAdjacentRow`)
 // only exercises `wrappedPathSeed` (never reaches `resolveWrappedCandidate`
 // at all), so there is nothing to parameterize — 9 of the 10 apply here.
@@ -1421,7 +1419,7 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
     }
 
     // 5. indentedContinuationAfterSlashSeamDoesNotJoin
-    @Test func fixture5IndentedContinuationStaysNilViaGeometryToo() throws {
+    @Test func fixture5IndentedContinuationUsesBoundedLeadingSeamViaGeometry() throws {
         let cwd = "/tmp"
         let previousRow = "/Users/dev/project/research/docs/"
         let indentedClickedRow = "    notes/report.md"
@@ -1437,7 +1435,11 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
                 rows: [previousRow, indentedClickedRow], clickedIndex: 1, columns: previousRow.count
             )
         )
-        #expect(resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry) == nil)
+        let viaGeometry = try #require(
+            resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry)
+        )
+        #expect(viaGeometry.path == joinedFile)
+        expectAvailableCellSpans(viaGeometry.cellSpans)
     }
 
     // 6. bareRelativeDogfoodRowsResolveFromEitherRow (leading/continuation

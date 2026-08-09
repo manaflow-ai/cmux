@@ -185,9 +185,11 @@ import Testing
                 onRead?()
                 return Self.coherentSnapshot(topRow: topRow, rowCount: rowCount, columns: expectedColumns)
             },
-            callSetter: { _, _, _, _, _, hostEventID in
+            callSetter: { _, _, _, text, ranges, hostEventID in
                 counts.setterCalls += 1
                 counts.setterHostEventIDs.append(hostEventID)
+                counts.lastSetterText = text
+                counts.lastSetterRanges = ranges
                 return setterResult
             },
             callClear: { _, token in
@@ -1157,8 +1159,23 @@ import Testing
         #expect(onCounts.windowPreparationCalls == 1, "structured outcome must prepare one evaluation window")
         #expect(onCounts.evaluatorCalls == 1, "structured outcome must evaluate once")
         #expect(offCounts.setterCalls == onCounts.setterCalls, "gate choice must preserve acceptance")
-        #expect(offCounts.lastSetterText == onCounts.lastSetterText, "gate choice must preserve candidate text")
-        #expect(offCounts.lastSetterRanges == onCounts.lastSetterRanges, "gate choice must preserve cell ranges")
+        #expect(offCounts.lastSetterText != nil)
+        #expect(onCounts.lastSetterText != nil)
+        #expect(offCounts.lastSetterText == onCounts.lastSetterText, "gate choice must preserve physical snapshot text")
+
+        let expectedRanges = [
+            ExternalHoverCellRangeValue(row: 4, startColumn: 0, endColumn: UInt16(Self.previousRowText.count)),
+            ExternalHoverCellRangeValue(row: 5, startColumn: 0, endColumn: UInt16(Self.clickedRowText.count)),
+        ]
+        #expect(offCounts.lastSetterRanges?.sorted { $0.row < $1.row } == expectedRanges)
+        #expect(onCounts.lastSetterRanges?.sorted { $0.row < $1.row } == expectedRanges)
+
+        let offCache = await offService.debugCache(for: offLifetimeID)
+        let onCache = await onService.debugCache(for: onLifetimeID)
+        #expect(offCache?.path == Self.existingPath)
+        #expect(onCache?.path == Self.existingPath)
+        #expect(offCache?.ranges.sorted { $0.row < $1.row } == expectedRanges)
+        #expect(onCache?.ranges.sorted { $0.row < $1.row } == expectedRanges)
     }
 #endif
 

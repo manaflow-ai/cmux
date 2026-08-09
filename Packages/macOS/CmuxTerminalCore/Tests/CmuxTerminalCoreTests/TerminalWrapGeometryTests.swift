@@ -140,6 +140,112 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(candidateFromRow1(row1: "/bar/", geometry: nil) == nil)
     }
 
+    /// The exact capture-pane fixture from the confirmed symptom-3 repro:
+    /// all three rows are preserved byte-for-byte, including two leading
+    /// spaces on the continuation rows. The first row's `s-code` prefix is
+    /// deliberately an existing path so the row-3 click exercises the
+    /// fragment-alone guard bypass licensed by the mirror slash seam.
+    @Test("The captured indented mirror-slash fixture resolves from every row and through hover")
+    func capturedIndentedMirrorSlashFixtureResolvesFromEveryRowAndHover() throws {
+        let rows = [
+            "  - md: /Users/yosuke/workspace/github.com/TMLlaboratory/s-code",
+            "  /research/docs/notes/2026-07-31_key_cost_volume_price_and_pro",
+            "  bability_floor.md",
+        ]
+        #expect(rows.map(\.count) == [63, 63, 19])
+        let cwd = "/Users/yosuke/workspace/github.com/TMLlaboratory/s-code"
+        let prefix = "/Users/yosuke/workspace/github.com/TMLlaboratory/s-code"
+        let expected = prefix + "/research/docs/notes/2026-07-31_key_cost_volume_price_and_probability_floor.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([prefix, expected]))
+        let geometry = try #require(TerminalWrapGeometry(fullnessTolerance: 0))
+        let expectedSpans: Set<[Int]> = [
+            [0, 8, 63],
+            [1, 2, 63],
+            [2, 2, 19],
+        ]
+
+        func resolve(clickedIndex: Int) throws -> (click: TerminalWrappedPathResolution, hover: TerminalWrappedPathResolution) {
+            let clickColumn = clickedIndex == 0 ? 8 : 2
+            let seed = try #require(
+                resolver.wrappedPathSeed(in: rows[clickedIndex], column: clickColumn, cwd: cwd, columns: 63)
+            )
+            let window = try #require(
+                TerminalPhysicalRowWindow(rows: rows, clickedIndex: clickedIndex, columns: 63)
+            )
+            let click = try #require(
+                resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry)
+            )
+            let hover = try #require(
+                resolver.resolveWrappedCandidate(
+                    seed: seed, rows: rows, clickedIndex: clickedIndex, columns: 63, cwd: cwd, purpose: .hover
+                )
+            )
+            return (click: click, hover: hover)
+        }
+
+        func absoluteSpans(_ resolution: TerminalWrappedPathResolution, clickedIndex: Int) -> Set<[Int]> {
+            guard case .available(let spans) = resolution.cellSpans else {
+                Issue.record("captured fixture must expose exact cell spans")
+                return []
+            }
+            return Set(spans.map { span in
+                [clickedIndex + span.rowOffsetFromClicked, span.startColumn, span.endColumn]
+            })
+        }
+
+        for clickedIndex in rows.indices {
+            let resolutions = try resolve(clickedIndex: clickedIndex)
+            #expect(resolutions.click.path == expected)
+            #expect(resolutions.hover.path == expected)
+            #expect(absoluteSpans(resolutions.click, clickedIndex: clickedIndex) == expectedSpans)
+            #expect(absoluteSpans(resolutions.hover, clickedIndex: clickedIndex) == expectedSpans)
+        }
+
+        // The existing unindented `/` fixture remains a valid col-0 seam.
+        let unindentedRows = ["foo", "/bar/", "baz.md"]
+        let unindentedResolver = TerminalPathResolver(fileExists: existsIn(["/tmp/foo", "/tmp/foo/bar/baz.md"]))
+        let unindentedSeed = try #require(
+            unindentedResolver.wrappedPathSeed(in: unindentedRows[1], column: 0, cwd: "/tmp", columns: 3)
+        )
+        let unindentedWindow = try #require(
+            TerminalPhysicalRowWindow(rows: unindentedRows, clickedIndex: 1, columns: 3)
+        )
+        #expect(
+            unindentedResolver.resolveWrappedCandidate(
+                seed: unindentedSeed, window: unindentedWindow, cwd: "/tmp", geometry: geometry
+            )?.path == "/tmp/foo/bar/baz.md"
+        )
+
+        // Indentation beyond the shared extractor bound remains fail-closed.
+        let overIndentedRows = ["foo", String(repeating: " ", count: 17) + "/bar/", "baz.md"]
+        let overIndentedResolver = TerminalPathResolver(fileExists: existsIn(["/tmp/foo", "/tmp/foo/bar/baz.md"]))
+        #expect(overIndentedRows[1].leadingContinuationFragmentWithRange(maxIndentation: 16) == nil)
+        let overIndentedSeed = TerminalWrappedPathSeed(
+            directions: [.previous], token: "/bar/", tokenStartColumn: 17, tokenEndColumn: 22,
+            disposition: .noRowLocalHit
+        )
+        let overIndentedWindow = try #require(
+            TerminalPhysicalRowWindow(rows: overIndentedRows, clickedIndex: 1, columns: 3)
+        )
+        #expect(
+            overIndentedResolver
+                .resolveWrappedCandidate(seed: overIndentedSeed, window: overIndentedWindow, cwd: "/tmp", geometry: geometry) == nil
+        )
+
+        // A non-ASCII lower row must fail at the seam itself, before the
+        // later cell-column extractor reports that it cannot evaluate it.
+        let nonASCIIRows = ["foo", "/研究", "baz.md"]
+        let nonASCIIResolver = TerminalPathResolver(fileExists: existsIn(["/tmp/foo", "/tmp/foo/研究"]))
+        let nonASCIISeed = try #require(
+            nonASCIIResolver.wrappedPathSeed(in: nonASCIIRows[0], column: 0, cwd: "/tmp", columns: 3)
+        )
+        let nonASCIIOutcome = nonASCIIResolver.resolveWrappedCandidateWithOutcome(
+            seed: nonASCIISeed, rows: nonASCIIRows, clickedIndex: 0, columns: 3, cwd: "/tmp", purpose: .hover
+        )
+        #expect(nonASCIIOutcome.candidate == nil)
+        #expect(nonASCIIOutcome.evaluatorOutcome?.diagnosticName == "rowLocalPriorityBypass")
+    }
+
     // Existing 2-row bug A behavior remains unchanged for the ordinary
     // non-explicit-slash fixture below; the explicit trailing-slash
     // disposition has a separate multi-row rule pinned by the next test.
@@ -206,6 +312,146 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         let window = try #require(TerminalPhysicalRowWindow(rows: rows, clickedIndex: 0, columns: 5))
         let candidate = resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry)
         #expect(candidate?.path == dominatingThreeRowCandidate)
+    }
+
+    /// Symptom 2's confirmed production shape: the clicked slash-terminated
+    /// row and every continuation row carry the terminal's two-space list
+    /// indentation. The leading legacy seam must use the same bounded
+    /// continuation extractor as `piece(at:)`, so the 3-row candidate is
+    /// still licensed even though the next row does not start at col 0.
+    @Test("An indented slash-terminated 3-row candidate adopts its dominating span")
+    func indentedExplicitTrailingSlashSeamAdoptsADominatingThreeRowCandidate() throws {
+        let cwd = "/tmp/indented-bugA"
+        let leadingRow = "  \(cwd)/research/docs/"
+        let continuationRow = "  notes/report.part_0123456789abcdef"
+        let trailingRow = "  two.md"
+        let prefix = cwd + "/research/docs/"
+        let adjacentCandidate = prefix + "notes/report.part_0123456789abcdef"
+        let dominatingCandidate = adjacentCandidate + "two.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([
+            cwd + "/research/docs", adjacentCandidate, dominatingCandidate,
+        ]))
+        let geometry = try #require(TerminalWrapGeometry(fullnessTolerance: 0))
+        let rows = [leadingRow, continuationRow, trailingRow]
+        let columns = leadingRow.count
+        let seed = try #require(resolver.wrappedPathSeed(in: leadingRow, column: 2, cwd: cwd, columns: columns))
+        #expect(seed.disposition == .explicitTrailingSlashSeamBypass)
+        let window = try #require(TerminalPhysicalRowWindow(rows: rows, clickedIndex: 0, columns: columns))
+        let candidate = try #require(
+            resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry)
+        )
+        #expect(candidate.path == dominatingCandidate)
+        #expect(candidate.cellSpans == .available([
+            TerminalWrappedPathCellSpan(rowOffsetFromClicked: 0, startColumn: 2, endColumn: leadingRow.count),
+            TerminalWrappedPathCellSpan(rowOffsetFromClicked: 1, startColumn: 2, endColumn: continuationRow.count),
+            TerminalWrappedPathCellSpan(rowOffsetFromClicked: 2, startColumn: 2, endColumn: trailingRow.count),
+        ]))
+    }
+
+    /// The second raw capture fixture supplied by the repro: a 50-column
+    /// four-row path whose row-local directory hit is load-bearing. It is
+    /// kept beside the synthetic R8 fixture so the capture's indentation and
+    /// exact widths cannot silently regress to quoted/no-indent prose.
+    @Test("The captured 50-column indented slash continuation resolves from rows 2 through 4")
+    func capturedFiftyColumnIndentedSlashContinuationResolvesFromEveryPathRow() throws {
+        let rows = [
+            "  - html:",
+            "  /Users/yosuke/workspace/github.com/TMLlaboratory",
+            "  /s-code/research/docs/notes/2026-07-31_scaffold_",
+            "  kl_foundations_and_measurement_limits.html",
+        ]
+        #expect(rows.map(\.count) == [9, 50, 50, 44])
+        let directory = "/Users/yosuke/workspace/github.com/TMLlaboratory"
+        let expected = directory + "/s-code/research/docs/notes/2026-07-31_scaffold_kl_foundations_and_measurement_limits.html"
+        let resolver = TerminalPathResolver(fileExists: existsIn([directory, expected]))
+        let geometry = try #require(TerminalWrapGeometry(fullnessTolerance: 0))
+
+        for clickedIndex in 1...3 {
+            let seed = try #require(
+                resolver.wrappedPathSeed(
+                    in: rows[clickedIndex], column: 2, cwd: directory, columns: 50
+                )
+            )
+            let window = try #require(
+                TerminalPhysicalRowWindow(rows: rows, clickedIndex: clickedIndex, columns: 50)
+            )
+            let candidate = try #require(
+                resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: directory, geometry: geometry)
+            )
+            #expect(candidate.path == expected)
+        }
+    }
+
+    /// Listing defense layer 1: when the indented child is itself an
+    /// existing file, the trailing-side fragment-alone probe must reject the
+    /// coincidental wrapped candidate while the directory row remains a
+    /// valid row-local hit.
+    @Test("An existing indented listing child keeps the row-local directory hit")
+    func indentedListingChildExistingRejectsTheWrappedCandidate() throws {
+        let cwd = "/tmp/listing-existing"
+        let directoryRow = cwd + "/dir/"
+        let childRow = "  child.txt"
+        let directory = cwd + "/dir"
+        let child = cwd + "/child.txt"
+        let joined = directoryRow + "child.txt"
+        let resolver = TerminalPathResolver(fileExists: existsIn([directory, child, joined]))
+        let geometry = try #require(TerminalWrapGeometry(fullnessTolerance: 0))
+        let seed = try #require(resolver.wrappedPathSeed(in: directoryRow, column: 0, cwd: cwd, columns: directoryRow.count))
+        let window = try #require(TerminalPhysicalRowWindow(rows: [directoryRow, childRow], clickedIndex: 0, columns: directoryRow.count))
+
+        #expect(resolver.resolveVisibleLinePath(directoryRow, column: 0, cwd: cwd)?.path == directory)
+        #expect(resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry) == nil)
+    }
+
+    /// Listing defense layer 2 is intentionally an acceptance tradeoff: if
+    /// the indented child is not independently present, the same full-width
+    /// directory shape is accepted as a real wrapped candidate.
+    @Test("A missing indented listing child permits the slash-seam join")
+    func indentedListingChildMissingAdoptsTheWrappedCandidate() throws {
+        let cwd = "/tmp/listing-missing"
+        let directoryRow = cwd + "/dir/"
+        let childRow = "  child.txt"
+        let directory = cwd + "/dir"
+        let joined = directoryRow + "child.txt"
+        let resolver = TerminalPathResolver(fileExists: existsIn([directory, joined]))
+        let geometry = try #require(TerminalWrapGeometry(fullnessTolerance: 0))
+        let seed = try #require(resolver.wrappedPathSeed(in: directoryRow, column: 0, cwd: cwd, columns: directoryRow.count))
+        let window = try #require(TerminalPhysicalRowWindow(rows: [directoryRow, childRow], clickedIndex: 0, columns: directoryRow.count))
+
+        #expect(resolver.resolveWrappedCandidate(seed: seed, window: window, cwd: cwd, geometry: geometry)?.path == joined)
+    }
+
+    /// The trailing-side legacy seam remains deliberately col-0-only. In a
+    /// 3-row candidate this forces the existing fragment-alone probe for an
+    /// indented final child, even though the leading-side seam is now allowed
+    /// to use bounded indentation.
+    @Test("The trailing slash seam still probes an indented final child")
+    func trailingSlashSeamKeepsTheIndentedFinalFragmentProbe() throws {
+        let cwd = "/tmp/listing-trailing"
+        let intermediate = "intermediate/0123456789abcdef/"
+        let rows = [
+            cwd + "/dir/",
+            "  \(intermediate)",
+            "  child.txt",
+        ]
+        let directory = cwd + "/dir"
+        let intermediateCandidate = rows[0] + intermediate.dropLast()
+        let intermediateStandalone = cwd + "/" + intermediate.dropLast()
+        let child = cwd + "/child.txt"
+        let joined = rows[0] + intermediate + "child.txt"
+        // Keep the shorter two-row candidate alive, but also make its
+        // continuation fragment independently exist so it cannot mask the
+        // three-row endpoint rejection as `candidateDoesNotExist`.
+        let resolver = TerminalPathResolver(fileExists: existsIn([
+            directory, intermediateCandidate, intermediateStandalone, child, joined,
+        ]))
+        let seed = try #require(resolver.wrappedPathSeed(in: rows[0], column: 0, cwd: cwd, columns: rows[0].count))
+        let outcome = resolver.resolveWrappedCandidateWithOutcome(
+            seed: seed, rows: rows, clickedIndex: 0, columns: rows[0].count, cwd: cwd, purpose: .hover
+        )
+
+        #expect(outcome.candidate == nil)
+        #expect(outcome.evaluatorOutcome?.diagnosticName == "fragmentAloneExists")
     }
 
     // R8 precondition from impl-request-bullet-width-and-slash-multirow-8810:
