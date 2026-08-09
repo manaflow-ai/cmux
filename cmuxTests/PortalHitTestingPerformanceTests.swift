@@ -760,6 +760,9 @@ struct PortalHitTestingPerformanceTests {
         let warmEvent = makeMouseEvent(type: .mouseMoved, at: warmPointInWindow, window: window)
         #expect(host.performHitTest(at: host.convert(warmPointInWindow, from: nil), currentEvent: warmEvent) === hostedView)
 
+        let windowContainer = try #require(rootView.superview)
+        let parkingView = NSView(frame: rootView.frame)
+        windowContainer.addSubview(parkingView, positioned: .below, relativeTo: rootView)
         detachedContainer.removeFromSuperview()
 
         let splitView = CountingSplitView(frame: detachedContainer.bounds)
@@ -771,6 +774,10 @@ struct PortalHitTestingPerformanceTests {
         splitView.setPosition(200, ofDividerAt: 0)
         splitView.adjustSubviews()
         detachedContainer.addSubview(splitView)
+
+        // Re-enter the tracked window through a branch outside the cached root.
+        // The later same-window move must not revive the pre-detachment proof.
+        parkingView.addSubview(detachedContainer)
         container.addSubview(detachedContainer)
 
         let dividerPointInWindow = splitView.convert(
