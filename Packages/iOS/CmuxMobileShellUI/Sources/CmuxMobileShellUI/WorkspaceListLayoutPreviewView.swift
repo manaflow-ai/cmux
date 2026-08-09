@@ -176,7 +176,9 @@ public struct WorkspaceListLayoutPreviewView: View {
     }
 
     @State private var fixtureRoute: FixtureWorkspaceRoute?
-    @State private var pendingSearchFixtureRoute: FixtureWorkspaceRoute?
+    // Mirrors the shell: search results push onto the search tab's own stack.
+    @State private var searchFixturePath: [MobileWorkspacePreview.ID] = []
+    @State private var searchSelectionReturnsToWorkspaces = false
 
     private var scrollMetricsEnabled: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_METRICS"] == "1"
@@ -534,32 +536,16 @@ public struct WorkspaceListLayoutPreviewView: View {
                         workspaceListFixture(searchText: searchText)
                     }
                     .navigationDestination(item: $fixtureRoute) { route in
-                        VStack(spacing: 12) {
-                            Text(
-                                model.workspaces.first(where: { $0.id == route.id })?.name
-                                    ?? route.id.rawValue
-                            )
-                            .font(.title2)
-                            Text("Fixture workspace detail")
-                                .foregroundStyle(.secondary)
-                        }
-                        .accessibilityIdentifier("FixtureWorkspaceDetail")
-                        .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
-                        .navigationBarBackButtonHidden(true)
-                        .toolbar {
-                            ToolbarItem(placement: .topBarLeading) {
-                                WorkspaceBackButton(unreadCount: 0) {
-                                    fixtureRoute = nil
+                        fixtureWorkspaceDetail(for: route.id)
+                            .navigationBarBackButtonHidden(true)
+                            .toolbar {
+                                ToolbarItem(placement: .topBarLeading) {
+                                    WorkspaceBackButton(unreadCount: 0) {
+                                        fixtureRoute = nil
+                                    }
                                 }
                             }
-                        }
                     }
-                }
-                .onAppear {
-                    consumePendingSearchFixtureNavigation()
-                }
-                .onChange(of: pendingSearchFixtureRoute) { _, _ in
-                    consumePendingSearchFixtureNavigation()
                 }
                 .overlay(alignment: .bottomTrailing) {
                     if scrollMetricsEnabled {
@@ -581,11 +567,16 @@ public struct WorkspaceListLayoutPreviewView: View {
                         Text("Notification feed fixture")
                             .foregroundStyle(.secondary)
                     } workspaceSearch: {
-                        NavigationStack {
+                        NavigationStack(path: $searchFixturePath) {
                             MobilePrimaryWorkspaceSearchContentHost(
                                 searchCoordinator: primarySearchCoordinator
                             ) { searchText in
                                 workspaceListFixture(searchText: searchText)
+                            }
+                            // Mirrors the shell: a tapped search result pushes
+                            // inside the search tab with the system back button.
+                            .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
+                                fixtureWorkspaceDetail(for: workspaceID)
                             }
                         }
                     } notificationSearch: {
@@ -597,9 +588,18 @@ public struct WorkspaceListLayoutPreviewView: View {
                 }
             }
         }
-        .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
-            guard !isPresented else { return }
-            consumePendingSearchFixtureNavigation()
+        .onChange(of: selectedPrimaryTab) { oldValue, newValue in
+            if oldValue == .search, newValue != .search {
+                searchFixturePath = []
+                searchSelectionReturnsToWorkspaces = false
+            }
+        }
+        .onChange(of: searchFixturePath) { _, path in
+            guard path.isEmpty, searchSelectionReturnsToWorkspaces else { return }
+            searchSelectionReturnsToWorkspaces = false
+            guard selectedPrimaryTab == .search else { return }
+            primarySearchCoordinator.workspaces = ""
+            selectedPrimaryTab = .workspaces
         }
         .overlay(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
@@ -636,33 +636,33 @@ public struct WorkspaceListLayoutPreviewView: View {
 
     private func selectFixtureWorkspace(_ id: MobileWorkspacePreview.ID) {
         selectedWorkspaceID = id
-        let route = FixtureWorkspaceRoute(id: id)
         if showsTabScaffold,
            selectedPrimaryTab == .search || primarySearchCoordinator.isPresented {
-            pendingSearchFixtureRoute = route
-            transitionPrimaryTab(to: .workspaces)
-        } else {
-            fixtureRoute = route
-        }
-    }
-
-    private func consumePendingSearchFixtureNavigation() {
-        guard !primarySearchCoordinator.isPresented,
-              selectedPrimaryTab == .workspaces,
-              let route = pendingSearchFixtureRoute else { return }
-        pendingSearchFixtureRoute = nil
-        fixtureRoute = route
-    }
-
-    @discardableResult
-    private func transitionPrimaryTab(to tab: MobilePrimaryTab) -> Bool {
-        let previousTab = selectedPrimaryTab
-        if (selectedPrimaryTab == .search || primarySearchCoordinator.isPresented),
-           tab.searchScope != nil {
+            // Mirrors the shell: choosing a result ends the search session so
+            // the field re-collapses to the bottom control after popping back,
+            // and the pop finishes the round on the Workspaces tab.
             primarySearchCoordinator.deactivateCurrentSearch()
+            searchSelectionReturnsToWorkspaces = true
+            if searchFixturePath.last != id {
+                searchFixturePath = [id]
+            }
+        } else {
+            fixtureRoute = FixtureWorkspaceRoute(id: id)
         }
-        selectedPrimaryTab = tab
-        return previousTab != tab
+    }
+
+    private func fixtureWorkspaceDetail(for id: MobileWorkspacePreview.ID) -> some View {
+        VStack(spacing: 12) {
+            Text(
+                model.workspaces.first(where: { $0.id == id })?.name
+                    ?? id.rawValue
+            )
+            .font(.title2)
+            Text("Fixture workspace detail")
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityIdentifier("FixtureWorkspaceDetail")
+        .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
     }
 }
 
