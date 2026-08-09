@@ -162,8 +162,12 @@ struct DockRuntimeParityTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             let previousAppDelegate = AppDelegate.shared
             let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let defaults = UserDefaults.standard
+            let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
+            let previousDockEnabled = defaults.object(forKey: dockEnabledKey)
             let appDelegate = AppDelegate()
             let manager = TabManager(autoWelcomeIfNeeded: false)
+            defaults.set(true, forKey: dockEnabledKey)
             AppDelegate.shared = appDelegate
             appDelegate.tabManager = manager
             TerminalController.shared.setActiveTabManager(manager)
@@ -190,6 +194,11 @@ struct DockRuntimeParityTests {
                 window.orderOut(nil)
                 window.close()
                 AppDelegate.shared = previousAppDelegate
+                if let previousDockEnabled {
+                    defaults.set(previousDockEnabled, forKey: dockEnabledKey)
+                } else {
+                    defaults.removeObject(forKey: dockEnabledKey)
+                }
             }
 
             let workspace = try #require(manager.tabs.first)
