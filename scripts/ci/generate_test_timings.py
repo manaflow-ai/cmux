@@ -11,11 +11,11 @@ green ci.yml run (``gh run view --job <id> --log > shard.log``):
 It extracts per-test durations from XCTest lines ("Test Case '-[cmuxTests.X
 testY]' passed (N seconds).") and per-suite wall times from Swift Testing
 lines ("Suite X passed after N seconds."). XCTest class totals are the sum of
-their methods across shards (methods are disjoint); Swift Testing suites run
-their tests in parallel, so the suite wall time is the honest cost. Per-method
-entries are emitted only for classes large enough that the shard planner
-splits them by method (LARGE_SUITE_METHOD_THRESHOLD in
-cmux_unit_test_shard.py).
+their methods across shards (methods are disjoint). Swift Testing methods run
+in parallel within one process batch, so each batch's suite wall time is the
+honest partial cost and distinct batches are summed. Per-method entries are
+emitted only for classes large enough that the shard planner splits them by
+method (LARGE_SUITE_METHOD_THRESHOLD in cmux_unit_test_shard.py).
 """
 
 from __future__ import annotations
@@ -37,6 +37,9 @@ XCTEST_CASE_RE = re.compile(
 SWIFT_TESTING_SUITE_RE = re.compile(
     r"Suite (\w+) (?:passed|failed) after (\d+(?:\.\d+)?) seconds"
 )
+APP_HOST_BATCH_GROUP_RE = re.compile(
+    r"##\[group\]Run app-host process batch (batch-\d+\.args)\b"
+)
 
 
 def main() -> int:
@@ -48,10 +51,20 @@ def main() -> int:
     args = parser.parse_args()
 
     method_ms: dict[str, dict[str, int]] = collections.defaultdict(dict)
-    suite_ms: dict[str, int] = {}
+    unbatched_suite_ms: dict[str, int] = {}
+    batched_suite_ms: dict[tuple[int, str, str], int] = {}
 
-    for log_path in args.logs:
+    for log_index, log_path in enumerate(args.logs):
+        current_batch: str | None = None
         for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            batch_group = APP_HOST_BATCH_GROUP_RE.search(line)
+            if batch_group:
+                current_batch = batch_group.group(1)
+                continue
+            if current_batch is not None and "##[endgroup]" in line:
+                current_batch = None
+                continue
+
             case = XCTEST_CASE_RE.search(line)
             if case:
                 suite, method, seconds = case.group(1), case.group(2), float(case.group(3))
@@ -63,12 +76,28 @@ def main() -> int:
             suite_line = SWIFT_TESTING_SUITE_RE.search(line)
             if suite_line:
                 name, seconds = suite_line.group(1), float(suite_line.group(2))
-                suite_ms[name] = max(suite_ms.get(name, 0), int(seconds * 1000))
+                ms = int(seconds * 1000)
+                if current_batch is None:
+                    unbatched_suite_ms[name] = max(
+                        unbatched_suite_ms.get(name, 0), ms
+                    )
+                else:
+                    key = (log_index, current_batch, name)
+                    batched_suite_ms[key] = max(batched_suite_ms.get(key, 0), ms)
 
-    if not method_ms and not suite_ms:
+    if not method_ms and not unbatched_suite_ms and not batched_suite_ms:
         raise SystemExit("No test timings found in the provided logs")
 
-    suites: dict[str, int] = dict(suite_ms)
+    # A suite may also appear in a focused gate before the main batched shard.
+    # Once batch-scoped observations exist, they are authoritative: sum one
+    # maximum observation per distinct batch and ignore the duplicate focused
+    # execution. Legacy logs without batch markers retain the previous maximum.
+    suites: dict[str, int] = dict(unbatched_suite_ms)
+    batched_suite_totals: dict[str, int] = collections.defaultdict(int)
+    for (_, _, suite), ms in batched_suite_ms.items():
+        batched_suite_totals[suite] += ms
+    suites.update(batched_suite_totals)
+
     methods: dict[str, int] = {}
     for suite, per_method in method_ms.items():
         suites[suite] = max(suites.get(suite, 0), sum(per_method.values()))
