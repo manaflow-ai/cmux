@@ -71,6 +71,14 @@ struct CmuxDiffViewerSessionPreparerTests {
     }
 
     @Test
+    func tokenSyntaxIsASCIIAndByteBounded() {
+        #expect(CmuxDiffViewerSessionPreparer.isValidToken("abcdefghijklmnop"))
+        #expect(CmuxDiffViewerSessionPreparer.isValidToken("ABCDEF0123456789-token"))
+        #expect(!CmuxDiffViewerSessionPreparer.isValidToken(String(repeating: "é", count: 16)))
+        #expect(!CmuxDiffViewerSessionPreparer.isValidToken(String(repeating: "a", count: 81)))
+    }
+
+    @Test
     func leaseOpenDoesNotFollowFinalSymlink() throws {
         let rootURL = try makeRoot()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -82,10 +90,10 @@ struct CmuxDiffViewerSessionPreparerTests {
         try Data("unchanged".utf8).write(to: outsideURL)
         defer { try? FileManager.default.removeItem(at: outsideURL) }
         let leaseURL = rootURL.appendingPathComponent(".session-lease-\(token).lock")
-        #expect(symlink(outsideURL.path, leaseURL.path) == 0)
+        try #require(symlink(outsideURL.path, leaseURL.path) == 0)
 
         let preparer = CmuxDiffViewerSessionPreparer(trustedRootURL: rootURL)
-        #expect(throws: (any Error).self) {
+        #expect(throws: POSIXError(.EWOULDBLOCK)) {
             _ = try preparer.prepare(
                 token: token,
                 files: [

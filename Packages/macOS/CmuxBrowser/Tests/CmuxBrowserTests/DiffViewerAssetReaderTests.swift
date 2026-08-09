@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxBrowser
@@ -34,6 +35,36 @@ struct DiffViewerAssetReaderTests {
             upToCount: 5
         ) == Data("asset".utf8))
         await reader.close(streamID: subsequentID)
+    }
+
+    @Test
+    func rejectsFIFOAssetsWithoutBlocking() async throws {
+        let fixtureURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: false)
+        try #require(mkfifo(fixtureURL.path, mode_t(0o600)) == 0)
+        defer { try? FileManager.default.removeItem(at: fixtureURL) }
+
+        let keeperDescriptor = Darwin.open(
+            fixtureURL.path,
+            O_RDWR | O_NONBLOCK | O_CLOEXEC
+        )
+        try #require(keeperDescriptor >= 0)
+        defer { Darwin.close(keeperDescriptor) }
+
+        var marker: UInt8 = 0x41
+        let written = withUnsafeBytes(of: &marker) { buffer in
+            Darwin.write(keeperDescriptor, buffer.baseAddress, buffer.count)
+        }
+        try #require(written == 1)
+
+        let reader = DiffViewerAssetReader()
+        await #expect(throws: CocoaError.self) {
+            _ = try await reader.read(
+                streamID: UUID(),
+                fileURL: fixtureURL,
+                upToCount: 1
+            )
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))
