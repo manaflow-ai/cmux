@@ -33,7 +33,7 @@ extension AppDelegate {
             } else {
                 tabId = owner.tabID
                 surfaceId = owner.surfaceID
-                if case .windowDock(let dock) = owner.container {
+                if let dock = owner.windowDock {
                     return openNotificationInWindowDock(
                         dock,
                         surfaceId: owner.surfaceID,

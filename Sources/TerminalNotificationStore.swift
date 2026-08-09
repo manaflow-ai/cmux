@@ -371,19 +371,15 @@ final class TerminalNotificationStore: ObservableObject {
     // Workspace panels own their manual unread state on Workspace. Dock panels
     // have no Workspace owner, so their surface-scoped state lives here beside
     // the cross-container unread projection.
-    @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = [] {
-        didSet { refreshUnreadPresentation() }
-    }
+    private(set) var manualUnreadWorkspaceIds: Set<UUID> = []
     /// Surface-scoped manual unread belongs only to per-window Docks. Keep the
     /// owner index and the published sidebar projection in lockstep so BEL
     /// handling stays constant-time and refreshes once per logical mutation.
     private var manualUnreadSurfaceIdsByOwnerId: [UUID: Set<UUID>] = [:]
     private var manualUnreadSurfaceKeys: Set<SidebarSurfaceUnreadKey> = []
     private var manualUnreadSurfaceTargetsByRecency: [WindowDockUnreadTarget] = []
-    @Published private(set) var panelDerivedUnreadWorkspaceIds: Set<UUID> = []
-    @Published private(set) var restoredUnreadWorkspaceIds: Set<UUID> = [] {
-        didSet { refreshUnreadPresentation() }
-    }
+    private(set) var panelDerivedUnreadWorkspaceIds: Set<UUID> = []
+    private(set) var restoredUnreadWorkspaceIds: Set<UUID> = []
     @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:] {
         didSet {
             // The sidebar/pane read-indicator presentation derives from this map
@@ -768,12 +764,14 @@ final class TerminalNotificationStore: ObservableObject {
         }
         guard didChange else { return false }
         manualUnreadWorkspaceIds = nextIds
+        refreshUnreadPresentation()
         return true
     }
 
     private func clearWorkspaceManualUnread() {
         guard !manualUnreadWorkspaceIds.isEmpty else { return }
         manualUnreadWorkspaceIds = []
+        refreshUnreadPresentation()
     }
 
     @discardableResult
@@ -920,12 +918,14 @@ final class TerminalNotificationStore: ObservableObject {
         }
         guard didChange else { return false }
         restoredUnreadWorkspaceIds = nextIds
+        refreshUnreadPresentation()
         return true
     }
 
     private func clearWorkspaceRestoredUnread() {
         guard !restoredUnreadWorkspaceIds.isEmpty else { return }
         restoredUnreadWorkspaceIds = []
+        refreshUnreadPresentation()
     }
 
     func hasManualUnread(forTabId tabId: UUID) -> Bool { manualUnreadWorkspaceIds.contains(tabId) }

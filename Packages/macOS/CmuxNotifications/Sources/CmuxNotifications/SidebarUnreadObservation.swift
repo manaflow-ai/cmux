@@ -1,11 +1,5 @@
 import Foundation
 
-enum SidebarUnreadObservationChannel: Sendable {
-    case snapshot
-    case summary
-    case surface(ownerId: UUID)
-}
-
 /// Cancels one imperative unread-state observation.
 @MainActor
 public final class SidebarUnreadObservation {

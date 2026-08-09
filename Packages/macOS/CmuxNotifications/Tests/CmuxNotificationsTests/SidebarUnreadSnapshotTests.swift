@@ -52,12 +52,9 @@ struct SidebarUnreadSnapshotTests {
     func modelPublishesOnlyChangedAtomicSnapshots() {
         let workspaceID = UUID()
         let model = SidebarUnreadModel()
-        final class Recorder {
-            var snapshots: [SidebarUnreadSnapshot] = []
-        }
-        let recorder = Recorder()
+        let recorder = SidebarUnreadValueRecorder<SidebarUnreadSnapshot>()
         let observation = model.observeChanges(owner: recorder) { recorder, snapshot in
-            recorder.snapshots.append(snapshot)
+            recorder.values.append(snapshot)
         }
 
         model.apply(
@@ -72,7 +69,7 @@ struct SidebarUnreadSnapshotTests {
             focusedReadIndicatorByWorkspaceId: [:],
             manualUnreadWorkspaceIds: []
         )
-        #expect(recorder.snapshots == [model.snapshot])
+        #expect(recorder.values == [model.snapshot])
 
         let publicationCount = OSAllocatedUnfairLock(initialState: 0)
         withObservationTracking {
@@ -104,9 +101,9 @@ struct SidebarUnreadSnapshotTests {
             focusedReadIndicatorByWorkspaceId: [:],
             manualUnreadWorkspaceIds: []
         )
-        #expect(recorder.snapshots.count == 2)
-        #expect(recorder.snapshots.last?.totalUnreadCount == 0)
-        #expect(recorder.snapshots.last?.summaryByWorkspaceId.isEmpty == true)
+        #expect(recorder.values.count == 2)
+        #expect(recorder.values.last?.totalUnreadCount == 0)
+        #expect(recorder.values.last?.summaryByWorkspaceId.isEmpty == true)
 
         observation.cancel()
         model.apply(
@@ -116,7 +113,7 @@ struct SidebarUnreadSnapshotTests {
             focusedReadIndicatorByWorkspaceId: [:],
             manualUnreadWorkspaceIds: []
         )
-        #expect(recorder.snapshots.count == 2)
+        #expect(recorder.values.count == 2)
     }
 
     @Test
@@ -142,12 +139,9 @@ struct SidebarUnreadSnapshotTests {
         let focusedReadIndicators = [existingWorkspaceID: existingSurfaceID]
         let manualUnreadWorkspaceIDs: Set<UUID> = [existingWorkspaceID]
         let model = SidebarUnreadModel()
-        final class Recorder {
-            var snapshots: [SidebarUnreadSnapshot] = []
-        }
-        let recorder = Recorder()
+        let recorder = SidebarUnreadValueRecorder<SidebarUnreadSnapshot>()
         let observation = model.observeChanges(owner: recorder) { recorder, snapshot in
-            recorder.snapshots.append(snapshot)
+            recorder.values.append(snapshot)
         }
         defer { observation.cancel() }
 
@@ -158,7 +152,7 @@ struct SidebarUnreadSnapshotTests {
             focusedReadIndicatorByWorkspaceId: focusedReadIndicators,
             manualUnreadWorkspaceIds: manualUnreadWorkspaceIDs
         )
-        recorder.snapshots.removeAll()
+        recorder.values.removeAll()
 
         model.applySurfaceUnreadProjection(
             dockKey,
@@ -166,7 +160,7 @@ struct SidebarUnreadSnapshotTests {
             totalUnreadCount: 5
         )
 
-        #expect(recorder.snapshots == [model.snapshot])
+        #expect(recorder.values == [model.snapshot])
         #expect(model.snapshot.totalUnreadCount == 5)
         #expect(model.snapshot.unreadSurfaceKeys == [existingKey])
         #expect(model.unreadSurfaceKeys == [existingKey, dockKey])
@@ -179,14 +173,14 @@ struct SidebarUnreadSnapshotTests {
             isUnread: true,
             totalUnreadCount: 5
         )
-        #expect(recorder.snapshots.count == 1, "An equivalent surface projection must not publish.")
+        #expect(recorder.values.count == 1, "An equivalent surface projection must not publish.")
 
         model.applySurfaceUnreadProjection(
             dockKey,
             isUnread: false,
             totalUnreadCount: 4
         )
-        #expect(recorder.snapshots.count == 2)
+        #expect(recorder.values.count == 2)
         #expect(model.unreadSurfaceKeys == [existingKey])
         #expect(model.snapshot.totalUnreadCount == 4)
         #expect(model.snapshot.summaryByWorkspaceId == [existingWorkspaceID: summary])
@@ -208,12 +202,9 @@ struct SidebarUnreadSnapshotTests {
             totalUnreadCount: 1
         )
 
-        final class Recorder {
-            var snapshots: [SidebarUnreadSnapshot] = []
-        }
-        let recorder = Recorder()
+        let recorder = SidebarUnreadValueRecorder<SidebarUnreadSnapshot>()
         let observation = model.observeChanges(owner: recorder) { recorder, snapshot in
-            recorder.snapshots.append(snapshot)
+            recorder.values.append(snapshot)
         }
         defer { observation.cancel() }
 
@@ -234,7 +225,7 @@ struct SidebarUnreadSnapshotTests {
         )
 
         #expect(invalidationCount.withLock { $0 } == 0)
-        #expect(recorder.snapshots.isEmpty)
+        #expect(recorder.values.isEmpty)
         #expect(model.hasUnreadNotification(
             forWorkspaceId: ownerID,
             surfaceId: firstSurfaceID
@@ -253,15 +244,12 @@ struct SidebarUnreadSnapshotTests {
         let firstSurfaceID = UUID()
         let secondSurfaceID = UUID()
         let model = SidebarUnreadModel()
-        final class Recorder {
-            var projections: [SidebarSurfaceUnreadProjection] = []
-        }
-        let recorder = Recorder()
+        let recorder = SidebarUnreadValueRecorder<SidebarSurfaceUnreadProjection>()
         let observation = model.observeSurfaceChanges(
             forOwnerId: observedOwnerID,
             owner: recorder
         ) { recorder, projection in
-            recorder.projections.append(projection)
+            recorder.values.append(projection)
         }
         defer { observation.cancel() }
 
@@ -273,7 +261,7 @@ struct SidebarUnreadSnapshotTests {
             isUnread: true,
             totalUnreadCount: 1
         )
-        #expect(recorder.projections.isEmpty)
+        #expect(recorder.values.isEmpty)
 
         model.applySurfaceUnreadProjection(
             SidebarSurfaceUnreadKey(
@@ -283,7 +271,7 @@ struct SidebarUnreadSnapshotTests {
             isUnread: true,
             totalUnreadCount: 2
         )
-        #expect(recorder.projections == [SidebarSurfaceUnreadProjection(
+        #expect(recorder.values == [SidebarSurfaceUnreadProjection(
             ownerId: observedOwnerID,
             unreadSurfaceIds: [secondSurfaceID]
         )])
@@ -295,12 +283,9 @@ struct SidebarUnreadSnapshotTests {
         let workspaceID = UUID()
         let surfaceID = UUID()
         let model = SidebarUnreadModel()
-        final class Recorder {
-            var snapshots: [SidebarUnreadSnapshot] = []
-        }
-        let recorder = Recorder()
+        let recorder = SidebarUnreadValueRecorder<SidebarUnreadSnapshot>()
         let observation = model.observeSummaryChanges(owner: recorder) { recorder, snapshot in
-            recorder.snapshots.append(snapshot)
+            recorder.values.append(snapshot)
         }
         defer { observation.cancel() }
 
@@ -309,7 +294,7 @@ struct SidebarUnreadSnapshotTests {
             isUnread: true,
             totalUnreadCount: 1
         )
-        #expect(recorder.snapshots.isEmpty)
+        #expect(recorder.values.isEmpty)
 
         let summary = SidebarWorkspaceUnreadSummary(
             unreadCount: 1,
@@ -320,27 +305,22 @@ struct SidebarUnreadSnapshotTests {
             summary: summary,
             totalUnreadCount: 1
         )
-        #expect(recorder.snapshots.map(\.summaryByWorkspaceId) == [[workspaceID: summary]])
+        #expect(recorder.values.map(\.summaryByWorkspaceId) == [[workspaceID: summary]])
     }
 
     @Test
     @MainActor
     func reentrantPublicationsRemainOrderedForEveryObserver() {
-        final class Recorder {
-            var totals: [Int] = []
-        }
-        final class ReentrancyState {
-            var didPublishNestedSnapshot = false
-        }
-
         let model = SidebarUnreadModel()
-        let first = Recorder()
-        let second = Recorder()
-        let reentrancy = ReentrancyState()
-        let receive: @MainActor (Recorder, SidebarUnreadSnapshot) -> Void = { recorder, snapshot in
-            recorder.totals.append(snapshot.totalUnreadCount)
-            guard !reentrancy.didPublishNestedSnapshot else { return }
-            reentrancy.didPublishNestedSnapshot = true
+        let first = SidebarUnreadValueRecorder<Int>()
+        let second = SidebarUnreadValueRecorder<Int>()
+        let receive: @MainActor (
+            SidebarUnreadValueRecorder<Int>,
+            SidebarUnreadSnapshot
+        ) -> Void = { recorder, snapshot in
+            recorder.values.append(snapshot.totalUnreadCount)
+            guard !first.hasPublishedNestedValue else { return }
+            first.hasPublishedNestedValue = true
             model.apply(
                 totalUnreadCount: 2,
                 summaries: [:],
@@ -364,34 +344,29 @@ struct SidebarUnreadSnapshotTests {
             manualUnreadWorkspaceIds: []
         )
 
-        #expect(first.totals == [1, 2])
-        #expect(second.totals == [1, 2])
+        #expect(first.values == [1, 2])
+        #expect(second.values == [1, 2])
         #expect(model.snapshot.totalUnreadCount == 2)
     }
 
     @Test
     @MainActor
     func reentrantSurfacePublicationsRemainOrderedForEveryObserver() {
-        final class Recorder {
-            var projections: [SidebarSurfaceUnreadProjection] = []
-        }
-        final class ReentrancyState {
-            var didPublishNestedProjection = false
-        }
-
         let ownerID = UUID()
         let firstSurfaceID = UUID()
         let secondSurfaceID = UUID()
         let model = SidebarUnreadModel()
-        let first = Recorder()
-        let second = Recorder()
-        let reentrancy = ReentrancyState()
-        let receive: @MainActor (Recorder, SidebarSurfaceUnreadProjection) -> Void = {
+        let first = SidebarUnreadValueRecorder<SidebarSurfaceUnreadProjection>()
+        let second = SidebarUnreadValueRecorder<SidebarSurfaceUnreadProjection>()
+        let receive: @MainActor (
+            SidebarUnreadValueRecorder<SidebarSurfaceUnreadProjection>,
+            SidebarSurfaceUnreadProjection
+        ) -> Void = {
             recorder,
             projection in
-            recorder.projections.append(projection)
-            guard !reentrancy.didPublishNestedProjection else { return }
-            reentrancy.didPublishNestedProjection = true
+            recorder.values.append(projection)
+            guard !first.hasPublishedNestedValue else { return }
+            first.hasPublishedNestedValue = true
             model.applySurfaceUnreadProjection(
                 SidebarSurfaceUnreadKey(
                     workspaceId: ownerID,
@@ -435,7 +410,7 @@ struct SidebarUnreadSnapshotTests {
                 unreadSurfaceIds: [firstSurfaceID, secondSurfaceID]
             ),
         ]
-        #expect(first.projections == expected)
-        #expect(second.projections == expected)
+        #expect(first.values == expected)
+        #expect(second.values == expected)
     }
 }

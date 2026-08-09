@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import Combine
+import CmuxNotifications
 import CmuxSimulator
 import CmuxWorkspaces
 import Foundation
@@ -29,7 +30,7 @@ final class MobileWorkspaceListObserver {
     private var groupsCancellable: AnyCancellable?
     private var groupConfigCancellable: AnyCancellable?
     private var notificationsCancellable: AnyCancellable?
-    private var unreadIndicatorsCancellable: AnyCancellable?
+    private var unreadIndicatorsObservation: SidebarUnreadObservation?
     private struct WorkspaceCancellableEntry {
         let objectID: ObjectIdentifier
         let cancellable: AnyCancellable
@@ -134,7 +135,8 @@ final class MobileWorkspaceListObserver {
         groupsCancellable = nil
         groupConfigCancellable = nil
         notificationsCancellable = nil
-        unreadIndicatorsCancellable = nil
+        unreadIndicatorsObservation?.cancel()
+        unreadIndicatorsObservation = nil
         perWorkspaceCancellables.removeAll()
         descriptionProjectionCache.removeAll()
     }
@@ -205,19 +207,15 @@ final class MobileWorkspaceListObserver {
             .sink { [weak self] _ in
                 self?.emitIfNeeded(force: false)
             }
-        // Workspace-level unread indicators (manual mark-unread, panel-derived,
-        // session-restored) live in their own published sets, not in
-        // `notifications`. Toggling one changes the phone's unread dot without
-        // touching anything else this observer watches, so merge all three here.
+        // Workspace-level unread indicators and notification summaries share
+        // one equality-guarded projection. Observe that model instead of the
+        // store's legacy Combine fields so all indicator mutation paths have a
+        // single publication boundary.
         if let notificationStore {
-            unreadIndicatorsCancellable = Publishers.MergeMany(
-                notificationStore.$manualUnreadWorkspaceIds.map { _ in () }.eraseToAnyPublisher(),
-                notificationStore.$panelDerivedUnreadWorkspaceIds.map { _ in () }.eraseToAnyPublisher(),
-                notificationStore.$restoredUnreadWorkspaceIds.map { _ in () }.eraseToAnyPublisher()
-            )
-            .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
-            .sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+            unreadIndicatorsObservation = notificationStore.sidebarUnread.observeSummaryChanges(
+                owner: self
+            ) { observer, _ in
+                observer.emitIfNeeded(force: false)
             }
         }
 

@@ -3,50 +3,37 @@ import Foundation
 
 @MainActor
 extension AppDelegate {
-    enum LiveSurfaceContainer {
-        case workspace
-        case workspaceDock(DockSplitStore)
-        case windowDock(DockSplitStore)
-    }
-
-    struct LiveSurfaceOwner {
-        let tabID: UUID
-        let surfaceID: UUID
-        let tabManager: TabManager
-        let container: LiveSurfaceContainer
-    }
-
     /// Resolves the current owner for a surface across every live container.
     /// Workspace-scoped Docks remain valid ownership targets for process and
     /// Feed attribution even though they are no longer rendered as Docks.
     func liveSurfaceOwner(
         surfaceID: UUID,
         preferredTabID: UUID? = nil
-    ) -> LiveSurfaceOwner? {
+    ) -> (
+        tabID: UUID,
+        surfaceID: UUID,
+        tabManager: TabManager,
+        windowDock: DockSplitStore?,
+        isNotificationRenderable: Bool
+    )? {
         if let preferredTabID,
            let manager = tabManagerFor(tabId: preferredTabID),
            let workspace = manager.workspacesById[preferredTabID],
            let target = workspace.surfaceOwnershipTarget(for: surfaceID) {
-            return LiveSurfaceOwner(
-                tabID: preferredTabID,
-                surfaceID: target.surfaceID,
-                tabManager: manager,
-                container: .workspace
-            )
+            return (preferredTabID, target.surfaceID, manager, nil, true)
         }
         if let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(surfaceID) }) {
             let manager = dock.scope == .global
                 ? tabManagerFor(windowId: dock.workspaceId)
                 : tabManagerFor(tabId: dock.workspaceId)
             guard let manager else { return nil }
-            let container: LiveSurfaceContainer = dock.scope == .global
-                ? .windowDock(dock)
-                : .workspaceDock(dock)
-            return LiveSurfaceOwner(
-                tabID: dock.workspaceId,
-                surfaceID: surfaceID,
-                tabManager: manager,
-                container: container
+            let isNotificationRenderable = dock.scope == .global
+            return (
+                dock.workspaceId,
+                surfaceID,
+                manager,
+                isNotificationRenderable ? dock : nil,
+                isNotificationRenderable
             )
         }
         guard let owner = workspaceContainingPanel(
@@ -63,12 +50,7 @@ extension AppDelegate {
                       let target = workspace.surfaceOwnershipTarget(for: surfaceID) else {
                     continue
                 }
-                return LiveSurfaceOwner(
-                    tabID: workspace.id,
-                    surfaceID: target.surfaceID,
-                    tabManager: manager,
-                    container: .workspace
-                )
+                return (workspace.id, target.surfaceID, manager, nil, true)
             }
             if let manager = tabManager,
                seenManagers.insert(ObjectIdentifier(manager)).inserted,
@@ -76,24 +58,14 @@ extension AppDelegate {
                    $0.surfaceOwnershipTarget(for: surfaceID) != nil
                }),
                let target = workspace.surfaceOwnershipTarget(for: surfaceID) {
-                return LiveSurfaceOwner(
-                    tabID: workspace.id,
-                    surfaceID: target.surfaceID,
-                    tabManager: manager,
-                    container: .workspace
-                )
+                return (workspace.id, target.surfaceID, manager, nil, true)
             }
             return nil
         }
         guard let target = owner.workspace.surfaceOwnershipTarget(for: surfaceID) else {
             return nil
         }
-        return LiveSurfaceOwner(
-            tabID: owner.workspace.id,
-            surfaceID: target.surfaceID,
-            tabManager: owner.tabManager,
-            container: .workspace
-        )
+        return (owner.workspace.id, target.surfaceID, owner.tabManager, nil, true)
     }
 
     /// Resolves the current rendered notification owner for a surface.
@@ -103,17 +75,24 @@ extension AppDelegate {
     func notificationSurfaceOwner(
         surfaceID: UUID,
         preferredTabID: UUID? = nil
-    ) -> LiveSurfaceOwner? {
+    ) -> (
+        tabID: UUID,
+        surfaceID: UUID,
+        tabManager: TabManager,
+        windowDock: DockSplitStore?
+    )? {
         guard let owner = liveSurfaceOwner(
             surfaceID: surfaceID,
             preferredTabID: preferredTabID
-        ) else {
+        ), owner.isNotificationRenderable else {
             return nil
         }
-        if case .workspaceDock = owner.container {
-            return nil
-        }
-        return owner
+        return (
+            owner.tabID,
+            owner.surfaceID,
+            owner.tabManager,
+            owner.windowDock
+        )
     }
 
     /// Shared notification-attention route for every surface container. Dock

@@ -9,21 +9,19 @@ import Observation
 @MainActor
 @Observable
 public final class SidebarUnreadModel {
-    private struct State {
-        var snapshot = SidebarUnreadSnapshot()
-        var surfaceProjectionByOwnerId: [UUID: SidebarSurfaceUnreadProjection] = [:]
-    }
-
-    private struct SurfaceProjectionChange {
-        let ownerId: UUID
-        let projection: SidebarSurfaceUnreadProjection?
-    }
-
-    private struct Publication {
-        let snapshot: SidebarUnreadSnapshot?
-        let summaryChanged: Bool
-        let surfaceProjectionChanges: [SurfaceProjectionChange]
-    }
+    private typealias State = (
+        snapshot: SidebarUnreadSnapshot,
+        surfaceProjectionByOwnerId: [UUID: SidebarSurfaceUnreadProjection]
+    )
+    private typealias SurfaceProjectionChange = (
+        ownerId: UUID,
+        projection: SidebarSurfaceUnreadProjection?
+    )
+    private typealias Publication = (
+        snapshot: SidebarUnreadSnapshot?,
+        summaryChanged: Bool,
+        surfaceProjectionChanges: [SurfaceProjectionChange]
+    )
 
     /// The latest global unread state.
     public private(set) var snapshot = SidebarUnreadSnapshot()
@@ -57,7 +55,10 @@ public final class SidebarUnreadModel {
     @ObservationIgnored
     private var surfaceProjectionByOwnerId: [UUID: SidebarSurfaceUnreadProjection] = [:]
     @ObservationIgnored
-    private var desiredState = State()
+    private var desiredState = State(
+        snapshot: SidebarUnreadSnapshot(),
+        surfaceProjectionByOwnerId: [:]
+    )
     @ObservationIgnored
     private var snapshotObservers: [UUID: (SidebarUnreadSnapshot) -> Bool] = [:]
     @ObservationIgnored
@@ -170,7 +171,7 @@ public final class SidebarUnreadModel {
         )
         enqueue(State(
             snapshot: nextSnapshot,
-            surfaceProjectionByOwnerId: Self.makeSurfaceProjections(
+            surfaceProjectionByOwnerId: makeSurfaceProjections(
                 unreadSurfaceKeys: unreadSurfaceKeys,
                 focusedReadIndicatorByOwnerId: focusedReadIndicatorByWorkspaceId,
                 manualUnreadSurfaceIdsByOwnerId: manualUnreadSurfaceIdsByOwnerId
@@ -291,7 +292,7 @@ public final class SidebarUnreadModel {
             ?? SidebarSurfaceUnreadProjection(ownerId: ownerId)
     }
 
-    private static func makeSurfaceProjections(
+    private func makeSurfaceProjections(
         unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey>,
         focusedReadIndicatorByOwnerId: [UUID: UUID],
         manualUnreadSurfaceIdsByOwnerId: [UUID: Set<UUID>]
