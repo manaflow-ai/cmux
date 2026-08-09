@@ -149,9 +149,16 @@ struct GhosttyEnsureFocusWindowActivationTests {
         let target = try #require(attentionTarget)
         let attentionKey = FeedCoordinator.attentionStatusKey(forSource: "pi")
         #expect(target.panelId == dockPanelID)
-        #expect(workspace.agentLifecycleStatesByPanelId[dockPanelID]?[attentionKey] == .needsInput)
+        #expect(
+            workspaceDock.agentRuntimeByPanelId[dockPanelID]?
+                .agentLifecycleStates[attentionKey] == .needsInput
+        )
+        #expect(workspace.agentLifecycleStatesByPanelId[dockPanelID]?[attentionKey] == nil)
         #expect(workspace.agentLifecycleStatesByPanelId[mainPanelID]?[attentionKey] == nil)
-        #expect(workspace.agentLifecycleStatesByPanelId[dockPanelID]?["pi"] == nil)
+        #expect(
+            workspaceDock.agentRuntimeByPanelId[dockPanelID]?
+                .agentLifecycleStates["pi"] == nil
+        )
     }
 
     @Test
