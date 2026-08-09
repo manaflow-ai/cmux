@@ -1750,7 +1750,14 @@ extension Workspace {
                     restoredPanelId: terminalPanel.id
                 )
             }
-            if let storedResumeBinding = effectiveResumeBindingForStartup ?? resumeBinding {
+            // A rejected agent reconstruction must not leave its hook binding
+            // behind as a less-restrictive manual restore path. Persistent SSH
+            // reattach keeps the continuation snapshot above, so its binding is
+            // retained while its captured startup input remains suppressed.
+            let resumeBindingForRetention = restorableAgent != nil && restorableAgentForContinuation == nil
+                ? nil
+                : (effectiveResumeBindingForStartup ?? resumeBinding)
+            if let storedResumeBinding = resumeBindingForRetention {
                 surfaceResumeBindingsByPanelId[terminalPanel.id] = storedResumeBinding.retargetingRemoteOwner(
                     expectedWorkspaceID: restoredResumeSnapshotWorkspaceID,
                     expectedSurfaceID: snapshot.id,

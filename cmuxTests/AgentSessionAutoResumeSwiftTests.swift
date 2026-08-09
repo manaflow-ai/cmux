@@ -2094,6 +2094,23 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             ),
             panelId: sourcePanelId
         )
+        #expect(source.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: "grok",
+                command: "grok --resume \(sessionId) --cwd '\(staleLaunchDirectory)'",
+                cwd: staleLaunchDirectory,
+                checkpointId: sessionId,
+                source: "agent-hook",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "grok",
+                    executablePath: "grok",
+                    arguments: ["grok", "--cwd", staleLaunchDirectory],
+                    workingDirectory: staleLaunchDirectory
+                ),
+                autoResume: true
+            ),
+            panelId: sourcePanelId
+        ))
 
         var snapshot = source.sessionSnapshot(includeScrollback: false)
         #expect(snapshot.panels.first?.directoryIsTrustedRemoteReport == true)
@@ -2106,18 +2123,21 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         terminalSnapshot.scrollback = savedScrollback
         snapshot.panels[panelIndex].terminal = terminalSnapshot
 
-        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
-        defer { restored.teardownAllPanels() }
-        let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
-        let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
-        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
-        let startupInput = restoredPanel.surface.initialInput
-
-        #expect(startupInput == nil, Comment(rawValue: startupInput ?? "nil"))
-        #expect(restoredPanel.requestedWorkingDirectory == nil)
-        #expect(restored.restoredAgentSnapshotsByPanelId[restoredPanelId] == nil)
-        #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == nil)
-        #expect(restored.restoredTerminalScrollbackByPanelId[restoredPanelId] == savedScrollback)
+        try withRestoredRemoteSurfaceSnapshot(
+            snapshot,
+            sourcePanelId: sourcePanelId,
+            autoResumeAgentSessions: true
+        ) { restored, restoredPanelId, restoredPanel, resumeSnapshot in
+            let startupInput = restoredPanel.surface.initialInput
+            #expect(startupInput == nil, Comment(rawValue: startupInput ?? "nil"))
+            #expect(restoredPanel.requestedWorkingDirectory == nil)
+            #expect(restored.restoredAgentSnapshotsByPanelId[restoredPanelId] == nil)
+            #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == nil)
+            #expect(restored.restoredTerminalScrollbackByPanelId[restoredPanelId] == savedScrollback)
+            #expect(restored.surfaceResumeBinding(panelId: restoredPanelId) == nil)
+            #expect(resumeSnapshot.binding == nil)
+            #expect(resumeSnapshot.restoreRecord == nil)
+        }
     }
 
     @MainActor
@@ -2463,6 +2483,30 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             _ restoreRecord: ControlSurfaceRestoreRecord
         ) throws -> T
     ) throws -> T {
+        try withRestoredRemoteSurfaceSnapshot(
+            snapshot,
+            sourcePanelId: sourcePanelId,
+            autoResumeAgentSessions: autoResumeAgentSessions,
+            agentHibernationPresentationVisible: agentHibernationPresentationVisible
+        ) { workspace, panelId, panel, resumeSnapshot in
+            let restoreRecord = try #require(resumeSnapshot.restoreRecord)
+            return try body(workspace, panelId, panel, restoreRecord)
+        }
+    }
+
+    @MainActor
+    private func withRestoredRemoteSurfaceSnapshot<T>(
+        _ snapshot: SessionWorkspaceSnapshot,
+        sourcePanelId: UUID,
+        autoResumeAgentSessions: Bool,
+        agentHibernationPresentationVisible: Bool = true,
+        body: (
+            _ workspace: Workspace,
+            _ panelId: UUID,
+            _ panel: TerminalPanel,
+            _ resumeSnapshot: ControlSurfaceResumeSnapshot
+        ) throws -> T
+    ) throws -> T {
         let defaults = UserDefaults.standard
         let defaultsKey = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
         let previousDefault = defaults.object(forKey: defaultsKey)
@@ -2531,8 +2575,7 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             Issue.record("surface.resume.get failed: \(resolution)")
             throw RemoteSurfaceRestoreTestError.resumeRecordUnavailable
         }
-        let restoreRecord = try #require(result.restoreRecord)
-        return try body(workspace, panelId, panel, restoreRecord)
+        return try body(workspace, panelId, panel, result)
     }
 
     private enum RemoteSurfaceRestoreTestError: Error {
