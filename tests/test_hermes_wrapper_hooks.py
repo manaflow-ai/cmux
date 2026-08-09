@@ -112,6 +112,7 @@ def run_wrapper(
     sample_tui_watcher_cpu: bool = False,
     tui_gateway_turns: int = 0,
     tui_gateway_compute_host: bool = False,
+    stale_tui_python_wrapper: bool = False,
     expected_cmux_call_count: int | None = None,
 ) -> WrapperResult:
     with tempfile.TemporaryDirectory(prefix="cmux-hermes-wrapper-test-") as td:
@@ -166,8 +167,19 @@ def run_wrapper(
         installer_gate = tmp / "installer-gate"
         tui_watcher_cpu_log = tmp / "tui-watcher-cpu.log"
         tui_gateway_events_log = tmp / "tui-gateway-events.log"
+        stale_tui_python_log = tmp / "stale-tui-python.log"
         if installer_blocks:
             os.mkfifo(installer_gate)
+
+        stale_tui_python = tmp / "retired-build" / "cmux-hermes-python-wrapper"
+        if stale_tui_python_wrapper:
+            stale_tui_python.parent.mkdir(parents=True)
+            make_executable(
+                stale_tui_python,
+                "#!/bin/sh\n"
+                f"printf 'invoked\\n' > {str(stale_tui_python_log)!r}\n"
+                "exit 91\n",
+            )
 
         fake_tui_gateway_root = tmp / "fake-hermes-python"
         if tui_gateway_turns:
@@ -352,7 +364,9 @@ exit 0
         env["FAKE_TUI_GATEWAY_ROOT"] = str(fake_tui_gateway_root)
         env["FAKE_TUI_GATEWAY_EVENTS_LOG"] = str(tui_gateway_events_log)
         env["FAKE_HERMES_PYTHON"] = sys.executable
-        if tui_gateway_turns:
+        if stale_tui_python_wrapper:
+            env["HERMES_PYTHON"] = str(stale_tui_python)
+        elif tui_gateway_turns:
             env["HERMES_PYTHON"] = sys.executable
         if in_cmux:
             env["CMUX_SURFACE_ID"] = "11111111-1111-1111-1111-111111111111"
@@ -655,6 +669,32 @@ def test_tui_gateway_registers_hooks_for_every_turn(failures: list[str]) -> None
     )
 
 
+def test_tui_gateway_rejects_retired_cmux_python_wrapper(failures: list[str]) -> None:
+    result = run_wrapper(
+        ["--tui"],
+        tui_gateway_turns=2,
+        stale_tui_python_wrapper=True,
+    )
+    expected_events = [
+        f"gateway:{event}:{turn}"
+        for turn in (1, 2)
+        for event in ("prompt-submit", "agent-response", "session-end")
+    ]
+
+    expect(
+        result.returncode == 0,
+        "TUI stale Python wrapper: retired cmux wrapper blocked gateway startup: "
+        f"{result.returncode}: {result.stderr}",
+        failures,
+    )
+    expect(
+        result.tui_gateway_events == expected_events,
+        "TUI stale Python wrapper: gateway did not fall back to Hermes's real interpreter: "
+        f"{result.tui_gateway_events}",
+        failures,
+    )
+
+
 def test_explicit_classic_cli_skips_tui_watcher(failures: list[str]) -> None:
     result = run_wrapper(["--cli"])
     expect(
@@ -830,6 +870,7 @@ def main() -> int:
         test_tui_active_session_file_bridges_lifecycle(failures)
         test_tui_bridge_fails_closed_on_untrusted_session_files(failures)
         test_tui_gateway_registers_hooks_for_every_turn(failures)
+        test_tui_gateway_rejects_retired_cmux_python_wrapper(failures)
         test_explicit_classic_cli_skips_tui_watcher(failures)
         test_profile_scoped_hook_install(failures)
         test_administrative_entrypoints_bypass_install(failures)
