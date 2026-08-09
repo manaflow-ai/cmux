@@ -4,6 +4,7 @@ import CmuxAppKitSupportUI
 import Observation
 import SwiftUI
 import Testing
+import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -13,6 +14,41 @@ import Testing
 
 @MainActor
 @Suite struct BrowserPanelViewIdentityTests {
+    @Test func externalPortalGeometrySyncDoesNotDriveSwiftUILayout() {
+        let referenceView = LayoutCountingBrowserReferenceView(rootView: EmptyView())
+        referenceView.frame = NSRect(x: 0, y: 0, width: 640, height: 480)
+        let window = NSWindow(
+            contentRect: referenceView.frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = referenceView
+
+        let anchor = NSView(frame: NSRect(x: 40, y: 30, width: 320, height: 240))
+        referenceView.addSubview(anchor)
+        let webView = WKWebView(frame: anchor.bounds)
+        let portal = WindowBrowserPortal(window: window)
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+
+        defer {
+            portal.tearDown()
+            window.close()
+        }
+
+        referenceView.layoutSubtreeIfNeeded()
+        referenceView.layoutPassCount = 0
+        referenceView.needsLayout = true
+
+        portal.synchronizeAllEntriesFromExternalGeometryChange()
+
+        #expect(
+            referenceView.layoutPassCount == 0,
+            "The browser portal must consume settled geometry without synchronously laying out SwiftUI's hosting view."
+        )
+        #expect(referenceView.needsLayout)
+    }
+
     @Test func portalAnchorInstallationDefersLayoutToAppKit() throws {
         let host = LayoutCountingBrowserHostView(
             frame: NSRect(x: 0, y: 0, width: 480, height: 320)
@@ -150,7 +186,17 @@ import Testing
 }
 
 @MainActor
-private final class LayoutCountingBrowserHostView: WebViewRepresentable.HostContainerView {
+private final class LayoutCountingBrowserReferenceView: NSHostingView<EmptyView> {
+    var layoutPassCount = 0
+
+    override func layout() {
+        layoutPassCount += 1
+        super.layout()
+    }
+}
+
+@MainActor
+private final class LayoutCountingBrowserHostView: NSView {
     var layoutPassCount = 0
 
     override func layout() {

@@ -2001,7 +2001,7 @@ final class WindowBrowserPortal: NSObject {
         }
     }
 
-    private func synchronizeAllEntriesFromExternalGeometryChange() {
+    func synchronizeAllEntriesFromExternalGeometryChange() {
         guard ensureInstalled() else { return }
         installedContainerView?.layoutSubtreeIfNeeded()
         installedReferenceView?.layoutSubtreeIfNeeded()
