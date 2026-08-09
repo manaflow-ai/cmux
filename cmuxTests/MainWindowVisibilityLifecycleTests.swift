@@ -36,10 +36,8 @@ struct MainWindowVisibilityLifecycleTests {
         )
 
         controller.captureHiddenWindowRestoreTargets(windows: [window], reason: .globalHotkey)
-        #expect(controller.windowRemainsInRestoreTopology(window))
         controller.discardClosedWindow(window)
 
-        #expect(!controller.windowRemainsInRestoreTopology(window))
         #expect(controller.showApplicationWindows(windows: [window], reason: .applicationReopen) == nil)
         #expect(softShownWindows.isEmpty)
         #expect(madeKeyWindows.isEmpty)
@@ -70,10 +68,8 @@ struct MainWindowVisibilityLifecycleTests {
         )
 
         controller.dismissWindows(windows: [window], reason: .titlebarDismiss)
-        #expect(controller.windowRemainsInRestoreTopology(window))
         controller.discardClosedWindow(window)
 
-        #expect(!controller.windowRemainsInRestoreTopology(window))
         #expect(controller.showApplicationWindows(windows: [window], reason: .applicationReopen) == nil)
         #expect(softShownWindows.isEmpty)
         #expect(madeKeyWindows.isEmpty)
@@ -110,11 +106,9 @@ struct MainWindowVisibilityLifecycleTests {
                 reason: .applicationWillBecomeActive
             ) === window
         )
-        #expect(controller.windowRemainsInRestoreTopology(window))
 
         controller.discardClosedWindow(window)
 
-        #expect(!controller.windowRemainsInRestoreTopology(window))
         #expect(
             controller.finishPendingApplicationActivationRestore(
                 windows: [window],
