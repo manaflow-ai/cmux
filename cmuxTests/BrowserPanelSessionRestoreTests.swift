@@ -44,6 +44,12 @@ struct BrowserPanelSessionRestoreTests {
         let leaseURL = trustedRootURL
             .appendingPathComponent(".session-lease-\(token).lock", isDirectory: false)
 
+        defer {
+            try? FileManager.default.removeItem(at: sessionDirectoryURL)
+            try? FileManager.default.removeItem(at: manifestURL)
+            try? FileManager.default.removeItem(at: leaseURL)
+        }
+
         try FileManager.default.createDirectory(
             at: sessionDirectoryURL,
             withIntermediateDirectories: true
@@ -60,12 +66,7 @@ struct BrowserPanelSessionRestoreTests {
         try manifestData.write(to: manifestURL, options: .atomic)
 
         let panel = BrowserPanel(workspaceId: UUID())
-        defer {
-            panel.close()
-            try? FileManager.default.removeItem(at: sessionDirectoryURL)
-            try? FileManager.default.removeItem(at: manifestURL)
-            try? FileManager.default.removeItem(at: leaseURL)
-        }
+        defer { panel.close() }
 
         panel.restoreSessionSnapshot(SessionBrowserPanelSnapshot(
             urlString: nil,
