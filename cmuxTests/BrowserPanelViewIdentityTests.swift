@@ -200,7 +200,7 @@ private final class LayoutCountingBrowserReferenceView: NSHostingView<EmptyView>
 }
 
 @MainActor
-private final class LayoutCountingBrowserHostView: WebViewRepresentable.HostContainerView {
+private final class LayoutCountingBrowserHostView: NSView {
     var layoutPassCount = 0
 
     override func layout() {

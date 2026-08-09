@@ -5340,7 +5340,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         var lastSynchronizedHostGeometryRevision: UInt64 = 0
     }
 
-    class HostContainerView: NSView {
+    final class HostContainerView: NSView {
         private final class HostedInspectorSideDockContainerView: NSView {
             override init(frame frameRect: NSRect) {
                 super.init(frame: frameRect)
