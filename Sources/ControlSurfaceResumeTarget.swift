@@ -352,9 +352,10 @@ extension TerminalController {
                 ?? binding.cwd
                 ?? binding.launchCommand?.workingDirectory
         )
-        let launchCommand: AgentLaunchCommandSnapshot? = if let bindingSelection,
-                                                            bindingSelection.discardsRecordedCwdOptions,
-                                                            var command = binding.launchCommand {
+        let launchCommand: AgentLaunchCommandSnapshot?
+        if let bindingSelection,
+           bindingSelection.discardsRecordedCwdOptions,
+           var command = binding.launchCommand {
             command.arguments = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                 from: command.arguments,
                 workingDirectory: nil,
@@ -362,9 +363,9 @@ extension TerminalController {
                 removeAllWorkingDirectoryOptions: true
             )
             command.workingDirectory = nil
-            command
+            launchCommand = command
         } else {
-            binding.launchCommand
+            launchCommand = binding.launchCommand
         }
         let mode: AgentRestoreRequestMode = binding.isAgentHookBinding
             ? .resumeAgent
