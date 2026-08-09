@@ -36,6 +36,9 @@ private final class PiFeedDockAttentionRecorder {
     var targetWasNeedsInput = false
     var focusedWasNeedsInput = false
     var targetStatusValue: String?
+    var moveSucceeded = false
+    var transferredWasNeedsInput = false
+    var transferredStatusValue: String?
 }
 
 @MainActor
@@ -200,6 +203,65 @@ struct PiFeedDockOwnershipTests {
             #expect(recorder.targetWasNeedsInput)
             #expect(!recorder.focusedWasNeedsInput)
             #expect(recorder.targetStatusValue == FeedCoordinator.needsInputStatusValue)
+        }
+    }
+
+    @MainActor
+    @Test("Blocking Feed attention follows a panel moved from window Dock to workspace")
+    func blockingFeedAttentionFollowsPanelMovedFromWindowDockToWorkspace() async throws {
+        try await withAppContext { appDelegate, _, workspace, windowID in
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let targetPanel = try dock.seedPiFeedPanel()
+            let recorder = PiFeedDockAttentionRecorder()
+            let requestID = "pi-window-dock-transfer-blocking-request"
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+            let event = WorkstreamEvent(
+                sessionId: "pi-window-dock-transfer-blocking-feed",
+                hookEventName: .permissionRequest,
+                source: "pi",
+                workspaceId: windowID.uuidString,
+                surfaceId: targetPanel.id.uuidString,
+                toolName: "Bash",
+                requestId: requestID
+            )
+
+            let result = await Task.detached {
+                FeedCoordinator.shared.ingestBlocking(
+                    event: event,
+                    waitTimeout: 1,
+                    onAcceptedOnMainActor: { _ in
+                        recorder.moveSucceeded = appDelegate.moveDockSurfaceToWorkspace(
+                            sourceDock: dock,
+                            panelId: targetPanel.id,
+                            toWorkspace: workspace.id,
+                            targetPane: nil,
+                            targetIndex: nil,
+                            splitTarget: nil,
+                            focus: false,
+                            focusWindow: false
+                        )
+                        recorder.transferredWasNeedsInput = workspace
+                            .agentLifecycleStatesByPanelId[targetPanel.id]?["pi"] == .needsInput
+                        recorder.transferredStatusValue = workspace.statusEntries["pi"]?.value
+                        FeedCoordinator.shared.deliverReply(
+                            requestId: requestID,
+                            decision: .permission(.once)
+                        )
+                    }
+                )
+            }.value
+
+            guard case .resolved(_, .permission(.once)) = result else {
+                Issue.record("expected the transferred blocking Feed event to resolve")
+                return
+            }
+            #expect(recorder.moveSucceeded)
+            #expect(recorder.transferredWasNeedsInput)
+            #expect(recorder.transferredStatusValue == FeedCoordinator.needsInputStatusValue)
+            #expect(
+                workspace.agentLifecycleStatesByPanelId[targetPanel.id]?["pi"] == .running
+            )
+            #expect(workspace.statusEntries["pi"] == nil)
         }
     }
 

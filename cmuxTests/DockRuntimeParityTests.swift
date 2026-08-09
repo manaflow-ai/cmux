@@ -46,6 +46,7 @@ private final class DockRuntimeParityPanel: Panel, ObservableObject {
 @MainActor
 private final class DockRuntimeParityUnreadObserver {
     var publicationCount = 0
+    var totalUnreadCounts: [Int] = []
 }
 
 @MainActor
@@ -1043,6 +1044,74 @@ struct DockRuntimeParityTests {
                 unreadCount: notificationStore.unreadCount,
                 isEnabled: true
             ) == nil)
+        }
+    }
+
+    @Test("A real notification atomically replaces window Dock visual-BEL unread")
+    func realNotificationAtomicallyReplacesWindowDockVisualBellUnread() async throws {
+        try await withAppContext { appDelegate, _, _, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let previousFocusOverride = AppFocusState.overrideIsFocused
+            notificationStore.replaceNotificationsForTesting([])
+            notificationStore.configureNotificationDeliveryHandlerForTesting { _, _ in }
+            appDelegate.notificationStore = notificationStore
+            AppFocusState.overrideIsFocused = false
+            defer {
+                AppFocusState.overrideIsFocused = previousFocusOverride
+                notificationStore.markRead(forTabId: windowID)
+                notificationStore.replaceNotificationsForTesting([])
+                notificationStore.resetNotificationDeliveryHandlerForTesting()
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let terminal = TerminalPanel(
+                workspaceId: windowID,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            try dock.seedRuntimeParityPanel(terminal)
+            let unreadProjection = DockUnreadPanelProjection(
+                source: notificationStore.sidebarUnread,
+                workspaceID: windowID,
+                panelIDs: [terminal.id],
+                isActive: true
+            )
+
+            let visualBell = try #require(terminal.surface.onVisualBell)
+            visualBell()
+            #expect(notificationStore.unreadCount == 1)
+            #expect(unreadProjection.unreadPanelIDs == [terminal.id])
+
+            let observer = DockRuntimeParityUnreadObserver()
+            let observation = notificationStore.sidebarUnread.observeChanges(
+                owner: observer
+            ) { owner, snapshot in
+                owner.publicationCount += 1
+                owner.totalUnreadCounts.append(snapshot.totalUnreadCount)
+            }
+            defer { observation.cancel() }
+
+            notificationStore.addNotification(
+                tabId: windowID,
+                surfaceId: terminal.id,
+                title: "Agent needs input",
+                subtitle: "",
+                body: "Review the pending request",
+                resolvedHooks: []
+            )
+
+            #expect(observer.publicationCount == 1)
+            #expect(observer.totalUnreadCounts == [1])
+            #expect(unreadProjection.unreadPanelIDs == [terminal.id])
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: terminal.id
+            ))
+            #expect(notificationStore.hasUnreadNotification(
+                forTabId: windowID,
+                surfaceId: terminal.id
+            ))
         }
     }
 
