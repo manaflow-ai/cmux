@@ -22,10 +22,11 @@ fi
   cd ghostty
   "$zig_binary" build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
 )
-if [[ ! -d GhosttyKit.xcframework ]]; then
+if [[ ! -d ghostty/macos/GhosttyKit.xcframework ]]; then
   echo "GhosttyKit.xcframework was not produced" >&2
   exit 1
 fi
+ln -sfn ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
 
 runtime_id="$({
   xcrun simctl list runtimes -j \
