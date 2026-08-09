@@ -36,7 +36,7 @@ extension AppDelegate {
             window: window,
             sidebar: sidebar,
             sidebarSelection: sidebarSelection,
-            dock: route.frozenWindowDockSnapshot.map { .frozen($0) }
+            dock: route.windowDock
         )
     }
 
@@ -116,9 +116,9 @@ extension AppDelegate {
     /// same bounded value form used by the production windowless-prune path.
     private func freezeWindowlessRecoverableMainWindowRoutes(
         _ routes: [RecoverableMainWindowRoute],
-        windowsByWindowId: [UUID: NSWindow]
+        windowsByWindowId: [UUID: NSWindow],
+        restorableAgentIndex: RestorableAgentSessionIndex?
     ) -> [RecoverableMainWindowRoute] {
-        var restorableAgentIndex: RestorableAgentSessionIndex?
         var updatedRoutes: [RecoverableMainWindowRoute] = []
         for route in routes {
             guard route.frozenWindowSnapshot == nil else {
@@ -130,46 +130,14 @@ extension AppDelegate {
                 updatedRoutes.append(route)
                 continue
             }
-            guard let liveRoute = storedRecoverableMainWindowRouteSnapshot(
-                for: route,
-                window: nil
-            ) else {
+            guard let restorableAgentIndex else {
                 updatedRoutes.append(route)
                 continue
             }
-
-            let freezeAgentIndex = restorableAgentIndexForRecoveryFreeze(
-                cached: restorableAgentIndex
-            )
-            restorableAgentIndex = freezeAgentIndex
-            let frozenWindowSnapshot = sessionWindowSnapshot(
-                for: liveRoute,
-                includeScrollback: true,
-                restorableAgentIndex: freezeAgentIndex,
-                downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: true
-            )
-            let replacement = RecoverableMainWindowRoute(
-                windowId: route.windowId,
-                frozenWindowSnapshot: frozenWindowSnapshot
-            )
-            guard mainWindowLifecycleCoordinator.replaceOrphanedRoute(
-                windowId: route.windowId,
-                with: replacement
-            ) else {
-                continue
-            }
-
-            tearDownWindowlessMainWindowRouteResources(
-                windowId: route.windowId,
-                manager: liveRoute.tabManager
-            )
-            if frozenWindowSnapshot.omitsRemoteMirrorOnlyWindow(
-                liveWorkspaces: liveRoute.tabManager.tabs
+            if let replacement = freezeWindowlessRecoverableMainWindowRoute(
+                route,
+                restorableAgentIndex: restorableAgentIndex
             ) {
-                mainWindowLifecycleCoordinator.removeRecoverableRoute(
-                    windowId: route.windowId
-                )
-            } else {
                 updatedRoutes.append(replacement)
             }
         }
@@ -178,15 +146,85 @@ extension AppDelegate {
         }
     }
 
-    /// A recovery freeze is irreversible because its live graph is released.
-    /// Prefer the prewarmed cache, but synchronously load on the rare cold-cache
-    /// path rather than permanently substituting an empty agent index.
-    private func restorableAgentIndexForRecoveryFreeze(
-        cached: RestorableAgentSessionIndex? = nil
-    ) -> RestorableAgentSessionIndex {
-        cached
-            ?? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-            ?? RestorableAgentSessionIndex.load()
+    /// Freezes one route only after a complete agent index is available.
+    @discardableResult
+    private func freezeWindowlessRecoverableMainWindowRoute(
+        _ route: RecoverableMainWindowRoute,
+        restorableAgentIndex: RestorableAgentSessionIndex
+    ) -> RecoverableMainWindowRoute? {
+        guard route.frozenWindowSnapshot == nil else { return route }
+        guard route.window == nil,
+              windowForMainWindowId(route.windowId) == nil,
+              let liveRoute = storedRecoverableMainWindowRouteSnapshot(
+                  for: route,
+                  window: nil
+              ) else {
+            return route
+        }
+
+        let frozenWindowSnapshot = sessionWindowSnapshot(
+            for: liveRoute,
+            includeScrollback: true,
+            restorableAgentIndex: restorableAgentIndex,
+            downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: true
+        )
+        let replacement = RecoverableMainWindowRoute(
+            windowId: route.windowId,
+            frozenWindowSnapshot: frozenWindowSnapshot
+        )
+        guard mainWindowLifecycleCoordinator.replaceOrphanedRoute(
+            windowId: route.windowId,
+            with: replacement
+        ) else {
+            return nil
+        }
+
+        // The frozen value owns the copied frame ring from this point onward.
+        windowConfigFrames.removeValue(forKey: route.windowId)
+        route.markForTeardown()
+        tearDownWindowlessMainWindowRouteResources(
+            windowId: route.windowId,
+            manager: liveRoute.tabManager
+        )
+        if frozenWindowSnapshot.omitsRemoteMirrorOnlyWindow(
+            liveWorkspaces: liveRoute.tabManager.tabs
+        ) {
+            mainWindowLifecycleCoordinator.removeRecoverableRoute(
+                windowId: route.windowId
+            )
+            return nil
+        }
+        return replacement
+    }
+
+    /// Starts the cold-cache load without keeping irreversible teardown on the
+    /// routing call stack. Identity checks on both sides of the suspension make
+    /// a reattached or explicitly closed route win over the deferred freeze.
+    private func scheduleWindowlessRecoverableMainWindowRouteFreeze(
+        _ route: RecoverableMainWindowRoute
+    ) {
+        Task { @MainActor [weak self, weak route] in
+            guard let self, let route,
+                  self.mainWindowLifecycleCoordinator.orphanedRoute(
+                      windowId: route.windowId
+                  ) === route,
+                  route.window == nil,
+                  self.windowForMainWindowId(route.windowId) == nil else {
+                return
+            }
+            guard let restorableAgentIndex = await SharedLiveAgentIndex.shared.indexRefreshingNow(),
+                  self.mainWindowLifecycleCoordinator.orphanedRoute(
+                      windowId: route.windowId
+                  ) === route,
+                  route.window == nil,
+                  self.windowForMainWindowId(route.windowId) == nil else {
+                return
+            }
+            self.freezeWindowlessRecoverableMainWindowRoute(
+                route,
+                restorableAgentIndex: restorableAgentIndex
+            )
+        }
     }
 
     /// Clears ephemeral UI state once a window's live graph can no longer return.
@@ -284,14 +322,21 @@ extension AppDelegate {
     /// this projection even after AppKit has lost the `NSWindow`; only an
     /// explicit close moves it to the non-persisted closing phase.
     ///
-    /// This is not a pure read. It freezes windowless orphans into bounded
-    /// value snapshots, replaces their lifecycle records, tears down their
-    /// panels, and releases their remote connections before returning.
-    private func mainWindowPersistenceRouteSnapshots() -> [MainWindowPersistenceRouteSnapshot] {
+    /// This is not always a pure read. Once a complete agent index is available,
+    /// it freezes windowless orphans into bounded value snapshots, replaces
+    /// their lifecycle records, tears down their panels, and releases their
+    /// remote connections before returning. A cold-cache projection keeps the
+    /// live orphan intact until the asynchronous refresh or snapshot builder
+    /// supplies that index.
+    private func mainWindowPersistenceRouteSnapshots(
+        restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex?
+    ) -> [MainWindowPersistenceRouteSnapshot] {
         let windowsByWindowId = currentMainWindowsByWindowId()
         let orphanedRoutes = freezeWindowlessRecoverableMainWindowRoutes(
             mainWindowLifecycleCoordinator.orphanedRoutes(),
-            windowsByWindowId: windowsByWindowId
+            windowsByWindowId: windowsByWindowId,
+            restorableAgentIndex: suppliedRestorableAgentIndex
+                ?? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
         )
         var seenWindowIds: Set<UUID> = []
         var snapshots: [MainWindowPersistenceRouteSnapshot] = []
@@ -318,8 +363,12 @@ extension AppDelegate {
     /// Applies one key-window-first ordering to autosave fingerprinting and
     /// bounded session snapshot construction after removing routes that cannot
     /// produce a restorable window.
-    func orderedSessionRouteSnapshots() -> [MainWindowPersistenceRouteSnapshot] {
-        mainWindowPersistenceRouteSnapshots()
+    func orderedSessionRouteSnapshots(
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+    ) -> [MainWindowPersistenceRouteSnapshot] {
+        mainWindowPersistenceRouteSnapshots(
+            restorableAgentIndex: restorableAgentIndex
+        )
             .filter(\.isEligibleForSessionPersistence)
             .sorted { lhs, rhs in
                 let lhsIsKey = lhs.window?.isKeyWindow ?? false
@@ -357,59 +406,20 @@ extension AppDelegate {
     func transitionMainWindowContextToOrphaned(_ context: MainWindowContext) -> Bool {
         let windowId = context.windowId
         let window = context.window ?? windowForMainWindowId(windowId)
-        let route: RecoverableMainWindowRoute
-        let omitsRemoteMirrorOnlyWindow: Bool
-        if window == nil {
-            let frozenWindowSnapshot = sessionWindowSnapshot(
-                for: context,
-                includeScrollback: true,
-                restorableAgentIndex: restorableAgentIndexForRecoveryFreeze(),
-                downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: true
-            )
-            route = RecoverableMainWindowRoute(
-                windowId: windowId,
-                frozenWindowSnapshot: frozenWindowSnapshot
-            )
-            omitsRemoteMirrorOnlyWindow = frozenWindowSnapshot.omitsRemoteMirrorOnlyWindow(
-                liveWorkspaces: context.tabManager.tabs
-            )
-        } else {
-            // Freeze the Dock before the registered context tears it down. The
-            // workspace manager remains the live orphan's authoritative session
-            // owner while its AppKit window can still receive work.
-            let frozenWindowDockSnapshot = context.windowDockSessionSnapshot(
-                includeScrollback: true,
-                restorableAgentIndex: restorableAgentIndexForRecoveryFreeze(),
-                surfaceResumeBindingIndex: nil,
-                downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: true
-            )
-            route = RecoverableMainWindowRoute(
-                windowId: windowId,
-                tabManager: context.tabManager,
-                window: window,
-                sidebar: context.sidebarState,
-                sidebarSelection: context.sidebarSelectionState,
-                frozenWindowDockSnapshot: frozenWindowDockSnapshot,
-                retainTabManager: true
-            )
-            omitsRemoteMirrorOnlyWindow = false
-        }
-        if let window {
-            route.closeObserver = WindowCloseObserver(window: window) { [weak self] closingWindow in
-                self?.unregisterMainWindow(closingWindow)
-            }
-        }
+        let route = RecoverableMainWindowRoute(
+            windowId: windowId,
+            tabManager: context.tabManager,
+            window: window,
+            sidebar: context.sidebarState,
+            sidebarSelection: context.sidebarSelectionState,
+            frozenWindowDockSnapshot: nil,
+            retainTabManager: true
+        )
         guard mainWindowLifecycleCoordinator.transitionToOrphaned(route, from: context) else {
             return false
         }
         if window == nil {
-            tearDownWindowlessMainWindowRouteResources(
-                windowId: windowId,
-                manager: context.tabManager
-            )
-            if omitsRemoteMirrorOnlyWindow {
-                mainWindowLifecycleCoordinator.removeRecoverableRoute(windowId: windowId)
-            }
+            scheduleWindowlessRecoverableMainWindowRouteFreeze(route)
         }
 #if DEBUG
         cmuxDebugLog(

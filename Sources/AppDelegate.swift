@@ -4102,7 +4102,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !includeScrollback else { return nil }
 
         var hasher = Hasher()
-        let routes = orderedSessionRouteSnapshots()
+        let routes = orderedSessionRouteSnapshots(
+            restorableAgentIndex: restorableAgentIndex
+        )
         let routeProjection = MainWindowRouteAutosaveProjection(
             orderedWindowIds: routes.map(\.windowId),
             previouslyPersistedWindowIds: lastPersistedSessionWindowIds,
@@ -4631,9 +4633,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> (snapshot: AppSessionSnapshot?, removedCrashDiagnosticState: Bool) {
-        let routes = orderedSessionRouteSnapshots()
-        guard !routes.isEmpty else { return (nil, false) }
+        let preflightRoutes = orderedSessionRouteSnapshots(
+            restorableAgentIndex: suppliedRestorableAgentIndex
+        )
+        guard !preflightRoutes.isEmpty else { return (nil, false) }
         let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
+        let routes = suppliedRestorableAgentIndex == nil
+            ? orderedSessionRouteSnapshots(restorableAgentIndex: restorableAgentIndex)
+            : preflightRoutes
         var windows: [SessionWindowSnapshot] = []
         var removedCrashDiagnosticState = false
         let createdAt = Date().timeIntervalSince1970
@@ -4884,9 +4891,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             reindexMainWindowContextIfNeeded(existing, for: window)
             existing.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         } else {
-            tabManager.window = window
-            tabManager.windowId = windowId
-            let context = MainWindowContext(
+            let proposedContext = MainWindowContext(
                 windowId: windowId,
                 tabManager: tabManager,
                 sidebarState: sidebarState,
@@ -4897,7 +4902,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 workspaceTerminalFontSizeArbiter:
                     workspaceTerminalFontSizeArbiter
             )
-            mainWindowLifecycleCoordinator.register(context, lookupKey: key)
+            guard let context = mainWindowLifecycleCoordinator.register(
+                proposedContext,
+                lookupKey: key
+            ) else {
+#if DEBUG
+                cmuxDebugLog(
+                    "mainWindow.register.lifecycleCollision windowId=\(String(windowId.uuidString.prefix(8))) " +
+                        "window={\(debugWindowToken(window))}"
+                )
+#endif
+                window.orderOut(nil)
+                window.close()
+                return
+            }
+            tabManager.window = window
+            tabManager.windowId = context.windowId
+            context.window = window
+            let resolvedFileExplorerState = fileExplorerState ?? context.fileExplorerState
+            if let fileExplorerState {
+                context.fileExplorerState = fileExplorerState
+            }
+            context.keyboardFocusCoordinator.update(
+                window: window,
+                tabManager: tabManager,
+                fileExplorerState: resolvedFileExplorerState
+            )
+            if let cmuxConfigStore {
+                context.cmuxConfigStore = cmuxConfigStore
+            }
             context.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         }
         commandPaletteWindowStore.registerWindow(windowId)
@@ -6193,7 +6226,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // Internal (not private): see notifyMainWindowContextsDidChange.
     func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
         guard transitionMainWindowContextToOrphaned(context) else { return }
-        context.teardownWindowDock()
         removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
         notifyMainWindowContextsDidChange()
 

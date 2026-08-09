@@ -38,27 +38,58 @@ final class MainWindowLifecycleCoordinator {
         return registeredContextsByLookupKey[lookupKey]
     }
 
+    @discardableResult
     func register(
         _ context: AppDelegate.MainWindowContext,
         lookupKey: ObjectIdentifier
-    ) {
-        if let existing = recordsByWindowId[context.windowId],
-           case .registered(let previousLookupKey) = existing.phase {
-            registeredContextsByLookupKey.removeValue(forKey: previousLookupKey)
+    ) -> AppDelegate.MainWindowContext? {
+        if var record = recordsByWindowId[context.windowId] {
+            switch record.phase {
+            case .registered(let previousLookupKey):
+                guard registeredContextsByLookupKey[previousLookupKey] === context else {
+                    return nil
+                }
+                if let conflict = registeredContextsByLookupKey[lookupKey],
+                   conflict !== context {
+                    return nil
+                }
+                registeredContextsByLookupKey.removeValue(forKey: previousLookupKey)
+                registeredContextsByLookupKey[lookupKey] = context
+                record.phase = .registered(lookupKey: lookupKey)
+                recordsByWindowId[context.windowId] = record
+                bumpPersistenceTopologyRevision()
+                return context
+
+            case .orphaned(let route):
+                guard registeredContextsByLookupKey[lookupKey] == nil,
+                      let reattached = route.takeContextForRegistration(
+                          matching: context
+                      ) else {
+                    return nil
+                }
+                registeredContextsByLookupKey[lookupKey] = reattached
+                record.phase = .registered(lookupKey: lookupKey)
+                recordsByWindowId[context.windowId] = record
+                bumpPersistenceTopologyRevision()
+                return reattached
+
+            case .closing:
+                return nil
+            }
         }
 
-        if let displaced = registeredContextsByLookupKey[lookupKey],
-           displaced !== context {
-            recordsByWindowId.removeValue(forKey: displaced.windowId)
-        }
-
-        let order = recordsByWindowId[context.windowId]?.order ?? issueOrder()
+        guard registeredContextsByLookupKey[lookupKey] == nil else { return nil }
         registeredContextsByLookupKey[lookupKey] = context
         recordsByWindowId[context.windowId] = MainWindowLifecycleRecord(
-            order: order,
+            order: issueOrder(),
             phase: .registered(lookupKey: lookupKey)
         )
         bumpPersistenceTopologyRevision()
+        return context
+    }
+
+    func contains(windowId: UUID) -> Bool {
+        recordsByWindowId[windowId] != nil
     }
 
     @discardableResult
@@ -93,7 +124,9 @@ final class MainWindowLifecycleCoordinator {
     ) -> Bool {
         guard var record = recordsByWindowId[context.windowId],
               case .registered(let lookupKey) = record.phase,
-              registeredContextsByLookupKey[lookupKey] === context else {
+              registeredContextsByLookupKey[lookupKey] === context,
+              route.frozenWindowSnapshot != nil
+                || route.retainContextForOrphaning(context) else {
             return false
         }
         registeredContextsByLookupKey.removeValue(forKey: lookupKey)

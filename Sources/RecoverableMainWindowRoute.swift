@@ -5,7 +5,10 @@ final class RecoverableMainWindowRoute {
     let windowId: UUID
     private weak var weakTabManager: TabManager?
     private var retainedTabManager: TabManager?
-    var tabManager: TabManager? { retainedTabManager ?? weakTabManager }
+    private var retainedContext: AppDelegate.MainWindowContext?
+    var tabManager: TabManager? {
+        retainedContext?.tabManager ?? retainedTabManager ?? weakTabManager
+    }
     weak var window: NSWindow?
     private var payload: RecoverableMainWindowRoutePayload
     var closeObserver: WindowCloseObserver?
@@ -23,6 +26,13 @@ final class RecoverableMainWindowRoute {
     var frozenWindowDockSnapshot: SessionSplitContainerSnapshot? {
         guard case .live(_, _, let snapshot) = payload else { return nil }
         return snapshot
+    }
+
+    var windowDock: MainWindowRouteDockState? {
+        if let dock = retainedContext?.existingWindowDock() {
+            return .live(dock)
+        }
+        return frozenWindowDockSnapshot.map { .frozen($0) }
     }
 
     var frozenWindowSnapshot: SessionWindowSnapshot? {
@@ -63,8 +73,46 @@ final class RecoverableMainWindowRoute {
     }
 
     func markForTeardown() {
+        retainedContext?.teardownWindowDock()
+        retainedContext = nil
         retainedTabManager = nil
         payload = .teardown
         closeObserver = nil
+    }
+
+    /// Moves the registered context under this route's live ownership.
+    func retainContextForOrphaning(_ context: AppDelegate.MainWindowContext) -> Bool {
+        guard context.windowId == windowId,
+              frozenWindowSnapshot == nil,
+              context.tabManager === tabManager,
+              context.sidebarState === sidebar,
+              context.sidebarSelectionState === sidebarSelection else {
+            return false
+        }
+        retainedContext = context
+        retainedTabManager = nil
+        return true
+    }
+
+    /// Returns a live orphan's original context without tearing down its graph.
+    func takeContextForRegistration(
+        matching proposedContext: AppDelegate.MainWindowContext
+    ) -> AppDelegate.MainWindowContext? {
+        guard let context = retainedContext,
+              proposedContext.windowId == windowId,
+              proposedContext.tabManager === context.tabManager,
+              proposedContext.sidebarState === context.sidebarState,
+              proposedContext.sidebarSelectionState === context.sidebarSelectionState else {
+            return nil
+        }
+        if let routeWindow = window {
+            guard proposedContext.window === routeWindow else { return nil }
+        }
+
+        retainedContext = nil
+        retainedTabManager = nil
+        payload = .teardown
+        closeObserver = nil
+        return context
     }
 }
