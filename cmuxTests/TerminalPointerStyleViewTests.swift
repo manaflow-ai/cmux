@@ -25,4 +25,18 @@ struct TerminalPointerStyleViewTests {
         #expect(firstView.effectiveTerminalPointerCursor == NSCursor.dragCopy)
         #expect(secondView.effectiveTerminalPointerCursor == NSCursor.iBeam)
     }
+
+    @Test("new native runtime resets pointer intent on the retained view")
+    func runtimeRecreationResetsPointerIntentOnSameView() {
+        let view = GhosttyNSView(frame: .zero)
+        view.applyTerminalPointerStyle(.focusChanged(true))
+        view.applyTerminalPointerStyle(
+            .ghosttyShape(GHOSTTY_MOUSE_SHAPE_POINTER)
+        )
+        #expect(view.effectiveTerminalPointerCursor == NSCursor.pointingHand)
+
+        view.runtimeSurfaceDidBecomeReady()
+
+        #expect(view.effectiveTerminalPointerCursor == NSCursor.iBeam)
+    }
 }

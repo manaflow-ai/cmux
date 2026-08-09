@@ -61,7 +61,7 @@ struct TerminalPointerStyleStateTests {
                 ),
                 (
                     GHOSTTY_MOUSE_SHAPE_NE_RESIZE,
-                    .frameResize(position: .topRight, directions: .all)
+                    .frameResize(position: .topRight, directions: .outward)
                 ),
                 (
                     GHOSTTY_MOUSE_SHAPE_NESW_RESIZE,
@@ -69,7 +69,7 @@ struct TerminalPointerStyleStateTests {
                 ),
                 (
                     GHOSTTY_MOUSE_SHAPE_NW_RESIZE,
-                    .frameResize(position: .topLeft, directions: .all)
+                    .frameResize(position: .topLeft, directions: .outward)
                 ),
                 (
                     GHOSTTY_MOUSE_SHAPE_NWSE_RESIZE,
@@ -77,11 +77,11 @@ struct TerminalPointerStyleStateTests {
                 ),
                 (
                     GHOSTTY_MOUSE_SHAPE_SE_RESIZE,
-                    .frameResize(position: .bottomRight, directions: .all)
+                    .frameResize(position: .bottomRight, directions: .outward)
                 ),
                 (
                     GHOSTTY_MOUSE_SHAPE_SW_RESIZE,
-                    .frameResize(position: .bottomLeft, directions: .all)
+                    .frameResize(position: .bottomLeft, directions: .outward)
                 ),
                 (GHOSTTY_MOUSE_SHAPE_ZOOM_IN, .zoomIn),
                 (GHOSTTY_MOUSE_SHAPE_ZOOM_OUT, .zoomOut),
