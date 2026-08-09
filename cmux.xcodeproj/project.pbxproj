@@ -966,8 +966,12 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D8684000000000000000000F /* ControlSurfaceResumeTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000010 /* ControlSurfaceResumeTarget.swift */; };
 		C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */; };
 		A9523F000000000000000024 /* CursorNativeApprovalFileObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F000000000000000004 /* CursorNativeApprovalFileObserver.swift */; };
+		A9523F000000000000000032 /* CursorNativeApprovalFileObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F000000000000000004 /* CursorNativeApprovalFileObserver.swift */; };
 		A9523F000000000000000025 /* CursorNativeApprovalFileReadResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F000000000000000005 /* CursorNativeApprovalFileReadResult.swift */; };
+		A9523F000000000000000033 /* CursorNativeApprovalFileReadResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F000000000000000005 /* CursorNativeApprovalFileReadResult.swift */; };
 		A9523F000000000000000026 /* CursorNativeApprovalObservationOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F000000000000000006 /* CursorNativeApprovalObservationOutcome.swift */; };
+		A9523F000000000000000034 /* CursorNativeApprovalObservationOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F000000000000000006 /* CursorNativeApprovalObservationOutcome.swift */; };
+		A9523F000000000000000035 /* CursorNativeApprovalObserverLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F0000000000000000A8 /* CursorNativeApprovalObserverLease.swift */; };
 		A9523F0000000000000000A9 /* CursorNativeApprovalObserverLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F0000000000000000A8 /* CursorNativeApprovalObserverLease.swift */; };
 		A9523F000000000000000027 /* CursorNativeAttentionIdentifiers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F000000000000000007 /* CursorNativeAttentionIdentifiers.swift */; };
 		C57B00080000000000000001 /* CustomSidebarPaneDataContextCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */; };
@@ -10863,6 +10867,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E5807290DBD44C26BFC5434E /* CompletedRestoredAgentGenerationTests.swift in Sources */,
 				A91C0D100000000000000002 /* CompletedRestoredAgentInputRoutingTests.swift in Sources */,
 				C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */,
+				A9523F000000000000000032 /* CursorNativeApprovalFileObserver.swift in Sources */,
+				A9523F000000000000000033 /* CursorNativeApprovalFileReadResult.swift in Sources */,
+				A9523F000000000000000034 /* CursorNativeApprovalObservationOutcome.swift in Sources */,
+				A9523F000000000000000035 /* CursorNativeApprovalObserverLease.swift in Sources */,
 				DEBDADADADADADADAD000003 /* DebugDogfoodCredentialResolverTests.swift in Sources */,
 				C0DE31410000000000000103 /* DebugEventLogSerializedAppendTests.swift in Sources */,
 				917300000000000000000001 /* DeferredActionReplacementStackTests.swift in Sources */,

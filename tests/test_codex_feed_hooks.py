@@ -82,6 +82,7 @@ class FakeCmuxSocket:
         feed_response_ok: bool = True,
         include_feed_item_id: bool = True,
         raw_response_delay: float = 0,
+        raw_response_gate: threading.Event | None = None,
         surfaces_by_workspace: dict[str, list[dict]] | None = None,
         surface_delivery_target: tuple[str, str] | None = None,
         method_errors: dict[str, tuple[str, str]] | None = None,
@@ -96,6 +97,7 @@ class FakeCmuxSocket:
         self.feed_response_ok = feed_response_ok
         self.include_feed_item_id = include_feed_item_id
         self.raw_response_delay = raw_response_delay
+        self.raw_response_gate = raw_response_gate
         self.surfaces_by_workspace = surfaces_by_workspace
         self.surface_delivery_target = surface_delivery_target
         self.method_errors = method_errors or {}
@@ -104,6 +106,7 @@ class FakeCmuxSocket:
         self._dropped_surface_list = False
         self.frames: list[dict] = []
         self.frames_with_connection: list[tuple[int, dict]] = []
+        self._frame_condition = threading.Condition()
         self._next_connection_id = 0
         self._ready = threading.Event()
         self.feed_frame_received = threading.Event()
@@ -172,13 +175,19 @@ class FakeCmuxSocket:
                     try:
                         frame = json.loads(raw_line)
                     except json.JSONDecodeError:
-                        self.frames.append({"raw": raw_line})
+                        with self._frame_condition:
+                            self.frames.append({"raw": raw_line})
+                            self._frame_condition.notify_all()
                         if self.raw_response_delay > 0:
                             time.sleep(self.raw_response_delay)
+                        if self.raw_response_gate is not None:
+                            self.raw_response_gate.wait(timeout=5)
                         reply(b"OK\n")
                         continue
-                    self.frames.append(frame)
-                    self.frames_with_connection.append((connection_id, frame))
+                    with self._frame_condition:
+                        self.frames.append(frame)
+                        self.frames_with_connection.append((connection_id, frame))
+                        self._frame_condition.notify_all()
                     if delay := self.method_delays.get(frame.get("method")):
                         time.sleep(delay)
                     if method_error := self.method_errors.get(frame.get("method")):
@@ -250,6 +259,24 @@ class FakeCmuxSocket:
                             "message": "Feed rejected the event",
                         }
                     reply(json.dumps(response).encode("utf-8") + b"\n")
+
+    def wait_for_frame(
+        self,
+        predicate,
+        *,
+        start_index: int = 0,
+        timeout: float = 5,
+    ) -> dict | None:
+        deadline = time.monotonic() + timeout
+        with self._frame_condition:
+            while True:
+                for frame in self.frames[start_index:]:
+                    if predicate(frame):
+                        return frame
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                self._frame_condition.wait(timeout=remaining)
 
 
 def monitor_pids_for_session(session_id: str) -> list[int]:
@@ -931,6 +958,183 @@ def test_codex_subagent_stop_replays_deferred_turn_settlement(
                 subprocess.run(["/bin/kill", str(pid)], check=False)
 
 
+def test_codex_deferred_settlement_has_single_live_replay_claim(
+    cli_path: str,
+    root: Path,
+) -> None:
+    socket_path = root / "cmux-codex-single-settlement-claim.sock"
+    state_dir = root / "codex-single-settlement-claim-state"
+    transcript_path = root / "codex-single-settlement-claim.jsonl"
+    state_dir.mkdir()
+    transcript_path.write_text("", encoding="utf-8")
+
+    session_id = f"codex-single-settlement-claim-session-{os.getpid()}"
+    turn_id = f"codex-single-settlement-claim-turn-{os.getpid()}"
+    work_id = f"codex-single-settlement-claim-work-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
+    env["CMUX_CODEX_PID"] = str(os.getpid())
+
+    base_payload = {
+        "session_id": session_id,
+        "turn_id": turn_id,
+        "cwd": str(root),
+        "transcript_path": str(transcript_path),
+    }
+    stop_payload = {
+        **base_payload,
+        "hook_event_name": "SubagentStop",
+        "agent_id": work_id,
+    }
+    stop_arguments = [
+        "hooks",
+        "feed",
+        "--source",
+        "codex",
+        "--event",
+        "SubagentStop",
+    ]
+
+    def run_hook(arguments: list[str], payload: dict) -> dict:
+        result = subprocess.run(
+            [cli_path, "--socket", str(socket_path), *arguments],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"{' '.join(arguments)} failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+        return json.loads(result.stdout.strip() or "{}")
+
+    def start_stop_hook() -> subprocess.Popen[str]:
+        process = subprocess.Popen(
+            [cli_path, "--socket", str(socket_path), *stop_arguments],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+        if process.stdin is None:
+            raise AssertionError("SubagentStop subprocess has no stdin")
+        process.stdin.write(json.dumps(stop_payload))
+        process.stdin.close()
+        process.stdin = None
+        return process
+
+    def assert_success(process: subprocess.Popen[str], label: str) -> None:
+        stdout, stderr = process.communicate(timeout=10)
+        if process.returncode != 0:
+            raise AssertionError(
+                f"{label} failed exit={process.returncode}\n"
+                f"stdout={stdout}\nstderr={stderr}"
+            )
+
+    def is_feed_event(frame: dict, event_name: str) -> bool:
+        if frame.get("method") != "feed.push":
+            return False
+        params = frame.get("params", {})
+        events = params.get("events")
+        candidates = events if isinstance(events, list) else [params.get("event")]
+        return any(
+            isinstance(event, dict)
+            and event.get("hook_event_name") == event_name
+            for event in candidates
+        )
+
+    raw_response_gate = threading.Event()
+    raw_response_gate.set()
+    first_process: subprocess.Popen[str] | None = None
+    second_process: subprocess.Popen[str] | None = None
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        raw_response_gate=raw_response_gate,
+    ) as fake:
+        try:
+            run_hook(
+                [
+                    "hooks",
+                    "feed",
+                    "--source",
+                    "codex",
+                    "--event",
+                    "SubagentStart",
+                ],
+                {
+                    **base_payload,
+                    "hook_event_name": "SubagentStart",
+                    "agent_id": work_id,
+                },
+            )
+            run_hook(["hooks", "codex", "session-start"], base_payload)
+            run_hook(["hooks", "codex", "prompt-submit"], base_payload)
+            wait_for_monitor_pids(session_id, present=True, timeout=5)
+
+            before_stop = len(fake.frames)
+            run_hook(["hooks", "codex", "stop"], base_payload)
+            if fake.wait_for_frame(
+                lambda frame: is_feed_event(frame, "Stop"),
+                start_index=before_stop,
+            ) is None:
+                raise AssertionError(
+                    "Codex Stop did not persist its deferred settlement before "
+                    f"the replay-claim race: {fake.frames[before_stop:]!r}"
+                )
+
+            raw_response_gate.clear()
+            first_start = len(fake.frames)
+            first_process = start_stop_hook()
+            first_replay = fake.wait_for_frame(
+                lambda frame: "raw" in frame,
+                start_index=first_start,
+                timeout=3,
+            )
+            if first_replay is None:
+                raise AssertionError(
+                    "The first drained SubagentStop never began replaying its "
+                    f"durable settlement: {fake.frames[first_start:]!r}"
+                )
+
+            second_start = len(fake.frames)
+            second_process = start_stop_hook()
+            second_outcome = fake.wait_for_frame(
+                lambda frame: "raw" in frame
+                or is_feed_event(frame, "SubagentStop"),
+                start_index=second_start,
+                timeout=3,
+            )
+            if second_outcome is None:
+                raise AssertionError(
+                    "The overlapping SubagentStop neither skipped the live "
+                    "claim nor exposed a duplicate replay"
+                )
+            if "raw" in second_outcome:
+                raise AssertionError(
+                    "Two overlapping SubagentStop hooks replayed the same "
+                    f"durable settlement: {fake.frames[first_start:]!r}"
+                )
+        finally:
+            raw_response_gate.set()
+            for process, label in (
+                (first_process, "first SubagentStop"),
+                (second_process, "overlapping SubagentStop"),
+            ):
+                if process is not None:
+                    assert_success(process, label)
+            for pid in monitor_pids_for_session(session_id):
+                subprocess.run(["/bin/kill", str(pid)], check=False)
+
+
 def test_codex_deferred_settlement_replay_requires_exact_acknowledgement(
     cli_path: str,
     root: Path,
@@ -1158,24 +1362,6 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
             time.sleep(0.05)
         raise AssertionError(
             "bounded structured-work Stop never reached Feed: "
-            f"{fake.frames[index:]!r}"
-        )
-
-    def wait_for_raw_prefix(
-        fake: FakeCmuxSocket,
-        index: int,
-        prefix: str,
-    ) -> None:
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline:
-            if any(
-                frame.get("raw", "").startswith(prefix)
-                for frame in fake.frames[index:]
-            ):
-                return
-            time.sleep(0.05)
-        raise AssertionError(
-            f"bounded structured-work recovery never emitted {prefix!r}: "
             f"{fake.frames[index:]!r}"
         )
 
@@ -5578,6 +5764,10 @@ def main() -> int:
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
             test_codex_subagent_stop_replays_deferred_turn_settlement(
+                cli_path,
+                root,
+            )
+            test_codex_deferred_settlement_has_single_live_replay_claim(
                 cli_path,
                 root,
             )
