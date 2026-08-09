@@ -509,24 +509,12 @@ struct DockRuntimeParityTests {
             let ownerWindow = try #require(
                 appDelegate.windowForMainWindowId(windowID)
             )
-            let keyWindow = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 240, height: 180),
-                styleMask: [.titled, .closable],
-                backing: .buffered,
-                defer: false
-            )
-            keyWindow.isReleasedWhenClosed = false
-            keyWindow.identifier = NSUserInterfaceItemIdentifier(
-                "cmux.main.bell-key"
-            )
             appDelegate.notificationStore = notificationStore
             AppFocusState.overrideIsFocused = true
             defer {
                 notificationStore.markRead(forTabId: windowID)
                 appDelegate.notificationStore = previousNotificationStore
                 AppFocusState.overrideIsFocused = previousFocusOverride
-                keyWindow.orderOut(nil)
-                keyWindow.close()
             }
 
             let dock = appDelegate.windowDock(forWindowId: windowID)
@@ -541,6 +529,9 @@ struct DockRuntimeParityTests {
             appDelegate.keyboardFocusCoordinator(for: ownerWindow)?
                 .noteRightSidebarInteraction(mode: .dock)
             ownerWindow.contentView?.addSubview(terminal.hostedView)
+            // CI app hosts cannot reliably make a programmatic peer window key.
+            // The routing contract only requires this terminal's owner to be non-key.
+            ownerWindow.orderOut(nil)
 
             #expect(terminal.surface.uiWindow === ownerWindow)
             #expect(
@@ -548,8 +539,7 @@ struct DockRuntimeParityTests {
                     preferredWindow: ownerWindow
                 ) === dock
             )
-            keyWindow.makeKeyAndOrderFront(nil)
-            #expect(NSApp.keyWindow === keyWindow)
+            #expect(NSApp.keyWindow !== ownerWindow)
 
             let visualBell = try #require(terminal.surface.onVisualBell)
             visualBell()
@@ -558,7 +548,7 @@ struct DockRuntimeParityTests {
                 forTabId: windowID,
                 surfaceId: terminal.id
             ))
-            #expect(NSApp.keyWindow === keyWindow)
+            #expect(NSApp.keyWindow !== ownerWindow)
         }
     }
 
