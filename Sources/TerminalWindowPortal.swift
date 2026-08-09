@@ -992,10 +992,9 @@ final class WindowTerminalPortal: NSObject {
     private func synchronizeLayoutHierarchy() {
         // Idempotence at the choke point. Several paths funnel here (window
         // notifications, anchor geometry callbacks, deferred full syncs,
-        // transient recovery), each reconciling the portal host — and each
-        // frame write or portal-subtree layout can emit notifications and
-        // callbacks that re-enter those same paths, possibly delivered after
-        // any in-pass flag is down.
+        // transient recovery), each forcing subtree layout — and each layout
+        // pass emits the notifications and callbacks that re-enter those
+        // same paths, possibly delivered after any in-pass flag is down.
         // When everything this pass reads and writes is unchanged since the
         // last completed pass, the pass is a no-op: skip the layout storm
         // and the echo dies here, whichever path carried it. AppKit still
@@ -1005,12 +1004,11 @@ final class WindowTerminalPortal: NSObject {
 #if DEBUG
         RemoteTmuxSizingDiagnostics.fullHierarchySyncCount += 1
 #endif
-        // The portal owns `hostView`, not its AppKit/SwiftUI ancestors. Laying
-        // out those ancestors from this queued pass re-enters SwiftUI layout
-        // on macOS 15 (#9612). Consume their committed geometry instead;
-        // geometry callbacks schedule convergence passes when it changes.
-        _ = synchronizeHostFrameToReference()
+        installedContainerView?.layoutSubtreeIfNeeded()
+        installedReferenceView?.layoutSubtreeIfNeeded()
+        hostView.superview?.layoutSubtreeIfNeeded()
         hostView.layoutSubtreeIfNeeded()
+        _ = synchronizeHostFrameToReference()
         lastHierarchySyncSignature = externalGeometrySignature()
     }
 

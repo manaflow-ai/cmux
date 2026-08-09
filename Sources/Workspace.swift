@@ -10544,10 +10544,15 @@ final class Workspace: Identifiable, ObservableObject {
             installLayoutFollowUpObservers()
         }
         refreshLayoutFollowUpTimeout()
-        // This is often invoked from splitTabBar(_:didChangeGeometry:), which fires
-        // from SwiftUI's .onChange(of: geometry) during an active layout pass. Defer
-        // reconciliation until that pass commits; the follow-up consumes the
-        // resulting geometry instead of forcing the window hierarchy to lay out.
+        // Use async scheduling instead of a synchronous call here. beginEventDrivenLayoutFollowUp
+        // is often invoked from splitTabBar(_:didChangeGeometry:), which fires from inside
+        // SwiftUI's .onChange(of: geometry) during an active layout pass. Calling
+        // attemptEventDrivenLayoutFollowUp() synchronously in that context causes
+        // flushWorkspaceWindowLayouts() → displayIfNeeded() to be called re-entrantly,
+        // incrementing AppKit's per-window constraint-pass counter on every display cycle
+        // until it exceeds the limit and crashes with NSGenericException.
+        // scheduleLayoutFollowUpAttempt() defers via asyncAfter(0) so the flush always
+        // happens after the current layout pass completes.
         scheduleLayoutFollowUpAttempt()
     }
 
@@ -10622,11 +10627,10 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         // Intentionally NOT observing NSWindow.didUpdateNotification: AppKit posts
-        // it on every event-loop tick during tracking (scroll, drag), which forced
-        // a full-window layout per scroll tick while a session was open.
+        // it on every event-loop tick during tracking (scroll, drag), which pumped
+        // flushWorkspaceWindowLayouts() per scroll tick while a session was open.
         // Convergence comes from the self-rescheduling attempt loop plus the
-        // structural observers below; attempts consume geometry committed by
-        // AppKit/SwiftUI (https://github.com/manaflow-ai/cmux/issues/6790).
+        // structural observers below (https://github.com/manaflow-ai/cmux/issues/6790).
         layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
             forName: .terminalSurfaceDidBecomeReady,
             object: nil,
@@ -10740,6 +10744,12 @@ final class Workspace: Identifiable, ObservableObject {
         return min(0.25, baseDelay * pow(2.0, Double(exponent)))
     }
 
+    private func flushWorkspaceWindowLayouts() {
+        for window in NSApp.windows where window.isVisible {
+            window.contentView?.layoutSubtreeIfNeeded()
+        }
+    }
+
     private func browserPortalAnchorReady(for browserPanel: BrowserPanel) -> Bool {
         let anchorView = browserPanel.portalAnchorView
         return
@@ -10795,11 +10805,7 @@ final class Workspace: Identifiable, ObservableObject {
         isAttemptingLayoutFollowUp = true
         defer { isAttemptingLayoutFollowUp = false }
 
-        // Workspace coordinates model convergence; it does not own any window
-        // view hierarchy. Forcing a visible window's content root to lay out
-        // here re-enters NSHostingView while SwiftUI is rendering on macOS 15.
-        // Read committed ancestor geometry and let the structural observers
-        // wake another bounded attempt when that geometry changes (#9612).
+        flushWorkspaceWindowLayouts()
 
         let geometryPendingBefore = layoutFollowUpNeedsGeometryPass
         let terminalPortalPendingBefore = terminalPortalVisibilityNeedsFollowUp()
@@ -10915,8 +10921,11 @@ final class Workspace: Identifiable, ObservableObject {
         var needsFollowUpPass = false
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
 
-        // AppKit/SwiftUI own ancestor layout. This queued pass consumes their
-        // committed bounds and reconciles only each terminal-owned hierarchy.
+        // Flush pending AppKit layout first so terminal-host bounds reflect latest split topology.
+        for window in NSApp.windows where window.isVisible {
+            window.contentView?.layoutSubtreeIfNeeded()
+        }
+
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
             // Mirror-rendered window-tab panels are driven by the in-tab mirror
