@@ -144,6 +144,13 @@ class _InterpreterSourceSpec:
 
 
 @dataclass(frozen=True)
+class _ShellCommandWrapperSpec:
+    options_with_values: frozenset[str]
+    leading_operands: int = 0
+    allows_assignments: bool = False
+
+
+@dataclass(frozen=True)
 class _FluentClientBinding:
     name: str
     kind: str
@@ -308,7 +315,9 @@ _NETWORK_BASE_TARGET_LABELS = frozenset({"base_url", "baseurl"})
 _NETWORK_TARGET_SPECS = (
     _NetworkTargetSpec(
         verb_pattern=re.compile(
-            r"\.open\s*\(|(?:httpx|requests|session).*\.request\s*\("
+            r"\.open\s*\("
+            r"|httpx.*\.(?:request|stream)\s*\("
+            r"|(?:requests|session).*\.request\s*\("
         ),
         positional_index=1,
         labels=_NETWORK_TARGET_LABELS,
@@ -1209,7 +1218,59 @@ _SHELL_REDIRECTION_PREFIX = re.compile(
     r"^(?:\d+|\{[A-Za-z_][A-Za-z0-9_]*\})?"
     r"(?:<<<|<<-|<<|<>|&>>|&>|>>|>\||<&|>&|<|>)"
 )
-_SHELL_COMMAND_WRAPPERS = frozenset({"builtin", "command", "exec", "nohup", "time"})
+_SHELL_COMMAND_WRAPPER_SPECS = {
+    "builtin": _ShellCommandWrapperSpec(frozenset()),
+    "command": _ShellCommandWrapperSpec(frozenset()),
+    "exec": _ShellCommandWrapperSpec(frozenset()),
+    "gtimeout": _ShellCommandWrapperSpec(
+        frozenset({"-k", "--kill-after", "-s", "--signal"}),
+        leading_operands=1,
+    ),
+    "nice": _ShellCommandWrapperSpec(
+        frozenset({"-n", "--adjustment"}),
+    ),
+    "nohup": _ShellCommandWrapperSpec(frozenset()),
+    "sudo": _ShellCommandWrapperSpec(
+        frozenset(
+            {
+                "-C",
+                "--close-from",
+                "-D",
+                "--chdir",
+                "-R",
+                "--chroot",
+                "-T",
+                "--command-timeout",
+                "-U",
+                "--other-user",
+                "-a",
+                "--auth-type",
+                "-c",
+                "--login-class",
+                "-g",
+                "--group",
+                "-h",
+                "--host",
+                "-p",
+                "--prompt",
+                "-r",
+                "--role",
+                "-t",
+                "--type",
+                "-u",
+                "--user",
+            }
+        ),
+        allows_assignments=True,
+    ),
+    "time": _ShellCommandWrapperSpec(
+        frozenset({"-f", "--format", "-o", "--output"}),
+    ),
+    "timeout": _ShellCommandWrapperSpec(
+        frozenset({"-k", "--kill-after", "-s", "--signal"}),
+        leading_operands=1,
+    ),
+}
 _SHELL_CONTROL_FLOW_PREFIXES = frozenset(
     {"!", "do", "elif", "else", "if", "then", "until", "while", "{"}
 )
@@ -1320,6 +1381,80 @@ def _shell_redirection_next_index(
     return min(len(words), index + 2)
 
 
+def _shell_next_non_redirection_index(
+    line: str,
+    words: list[tuple[int, int]],
+    index: int,
+) -> int:
+    while index < len(words):
+        next_index = _shell_redirection_next_index(
+            line,
+            words,
+            index,
+        )
+        if next_index is None:
+            break
+        index = next_index
+    return index
+
+
+def _shell_wrapper_command_index(
+    line: str,
+    words: list[tuple[int, int]],
+    wrapper_index: int,
+    spec: _ShellCommandWrapperSpec,
+) -> int:
+    """Return the nested command index after a wrapper's own arguments."""
+    index = wrapper_index + 1
+    while index < len(words):
+        index = _shell_next_non_redirection_index(line, words, index)
+        if index >= len(words):
+            return index
+        argument, _ = _shell_word_value_and_bounds(line, words[index])
+        if argument == "--":
+            index += 1
+            break
+
+        flag, separator, _ = argument.partition("=")
+        if flag in spec.options_with_values:
+            index += 1
+            if not separator:
+                index = _shell_next_non_redirection_index(
+                    line,
+                    words,
+                    index,
+                )
+                if index < len(words):
+                    index += 1
+            continue
+        if argument.startswith("-"):
+            index += 1
+            continue
+        break
+
+    operands_remaining = spec.leading_operands
+    while operands_remaining and index < len(words):
+        index = _shell_next_non_redirection_index(line, words, index)
+        if index >= len(words):
+            return index
+        index += 1
+        operands_remaining -= 1
+
+    if spec.allows_assignments:
+        while index < len(words):
+            index = _shell_next_non_redirection_index(line, words, index)
+            if index >= len(words):
+                return index
+            argument, _ = _shell_word_value_and_bounds(
+                line,
+                words[index],
+            )
+            if not _SHELL_ASSIGNMENT_WORD.match(argument):
+                break
+            index += 1
+    return _shell_next_non_redirection_index(line, words, index)
+
+
 def _shell_command_word_bounds(
     line: str,
     offset: int,
@@ -1360,19 +1495,13 @@ def _shell_command_word_bounds(
                     continue
                 break
             continue
-        if command_name in _SHELL_COMMAND_WRAPPERS:
-            index += 1
-            while index < len(words):
-                if (next_index := _shell_redirection_next_index(line, words, index)) is not None:
-                    index = next_index
-                    continue
-                argument, _ = _shell_word_value_and_bounds(line, words[index])
-                if argument == "--":
-                    index += 1
-                    break
-                if not argument.startswith("-"):
-                    break
-                index += 1
+        if wrapper_spec := _SHELL_COMMAND_WRAPPER_SPECS.get(command_name):
+            index = _shell_wrapper_command_index(
+                line,
+                words,
+                index,
+                wrapper_spec,
+            )
             continue
         return words[index]
     return None
@@ -3100,6 +3229,52 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/timeout_curl.sh",
+            "timeout 10 curl -fsSL https://api.openai.com/v1/items\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/timeout_option_curl.sh",
+            (
+                "timeout -k 2 --signal=TERM 10 "
+                "curl -fsSL https://api.openai.com/v1/items\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/sudo_curl.sh",
+            "sudo curl -fsSL https://api.openai.com/v1/items\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/nested_sudo_timeout_curl.sh",
+            (
+                "sudo -u root timeout --kill-after=2 10 "
+                "curl -fsSL https://api.openai.com/v1/items\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/sudo_assignment_curl.sh",
+            "sudo API_ENV=test curl https://api.openai.com/v1/items\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/nice_curl.sh",
+            "nice -n 5 curl https://api.openai.com/v1/items\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/time_curl.sh",
+            "time -f '%E' curl https://api.openai.com/v1/items\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/gtimeout_curl.sh",
+            "gtimeout --foreground 10 curl https://api.openai.com/v1/items\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/shell_long_options_network.sh",
             (
                 "bash --noprofile --norc --rcfile /tmp/empty "
@@ -3199,8 +3374,21 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/httpx_module_stream.py",
+            'httpx.stream("GET", "https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/httpx_client_get.py",
             'httpx.Client().get("https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/httpx_client_stream.py",
+            (
+                'httpx.Client().stream('
+                '"GET", "https://api.openai.com/v1/items")\n'
+            ),
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
@@ -3670,6 +3858,29 @@ def _self_test() -> int:
         (
             "tests/n18i_shell_argument.sh",
             "printf curl https://api.openai.com/v1/items\n",
+        ),
+        (
+            "tests/n18i_timeout_inert_curl.sh",
+            (
+                "timeout 10 printf '%s\\n' "
+                "'curl https://api.openai.com/v1/items'\n"
+            ),
+        ),
+        (
+            "tests/n18i_sudo_inert_curl.sh",
+            "sudo echo curl https://api.openai.com/v1/items\n",
+        ),
+        (
+            "tests/n18i_timeout_option_value.sh",
+            "timeout -s curl 10 echo https://api.openai.com/v1/items\n",
+        ),
+        (
+            "tests/n18i_sudo_option_value.sh",
+            "sudo -p curl echo https://api.openai.com/v1/items\n",
+        ),
+        (
+            "tests/n18i_time_option_value.sh",
+            "time -f curl echo https://api.openai.com/v1/items\n",
         ),
         # Redirections do not promote later argv data into command position.
         (
