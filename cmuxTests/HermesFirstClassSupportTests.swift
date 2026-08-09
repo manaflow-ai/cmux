@@ -1093,6 +1093,77 @@ struct HermesFirstClassSupportTests {
         ])
     }
 
+    @Test("Hermes Vault resume uses the managed wrapper instead of a conflicting PATH install")
+    func hermesVaultResumeUsesManagedWrapper() throws {
+        let result = try hermesVaultManagedWrapperProbe()
+
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        #expect(
+            result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+                == "managed|--profile|default|--tui|--resume|indexed-session|--model|test-model"
+        )
+    }
+
+    private func hermesVaultManagedWrapperProbe() throws -> (status: Int32, output: String) {
+        let root = try temporaryDirectory(prefix: "cmux-hermes-vault-wrapper")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
+        let hermesHome = root.appendingPathComponent("hermes-home", isDirectory: true)
+        try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+
+        let conflictingHermes = binDirectory.appendingPathComponent("hermes", isDirectory: false)
+        try """
+        #!/bin/sh
+        echo 'Error: session not found'
+        exit 47
+        """.write(to: conflictingHermes, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: conflictingHermes.path
+        )
+
+        let managedWrapper = root.appendingPathComponent("managed-hermes", isDirectory: false)
+        try """
+        #!/bin/sh
+        printf 'managed'
+        for argument in "$@"; do
+          printf '|%s' "$argument"
+        done
+        printf '\n'
+        """.write(to: managedWrapper, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: managedWrapper.path
+        )
+
+        let entry = SessionEntry(
+            id: "hermes-agent:indexed-session",
+            agent: .hermesAgent,
+            sessionId: "indexed-session",
+            title: "Indexed session",
+            cwd: nil,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 0),
+            fileURL: nil,
+            specifics: .hermesAgent(
+                source: "tui",
+                model: "test-model",
+                hermesHome: hermesHome.path
+            )
+        )
+        let resumeCommand = try #require(entry.resumeCommand)
+        return try runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", resumeCommand],
+            environment: [
+                "CMUX_HERMES_AGENT_WRAPPER_SHIM": managedWrapper.path,
+                "PATH": "\(binDirectory.path):/usr/bin:/bin",
+            ]
+        )
+    }
+
     @Test("Named Hermes Vault resumes keep their indexed profile")
     func namedHermesVaultResumeKeepsIndexedProfile() {
         let entry = SessionEntry(
