@@ -6,6 +6,7 @@ import {
   addCoderouterBreadcrumb,
   reportCoderouterFailure,
 } from "./observability";
+import { coderouterTeamAnalyticsId } from "./analyticsIdentity";
 
 export type CoderouterAnalyticsEvent =
   | "coderouter_account_added"
@@ -64,16 +65,30 @@ export function captureCoderouterEvent(
   dependencies: AnalyticsDependencies = defaultDependencies,
 ): void {
   if (!dependencies.enabled()) return;
+  const aggregateUsage =
+    input.event === "coderouter_model_request_completed";
+  // Usage is deliberately team-scoped and never attributable to an
+  // individual. A malformed call without a team is dropped rather than
+  // falling back to the Stack user identity.
+  if (aggregateUsage && !input.teamId) return;
   const properties = safeProperties(input.properties ?? {});
   if (input.teamId) {
     properties.$groups = { coderouter_team: input.teamId };
+  }
+  if (aggregateUsage) {
+    properties.$process_person_profile = false;
+    properties.coderouter_team_scope = coderouterTeamAnalyticsId(
+      input.teamId!,
+    );
   }
   const body = JSON.stringify({
     api_key: POSTHOG_PROJECT_KEY,
     batch: [
       {
         event: input.event,
-        distinct_id: input.userId,
+        distinct_id: aggregateUsage
+          ? coderouterTeamAnalyticsId(input.teamId!)
+          : input.userId,
         properties: {
           ...properties,
           $insert_id: randomUUID(),

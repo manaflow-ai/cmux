@@ -71,7 +71,28 @@ the authenticated output if it contains a principal identifier.
 - Sentry project: `coderouter-web`; alert on new coderouter errors,
   reconciliation failure, refresh failure, and sustained provider failure.
 - PostHog dashboard: `coderouter private beta`; internal only.
-- PostHog may contain aggregate token counts, outcomes, durations, user/team
-  identity, and actual subscription cost basis.
+- CodeRouter model-usage events use a hashed team-scoped distinct ID with
+  person-profile processing disabled. They contain aggregate token counts,
+  model/provider category, outcomes, durations, the immutable Stack team ID,
+  and actual subscription cost basis, but no member identity.
 - PostHog must never contain prompts, outputs, bodies, credentials, route
   tokens, email, payment-method details, or provider-account identifiers.
+
+### Customer team-usage dashboard
+
+- Set `POSTHOG_CODEROUTER_QUERY_API_KEY` to a dedicated PostHog personal API
+  key with only `query:read`. Never reuse the broader account-deletion key or
+  expose this key to browser code.
+- The server verifies Stack membership and CodeRouter permission first, then
+  derives the same one-way team analytics scope used at capture time and
+  passes only that scope as a parameterized HogQL value.
+- Results are aggregate daily request/token totals. Model identifiers are used
+  server-side only to derive an API-equivalent estimate from the versioned rate
+  card in `web/services/coderouter/apiEquivalentPricing.ts`; they are not
+  returned to the page.
+- The estimate is not actual spend. Unknown models are excluded and surfaced
+  through pricing coverage. Subscription-routed traffic remains `$0`
+  incremental provider API spend.
+- Responses are cached by team ID for five minutes. Missing credentials,
+  malformed PostHog data, timeouts, and query failures fail closed to an
+  unavailable panel and never fall back to a cross-team or unfiltered query.

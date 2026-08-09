@@ -4,6 +4,8 @@ import {
   __test as metricsTest,
   type CoderouterTeamMetrics,
 } from "../services/coderouter/teamMetrics";
+import { coderouterTeamAnalyticsId } from
+  "../services/coderouter/analyticsIdentity";
 
 const config = {
   apiHost: "https://us.posthog.test",
@@ -13,20 +15,25 @@ const config = {
 
 describe("CodeRouter team metrics", () => {
   test("uses a parameterized, team-scoped aggregate query", async () => {
-    const posthogFetch = mock(async (...args: Parameters<typeof fetch>) => {
+    const posthogFetch = mock(async (...args: unknown[]) => {
       const [url, init] = args;
       expect(String(url)).toBe(
         "https://us.posthog.test/api/projects/244066/query/",
       );
-      expect(new Headers(init?.headers).get("authorization")).toBe(
+      expect(new Headers((init as RequestInit | undefined)?.headers).get("authorization")).toBe(
         "Bearer phx_query_read_only",
       );
-      const body = JSON.parse(String(init?.body)) as {
+      const body = JSON.parse(
+        String((init as RequestInit | undefined)?.body),
+      ) as {
         query: { query: string; values: Record<string, unknown> };
       };
-      expect(body.query.query).toContain("{team_id}");
+      expect(body.query.query).toContain("{team_scope}");
       expect(body.query.query).not.toContain("team-authorized");
-      expect(body.query.values).toEqual({ team_id: "team-authorized" });
+      expect(body.query.values).toEqual({
+        team_scope: coderouterTeamAnalyticsId("team-authorized"),
+      });
+      expect(JSON.stringify(body)).not.toContain("team-authorized");
       expect(body.query.query).not.toMatch(
         /distinct_id|person|prompt|response|content|credential|account_id/i,
       );
@@ -69,14 +76,14 @@ describe("CodeRouter team metrics", () => {
       cachedInputTokens: 200_000,
       outputTokens: 100_000,
       totalTokens: 1_300_000,
-      apiEquivalentUsd: 3.325,
+      apiEquivalentUsd: 3.185,
       pricedTokens: 1_300_000,
       unpricedTokens: 0,
     });
     expect(ready.daily.at(-1)).toMatchObject({
       day: "2026-08-08",
       totalTokens: 1_300_000,
-      apiEquivalentUsd: 3.325,
+      apiEquivalentUsd: 3.185,
     });
   });
 

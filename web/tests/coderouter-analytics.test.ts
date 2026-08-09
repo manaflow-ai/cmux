@@ -73,6 +73,9 @@ describe("coderouter analytics", () => {
     expect(payload.batch[0]?.properties.$groups).toEqual({
       coderouter_team: "team-1",
     });
+    expect(payload.batch[0]?.properties.coderouter_team_scope).toBe(
+      payload.batch[0]?.distinct_id,
+    );
     expect(payload.batch[0]?.properties.$insert_id).toBeString();
     expect(bodies[0]).not.toContain("stack-user-1");
   });
