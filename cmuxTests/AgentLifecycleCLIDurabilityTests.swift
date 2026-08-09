@@ -4,113 +4,54 @@ import Testing
 @Suite(.serialized)
 struct AgentLifecycleCLIDurabilityTests {
     @Test func deferredSettlementReplayClaimsAreExclusiveAndLeaseBound() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "cmux-deferred-settlement-claim-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
-        let clock = LockedTestClock(
-            date: Date(timeIntervalSince1970: 1_000)
-        )
-        let store = ClaudeHookSessionStore(
-            processEnv: [
-                "CMUX_CLAUDE_HOOK_STATE_PATH": root
-                    .appendingPathComponent("state.json")
-                    .path,
-            ],
-            clock: { clock.now() }
-        )
-        let generation = AgentPIDProcessIdentity(
-            pid: 7_777,
-            startSeconds: 100,
-            startMicroseconds: 200
-        )
-        let sessionID = "claim-session"
-        let turnID = "claim-turn"
-        let workID = "claim-work"
-
-        _ = try store.recordStructuredBackgroundWorkEvent(
-            sessionId: sessionID,
-            eventName: "SubagentStart",
-            workId: workID,
-            turnId: turnID,
-            processGeneration: generation,
+        let settlement = AgentDeferredTurnSettlement(
+            id: UUID(),
+            turnId: "claim-turn",
             workspaceId: "workspace",
             surfaceId: "surface",
-            cwd: "/tmp"
+            transcriptPath: nil,
+            lastAssistantMessage: nil
         )
-        #expect(
-            try store.deferTurnSettlementIfStructuredWorkActive(
-                sessionId: sessionID,
-                workspaceId: "workspace",
-                surfaceId: "surface",
-                cwd: "/tmp",
-                turnId: turnID,
-                processGeneration: generation,
-                transcriptPath: nil,
-                lastAssistantMessage: nil
-            ) == 1
-        )
+        let firstClaimID = UUID()
         let firstClaim = try #require(
-            try store.recordStructuredBackgroundWorkEvent(
-                sessionId: sessionID,
-                eventName: "SubagentStop",
-                workId: workID,
-                turnId: turnID,
-                processGeneration: generation,
-                workspaceId: "workspace",
-                surfaceId: "surface",
-                cwd: "/tmp"
-            ).deferredSettlement
+            settlement.claimingReplay(
+                at: 1_000,
+                leaseDuration: 10,
+                claimID: firstClaimID
+            )
         )
-        #expect(firstClaim.replayClaimID != nil)
+        #expect(firstClaim.replayClaimID == firstClaimID)
         #expect(
-            try store.recordStructuredBackgroundWorkEvent(
-                sessionId: sessionID,
-                eventName: "SubagentStop",
-                workId: workID,
-                turnId: turnID,
-                processGeneration: generation,
-                workspaceId: "workspace",
-                surfaceId: "surface",
-                cwd: "/tmp"
-            ).deferredSettlement == nil
+            firstClaim.claimingReplay(
+                at: 1_009,
+                leaseDuration: 10,
+                claimID: UUID()
+            ) == nil
         )
 
-        clock.advance(by: 11)
+        let replacementClaimID = UUID()
         let replacementClaim = try #require(
-            try store.recordStructuredBackgroundWorkEvent(
-                sessionId: sessionID,
-                eventName: "SubagentStop",
-                workId: workID,
-                turnId: turnID,
-                processGeneration: generation,
-                workspaceId: "workspace",
-                surfaceId: "surface",
-                cwd: "/tmp"
-            ).deferredSettlement
+            firstClaim.claimingReplay(
+                at: 1_011,
+                leaseDuration: 10,
+                claimID: replacementClaimID
+            )
         )
         #expect(replacementClaim.id == firstClaim.id)
-        #expect(replacementClaim.replayClaimID != firstClaim.replayClaimID)
-
-        try store.releaseDeferredTurnSettlementReplayClaim(
-            sessionId: sessionID,
-            settlement: firstClaim
-        )
+        #expect(replacementClaim.replayClaimID == replacementClaimID)
         #expect(
-            try store.recordStructuredBackgroundWorkEvent(
-                sessionId: sessionID,
-                eventName: "SubagentStop",
-                workId: workID,
-                turnId: turnID,
-                processGeneration: generation,
-                workspaceId: "workspace",
-                surfaceId: "surface",
-                cwd: "/tmp"
-            ).deferredSettlement == nil,
+            replacementClaim.releasingReplayClaim(
+                matching: firstClaim
+            ) == nil,
             "An expired owner must not release its replacement's exact claim."
         )
+        let released = try #require(
+            replacementClaim.releasingReplayClaim(
+                matching: replacementClaim
+            )
+        )
+        #expect(released.replayClaimID == nil)
+        #expect(released.replayClaimedAt == nil)
     }
 
     @Test func cursorApprovalDiscoveryDoesNotMaterializeTheLogDirectory() throws {
@@ -231,25 +172,6 @@ struct AgentLifecycleCLIDurabilityTests {
             options mask: DirectoryEnumerationOptions
         ) throws -> [URL] {
             throw CocoaError(.fileReadTooLarge)
-        }
-    }
-
-    private final class LockedTestClock: @unchecked Sendable {
-        private let lock = NSLock()
-        private var date: Date
-
-        init(date: Date) {
-            self.date = date
-        }
-
-        func now() -> Date {
-            lock.withLock { date }
-        }
-
-        func advance(by seconds: TimeInterval) {
-            lock.withLock {
-                date = date.addingTimeInterval(seconds)
-            }
         }
     }
 }
