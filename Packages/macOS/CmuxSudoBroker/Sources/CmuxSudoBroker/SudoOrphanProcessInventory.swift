@@ -38,29 +38,28 @@ struct SudoOrphanProcessInventory: Sendable {
 
     private func approvedScriptPath(arguments: [String]) -> String? {
         let prompt = SudoAuthenticationOutputDetector.passwordPrompt
-        let bootstrap = SudoReviewedScriptTransport.bootstrap
         if arguments.count == 13,
-           arguments[0...9].elementsEqual([
+           arguments[0...7].elementsEqual([
                "/usr/bin/script", "-q", "/dev/null", "/usr/bin/sudo", "-k",
-               "-p", prompt, "/bin/bash", "-c", bootstrap,
-           ]) {
-            return arguments[10]
+               "-S", "-p", prompt,
+           ]),
+           arguments[9] == SudoPrivilegedExecutor.hiddenCommand {
+            return arguments[12]
         }
         if arguments.count == 10,
-           arguments[0...6].elementsEqual([
-               "/usr/bin/sudo", "-k", "-p", prompt, "/bin/bash", "-c", bootstrap,
-           ]) {
-            return arguments[7]
+           arguments[0...4].elementsEqual([
+               "/usr/bin/sudo", "-k", "-S", "-p", prompt,
+           ]),
+           arguments[6] == SudoPrivilegedExecutor.hiddenCommand {
+            return arguments[9]
         }
-        if arguments.count == 6,
-           arguments[0...2].elementsEqual([
-               "/bin/bash", "-c", bootstrap,
-           ]) {
-            return arguments[3]
+        if arguments.count == 5,
+           arguments[1] == SudoPrivilegedExecutor.hiddenCommand {
+            return arguments[4]
         }
         if arguments.count == 4,
            arguments[0...2].elementsEqual([
-               "/bin/bash", "-c", SudoReviewedScriptTransport.sourcedScriptCommand,
+               "/bin/bash", "-c", SudoPrivilegedProcessSupervisor.sourceCommand,
            ]) {
             return arguments[3]
         }

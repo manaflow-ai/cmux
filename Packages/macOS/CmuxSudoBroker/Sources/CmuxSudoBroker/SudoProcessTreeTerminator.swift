@@ -26,7 +26,12 @@ struct SudoProcessTreeTerminator: Sendable {
     /// - Parameter root: The generation-safe identity of the spawned `script` process.
     /// - Returns: Process generations that survived both bounded signal phases.
     func terminate(root: SudoProcessIdentity) -> [SudoProcessIdentity] {
-        var targets = processTree(root: root)
+        terminate(roots: [root])
+    }
+
+    /// Terminates several known generations as one deduplicated process forest.
+    func terminate(roots: [SudoProcessIdentity]) -> [SudoProcessIdentity] {
+        var targets = processForest(roots: roots)
         signal(targets, with: SIGTERM)
 
         let termSurvivors = exitWaiter.survivors(
@@ -38,26 +43,25 @@ struct SudoProcessTreeTerminator: Sendable {
         // Expand from every generation captured before TERM. The original
         // wrapper can disappear during the grace period while a reparented PTY
         // descendant creates another child or process group.
-        let expandedTargets = targets.flatMap { processTree(root: $0) }
+        let expandedTargets = processForest(roots: targets)
         targets = Self.unique(targets + expandedTargets)
         let liveTargets = targets.filter(inspector.isRunning)
         signal(liveTargets, with: SIGKILL)
         return exitWaiter.survivors(among: liveTargets, after: killGraceSeconds)
     }
 
-    private func processTree(root: SudoProcessIdentity) -> [SudoProcessIdentity] {
-        guard inspector.isRunning(root) else { return [] }
-        var identities = [root]
-        var pending = [root]
-        var seen = Set([root])
+    private func processForest(roots: [SudoProcessIdentity]) -> [SudoProcessIdentity] {
+        var identities: [SudoProcessIdentity] = []
+        var pending = roots
+        var seen: Set<SudoProcessIdentity> = []
         while let parent = pending.popLast() {
+            guard seen.insert(parent).inserted else { continue }
             guard inspector.isRunning(parent) else { continue }
+            identities.append(parent)
             for child in inspector.directChildProcessIdentifiers(
                 of: parent.processIdentifier
             ) {
                 guard let identity = inspector.identity(for: child) else { continue }
-                guard seen.insert(identity).inserted else { continue }
-                identities.append(identity)
                 pending.append(identity)
             }
         }

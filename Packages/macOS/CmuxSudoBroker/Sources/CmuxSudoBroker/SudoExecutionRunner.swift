@@ -13,6 +13,7 @@ public struct SudoExecutionRunner {
     private let processRunner: SudoBoundedProcessRunner
     private let reviewedScriptReader: SudoReviewedScriptReader
     private let expectedParentExecutableURL: URL
+    private let privilegedHelperExecutableURL: URL
     private let messages: SudoFailureMessages
     private let now: @Sendable () -> Date
 
@@ -21,11 +22,13 @@ public struct SudoExecutionRunner {
     /// - Parameters:
     ///   - paths: The enclosing app bundle's private sudo spool.
     ///   - expectedParentExecutableURL: The enclosing cmux GUI executable.
+    ///   - privilegedHelperExecutableURL: The bundled CLI re-entered after authentication.
     ///   - messages: Localized terminal diagnostics persisted with results.
     ///   - pamConfiguration: The sudo PAM policy reader.
     public init(
         paths: SudoBrokerPaths,
         expectedParentExecutableURL: URL,
+        privilegedHelperExecutableURL: URL,
         messages: SudoFailureMessages,
         pamConfiguration: SudoPAMConfiguration = SudoPAMConfiguration()
     ) {
@@ -43,6 +46,7 @@ public struct SudoExecutionRunner {
             signaler: signaler
         )
         self.expectedParentExecutableURL = expectedParentExecutableURL
+        self.privilegedHelperExecutableURL = privilegedHelperExecutableURL
         self.messages = messages
         now = { .now }
     }
@@ -55,6 +59,7 @@ public struct SudoExecutionRunner {
         processRunner: SudoBoundedProcessRunner,
         reviewedScriptReader: SudoReviewedScriptReader = SudoReviewedScriptReader(),
         expectedParentExecutableURL: URL,
+        privilegedHelperExecutableURL: URL = URL(fileURLWithPath: "/usr/bin/false"),
         messages: SudoFailureMessages,
         now: @Sendable @escaping () -> Date
     ) {
@@ -65,6 +70,7 @@ public struct SudoExecutionRunner {
         self.processRunner = processRunner
         self.reviewedScriptReader = reviewedScriptReader
         self.expectedParentExecutableURL = expectedParentExecutableURL
+        self.privilegedHelperExecutableURL = privilegedHelperExecutableURL
         self.messages = messages
         self.now = now
     }
@@ -151,6 +157,8 @@ public struct SudoExecutionRunner {
             let command = SudoExecutionCommand.sudo(
                 approvedScriptURL: store.approvedScriptURL(id: requestID),
                 reviewedScript: reviewedScript,
+                privilegedHelperExecutableURL: privilegedHelperExecutableURL,
+                deadline: manifest.deadline,
                 currentDirectoryURL: URL(
                     fileURLWithPath: manifest.currentDirectory,
                     isDirectory: true
@@ -200,12 +208,18 @@ public struct SudoExecutionRunner {
                 return 1
             }
 
-            let outcome = processRunner.wait(for: process, deadline: manifest.deadline)
+            let outcome = processRunner.wait(
+                for: process,
+                deadline: manifest.deadline.addingTimeInterval(
+                    store.resourcePolicy.privilegedCleanupGraceSeconds
+                )
+            )
             let cleanupSurvivors: [SudoProcessIdentity]
             switch outcome {
             case .authenticationFailed(let survivors), .timedOut(let survivors):
                 cleanupSurvivors = survivors
-            case .exited, .signaled, .unavailable:
+            case .exited, .signaled, .unavailable, .privilegedTimedOut,
+                    .privilegedCleanupFailed, .privilegedTransportFailed:
                 cleanupSurvivors = []
             }
             recordCleanupSurvivors(cleanupSurvivors, requestID: requestID)
@@ -270,6 +284,27 @@ public struct SudoExecutionRunner {
                 status: .failed,
                 errorCode: survivors.isEmpty ? .executionTimedOut : .processCleanupFailed,
                 note: survivors.isEmpty ? messages.executionTimedOut : messages.cleanupFailed
+            )
+        case .privilegedTimedOut:
+            return SudoResult(
+                id: requestID,
+                status: .failed,
+                errorCode: .executionTimedOut,
+                note: messages.executionTimedOut
+            )
+        case .privilegedCleanupFailed:
+            return SudoResult(
+                id: requestID,
+                status: .failed,
+                errorCode: .processCleanupFailed,
+                note: messages.cleanupFailed
+            )
+        case .privilegedTransportFailed:
+            return SudoResult(
+                id: requestID,
+                status: .failed,
+                errorCode: .processLaunchFailed,
+                note: messages.processLaunchFailed
             )
         }
     }

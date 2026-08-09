@@ -28,13 +28,10 @@ struct SudoApprovalReviewView: View {
             Text(presentation.scriptLabel)
                 .font(.headline)
 
-            ScrollView([.horizontal, .vertical]) {
-                Text(presentation.script)
-                    .font(.system(.body, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-            }
+            SudoScriptTextView(
+                script: presentation.script,
+                accessibilityLabel: presentation.scriptLabel
+            )
             .background(.background.secondary, in: RoundedRectangle(cornerRadius: 6))
             .overlay {
                 RoundedRectangle(cornerRadius: 6)

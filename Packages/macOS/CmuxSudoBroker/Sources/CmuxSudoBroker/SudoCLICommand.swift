@@ -9,9 +9,12 @@ public struct SudoCLICommand {
     private let requesterIdentity: SudoProcessIdentity
     private let requesterCommand: String
     private let launcher: any SudoAppLaunching
+    private let setupLauncher: any SudoTouchIDSetupLaunching
+    private let setupHelperURL: URL
     private let io: SudoCLIIO
     private let messages: SudoCLIMessages
     private let failureMessages: SudoFailureMessages
+    private let inputReader: SudoBoundedInputReader
     private let now: () -> Date
 
     /// Creates the production sudo command for one enclosing cmux app bundle.
@@ -39,9 +42,15 @@ public struct SudoCLICommand {
             inspector: inspector,
             signaler: SystemSudoProcessSignaler()
         )
+        setupLauncher = SystemSudoTouchIDSetupLauncher()
+        setupHelperURL = appBundleURL.appendingPathComponent(
+            "Contents/Resources/bin/setup-pam-tid.sh",
+            isDirectory: false
+        )
         io = .live
         messages = SudoCLIMessages()
         failureMessages = .localized
+        inputReader = SudoBoundedInputReader()
         now = { .now }
     }
 
@@ -52,9 +61,12 @@ public struct SudoCLICommand {
         requesterIdentity: SudoProcessIdentity,
         requesterCommand: String,
         launcher: any SudoAppLaunching,
+        setupLauncher: any SudoTouchIDSetupLaunching = SystemSudoTouchIDSetupLauncher(),
+        setupHelperURL: URL? = nil,
         io: SudoCLIIO,
         messages: SudoCLIMessages = SudoCLIMessages(),
         failureMessages: SudoFailureMessages,
+        inputReader: SudoBoundedInputReader = SudoBoundedInputReader(),
         now: @escaping () -> Date
     ) {
         self.store = store
@@ -63,9 +75,15 @@ public struct SudoCLICommand {
         self.requesterIdentity = requesterIdentity
         self.requesterCommand = requesterCommand
         self.launcher = launcher
+        self.setupLauncher = setupLauncher
+        self.setupHelperURL = setupHelperURL ?? appBundleURL.appendingPathComponent(
+            "Contents/Resources/bin/setup-pam-tid.sh",
+            isDirectory: false
+        )
         self.io = io
         self.messages = messages
         self.failureMessages = failureMessages
+        self.inputReader = inputReader
         self.now = now
     }
 
@@ -91,6 +109,18 @@ public struct SudoCLICommand {
                 )
             }
             return try listPending()
+        case "setup-touch-id":
+            guard remaining.isEmpty else {
+                throw SudoCLICommandError(
+                    message: messages.unexpectedArgument(remaining[0]),
+                    exitCode: 2
+                )
+            }
+            do {
+                return try setupLauncher.run(helperURL: setupHelperURL)
+            } catch {
+                throw SudoCLICommandError(message: messages.touchIDSetupFailed)
+            }
         case "run":
             if remaining == ["-h"] || remaining == ["--help"] {
                 try io.writeStandardOutput(Data((messages.usage + "\n").utf8))
@@ -128,6 +158,10 @@ public struct SudoCLICommand {
 
         do {
             try store.enqueue(SudoPendingRequest(request: request, script: script))
+        } catch SudoSpoolError.requestCapacityExceeded {
+            throw SudoCLICommandError(message: messages.requestCapacityExceeded)
+        } catch SudoSpoolError.scriptTooLarge {
+            throw SudoCLICommandError(message: messages.scriptTooLarge, exitCode: 2)
         } catch {
             throw SudoCLICommandError(message: messages.requestWriteFailed)
         }
@@ -274,19 +308,39 @@ public struct SudoCLICommand {
     }
 
     private func loadScript(_ source: ScriptSource) throws -> String {
+        let maximumBytes = store.resourcePolicy.maximumScriptBytes
+        let overflowSentinelLimit = maximumBytes + 1
         let data: Data
         switch source {
         case .command(let command):
             data = Data((command + "\n").utf8)
         case .standardInput:
-            data = try io.readStandardInput()
-        case .file(let url):
-            guard FileManager.default.fileExists(atPath: url.path) else {
-                throw SudoCLICommandError(message: messages.scriptNotFound(url.path), exitCode: 2)
+            do {
+                data = try io.readStandardInput(overflowSentinelLimit)
+            } catch {
+                throw SudoCLICommandError(message: messages.inputReadFailed, exitCode: 2)
             }
-            data = try Data(contentsOf: url, options: .mappedIfSafe)
+        case .file(let url):
+            do {
+                data = try inputReader.readRegularFile(
+                    at: url,
+                    maximumBytes: overflowSentinelLimit
+                )
+            } catch SudoBoundedInputReader.Failure.open(let code) where code == ENOENT {
+                throw SudoCLICommandError(
+                    message: messages.scriptNotFound(url.path),
+                    exitCode: 2
+                )
+            } catch SudoBoundedInputReader.Failure.tooLarge {
+                throw SudoCLICommandError(message: messages.scriptTooLarge, exitCode: 2)
+            } catch {
+                throw SudoCLICommandError(
+                    message: messages.scriptUnreadable(url.path),
+                    exitCode: 2
+                )
+            }
         }
-        guard data.count <= 16 * 1_024 * 1_024 else {
+        guard data.count <= maximumBytes else {
             throw SudoCLICommandError(message: messages.scriptTooLarge, exitCode: 2)
         }
         guard let script = String(data: data, encoding: .utf8) else {

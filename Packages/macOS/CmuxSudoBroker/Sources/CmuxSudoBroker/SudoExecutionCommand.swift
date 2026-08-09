@@ -27,12 +27,16 @@ struct SudoExecutionCommand: Sendable, Equatable {
     static func sudo(
         approvedScriptURL: URL,
         reviewedScript: Data,
+        privilegedHelperExecutableURL: URL,
+        deadline: Date,
         currentDirectoryURL: URL,
         outputURL: URL
     ) -> SudoExecutionCommand {
         let transport = SudoReviewedScriptTransport(
             reviewedScript: reviewedScript,
-            approvedScriptURL: approvedScriptURL
+            approvedScriptURL: approvedScriptURL,
+            privilegedHelperExecutableURL: privilegedHelperExecutableURL,
+            deadline: deadline
         )
         return SudoExecutionCommand(
             executableURL: URL(fileURLWithPath: "/usr/bin/script"),
@@ -42,13 +46,14 @@ struct SudoExecutionCommand: Sendable, Equatable {
                 "/dev/null",
                 "/usr/bin/sudo",
                 "-k",
+                "-S",
                 "-p",
                 SudoAuthenticationOutputDetector.passwordPrompt,
             ] + transport.shellArguments,
             currentDirectoryURL: currentDirectoryURL,
             outputURL: outputURL,
             standardInput: reviewedScript,
-            standardInputReadyMarker: Data(SudoReviewedScriptTransport.readinessMarker.utf8)
+            standardInputReadyMarker: SudoExecutionControlMarkers().inputReady
         )
     }
 }

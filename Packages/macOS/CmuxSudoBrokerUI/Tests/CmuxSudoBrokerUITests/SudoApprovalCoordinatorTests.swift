@@ -42,16 +42,44 @@ struct SudoApprovalCoordinatorTests {
         #expect(await presenterEvents.next() == .presented("request-events"))
         let presentation = try #require(presenter.presentations["request-events"])
 
-        await broker.send(.phaseChanged(id: "request-events", phase: .approved))
         await broker.send(
-            .settled(
-                SudoResult(id: "request-events", status: .completed, exitCode: 0)
-            )
+            .snapshot([
+                SudoPendingRequest(
+                    request: snapshot.request,
+                    script: snapshot.script,
+                    phase: .approved
+                )
+            ])
         )
+        await broker.send(.snapshot([]))
 
         #expect(await presenterEvents.next() == .dismissed("request-events"))
         #expect(presentation.phase == .approved)
         #expect(coordinator.presentations["request-events"] == nil)
+        await coordinator.stop()
+    }
+
+    @Test("A replacement snapshot repairs skipped intermediate events")
+    func replacementSnapshotReconcilesAdditionsAndRemovals() async throws {
+        let first = Self.snapshot(id: "request-first")
+        let second = SudoPendingRequest(
+            request: Self.snapshot(id: "request-second").request,
+            script: "echo second\n",
+            phase: .executing
+        )
+        let broker = RecordingSudoBroker(initialSnapshots: [first])
+        let presenter = RecordingSudoApprovalPresenter()
+        let coordinator = SudoApprovalCoordinator(broker: broker, presenter: presenter)
+        var events = presenter.events.makeAsyncIterator()
+        try await coordinator.start()
+        #expect(await events.next() == .presented(first.request.id))
+
+        await broker.send(.snapshot([second]))
+
+        #expect(await events.next() == .dismissed(first.request.id))
+        #expect(await events.next() == .presented(second.request.id))
+        #expect(coordinator.presentations[first.request.id] == nil)
+        #expect(coordinator.presentations[second.request.id]?.phase == .executing)
         await coordinator.stop()
     }
 
@@ -77,14 +105,13 @@ struct SudoApprovalCoordinatorTests {
         let broker = BlockingStartSudoBroker(snapshot: Self.snapshot(id: "request-late"))
         let presenter = RecordingSudoApprovalPresenter()
         let coordinator = SudoApprovalCoordinator(broker: broker, presenter: presenter)
-        let runtime = SudoApprovalRuntime(coordinator: coordinator)
         var startEvents = await broker.startEvents().makeAsyncIterator()
 
-        runtime.start { error in
+        coordinator.start { error in
             Issue.record("Unexpected startup failure: \(error)")
         }
         _ = await startEvents.next()
-        await runtime.stop()
+        await coordinator.stop()
 
         #expect(presenter.presentations.isEmpty)
         #expect(await broker.stopCallCount == 1)
@@ -97,18 +124,17 @@ struct SudoApprovalCoordinatorTests {
             broker: broker,
             presenter: RecordingSudoApprovalPresenter()
         )
-        let runtime = SudoApprovalRuntime(coordinator: coordinator)
         var startEvents = await broker.startEvents().makeAsyncIterator()
         var stopEvents = await broker.stopEvents().makeAsyncIterator()
 
-        runtime.start { error in
+        coordinator.start { error in
             Issue.record("Unexpected initial startup failure: \(error)")
         }
         _ = await startEvents.next()
-        let stopTask = Task { await runtime.stop() }
+        let stopTask = Task { await coordinator.stop() }
         _ = await stopEvents.next()
 
-        runtime.start { error in
+        coordinator.start { error in
             Issue.record("Unexpected restart failure: \(error)")
         }
         #expect(await broker.startCallCount == 1)
@@ -117,7 +143,7 @@ struct SudoApprovalCoordinatorTests {
         _ = await startEvents.next()
 
         #expect(await broker.startCallCount == 2)
-        await runtime.stop()
+        await coordinator.stop()
     }
 
     private static func snapshot(id: String) -> SudoPendingRequest {

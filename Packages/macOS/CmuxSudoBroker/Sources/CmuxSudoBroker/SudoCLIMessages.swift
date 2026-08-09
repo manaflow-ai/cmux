@@ -4,7 +4,7 @@ struct SudoCLIMessages: Sendable {
     var usage: String {
         String(
             localized: "sudo.cli.usage",
-            defaultValue: "Usage: cmux sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)\n       cmux sudo pending"
+            defaultValue: "Usage: cmux sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)\n       cmux sudo pending\n       cmux sudo setup-touch-id"
         )
     }
 
@@ -43,7 +43,28 @@ struct SudoCLIMessages: Sendable {
     var scriptTooLarge: String {
         String(
             localized: "sudo.cli.error.script_too_large",
-            defaultValue: "sudo: the script exceeds the 16 MiB limit"
+            defaultValue: "sudo: the script exceeds the 256 KiB limit"
+        )
+    }
+
+    var inputReadFailed: String {
+        String(
+            localized: "sudo.cli.error.input_read_failed",
+            defaultValue: "sudo: could not read the script from standard input"
+        )
+    }
+
+    var requestCapacityExceeded: String {
+        String(
+            localized: "sudo.cli.error.request_capacity",
+            defaultValue: "sudo: too many approval requests are pending; resolve one in cmux and retry"
+        )
+    }
+
+    var touchIDSetupFailed: String {
+        String(
+            localized: "sudo.cli.error.touch_id_setup_failed",
+            defaultValue: "sudo: could not start Touch ID setup; reinstall cmux and retry"
         )
     }
 
@@ -100,6 +121,14 @@ struct SudoCLIMessages: Sendable {
         format(
             key: "sudo.cli.error.script_not_found",
             defaultValue: "sudo: script not found: %@",
+            path
+        )
+    }
+
+    func scriptUnreadable(_ path: String) -> String {
+        format(
+            key: "sudo.cli.error.script_unreadable",
+            defaultValue: "sudo: script is not a readable regular file: %@",
             path
         )
     }

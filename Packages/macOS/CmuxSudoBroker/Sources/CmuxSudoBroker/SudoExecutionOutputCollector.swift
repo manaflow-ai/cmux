@@ -12,6 +12,7 @@ struct SudoExecutionOutputCollector {
     private var persistedByteCount = 0
     private var authenticationWindowOpen = true
     private(set) var authenticationFailed = false
+    private(set) var privilegedFailure: SudoExecutionWaitDisposition?
     private(set) var inputReady: Bool
 
     init(outputDescriptor: Int32, readinessMarker: Data?) {
@@ -68,6 +69,12 @@ struct SudoExecutionOutputCollector {
                 case .readiness:
                     inputReady = true
                     authenticationWindowOpen = false
+                case .privilegedTimeout:
+                    privilegedFailure = .privilegedTimedOut
+                case .privilegedCleanup:
+                    privilegedFailure = .privilegedCleanupFailed
+                case .privilegedTransport, .privilegedLaunch:
+                    privilegedFailure = .privilegedTransportFailed
                 }
                 continue
             }
@@ -84,14 +91,18 @@ struct SudoExecutionOutputCollector {
     }
 
     private func activeMarkers() -> [(bytes: Data, kind: MarkerKind)] {
-        guard !authenticationFailed else { return [] }
         var markers: [(bytes: Data, kind: MarkerKind)] = []
-        if authenticationWindowOpen {
+        if authenticationWindowOpen, !authenticationFailed {
             markers.append((passwordMarker, .authentication))
         }
         if !inputReady, let readinessMarker {
             markers.append((readinessMarker, .readiness))
         }
+        let control = SudoExecutionControlMarkers()
+        markers.append((control.executionTimedOut, .privilegedTimeout))
+        markers.append((control.cleanupFailed, .privilegedCleanup))
+        markers.append((control.transportFailed, .privilegedTransport))
+        markers.append((control.launchFailed, .privilegedLaunch))
         return markers
     }
 
@@ -127,6 +138,10 @@ struct SudoExecutionOutputCollector {
     private enum MarkerKind {
         case authentication
         case readiness
+        case privilegedTimeout
+        case privilegedCleanup
+        case privilegedTransport
+        case privilegedLaunch
     }
 
     private enum Failure: Error {

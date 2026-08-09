@@ -126,16 +126,17 @@ struct SudoBrokerRegressionTests {
         await launcher.terminate(requestID: request.id)
 
         var iterator = events.makeAsyncIterator()
-        var settledResult: SudoResult?
+        var requestWasRemoved = false
         while let event = await iterator.next() {
-            guard case .settled(let result) = event, result.id == request.id else {
+            guard case .snapshot(let snapshots) = event,
+                  !snapshots.contains(where: { $0.request.id == request.id }) else {
                 continue
             }
-            settledResult = result
+            requestWasRemoved = true
             break
         }
 
-        #expect(settledResult?.errorCode == .executionInterrupted)
+        #expect(requestWasRemoved)
         #expect(fixture.store.result(id: request.id)?.errorCode == .executionInterrupted)
         let recoveredStates = await recovery.recoveredStates
         #expect(recoveredStates.count == 1)
@@ -204,16 +205,18 @@ struct SudoBrokerRegressionTests {
 
         var events = await broker.events().makeAsyncIterator()
         await clock.advance(to: request.approvalDeadline)
-        var settled: SudoResult?
+        var requestWasRemoved = false
         while let event = await events.next() {
-            guard case .settled(let result) = event, result.id == request.id else {
+            guard case .snapshot(let snapshots) = event,
+                  !snapshots.contains(where: { $0.request.id == request.id }) else {
                 continue
             }
-            settled = result
+            requestWasRemoved = true
             break
         }
 
-        #expect(settled?.errorCode == .approvalTimedOut)
+        #expect(requestWasRemoved)
+        #expect(fixture.store.result(id: request.id)?.errorCode == .approvalTimedOut)
         await broker.stop()
     }
 
