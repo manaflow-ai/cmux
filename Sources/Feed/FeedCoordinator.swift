@@ -58,9 +58,9 @@ final class FeedCoordinator: @unchecked Sendable {
     private let feedIngressDeliveryLane = FeedIngressDeliveryLane()
 
     /// In-flight blocking decisions whose needs-input overlay is currently lit,
-    /// keyed by ``AttentionTarget``. Each state keeps the panel owner that was
-    /// mutated when surfacing attention, so cleanup does not depend on
-    /// resolving a live window route after the decision has already ended.
+    /// keyed by ``AttentionTarget``. Panel keys stay stable while their live
+    /// owner changes; each state retains only a fallback owner for cleanup when
+    /// the panel is temporarily absent from every live container registry.
     /// Main-actor isolated: read/written only from the `@MainActor` attention
     /// methods.
     @MainActor private var pendingAttentionStates: [AttentionTarget: AttentionOverlayState] = [:]
@@ -595,19 +595,28 @@ extension FeedCoordinator {
         lifecycleStatusKeyOverrides[source] ?? source
     }
 
-    /// Identifies the sidebar slot an attention overlay lights up. Overlays
-    /// are refcounted by this key so overlapping blocking decisions on the
-    /// same agent/panel don't clear each other's needs-input badge.
+    /// Identifies the sidebar slot an attention overlay lights up. Panel-scoped
+    /// targets use only the stable panel identity, so the refcount follows a
+    /// live panel across workspace and Dock transfers. Owner identity remains
+    /// part of the key only when no panel can own the attention.
     struct AttentionTarget: Hashable, Sendable {
         enum OwnerKind: Hashable, Sendable {
             case workspace
             case dock
         }
 
-        let ownerKind: OwnerKind
-        let ownerId: UUID
-        let panelId: UUID?
+        enum Location: Hashable, Sendable {
+            case panel(UUID)
+            case owner(kind: OwnerKind, id: UUID)
+        }
+
+        let location: Location
         let statusKey: String
+
+        var panelId: UUID? {
+            guard case .panel(let panelId) = location else { return nil }
+            return panelId
+        }
     }
 
     /// The localized "Needs input" sidebar status the overlay sets. Exposed so
@@ -712,13 +721,12 @@ extension FeedCoordinator {
         }
         let statusKey = Self.lifecycleStatusKey(forSource: event.source)
         let target = AttentionTarget(
-            ownerKind: ownerKind,
-            ownerId: resolved.ownerId,
-            panelId: panelId,
+            location: panelId.map(AttentionTarget.Location.panel)
+                ?? .owner(kind: ownerKind, id: owner.id),
             statusKey: statusKey
         )
         let attentionState = pendingAttentionStates[target] ?? AttentionOverlayState(owner: owner)
-        attentionState.owner = owner
+        attentionState.fallbackOwner = owner
         attentionState.count += 1
         pendingAttentionStates[target] = attentionState
 
@@ -760,7 +768,7 @@ extension FeedCoordinator {
             return
         }
         pendingAttentionStates.removeValue(forKey: target)
-        let owner = attentionState.owner
+        let owner = liveAttentionOwner(for: target, fallback: attentionState.fallbackOwner)
 
         // Lifecycle is per-panel, so clearing this panel's needs-input is
         // safe even if another panel still needs input.
@@ -772,17 +780,66 @@ extension FeedCoordinator {
         // Workspace status is shared across panels (keyed only by statusKey),
         // so preserve it while another panel in that workspace is pending.
         // Dock runtime status is panel-scoped and can clear with its own target.
-        let sharedWorkspaceStatusStillPending = target.ownerKind == .workspace
-            && pendingAttentionStates.keys.contains {
-                $0.ownerKind == .workspace
-                    && $0.ownerId == target.ownerId
-                    && $0.statusKey == target.statusKey
+        let sharedWorkspaceStatusStillPending: Bool
+        if case .workspace(let workspace) = owner {
+            sharedWorkspaceStatusStillPending = pendingAttentionStates.contains {
+                pendingTarget, pendingState in
+                guard pendingTarget.statusKey == target.statusKey,
+                      case .workspace(let pendingWorkspace) = liveAttentionOwner(
+                          for: pendingTarget,
+                          fallback: pendingState.fallbackOwner
+                      ) else {
+                    return false
+                }
+                return pendingWorkspace.id == workspace.id
             }
+        } else {
+            sharedWorkspaceStatusStillPending = false
+        }
         if !sharedWorkspaceStatusStillPending,
            owner.statusEntry(key: target.statusKey, panelId: target.panelId)?.value
                == Self.needsInputStatusValue {
             owner.clearStatusEntry(key: target.statusKey, panelId: target.panelId)
         }
+    }
+
+    /// Resolves a pending overlay's current mutation owner. A panel target is
+    /// looked up at conclusion time so transfer-carried runtime is cleared at
+    /// its destination; the retained owner is only a best-effort fallback for
+    /// a panel between owners or an owner-scoped target that has disappeared.
+    @MainActor
+    private func liveAttentionOwner(
+        for target: AttentionTarget,
+        fallback: ControlSidebarPanelOwner
+    ) -> ControlSidebarPanelOwner {
+        guard let appDelegate = AppDelegate.shared else { return fallback }
+        switch target.location {
+        case .panel(let panelId):
+            if let dock = DockSplitStore.liveStore(containingPanel: panelId) {
+                return .dock(dock)
+            }
+            if let workspace = appDelegate.workspaceContainingPanel(
+                panelId: panelId,
+                preferredWorkspaceId: fallback.id
+            )?.workspace {
+                return .workspace(workspace)
+            }
+        case .owner(let kind, let ownerId):
+            switch kind {
+            case .workspace:
+                if let manager = appDelegate.tabManagerFor(tabId: ownerId),
+                   let workspace = manager.workspacesById[ownerId] {
+                    return .workspace(workspace)
+                }
+            case .dock:
+                if let dock = DockSplitStore.liveStores.first(where: {
+                    $0.workspaceId == ownerId
+                }) {
+                    return .dock(dock)
+                }
+            }
+        }
+        return fallback
     }
 
     /// Resolves the `(owner, surface)` an attention overlay should target. The
@@ -834,11 +891,11 @@ extension FeedCoordinator {
 @MainActor
 private final class AttentionOverlayState {
     var count: Int
-    var owner: ControlSidebarPanelOwner
+    var fallbackOwner: ControlSidebarPanelOwner
 
     init(owner: ControlSidebarPanelOwner) {
         self.count = 0
-        self.owner = owner
+        self.fallbackOwner = owner
     }
 }
 

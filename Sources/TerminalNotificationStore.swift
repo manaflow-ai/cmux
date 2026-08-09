@@ -755,17 +755,18 @@ final class TerminalNotificationStore: ObservableObject {
 
     @discardableResult
     private func setWorkspaceManualUnread(_ isUnread: Bool, forTabId tabId: UUID) -> Bool {
-        var nextIds = manualUnreadWorkspaceIds
-        let didChange: Bool
-        if isUnread {
-            didChange = nextIds.insert(tabId).inserted
-        } else {
-            didChange = nextIds.remove(tabId) != nil
-        }
-        guard didChange else { return false }
-        manualUnreadWorkspaceIds = nextIds
+        guard mutateWorkspaceManualUnread(isUnread, forTabId: tabId) else { return false }
         refreshUnreadPresentation()
         return true
+    }
+
+    /// Mutates workspace manual-unread state without publishing an intermediate projection.
+    @discardableResult
+    private func mutateWorkspaceManualUnread(_ isUnread: Bool, forTabId tabId: UUID) -> Bool {
+        if isUnread {
+            return manualUnreadWorkspaceIds.insert(tabId).inserted
+        }
+        return manualUnreadWorkspaceIds.remove(tabId) != nil
     }
 
     private func clearWorkspaceManualUnread() {
@@ -1464,9 +1465,13 @@ final class TerminalNotificationStore: ObservableObject {
         }
 
         updated.insert(notification, at: 0)
-        setWorkspaceManualUnread(false, forTabId: notification.tabId)
+        mutateWorkspaceManualUnread(false, forTabId: notification.tabId)
         if let surfaceId = notification.surfaceId {
-            setSurfaceManualUnread(false, forTabId: notification.tabId, surfaceId: surfaceId)
+            mutateSurfaceManualUnread(
+                false,
+                forTabId: notification.tabId,
+                surfaceId: surfaceId
+            )
         }
         notifications = updated
         notificationFeedHistory.record(
