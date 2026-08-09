@@ -58,6 +58,16 @@ public protocol TerminalSurfaceRegistering: AnyObject, Sendable {
     /// The registered surface with the given id, if it is still alive.
     func surface(id: UUID) -> (any TerminalSurfacing)?
 
+    /// The current terminal process generation for a live surface identity.
+    ///
+    /// This lookup is atomic with registry lifecycle advancement so callers
+    /// can bind tokenless compatibility work to one concrete generation, then
+    /// revalidate it before admitting deferred work.
+    /// - Parameter surfaceID: The stable terminal surface identity.
+    /// - Returns: The current process-generation identity, or `nil` when no
+    ///   live surface owns `surfaceID`.
+    func terminalLifecycleID(surfaceID: UUID) -> UUID?
+
     /// The current registered surface that owns a terminal-process generation.
     ///
     /// A token belonging to a superseded registration does not resolve until

@@ -193,6 +193,16 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         return object
     }
 
+    /// The current terminal process generation for a live surface identity.
+    public func terminalLifecycleID(surfaceID: UUID) -> UUID? {
+        lock.lock()
+        let terminalLifecycleID = currentSurfaceNode(
+            id: surfaceID
+        )?.terminalLifecycleID
+        lock.unlock()
+        return terminalLifecycleID
+    }
+
     /// The current surface authenticated by a terminal-process generation.
     public func surface(
         terminalLifecycleID: UUID

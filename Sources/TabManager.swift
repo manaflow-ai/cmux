@@ -585,7 +585,10 @@ class TabManager: ObservableObject {
                    workspace.owningTabManager === self {
                     if let terminal = workspace.terminalPanel(for: change.surfaceId) {
                         let sourceSurface = (notification.object as? TerminalSurface) ?? terminal.surface
-                        if change.matches(sourceSurface: sourceSurface),
+                        if change.matches(
+                            sourceSurface: sourceSurface,
+                            terminalLifecycleID: sourceSurface.terminalLifecycleId
+                        ),
                            terminal.surface === sourceSurface {
                             enqueuePanelTitleUpdate(change, sourceSurface: sourceSurface)
                             return

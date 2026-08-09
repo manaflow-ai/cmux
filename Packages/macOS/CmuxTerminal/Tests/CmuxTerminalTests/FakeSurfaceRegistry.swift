@@ -36,6 +36,9 @@ final class FakeSurfaceRegistry: @unchecked Sendable, TerminalSurfaceRegistering
     func surface(id: UUID) -> (any TerminalSurfacing)? {
         backing.surface(id: id)
     }
+    func terminalLifecycleID(surfaceID: UUID) -> UUID? {
+        backing.terminalLifecycleID(surfaceID: surfaceID)
+    }
     func surface(
         terminalLifecycleID: UUID
     ) -> (any TerminalSurfacing)? {

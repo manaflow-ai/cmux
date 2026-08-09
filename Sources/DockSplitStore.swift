@@ -1042,7 +1042,10 @@ final class DockSplitStore: BonsplitDelegate {
     func applyTerminalTitleChange(_ change: GhosttyTitleChange) -> Bool {
         guard change.tabId == workspaceId,
               let terminal = panels[change.surfaceId] as? TerminalPanel,
-              change.matches(sourceSurface: terminal.surface) else {
+              change.matches(
+                  sourceSurface: terminal.surface,
+                  terminalLifecycleID: terminal.surface.terminalLifecycleId
+              ) else {
             return false
         }
         let title = change.title.trimmingCharacters(in: .whitespacesAndNewlines)

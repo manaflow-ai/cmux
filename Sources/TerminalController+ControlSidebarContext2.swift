@@ -245,19 +245,30 @@ extension TerminalController {
         }
         let fastPathState = socketFastPathState
         let registry = GhosttyApp.terminalSurfaceRegistry
+        let admittedTerminalLifecycleID: UUID
+        if let reportedTerminalLifecycleID = scope.terminalLifecycleID {
+            admittedTerminalLifecycleID = reportedTerminalLifecycleID
+        } else {
+            guard let currentTerminalLifecycleID = registry.terminalLifecycleID(
+                      surfaceID: scope.panelID
+                  ) else {
+                return false
+            }
+            admittedTerminalLifecycleID = currentTerminalLifecycleID
+        }
         return TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
             replaceKey: .shellActivity(surfaceId: scope.panelID),
             admitting: {
                 guard registry.isCurrentSurface(
                     id: scope.panelID,
-                    terminalLifecycleID: scope.terminalLifecycleID
+                    terminalLifecycleID: admittedTerminalLifecycleID
                 ) else {
                     return false
                 }
                 return fastPathState.shouldPublishShellActivity(
                     workspaceId: scope.workspaceID,
                     panelId: scope.panelID,
-                    terminalLifecycleID: scope.terminalLifecycleID,
+                    terminalLifecycleID: admittedTerminalLifecycleID,
                     state: state.rawValue
                 )
             }
@@ -266,7 +277,7 @@ extension TerminalController {
             self.controlApplyScopedShellActivityState(
                 workspaceID: scope.workspaceID,
                 surfaceID: scope.panelID,
-                terminalLifecycleID: scope.terminalLifecycleID,
+                terminalLifecycleID: admittedTerminalLifecycleID,
                 state: state
             )
         }

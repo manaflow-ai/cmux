@@ -6,12 +6,20 @@ struct GhosttyTitleChange: Equatable, Sendable {
     let surfaceId: UUID
     let title: String
     let sourceSurfaceIdentifier: ObjectIdentifier?
+    let terminalLifecycleID: UUID?
 
-    init(tabId: UUID, surfaceId: UUID, title: String, sourceSurfaceIdentifier: ObjectIdentifier? = nil) {
+    init(
+        tabId: UUID,
+        surfaceId: UUID,
+        title: String,
+        sourceSurfaceIdentifier: ObjectIdentifier? = nil,
+        terminalLifecycleID: UUID? = nil
+    ) {
         self.tabId = tabId
         self.surfaceId = surfaceId
         self.title = title
         self.sourceSurfaceIdentifier = sourceSurfaceIdentifier
+        self.terminalLifecycleID = terminalLifecycleID
     }
 
     init?(notification: Notification) {
@@ -25,7 +33,9 @@ struct GhosttyTitleChange: Equatable, Sendable {
             surfaceId: surfaceId,
             title: title,
             sourceSurfaceIdentifier: notification.userInfo?[GhosttyNotificationKey.sourceSurfaceIdentifier]
-                as? ObjectIdentifier ?? (notification.object as AnyObject?).map(ObjectIdentifier.init)
+                as? ObjectIdentifier ?? (notification.object as AnyObject?).map(ObjectIdentifier.init),
+            terminalLifecycleID: notification.userInfo?[GhosttyNotificationKey.terminalLifecycleID]
+                as? UUID
         )
     }
 
@@ -38,13 +48,25 @@ struct GhosttyTitleChange: Equatable, Sendable {
         if let sourceSurfaceIdentifier {
             info[GhosttyNotificationKey.sourceSurfaceIdentifier] = sourceSurfaceIdentifier
         }
+        if let terminalLifecycleID {
+            info[GhosttyNotificationKey.terminalLifecycleID] = terminalLifecycleID
+        }
         return info
     }
 
-    /// Accepts only title events that identify the surface that emitted them.
-    /// Missing identity must fail closed because panel IDs survive respawns.
-    func matches(sourceSurface: AnyObject) -> Bool {
+    /// Accepts only events from the expected surface and, when supplied, its
+    /// current child-process generation. Ghostty ingress always supplies both;
+    /// the optional generation preserves object-authenticated test and legacy
+    /// in-process notifications.
+    func matches(
+        sourceSurface: AnyObject,
+        terminalLifecycleID currentTerminalLifecycleID: UUID
+    ) -> Bool {
         guard let sourceSurfaceIdentifier else { return false }
-        return sourceSurfaceIdentifier == ObjectIdentifier(sourceSurface)
+        guard sourceSurfaceIdentifier == ObjectIdentifier(sourceSurface) else {
+            return false
+        }
+        guard let terminalLifecycleID else { return true }
+        return terminalLifecycleID == currentTerminalLifecycleID
     }
 }

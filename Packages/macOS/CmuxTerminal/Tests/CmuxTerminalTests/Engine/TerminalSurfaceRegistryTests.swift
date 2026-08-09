@@ -65,6 +65,10 @@ struct TerminalSurfaceRegistryTests {
         let surface = FakeSurface()
         registry.register(surface)
         #expect(registry.surface(id: surface.id) === surface)
+        #expect(
+            registry.terminalLifecycleID(surfaceID: surface.id)
+                == surface.terminalLifecycleID
+        )
         #expect(registry.surface(
             terminalLifecycleID: surface.terminalLifecycleID
         ) === surface)
@@ -87,6 +91,7 @@ struct TerminalSurfaceRegistryTests {
 
         registry.unregister(surface)
         #expect(registry.surface(id: surface.id) == nil)
+        #expect(registry.terminalLifecycleID(surfaceID: surface.id) == nil)
         #expect(!registry.isRightSidebarDockSurface(id: surface.id))
     }
 
@@ -177,6 +182,10 @@ struct TerminalSurfaceRegistryTests {
             id: surface.id,
             terminalLifecycleID: replacementLifecycleID
         ))
+        #expect(
+            registry.terminalLifecycleID(surfaceID: surface.id)
+                == replacementLifecycleID
+        )
         #expect(registry.surface(
             terminalLifecycleID: surface.terminalLifecycleID
         ) == nil)
