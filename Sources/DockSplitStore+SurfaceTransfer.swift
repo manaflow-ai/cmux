@@ -309,6 +309,18 @@ extension DockSplitStore {
         return detached
     }
 
+    /// Applies Dock-scoped identity and terminal placement before attachment.
+    private func prepareDetachedPanelForDockAttachment(_ panel: any Panel) {
+        if let terminal = panel as? TerminalPanel {
+            terminal.surface.setFocusPlacement(.rightSidebarDock)
+            terminal.updateWorkspaceId(workspaceId)
+        } else if let browser = panel as? BrowserPanel {
+            browser.updateWorkspaceId(workspaceId)
+        } else if let filePreview = panel as? FilePreviewPanel {
+            filePreview.updateWorkspaceId(workspaceId)
+        }
+    }
+
     /// Attaches a detached live panel into this Dock at `paneId`. Re-targets the
     /// panel to this Dock's workspace id and, for terminals, flips the surface
     /// focus placement to `.rightSidebarDock` so portal layering and focus
@@ -322,13 +334,7 @@ extension DockSplitStore {
     ) -> UUID? {
         guard bonsplitController.allPaneIds.contains(paneId), panels[detached.panelId] == nil else { return nil }
         let panel = detached.panel
-
-        if let terminal = panel as? TerminalPanel {
-            terminal.surface.setFocusPlacement(.rightSidebarDock)
-            terminal.updateWorkspaceId(workspaceId)
-        } else if let browser = panel as? BrowserPanel {
-            browser.updateWorkspaceId(workspaceId)
-        }
+        prepareDetachedPanelForDockAttachment(panel)
 
         panels[detached.panelId] = panel
         // Cache the transfer as-is, transient resume state included: while the
@@ -414,13 +420,7 @@ extension DockSplitStore {
             return nil
         }
         let panel = detached.panel
-
-        if let terminal = panel as? TerminalPanel {
-            terminal.surface.setFocusPlacement(.rightSidebarDock)
-            terminal.updateWorkspaceId(workspaceId)
-        } else if let browser = panel as? BrowserPanel {
-            browser.updateWorkspaceId(workspaceId)
-        }
+        prepareDetachedPanelForDockAttachment(panel)
 
         let kind = detached.kind ?? Self.surfaceKind(for: panel)
         let tab = Bonsplit.Tab(

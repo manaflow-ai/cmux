@@ -2,8 +2,14 @@ import AppKit
 import Bonsplit
 
 extension DockSplitStore {
+    /// Returns the live Dock store that owns `panelId`, if one exists.
     static func liveStore(containingPanel panelId: UUID) -> DockSplitStore? {
         liveStores.first(where: { $0.containsPanel(panelId) })
+    }
+
+    /// Returns the live Dock store that owns `paneId`, if one exists.
+    static func liveStore(containingPane paneId: UUID) -> DockSplitStore? {
+        liveStores.first(where: { $0.containsPane(paneId) })
     }
 
     var focusedPanelId: UUID? {
@@ -17,6 +23,7 @@ extension DockSplitStore {
         panels[panelId] != nil
     }
 
+    /// Whether a pane id is present in the Dock tree.
     func containsPane(_ paneId: UUID) -> Bool {
         bonsplitController.allPaneIds.contains(where: { $0.id == paneId })
     }
