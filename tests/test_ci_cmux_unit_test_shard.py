@@ -189,6 +189,66 @@ import Testing
     return 0
 
 
+def check_parameterized_method_fallback_weight() -> int:
+    """Method-split parameterized tests must retain per-case fallback weight."""
+    ordinary_methods = "\n".join(
+        f"    @Test func ordinaryCase{index:02d}() {{}}" for index in range(32)
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        test_root = tmp_root / "cmuxTests"
+        test_root.mkdir()
+        (test_root / "ParameterizedFallbackWeightTests.swift").write_text(
+            f"""
+import Testing
+
+@Suite struct ParameterizedFallbackWeightTests {{
+    @Test(arguments: [1, 2, 3, 4, 5, 6, 7, 8])
+    func parameterizedCase(value: Int) {{}}
+
+{ordinary_methods}
+}}
+""".lstrip(),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(HELPER),
+                "--root",
+                str(tmp_root),
+                "--list",
+                "--timings",
+                str(tmp_root / "no-manifest.json"),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    if result.returncode != 0:
+        print(result.stdout, end="")
+        print(result.stderr, end="", file=sys.stderr)
+        print(f"FAIL: parameterized fallback weighting exited {result.returncode}")
+        return 1
+    weights = {
+        fields[0]: int(fields[1])
+        for line in result.stdout.splitlines()
+        if len(fields := line.split("\t", 2)) == 3
+    }
+    selector = "cmuxTests/ParameterizedFallbackWeightTests/parameterizedCase"
+    if weights.get(selector) != 8 * 200:
+        print(result.stdout, end="")
+        print(
+            "FAIL: parameterized method fallback weight must scale by its "
+            f"eight cases, got {weights.get(selector)}"
+        )
+        return 1
+
+    print("PASS: parameterized method fallback weight scales by case count")
+    return 0
+
+
 def check_bounded_process_batches() -> int:
     """Process batches must bound represented work and cover every selector once."""
     import json
@@ -594,6 +654,9 @@ def main() -> int:
         return rc
 
     if (rc := check_runtime_parameterized_tests_are_isolated()) != 0:
+        return rc
+
+    if (rc := check_parameterized_method_fallback_weight()) != 0:
         return rc
 
     with tempfile.TemporaryDirectory() as tmp:
