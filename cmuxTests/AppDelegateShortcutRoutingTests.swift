@@ -8280,7 +8280,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                     from: GHOSTTY_CLIPBOARD_STANDARD
                 )
             )
-            XCTAssertTrue(await firstRead.waitUntilReady())
+            let firstReadIsReady = await firstRead.waitUntilReady()
+            XCTAssertTrue(firstReadIsReady)
 
             let imageURL = try makeTemporaryPNGFile(named: "ordered.png")
             let surface = FakeTextBoxSubmitSurface()
@@ -8323,7 +8324,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 [imageURL.standardizedFileURL]
             )
             let read = try XCTUnwrap(dependentRead)
-            XCTAssertTrue(await read.waitUntilReady())
+            let dependentReadIsReady = await read.waitUntilReady()
+            XCTAssertTrue(dependentReadIsReady)
             XCTAssertEqual(
                 PasteboardFileURLReader.fileURLs(from: pasteboard)
                     .map(\.standardizedFileURL),
