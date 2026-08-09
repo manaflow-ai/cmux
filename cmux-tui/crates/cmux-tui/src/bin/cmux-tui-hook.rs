@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
 const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
-const SOCKET_TIMEOUT: Duration = Duration::from_millis(800);
+const SOCKET_TIMEOUT: Duration = Duration::from_secs(4);
 
 #[derive(Debug, PartialEq, Eq)]
 struct Args {

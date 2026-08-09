@@ -19031,8 +19031,9 @@ mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
         DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,
-        DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, FrontendJournalWorker,
-        GraphicIdentity, GraphicPlacement, GraphicSourceRect, GraphicsSceneCache,
+        DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, FrontendJournalQueue,
+        FrontendJournalWorker, GraphicIdentity, GraphicPlacement, GraphicSourceRect,
+        GraphicsSceneCache,
         GuardedMouseEncode, HostInputIngress, HostInputRuntime, MachineActionWorker,
         MachineConnectRoute, MenuAction, MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit,
         OmnibarState, OrderedSession, OuterCursorSpec, PaneArea, PaneAreaProjection,
@@ -19060,6 +19061,7 @@ mod tests {
         sidebar_plugin_status_settles_passive_claim, start_ordered_session,
         swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
     };
+    use cmux_tui_core::{FrontendFocusTarget, FrontendJournalEvent};
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

@@ -122,7 +122,7 @@ fn browser_launch_response(request: &Value) -> anyhow::Result<Value> {
     let mut last_error = anyhow!("cmux-browser provider is not attached");
     let mut delay = Duration::from_millis(25);
     loop {
-        match resolve_page_target(&socket, &scope) {
+        match resolve_page_target(&socket, &scope, deadline) {
             Ok(resolved) => {
                 return Ok(json!({
                     "protocol": PLUGIN_PROTOCOL,
@@ -146,7 +146,11 @@ fn browser_launch_response(request: &Value) -> anyhow::Result<Value> {
         if Instant::now() >= deadline {
             return Err(last_error);
         }
-        std::thread::sleep(delay);
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(last_error);
+        }
+        std::thread::sleep(delay.min(remaining));
         delay = (delay * 2).min(Duration::from_millis(250));
     }
 }
@@ -199,12 +203,19 @@ struct ResolvedPageTarget {
     selection: &'static str,
 }
 
-fn resolve_page_target(socket: &Path, scope: &ProviderScope) -> anyhow::Result<ResolvedPageTarget> {
-    let mut control = MuxControl::connect(socket)?;
-    let topology = control.request(1, json!({"id":1,"cmd":"list-workspaces"}))?;
-    let provider = control.request(2, json!({"id":2,"cmd":"get-browser-provider"}))?;
-    let confirmed_topology = control.request(3, json!({"id":3,"cmd":"list-workspaces"}))?;
-    let confirmed_provider = control.request(4, json!({"id":4,"cmd":"get-browser-provider"}))?;
+fn resolve_page_target(
+    socket: &Path,
+    scope: &ProviderScope,
+    deadline: Instant,
+) -> anyhow::Result<ResolvedPageTarget> {
+    let mut control = MuxControl::connect(socket, deadline)?;
+    let topology = control.request(1, json!({"id":1,"cmd":"list-workspaces"}), deadline)?;
+    let provider =
+        control.request(2, json!({"id":2,"cmd":"get-browser-provider"}), deadline)?;
+    let confirmed_topology =
+        control.request(3, json!({"id":3,"cmd":"list-workspaces"}), deadline)?;
+    let confirmed_provider =
+        control.request(4, json!({"id":4,"cmd":"get-browser-provider"}), deadline)?;
     ensure_stable_resolution(
         &topology,
         &provider,
@@ -493,22 +504,20 @@ struct MuxControl {
 }
 
 impl MuxControl {
-    fn connect(socket: &Path) -> anyhow::Result<Self> {
+    fn connect(socket: &Path, deadline: Instant) -> anyhow::Result<Self> {
+        let timeout = remaining_socket_timeout(deadline)?;
         let stream = UnixStream::connect(socket)
             .with_context(|| format!("cannot connect to cmux-tui socket {}", socket.display()))?;
-        stream.set_read_timeout(Some(SOCKET_TIMEOUT))?;
-        stream.set_write_timeout(Some(SOCKET_TIMEOUT))?;
+        stream.set_read_timeout(Some(timeout))?;
+        stream.set_write_timeout(Some(timeout))?;
         Ok(Self { writer: stream.try_clone()?, reader: BufReader::new(stream) })
     }
 
-    fn request(&mut self, id: u64, request: Value) -> anyhow::Result<Value> {
-        serde_json::to_writer(&mut self.writer, &request)?;
-        self.writer.write_all(b"\n")?;
-        self.writer.flush()?;
-        let mut line = Vec::new();
-        let read = self.reader.read_until(b'\n', &mut line)?;
-        anyhow::ensure!(read != 0, "cmux-tui closed its control socket");
-        anyhow::ensure!(line.len() <= RESPONSE_LIMIT, "cmux-tui response exceeds 16 MiB");
+    fn request(&mut self, id: u64, request: Value, deadline: Instant) -> anyhow::Result<Value> {
+        let mut encoded = serde_json::to_vec(&request)?;
+        encoded.push(b'\n');
+        write_control_request(&mut self.writer, &encoded, deadline)?;
+        let line = read_control_line(&mut self.reader, deadline, RESPONSE_LIMIT)?;
         let response: Value = serde_json::from_slice(&line).context("invalid cmux-tui response")?;
         anyhow::ensure!(
             response.get("id").and_then(Value::as_u64) == Some(id),
@@ -520,6 +529,64 @@ impl MuxControl {
             response.get("error").and_then(Value::as_str).unwrap_or("unknown error")
         );
         response.get("data").cloned().ok_or_else(|| anyhow!("cmux-tui response omitted data"))
+    }
+}
+
+fn remaining_socket_timeout(deadline: Instant) -> anyhow::Result<Duration> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    anyhow::ensure!(!remaining.is_zero(), "cmux-browser target resolution timed out");
+    Ok(remaining.min(SOCKET_TIMEOUT))
+}
+
+fn write_control_request(
+    writer: &mut UnixStream,
+    encoded: &[u8],
+    deadline: Instant,
+) -> anyhow::Result<()> {
+    let mut offset = 0;
+    while offset < encoded.len() {
+        writer.set_write_timeout(Some(remaining_socket_timeout(deadline)?))?;
+        match writer.write(&encoded[offset..]) {
+            Ok(0) => return Err(std::io::Error::from(std::io::ErrorKind::WriteZero).into()),
+            Ok(written) => offset += written,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    loop {
+        writer.set_write_timeout(Some(remaining_socket_timeout(deadline)?))?;
+        match writer.flush() {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
+fn read_control_line(
+    reader: &mut BufReader<UnixStream>,
+    deadline: Instant,
+    limit: usize,
+) -> anyhow::Result<Vec<u8>> {
+    let mut line = Vec::new();
+    loop {
+        reader.get_ref().set_read_timeout(Some(remaining_socket_timeout(deadline)?))?;
+        let available = reader.fill_buf()?;
+        anyhow::ensure!(!available.is_empty(), "cmux-tui closed its control socket");
+        let consumed = available.iter().position(|byte| *byte == b'\n').map_or(
+            available.len(),
+            |newline| newline + 1,
+        );
+        anyhow::ensure!(
+            line.len().saturating_add(consumed) <= limit,
+            "cmux-tui response exceeds 16 MiB"
+        );
+        let complete = available[consumed - 1] == b'\n';
+        line.extend_from_slice(&available[..consumed]);
+        reader.consume(consumed);
+        if complete {
+            return Ok(line);
+        }
     }
 }
 
@@ -701,6 +768,21 @@ mod tests {
             .unwrap(),
             "ws://127.0.0.1:9222/devtools/page/target%2Fwith%20space?gateway=one"
         );
+    }
+
+    #[test]
+    fn control_response_limit_is_enforced_while_streaming() {
+        let (reader, mut writer) = UnixStream::pair().unwrap();
+        let writer = std::thread::spawn(move || writer.write_all(b"12345678\n").unwrap());
+        let error = read_control_line(
+            &mut BufReader::new(reader),
+            Instant::now() + Duration::from_secs(1),
+            8,
+        )
+        .unwrap_err();
+        writer.join().unwrap();
+
+        assert!(error.to_string().contains("response exceeds 16 MiB"));
     }
 
     #[test]

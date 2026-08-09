@@ -395,6 +395,10 @@ exits. It does not initialize the TUI frontend. The main terminal process owns
 only the bounded socket handler and single-writer journal actor; provider hook
 execution remains in the provider's external process.
 
+The helper allows four seconds for the complete journal receipt. Installed
+command providers allow at least five seconds, so their outer timeout cannot
+cancel an event before the journal's two-second commit-admission window ends.
+
 Install, inspect, or remove all detected provider adapters with:
 
 ```bash

@@ -756,12 +756,63 @@ fn execute_hook_child_portable(
     process_group: u32,
     timeout: Duration,
 ) -> (Option<i32>, Option<String>) {
-    if let Err(error) = stdin.write_all(input) {
-        terminate_hook_child(child);
-        return (None, Some(format!("write hook event: {error}")));
+    let deadline = Instant::now() + timeout;
+    let input = input.to_vec();
+    let (write_result_sender, write_result_receiver) = mpsc::sync_channel(1);
+    let writer = match std::thread::Builder::new().name("journal-hook-stdin".into()).spawn(
+        move || {
+            let result = stdin.write_all(&input);
+            drop(stdin);
+            let _ = write_result_sender.send(result);
+        },
+    ) {
+        Ok(writer) => writer,
+        Err(error) => {
+            terminate_hook_child(child);
+            return (None, Some(format!("start hook stdin writer: {error}")));
+        }
+    };
+
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            terminate_hook_child(child);
+            let _ = writer.join();
+            return (None, Some(format!("hook timed out after {} ms", timeout.as_millis())));
+        }
+        match write_result_receiver.recv_timeout(remaining.min(Duration::from_millis(10))) {
+            Ok(Ok(())) => {
+                let _ = writer.join();
+                return wait_for_hook_exit(child, process_group, deadline, timeout);
+            }
+            Ok(Err(error)) => {
+                let _ = writer.join();
+                return hook_stdin_closed_result(
+                    child,
+                    process_group,
+                    deadline,
+                    &format!("write hook event: {error}"),
+                );
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                terminate_hook_child(child);
+                let _ = writer.join();
+                return (None, Some("hook stdin writer stopped without a result".into()));
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => match child.try_wait() {
+                Ok(Some(status)) => {
+                    let _ = writer.join();
+                    return hook_exit_result(status, process_group);
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    terminate_hook_child(child);
+                    let _ = writer.join();
+                    return (None, Some(format!("wait for hook executable: {error}")));
+                }
+            },
+        }
     }
-    drop(stdin);
-    wait_for_hook_exit(child, process_group, Instant::now() + timeout, timeout)
 }
 
 fn wait_for_hook_exit(
@@ -925,6 +976,34 @@ mod tests {
         assert_eq!(delivery_worker_count(1), 4);
         assert_eq!(delivery_worker_count(8), 16);
         assert_eq!(delivery_worker_count(usize::MAX), 32);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn portable_hook_stdin_write_obeys_the_execution_timeout() {
+        let mut child = Command::new("cmd")
+            .args(["/C", "ping -n 30 127.0.0.1 >NUL"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let process_group = child.id();
+        let timeout = Duration::from_millis(100);
+        let started = Instant::now();
+
+        let (status, error) = execute_hook_child_portable(
+            &mut child,
+            stdin,
+            &vec![b'x'; 1024 * 1024],
+            process_group,
+            timeout,
+        );
+
+        assert_eq!(status, None);
+        assert!(error.unwrap().contains("hook timed out"));
+        assert!(started.elapsed() < Duration::from_secs(2));
     }
 
     #[test]

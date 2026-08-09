@@ -12,6 +12,8 @@ const PLUGIN_MARKER: &str = "cmux-tui-journal-plugin";
 const ACTIVATION_NOTE: &str = "Providers load hooks at process start; launch or restart agents inside a cmux-tui terminal so CMUX_TUI_SOCKET and CMUX_TUI_HOOK are inherited.";
 const MAX_CONFIG_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_HELPER_BYTES: u64 = 128 * 1024 * 1024;
+const COMMAND_HOOK_TIMEOUT_SECONDS: u64 = 5;
+const GEMINI_HOOK_TIMEOUT_MILLISECONDS: u64 = 5_000;
 
 const CODEX_EVENTS: &[&str] = &[
     "SessionStart",
@@ -153,7 +155,10 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".codex/hooks.json",
         override_env: Some("CODEX_HOME"),
         override_relative_path: "hooks.json",
-        format: Format::Nested { timeout: 1, asynchronous: false },
+        format: Format::Nested {
+            timeout: COMMAND_HOOK_TIMEOUT_SECONDS,
+            asynchronous: false,
+        },
         events: CODEX_EVENTS,
     },
     Provider {
@@ -162,7 +167,10 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".claude/settings.json",
         override_env: Some("CLAUDE_CONFIG_DIR"),
         override_relative_path: "settings.json",
-        format: Format::Nested { timeout: 1, asynchronous: true },
+        format: Format::Nested {
+            timeout: COMMAND_HOOK_TIMEOUT_SECONDS,
+            asynchronous: true,
+        },
         events: CLAUDE_EVENTS,
     },
     Provider {
@@ -171,7 +179,10 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".gemini/settings.json",
         override_env: None,
         override_relative_path: "settings.json",
-        format: Format::Nested { timeout: 1_000, asynchronous: false },
+        format: Format::Nested {
+            timeout: GEMINI_HOOK_TIMEOUT_MILLISECONDS,
+            asynchronous: false,
+        },
         events: GEMINI_EVENTS,
     },
     Provider {
@@ -180,7 +191,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".cursor/hooks.json",
         override_env: None,
         override_relative_path: "hooks.json",
-        format: Format::Flat { timeout: 1 },
+        format: Format::Flat { timeout: COMMAND_HOOK_TIMEOUT_SECONDS },
         events: CURSOR_EVENTS,
     },
     Provider {
@@ -189,7 +200,10 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".grok/hooks/cmux-tui-journal.json",
         override_env: Some("GROK_HOME"),
         override_relative_path: "hooks/cmux-tui-journal.json",
-        format: Format::Nested { timeout: 1, asynchronous: false },
+        format: Format::Nested {
+            timeout: COMMAND_HOOK_TIMEOUT_SECONDS,
+            asynchronous: false,
+        },
         events: GROK_EVENTS,
     },
     Provider {
@@ -1091,6 +1105,28 @@ mod tests {
             let root: Value = serde_json::from_slice(&fs::read(config).unwrap()).unwrap();
             let hook = &root["hooks"]["Stop"][0]["hooks"][0];
             assert_eq!(hook.get("async").and_then(Value::as_bool), expected_async, "{provider}");
+            assert_eq!(
+                hook.get("timeout").and_then(Value::as_u64),
+                Some(COMMAND_HOOK_TIMEOUT_SECONDS),
+                "{provider} outer timeout must exceed the journal admission window"
+            );
+        }
+    }
+
+    #[test]
+    fn every_command_provider_outlives_the_helper_receipt_window() {
+        for provider in PROVIDERS {
+            match provider.format {
+                Format::Nested { timeout, .. } | Format::Flat { timeout }
+                    if provider.id == "gemini" =>
+                {
+                    assert_eq!(timeout, GEMINI_HOOK_TIMEOUT_MILLISECONDS);
+                }
+                Format::Nested { timeout, .. } | Format::Flat { timeout } => {
+                    assert_eq!(timeout, COMMAND_HOOK_TIMEOUT_SECONDS);
+                }
+                Format::Plugin { .. } | Format::HermesPlugin { .. } => {}
+            }
         }
     }
 

@@ -21,6 +21,7 @@ pub(crate) const TERMINAL_OUTPUT_INGRESS_BYTES: usize = 64 * 1024;
 const TERMINAL_OUTPUT_BATCH_BYTES: usize = 256 * 1024;
 const JOURNAL_TERMINAL_FAILURE_RETRY_ATTEMPTS: usize = 6;
 const JOURNAL_DURABLE_WAIT: Duration = Duration::from_secs(2);
+const JOURNAL_COMMIT_RESULT_WAIT: Duration = Duration::from_secs(1);
 const JOURNAL_SQLITE_RETRY_SLICE: Duration = Duration::from_millis(100);
 const COMMIT_PENDING: u8 = 0;
 const COMMIT_ADMITTED: u8 = 1;
@@ -540,10 +541,21 @@ impl JournalIngressSender {
                     }
                     COMMIT_ADMITTED => {
                         drop(admission);
-                        result
-                            .recv()
-                            .map_err(|_| anyhow::Error::msg(self.writer_error()))?
-                            .map_err(anyhow::Error::msg)
+                        match result.recv_timeout(JOURNAL_COMMIT_RESULT_WAIT) {
+                            Ok(result) => result.map_err(anyhow::Error::msg),
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                                Err(anyhow::Error::msg(self.writer_error()))
+                            }
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                                Err(anyhow::anyhow!(
+                                    "session journal commit outcome is indeterminate after {} ms; \
+                                     the admitted commit may still become durable",
+                                    JOURNAL_DURABLE_WAIT
+                                        .saturating_add(JOURNAL_COMMIT_RESULT_WAIT)
+                                        .as_millis()
+                                ))
+                            }
+                        }
                     }
                     COMMIT_CANCELED => Err(anyhow::anyhow!(
                         "timed out after {} ms {operation}",
@@ -1312,6 +1324,87 @@ mod tests {
             records.iter().any(|record| record.payload.to_string().contains("admitted-commit-marker")),
             "the caller must observe success for the admitted durable commit"
         );
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn producer_bounds_an_admitted_commit_with_an_indeterminate_result() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-producer-indeterminate-commit-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "journal-producer-indeterminate-commit",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        mux.install_journal_after_commit_admission_for_test(entered, release_receiver);
+        let ingress = crate::agent_hook_journal_ingress(
+            "codex",
+            "SubagentStop",
+            None,
+            serde_json::json!({
+                "session_id":"indeterminate-commit-root",
+                "root_session_id":"indeterminate-commit-root",
+                "parent_session_id":"indeterminate-commit-root",
+                "child_agent_id":"indeterminate-commit-child",
+                "message":"indeterminate-commit-marker",
+            }),
+        )
+        .unwrap();
+        let producer_mux = mux.clone();
+        let (result_sender, result_receiver) = sync_channel(1);
+        let producer = std::thread::spawn(move || {
+            result_sender
+                .send(producer_mux.append_journal_ingress(
+                    &ingress,
+                    "client_indeterminate_commit",
+                    "indeterminate_commit_1",
+                ))
+                .unwrap();
+        });
+        entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let started = Instant::now();
+        let error = result_receiver
+            .recv_timeout(
+                JOURNAL_DURABLE_WAIT
+                    .saturating_add(JOURNAL_COMMIT_RESULT_WAIT)
+                    .saturating_add(Duration::from_secs(1)),
+            )
+            .expect("an admitted commit must return an explicit bounded result")
+            .unwrap_err();
+        assert!(error.to_string().contains("outcome is indeterminate"));
+        assert!(
+            started.elapsed()
+                < JOURNAL_DURABLE_WAIT
+                    .saturating_add(JOURNAL_COMMIT_RESULT_WAIT)
+                    .saturating_add(Duration::from_secs(1)),
+            "an admitted commit result must remain bounded"
+        );
+        release.send(()).unwrap();
+        producer.join().unwrap();
+        let durable_deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            let records = mux.session_journal_after(0, 1024).unwrap().records;
+            if records.iter().any(|record| record
+                .payload
+                .to_string()
+                .contains("indeterminate-commit-marker"))
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < durable_deadline,
+                "an indeterminate result must not claim that the admitted commit failed"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }

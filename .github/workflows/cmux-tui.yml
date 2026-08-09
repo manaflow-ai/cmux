@@ -440,6 +440,10 @@ jobs:
         working-directory: cmux-tui
         run: cargo build -p cmux-tui --target x86_64-pc-windows-gnu --locked
 
+      - name: cargo test portable journal hook timeout for Windows GNU
+        working-directory: cmux-tui
+        run: cargo test -p cmux-tui-core --lib portable_hook_stdin_write_obeys_the_execution_timeout --target x86_64-pc-windows-gnu --locked
+
       - name: cargo test cmux-tui for Windows GNU
         working-directory: cmux-tui
         run: cargo test -p cmux-tui --bin cmux-tui --target x86_64-pc-windows-gnu --locked
