@@ -238,22 +238,39 @@ struct WorkspaceListView: View {
         }
     }
 
-    /// Computers offered by the computer-order editor, one per physical Mac
-    /// (present machines plus paired-but-offline ones, which keep their slot
-    /// while disconnected), in their effective order: stored priority first,
-    /// then the current display order, so the sheet opens showing exactly what
-    /// the list does.
+    /// Computers offered by the computer-order editor, one per physical Mac,
+    /// in their effective order: stored priority first, then the list's
+    /// current display order. Present computers come straight from the
+    /// aggregated rows (not the filter menu's machine list, which empties
+    /// below its two-machine floor and would drop a singleton or reorder the
+    /// tail); paired-but-offline computers follow, keeping their slot while
+    /// disconnected.
     var computerOrderSheetMachines: [WorkspaceFilterMachine] {
-        var machines = (machineSnapshots ?? liveMachineSnapshots).filterMachines
-        var seenDeviceIDs = Set(machines.map(\.macDeviceID))
         let names = macDisplayNamesByID()
-        for mac in displayPairedMacsForPicker where !mac.macDeviceID.isEmpty {
-            guard seenDeviceIDs.insert(mac.macDeviceID).inserted else { continue }
+        let aliasIndex = macSelectionScope.aliasIndex
+        var machines: [WorkspaceFilterMachine] = []
+        var seenDeviceIDs = Set<String>()
+        for workspace in workspaces {
+            guard let deviceID = workspace.macDeviceID, !deviceID.isEmpty else { continue }
+            let representativeID = aliasIndex.deviceRepresentativeID(for: deviceID)
+            guard seenDeviceIDs.insert(representativeID).inserted else { continue }
             machines.append(WorkspaceFilterMachine(
-                id: mac.macDeviceID,
-                macDeviceID: mac.macDeviceID,
+                id: representativeID,
+                macDeviceID: representativeID,
                 instanceTag: nil,
-                name: names[mac.macDeviceID] ?? mac.resolvedName,
+                name: names[representativeID] ?? names[deviceID]
+                    ?? workspace.macDisplayName ?? representativeID,
+                buildLabel: nil
+            ))
+        }
+        for mac in displayPairedMacsForPicker where !mac.macDeviceID.isEmpty {
+            let representativeID = aliasIndex.deviceRepresentativeID(for: mac.macDeviceID)
+            guard seenDeviceIDs.insert(representativeID).inserted else { continue }
+            machines.append(WorkspaceFilterMachine(
+                id: representativeID,
+                macDeviceID: representativeID,
+                instanceTag: nil,
+                name: names[representativeID] ?? mac.resolvedName,
                 buildLabel: nil
             ))
         }
