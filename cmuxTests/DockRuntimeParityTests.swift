@@ -15,7 +15,7 @@ import Testing
 
 @MainActor
 private final class DockRuntimeParityPanel: Panel, ObservableObject {
-    let id = UUID()
+    let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .terminal
     let displayTitle: String
@@ -25,7 +25,8 @@ private final class DockRuntimeParityPanel: Panel, ObservableObject {
     private(set) var flashReasons: [WorkspaceAttentionFlashReason] = []
     private(set) var closeCount = 0
 
-    init(title: String) {
+    init(id: UUID = UUID(), title: String) {
+        self.id = id
         displayTitle = title
     }
 
@@ -396,6 +397,100 @@ struct DockRuntimeParityTests {
                 forTabId: windowID,
                 surfaceId: unreadPanel.id
             ) == false)
+        }
+    }
+
+    @Test("Jump to unread opens the most recently marked window Dock pane")
+    func jumpToUnreadPrefersMostRecentlyMarkedWindowDockPane() async throws {
+        try await withAppContext { appDelegate, _, _, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            notificationStore.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = notificationStore
+            defer {
+                notificationStore.markRead(forTabId: windowID)
+                notificationStore.replaceNotificationsForTesting([])
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let olderPanel = DockRuntimeParityPanel(
+                id: try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001")),
+                title: "Older unread"
+            )
+            let newerPanel = DockRuntimeParityPanel(
+                id: try #require(UUID(uuidString: "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFE")),
+                title: "Newer unread"
+            )
+            try dock.seedRuntimeParityPanel(olderPanel)
+            try dock.seedRuntimeParityPanel(newerPanel)
+            notificationStore.markUnread(
+                forTabId: windowID,
+                surfaceId: olderPanel.id
+            )
+            notificationStore.markUnread(
+                forTabId: windowID,
+                surfaceId: newerPanel.id
+            )
+
+            _ = appDelegate.jumpToLatestUnread()
+
+            #expect(dock.focusedPanelId == newerPanel.id)
+            #expect(notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: olderPanel.id
+            ))
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: newerPanel.id
+            ))
+        }
+    }
+
+    @Test("Unavailable window Dock remains unread and jump falls through to workspace")
+    func unavailableWindowDockUnreadFallsThroughToWorkspace() async throws {
+        try await withAppContext { appDelegate, manager, workspace, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let defaults = UserDefaults.standard
+            let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
+            let previousDockEnabled = defaults.object(forKey: dockEnabledKey)
+            notificationStore.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = notificationStore
+            defer {
+                if let previousDockEnabled {
+                    defaults.set(previousDockEnabled, forKey: dockEnabledKey)
+                } else {
+                    defaults.removeObject(forKey: dockEnabledKey)
+                }
+                notificationStore.markRead(forTabId: windowID)
+                notificationStore.replaceNotificationsForTesting([])
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let initiallyFocusedPanel = DockRuntimeParityPanel(title: "Initially focused")
+            let dockPanel = DockRuntimeParityPanel(title: "Unavailable Dock unread")
+            try dock.seedRuntimeParityPanel(initiallyFocusedPanel)
+            try dock.seedRuntimeParityPanel(dockPanel)
+            dock.focusPanel(initiallyFocusedPanel.id)
+            notificationStore.markUnread(
+                forTabId: windowID,
+                surfaceId: dockPanel.id
+            )
+            let workspacePanelID = try #require(workspace.focusedPanelId)
+            workspace.markPanelUnread(workspacePanelID)
+            defaults.set(false, forKey: dockEnabledKey)
+
+            _ = appDelegate.jumpToLatestUnread()
+
+            #expect(manager.selectedTabId == workspace.id)
+            #expect(workspace.manualUnreadPanelIds.isEmpty)
+            #expect(notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: dockPanel.id
+            ))
+            #expect(dock.focusedPanelId == initiallyFocusedPanel.id)
         }
     }
 

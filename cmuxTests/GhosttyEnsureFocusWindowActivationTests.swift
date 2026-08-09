@@ -123,6 +123,69 @@ struct GhosttyEnsureFocusWindowActivationTests {
     }
 
     @Test
+    func workspaceOverlayNotificationFlashCoalescesWhileAnimationIsActive() throws {
+        let defaults = UserDefaults.standard
+        let previousExperimentEnabled = defaults.object(
+            forKey: TmuxOverlayExperimentSettings.enabledKey
+        )
+        let previousExperimentTarget = defaults.object(
+            forKey: TmuxOverlayExperimentSettings.targetKey
+        )
+        let previousPaneFlashEnabled = defaults.object(
+            forKey: NotificationPaneFlashSettings.enabledKey
+        )
+        defaults.set(true, forKey: TmuxOverlayExperimentSettings.enabledKey)
+        defaults.set(
+            TmuxOverlayExperimentTarget.bonsplitPane.rawValue,
+            forKey: TmuxOverlayExperimentSettings.targetKey
+        )
+        defaults.set(true, forKey: NotificationPaneFlashSettings.enabledKey)
+        defer {
+            if let previousExperimentEnabled {
+                defaults.set(
+                    previousExperimentEnabled,
+                    forKey: TmuxOverlayExperimentSettings.enabledKey
+                )
+            } else {
+                defaults.removeObject(forKey: TmuxOverlayExperimentSettings.enabledKey)
+            }
+            if let previousExperimentTarget {
+                defaults.set(
+                    previousExperimentTarget,
+                    forKey: TmuxOverlayExperimentSettings.targetKey
+                )
+            } else {
+                defaults.removeObject(forKey: TmuxOverlayExperimentSettings.targetKey)
+            }
+            if let previousPaneFlashEnabled {
+                defaults.set(
+                    previousPaneFlashEnabled,
+                    forKey: NotificationPaneFlashSettings.enabledKey
+                )
+            } else {
+                defaults.removeObject(forKey: NotificationPaneFlashSettings.enabledKey)
+            }
+        }
+
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = tabManager.addWorkspace(select: true)
+        defer {
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+        }
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        let initialToken = workspace.tmuxWorkspaceFlashToken
+
+        terminalPanel.triggerFlash(reason: .notificationArrival)
+        terminalPanel.triggerFlash(reason: .notificationArrival)
+        #expect(workspace.tmuxWorkspaceFlashToken == initialToken + 1)
+
+        terminalPanel.triggerFlash(reason: .navigation)
+        #expect(workspace.tmuxWorkspaceFlashToken == initialToken + 2)
+    }
+
+    @Test
     func backgroundTerminalBellMarksPaneUnreadWithoutFocusingIt() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
