@@ -153,6 +153,28 @@ The final font integration landed in merge commits `23003282d` and
   - SHA-256 `d2842bb7778a4e8d5a5a5f57ce6a85508630e3184ba46c1ca1ae5cbe1655472f`
     is pinned in `scripts/ghosttykit-checksums.txt`.
 
+### Atomic bracketed paste delivery
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/194
+- Commits:
+  - `7ad529298` (test: cover atomic bracketed paste encoding)
+  - `f27772d10` (fix: enqueue bracketed paste atomically)
+- Files:
+  - `src/input/paste.zig`
+  - `src/Surface.zig`
+- Summary:
+  - Encodes the opening fence, sanitized payload, and closing fence into one
+    owned buffer.
+  - Sends that buffer through the termio mailbox as one write request, so
+    parser-generated mode, device, and focus replies cannot be inserted inside
+    a bracketed paste and desynchronize the foreground application's input
+    parser.
+- Conflict note:
+  - Preserve the single-message boundary when paste encoding or termio write
+    ownership changes. Splitting the three segments back into independent
+    mailbox messages reintroduces the ordering race.
+
 ### Initial cmux theme-picker render
 
 - Commit: `5068b3a37` (fix: render cmux theme picker before input)
