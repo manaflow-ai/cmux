@@ -8863,7 +8863,14 @@ class TerminalController {
             let browserPanel = context.browserPanel
 
             if let windowDock = windowDockContainingPanel(surfaceId) {
-                _ = focusAndRevealWindowDock(for: windowDock, fallback: tabManager)
+                guard focusAndRevealWindowDock(for: windowDock, fallback: tabManager) else {
+                    result = .err(
+                        code: "unavailable",
+                        message: dockUnavailableMessage(),
+                        data: nil
+                    )
+                    return
+                }
                 windowDock.focusPanel(surfaceId)
             } else {
                 if let windowId = v2ResolveWindowId(tabManager: tabManager) {

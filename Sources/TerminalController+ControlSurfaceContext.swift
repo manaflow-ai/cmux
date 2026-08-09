@@ -299,13 +299,14 @@ extension TerminalController: ControlSurfaceContext {
             break
         }
         let isWorkspaceSurface = ws.panels[surfaceID] != nil
-        let isWorkspaceDockSurface = ws.containsDockPanel(surfaceID)
-        guard isWorkspaceSurface || isWorkspaceDockSurface else {
-            return .surfaceNotFound(surfaceID)
-        }
-        if isWorkspaceDockSurface,
-           !canRevealDockForFocus(tabManager: tabManager) {
+        if ws.containsDockPanel(surfaceID) {
+            // Workspace-scoped Docks are retained only for compatibility and
+            // have no renderable owner. Revealing the window Dock would expose
+            // a different store, so explicit focus must fail closed.
             return .dockUnavailable(message: dockUnavailableMessage())
+        }
+        guard isWorkspaceSurface else {
+            return .surfaceNotFound(surfaceID)
         }
         if let windowId = v2ResolveWindowId(tabManager: tabManager) {
             _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
@@ -314,14 +315,7 @@ extension TerminalController: ControlSurfaceContext {
         if tabManager.selectedTabId != ws.id {
             tabManager.selectWorkspace(ws)
         }
-        if isWorkspaceSurface {
-            ws.focusPanel(surfaceID)
-        } else {
-            guard revealDockForFocus(tabManager: tabManager) else {
-                return .dockUnavailable(message: dockUnavailableMessage())
-            }
-            ws.dockSplit.focusPanel(surfaceID)
-        }
+        ws.focusPanel(surfaceID)
         return .focused(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: ws.id,

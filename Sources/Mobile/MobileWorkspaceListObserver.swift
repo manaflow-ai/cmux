@@ -44,6 +44,12 @@ final class MobileWorkspaceListObserver {
     private var subscriptionsChangeObserver: NSObjectProtocol?
     private var pipelinesAttached = false
     private var lastSummaryHash: Int = 0
+    /// The notification array and unread projection can publish for the same
+    /// mutation. One bounded coalescer owns their shared update so a continuous
+    /// burst still emits the latest summary once per throttle window.
+    private lazy var notificationSummaryUpdateCoalescer = NotificationBurstCoalescer(
+        delay: Double(throttleMilliseconds) / 1_000
+    )
     /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
     /// events within the window collapse to one trailing emit carrying the
@@ -194,18 +200,13 @@ final class MobileWorkspaceListObserver {
         // mutated element re-publishes the array), which the unread flag in the
         // per-workspace signature turns into a hash change.
         //
-        // Ordering invariant: `@Published` emits from `willSet`, but every sink
-        // here reads the store's post-`didSet` state (latestNotification /
-        // unread indexes) rather than the emitted value. That is safe because
-        // `throttle(for:scheduler: RunLoop.main)` always hops through the run
-        // loop, so delivery happens after the assignment (and its `didSet`
-        // index rebuild) completes; it never fires synchronously from
-        // `willSet`. The pre-existing `$tabs` / `$selectedTabId` sinks rely on
-        // the same property.
+        // `@Published` emits from `willSet`, while summary reads require the
+        // post-`didSet` indexes. Both this source and `sidebarUnread` therefore
+        // signal one trailing timer instead of recomputing synchronously or
+        // maintaining two independent throttled callbacks.
         notificationsCancellable = notificationStore?.$notifications
-            .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+                self?.scheduleNotificationSummaryUpdate()
             }
         // Workspace-level unread indicators and notification summaries share
         // one equality-guarded projection. Observe that model instead of the
@@ -215,11 +216,18 @@ final class MobileWorkspaceListObserver {
             unreadIndicatorsObservation = notificationStore.sidebarUnread.observeSummaryChanges(
                 owner: self
             ) { observer, _ in
-                observer.emitIfNeeded(force: false)
+                observer.scheduleNotificationSummaryUpdate()
             }
         }
 
         refreshPerWorkspaceSubscriptions(tabs: tabManager.tabs)
+    }
+
+    private func scheduleNotificationSummaryUpdate() {
+        notificationSummaryUpdateCoalescer.signal { [weak self] in
+            guard let self, pipelinesAttached else { return }
+            emitIfNeeded(force: false)
+        }
     }
 
     private func attachGroupConfigPipeline() {

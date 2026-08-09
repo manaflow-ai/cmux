@@ -672,7 +672,20 @@ extension FeedCoordinator {
             return nil
         }
 
-        let panelId = Self.resolvePanelId(surfaceId: resolved.surfaceId, tab: tab) ?? tab.focusedPanelId
+        let panelId: UUID?
+        if let surfaceId = resolved.surfaceId {
+            guard let exactPanelId = Self.resolvePanelId(surfaceId: surfaceId, tab: tab) else {
+                #if DEBUG
+                cmuxDebugLog(
+                    "feed.attention.skip reason=missing-surface session=\(event.sessionId) request=\(event.requestId ?? "nil") hook=\(event.hookEventName.rawValue) source=\(event.source) workspace=\(resolved.workspaceId.uuidString) surface=\(surfaceId.uuidString) receivedAt=\(event.receivedAt.timeIntervalSince1970)"
+                )
+                #endif
+                return nil
+            }
+            panelId = exactPanelId
+        } else {
+            panelId = tab.focusedPanelId
+        }
         let statusKey = Self.lifecycleStatusKey(forSource: event.source)
         let target = AttentionTarget(
             workspaceId: resolved.workspaceId,
@@ -777,8 +790,14 @@ extension FeedCoordinator {
     @MainActor
     private static func resolvePanelId(surfaceId: UUID?, tab: Workspace) -> UUID? {
         guard let surfaceId else { return nil }
-        if tab.panels[surfaceId] != nil { return surfaceId }
-        return tab.panelIdFromSurfaceId(TabID(uuid: surfaceId))
+        if tab.panels[surfaceId] != nil || tab.containsDockPanel(surfaceId) {
+            return surfaceId
+        }
+        guard let panelId = tab.panelIdFromSurfaceId(TabID(uuid: surfaceId)),
+              tab.panels[panelId] != nil || tab.containsDockPanel(panelId) else {
+            return nil
+        }
+        return panelId
     }
 }
 
