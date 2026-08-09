@@ -13661,13 +13661,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatic"
+            "value": "Connected First"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "自動"
+            "value": "接続中を先頭に"
           }
         }
       }

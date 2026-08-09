@@ -79,11 +79,14 @@ extension MobileWorkspaceReadStateFilter {
 }
 
 extension MobileWorkspaceSortMode {
-    /// The localized menu title for this All Computers sort mode.
+    /// The localized menu title for this All Computers sort mode. The
+    /// `.automatic` case reads "Connected First" because that is what the
+    /// automatic rule does: the connected computer leads, the rest follow by
+    /// name. The raw value (and persistence) keeps the `automatic` spelling.
     var displayName: String {
         switch self {
         case .automatic:
-            return L10n.string("mobile.workspaces.sort.automatic", defaultValue: "Automatic")
+            return L10n.string("mobile.workspaces.sort.automatic", defaultValue: "Connected First")
         case .computerPriority:
             return L10n.string("mobile.workspaces.sort.computerOrder", defaultValue: "Computer Order")
         case .recentActivity:
