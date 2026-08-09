@@ -361,7 +361,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let maximumInternalPresentationGap = pointValue(maximumInternalDockPresentationGap)
         let keyboardTransitionID = bottomDockTransitionInFlight ? 1 : -1
         let keyboardTransitionTarget = pointValue(keyboardHeight)
-        let keyboardGuideTop = pointValue(keyboardLayoutGuide.layoutFrame.minY)
+        let keyboardGuideTop = pointValue(keyboardGuideFrameInSurface.minY)
         return [
             "chromeHidden=\(chromeHidden ? 1 : 0)",
             "composerActive=\(composerActive ? 1 : 0)",
@@ -517,6 +517,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// toolbar's presentation frame reaches its model frame.
     private var bottomDockTransitionObserved = false
     private var bottomDockToKeyboardConstraint: NSLayoutConstraint?
+    private var bottomDockHostConstraints: [NSLayoutConstraint] = []
+    private weak var bottomDockHostView: UIView?
     private var composerHeightConstraint: NSLayoutConstraint?
     private var toolbarHeightConstraint: NSLayoutConstraint?
     #if DEBUG
@@ -1017,9 +1019,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     /// Installs the system keyboard guide as the only production keyboard geometry source.
-    private func configureKeyboardLayoutGuide() {
-        keyboardLayoutGuide.followsUndockedKeyboard = true
-        keyboardLayoutGuide.usesBottomSafeArea = true
+    private func configureKeyboardLayoutGuide(on owner: UIView? = nil) {
+        let guide = (owner ?? self).keyboardLayoutGuide
+        guide.followsUndockedKeyboard = true
+        guide.usesBottomSafeArea = true
     }
 
     private func installBottomDockContainer() {
@@ -1046,10 +1049,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         composerHeightConstraint = composerHeight
         self.toolbarHeightConstraint = toolbarHeight
 
-        NSLayoutConstraint.activate([
+        let hostConstraints = [
             bottomDockContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
             bottomDockContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
             dockBottom,
+        ]
+        bottomDockHostConstraints = hostConstraints
+        bottomDockHostView = self
+
+        NSLayoutConstraint.activate(hostConstraints + [
             dockedToolbar.topAnchor.constraint(equalTo: bottomDockContainer.topAnchor),
             dockedToolbar.leadingAnchor.constraint(equalTo: bottomDockContainer.leadingAnchor),
             dockedToolbar.trailingAnchor.constraint(equalTo: bottomDockContainer.trailingAnchor),
@@ -1061,6 +1069,30 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             toolbarHeight,
         ])
         layoutBottomDock()
+    }
+
+    /// Moves the visual dock out of the renderer and into a layout-passive host.
+    /// The host's keyboard guide is then the sole owner of the dock's presentation.
+    func moveBottomDock(to host: UIView) {
+        guard host !== self, bottomDockHostView !== host else { return }
+        configureKeyboardLayoutGuide(on: host)
+        NSLayoutConstraint.deactivate(bottomDockHostConstraints)
+        bottomDockContainer.removeFromSuperview()
+        host.addSubview(bottomDockContainer)
+
+        let dockBottom = bottomDockContainer.bottomAnchor.constraint(
+            equalTo: host.keyboardLayoutGuide.topAnchor
+        )
+        let hostConstraints = [
+            bottomDockContainer.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            bottomDockContainer.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            dockBottom,
+        ]
+        bottomDockToKeyboardConstraint = dockBottom
+        bottomDockHostConstraints = hostConstraints
+        bottomDockHostView = host
+        NSLayoutConstraint.activate(hostConstraints)
+        host.setNeedsLayout()
     }
 
     /// Updates the renderer's overlap model from the guide's target top edge.
@@ -1089,7 +1121,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         #endif
         guard window != nil, bounds.height > 0 else { return 0 }
-        let guideFrame = keyboardLayoutGuide.layoutFrame
+        let guideFrame = keyboardGuideFrameInSurface
         // A guide frame is usable only after UIKit has seated it against this view's
         // bottom edge. During first attachment or rotation, keep the prior overlap for
         // that transient pass instead of interpreting CGRect.zero as a full-screen
@@ -1098,6 +1130,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let guideTop = min(max(0, guideFrame.minY), bounds.maxY)
         let occupancy = max(0, bounds.maxY - guideTop)
         return occupancy > safeAreaInsetsBottom + 0.5 ? occupancy : 0
+    }
+
+    private var keyboardGuideFrameInSurface: CGRect {
+        guard let owner = bottomDockHostView else { return keyboardLayoutGuide.layoutFrame }
+        return owner.convert(owner.keyboardLayoutGuide.layoutFrame, to: self)
     }
 
     /// Whether UIKit is still animating the guide-constrained dock toward its target.
@@ -1123,8 +1160,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
         bottomDockToKeyboardConstraint?.isActive = false
         if bottomDockForTestingConstraint == nil {
+            let owner = bottomDockHostView ?? self
             bottomDockForTestingConstraint = bottomDockContainer.bottomAnchor.constraint(
-                equalTo: bottomAnchor
+                equalTo: owner.bottomAnchor
             )
         }
         bottomDockForTestingConstraint?.constant = -TerminalLetterboxGeometry.keyboardOccupancy(
