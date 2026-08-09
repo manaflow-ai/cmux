@@ -114,6 +114,11 @@ void cmux_test_ghostty_surface_free_blocking_reset(void);
 void cmux_test_ghostty_surface_read_blocking_begin(void *surface);
 bool cmux_test_ghostty_surface_read_wait_until_started(void);
 bool cmux_test_ghostty_surface_read_blocking_is_active(void);
+bool cmux_test_ghostty_surface_read_wait_until_call_count(
+    uint32_t expected_count,
+    uint32_t timeout_milliseconds);
+uint32_t cmux_test_ghostty_surface_read_call_count(void);
+uint32_t cmux_test_ghostty_surface_read_maximum_concurrent_call_count(void);
 void cmux_test_ghostty_surface_read_release(void);
 void cmux_test_ghostty_surface_read_blocking_reset(void);
 uint32_t cmux_test_ghostty_tty_name_call_count(void);

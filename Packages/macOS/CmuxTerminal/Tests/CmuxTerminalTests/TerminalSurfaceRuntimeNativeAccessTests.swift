@@ -143,4 +143,145 @@ import Testing
         #expect(teardownBegun.withLock { $0 } == 1)
         #expect(nativeFreeCount.withLock { $0 } == 1)
     }
+
+    @Test func screenTailReadsDoNotOverlapNativeFormatting() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let firstSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let secondSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer {
+            cmux_test_ghostty_surface_read_release()
+            cmux_test_ghostty_surface_read_blocking_reset()
+            firstSurface.deallocate()
+            secondSurface.deallocate()
+        }
+        cmux_test_ghostty_surface_read_blocking_begin(firstSurface)
+
+        let firstRequest = TerminalSurfaceRuntimeScreenTailRequest(
+            surface: firstSurface,
+            maxRows: 1,
+            maxBytes: 1,
+            nativeAccessGate: TerminalSurfaceRuntimeNativeAccessGate()
+        )
+        let secondRequest = TerminalSurfaceRuntimeScreenTailRequest(
+            surface: secondSurface,
+            maxRows: 1,
+            maxBytes: 1,
+            nativeAccessGate: TerminalSurfaceRuntimeNativeAccessGate()
+        )
+        let firstBorrow = try #require(
+            coordinator.acquireScreenTailBorrow(for: firstRequest)
+        )
+        let secondBorrow = try #require(
+            coordinator.acquireScreenTailBorrow(for: secondRequest)
+        )
+
+        let firstRead = Task {
+            await coordinator.readScreenTailVT(firstRequest, borrow: firstBorrow)
+        }
+        let firstReadStarted = AsyncStream<Bool>.makeStream()
+        DispatchQueue.global(qos: .userInitiated).async {
+            firstReadStarted.continuation.yield(
+                cmux_test_ghostty_surface_read_wait_until_started()
+            )
+            firstReadStarted.continuation.finish()
+        }
+        var firstReadStartedIterator = firstReadStarted.stream.makeAsyncIterator()
+        try #require(await firstReadStartedIterator.next() == true)
+
+        let secondRead = Task(priority: .high) {
+            await coordinator.readScreenTailVT(secondRequest, borrow: secondBorrow)
+        }
+        let overlapProbe = AsyncStream<Bool>.makeStream()
+        DispatchQueue.global(qos: .userInitiated).async {
+            let overlapped = cmux_test_ghostty_surface_read_wait_until_call_count(
+                2,
+                1_000
+            )
+            cmux_test_ghostty_surface_read_release()
+            overlapProbe.continuation.yield(overlapped)
+            overlapProbe.continuation.finish()
+        }
+        var overlapProbeIterator = overlapProbe.stream.makeAsyncIterator()
+        let overlapResult = await overlapProbeIterator.next()
+        guard let overlapped = overlapResult else {
+            Issue.record("overlap probe ended without a result")
+            return
+        }
+
+        _ = await firstRead.value
+        _ = await secondRead.value
+
+        #expect(overlapped == false)
+        #expect(cmux_test_ghostty_surface_read_call_count() == 2)
+        #expect(
+            cmux_test_ghostty_surface_read_maximum_concurrent_call_count() == 1
+        )
+    }
+
+    @Test func cancelledQueuedScreenTailReadReleasesBorrowWithoutNativeAccess() async throws {
+        let teardownBegun = OSAllocatedUnfairLock(initialState: 0)
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let firstSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let cancelledSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer {
+            cmux_test_ghostty_surface_read_release()
+            cmux_test_ghostty_surface_read_blocking_reset()
+            firstSurface.deallocate()
+            cancelledSurface.deallocate()
+        }
+        cmux_test_ghostty_surface_read_blocking_begin(firstSurface)
+
+        let firstRequest = TerminalSurfaceRuntimeScreenTailRequest(
+            surface: firstSurface,
+            maxRows: 1,
+            maxBytes: 1,
+            nativeAccessGate: TerminalSurfaceRuntimeNativeAccessGate()
+        )
+        let cancelledGate = TerminalSurfaceRuntimeNativeAccessGate()
+        let cancelledRequest = TerminalSurfaceRuntimeScreenTailRequest(
+            surface: cancelledSurface,
+            maxRows: 1,
+            maxBytes: 1,
+            nativeAccessGate: cancelledGate
+        )
+        let firstBorrow = try #require(
+            coordinator.acquireScreenTailBorrow(for: firstRequest)
+        )
+        let cancelledBorrow = try #require(
+            coordinator.acquireScreenTailBorrow(for: cancelledRequest)
+        )
+
+        let firstRead = Task {
+            await coordinator.readScreenTailVT(firstRequest, borrow: firstBorrow)
+        }
+        let firstReadStarted = AsyncStream<Bool>.makeStream()
+        DispatchQueue.global(qos: .userInitiated).async {
+            firstReadStarted.continuation.yield(
+                cmux_test_ghostty_surface_read_wait_until_started()
+            )
+            firstReadStarted.continuation.finish()
+        }
+        var firstReadStartedIterator = firstReadStarted.stream.makeAsyncIterator()
+        try #require(await firstReadStartedIterator.next() == true)
+
+        let cancelledRead = Task {
+            withUnsafeCurrentTask { task in
+                task?.cancel()
+            }
+            return await coordinator.readScreenTailVT(
+                cancelledRequest,
+                borrow: cancelledBorrow
+            )
+        }
+        cancelledGate.requestTeardown {
+            teardownBegun.withLock { $0 += 1 }
+        }
+        cmux_test_ghostty_surface_read_release()
+
+        _ = await firstRead.value
+        _ = await cancelledRead.value
+
+        #expect(cmux_test_ghostty_surface_read_call_count() == 1)
+        #expect(teardownBegun.withLock { $0 } == 1)
+    }
 }

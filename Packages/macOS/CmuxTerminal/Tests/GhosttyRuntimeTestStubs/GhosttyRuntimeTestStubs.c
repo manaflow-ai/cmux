@@ -49,6 +49,9 @@ static bool cmux_test_surface_read_should_block = false;
 static bool cmux_test_surface_read_started = false;
 static bool cmux_test_surface_read_released = false;
 static void* cmux_test_surface_read_target = NULL;
+static uint32_t cmux_test_surface_read_call_count = 0;
+static uint32_t cmux_test_surface_read_active_call_count = 0;
+static uint32_t cmux_test_surface_read_maximum_concurrent_call_count = 0;
 
 static struct timespec cmux_test_surface_free_timeout(void) {
     return (struct timespec) {
@@ -123,6 +126,9 @@ void cmux_test_ghostty_surface_read_blocking_begin(void *surface) {
     cmux_test_surface_read_started = false;
     cmux_test_surface_read_released = false;
     cmux_test_surface_read_target = surface;
+    cmux_test_surface_read_call_count = 0;
+    cmux_test_surface_read_active_call_count = 0;
+    cmux_test_surface_read_maximum_concurrent_call_count = 0;
     pthread_mutex_unlock(&cmux_test_surface_read_mutex);
 }
 
@@ -153,6 +159,42 @@ bool cmux_test_ghostty_surface_read_blocking_is_active(void) {
     return active;
 }
 
+bool cmux_test_ghostty_surface_read_wait_until_call_count(
+    uint32_t expected_count,
+    uint32_t timeout_milliseconds
+) {
+    const struct timespec timeout = {
+        .tv_sec = timeout_milliseconds / 1000,
+        .tv_nsec = (timeout_milliseconds % 1000) * 1000000,
+    };
+    pthread_mutex_lock(&cmux_test_surface_read_mutex);
+    while (cmux_test_surface_read_call_count < expected_count) {
+        const int result = pthread_cond_timedwait_relative_np(
+            &cmux_test_surface_read_condition,
+            &cmux_test_surface_read_mutex,
+            &timeout
+        );
+        if (result != 0) break;
+    }
+    const bool reached = cmux_test_surface_read_call_count >= expected_count;
+    pthread_mutex_unlock(&cmux_test_surface_read_mutex);
+    return reached;
+}
+
+uint32_t cmux_test_ghostty_surface_read_call_count(void) {
+    pthread_mutex_lock(&cmux_test_surface_read_mutex);
+    const uint32_t count = cmux_test_surface_read_call_count;
+    pthread_mutex_unlock(&cmux_test_surface_read_mutex);
+    return count;
+}
+
+uint32_t cmux_test_ghostty_surface_read_maximum_concurrent_call_count(void) {
+    pthread_mutex_lock(&cmux_test_surface_read_mutex);
+    const uint32_t count = cmux_test_surface_read_maximum_concurrent_call_count;
+    pthread_mutex_unlock(&cmux_test_surface_read_mutex);
+    return count;
+}
+
 void cmux_test_ghostty_surface_read_release(void) {
     pthread_mutex_lock(&cmux_test_surface_read_mutex);
     cmux_test_surface_read_released = true;
@@ -166,6 +208,9 @@ void cmux_test_ghostty_surface_read_blocking_reset(void) {
     cmux_test_surface_read_started = false;
     cmux_test_surface_read_released = true;
     cmux_test_surface_read_target = NULL;
+    cmux_test_surface_read_call_count = 0;
+    cmux_test_surface_read_active_call_count = 0;
+    cmux_test_surface_read_maximum_concurrent_call_count = 0;
     pthread_cond_broadcast(&cmux_test_surface_read_condition);
     pthread_mutex_unlock(&cmux_test_surface_read_mutex);
 }
@@ -431,6 +476,14 @@ bool ghostty_surface_read_screen_tail_vt(
 
     const struct timespec timeout = cmux_test_surface_free_timeout();
     pthread_mutex_lock(&cmux_test_surface_read_mutex);
+    cmux_test_surface_read_call_count += 1;
+    cmux_test_surface_read_active_call_count += 1;
+    if (cmux_test_surface_read_active_call_count
+        > cmux_test_surface_read_maximum_concurrent_call_count) {
+        cmux_test_surface_read_maximum_concurrent_call_count =
+            cmux_test_surface_read_active_call_count;
+    }
+    pthread_cond_broadcast(&cmux_test_surface_read_condition);
     if (cmux_test_surface_read_should_block
         && surface == cmux_test_surface_read_target) {
         cmux_test_surface_read_started = true;
@@ -446,6 +499,8 @@ bool ghostty_surface_read_screen_tail_vt(
         cmux_test_surface_read_should_block = false;
         cmux_test_surface_read_target = NULL;
     }
+    cmux_test_surface_read_active_call_count -= 1;
+    pthread_cond_broadcast(&cmux_test_surface_read_condition);
     pthread_mutex_unlock(&cmux_test_surface_read_mutex);
     return false;
 }
