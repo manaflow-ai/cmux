@@ -561,6 +561,36 @@ final class TerminalNotificationStore: ObservableObject {
         emitUnreadBadgeEventIfChanged()
     }
 
+    /// Publishes one per-window Dock surface mutation without rebuilding the
+    /// notification-derived summaries and surface index. Window-Dock owner ids
+    /// are not workspace rows, so only the surface key and global owner count can
+    /// change here.
+    private func refreshSurfaceManualUnreadPresentation(
+        for key: SidebarSurfaceUnreadKey,
+        ownerUnreadChanged: Bool
+    ) {
+        let remainsUnreadFromNotification = indexes.unreadByTabSurface.contains(
+            TabSurfaceKey(tabId: key.workspaceId, surfaceId: key.surfaceId)
+        )
+        sidebarUnread.applySurfaceUnreadProjection(
+            key,
+            isUnread: manualUnreadSurfaceKeys.contains(key) || remainsUnreadFromNotification,
+            totalUnreadCount: unreadCount
+        )
+        guard ownerUnreadChanged else { return }
+
+        let nextMenuSnapshot = NotificationMenuSnapshot(
+            unreadCount: unreadCount,
+            hasNotifications: !notifications.isEmpty || workspaceUnreadIndicatorCount > 0,
+            recentNotifications: notificationMenuSnapshot.recentNotifications
+        )
+        if notificationMenuSnapshot != nextMenuSnapshot {
+            notificationMenuSnapshot = nextMenuSnapshot
+        }
+        refreshDockBadge()
+        emitUnreadBadgeEventIfChanged()
+    }
+
     /// Builds the per-workspace unread summaries the sidebar renders. Mirrors
     /// `unreadCount(forTabId:)` and `latestNotification(forTabId:)` so the
     /// coalesced model is a drop-in source for the sidebar's per-row reads.
@@ -729,6 +759,7 @@ final class TerminalNotificationStore: ObservableObject {
         forTabId tabId: UUID,
         surfaceId: UUID
     ) -> Bool {
+        let ownerWasUnread = manualUnreadSurfaceIdsByOwnerId[tabId]?.isEmpty == false
         guard mutateSurfaceManualUnread(
             isUnread,
             forTabId: tabId,
@@ -736,7 +767,11 @@ final class TerminalNotificationStore: ObservableObject {
         ) else {
             return false
         }
-        refreshUnreadPresentation()
+        let ownerIsUnread = manualUnreadSurfaceIdsByOwnerId[tabId]?.isEmpty == false
+        refreshSurfaceManualUnreadPresentation(
+            for: SidebarSurfaceUnreadKey(workspaceId: tabId, surfaceId: surfaceId),
+            ownerUnreadChanged: ownerWasUnread != ownerIsUnread
+        )
         return true
     }
 

@@ -206,6 +206,41 @@ public final class SidebarUnreadModel {
             focusedReadIndicatorByWorkspaceId: focusedReadIndicatorByWorkspaceId,
             manualUnreadWorkspaceIds: manualUnreadWorkspaceIds
         )
+        publish(next)
+    }
+
+    /// Applies one surface-key projection without rebuilding unrelated unread state.
+    ///
+    /// Use this when the caller already maintains an incremental surface index,
+    /// such as a per-window Dock BEL. All summaries, focused-read indicators, and
+    /// workspace-manual state remain unchanged.
+    ///
+    /// - Parameters:
+    ///   - key: The workspace and surface pair whose effective unread state changed.
+    ///   - isUnread: Whether the pair remains unread after all unread sources are combined.
+    ///   - totalUnreadCount: The authoritative global unread count after the mutation.
+    public func applySurfaceUnreadProjection(
+        _ key: SidebarSurfaceUnreadKey,
+        isUnread: Bool,
+        totalUnreadCount: Int
+    ) {
+        let base = pendingSnapshots.last ?? snapshot
+        var unreadSurfaceKeys = base.unreadSurfaceKeys
+        if isUnread {
+            unreadSurfaceKeys.insert(key)
+        } else {
+            unreadSurfaceKeys.remove(key)
+        }
+        publish(SidebarUnreadSnapshot(
+            totalUnreadCount: totalUnreadCount,
+            summaryByWorkspaceId: base.summaryByWorkspaceId,
+            unreadSurfaceKeys: unreadSurfaceKeys,
+            focusedReadIndicatorByWorkspaceId: base.focusedReadIndicatorByWorkspaceId,
+            manualUnreadWorkspaceIds: base.manualUnreadWorkspaceIds
+        ))
+    }
+
+    private func publish(_ next: SidebarUnreadSnapshot) {
         guard (pendingSnapshots.last ?? snapshot) != next else { return }
         pendingSnapshots.append(next)
         guard !isPublishingSnapshot else { return }
