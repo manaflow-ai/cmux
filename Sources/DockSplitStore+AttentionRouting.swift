@@ -30,6 +30,18 @@ extension DockSplitStore {
     /// publish attention into the wrong owner.
     func installAttentionRouting(for panel: any Panel) {
         guard let terminal = panel as? TerminalPanel else { return }
+        let ownerTabManager = AppDelegate.shared?.dockReferenceTabManager(for: self)
+        terminal.surface.onExplicitInput = { [weak self, weak terminal, weak ownerTabManager] in
+            guard let self, let terminal,
+                  let mountedTerminal = self.panels[terminal.id] as? TerminalPanel,
+                  mountedTerminal === terminal else {
+                return
+            }
+            ownerTabManager?.dismissNotificationOnTerminalInteraction(
+                tabId: self.workspaceId,
+                surfaceId: terminal.id
+            )
+        }
         terminal.onRequestWorkspacePaneFlash = { [weak self, weak terminal] reason in
             guard let self, let terminal,
                   let mountedTerminal = self.panels[terminal.id] as? TerminalPanel,

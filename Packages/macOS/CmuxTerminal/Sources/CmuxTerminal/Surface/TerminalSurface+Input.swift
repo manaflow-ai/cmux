@@ -36,6 +36,7 @@ extension TerminalSurface {
     @MainActor
     public func didReceiveExplicitInput() {
         paneHost.terminalSurfaceDidReceiveExplicitInput()
+        onExplicitInput?()
     }
 
     /// Closes Find as an explicit user action, cancelling any deferred viewport restoration first.

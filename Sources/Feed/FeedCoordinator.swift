@@ -674,7 +674,8 @@ extension FeedCoordinator {
         let ownerKind: AttentionTarget.OwnerKind
         let panelId: UUID?
         if let dock = AppDelegate.shared?.existingWindowDock(forWindowId: resolved.ownerId) {
-            guard let surfaceId = resolved.surfaceId, dock.containsPanel(surfaceId) else {
+            guard let resolvedPanelId = resolved.surfaceId ?? dock.focusedPanelId,
+                  dock.containsPanel(resolvedPanelId) else {
                 #if DEBUG
                 cmuxDebugLog(
                     "feed.attention.skip reason=missing-dock-surface session=\(event.sessionId) request=\(event.requestId ?? "nil") hook=\(event.hookEventName.rawValue) source=\(event.source) owner=\(resolved.ownerId.uuidString) surface=\(resolved.surfaceId?.uuidString ?? "nil") receivedAt=\(event.receivedAt.timeIntervalSince1970)"
@@ -684,7 +685,7 @@ extension FeedCoordinator {
             }
             owner = .dock(dock)
             ownerKind = .dock
-            panelId = surfaceId
+            panelId = resolvedPanelId
         } else {
             guard let tabManager,
                   let tab = tabManager.tabs.first(where: { $0.id == resolved.ownerId }) else {

@@ -7,6 +7,13 @@ extension Workspace {
     /// Ownership changes replace this callback during surface transfer, so a
     /// background bell never needs an app-wide surface or focus scan.
     func installTerminalVisualBellRouting(for terminalPanel: TerminalPanel) {
+        terminalPanel.surface.onExplicitInput = { [weak self, weak terminalPanel] in
+            guard let self, let terminalPanel else { return }
+            self.owningTabManager?.dismissNotificationOnTerminalInteraction(
+                tabId: self.id,
+                surfaceId: terminalPanel.id
+            )
+        }
         terminalPanel.surface.onVisualBell = { [weak self, weak terminalPanel] in
             guard let self, let terminalPanel,
                   let target = self.surfaceOwnershipTarget(for: terminalPanel.id),
