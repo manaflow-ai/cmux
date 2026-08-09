@@ -13,9 +13,24 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
         let overflowHandler: ReservedOverflowHandler
     }
 
+    private enum OverflowAction {
+        case active(() -> Void)
+        case reserved(ReservedOverflowHandler)
+
+        @MainActor
+        func perform() {
+            switch self {
+            case .active(let handler):
+                handler()
+            case .reserved(let handler):
+                handler()
+            }
+        }
+    }
+
     private struct OrderedOverflowHandler {
         let order: UInt64
-        let handler: () -> Void
+        let action: OverflowAction
     }
 
     private struct ReservedAdmissionState: Sendable {
@@ -208,14 +223,14 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
                     activeRequests[id]?.readyCompletion = nil
                     return OrderedOverflowHandler(
                         order: order,
-                        handler: request.onOverflow
+                        action: .active(request.onOverflow)
                     )
                 }
                 let overflowHandlers = (
                     activeOverflowHandlers + reservedOverflowHandlers
                 ).sorted { $0.order < $1.order }
                 withOverflowCancellationBatch(for: epoch) {
-                    overflowHandlers.forEach { $0.handler() }
+                    overflowHandlers.forEach { $0.action.perform() }
                     endReservedOverflowCancellation(for: epoch)
                 }
                 guard hasRequestInFlight(for: epoch) else { return false }
@@ -394,7 +409,7 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
                 state.admissionsByID.removeValue(forKey: id)
                 return OrderedOverflowHandler(
                     order: admission.order,
-                    handler: admission.overflowHandler
+                    action: .reserved(admission.overflowHandler)
                 )
             }
             return handlers
