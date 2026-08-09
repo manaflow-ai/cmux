@@ -528,27 +528,23 @@ def reweight_selectors(
     measured = 0
     for selector in selectors:
         parts = selector.identifier.split("/")
+        fallback_count = (
+            selector.test_count
+            if selector.test_count is not None
+            else MAX_PROCESS_TEST_LIMIT
+        )
         if len(parts) == 3:
             _, suite, method = parts
             ms = methods.get(f"{suite}/{method}")
             if ms is None and suite in suites:
                 ms = suites[suite] / methods_per_suite[suite]
-            if ms is None:
-                ms = fallback_ms
-            else:
-                measured += 1
         else:
             suite = parts[1]
             ms = suites.get(suite)
-            if ms is None:
-                fallback_count = (
-                    selector.test_count
-                    if selector.test_count is not None
-                    else MAX_PROCESS_TEST_LIMIT
-                )
-                ms = fallback_count * fallback_ms
-            else:
-                measured += 1
+        if ms is None:
+            ms = fallback_count * fallback_ms
+        else:
+            measured += 1
         reweighted.append(replace(selector, weight=max(1, int(ms))))
     return reweighted, measured
 
