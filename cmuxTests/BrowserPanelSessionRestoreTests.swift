@@ -82,13 +82,13 @@ struct BrowserPanelSessionRestoreTests {
         ))
 
         #expect(panel.chromeVisibility == .visible)
-        #expect(
-            panel.currentURL
-                == CmuxDiffViewerURLSchemeHandler.diffViewerURL(
-                    token: token,
-                    requestPath: requestPath
-                )
+        let expectedURL = try #require(
+            CmuxDiffViewerURLSchemeHandler.diffViewerURL(
+                token: token,
+                requestPath: requestPath
+            )
         )
+        #expect(panel.currentURL == expectedURL)
     }
 
     @Test
