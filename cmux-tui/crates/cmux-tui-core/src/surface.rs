@@ -1226,10 +1226,28 @@ pub(crate) struct TerminalJournalUpdateGuard<'a> {
     owner: &'a PtyTerminalRuntime,
 }
 
+impl TerminalJournalUpdateGuard<'_> {
+    pub(crate) fn activate(&mut self) -> bool {
+        let _gate = self.owner.journal_capture_gate.lock().unwrap();
+        if !self.owner.journal_capture_open.load(Ordering::Acquire) {
+            return false;
+        }
+        let reserved = self.owner.journal_capture_reserved.swap(false, Ordering::AcqRel);
+        debug_assert!(reserved, "terminal journal update activated without a read reservation");
+        self.owner.journal_capture_active.store(true, Ordering::Release);
+        let previous = self.owner.journal_capture_epoch.fetch_add(1, Ordering::AcqRel);
+        debug_assert_eq!(previous & 1, 0, "terminal journal updates must not overlap");
+        true
+    }
+}
+
 impl Drop for TerminalJournalUpdateGuard<'_> {
     fn drop(&mut self) {
         let _gate = self.owner.journal_capture_gate.lock().unwrap();
-        self.owner.journal_capture_epoch.fetch_add(1, Ordering::Release);
+        self.owner.journal_capture_reserved.store(false, Ordering::Release);
+        if self.owner.journal_capture_active.swap(false, Ordering::AcqRel) {
+            self.owner.journal_capture_epoch.fetch_add(1, Ordering::Release);
+        }
         self.owner.journal_capture_idle.notify_all();
     }
 }
@@ -1283,36 +1301,48 @@ impl PtyTerminalRuntime {
         if !self.journal_capture_open.load(Ordering::Acquire) {
             return None;
         }
-        let previous = self.journal_capture_epoch.fetch_add(1, Ordering::AcqRel);
-        debug_assert_eq!(previous & 1, 0, "terminal journal updates must not overlap");
+        let reserved = self.journal_capture_reserved.swap(true, Ordering::AcqRel);
+        debug_assert!(!reserved, "terminal journal reads must not overlap");
         Some(TerminalJournalUpdateGuard { owner: self })
     }
 
     fn close_terminal_journal_capture_when_idle(&self, deadline: Instant) {
         let mut gate = self.journal_capture_gate.lock().unwrap();
-        let mut deadline_reported = false;
+        let active_deadline = deadline + Duration::from_secs(2);
         loop {
-            if self.journal_capture_epoch.load(Ordering::Acquire) & 1 == 0 {
+            if !self.journal_capture_reserved.load(Ordering::Acquire)
+                && self.journal_capture_epoch.load(Ordering::Acquire) & 1 == 0
+            {
                 self.journal_capture_open.store(false, Ordering::Release);
                 return;
             }
             if Instant::now() >= deadline {
-                if !deadline_reported {
-                    eprintln!(
-                        "cmux-tui: terminal journal capture did not become idle before the shared shutdown deadline; preserving the active update before closing capture"
-                    );
-                    deadline_reported = true;
+                if !self.journal_capture_active.load(Ordering::Acquire) {
+                    // A read is still blocked or has not started terminal
+                    // mutation. Revoke its reservation. The reader checks the
+                    // gate before parsing and exits without changing state.
+                    self.journal_capture_open.store(false, Ordering::Release);
+                    return;
                 }
-                // The gate prevents the reader from starting its next update.
-                // Do not close an update that already changed the terminal:
-                // its output must reach durable ingress before the shutdown
-                // barrier can be inserted.
-                gate = self.journal_capture_idle.wait(gate).unwrap();
-                continue;
+                let remaining = active_deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    // Keep shutdown bounded if a source-owned parser or
+                    // callback violates the active-update time contract. The
+                    // closed gate prevents a late journal insert after the
+                    // final barrier, and the daemon is already stopping.
+                    self.journal_capture_open.store(false, Ordering::Release);
+                    eprintln!(
+                        "cmux-tui: active terminal journal update exceeded shutdown grace; closing capture and stopping without a late journal insert"
+                    );
+                    return;
+                }
+                let (next, _) = self.journal_capture_idle.wait_timeout(gate, remaining).unwrap();
+                gate = next;
+            } else {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                let (next, _) = self.journal_capture_idle.wait_timeout(gate, remaining).unwrap();
+                gate = next;
             }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            let (next, _) = self.journal_capture_idle.wait_timeout(gate, remaining).unwrap();
-            gate = next;
         }
     }
 }
@@ -1335,6 +1365,8 @@ pub struct PtyTerminalRuntime {
     journal_capture_gate: Mutex<()>,
     journal_capture_idle: Condvar,
     journal_capture_open: AtomicBool,
+    journal_capture_reserved: AtomicBool,
+    journal_capture_active: AtomicBool,
     /// Owned reader join fence. Shutdown gives this reader a bounded drain
     /// interval, then closes journal capture before it inserts the final
     /// journal barrier.
@@ -2268,6 +2300,8 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
+                journal_capture_reserved: AtomicBool::new(false),
+                journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
@@ -2345,6 +2379,17 @@ impl Surface {
                     );
                     let mut buf = [0u8; 64 * 1024];
                     loop {
+                        let pty = surface.as_pty().expect("surface reader got non-pty surface");
+                        let journal_target = pty.journal_target();
+                        // Reserve the capture epoch before read(2). Shutdown
+                        // can revoke a blocked reservation, but it cannot place
+                        // its final barrier in the read-to-parser gap.
+                        let mut journal_update = journal_target
+                            .as_ref()
+                            .and_then(|_| pty.begin_terminal_journal_update());
+                        if journal_target.is_some() && journal_update.is_none() {
+                            break;
+                        }
                         let n = match reader.read(&mut buf) {
                             Ok(0) => break,
                             Ok(n) => n,
@@ -2360,15 +2405,15 @@ impl Surface {
                             }
                             Err(_) => break,
                         };
-                        let pty = surface.as_pty().expect("surface reader got non-pty surface");
-                        let journal_target = pty.journal_target();
-                        let journal_update = journal_target
-                            .as_ref()
-                            .and_then(|_| pty.begin_terminal_journal_update());
-                        let journal_enabled = journal_update.is_some();
                         let mut scroll_changed = None;
                         let generation = {
                             let mut term = pty.term.lock().unwrap();
+                            if let Some(update) = journal_update.as_mut()
+                                && !update.activate()
+                            {
+                                break;
+                            }
+                            let journal_enabled = journal_update.is_some();
                             let before = terminal_scroll_position(&term);
                             let color_revision = term.color_revision();
                             let color_reapply_revision = term.color_reapply_revision();
@@ -2717,6 +2762,8 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
+                journal_capture_reserved: AtomicBool::new(false),
+                journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
@@ -2800,6 +2847,7 @@ impl Surface {
                 let mut applied_color_revision = initial_color_revision;
                 let mut applied_cursor_activity = initial_cursor_activity;
                 'connection: loop {
+                    let pty = surface.as_pty().expect("host reader owns a PTY surface");
                     let mut stager = HostedFrameStager::new_for_version(
                         sequence_boundary,
                         protocol_version,
@@ -2807,13 +2855,25 @@ impl Surface {
                     );
                     let mut received_exit = None;
                     let mut resync_requested = false;
-                    'host_stream: while let Ok(Some(frame)) =
-                        crate::terminal_host_protocol::read_frame(
+                    let mut journal_target = None;
+                    let mut journal_update = None;
+                    'host_stream: loop {
+                        if journal_update.is_none() {
+                            journal_target = pty.journal_target();
+                            journal_update = journal_target
+                                .as_ref()
+                                .and_then(|_| pty.begin_terminal_journal_update());
+                            if journal_target.is_some() && journal_update.is_none() {
+                                break;
+                            }
+                        }
+                        let frame = match crate::terminal_host_protocol::read_frame(
                             &mut reader,
                             crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
-                        )
-                    {
-                        let Some(pty) = surface.as_pty() else { break };
+                        ) {
+                            Ok(Some(frame)) => frame,
+                            Ok(None) | Err(_) => break,
+                        };
                         if matches!(
                             frame.kind,
                             MessageKind::Capability
@@ -2850,6 +2910,8 @@ impl Surface {
                             }) {
                                 break;
                             }
+                            drop(journal_update.take());
+                            journal_target = None;
                             continue;
                         }
                         let Ok(transition) = stager.push(frame) else {
@@ -2868,17 +2930,18 @@ impl Surface {
                                 };
                                 let mut scroll_changed = None;
                                 let mut title_update = None;
-                                let journal_target = pty.journal_target();
-                                let journal_update = journal_target
-                                    .as_ref()
-                                    .and_then(|_| pty.begin_terminal_journal_update());
-                                let journal_enabled = journal_update.is_some();
                                 let defaults = mux
                                     .upgrade()
                                     .map(|mux| mux.default_colors())
                                     .unwrap_or_default();
                                 let generation = {
                                     let mut term = pty.term.lock().unwrap();
+                                    if let Some(update) = journal_update.as_mut()
+                                        && !update.activate()
+                                    {
+                                        break 'host_stream;
+                                    }
+                                    let journal_enabled = journal_update.is_some();
                                     let before = terminal_scroll_position(&term);
                                     let normalized = term.vt_write_with_normalized(&output);
                                     let output = match normalized {
@@ -2956,7 +3019,7 @@ impl Surface {
                                 {
                                     pty.journal_output_if_open(journal_target, journal_output);
                                 }
-                                drop(journal_update);
+                                drop(journal_update.take());
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(title) = title_update
@@ -3125,6 +3188,8 @@ impl Surface {
                                 break;
                             }
                         }
+                        drop(journal_update.take());
+                        journal_target = None;
                     }
                     control_responses.fail_all();
                     let Some(pty) = surface.as_pty() else { return };
@@ -3695,6 +3760,8 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
+                journal_capture_reserved: AtomicBool::new(false),
+                journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
@@ -3916,6 +3983,8 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
+                journal_capture_reserved: AtomicBool::new(false),
+                journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),

@@ -34,6 +34,8 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use crate::journal_kernel::{JournalDocument, SharedJournalRead};
+#[cfg(unix)]
+use crate::unix_process_scope::UnixProcessScope;
 use crate::workspace_registry::{
     JournalHookAttempt, JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan,
     JournalHookState, SessionJournalReader,
@@ -47,127 +49,6 @@ const MIN_DELIVERY_WORKERS: usize = 4;
 const MAX_DELIVERY_WORKERS: usize = 32;
 const IDLE_WAIT: Duration = Duration::from_secs(30);
 const ACTIVE_WAIT: Duration = Duration::from_secs(1);
-
-#[cfg(unix)]
-struct UnixHookTree {
-    root: u32,
-    tracked: Arc<Mutex<HashSet<u32>>>,
-    stop: Option<mpsc::SyncSender<()>>,
-    monitor: Option<std::thread::JoinHandle<()>>,
-    terminated: bool,
-}
-
-#[cfg(unix)]
-impl UnixHookTree {
-    fn track(root: u32) -> std::io::Result<Self> {
-        let tracked = Arc::new(Mutex::new(HashSet::from([root])));
-        let (stop, stopped) = mpsc::sync_channel(1);
-        let monitor_tracked = tracked.clone();
-        let monitor = std::thread::Builder::new().name("journal-hook-process-tree".into()).spawn(
-            move || loop {
-                scan_hook_descendants(root, &monitor_tracked);
-                match stopped.recv_timeout(Duration::from_millis(2)) {
-                    Err(mpsc::RecvTimeoutError::Timeout) => {}
-                    Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                }
-            },
-        )?;
-        Ok(Self { root, tracked, stop: Some(stop), monitor: Some(monitor), terminated: false })
-    }
-
-    fn terminate_descendants(&mut self) {
-        if self.terminated {
-            return;
-        }
-        self.terminated = true;
-        scan_hook_descendants(self.root, &self.tracked);
-        if let Some(stop) = self.stop.take() {
-            let _ = stop.try_send(());
-        }
-        if let Some(monitor) = self.monitor.take() {
-            let _ = monitor.join();
-        }
-        // Scan once more after the monitor stops, then kill individual
-        // descendants as well as the original group. Individual PIDs cover a
-        // descendant that created a new session with setsid(2).
-        scan_hook_descendants(self.root, &self.tracked);
-        let mut descendants = self.tracked.lock().unwrap().iter().copied().collect::<Vec<_>>();
-        descendants.sort_unstable_by(|left, right| right.cmp(left));
-        for pid in descendants.into_iter().filter(|pid| *pid != self.root) {
-            if let Ok(pid) = libc::pid_t::try_from(pid) {
-                unsafe {
-                    libc::kill(pid, libc::SIGKILL);
-                }
-            }
-        }
-        terminate_hook_process_group(self.root);
-    }
-}
-
-#[cfg(unix)]
-impl Drop for UnixHookTree {
-    fn drop(&mut self) {
-        self.terminate_descendants();
-    }
-}
-
-#[cfg(unix)]
-fn scan_hook_descendants(root: u32, tracked: &Mutex<HashSet<u32>>) {
-    let mut pending = vec![root];
-    let mut visited = HashSet::new();
-    while let Some(parent) = pending.pop() {
-        if !visited.insert(parent) {
-            continue;
-        }
-        for child in direct_hook_child_pids(parent) {
-            tracked.lock().unwrap().insert(child);
-            pending.push(child);
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn direct_hook_child_pids(pid: u32) -> Vec<u32> {
-    let Ok(pid) = libc::pid_t::try_from(pid) else { return Vec::new() };
-    let count = unsafe { libc::proc_listchildpids(pid, std::ptr::null_mut(), 0) };
-    let Ok(count) = usize::try_from(count) else { return Vec::new() };
-    if count == 0 {
-        return Vec::new();
-    }
-    let mut children = vec![0 as libc::pid_t; count];
-    let Ok(bytes) =
-        libc::c_int::try_from(children.len().saturating_mul(std::mem::size_of::<libc::pid_t>()))
-    else {
-        return Vec::new();
-    };
-    let written = unsafe { libc::proc_listchildpids(pid, children.as_mut_ptr().cast(), bytes) };
-    let Ok(written) = usize::try_from(written) else { return Vec::new() };
-    children
-        .into_iter()
-        .take(written.min(count))
-        .filter(|child| *child > 0)
-        .filter_map(|child| u32::try_from(child).ok())
-        .collect()
-}
-
-#[cfg(target_os = "linux")]
-fn direct_hook_child_pids(pid: u32) -> Vec<u32> {
-    std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children"))
-        .ok()
-        .into_iter()
-        .flat_map(|children| {
-            children
-                .split_whitespace()
-                .filter_map(|child| child.parse::<u32>().ok())
-                .collect::<Vec<_>>()
-        })
-        .collect()
-}
-
-#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
-fn direct_hook_child_pids(_pid: u32) -> Vec<u32> {
-    Vec::new()
-}
 
 #[cfg(windows)]
 struct WindowsHookJob {
@@ -879,18 +760,19 @@ fn execute_delivery(
     if let Some(session_id) = session_id {
         command.env("CMUX_JOURNAL_SESSION_ID", session_id);
     }
+    #[cfg(unix)]
+    let mut tree = match UnixProcessScope::prepare() {
+        Ok(tree) => tree,
+        Err(error) => return (None, Some(format!("prepare hook process scope: {error}"))),
+    };
+    #[cfg(unix)]
+    tree.configure(&mut command);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => return (None, Some(format!("start hook executable: {error}"))),
     };
     #[cfg(unix)]
-    let mut tree = match UnixHookTree::track(child.id()) {
-        Ok(tree) => tree,
-        Err(error) => {
-            terminate_hook_child(&mut child);
-            return (None, Some(format!("isolate hook process tree: {error}")));
-        }
-    };
+    tree.bind(child.id());
     #[cfg(windows)]
     let job = match WindowsHookJob::assign(&child) {
         Ok(job) => job,
@@ -909,7 +791,7 @@ fn execute_delivery(
         #[cfg(unix)]
         {
             terminate_hook_child(&mut child);
-            tree.terminate_descendants();
+            tree.terminate();
         }
         #[cfg(windows)]
         job.terminate_and_wait(&mut child);
@@ -919,8 +801,8 @@ fn execute_delivery(
     #[cfg(unix)]
     {
         let result = execute_hook_child_unix(&mut child, stdin, &input, process_group, timeout);
-        tree.terminate_descendants();
-        return result;
+        tree.terminate();
+        result
     }
     #[cfg(windows)]
     execute_hook_child_portable(&mut child, stdin, &input, process_group, timeout, &job)
@@ -1143,9 +1025,8 @@ fn wait_for_hook_exit(
 
 fn hook_exit_result(
     status: std::process::ExitStatus,
-    process_group: u32,
+    _process_group: u32,
 ) -> (Option<i32>, Option<String>) {
-    terminate_hook_process_group(process_group);
     let code = status.code();
     let error = if status.success() {
         None
@@ -1158,19 +1039,7 @@ fn hook_exit_result(
     (code, error)
 }
 
-fn terminate_hook_process_group(process_group: u32) {
-    #[cfg(unix)]
-    if let Ok(process_group) = i32::try_from(process_group) {
-        // The command starts in a fresh process group, so a negative PID
-        // targets only this hook and descendants that remain in its group.
-        unsafe {
-            libc::kill(-process_group, libc::SIGKILL);
-        }
-    }
-}
-
 fn terminate_hook_child(child: &mut std::process::Child) {
-    terminate_hook_process_group(child.id());
     let _ = child.kill();
     let _ = child.wait();
 }
@@ -1320,8 +1189,10 @@ mod tests {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .process_group(0);
+        let mut tree = UnixProcessScope::prepare().unwrap();
+        tree.configure(&mut command);
         let mut child = command.spawn().unwrap();
-        let mut tree = UnixHookTree::track(child.id()).unwrap();
+        tree.bind(child.id());
         let deadline = Instant::now() + Duration::from_secs(5);
         let detached = loop {
             if let Ok(pid) = std::fs::read_to_string(&pid_path)
@@ -1333,7 +1204,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         };
 
-        tree.terminate_descendants();
+        tree.terminate();
         let _ = child.kill();
         let _ = child.wait();
         let deadline = Instant::now() + Duration::from_secs(5);

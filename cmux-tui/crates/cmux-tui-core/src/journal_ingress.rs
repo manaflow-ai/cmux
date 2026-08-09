@@ -353,14 +353,7 @@ impl JournalIngressState {
     }
 
     fn wait_for_queue_space(&self, observed: u64) -> Result<(), String> {
-        let mut epoch = self.queue_space_epoch.lock().unwrap();
-        while *epoch == observed {
-            if let Some(error) = self.failure() {
-                return Err(error);
-            }
-            epoch = self.queue_space_changed.wait(epoch).unwrap();
-        }
-        Ok(())
+        self.wait_for_queue_space_until(observed, Instant::now() + JOURNAL_DURABLE_WAIT)
     }
 }
 
@@ -1564,9 +1557,10 @@ mod tests {
         let (active, active_receiver) = sync_channel(1);
         let (release, release_receiver) = sync_channel(1);
         let reader = std::thread::spawn(move || {
-            let update = reader_surface
+            let mut update = reader_surface
                 .begin_terminal_journal_update_for_test()
                 .expect("journal capture must be open");
+            assert!(update.activate(), "active update reservation was revoked before mutation");
             active.send(()).unwrap();
             release_receiver.recv().unwrap();
             drop(update);
@@ -1590,6 +1584,34 @@ mod tests {
             surface.begin_terminal_journal_update_for_test().is_none(),
             "a late terminal update started after the shutdown capture fence"
         );
+        finisher.join().unwrap();
+    }
+
+    #[test]
+    fn reader_timeout_revokes_a_pre_parse_reservation() {
+        let mux = Mux::new("reserved-terminal-journal-update", crate::SurfaceOptions::default());
+        let surface = crate::Surface::spawn_for_test(
+            1,
+            crate::SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+        )
+        .unwrap();
+        let mut reservation = surface
+            .begin_terminal_journal_update_for_test()
+            .expect("journal capture must be open");
+        let finishing_surface = surface.clone();
+        let (finished, finished_receiver) = sync_channel(1);
+        let finisher = std::thread::spawn(move || {
+            finishing_surface.finish_terminal_reader(Instant::now() + Duration::from_millis(10));
+            finished.send(()).unwrap();
+        });
+
+        finished_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            !reservation.activate(),
+            "a blocked read reservation became active after the shutdown fence"
+        );
+        drop(reservation);
         finisher.join().unwrap();
     }
 
