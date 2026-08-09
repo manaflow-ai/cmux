@@ -33,7 +33,7 @@ SUITE_RE = re.compile(
     r"(?:class|struct|actor)\s+([A-Za-z_][A-Za-z0-9_]*)\b"
 )
 EXTENSION_RE = re.compile(r"^extension\s+([A-Za-z_][A-Za-z0-9_]*)\b")
-SWIFT_TEST_ATTRIBUTE_RE = re.compile(r"^\s*@Test\b")
+SWIFT_TEST_ATTRIBUTE_RE = re.compile(r"(?<![A-Za-z0-9_])@Test\b")
 FUNCTION_DECLARATION_RE = re.compile(r"\bfunc\s+([A-Za-z_][A-Za-z0-9_]*)\b")
 XCTEST_METHOD_RE = re.compile(
     r"^\s*(?:(?:final|private|fileprivate|internal|public)\s+)*"
@@ -86,7 +86,10 @@ class TestSelector:
     path: str
     line: int
     weight: int
-    test_count: int
+    # None means Swift Testing expands this selector from a runtime expression.
+    # Such selectors are always isolated instead of being co-packed against a
+    # count that source inspection cannot prove.
+    test_count: int | None
 
 
 @dataclass(frozen=True)
@@ -94,8 +97,225 @@ class SuiteDeclaration:
     name: str
     path: str
     line: int
-    test_count: int
     methods: tuple[TestSelector, ...]
+
+
+def exact_test_count(selectors: list[TestSelector]) -> int | None:
+    """Return a complete execution count, or None if any expansion is runtime-only."""
+    counts = [selector.test_count for selector in selectors]
+    if any(count is None for count in counts):
+        return None
+    return max(1, sum(count for count in counts if count is not None))
+
+
+def mask_swift_noncode(source: str) -> str:
+    """Mask comments and string contents while preserving offsets and syntax."""
+    masked = ["\n" if character == "\n" else " " for character in source]
+    index = 0
+    length = len(source)
+    while index < length:
+        if source.startswith("//", index):
+            newline = source.find("\n", index + 2)
+            index = length if newline < 0 else newline
+            continue
+
+        if source.startswith("/*", index):
+            depth = 1
+            index += 2
+            while index < length and depth:
+                if source.startswith("/*", index):
+                    depth += 1
+                    index += 2
+                elif source.startswith("*/", index):
+                    depth -= 1
+                    index += 2
+                else:
+                    index += 1
+            continue
+
+        raw_hashes = 0
+        quote_index = index
+        if source[index] == "#":
+            while quote_index < length and source[quote_index] == "#":
+                raw_hashes += 1
+                quote_index += 1
+            if quote_index >= length or source[quote_index] != '"':
+                masked[index] = source[index]
+                index += 1
+                continue
+        elif source[index] != '"':
+            masked[index] = source[index]
+            index += 1
+            continue
+
+        triple_quoted = source.startswith('"""', quote_index)
+        opening_length = 3 if triple_quoted else 1
+        closing = ('"""' if triple_quoted else '"') + ("#" * raw_hashes)
+        masked[index] = '"'
+        index = quote_index + opening_length
+        while index < length:
+            if source.startswith(closing, index):
+                index += len(closing)
+                break
+            if raw_hashes == 0 and source[index] == "\\":
+                index = min(length, index + 2)
+                continue
+            index += 1
+
+    return "".join(masked)
+
+
+def matching_delimiter(source: str, start: int, opening: str, closing: str) -> int | None:
+    """Return the matching delimiter offset in already-masked Swift source."""
+    depth = 0
+    for index in range(start, len(source)):
+        character = source[index]
+        if character == opening:
+            depth += 1
+        elif character == closing:
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def array_literal_count(source: str, start: int) -> tuple[int, int] | None:
+    """Count top-level elements in a masked Swift array literal."""
+    closing = matching_delimiter(source, start, "[", "]")
+    if closing is None:
+        return None
+
+    stack: list[str] = []
+    pairs = {")": "(", "]": "[", "}": "{"}
+    segment_has_code = False
+    count = 0
+    for character in source[start + 1 : closing]:
+        if character in "([{":
+            stack.append(character)
+            segment_has_code = True
+        elif character in ")]}" and stack and stack[-1] == pairs[character]:
+            stack.pop()
+            segment_has_code = True
+        elif character == "," and not stack:
+            if segment_has_code:
+                count += 1
+                segment_has_code = False
+        elif not character.isspace():
+            segment_has_code = True
+    if segment_has_code:
+        count += 1
+    return count, closing + 1
+
+
+def member_collection_counts(source: str) -> dict[str, int]:
+    """Return exact counts for declaration-level constant array literals."""
+    declaration = re.compile(
+        r"(?m)^[ \t]{0,4}"
+        r"(?:(?:private|fileprivate|internal|public|package|static|class|final)\s+)*"
+        r"let\s+([A-Za-z_][A-Za-z0-9_]*)"
+        r"(?:\s*:[^=\n]+)?\s*=\s*\["
+    )
+    counts: dict[str, int] = {}
+    for match in declaration.finditer(source):
+        result = array_literal_count(source, match.end() - 1)
+        if result is not None:
+            counts[match.group(1)] = result[0]
+    return counts
+
+
+def top_level_slices(source: str, start: int, end: int) -> list[tuple[int, int]]:
+    """Split a masked expression range at top-level commas."""
+    slices: list[tuple[int, int]] = []
+    stack: list[str] = []
+    pairs = {")": "(", "]": "[", "}": "{"}
+    item_start = start
+    for index in range(start, end):
+        character = source[index]
+        if character in "([{":
+            stack.append(character)
+        elif character in ")]}" and stack and stack[-1] == pairs[character]:
+            stack.pop()
+        elif character == "," and not stack:
+            slices.append((item_start, index))
+            item_start = index + 1
+    slices.append((item_start, end))
+    return slices
+
+
+def collection_expression_count(
+    source: str, start: int, end: int, named_counts: dict[str, int]
+) -> tuple[int, int] | None:
+    """Count a provably finite collection expression used by @Test."""
+    while start < end and source[start].isspace():
+        start += 1
+    if start >= end:
+        return None
+
+    if source[start] == "[":
+        return array_literal_count(source[:end], start)
+
+    zip_match = re.match(r"zip\s*\(", source[start:end])
+    if zip_match:
+        opening = start + zip_match.end() - 1
+        closing = matching_delimiter(source[:end], opening, "(", ")")
+        if closing is None:
+            return None
+        arguments = top_level_slices(source, opening + 1, closing)
+        if len(arguments) != 2:
+            return None
+        counts: list[int] = []
+        for argument_start, argument_end in arguments:
+            result = collection_expression_count(
+                source, argument_start, argument_end, named_counts
+            )
+            if result is None or source[result[1] : argument_end].strip():
+                return None
+            counts.append(result[0])
+        return min(counts), closing + 1
+
+    identifier_match = re.match(
+        r"(?:Self\s*\.\s*)?([A-Za-z_][A-Za-z0-9_]*)\b",
+        source[start:end],
+    )
+    if identifier_match and identifier_match.group(1) in named_counts:
+        return named_counts[identifier_match.group(1)], start + identifier_match.end()
+    return None
+
+
+def has_only_optional_type_cast(source: str) -> bool:
+    """Return whether an expression suffix is empty or a simple `as Type` cast."""
+    suffix = source.strip()
+    if not suffix:
+        return True
+    return re.fullmatch(r"as\s+[A-Za-z0-9_?.<>, ()\[\]:]+", suffix) is not None
+
+
+def swift_test_case_count(
+    source: str, attribute_start: int, named_counts: dict[str, int]
+) -> int | None:
+    """Return an exact @Test case count, or None for runtime expansion."""
+    position = attribute_start + len("@Test")
+    while position < len(source) and source[position].isspace():
+        position += 1
+    if position >= len(source) or source[position] != "(":
+        return 1
+
+    closing = matching_delimiter(source, position, "(", ")")
+    if closing is None:
+        return None
+    contents_start = position + 1
+    contents = source[contents_start:closing]
+    arguments_match = re.search(r"\barguments\s*:", contents)
+    if arguments_match is None:
+        return 1
+
+    expression_start = contents_start + arguments_match.end()
+    result = collection_expression_count(
+        source, expression_start, closing, named_counts
+    )
+    if result is None or not has_only_optional_type_cast(source[result[1] : closing]):
+        return None
+    return max(1, result[0])
 
 
 def test_methods(
@@ -103,25 +323,39 @@ def test_methods(
 ) -> list[TestSelector]:
     """Return directly declared XCTest and Swift Testing methods."""
     methods: list[TestSelector] = []
+    source = "\n".join(body)
+    masked_source = mask_swift_noncode(source)
+    masked_lines = masked_source.split("\n")
+    named_counts = member_collection_counts(masked_source)
     pending_swift_test = False
+    pending_test_count: int | None = 1
     pending_line = 0
-    for offset, body_line in enumerate(body):
+    absolute_offset = 0
+    for offset, (body_line, masked_line) in enumerate(zip(body, masked_lines)):
         indentation = len(body_line) - len(body_line.lstrip(" \t"))
         if indentation > 4:
+            absolute_offset += len(body_line) + 1
             continue
 
-        if SWIFT_TEST_ATTRIBUTE_RE.match(body_line):
+        attribute_match = SWIFT_TEST_ATTRIBUTE_RE.search(masked_line)
+        if attribute_match:
             pending_swift_test = True
+            pending_test_count = swift_test_case_count(
+                masked_source,
+                absolute_offset + attribute_match.start(),
+                named_counts,
+            )
             pending_line = start_line + offset
 
         swift_test_match = (
-            FUNCTION_DECLARATION_RE.search(body_line)
+            FUNCTION_DECLARATION_RE.search(masked_line)
             if pending_swift_test
             else None
         )
-        xctest_match = XCTEST_METHOD_RE.match(body_line)
+        xctest_match = XCTEST_METHOD_RE.match(masked_line)
         method_match = swift_test_match or xctest_match
         if method_match is None:
+            absolute_offset += len(body_line) + 1
             continue
 
         methods.append(
@@ -130,10 +364,12 @@ def test_methods(
                 path=relative_path,
                 line=start_line + offset,
                 weight=1,
-                test_count=1,
+                test_count=pending_test_count if swift_test_match else 1,
             )
         )
         pending_swift_test = False
+        pending_test_count = 1
+        absolute_offset += len(body_line) + 1
 
     if pending_swift_test:
         raise SystemExit(
@@ -186,7 +422,6 @@ def discover_selectors(root: Path) -> list[TestSelector]:
                     name=name,
                     path=relative,
                     line=line_number,
-                    test_count=max(1, len(methods)),
                     methods=tuple(methods),
                 )
             )
@@ -207,17 +442,21 @@ def discover_selectors(root: Path) -> list[TestSelector]:
         suite_identifier = f"cmuxTests/{declaration.name}"
         extension_selectors = extension_methods.get(declaration.name, [])
         methods = [*declaration.methods, *extension_selectors]
-        test_count = declaration.test_count + len(extension_selectors)
+        test_count = exact_test_count(methods)
 
         if suite_identifier in FOCUSED_GATE_SELECTORS:
             continue
 
-        # Very large suites dominate a shard when selected as a whole. Split
-        # XCTest and Swift Testing suites by method while keeping smaller suites
-        # grouped so xcodebuild still has a compact selector list and shared
-        # setup. Include extension methods in the split so extension-declared
-        # regressions remain covered and count toward process limits.
-        if len(methods) >= LARGE_SUITE_METHOD_THRESHOLD:
+        # Very large suites dominate a shard when selected as a whole. Split by
+        # method when either declared methods or expanded cases cross the
+        # threshold. Runtime-expanded parameter collections also split so the
+        # indivisible parameterized method can get its own process without
+        # forcing unrelated methods from the suite into that app host.
+        if (
+            len(methods) >= LARGE_SUITE_METHOD_THRESHOLD
+            or test_count is None
+            or test_count >= LARGE_SUITE_METHOD_THRESHOLD
+        ):
             selectors.extend(methods)
             continue
 
@@ -302,7 +541,12 @@ def reweight_selectors(
             suite = parts[1]
             ms = suites.get(suite)
             if ms is None:
-                ms = selector.weight * fallback_ms
+                fallback_count = (
+                    selector.test_count
+                    if selector.test_count is not None
+                    else MAX_PROCESS_TEST_LIMIT
+                )
+                ms = fallback_count * fallback_ms
             else:
                 measured += 1
         reweighted.append(replace(selector, weight=max(1, int(ms))))
@@ -373,7 +617,9 @@ def process_batches(
         raise SystemExit(f"--batch-test-limit must be <= {MAX_PROCESS_TEST_LIMIT}")
 
     oversized = [
-        selector for selector in selectors if selector.test_count > maximum_tests
+        selector
+        for selector in selectors
+        if selector.test_count is not None and selector.test_count > maximum_tests
     ]
     if oversized:
         selector = min(oversized, key=lambda item: item.identifier)
@@ -385,7 +631,8 @@ def process_batches(
     resource_isolated = [
         selector
         for selector in selectors
-        if "/".join(selector.identifier.split("/")[:2]) in PROCESS_ISOLATED_SUITES
+        if selector.test_count is None
+        or "/".join(selector.identifier.split("/")[:2]) in PROCESS_ISOLATED_SUITES
     ]
     resource_isolated_identifiers = {
         selector.identifier for selector in resource_isolated
@@ -401,7 +648,15 @@ def process_batches(
             return 0
         return max(
             (len(items) + maximum_selectors - 1) // maximum_selectors,
-            (sum(selector.test_count for selector in items) + maximum_tests - 1)
+            (
+                sum(
+                    selector.test_count
+                    for selector in items
+                    if selector.test_count is not None
+                )
+                + maximum_tests
+                - 1
+            )
             // maximum_tests,
         )
 
@@ -435,7 +690,7 @@ def process_batches(
     ordered = sorted(
         shared,
         key=lambda selector: (
-            -selector.test_count,
+            -(selector.test_count or 0),
             -selector.weight,
             hashlib.sha256(selector.identifier.encode("utf-8")).hexdigest(),
             selector.identifier,
@@ -455,12 +710,13 @@ def process_batches(
         batch_weight, batch_index = heapq.heappop(eligible_batches)
         batches[batch_index].append(selector)
         batch_weight += selector.weight
-        batch_remaining_tests[batch_index] -= selector.test_count
+        selector_test_count = selector.test_count or 0
+        batch_remaining_tests[batch_index] -= selector_test_count
         if (
             len(batches[batch_index]) < maximum_selectors
             and batch_remaining_tests[batch_index] > 0
         ):
-            if batch_remaining_tests[batch_index] >= selector.test_count:
+            if batch_remaining_tests[batch_index] >= selector_test_count:
                 heapq.heappush(eligible_batches, (batch_weight, batch_index))
             else:
                 heapq.heappush(
@@ -479,6 +735,24 @@ def write_output(path: Path, selectors: list[TestSelector]) -> None:
         "".join(f"-only-testing:{selector.identifier}\n" for selector in selectors),
         encoding="utf-8",
     )
+
+
+def represented_test_summary(selectors: list[TestSelector]) -> str:
+    """Describe known executions and any runtime-expanded isolated selectors."""
+    known_tests = sum(
+        selector.test_count
+        for selector in selectors
+        if selector.test_count is not None
+    )
+    runtime_expanded = sum(
+        1 for selector in selectors if selector.test_count is None
+    )
+    if runtime_expanded:
+        return (
+            f"{known_tests} known tests plus {runtime_expanded} "
+            "isolated runtime-expanded selectors"
+        )
+    return f"{known_tests} tests"
 
 
 def main() -> int:
@@ -507,12 +781,12 @@ def main() -> int:
     if args.validate:
         suite_selectors = sum(1 for selector in selectors if selector.identifier.count("/") == 1)
         method_selectors = len(selectors) - suite_selectors
-        represented_tests = sum(selector.test_count for selector in selectors)
+        represented_tests = represented_test_summary(selectors)
         source = args.timings if timings else "none (count-based fallback)"
         print(
             f"Discovered {len(selectors)} cmuxTests selectors "
             f"({suite_selectors} suites, {method_selectors} methods) "
-            f"representing {represented_tests} tests; "
+            f"representing {represented_tests}; "
             f"timings: {source}, {measured}/{len(selectors)} measured"
         )
         return 0
@@ -548,7 +822,7 @@ def main() -> int:
         raise SystemExit(f"Shard {args.shard_index}/{args.shard_total} is empty")
 
     total_weight = sum(selector.weight for selector in selected)
-    total_tests = sum(selector.test_count for selector in selected)
+    total_tests = represented_test_summary(selected)
     if args.batch_output_directory is not None:
         batches = process_batches(
             selected,
@@ -566,15 +840,15 @@ def main() -> int:
             batch_path = args.batch_output_directory / f"batch-{batch_index:03d}.args"
             write_output(batch_path, batch)
             batch_weight = sum(selector.weight for selector in batch)
-            batch_tests = sum(selector.test_count for selector in batch)
+            batch_tests = represented_test_summary(batch)
             print(
                 f"  Batch {batch_index}/{len(batches)}: {len(batch)} selectors / "
-                f"{batch_tests} tests, "
+                f"{batch_tests}, "
                 f"est {batch_weight / 60000:.1f} min serial, args {batch_path}"
             )
         print(
             f"Shard {args.shard_index}/{args.shard_total}: "
-            f"{len(selected)} selectors / {total_tests} tests in "
+            f"{len(selected)} selectors / {total_tests} in "
             f"{len(batches)} process batches, "
             f"est {total_weight / 60000:.1f} min serial"
         )
@@ -583,7 +857,7 @@ def main() -> int:
     write_output(args.output, selected)
     print(
         f"Shard {args.shard_index}/{args.shard_total}: "
-        f"{len(selected)} selectors / {total_tests} tests, "
+        f"{len(selected)} selectors / {total_tests}, "
         f"est {total_weight / 60000:.1f} min serial, args {args.output}"
     )
     for selector in selected:
