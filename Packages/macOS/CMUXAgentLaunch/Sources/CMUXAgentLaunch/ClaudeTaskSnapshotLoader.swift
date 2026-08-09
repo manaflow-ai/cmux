@@ -438,11 +438,10 @@ public struct ClaudeTaskSnapshotLoader {
         }
         try operationDeadline.check()
         guard let record = try? decoder.decode(ClaudeTaskRecord.self, from: data) else { return false }
+        guard record.id == identity.id,
+              record.subject == identity.subject else { return false }
         try validateTaskText(record.subject, field: "subject", fileURL: fileURL)
-        if let activeForm = record.activeForm {
-            try validateTaskText(activeForm, field: "activeForm", fileURL: fileURL)
-        }
-        return record.id == identity.id && record.subject == identity.subject
+        return true
     }
 
     private func directoryURL(named name: String) throws -> URL? {

@@ -481,7 +481,7 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    /// Plans configured-list destinations and any owner cleanup needed for capacity.
+    /// Plans task-list destinations and any owner cleanup needed for capacity.
     func claudeTaskListDestinationTransition(
         taskListID: String,
         taskStoreIdentity: ClaudeTaskStoreIdentity,
@@ -564,7 +564,7 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    /// Commits configured-list destinations after the app accepts reconciliation.
+    /// Commits task-list destinations after the app accepts reconciliation.
     func commitClaudeTaskListDestinations(
         taskListID: String,
         taskStoreIdentity: ClaudeTaskStoreIdentity,
@@ -601,7 +601,7 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    /// Returns the exact configured-list cleanup proof, including legacy state.
+    /// Returns the exact task-list cleanup proof, including legacy state.
     func claudeTaskListDestinationRecord(
         taskListID: String,
         taskStoreIdentity: ClaudeTaskStoreIdentity
@@ -638,7 +638,7 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    /// Retains unresolved configured-list destinations after cleanup attempts.
+    /// Retains unresolved task-list destinations after cleanup attempts.
     func retainClaudeTaskListDestinations(
         _ retainedWorkspaceIDs: [String],
         for record: ClaudeHookTaskListDestinationRecord
@@ -667,7 +667,7 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    /// Removes one configured-list proof after every owner destination is clear.
+    /// Removes one task-list proof after every owner destination is clear.
     func removeClaudeTaskListDestinationRecord(
         _ record: ClaudeHookTaskListDestinationRecord
     ) throws {
@@ -892,7 +892,7 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    /// Drops workspace destinations that the app authoritatively reported as closed.
+    /// Drops closed workspaces and removes a team proof with no destinations.
     func retainClaudeTeamTaskBindingWorkspaces(
         _ retainedWorkspaceIDs: [String],
         for binding: ClaudeTeamTaskListBinding
@@ -912,11 +912,15 @@ final class ClaudeHookSessionStore {
                 retainedWorkspaceIDSet.contains($0)
             }.sorted()
             guard remainingWorkspaceIDs != record.workspaceIDs else { return }
-            state.claudeTeamTaskBindings[storageKey] = ClaudeHookTeamTaskBindingRecord(
-                binding: record.binding,
-                workspaceIDs: remainingWorkspaceIDs,
-                updatedAt: record.updatedAt
-            )
+            if remainingWorkspaceIDs.isEmpty {
+                state.claudeTeamTaskBindings.removeValue(forKey: storageKey)
+            } else {
+                state.claudeTeamTaskBindings[storageKey] = ClaudeHookTeamTaskBindingRecord(
+                    binding: record.binding,
+                    workspaceIDs: remainingWorkspaceIDs,
+                    updatedAt: record.updatedAt
+                )
+            }
         }
     }
 
@@ -2363,9 +2367,10 @@ final class ClaudeHookSessionStore {
         state.activeSessionsBySurface = state.activeSessionsBySurface.filter { surfaceId, active in
             active.updatedAt >= cutoff && normalizeOptional(state.sessions[active.sessionId]?.surfaceId) == surfaceId
         }
-        // Team bindings are bounded cleanup proofs, not activity cache entries.
-        // Only a successful owner reconciliation or an explicit transition may
-        // retire them; age-based eviction would strand workspace rows forever.
+        // Team bindings and task-list destinations are bounded cleanup proofs,
+        // not activity cache entries. Only a successful owner reconciliation
+        // or an explicit transition may retire them; age-based eviction would
+        // strand workspace rows forever.
     }
 
     private func normalizeSessionId(_ value: String) -> String {
@@ -33583,6 +33588,11 @@ export default CMUXSessionRestore;
 
     // MARK: - Feed telemetry helper
 
+    enum FeedTelemetryDelivery {
+        case bestEffort
+        case acknowledged(responseTimeout: TimeInterval)
+    }
+
     /// Best-effort `feed.push` call used by the per-agent hook handlers
     /// so session-start / prompt-submit / stop events show up in Feed's
     /// "All" view even when no permission/plan/question event fires.
@@ -33619,6 +33629,7 @@ export default CMUXSessionRestore;
     /// remaining deadline.
     static let feedAttentionProbeTimeoutCapSeconds: TimeInterval = 1.0
 
+    @discardableResult
     func sendFeedTelemetry(
         client: SocketClient,
         source: String,
@@ -33627,9 +33638,10 @@ export default CMUXSessionRestore;
         workspaceId: String? = nil,
         surfaceId: String? = nil,
         socketPassword: String? = nil,
+        delivery: FeedTelemetryDelivery = .bestEffort,
         toolNameOverride: String? = nil,
         toolInputOverride: Any? = nil
-    ) {
+    ) -> Bool {
         let fallbackHookEventName = feedEventName(forClaudeSubcommand: subcommand)
         let reportedHookEventName = parsedInput.object.flatMap {
             firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
@@ -33652,7 +33664,7 @@ export default CMUXSessionRestore;
         } else {
             hookEventName = fallbackHookEventName
         }
-        guard !hookEventName.isEmpty else { return }
+        guard !hookEventName.isEmpty else { return false }
         let promptText = hookEventName == "UserPromptSubmit"
             ? (feedPromptText(from: parsedInput.object) ?? parsedInput.rawFallback)
             : nil
@@ -33705,26 +33717,47 @@ export default CMUXSessionRestore;
         )
         event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
 
-        let frame: [String: Any] = [
-            "method": "feed.push",
-            "params": [
-                "event": event,
-                "wait_timeout_seconds": 0,
-            ],
+        let params: [String: Any] = [
+            "event": event,
+            "wait_timeout_seconds": 0,
         ]
-        guard let data = try? JSONSerialization.data(withJSONObject: frame),
-              let line = String(data: data, encoding: .utf8)
-        else { return }
-        // Deliberately NO native-approval-prompt clear on this lane: the
-        // wrapper-injected codex hooks that reach it (`hooks codex
-        // post-tool-use`) run as fire-and-forget nohup workers with no
-        // ordering guarantee, so a delayed completion worker's clear could
-        // erase a NEWER request's live permission notification — silencing a
-        // blocked agent (#9592). Only the synchronous feed-hook path
-        // (`runFeedHook`), whose events arrive in codex's own order, emits
-        // the clear; wrapper-path staleness self-heals at the next
-        // `prompt-submit`, which already clears the pane.
-        sendBestEffortFeedTelemetry(socketPath: client.socketPath, line: line, socketPassword: socketPassword)
+        switch delivery {
+        case .bestEffort:
+            let frame: [String: Any] = [
+                "method": "feed.push",
+                "params": params,
+            ]
+            guard let data = try? JSONSerialization.data(withJSONObject: frame),
+                  let line = String(data: data, encoding: .utf8) else {
+                return false
+            }
+            // Deliberately NO native-approval-prompt clear on this lane: the
+            // wrapper-injected codex hooks that reach it (`hooks codex
+            // post-tool-use`) run as fire-and-forget nohup workers with no
+            // ordering guarantee, so a delayed completion worker's clear could
+            // erase a NEWER request's live permission notification — silencing a
+            // blocked agent (#9592). Only the synchronous feed-hook path
+            // (`runFeedHook`), whose events arrive in codex's own order, emits
+            // the clear; wrapper-path staleness self-heals at the next
+            // `prompt-submit`, which already clears the pane.
+            sendBestEffortFeedTelemetry(
+                socketPath: client.socketPath,
+                line: line,
+                socketPassword: socketPassword
+            )
+            return true
+        case .acknowledged(let responseTimeout):
+            do {
+                _ = try client.sendV2(
+                    method: "feed.push",
+                    params: params,
+                    responseTimeout: responseTimeout
+                )
+                return true
+            } catch {
+                return false
+            }
+        }
     }
 
     private func feedContextForEvent(

@@ -1,9 +1,9 @@
 import CMUXAgentLaunch
 import Foundation
 
-/// Durable workspace destinations for one configured Claude task list.
+/// Durable workspace destinations for one Claude task list.
 struct ClaudeHookTaskListDestinationRecord: Codable, Equatable {
-    /// Hard cap for configured list identities retained for deletion cleanup.
+    /// Hard cap for task-list identities retained for deletion cleanup.
     static let maximumRecordCount = 128
 
     /// The profile that owns the task list, or `nil` for legacy state.

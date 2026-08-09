@@ -16,8 +16,8 @@ struct ClaudeHookSessionStoreFile: Codable {
     // Automatic-team task identity is list-scoped rather than session-scoped:
     // leader and teammate hooks can run in independent Claude sessions.
     var claudeTeamTaskBindings: [String: ClaudeHookTeamTaskBindingRecord] = [:]
-    // Explicitly configured lists can span independent sessions without a
-    // team config, so their deletion destinations are retained separately.
+    // Task-list ownership outlives individual sessions, and explicitly
+    // configured lists can span several, so deletion destinations are durable.
     var claudeTaskListDestinations: [String: ClaudeHookTaskListDestinationRecord] = [:]
     var agentHookFailureReportTimestamps: [String: TimeInterval] = [:]
 
