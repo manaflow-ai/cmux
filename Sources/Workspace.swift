@@ -8531,15 +8531,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     /// The top-level Bonsplit pane that holds this mirror's tmux window tabs,
     /// i.e. every pane except the per-session browser split. Prefers the focused
-    /// pane when it is a tmux pane, else the first non-browser pane. Falls back to
-    /// the first pane so a brand-new mirror (no browser yet) still resolves.
+    /// pane when it is a tmux pane, else the first non-browser pane. Returns nil
+    /// only when the browser split is the sole remaining pane — never the browser
+    /// pane itself, so a newly mirrored window can never land inside the browser.
     func remoteTmuxWindowsTargetPaneId() -> PaneID? {
         let browserPaneId = remoteTmuxSessionBrowserPanelId.flatMap { paneId(forPanelId: $0) }
         let tmuxPanes = bonsplitController.allPaneIds.filter { $0 != browserPaneId }
         if let focused = bonsplitController.focusedPaneId, tmuxPanes.contains(focused) {
             return focused
         }
-        return tmuxPanes.first ?? bonsplitController.allPaneIds.first
+        return tmuxPanes.first
+    }
+
+    /// Frees the per-session browser slot when its panel is torn down, so a later
+    /// browser-icon click recreates the browser instead of focusing a dead panel.
+    /// Called from every pane/tab close path that can remove the browser panel.
+    func clearRemoteTmuxSessionBrowserPanelIfMatches(_ panelId: UUID) {
+        if panelId == remoteTmuxSessionBrowserPanelId {
+            remoteTmuxSessionBrowserPanelId = nil
+        }
     }
 
     /// Opens (or focuses) the single browser for this remote tmux session.
@@ -13036,11 +13046,7 @@ extension Workspace: BonsplitDelegate {
         #endif
 
         let panel = panels[panelId]
-        // A closed per-session remote tmux browser frees the slot so a later
-        // browser-icon click recreates it rather than focusing a dead panel.
-        if panelId == remoteTmuxSessionBrowserPanelId {
-            remoteTmuxSessionBrowserPanelId = nil
-        }
+        clearRemoteTmuxSessionBrowserPanelIfMatches(panelId)
         _ = consumeCloseHistoryEligibility(tabId: tabId, panelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId[panelId]
         let preservesSurfaceForDetach = isDetaching && panel != nil
@@ -13314,6 +13320,7 @@ extension Workspace: BonsplitDelegate {
 
             for panelId in closedPanelIds {
                 let panel = panels[panelId]
+                clearRemoteTmuxSessionBrowserPanelIfMatches(panelId)
                 discardClosedPanelLifecycleState(
                     panelId: panelId,
                     tabId: surfaceIdFromPanelId(panelId),
