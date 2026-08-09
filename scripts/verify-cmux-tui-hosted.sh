@@ -52,12 +52,7 @@ fi
 
 timeout_seconds="${CMUX_TUI_HOSTED_TIMEOUT_SECONDS:-7200}"
 if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
-  echo "error: CMUX_TUI_HOSTED_TIMEOUT_SECONDS must be a positive integer" >&2
-  exit 2
-fi
-poll_seconds="${CMUX_TUI_HOSTED_POLL_SECONDS:-30}"
-if [[ ! "$poll_seconds" =~ ^[1-9][0-9]*$ ]]; then
-  echo "error: CMUX_TUI_HOSTED_POLL_SECONDS must be a positive integer" >&2
+  echo "error: hosted verification timeout must be a positive integer" >&2
   exit 2
 fi
 
@@ -76,6 +71,15 @@ if [[ -z "$branch" ]]; then
   echo "error: hosted verification requires a pushed branch, not detached HEAD" >&2
   exit 1
 fi
+upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+if [[ "$upstream" == */* ]]; then
+  remote="${upstream%%/*}"
+  remote_branch="${upstream#*/}"
+else
+  remote="origin"
+  remote_branch="$branch"
+fi
+remote_ref="$remote/$remote_branch"
 
 commit="$(git rev-parse HEAD)"
 if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
@@ -83,13 +87,13 @@ if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
   exit 1
 fi
 
-remote_commit="$(git ls-remote --heads origin "refs/heads/$branch" | awk 'NR == 1 { print $1 }')"
+remote_commit="$(git ls-remote --heads "$remote" "refs/heads/$remote_branch" | awk 'NR == 1 { print $1 }')"
 if [[ -z "$remote_commit" ]]; then
-  echo "error: origin/$branch does not exist; push this branch first" >&2
+  echo "error: $remote_ref does not exist; push this branch first" >&2
   exit 1
 fi
 if [[ "$remote_commit" != "$commit" ]]; then
-  echo "error: origin/$branch is $remote_commit, but local HEAD is $commit" >&2
+  echo "error: $remote_ref is $remote_commit, but local HEAD is $commit" >&2
   echo "push the exact local HEAD before hosted verification" >&2
   exit 1
 fi
@@ -100,19 +104,21 @@ run_title="cmux-tui $mode $request_id @ $commit"
 echo "Dispatching $mode verification for $commit"
 gh workflow run "$WORKFLOW" \
   --repo "$REPO" \
-  --ref "$branch" \
+  --ref "$remote_branch" \
   -f "commit=$commit" \
   -f "mode=$mode" \
   -f "test_filter=$test_filter" \
   -f "request_id=$request_id"
 
 run_id=""
+# The dispatch command does not return a run ID. Poll only until the uniquely
+# titled run appears, and then let GitHub CLI watch the run state.
 for _ in $(seq 1 60); do
   run_id="$({
     gh run list \
       --repo "$REPO" \
       --workflow "$WORKFLOW" \
-      --branch "$branch" \
+      --branch "$remote_branch" \
       --event workflow_dispatch \
       --limit 100 \
       --json databaseId,displayTitle \
@@ -131,38 +137,39 @@ fi
 
 run_url="https://github.com/$REPO/actions/runs/$run_id"
 echo "Run: $run_url"
-deadline=$((SECONDS + timeout_seconds))
-last_report=$SECONDS
-run_status=""
-run_conclusion=""
 echo "Waiting for hosted verification"
-while ((SECONDS < deadline)); do
-  if run_state="$(
-    gh run view \
-      --repo "$REPO" \
-      "$run_id" \
-      --json status,conclusion \
-      --jq '[.status, .conclusion] | @tsv' 2>/dev/null
-  )"; then
-    IFS=$'\t' read -r run_status run_conclusion <<< "$run_state"
-    if [[ "$run_status" == "completed" ]]; then
-      break
-    fi
-  fi
+if command -v python3 >/dev/null 2>&1; then
+  python_cmd=python3
+elif command -v python >/dev/null 2>&1; then
+  python_cmd=python
+else
+  echo "error: Python is required to enforce the hosted verification timeout" >&2
+  exit 1
+fi
+watch_status=0
+"$python_cmd" - "$timeout_seconds" "$REPO" "$run_id" <<'PY' || watch_status=$?
+import subprocess
+import sys
 
-  if ((SECONDS - last_report >= 60)); then
-    echo "Still waiting: $run_url"
-    last_report=$SECONDS
-  fi
-  sleep "$poll_seconds"
-done
+timeout_seconds = int(sys.argv[1])
+repo = sys.argv[2]
+run_id = sys.argv[3]
+try:
+    result = subprocess.run(
+        ["gh", "run", "watch", run_id, "--repo", repo, "--exit-status"],
+        timeout=timeout_seconds,
+        check=False,
+    )
+except subprocess.TimeoutExpired:
+    raise SystemExit(124)
+raise SystemExit(result.returncode)
+PY
 
-if [[ "$run_status" != "completed" ]]; then
+if [[ "$watch_status" -eq 124 ]]; then
   echo "error: hosted verification did not complete within ${timeout_seconds}s: $run_url" >&2
   exit 1
 fi
-
-if [[ "$run_conclusion" != "success" ]]; then
+if [[ "$watch_status" -ne 0 ]]; then
   echo "Hosted verification failed: $run_url" >&2
   gh run view --repo "$REPO" "$run_id" --log-failed || true
   exit 1

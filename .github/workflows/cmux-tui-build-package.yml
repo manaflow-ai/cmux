@@ -128,7 +128,10 @@ jobs:
           if target_set == "all":
               selected = targets
           elif target_set == "macos-arm64":
-              selected = targets[:1]
+              selected = [
+                  target for target in targets
+                  if target["target"] == "aarch64-apple-darwin"
+              ]
           else:
               raise SystemExit(f"unsupported target_set: {target_set!r}")
 

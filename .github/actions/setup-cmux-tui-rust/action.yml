@@ -9,7 +9,15 @@ runs:
       env:
         TOOLCHAIN_FILE: ${{ github.action_path }}/../../../cmux-tui/rust-toolchain.toml
       run: |
-        python3 <<'PY'
+        if command -v python3 >/dev/null 2>&1; then
+          python_cmd=python3
+        elif command -v python >/dev/null 2>&1; then
+          python_cmd=python
+        else
+          echo "::error::Python is required to read the pinned Rust toolchain" >&2
+          exit 1
+        fi
+        "$python_cmd" <<'PY'
         import os
         import pathlib
         import re
@@ -35,7 +43,15 @@ runs:
             command.extend(["--component", component])
         subprocess.run(command, check=True)
         subprocess.run(["rustup", "default", channel], check=True)
+
+        cargo = subprocess.run(
+            ["rustup", "which", "cargo"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as path_file:
+            print(pathlib.Path(cargo).parent, file=path_file)
         PY
-        echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
         cargo --version
         rustc --version

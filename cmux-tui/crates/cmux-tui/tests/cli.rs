@@ -2408,6 +2408,11 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
                 .contains("the external effect may have run before its outcome was recorded"),
         "close failed without an ambiguous outcome: {close_stderr}"
     );
+    if close.status.success() {
+        let closed_read = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
+        assert_eq!(closed_read.status.code(), Some(1));
+        assert_eq!(json_error(&closed_read)["code"], "selector.not_found");
+    }
     let missing_read =
         json_cli(&server, &["terminal", "term_ffffffffffffffffffffffffffffffff", "screen", "read"]);
     assert_eq!(missing_read.status.code(), Some(1));

@@ -218,6 +218,11 @@ jobs:
             [ -n "$bin" ] || continue
             case "$(basename "$bin")" in
               terminal-*)
+                if ! "$bin" --list \
+                  | grep -Fqx 'pending_wrap_replay_preserves_cursor_with_origin_mode: test'; then
+                  echo "::error::terminal replay test binary does not contain the exact baseline test" >&2
+                  exit 1
+                fi
                 "$bin" pending_wrap_replay_preserves_cursor_with_origin_mode \
                   --exact \
                   --test-threads=1
@@ -245,6 +250,15 @@ jobs:
               -- "$bin" "$@"
           }
 
+          require_exact_test() {
+            local bin="$1"
+            local test_name="$2"
+            if ! "$bin" --list | grep -Fqx "$test_name: test"; then
+              echo "::error::$(basename "$bin") does not contain exact test '$test_name'" >&2
+              exit 1
+            fi
+          }
+
           cmux_tui_bin=""
           terminal_bin=""
           while IFS= read -r bin; do
@@ -259,6 +273,9 @@ jobs:
           fi
 
           valgrind_args=(--track-origins=yes)
+          require_exact_test \
+            "$terminal_bin" \
+            pending_wrap_replay_preserves_cursor_with_origin_mode
           run_valgrind \
             "$terminal_bin" \
             pending_wrap_replay_preserves_cursor_with_origin_mode \
@@ -271,6 +288,7 @@ jobs:
             config::tests::ghostty_config_helper_output_reader_enforces_byte_limit
           )
           for test_name in "${startup_tests[@]}"; do
+            require_exact_test "$cmux_tui_bin" "$test_name"
             run_valgrind \
               "$cmux_tui_bin" \
               "$test_name" \
@@ -327,6 +345,7 @@ jobs:
         run: ./scripts/install-zig-ci.sh
 
       - name: Ghostty VT cursor replay checks
+        if: inputs.mode == 'full'
         working-directory: ghostty
         run: |
           "$CMUX_ZIG" fmt --check src/terminal/formatter.zig
