@@ -3,6 +3,40 @@ import GhosttyKit
 import Testing
 @testable import CmuxTerminal
 
+private final class TransactionLanePasteboardDataProvider:
+    NSObject,
+    NSPasteboardItemDataProvider
+{
+    private let replacement: String?
+    private let lock = NSLock()
+    private var _resolvedOnMainThread: Bool?
+
+    init(replacement: String? = nil) {
+        self.replacement = replacement
+    }
+
+    var resolvedOnMainThread: Bool? {
+        lock.withLock { _resolvedOnMainThread }
+    }
+
+    func pasteboard(
+        _ pasteboard: NSPasteboard?,
+        item: NSPasteboardItem,
+        provideDataForType type: NSPasteboard.PasteboardType
+    ) {
+        lock.withLock {
+            _resolvedOnMainThread = Thread.isMainThread
+        }
+        _ = item.setString("user clipboard", forType: type)
+
+        guard let replacement, let pasteboard else { return }
+        let replacementItem = NSPasteboardItem()
+        _ = replacementItem.setString(replacement, forType: .string)
+        pasteboard.clearContents()
+        _ = pasteboard.writeObjects([replacementItem])
+    }
+}
+
 @MainActor
 @Suite("Terminal pasteboard transaction lane", .serialized)
 struct TerminalPasteboardTransactionLaneTests {
@@ -236,6 +270,59 @@ struct TerminalPasteboardTransactionLaneTests {
         #expect(
             fixture.standard.string(forType: .string) == "user clipboard"
         )
+    }
+
+    @Test("rollback capture resolves lazy providers away from the main thread")
+    func rollbackCaptureResolvesLazyProvidersOffMainThread() async throws {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let provider = TransactionLanePasteboardDataProvider()
+        let lazyItem = NSPasteboardItem()
+        lazyItem.setDataProvider(provider, forTypes: [.string])
+        fixture.standard.clearContents()
+        #expect(fixture.standard.writeObjects([lazyItem]))
+
+        let temporaryItem = NSPasteboardItem()
+        #expect(temporaryItem.setString("temporary", forType: .string))
+        let lease = try #require(
+            fixture.service.reserveMutation(
+                of: fixture.standard,
+                replacingWith: [temporaryItem]
+            )
+        )
+        defer { lease.finish() }
+        #expect(await lease.waitUntilApplied()?.status == .written)
+        #expect(provider.resolvedOnMainThread == false)
+        withExtendedLifetime(provider) {}
+    }
+
+    @Test("external clipboard changes during rollback capture are preserved")
+    func externalClipboardChangeDuringCaptureIsPreserved() async throws {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let provider = TransactionLanePasteboardDataProvider(
+            replacement: "external clipboard"
+        )
+        let lazyItem = NSPasteboardItem()
+        lazyItem.setDataProvider(provider, forTypes: [.string])
+        fixture.standard.clearContents()
+        #expect(fixture.standard.writeObjects([lazyItem]))
+
+        let temporaryItem = NSPasteboardItem()
+        #expect(temporaryItem.setString("temporary", forType: .string))
+        let lease = try #require(
+            fixture.service.reserveMutation(
+                of: fixture.standard,
+                replacingWith: [temporaryItem]
+            )
+        )
+        defer { lease.finish() }
+        #expect(await lease.waitUntilApplied()?.status == .conditionNotMet)
+        #expect(
+            fixture.standard.string(forType: .string)
+                == "external clipboard"
+        )
+        withExtendedLifetime(provider) {}
     }
 
     private func makeFixture(
