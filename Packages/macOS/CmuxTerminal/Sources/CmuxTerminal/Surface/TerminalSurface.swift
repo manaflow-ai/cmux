@@ -209,7 +209,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor public var onRuntimeReady: (@MainActor () -> Void)?
     /// Requests owner-scoped visual bell attention without activating the app.
     @MainActor public var onVisualBell: (@MainActor () -> Void)?
-    /// Routes explicit user input to the surface's current panel owner.
+    /// Routes accepted explicit user input to the surface's current panel owner.
     @MainActor public var onExplicitInput: (@MainActor () -> Void)?
     /// Called after durable font-size lineage changes.
     @MainActor public var onFontSizeLineageChanged: (@MainActor (TerminalFontSizeLineage) -> Void)?

@@ -5158,14 +5158,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @IBAction func paste(_ sender: Any?) {
         guard prepareSurfaceForPaste(reason: "paste.missingSurface") else { return }
         recordDirectAgentHibernationTerminalInput()
-        _ = performBindingAction("paste_from_clipboard")
+        if performBindingAction("paste_from_clipboard") {
+            terminalSurface?.didAcceptExplicitInput()
+        }
     }
 
     /// Pastes clipboard text as plain text, stripping any rich formatting.
     @IBAction func pasteAsPlainText(_ sender: Any?) {
         guard prepareSurfaceForPaste(reason: "pasteAsPlainText.missingSurface") else { return }
         recordDirectAgentHibernationTerminalInput()
-        _ = performBindingAction("paste_from_clipboard")
+        if performBindingAction("paste_from_clipboard") {
+            terminalSurface?.didAcceptExplicitInput()
+        }
     }
 
     private func applyConfiguredMenuShortcut(_ shortcut: StoredShortcut, to item: NSMenuItem) {
@@ -6118,11 +6122,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     if let keyCode = UInt16(exactly: keyEvent.keycode) {
                         manualNamedKeyConsumedKeyUps.insert(keyCode)
                     }
+                    terminalSurface?.didAcceptExplicitInput()
                     return true
                 }
             }
         }
-        return ghostty_surface_key(surface, keyEvent)
+        let handled = ghostty_surface_key(surface, keyEvent)
+        if handled, keyEvent.action != GHOSTTY_ACTION_RELEASE {
+            terminalSurface?.didAcceptExplicitInput()
+        }
+        return handled
     }
 
 #if DEBUG
@@ -6497,6 +6506,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
+        terminalSurface?.didAcceptExplicitInput()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -7214,6 +7224,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func rightMouseDown(with event: NSEvent) {
         terminalSurface?.didReceiveExplicitInput()
         guard let surface = surface else { return }
+        terminalSurface?.didAcceptExplicitInput()
         if !ghostty_surface_mouse_captured(surface) {
             requestPointerFocusRecovery()
             super.rightMouseDown(with: event)
@@ -7246,6 +7257,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
         guard let surface = surface else { return }
+        terminalSurface?.didAcceptExplicitInput()
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_MIDDLE, mouseModsFromEvent(event))

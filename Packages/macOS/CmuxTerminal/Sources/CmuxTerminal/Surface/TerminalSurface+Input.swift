@@ -36,6 +36,11 @@ extension TerminalSurface {
     @MainActor
     public func didReceiveExplicitInput() {
         paneHost.terminalSurfaceDidReceiveExplicitInput()
+    }
+
+    /// Notifies the current panel owner after explicit terminal input is accepted.
+    @MainActor
+    public func didAcceptExplicitInput() {
         onExplicitInput?()
     }
 
@@ -44,6 +49,7 @@ extension TerminalSurface {
     public func closeSearchFromExplicitInput() {
         didReceiveExplicitInput()
         searchState = nil
+        didAcceptExplicitInput()
     }
 
     /// Whether closing this surface should ask for confirmation.
@@ -80,6 +86,7 @@ extension TerminalSurface {
             if queued {
                 hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
                 requestInputDemandSurfaceStartIfNeeded()
+                didAcceptExplicitInput()
             }
             return queued
         }
@@ -89,6 +96,7 @@ extension TerminalSurface {
         guard !ghostty_surface_process_exited(liveSurface) else { return false }
         hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
         writeTextData(data, to: liveSurface)
+        didAcceptExplicitInput()
         return true
     }
 
@@ -112,10 +120,14 @@ extension TerminalSurface {
         keyEvent.consumed_mods = GHOSTTY_MODS_NONE
         keyEvent.unshifted_codepoint = 0
         keyEvent.composing = false
-        return text.withCString { ptr in
+        let handled = text.withCString { ptr in
             keyEvent.text = ptr
             return ghostty_surface_key(liveSurface, keyEvent)
         }
+        if handled {
+            didAcceptExplicitInput()
+        }
+        return handled
     }
 
     /// Sends a named key (e.g. `"ctrl-c"`, `"enter"`), queueing on a cold
@@ -130,6 +142,7 @@ extension TerminalSurface {
             guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
             hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
             requestInputDemandSurfaceStartIfNeeded()
+            didAcceptExplicitInput()
             return .queued
         }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendNamedKey") else {
@@ -138,6 +151,7 @@ extension TerminalSurface {
         guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
         hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
         sendKeyEvent(surface: liveSurface, keycode: event.keycode, mods: event.mods)
+        didAcceptExplicitInput()
         return .sent
     }
 
@@ -190,6 +204,7 @@ extension TerminalSurface {
             if queued {
                 hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
                 requestInputDemandSurfaceStartIfNeeded()
+                didAcceptExplicitInput()
             }
             return queued ? .queued : .inputQueueFull
         }
@@ -199,6 +214,7 @@ extension TerminalSurface {
         guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
         hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
         sendInput(text, to: liveSurface)
+        didAcceptExplicitInput()
         return .sent
     }
 
