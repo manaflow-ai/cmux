@@ -60,8 +60,9 @@ struct SidebarWorkspaceRowRetirementTests {
             }
         )
 
+        let popoverCloseWaiter = SidebarPopoverCloseWaiter(window: popoverWindow)
         await removeMountedRow(mounted)
-        await waitUntilOrderedOff(popoverWindow)
+        await popoverCloseWaiter.wait()
 
         #expect(!popoverWindow.isVisible)
     }
@@ -85,8 +86,9 @@ struct SidebarWorkspaceRowRetirementTests {
             }
         )
 
+        let popoverCloseWaiter = SidebarPopoverCloseWaiter(window: popoverWindow)
         await removeMountedRow(mounted)
-        await waitUntilOrderedOff(popoverWindow)
+        await popoverCloseWaiter.wait()
 
         #expect(!popoverWindow.isVisible)
     }
@@ -222,16 +224,6 @@ struct SidebarWorkspaceRowRetirementTests {
         mounted.container.tableView.layoutSubtreeIfNeeded()
     }
 
-    private func waitUntilOrderedOff(_ window: NSWindow) async {
-        guard window.isVisible else { return }
-        for await _ in NotificationCenter.default.notifications(
-            named: NSWindow.didOrderOffNotification,
-            object: window
-        ) {
-            return
-        }
-    }
-
     private func makeTableActions() -> SidebarWorkspaceTableActions {
         SidebarWorkspaceTableActions(
             attachScrollView: { _ in }, closeWorkspace: { _ in }, createWorkspaceAtEnd: {},
@@ -256,6 +248,69 @@ struct SidebarWorkspaceRowRetirementTests {
 
     private func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
+    }
+}
+
+@MainActor
+private final class SidebarPopoverCloseWaiter: NSObject {
+    private let window: NSWindow
+    private var closingPopover: NSPopover?
+    private var didClose = false
+    private var waitContinuation: CheckedContinuation<Void, Never>?
+
+    init(window: NSWindow) {
+        self.window = window
+        super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(popoverWillClose(_:)),
+            name: NSPopover.willCloseNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(popoverDidClose(_:)),
+            name: NSPopover.didCloseNotification,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    func wait() async {
+        guard !didClose else { return }
+        await withCheckedContinuation { continuation in
+            guard !didClose else {
+                continuation.resume()
+                return
+            }
+            precondition(waitContinuation == nil)
+            waitContinuation = continuation
+        }
+    }
+
+    @objc
+    private func popoverWillClose(_ notification: Notification) {
+        // Match while AppKit still exposes the popover's backing window, then
+        // wait for that exact popover's documented post-animation close event.
+        guard let popover = notification.object as? NSPopover,
+              popover.contentViewController?.view.window === window
+        else { return }
+        closingPopover = popover
+    }
+
+    @objc
+    private func popoverDidClose(_ notification: Notification) {
+        guard let popover = notification.object as? NSPopover,
+              popover === closingPopover
+        else { return }
+        didClose = true
+        closingPopover = nil
+        NotificationCenter.default.removeObserver(self)
+        waitContinuation?.resume()
+        waitContinuation = nil
     }
 }
 #endif
