@@ -29,15 +29,6 @@ struct BrowserWindowPortalRegistryNotificationTests {
         }
     }
 
-    private final class LayoutCallbackWebView: WKWebView {
-        var onLayout: (() -> Void)?
-
-        override func layout() {
-            super.layout()
-            onLayout?()
-        }
-    }
-
     private func realizeWindowLayout(_ window: NSWindow) {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -204,7 +195,7 @@ struct BrowserWindowPortalRegistryNotificationTests {
             frame: NSRect(x: 24, y: 24, width: 360, height: 220)
         )
         contentView.addSubview(anchor)
-        let webView = LayoutCallbackWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
         defer { BrowserWindowPortalRegistry.detach(webView: webView) }
 
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
@@ -213,14 +204,16 @@ struct BrowserWindowPortalRegistryNotificationTests {
 
         var isRefreshingFromAnchorLayout = false
         var anchorLayoutCount = 0
-        var webKitLayoutCount = 0
-        var webKitLayoutsDuringAnchorLayout = 0
-        webView.onLayout = {
-            webKitLayoutCount += 1
+        var forcedWebKitLayoutCount = 0
+        var forcedWebKitLayoutsDuringAnchorLayout = 0
+        browserPortalTestWillForceHostedWebKitLayout = { refreshedWebView in
+            guard refreshedWebView === webView else { return }
+            forcedWebKitLayoutCount += 1
             if isRefreshingFromAnchorLayout {
-                webKitLayoutsDuringAnchorLayout += 1
+                forcedWebKitLayoutsDuringAnchorLayout += 1
             }
         }
+        defer { browserPortalTestWillForceHostedWebKitLayout = nil }
         anchor.onLayout = {
             anchorLayoutCount += 1
             isRefreshingFromAnchorLayout = true
@@ -234,13 +227,13 @@ struct BrowserWindowPortalRegistryNotificationTests {
 
         #expect(anchorLayoutCount == 1, "The test must execute the refresh from the anchor's layout stack")
         #expect(
-            webKitLayoutsDuringAnchorLayout == 0,
+            forcedWebKitLayoutsDuringAnchorLayout == 0,
             "Restored browser geometry must not synchronously lay out WebKit while AppKit is already laying out the anchor"
         )
 
         advanceAnimations()
         #expect(
-            webKitLayoutCount > 0,
+            forcedWebKitLayoutCount > 0,
             "The deferred portal refresh must still lay out WebKit after the anchor callback returns"
         )
     }

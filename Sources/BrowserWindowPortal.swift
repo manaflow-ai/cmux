@@ -6,6 +6,11 @@ import ObjectiveC
 import SwiftUI
 import WebKit
 
+#if DEBUG
+@MainActor
+var browserPortalTestWillForceHostedWebKitLayout: ((WKWebView) -> Void)?
+#endif
+
 private var cmuxWindowBrowserPortalKey: UInt8 = 0
 private var cmuxWindowBrowserPortalCloseObserverKey: UInt8 = 0
 private var cmuxBrowserSearchOverlayPanelIdAssociationKey: UInt8 = 0
@@ -2463,6 +2468,9 @@ final class WindowBrowserPortal: NSObject {
             webKitSubview.setNeedsDisplay(webKitSubview.bounds)
         }
 
+#if DEBUG
+        browserPortalTestWillForceHostedWebKitLayout?(webView)
+#endif
         containerView.layoutSubtreeIfNeeded()
         for webKitSubview in hostedWebKitSubviews {
             if let scrollView = webKitSubview.enclosingScrollView {
