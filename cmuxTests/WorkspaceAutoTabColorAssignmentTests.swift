@@ -1116,6 +1116,31 @@ import Testing
         #expect(!app.scheduledAutoWorkspaceColorReconciles.contains(store))
     }
 
+    /// The fingerprint is seeded during construction, so the first defaults
+    /// notification a manager ever sees is compared against real settings
+    /// instead of against `nil`. Without the seed the first notification always
+    /// reads as a change and runs one extra app-wide scan.
+    @MainActor
+    @Test
+    func constructionRecordsTheColorSettingsBaseline() async throws {
+        let defaults = Self.suite()
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        settings.set(.leftRailAuto, for: WorkspaceColorsCatalogSection().indicatorStyle)
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            settings: settings,
+            autoWorkspaceColorDefaults: defaults,
+            closeTabWarningDefaults: defaults
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+
+        #expect(manager.lastAutoWorkspaceColorSettingsFingerprint != nil)
+
+        // The baseline must not cost the initial allocation, which arrives on
+        // the workspace tabs path rather than as a settings change.
+        #expect(await Self.waitUntil { Self.railColor(for: workspace, defaults: defaults) != nil })
+    }
+
     /// Manual colors are set on the workspace object in place, so nothing
     /// reaches the `tabs` observer and the settings fingerprint does not move.
     /// Setting one still has to release the rail, and clearing one still has to

@@ -673,6 +673,10 @@ class TabManager: ObservableObject {
         })
 
         startAgentPIDSweepTimer()
+        // Seeded before observing so the first unrelated defaults write does
+        // not read as a settings change and scan every window. The initial
+        // allocation still happens: it is scheduled by the workspace tabs path.
+        seedAutoWorkspaceColorSettingsFingerprint()
         observers.append(NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,

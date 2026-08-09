@@ -70,6 +70,12 @@ extension TabManager {
         scheduleAutoWorkspaceColorReconcile()
     }
 
+    /// Records the current auto color settings without requesting a pass, so a
+    /// later unrelated defaults write is not mistaken for a settings change.
+    func seedAutoWorkspaceColorSettingsFingerprint() {
+        lastAutoWorkspaceColorSettingsFingerprint = autoWorkspaceColorSettingsFingerprint()
+    }
+
     /// The indicator style and palette, the only settings a pass reads.
     ///
     /// Workspace membership changes arrive on their own path, so they are
