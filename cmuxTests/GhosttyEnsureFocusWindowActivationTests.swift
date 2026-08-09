@@ -96,7 +96,7 @@ struct GhosttyEnsureFocusWindowActivationTests {
                 requestId: "issue-9466-stage-manager-request"
             ),
             resolved: (
-                workspaceId: workspace.id,
+                ownerId: workspace.id,
                 surfaceId: workspace.focusedPanelId
             ),
             tabManager: tabManager
@@ -139,7 +139,7 @@ struct GhosttyEnsureFocusWindowActivationTests {
                 surfaceId: dockPanelID.uuidString,
                 requestId: "issue-9466-workspace-dock-request"
             ),
-            resolved: (workspaceId: workspace.id, surfaceId: dockPanelID),
+            resolved: (ownerId: workspace.id, surfaceId: dockPanelID),
             tabManager: tabManager
         )
 
@@ -169,7 +169,7 @@ struct GhosttyEnsureFocusWindowActivationTests {
                 surfaceId: staleSurfaceID.uuidString,
                 requestId: "issue-9466-stale-surface-request"
             ),
-            resolved: (workspaceId: workspace.id, surfaceId: staleSurfaceID),
+            resolved: (ownerId: workspace.id, surfaceId: staleSurfaceID),
             tabManager: tabManager
         )
 
