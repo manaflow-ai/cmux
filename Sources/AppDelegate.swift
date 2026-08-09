@@ -17107,15 +17107,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         windowConfigFrames.removeValue(forKey: closingRoute.windowId)
         publishCmuxWindowLifecycle(name: "window.closed", windowId: closingRoute.windowId, origin: "appkit_close")
-        commandPaletteWindowStore.removeWindow(closingRoute.windowId)
-
-        // Avoid stale notifications that can no longer be opened once the owning window is gone.
-        if let store = notificationStore {
-            store.clearNotifications(forTabId: closingRoute.windowId)
-            for tab in closingRoute.tabManager.tabs {
-                store.clearNotifications(forTabId: tab.id)
-            }
-        }
+        clearTransientMainWindowState(
+            windowId: closingRoute.windowId,
+            tabManager: closingRoute.tabManager
+        )
 
         if tabManager === closingRoute.tabManager {
             // Repoint "active" pointers to any remaining main terminal window.

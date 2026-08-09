@@ -159,7 +159,10 @@ extension AppDelegate {
                 continue
             }
 
-            tearDownWindowlessMainWindowRouteResources(liveRoute.tabManager)
+            tearDownWindowlessMainWindowRouteResources(
+                windowId: route.windowId,
+                manager: liveRoute.tabManager
+            )
             if frozenWindowSnapshot.omitsRemoteMirrorOnlyWindow(
                 liveWorkspaces: liveRoute.tabManager.tabs
             ) {
@@ -186,9 +189,23 @@ extension AppDelegate {
             ?? RestorableAgentSessionIndex.load()
     }
 
+    /// Clears ephemeral UI state once a window's live graph can no longer return.
+    func clearTransientMainWindowState(windowId: UUID, tabManager: TabManager) {
+        commandPaletteWindowStore.removeWindow(windowId)
+        guard let notificationStore else { return }
+        notificationStore.clearNotifications(forTabId: windowId)
+        for workspace in tabManager.tabs {
+            notificationStore.clearNotifications(forTabId: workspace.id)
+        }
+    }
+
     /// Releases processes, browser panels, and remote control clients after a
     /// persistence-only route has captured their complete bounded value state.
-    private func tearDownWindowlessMainWindowRouteResources(_ manager: TabManager) {
+    private func tearDownWindowlessMainWindowRouteResources(
+        windowId: UUID,
+        manager: TabManager
+    ) {
+        clearTransientMainWindowState(windowId: windowId, tabManager: manager)
         let workspaces = manager.tabs
         remoteTmuxController.handleWindowWorkspacesClosed(
             workspaceIds: workspaces.map(\.id)
@@ -386,7 +403,10 @@ extension AppDelegate {
             return false
         }
         if window == nil {
-            tearDownWindowlessMainWindowRouteResources(context.tabManager)
+            tearDownWindowlessMainWindowRouteResources(
+                windowId: windowId,
+                manager: context.tabManager
+            )
             if omitsRemoteMirrorOnlyWindow {
                 mainWindowLifecycleCoordinator.removeRecoverableRoute(windowId: windowId)
             }
