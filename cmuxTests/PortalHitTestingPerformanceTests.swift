@@ -599,6 +599,54 @@ struct PortalHitTestingPerformanceTests {
     }
 
     @Test
+    func arrangedSubviewMutationsInvalidateHierarchyRegistration() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let rootView = try #require(window.contentView)
+        let splitView = NSSplitView(frame: rootView.bounds)
+        splitView.arrangesAllSubviews = false
+        let firstPane = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: rootView.bounds.height))
+        let secondPane = NSView(frame: NSRect(x: 201, y: 0, width: 119, height: rootView.bounds.height))
+        splitView.addSubview(firstPane)
+        splitView.addSubview(secondPane)
+        rootView.addSubview(splitView)
+
+        let invalidator = PortalSplitDividerCacheInvalidator()
+        func observeCurrentHierarchy() {
+            let collected = PortalSplitDividerRegion.collect(in: rootView)
+            invalidator.observe(
+                rootView: rootView,
+                geometryViews: collected.geometryObservedViews,
+                hierarchyNodes: collected.hierarchyNodes
+            ) {}
+            #expect(invalidator.isHierarchyCurrent(for: rootView))
+        }
+
+        observeCurrentHierarchy()
+        splitView.addArrangedSubview(firstPane)
+        #expect(!invalidator.isHierarchyCurrent(for: rootView))
+
+        observeCurrentHierarchy()
+        splitView.removeArrangedSubview(firstPane)
+        #expect(!invalidator.isHierarchyCurrent(for: rootView))
+
+        observeCurrentHierarchy()
+        splitView.insertArrangedSubview(firstPane, at: 0)
+        #expect(!invalidator.isHierarchyCurrent(for: rootView))
+
+        observeCurrentHierarchy()
+        splitView.arrangesAllSubviews = true
+        #expect(!invalidator.isHierarchyCurrent(for: rootView))
+        withExtendedLifetime(invalidator) {}
+    }
+
+    @Test
     func terminalSplitDividerCacheInvalidatesWhenContentRootIsReplaced() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
