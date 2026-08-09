@@ -177,7 +177,8 @@ enum ClaudeHookLiveDeliveryHarness {
         surfaceId: String,
         workspaceIDsBySurface: [String: String] = [:],
         missingWorkspaceIDs: Set<String> = [],
-        feedPushSucceeds: Bool = true
+        feedPushSucceeds: Bool = true,
+        rejectsEmptyFeedSnapshots: Bool = false
     ) -> TaskSyncDeliverySignals {
         let deliveries = TaskSyncDeliverySignals()
         _ = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
@@ -187,7 +188,12 @@ enum ClaudeHookLiveDeliveryHarness {
             }
             if method == "feed.push" {
                 deliveries.feed.signal()
-                guard feedPushSucceeds else {
+                let params = payload["params"] as? [String: Any]
+                let event = params?["event"] as? [String: Any]
+                let toolInput = event?["tool_input"] as? [String: Any]
+                let todos = toolInput?["todos"] as? [[String: Any]]
+                let rejectsSnapshot = rejectsEmptyFeedSnapshots && todos?.isEmpty == true
+                guard feedPushSucceeds, !rejectsSnapshot else {
                     guard let id = payload["id"] as? String else {
                         return "ERROR: injected Feed rejection"
                     }

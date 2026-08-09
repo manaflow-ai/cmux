@@ -980,7 +980,8 @@ struct ClaudeTaskSyncHookTests {
             context: context,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
-            workspaceIDsBySurface: [teammateSurfaceId: teammateWorkspaceId]
+            workspaceIDsBySurface: [teammateSurfaceId: teammateWorkspaceId],
+            rejectsEmptyFeedSnapshots: true
         )
         try ClaudeHookLiveDeliveryHarness.writeSessionStore(
             to: context.storeURL,
@@ -1164,6 +1165,68 @@ struct ClaudeTaskSyncHookTests {
             reconcileRequests(in: context).last?["items"] as? [[String: Any]]
         )
         #expect(checklistItems.isEmpty)
+    }
+
+    @Test("An all-completed personal list retires its durable destination proof")
+    func retiresCompletedPersonalTaskDestinations() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(
+            name: "task-sync-completed-personal"
+        )
+        defer { context.cleanup() }
+        let workspaceId = "dededede-dede-dede-dede-dededededede"
+        let surfaceId = "efefefef-efef-efef-efef-efefefefefef"
+        let sessionId = "completed-personal-session"
+        let taskDirectory = context.root.appendingPathComponent(
+            ".claude/tasks/\(sessionId)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: taskDirectory,
+            withIntermediateDirectories: true
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Personal task","status":"pending"}"#,
+            named: "1.json",
+            in: taskDirectory
+        )
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+        var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let pendingResult = runHook(
+            context: context,
+            environment: environment,
+            sessionId: sessionId,
+            toolName: "TaskCreate"
+        )
+        #expect(!pendingResult.timedOut, Comment(rawValue: pendingResult.stderr))
+        #expect(pendingResult.status == 0, Comment(rawValue: pendingResult.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        #expect(try taskListDestinationRecords(in: context.storeURL).count == 1)
+
+        try writeTask(
+            #"{"id":"1","subject":"Personal task","status":"completed"}"#,
+            named: "1.json",
+            in: taskDirectory
+        )
+        let completedResult = runHook(
+            context: context,
+            environment: environment,
+            sessionId: sessionId,
+            toolName: "TaskUpdate"
+        )
+
+        #expect(!completedResult.timedOut, Comment(rawValue: completedResult.stderr))
+        #expect(completedResult.status == 0, Comment(rawValue: completedResult.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        #expect(try taskListDestinationRecords(in: context.storeURL).isEmpty)
     }
 
     private func runHook(
