@@ -266,6 +266,19 @@ struct WindowDockRoutingSocketTests {
                 #expect(
                     TerminalController.shared.activeTabManagerForCallerNotification() === fallbackManager
                 )
+
+                let focusModeEnvelope = try v2Envelope(method: "browser.focus_mode.set", params: [
+                    "surface_id": requestedBrowserSurfaceId.uuidString,
+                    "mode": "enter",
+                ])
+                #expect(focusModeEnvelope["ok"] as? Bool == false)
+                let focusModeError = try #require(focusModeEnvelope["error"] as? [String: Any])
+                #expect(focusModeError["code"] as? String == "unavailable")
+                #expect(ownerDock.focusedPanelId == originalSurfaceId)
+                #expect(!fallbackSidebarState.isVisible)
+                #expect(
+                    TerminalController.shared.activeTabManagerForCallerNotification() === fallbackManager
+                )
             }
         }
 #endif

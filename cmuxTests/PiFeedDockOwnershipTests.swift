@@ -31,6 +31,14 @@ private final class PiFeedDockPanel: Panel, ObservableObject {
 }
 
 @MainActor
+private final class PiFeedDockAttentionRecorder {
+    var acceptedEvent: WorkstreamEvent?
+    var targetWasNeedsInput = false
+    var focusedWasNeedsInput = false
+    var targetStatusValue: String?
+}
+
+@MainActor
 private extension DockSplitStore {
     @discardableResult
     func seedPiFeedPanel(id: UUID = UUID()) throws -> PiFeedDockPanel {
@@ -137,6 +145,61 @@ struct PiFeedDockOwnershipTests {
             #expect(insertedEvent?.surfaceId == panel.id.uuidString)
             #expect(store.items.count == 1)
             #expect(appDelegate.tabManagerFor(windowId: windowID) === manager)
+        }
+    }
+
+    @MainActor
+    @Test("Blocking Feed preserves exact window Dock attention ownership")
+    func blockingFeedPreservesExactWindowDockAttentionOwnership() async throws {
+        try await withAppContext { appDelegate, _, workspace, windowID in
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let focusedPanel = try dock.seedPiFeedPanel()
+            let targetPanel = try dock.seedPiFeedPanel()
+            dock.focusPanel(focusedPanel.id)
+            let recorder = PiFeedDockAttentionRecorder()
+            let requestID = "pi-window-dock-blocking-request"
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+            let event = WorkstreamEvent(
+                sessionId: "pi-window-dock-blocking-feed",
+                hookEventName: .permissionRequest,
+                source: "pi",
+                workspaceId: workspace.id.uuidString,
+                surfaceId: targetPanel.id.uuidString,
+                toolName: "Bash",
+                requestId: requestID
+            )
+
+            let result = await Task.detached {
+                FeedCoordinator.shared.ingestBlocking(
+                    event: event,
+                    waitTimeout: 1,
+                    onAcceptedOnMainActor: { acceptedEvent in
+                        recorder.acceptedEvent = acceptedEvent
+                        recorder.targetWasNeedsInput = dock.agentRuntimeByPanelId[targetPanel.id]?
+                            .agentLifecycleStates["pi"] == .needsInput
+                        recorder.focusedWasNeedsInput = dock.agentRuntimeByPanelId[focusedPanel.id]?
+                            .agentLifecycleStates["pi"] == .needsInput
+                        recorder.targetStatusValue = dock.agentRuntimeStatusEntry(
+                            key: "pi",
+                            panelId: targetPanel.id
+                        )?.value
+                        FeedCoordinator.shared.deliverReply(
+                            requestId: requestID,
+                            decision: .permission(.once)
+                        )
+                    }
+                )
+            }.value
+
+            guard case .resolved(_, .permission(.once)) = result else {
+                Issue.record("expected the window Dock blocking Feed event to resolve")
+                return
+            }
+            #expect(recorder.acceptedEvent?.workspaceId == windowID.uuidString)
+            #expect(recorder.acceptedEvent?.surfaceId == targetPanel.id.uuidString)
+            #expect(recorder.targetWasNeedsInput)
+            #expect(!recorder.focusedWasNeedsInput)
+            #expect(recorder.targetStatusValue == FeedCoordinator.needsInputStatusValue)
         }
     }
 
