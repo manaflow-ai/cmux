@@ -4,6 +4,7 @@ import Combine
 import CmuxAppKitSupportUI
 import CmuxCore
 import CmuxFoundation
+import CmuxNotifications
 import CmuxSettings
 import CmuxTerminal
 import CmuxTerminalCore
@@ -51,6 +52,8 @@ final class DockSplitStore: BonsplitDelegate {
         TerminalFontSizeChangeInheritanceContext?
     var panelCancellables: [UUID: AnyCancellable] = [:]
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
+    /// Focused presentation of Dock panels whose agent lifecycle needs input.
+    @ObservationIgnored let agentNeedsInputAttention = SurfaceAttentionModel()
     /// Live agent runtime owned by Dock panels. The matching transfer snapshot
     /// is kept in sync so the state survives Dock-to-workspace moves.
     @ObservationIgnored var agentRuntimeByPanelId: [UUID: Workspace.DetachedAgentRuntimeState] = [:]

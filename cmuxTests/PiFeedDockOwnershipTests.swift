@@ -492,7 +492,8 @@ struct PiFeedDockOwnershipTests {
                 source: TerminalNotificationStore.shared.sidebarUnread,
                 workspaceID: windowID,
                 panelIDs: [targetPanel.id],
-                isActive: true
+                isActive: true,
+                agentAttentionSource: dock.agentNeedsInputAttention
             )
             let target = try #require(
                 FeedCoordinator.shared.surfaceBlockingDecisionAttention(
