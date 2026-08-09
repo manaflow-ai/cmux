@@ -793,6 +793,55 @@ struct PiFeedDockOwnershipTests {
     }
 
     @MainActor
+    @Test("Blocking Feed clears attention from its exact workspace Dock owner")
+    func blockingFeedClearsAttentionFromExactWorkspaceDockOwner() async throws {
+        try await withAppContext { _, manager, workspace, _ in
+            let dock = workspace.dockSplit
+            let panel = try dock.seedPiFeedPanel()
+            let target = try #require(
+                FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                    event: WorkstreamEvent(
+                        sessionId: "pi-workspace-dock-blocking-feed",
+                        hookEventName: .permissionRequest,
+                        source: "pi",
+                        workspaceId: workspace.id.uuidString,
+                        surfaceId: panel.id.uuidString,
+                        requestId: "pi-workspace-dock-blocking-request"
+                    ),
+                    resolved: (workspace.id, panel.id),
+                    tabManager: manager
+                )
+            )
+
+            #expect(workspace.statusEntries[Self.attentionStatusKey] == nil)
+            #expect(
+                dock.agentRuntimeByPanelId[panel.id]?
+                    .agentLifecycleStates[Self.attentionStatusKey] == .needsInput
+            )
+            #expect(
+                dock.agentRuntimeStatusEntry(
+                    key: Self.attentionStatusKey,
+                    panelId: panel.id
+                )?.value == FeedCoordinator.needsInputStatusValue
+            )
+
+            FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
+
+            #expect(
+                dock.agentRuntimeByPanelId[panel.id]?
+                    .agentLifecycleStates[Self.attentionStatusKey] == nil
+            )
+            #expect(
+                dock.agentRuntimeStatusEntry(
+                    key: Self.attentionStatusKey,
+                    panelId: panel.id
+                ) == nil
+            )
+            #expect(workspace.statusEntries[Self.attentionStatusKey] == nil)
+        }
+    }
+
+    @MainActor
     @Test("Surface-less Feed accepts a live window Dock owner")
     func surfaceLessFeedAcceptsWindowDockOwner() async throws {
         try await withAppContext { appDelegate, _, _, windowID in
