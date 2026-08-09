@@ -273,11 +273,27 @@ public enum AgentLaunchSanitizer {
                 result.append(contentsOf: args[index...])
                 break
             }
-            if valueOptions.contains(arg),
-               index + 1 < args.count,
-               shouldRemoveValue(args[index + 1]) {
-                index += 2
-                continue
+            if valueOptions.contains(arg) {
+                guard index + 1 < args.count else {
+                    if removeAllWorkingDirectoryOptions {
+                        index += 1
+                        continue
+                    }
+                    result.append(arg)
+                    index += 1
+                    continue
+                }
+                let value = args[index + 1]
+                if value == "--", removeAllWorkingDirectoryOptions {
+                    // The cwd option is incomplete. Remove only that option so
+                    // the boundary and every payload token after it stay opaque.
+                    index += 1
+                    continue
+                }
+                if shouldRemoveValue(value) {
+                    index += 2
+                    continue
+                }
             }
             if let prefix = optionPrefixes.first(where: { arg.hasPrefix($0) }) {
                 let value = String(arg.dropFirst(prefix.count))

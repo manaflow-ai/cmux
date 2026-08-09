@@ -696,6 +696,20 @@ struct AgentLaunchSanitizerTests {
         )
         #expect(
             AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["grok", "-r", "session", "--cwd", "--", "--cwd", "prompt text"],
+                workingDirectory: nil,
+                removeAllWorkingDirectoryOptions: true
+            ) == ["grok", "-r", "session", "--", "--cwd", "prompt text"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["grok", "-r", "session", "--cwd"],
+                workingDirectory: nil,
+                removeAllWorkingDirectoryOptions: true
+            ) == ["grok", "-r", "session"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                 from: ["codex", "resume", "session", "-C/local/repo", "--model", "gpt-5.4"],
                 workingDirectory: nil,
                 agentKind: "codex",

@@ -1716,7 +1716,7 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
                 executablePath: "/usr/local/bin/codex",
                 arguments: [
                     "/usr/local/bin/codex",
-                    "-C(capturedArgumentDirectory)",
+                    "-C\(capturedArgumentDirectory)",
                     "--model",
                     "test-model",
                 ],
