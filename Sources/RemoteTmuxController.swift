@@ -485,6 +485,10 @@ final class RemoteTmuxController {
             defaultValue: "cmux could not start a new tmux session on the remote host, so no workspace was created. Check that the host is still reachable and try again."
         )
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        // A modal in the test host has nobody to dismiss it: `runModal` never returns and the
+        // whole run wedges, and a sheet would still put a dialog on whoever's screen the host
+        // opened on. The log line above is the report under test.
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         if let window = manager.window ?? NSApp.keyWindow ?? NSApp.mainWindow {
             alert.beginSheetModal(for: window, completionHandler: nil)
         } else {
