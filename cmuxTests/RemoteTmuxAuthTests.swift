@@ -58,6 +58,15 @@ import Testing
         #expect(!RemoteTmuxSSHTransport.indicatesAuthRequired(socketMissing))
     }
 
+    @Test func tmuxSocketPermissionErrorIsNotAnAuthPrompt() {
+        // ssh authenticated fine here; tmux could not open its socket. listSessions
+        // asks about auth before it asks about the server, so classifying this as
+        // auth would offer an interactive login for a problem no login can fix.
+        let stderr = "error connecting to /tmp/tmux-501/default (Permission denied)"
+        #expect(!RemoteTmuxSSHTransport.indicatesAuthRequired(stderr))
+        #expect(RemoteTmuxSSHTransport.indicatesNoServer(stderr))
+    }
+
     @Test func staleSSHAgentErrorDoesNotMaskPermissionDeniedAuthRequirement() {
         let stderr = """
         Error connecting to agent: No such file or directory
