@@ -419,6 +419,14 @@ jobs:
               echo "Detected Xcode simulator launch failure, retrying on a clean simulator."
               continue
             fi
+            # Throwaway-branch diagnostic: surface the real failure lines as
+            # annotations, since run logs are admin-gated via the API.
+            grep -En "Test Case '.*' failed|Test Suite '.*' failed|error:|Assertion|failed \(|crashed|Fatal error|XCTFail|Restarting after unexpected exit" "$LOG_PATH" | tail -25 | while IFS= read -r line; do
+              echo "::error::${line:0:600}"
+            done
+            grep -En "Executed [0-9]+ test" "$LOG_PATH" | tail -3 | while IFS= read -r line; do
+              echo "::error::${line:0:300}"
+            done
             exit "$status"
           done
 
