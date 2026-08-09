@@ -695,14 +695,7 @@ struct PortalHitTestingPerformanceTests {
         prepare(splitView, panes)
 
         let invalidator = PortalSplitDividerCacheInvalidator()
-        defer {
-            invalidator.invalidate()
-            splitView.arrangesAllSubviews = false
-            for arrangedSubview in splitView.arrangedSubviews {
-                splitView.removeArrangedSubview(arrangedSubview)
-            }
-            splitView.subviews = []
-        }
+        defer { invalidator.invalidate() }
 
         let collected = PortalSplitDividerRegion.collect(in: rootView)
         invalidator.observe(
