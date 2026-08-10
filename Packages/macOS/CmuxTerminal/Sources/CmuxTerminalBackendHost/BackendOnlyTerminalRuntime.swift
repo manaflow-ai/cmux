@@ -300,6 +300,10 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         precondition(workspaceID == selection.workspaceID.rawValue)
     }
 
+    public func setDesiredVisibility(_ visible: Bool) {
+        setHostVisibility(visible)
+    }
+
     @discardableResult
     public func enqueue(
         _ mutation: TerminalExternalRuntimeMutation

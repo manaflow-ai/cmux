@@ -81,35 +81,17 @@ public final class TerminalSurfaceLaunchResolver {
     ) async -> TerminalSurfaceResolvedLaunch {
         let shims: TerminalSurfaceAgentCommandShimSet?
         if let wrapperDirectoryURL = resourceURL?.appendingPathComponent("bin", isDirectory: true) {
-            let filesystem = runtimeFilesystem
-            let temporaryDirectory = filesystem.agentCommandShimTemporaryDirectory
-            let surfaceID = request.surfaceID
-            let deadline = agentCommandShimInstallDeadline
-            let clock = agentCommandShimInstallDeadlineClock
-            shims = await withTaskGroup(
-                of: TerminalSurfaceAgentCommandShimSet?.self,
-                returning: TerminalSurfaceAgentCommandShimSet?.self
-            ) { group in
-                group.addTask {
-                    await filesystem.installAgentCommandShims(
-                        wrapperDirectoryURL,
-                        surfaceID,
-                        temporaryDirectory
-                    )
-                }
-                group.addTask {
-                    do {
-                        try await clock.sleep(for: deadline, tolerance: nil)
-                    } catch {
-                        return nil
-                    }
-                    return nil
-                }
-                let first = await group.next() ?? nil
-                group.cancelAll()
-                // Leaving the structured group waits for the losing child to
-                // confirm cancellation. No installer outlives its resolution.
-                return first
+            let attempt = TerminalSurfaceCommandShimInstallAttempt(
+                filesystem: runtimeFilesystem,
+                wrapperDirectoryURL: wrapperDirectoryURL,
+                surfaceID: request.surfaceID,
+                deadline: agentCommandShimInstallDeadline,
+                clock: agentCommandShimInstallDeadlineClock
+            )
+            shims = await withTaskCancellationHandler {
+                await attempt.value()
+            } onCancel: {
+                attempt.cancel()
             }
         } else {
             shims = nil
@@ -304,6 +286,106 @@ public final class TerminalSurfaceLaunchResolver {
             "/usr/bin/login", "-flp", name,
             "/bin/bash", "--noprofile", "--norc", "-c", "exec -l \(shell)"
         ]
+    }
+}
+
+/// Owns a best-effort shim install without making terminal launch wait for a
+/// filesystem operation to acknowledge cancellation. The installer is asked
+/// to stop at the injected deadline, but this owner can publish `nil` first and
+/// release launch even when an OS filesystem call returns late.
+private final class TerminalSurfaceCommandShimInstallAttempt: @unchecked Sendable {
+    private enum State {
+        case pending
+        case resolved(TerminalSurfaceAgentCommandShimSet?)
+    }
+
+    private let lock = NSLock()
+    private var state = State.pending
+    private var continuation:
+        CheckedContinuation<TerminalSurfaceAgentCommandShimSet?, Never>?
+    private var installTask: Task<Void, Never>?
+    private var deadlineTask: Task<Void, Never>?
+
+    init(
+        filesystem: TerminalSurfaceRuntimeFilesystem,
+        wrapperDirectoryURL: URL,
+        surfaceID: UUID,
+        deadline: Duration,
+        clock: any Clock<Duration>
+    ) {
+        let temporaryDirectory = filesystem.agentCommandShimTemporaryDirectory
+        let installTask = Task.detached(priority: .utility) { [self] in
+            let shims = await filesystem.installAgentCommandShims(
+                wrapperDirectoryURL,
+                surfaceID,
+                temporaryDirectory
+            )
+            resolve(shims)
+        }
+        let deadlineTask = Task.detached(priority: .utility) { [self] in
+            do {
+                try await clock.sleep(for: deadline, tolerance: nil)
+            } catch {
+                return
+            }
+            resolve(nil)
+        }
+        attach(installTask: installTask, deadlineTask: deadlineTask)
+    }
+
+    func value() async -> TerminalSurfaceAgentCommandShimSet? {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            switch state {
+            case .pending:
+                precondition(self.continuation == nil)
+                self.continuation = continuation
+                lock.unlock()
+            case .resolved(let shims):
+                lock.unlock()
+                continuation.resume(returning: shims)
+            }
+        }
+    }
+
+    func cancel() {
+        resolve(nil)
+    }
+
+    private func attach(
+        installTask: Task<Void, Never>,
+        deadlineTask: Task<Void, Never>
+    ) {
+        lock.lock()
+        guard case .pending = state else {
+            lock.unlock()
+            installTask.cancel()
+            deadlineTask.cancel()
+            return
+        }
+        self.installTask = installTask
+        self.deadlineTask = deadlineTask
+        lock.unlock()
+    }
+
+    private func resolve(_ shims: TerminalSurfaceAgentCommandShimSet?) {
+        lock.lock()
+        guard case .pending = state else {
+            lock.unlock()
+            return
+        }
+        state = .resolved(shims)
+        let continuation = continuation
+        self.continuation = nil
+        let installTask = installTask
+        self.installTask = nil
+        let deadlineTask = deadlineTask
+        self.deadlineTask = nil
+        lock.unlock()
+
+        installTask?.cancel()
+        deadlineTask?.cancel()
+        continuation?.resume(returning: shims)
     }
 }
 

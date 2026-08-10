@@ -46,6 +46,10 @@ final class FakeTerminalExternalRuntime: TerminalExternalRuntime {
         adoptedWorkspaceIDs.append(workspaceID)
     }
 
+    func setDesiredVisibility(_ visible: Bool) {
+        mutations.append(.visibility(visible))
+    }
+
     func enqueue(
         _ mutation: TerminalExternalRuntimeMutation
     ) -> TerminalExternalIngressResult {

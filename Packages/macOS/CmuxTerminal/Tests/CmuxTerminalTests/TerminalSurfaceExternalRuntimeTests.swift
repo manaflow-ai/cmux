@@ -60,7 +60,7 @@ struct TerminalSurfaceExternalRuntimeTests {
         ])
     }
 
-    @Test func inputFocusVisibilityResizeAndReparentUseOneOrderedIngress() {
+    @Test func strictInputAndPresentationStateUseOwnedRoutes() {
         let fixture = makeFixture()
         defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
 
@@ -94,7 +94,8 @@ struct TerminalSurfaceExternalRuntimeTests {
         let newWorkspaceID = UUID()
         fixture.surface.updateWorkspaceId(newWorkspaceID)
 
-        #expect(fixture.runtime.acceptedSequences == Array(1...9))
+        #expect(fixture.runtime.acceptedSequences == Array(1...8))
+        #expect(fixture.runtime.desiredVisibilities == [false])
         #expect(fixture.runtime.mutations.count == 9)
         #expect(fixture.runtime.mutations[0] == .input(.text(
             TerminalExternalTextInput(text: "paste", kind: .paste)
@@ -120,6 +121,18 @@ struct TerminalSurfaceExternalRuntimeTests {
         #expect(viewport.proposedRows == 19)
         #expect(fixture.runtime.mutations[8] == .reparent(workspaceID: newWorkspaceID))
         #expect(fixture.surface.surface == nil)
+    }
+
+    @Test func saturatedStrictIngressCannotDropDesiredVisibility() {
+        let fixture = makeFixture()
+        defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
+        fixture.runtime.rejectNext(.queueFull)
+
+        fixture.surface.setOcclusion(false)
+
+        #expect(fixture.runtime.desiredVisibilities == [false])
+        #expect(fixture.runtime.mutations == [.visibility(false)])
+        #expect(fixture.surface.mutateExternalSelection(.clear) == .rejected(.queueFull))
     }
 
     @Test func externalSurfaceKeepsCanonicalTerminalLifecycleIdentity() {
@@ -385,6 +398,7 @@ private final class FakeExternalTerminalRuntime: TerminalExternalRuntime {
     private(set) var presentations: [TerminalExternalPresentation] = []
     private(set) var leases: [RecordingExternalPresentationLease] = []
     private(set) var mutations: [TerminalExternalRuntimeMutation] = []
+    private(set) var desiredVisibilities: [Bool] = []
     private(set) var acceptedSequences: [UInt64] = []
     private(set) var screenRequests: [TerminalExternalScreenTextRequest] = []
     private(set) var accessibilityEnableCount = 0
@@ -403,6 +417,11 @@ private final class FakeExternalTerminalRuntime: TerminalExternalRuntime {
         presentations.append(presentation)
         leases.append(lease)
         return lease
+    }
+
+    func setDesiredVisibility(_ visible: Bool) {
+        desiredVisibilities.append(visible)
+        mutations.append(.visibility(visible))
     }
 
     func enqueue(_ mutation: TerminalExternalRuntimeMutation) -> TerminalExternalIngressResult {

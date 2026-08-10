@@ -81,6 +81,11 @@ public final class TerminalFrontendPanel: TerminalExternalRuntime {
         runtime.adoptCanonicalPlacement(workspaceID: workspaceID)
     }
 
+    /// Forwards non-droppable presentation visibility to the canonical owner.
+    public func setDesiredVisibility(_ visible: Bool) {
+        runtime.setDesiredVisibility(visible)
+    }
+
     /// Forwards one bounded ordered mutation to the canonical runtime.
     @discardableResult
     public func enqueue(

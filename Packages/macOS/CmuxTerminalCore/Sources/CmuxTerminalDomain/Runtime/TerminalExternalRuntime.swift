@@ -680,6 +680,11 @@ public protocol TerminalExternalRuntime: AnyObject {
     /// previous workspace before rendering or accepting geometry again.
     func adoptCanonicalPlacement(workspaceID: UUID)
 
+    /// Stores the latest desired visibility outside the bounded strict ingress.
+    /// Implementations must coalesce repeated values and keep retrying the
+    /// latest value until it is applied or the presentation retires.
+    func setDesiredVisibility(_ visible: Bool)
+
     @discardableResult
     func enqueue(_ mutation: TerminalExternalRuntimeMutation) -> TerminalExternalIngressResult
 

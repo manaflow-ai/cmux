@@ -53,7 +53,7 @@ extension TerminalSurface {
     @MainActor
     public func setOcclusion(_ visible: Bool) {
         if let externalRuntime {
-            _ = externalRuntime.enqueue(.visibility(visible))
+            externalRuntime.setDesiredVisibility(visible)
             return
         }
         guard let surface = surface else { return }

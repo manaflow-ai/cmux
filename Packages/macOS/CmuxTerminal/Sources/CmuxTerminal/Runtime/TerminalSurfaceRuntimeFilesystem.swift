@@ -8,8 +8,8 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
 
     /// Installs per-surface agent command shims for the available bundled wrappers.
     ///
-    /// The operation must observe task cancellation and return promptly. Launch
-    /// resolution waits for cancellation acknowledgement after its deadline.
+    /// The operation should observe task cancellation and return promptly. Launch
+    /// resolution can return at its deadline without waiting for acknowledgement.
     public let installAgentCommandShims:
         @Sendable (_ wrapperDirectoryURL: URL, _ surfaceId: UUID, _ temporaryDirectory: URL) async -> TerminalSurfaceAgentCommandShimSet?
 

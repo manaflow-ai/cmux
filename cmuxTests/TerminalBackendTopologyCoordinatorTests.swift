@@ -4220,6 +4220,10 @@ private final class CanonicalTestTerminalRuntime: TerminalExternalRuntime {
         return CanonicalTestTerminalPresentationLease()
     }
 
+    func setDesiredVisibility(_ visible: Bool) {
+        _ = visible
+    }
+
     func enqueue(
         _ mutation: TerminalExternalRuntimeMutation
     ) -> TerminalExternalIngressResult {

@@ -618,6 +618,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     private var pendingViewportWithoutMetrics: TerminalExternalViewport?
     private var focused = false
     private var visible = false
+    private var pendingVisibility: Bool?
     private var preedit: TerminalExternalPreedit?
     private var backendPresentationOpen = false
     private var rendererReconfigureNeeded = false
@@ -841,6 +842,14 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         }
     }
 
+    func setDesiredVisibility(_ visible: Bool) {
+        guard !detached else { return }
+        if case .processExited = state { return }
+        pendingVisibility = visible
+        _ = materializePendingVisibility()
+        scheduleDrain()
+    }
+
     func enqueue(
         _ mutation: TerminalExternalRuntimeMutation
     ) -> TerminalExternalIngressResult {
@@ -853,6 +862,11 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             break
         }
         guard !detached else { return .rejected(.unavailable) }
+        // A strict mutation must not pass a retained visibility transition.
+        // If the queue is still full, its caller retries after the drain.
+        guard materializePendingVisibility() else {
+            return .rejected(.queueFull)
+        }
         if case .mouse = mutation,
            snapshot.cellMetrics == nil || !backendPresentationOpen {
             return .rejected(.unavailable)
@@ -873,6 +887,20 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         nextSequence &+= 1
         scheduleDrain()
         return .accepted(sequence: sequence)
+    }
+
+    @discardableResult
+    private func materializePendingVisibility() -> Bool {
+        guard let pendingVisibility else { return true }
+        let sequence = nextSequence
+        guard queue.append(TerminalBackendQueuedMutation(
+            sequence: sequence,
+            requestID: UUID(),
+            mutation: .visibility(pendingVisibility)
+        )) else { return false }
+        self.pendingVisibility = nil
+        nextSequence &+= 1
+        return true
     }
 
     func readScreenText(_ request: TerminalExternalScreenTextRequest) async -> String? {
@@ -1071,7 +1099,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             if case .unavailable = state {
                 canRetryQueuedMutation = false
             } else {
-                canRetryQueuedMutation = !queue.isEmpty
+                canRetryQueuedMutation = !queue.isEmpty || pendingVisibility != nil
             }
             if !detached && (
                 bindingReconcileRequested || canRetryQueuedMutation || rendererReconfigureNeeded
@@ -1091,6 +1119,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                 try await apply(queued)
                 if queue.first?.requestID == queued.requestID {
                     queue.removeFirst()
+                    _ = materializePendingVisibility()
                 }
                 if case .processExited = state { return }
             }
@@ -1421,6 +1450,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         case .closeCanonicalTerminal:
             state = .processExited
             queue.removeAll()
+            pendingVisibility = nil
             await stopRendererPresentation()
             if detachAfterCanonicalClose {
                 detachPresentation()
@@ -2431,6 +2461,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         }
         invalidateRendererStateOperations()
         detached = true
+        pendingVisibility = nil
         bindingReconcileRequested = false
         drainTask?.cancel()
         drainTask = nil

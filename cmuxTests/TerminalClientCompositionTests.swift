@@ -2207,6 +2207,48 @@ struct TerminalClientCompositionTests {
         ])
     }
 
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func desiredVisibilitySurvivesStrictIngressSaturation() async {
+        let client = RecordingPersistentTerminalBackendClient(suspendMutations: true)
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let runtime = PersistentTerminalExternalRuntime(
+            client: client,
+            launchResolver: makeLaunchResolver(),
+            launchRequest: makeLaunchRequest(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            ),
+            presentationRegistry: TerminalBackendPresentationRegistry(),
+            queueCapacity: 1
+        )
+        let lease = runtime.attachPresentation(TerminalExternalPresentation(
+            surfaceID: surfaceID,
+            workspaceID: workspaceID
+        ))
+        defer { lease.detach() }
+        await client.waitForEnsureCount(1)
+
+        #expect(runtime.enqueue(.input(.namedKey("first"))).accepted)
+        await client.waitForMutationCount(1)
+
+        runtime.setDesiredVisibility(true)
+        runtime.setDesiredVisibility(false)
+        #expect(
+            runtime.enqueue(.input(.namedKey("second")))
+                == .rejected(.queueFull)
+        )
+
+        await client.resumeMutation(at: 0)
+        await client.waitForMutationCount(2)
+        let mutations = await client.mutations()
+        #expect(mutations.map(\.mutation) == [
+            .input(.namedKey("first")),
+            .visibility(false),
+        ])
+        await client.resumeMutation(at: 1)
+    }
+
     @Test @MainActor
     func ambiguousMutationRemainsQueuedWithOneRequestIDAcrossReconnect() async throws {
         let client = RecordingPersistentTerminalBackendClient(failFirstMutation: true)

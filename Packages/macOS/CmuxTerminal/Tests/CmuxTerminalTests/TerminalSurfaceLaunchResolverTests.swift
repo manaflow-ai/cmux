@@ -153,7 +153,8 @@ struct TerminalSurfaceLaunchResolverTests {
         #expect(resolved.arguments == ["/bin/zsh", "-l"])
     }
 
-    @Test func commandShimInstallUsesInjectedFiveSecondDeadline() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func commandShimInstallUsesInjectedFiveSecondDeadline() async throws {
         let clock = LaunchResolverManualClock()
         let installer = BlockingCommandShimInstaller()
         let filesystem = TerminalSurfaceRuntimeFilesystem(
@@ -182,7 +183,7 @@ struct TerminalSurfaceLaunchResolverTests {
             additionalEnvironment: [:]
         )
         let resolution = Task { await resolver.resolveInstallingCommandShim(request) }
-        await installer.waitUntilStarted()
+        await installer.waitUntilBlocked()
         try await clock.waitUntilSleepers()
 
         clock.advance(by: .seconds(5))
@@ -190,7 +191,10 @@ struct TerminalSurfaceLaunchResolverTests {
 
         #expect(resolved.environment["CMUX_AGENT_COMMAND_SHIM_ROOT"] == nil)
         #expect(resolved.command == nil)
+        await installer.waitUntilCancelled()
         #expect(await installer.cancellationCount == 1)
+        #expect(await installer.isBlocked)
+        await installer.complete()
     }
 
     private func makeResolver(
@@ -225,34 +229,47 @@ struct TerminalSurfaceLaunchResolverTests {
 }
 
 private actor BlockingCommandShimInstaller {
-    private var started = false
-    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var blockWaiters: [CheckedContinuation<Void, Never>] = []
+    private var cancellationWaiters: [CheckedContinuation<Void, Never>] = []
     private var completion: CheckedContinuation<TerminalSurfaceAgentCommandShimSet?, Never>?
     private(set) var cancellationCount = 0
+    var isBlocked: Bool { completion != nil }
 
     func install() async -> TerminalSurfaceAgentCommandShimSet? {
-        started = true
-        let waiters = startWaiters
-        startWaiters.removeAll()
-        for waiter in waiters { waiter.resume() }
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 completion = continuation
+                let waiters = blockWaiters
+                blockWaiters.removeAll()
+                for waiter in waiters { waiter.resume() }
             }
         } onCancel: {
             Task { await self.cancelInstall() }
         }
     }
 
-    func waitUntilStarted() async {
-        guard !started else { return }
+    func waitUntilBlocked() async {
+        guard completion == nil else { return }
         await withCheckedContinuation { continuation in
-            startWaiters.append(continuation)
+            blockWaiters.append(continuation)
+        }
+    }
+
+    func waitUntilCancelled() async {
+        guard cancellationCount == 0 else { return }
+        await withCheckedContinuation { continuation in
+            cancellationWaiters.append(continuation)
         }
     }
 
     private func cancelInstall() {
         cancellationCount += 1
+        let waiters = cancellationWaiters
+        cancellationWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func complete() {
         completion?.resume(returning: nil)
         completion = nil
     }
