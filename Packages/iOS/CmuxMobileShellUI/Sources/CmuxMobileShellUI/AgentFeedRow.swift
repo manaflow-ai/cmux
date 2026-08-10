@@ -23,6 +23,7 @@ struct AgentFeedRow: View, Equatable {
     let questionSelections: [String: Set<String>]
     let otherAnswers: [String: String]
     let actions: AgentFeedRowActions
+    private let copy = AgentFeedCopy()
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.item == rhs.item
@@ -134,7 +135,7 @@ struct AgentFeedRow: View, Equatable {
     @ViewBuilder
     private func permissionButtons(_ modes: [String]) -> some View {
         ForEach(modes, id: \.self) { mode in
-            Button(AgentFeedCopy.permissionModeLabel(mode)) { actions.decide(.permission(mode: mode)) }
+            Button(copy.permissionModeLabel(mode)) { actions.decide(.permission(mode: mode)) }
                 .disabled(isSending || !item.wire.status.isPending)
                 .frame(minHeight: 44)
                 .accessibilityIdentifier("MobileAgentFeedPermission-\(mode)-\(suffix)")
@@ -144,7 +145,7 @@ struct AgentFeedRow: View, Equatable {
     @ViewBuilder
     private var planButtons: some View {
         ForEach(["ultraplan", "bypassPermissions", "autoAccept", "manual", "deny"], id: \.self) { mode in
-            Button(AgentFeedCopy.planModeLabel(mode)) {
+            Button(copy.planModeLabel(mode)) {
                 actions.decide(.exitPlan(
                     mode: mode,
                     feedback: planFeedback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : planFeedback
@@ -258,20 +259,21 @@ struct AgentFeedRow: View, Equatable {
 
     private var suffix: String { "\(item.macDeviceID)-\(item.wire.id.uuidString)" }
     private var accessibilityLabel: String {
-        [AgentFeedCopy.sourceLabel(item.wire.source), AgentFeedCopy.statusLabel(item.wire.status), item.macDisplayName, item.wire.title].compactMap { $0 }.formatted()
+        [copy.sourceLabel(item.wire.source), copy.statusLabel(item.wire.status), item.macDisplayName, item.wire.title].compactMap { $0 }.formatted()
     }
 }
 
 private struct AgentFeedRowHeader: View {
     let item: MobileAgentFeedItem
     let isExpanded: Bool
+    private let copy = AgentFeedCopy()
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             Image(systemName: item.wire.status.isPending ? "exclamationmark.bubble.fill" : "bubble.left.and.text.bubble.right")
             VStack(alignment: .leading) {
                 HStack {
-                    Text(AgentFeedCopy.sourceLabel(item.wire.source)).font(.headline)
-                    Text(AgentFeedCopy.statusLabel(item.wire.status))
+                    Text(copy.sourceLabel(item.wire.source)).font(.headline)
+                    Text(copy.statusLabel(item.wire.status))
                         .font(.caption2.weight(.semibold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
@@ -299,14 +301,15 @@ private struct AgentFeedRowHeader: View {
 private struct AgentFeedContext: View {
     let item: MobileAgentFeedItem
     let isExpanded: Bool
+    private let copy = AgentFeedCopy()
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             if let title = item.wire.title { Text(title).font(.subheadline.weight(.semibold)) }
-            Text(AgentFeedCopy.payloadSummary(item.wire.payload))
+            Text(copy.payloadSummary(item.wire.payload))
                 .font(.subheadline)
                 .lineLimit(isExpanded ? nil : 4)
             if case .resolved(let decision) = item.wire.status,
-               let decision = AgentFeedCopy.decisionLabel(decision) {
+               let decision = copy.decisionLabel(decision) {
                 Text(
                     String(
                         format: L10n.string(
@@ -324,8 +327,8 @@ private struct AgentFeedContext: View {
     }
 }
 
-private enum AgentFeedCopy {
-    static func statusLabel(_ status: MobileWorkstreamFeedStatus) -> String {
+private struct AgentFeedCopy {
+    func statusLabel(_ status: MobileWorkstreamFeedStatus) -> String {
         switch status {
         case .pending: L10n.string("mobile.agentFeed.card.pending", defaultValue: "Needs input")
         case .resolved: L10n.string("mobile.agentFeed.card.resolved", defaultValue: "Resolved")
@@ -335,7 +338,7 @@ private enum AgentFeedCopy {
         }
     }
 
-    static func sourceLabel(_ source: String) -> String {
+    func sourceLabel(_ source: String) -> String {
         switch source {
         case "claude": L10n.string("mobile.agentFeed.source.claude", defaultValue: "Claude")
         case "codex": L10n.string("mobile.agentFeed.source.codex", defaultValue: "Codex")
@@ -350,7 +353,7 @@ private enum AgentFeedCopy {
         }
     }
 
-    static func payloadSummary(_ payload: MobileWorkstreamFeedPayload) -> String {
+    func payloadSummary(_ payload: MobileWorkstreamFeedPayload) -> String {
         switch payload {
         case .permission(_, let tool, let summary, _): return summary.isEmpty ? tool : "\(tool)\n\(summary)"
         case .exitPlan(_, let plan, _, _): return plan
@@ -373,7 +376,7 @@ private enum AgentFeedCopy {
         }
     }
 
-    static func permissionModeLabel(_ mode: String) -> String {
+    func permissionModeLabel(_ mode: String) -> String {
         switch mode {
         case "once": L10n.string("mobile.agentFeed.permission.once", defaultValue: "Allow Once")
         case "always": L10n.string("mobile.agentFeed.permission.always", defaultValue: "Always Allow")
@@ -383,7 +386,7 @@ private enum AgentFeedCopy {
         }
     }
 
-    static func decisionLabel(_ decision: MobileWorkstreamDecision?) -> String? {
+    func decisionLabel(_ decision: MobileWorkstreamDecision?) -> String? {
         switch decision {
         case .permission(let mode): return permissionModeLabel(mode)
         case .exitPlan(let mode, let feedback):
@@ -396,7 +399,7 @@ private enum AgentFeedCopy {
         }
     }
 
-    static func planModeLabel(_ mode: String) -> String {
+    func planModeLabel(_ mode: String) -> String {
         switch mode {
         case "ultraplan": L10n.string("mobile.agentFeed.plan.ultraplan", defaultValue: "Ultraplan")
         case "bypassPermissions": L10n.string("mobile.agentFeed.plan.bypass", defaultValue: "Bypass Permissions")

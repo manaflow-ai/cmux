@@ -8,7 +8,7 @@ public struct AgentFeedPreviewView: View {
     @State private var selectedTab: MobilePrimaryTab = .notifications
     @State private var searchCoordinator = MobilePrimarySearchCoordinator(initialScope: .notifications)
     @State private var filter: MobileAgentFeedFilter = .needsInput
-    @State private var items = AgentFeedPreviewFixture.items
+    @State private var items = AgentFeedPreviewFixture().items
     @State private var drafts: [MobileAgentFeedItemID: String] = [:]
     @State private var mutationStates: [MobileAgentFeedItemID: MobileAgentFeedMutationState] = [:]
     @State private var openedItem: MobileAgentFeedItem?
@@ -97,9 +97,12 @@ public struct AgentFeedPreviewView: View {
     }
 }
 
-private enum AgentFeedPreviewFixture {
-    static let items: [MobileAgentFeedItem] = [
-        item(
+private struct AgentFeedPreviewFixture {
+    let items: [MobileAgentFeedItem]
+
+    init() {
+        items = [
+            Self.item(
             id: "00000000-0000-0000-0000-000000000101",
             source: "codex",
             kind: "permissionRequest",
@@ -112,7 +115,7 @@ private enum AgentFeedPreviewFixture {
                 supportedModes: ["once", "always", "deny"]
             )
         ),
-        item(
+            Self.item(
             id: "00000000-0000-0000-0000-000000000102",
             source: "claude",
             kind: "exitPlan",
@@ -125,7 +128,7 @@ private enum AgentFeedPreviewFixture {
                 defaultMode: "manual"
             )
         ),
-        item(
+            Self.item(
             id: "00000000-0000-0000-0000-000000000103",
             source: "gemini",
             kind: "question",
@@ -154,7 +157,7 @@ private enum AgentFeedPreviewFixture {
                 ),
             ])
         ),
-        item(
+            Self.item(
             id: "00000000-0000-0000-0000-000000000104",
             source: "opencode",
             kind: "toolResult",
@@ -163,7 +166,7 @@ private enum AgentFeedPreviewFixture {
             status: .telemetry,
             payload: .toolResult(name: "swift test", result: "Exited with status 1", isError: true)
         ),
-        item(
+            Self.item(
             id: "00000000-0000-0000-0000-000000000105",
             source: "hermes-agent",
             kind: "stop",
@@ -172,7 +175,8 @@ private enum AgentFeedPreviewFixture {
             status: .telemetry,
             payload: .stop(reason: "Implementation is ready for a reply.")
         ),
-    ]
+        ]
+    }
 
     private static func item(
         id: String,
