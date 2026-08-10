@@ -2280,6 +2280,15 @@ impl Mux {
                         .then_some(*surface_id)
                 })
                 .collect::<Vec<_>>();
+            let waiter_public_id = catalog_public_id.clone().or_else(|| {
+                targets.iter().find_map(|surface_id| {
+                    state
+                        .surfaces
+                        .get(surface_id)
+                        .and_then(|surface| surface.terminal_public_id())
+                        .cloned()
+                })
+            });
             let target = targets.first().copied();
             let changed_screens = unique_screen_ids(
                 targets.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
@@ -2322,6 +2331,9 @@ impl Mux {
             }
             if !had_runtime {
                 self.terminate_discovered_terminal_host(terminal_id, closed_incarnation.as_deref());
+            }
+            if newly_closed {
+                self.notify_terminal_exit_waiters(waiter_public_id);
             }
             self.emit_empty_if_current(empty_revision);
             return Ok(TerminalCloseResult {
@@ -2484,7 +2496,7 @@ impl Mux {
             state,
             terminal_public_id,
             Some((terminal_id, None)),
-            true,
+            !has_runtime,
         );
         if targets.is_empty() && !has_runtime {
             return Ok(None);

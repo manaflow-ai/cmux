@@ -175,7 +175,10 @@ impl Mux {
                 patch_changes.push(ResourceChange::UpsertTab(projected_tab));
                 patch_changes.push(ResourceChange::SetTabOrder { pane_id, tab_ids });
 
+                let terminal_runtime_id =
+                    projected.terminal_runtime_id().context("projected terminal has no runtime")?;
                 state.surfaces.try_reserve(1)?;
+                state.terminal_placements_by_runtime.try_reserve(1)?;
                 state.resource_indexes.tabs.try_reserve(1)?;
                 state.resource_indexes.tab_ids.try_reserve(1)?;
                 state.resource_indexes.content_ids.try_reserve(1)?;
@@ -188,6 +191,21 @@ impl Mux {
                     None
                 } else {
                     Some(vec![surface_id])
+                };
+                let new_terminal_placements = if let Some(placements) =
+                    state.terminal_placements_by_runtime.get_mut(&terminal_runtime_id)
+                {
+                    anyhow::ensure!(
+                        !placements.contains(&surface_id),
+                        "terminal projection already has a runtime placement"
+                    );
+                    placements.try_reserve(1)?;
+                    None
+                } else {
+                    let mut placements = HashSet::new();
+                    placements.try_reserve(1)?;
+                    placements.insert(surface_id);
+                    Some(placements)
                 };
                 state
                     .panes
@@ -202,6 +220,17 @@ impl Mux {
                     Value::Array(deltas),
                     move |state| {
                         state.surfaces.insert(surface_id, projected);
+                        if let Some(placements) = new_terminal_placements {
+                            state
+                                .terminal_placements_by_runtime
+                                .insert(terminal_runtime_id, placements);
+                        } else {
+                            state
+                                .terminal_placements_by_runtime
+                                .get_mut(&terminal_runtime_id)
+                                .expect("reserved terminal runtime placement index remains live")
+                                .insert(surface_id);
+                        }
                         let destination = state
                             .panes
                             .get_mut(&pane)

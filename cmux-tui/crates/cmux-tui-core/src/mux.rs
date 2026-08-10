@@ -7567,6 +7567,7 @@ impl Mux {
         let removed = state.terminal_catalog.remove(terminal_id)?;
         if let Some(runtime_id) = removed.terminal_runtime_id() {
             state.terminal_catalog_by_runtime.remove(&runtime_id);
+            state.terminal_placements_by_runtime.remove(&runtime_id);
         }
         Some(removed)
     }
@@ -11996,6 +11997,7 @@ impl Mux {
                 if let Some(pane) = state.remove_pane(pane_id) {
                     for surface in pane.tabs {
                         if let Some(surface) = state.surfaces.remove(&surface) {
+                            unregister_terminal_placement(&mut state, &surface);
                             removed.push(surface);
                         }
                     }
@@ -14823,6 +14825,7 @@ fn insert_surface_checked(state: &mut State, surface: Arc<Surface>) -> anyhow::R
         );
     }
     register_terminal_runtime_checked(state, &surface)?;
+    register_terminal_placement_checked(state, &surface)?;
     state.surfaces.insert(surface.id, surface);
     Ok(())
 }
@@ -14907,6 +14910,41 @@ fn register_terminal_runtime_checked(
     Ok(())
 }
 
+fn register_terminal_placement_checked(
+    state: &mut State,
+    surface: &Arc<Surface>,
+) -> anyhow::Result<()> {
+    if surface.resource_identity().is_none() || surface.terminal_public_id().is_none() {
+        return Ok(());
+    }
+    let runtime_id = surface
+        .terminal_runtime_id()
+        .context("terminal placement requires a PTY runtime")?;
+    anyhow::ensure!(
+        state
+            .terminal_placements_by_runtime
+            .entry(runtime_id)
+            .or_default()
+            .insert(surface.id),
+        "duplicate terminal runtime placement"
+    );
+    Ok(())
+}
+
+fn unregister_terminal_placement(state: &mut State, surface: &Surface) {
+    let Some(runtime_id) = surface.terminal_runtime_id() else { return };
+    let remove_runtime =
+        if let Some(placements) = state.terminal_placements_by_runtime.get_mut(&runtime_id) {
+            placements.remove(&surface.id);
+            placements.is_empty()
+        } else {
+            false
+        };
+    if remove_runtime {
+        state.terminal_placements_by_runtime.remove(&runtime_id);
+    }
+}
+
 fn terminal_host_matches(
     identity: &TerminalHostIdentity,
     expected_id: &str,
@@ -14951,16 +14989,21 @@ fn terminal_content_placements(
                 }
         })
         .collect::<Vec<_>>();
-    if let Some(runtime) = state.terminal_catalog.get(terminal_id)
-        && state.surfaces.get(&runtime.id).is_some_and(&matches_live_surface)
-    {
-        targets.push(runtime.id);
+    if let Some(runtime) = state.terminal_catalog.get(terminal_id) {
+        if let Some(runtime_id) = runtime.terminal_runtime_id()
+            && let Some(placements) = state.terminal_placements_by_runtime.get(&runtime_id)
+        {
+            targets.extend(placements.iter().copied().filter(|placement| {
+                state.surfaces.get(placement).is_some_and(&matches_live_surface)
+            }));
+        }
+        if state.surfaces.get(&runtime.id).is_some_and(&matches_live_surface) {
+            targets.push(runtime.id);
+        }
     }
     if scan_unindexed_host_matches {
-        // Protocol close, catalog-missing adoption, and terminal teardown
-        // repair are bounded to one exact terminal identity. The repair scan
-        // runs before catalog removal so an incomplete reverse index cannot
-        // leave a projected view alive.
+        // Protocol repair and catalog-missing adoption are bounded to one
+        // terminal. Steady-state exit fanout stays on the reverse indexes.
         targets.extend(state.surfaces.iter().filter_map(|(placement, candidate)| {
             matches_live_surface(candidate).then_some(*placement)
         }));
@@ -14981,6 +15024,7 @@ fn remove_terminal_content_from_state(
     let runtime = state.terminal_catalog.remove(terminal_id);
     if let Some(runtime_id) = runtime.as_ref().and_then(|runtime| runtime.terminal_runtime_id()) {
         state.terminal_catalog_by_runtime.remove(&runtime_id);
+        state.terminal_placements_by_runtime.remove(&runtime_id);
     }
     let mut removed = Vec::with_capacity(targets.len());
     let mut split_index_dirty = false;
@@ -15443,6 +15487,7 @@ fn restore_resource_state(
             surfaces: HashMap::new(),
             terminal_catalog: HashMap::new(),
             terminal_catalog_by_runtime: HashMap::new(),
+            terminal_placements_by_runtime: HashMap::new(),
             split_screens: HashMap::new(),
             resource_indexes: indexes,
         },
@@ -16007,6 +16052,9 @@ fn fence_layout_undo_for_tab_membership(state: &mut State, panes: &[PaneId]) {
 fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Arc<Surface>>, bool) {
     let previous_active = state.active_pane();
     let removed = state.surfaces.remove(&target);
+    if let Some(surface) = removed.as_ref() {
+        unregister_terminal_placement(state, surface);
+    }
     if let Some(tab_id) = state.resource_indexes.tab_ids.remove(&target) {
         state.resource_indexes.tabs.remove(&tab_id);
     }
@@ -20078,6 +20126,7 @@ mod tests {
         });
         {
             let mut state = mux.state.lock().unwrap();
+            assert_eq!(state.terminal_placements_by_runtime[&runtime_id], placements);
             state
                 .resource_indexes
                 .content_placements
@@ -20103,6 +20152,7 @@ mod tests {
                 !state.terminal_catalog_by_runtime.contains_key(&runtime_id),
                 "an exited runtime retained its reverse catalog entry"
             );
+            assert!(!state.terminal_placements_by_runtime.contains_key(&runtime_id));
             assert!(!state.surfaces.contains_key(&source.id));
             assert!(!state.surfaces.contains_key(&projected.id));
         });
