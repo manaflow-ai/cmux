@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 use std::io::Read;
 use std::io::Write;
-#[cfg(any(test, windows))]
+#[cfg(any(windows, all(test, target_os = "linux")))]
 use std::mem::size_of;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
@@ -10,7 +10,9 @@ use std::os::fd::AsRawFd;
 use std::os::unix::process::CommandExt;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
-use std::process::{Command, Stdio};
+#[cfg(any(not(unix), all(test, target_os = "linux")))]
+use std::process::Command;
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak, mpsc};
 use std::time::{Duration, Instant};

@@ -76,7 +76,6 @@ struct ScopeRegistration {
     file_marker: FileMarker,
     root: ProcessIdentity,
     tracked: Arc<Mutex<TrackedProcesses>>,
-    tracked_changed: Arc<Condvar>,
     #[cfg(test)]
     track_before_finalization: bool,
     #[cfg(test)]
@@ -148,7 +147,6 @@ pub struct UnixProcessScope {
     #[cfg(target_os = "linux")]
     root_pidfd: Option<OwnedFd>,
     tracked: Arc<Mutex<TrackedProcesses>>,
-    tracked_changed: Arc<Condvar>,
     tracker: Option<ScopeTracker>,
     terminated: bool,
     #[cfg(test)]
@@ -252,7 +250,6 @@ impl UnixProcessScope {
             #[cfg(target_os = "linux")]
             root_pidfd: None,
             tracked: Arc::new(Mutex::new(TrackedProcesses::default())),
-            tracked_changed: Arc::new(Condvar::new()),
             tracker: None,
             terminated: false,
             #[cfg(test)]
@@ -347,7 +344,6 @@ impl UnixProcessScope {
             file_marker: self.file_marker,
             root,
             tracked: self.tracked.clone(),
-            tracked_changed: self.tracked_changed.clone(),
             #[cfg(test)]
             track_before_finalization: self.track_before_finalization,
             #[cfg(test)]
@@ -357,7 +353,7 @@ impl UnixProcessScope {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(crate) fn final_scan_gate_for_test(
         &mut self,
     ) -> (mpsc::Receiver<()>, mpsc::SyncSender<()>) {
@@ -389,44 +385,6 @@ impl UnixProcessScope {
             return Err(io::Error::last_os_error());
         }
         Ok(())
-    }
-
-    #[cfg(all(test, target_os = "linux"))]
-    pub(crate) fn wait_until_tracked_for_test(&self, pid: u32, deadline: Instant) -> bool {
-        let mut tracked = self.tracked.lock().unwrap();
-        loop {
-            if tracked.identities.keys().any(|identity| identity.pid == pid) {
-                return true;
-            }
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                return false;
-            };
-            let (next, timeout) = self.tracked_changed.wait_timeout(tracked, remaining).unwrap();
-            tracked = next;
-            if timeout.timed_out() && !tracked.identities.keys().any(|identity| identity.pid == pid)
-            {
-                return false;
-            }
-        }
-    }
-
-    #[cfg(all(test, not(target_os = "linux")))]
-    pub(crate) fn wait_until_tracked_for_test(&self, pid: u32, deadline: Instant) -> bool {
-        let mut tracked = self.tracked.lock().unwrap();
-        loop {
-            if tracked.identities.iter().any(|identity| identity.pid == pid) {
-                return true;
-            }
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                return false;
-            };
-            let (next, timeout) = self.tracked_changed.wait_timeout(tracked, remaining).unwrap();
-            tracked = next;
-            if timeout.timed_out() && !tracked.identities.iter().any(|identity| identity.pid == pid)
-            {
-                return false;
-            }
-        }
     }
 
     #[cfg(target_os = "linux")]
@@ -756,7 +714,6 @@ fn record_tracked_process(scope: &ScopeRegistration, identity: ProcessIdentity) 
         return;
     }
     tracked.identities.insert(identity, pidfd);
-    scope.tracked_changed.notify_all();
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -772,9 +729,7 @@ fn record_tracked_process(scope: &ScopeRegistration, identity: ProcessIdentity) 
     if tracked.identities.len() >= MAX_TRACKED_PROCESSES {
         return;
     }
-    if tracked.identities.insert(identity) {
-        scope.tracked_changed.notify_all();
-    }
+    tracked.identities.insert(identity);
 }
 
 fn create_file_marker(marker: &str) -> io::Result<(OwnedFd, FileMarker)> {
