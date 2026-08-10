@@ -182,12 +182,14 @@ jobs:
           # Keep Blacksmith device reloads equivalent to the fleet path: one
           # build supplies both the unsigned phone archive and the exact same
           # source revision for an isolated Simulator verification.
+          # The prebuilt GhosttyKit simulator slice is arm64-only.
           xcodebuild build \
             -workspace ios/cmux.xcworkspace \
             -scheme cmux-ios \
             -configuration Debug \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath "$RUNNER_TEMP/cmux-ios-dd" \
+            ARCHS=arm64 \
             PRODUCT_BUNDLE_IDENTIFIER="$bundle_id" \
             PRODUCT_DISPLAY_NAME="$display_name" \
             CMUX_GIT_SHA="$(git rev-parse --short HEAD)" \
