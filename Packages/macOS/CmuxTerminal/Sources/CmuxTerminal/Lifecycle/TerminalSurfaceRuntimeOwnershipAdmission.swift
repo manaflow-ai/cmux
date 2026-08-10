@@ -8,6 +8,8 @@ typealias TerminalSurfaceRuntimeOwnershipRecovery =
 ///
 /// Creation, public teardown, and deinit cannot suspend while transferring a
 /// native pointer, so this ledger uses one short unfair-lock critical section.
+/// Each ownership reservation also holds one submission-ingress slot until the
+/// teardown submission is dequeued or the unused ownership is released.
 /// Native work never runs under the lock. A fully stalled close pool degrades
 /// admission until a worker returns, preventing repeated create/close cycles
 /// from growing an unbounded retained teardown backlog.
@@ -29,12 +31,11 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
     func reserve() -> TerminalSurfaceRuntimeOwnershipReservation? {
         state.withLock { state in
             guard !state.closeTeardownDegraded,
-                  state.reservationIDs.count < maximumOwnerCount else {
+                  state.reservationIDs.count < maximumOwnerCount,
+                  state.ingressReservationIDs.count < maximumOwnerCount else {
                 return nil
             }
-            let reservation = TerminalSurfaceRuntimeOwnershipReservation()
-            state.reservationIDs.insert(reservation.id)
-            return reservation
+            return reserveOwnershipAndIngress(in: &state)
         }
     }
 
@@ -44,12 +45,11 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
     ) -> TerminalSurfaceRuntimeOwnershipRecoveryAdmissionResult {
         state.withLock { state in
             if !state.closeTeardownDegraded,
-                state.reservationIDs.count < maximumOwnerCount
+                state.reservationIDs.count < maximumOwnerCount,
+                state.ingressReservationIDs.count < maximumOwnerCount
             {
                 _ = removeRecoveryAction(recoveryID, from: &state)
-                let reservation = TerminalSurfaceRuntimeOwnershipReservation()
-                state.reservationIDs.insert(reservation.id)
-                return .reserved(reservation)
+                return .reserved(reserveOwnershipAndIngress(in: &state))
             }
             if state.recoveryEntriesByID[recoveryID] != nil {
                 state.recoveryEntriesByID[recoveryID]?.action = onRecovery
@@ -71,9 +71,79 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
         state.withLock { $0.reservationIDs.contains(reservation.id) }
     }
 
+    func claimIngressReservation(
+        for reservation: TerminalSurfaceRuntimeOwnershipReservation
+    ) -> TerminalSurfaceRuntimeTeardownIngressReservation? {
+        state.withLock { state in
+            guard state.reservationIDs.contains(reservation.id),
+                  state.unclaimedOwnershipIngressReservationIDs.remove(
+                      reservation.id
+                  ) != nil else {
+                return nil
+            }
+            return TerminalSurfaceRuntimeTeardownIngressReservation(
+                id: reservation.id
+            )
+        }
+    }
+
+    func reserveControlIngress()
+        -> TerminalSurfaceRuntimeTeardownIngressReservation? {
+        let result: (
+            TerminalSurfaceRuntimeTeardownIngressReservation?,
+            TerminalSurfaceRuntimeOwnershipRecoveryGrant?
+        ) = state.withLock { state in
+            if let recoveryGrant = takeNextRecoveryGrant(from: &state) {
+                return (nil, recoveryGrant)
+            }
+            guard state.ingressReservationIDs.count < maximumOwnerCount else {
+                return (nil, nil)
+            }
+            let reservation = TerminalSurfaceRuntimeTeardownIngressReservation()
+            state.ingressReservationIDs.insert(reservation.id)
+            return (reservation, nil)
+        }
+        schedule(result.1)
+        return result.0
+    }
+
+    func releaseIngress(
+        _ reservation: TerminalSurfaceRuntimeTeardownIngressReservation
+    ) {
+        let recoveryGrant = state.withLock { state in
+            _ = state.ingressReservationIDs.remove(reservation.id)
+            _ = state.unclaimedOwnershipIngressReservationIDs.remove(
+                reservation.id
+            )
+            return takeNextRecoveryGrant(from: &state)
+        }
+        schedule(recoveryGrant)
+    }
+
+    func releaseFailedSubmission(
+        ownership reservation: TerminalSurfaceRuntimeOwnershipReservation,
+        ingress ingressReservation:
+            TerminalSurfaceRuntimeTeardownIngressReservation
+    ) {
+        let recoveryGrant = state.withLock { state in
+            _ = state.reservationIDs.remove(reservation.id)
+            _ = state.ingressReservationIDs.remove(ingressReservation.id)
+            _ = state.unclaimedOwnershipIngressReservationIDs.remove(
+                reservation.id
+            )
+            return takeNextRecoveryGrant(from: &state)
+        }
+        schedule(recoveryGrant)
+    }
+
     func release(_ reservation: TerminalSurfaceRuntimeOwnershipReservation) {
         let recoveryGrant = state.withLock { state in
             _ = state.reservationIDs.remove(reservation.id)
+            if state.unclaimedOwnershipIngressReservationIDs.remove(
+                reservation.id
+            ) != nil {
+                _ = state.ingressReservationIDs.remove(reservation.id)
+            }
             return takeNextRecoveryGrant(from: &state)
         }
         schedule(recoveryGrant)
@@ -135,12 +205,23 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
         state.recoveryTailID = recoveryID
     }
 
+    private func reserveOwnershipAndIngress(
+        in state: inout TerminalSurfaceRuntimeOwnershipAdmissionState
+    ) -> TerminalSurfaceRuntimeOwnershipReservation {
+        let reservation = TerminalSurfaceRuntimeOwnershipReservation()
+        state.reservationIDs.insert(reservation.id)
+        state.ingressReservationIDs.insert(reservation.id)
+        state.unclaimedOwnershipIngressReservationIDs.insert(reservation.id)
+        return reservation
+    }
+
     private func takeNextRecoveryGrant(
         from state: inout TerminalSurfaceRuntimeOwnershipAdmissionState
     ) -> TerminalSurfaceRuntimeOwnershipRecoveryGrant? {
         guard !state.closeTeardownDegraded,
               !state.recoveryGrantIsScheduled,
               state.reservationIDs.count < maximumOwnerCount,
+              state.ingressReservationIDs.count < maximumOwnerCount,
               let recoveryID = state.recoveryHeadID,
               let recoveryAction = removeRecoveryAction(
                   recoveryID,
@@ -148,8 +229,7 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
               ) else {
             return nil
         }
-        let reservation = TerminalSurfaceRuntimeOwnershipReservation()
-        state.reservationIDs.insert(reservation.id)
+        let reservation = reserveOwnershipAndIngress(in: &state)
         state.recoveryGrantIsScheduled = true
         return TerminalSurfaceRuntimeOwnershipRecoveryGrant(
             action: recoveryAction,

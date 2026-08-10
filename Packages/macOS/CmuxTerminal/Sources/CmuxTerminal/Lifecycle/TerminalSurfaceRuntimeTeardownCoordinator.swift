@@ -9,13 +9,17 @@ private enum TerminalSurfaceRuntimeTeardownSubmission: Sendable {
     case enqueue(
         request: TerminalSurfaceRuntimeTeardownRequest,
         executionLane: TerminalSurfaceRuntimeTeardownExecutionLane,
-        isolatedHibernationReservation: TerminalSurfaceRuntimeTeardownReservation?
+        isolatedHibernationReservation: TerminalSurfaceRuntimeTeardownReservation?,
+        ingressReservation: TerminalSurfaceRuntimeTeardownIngressReservation
     )
     case cancel(
         ticketID: UUID,
-        result: AsyncStream<Bool>.Continuation
+        result: AsyncStream<Bool>.Continuation,
+        ingressReservation: TerminalSurfaceRuntimeTeardownIngressReservation
     )
-    case cancelAll
+    case cancelAll(
+        ingressReservation: TerminalSurfaceRuntimeTeardownIngressReservation
+    )
 }
 
 private struct TerminalSurfaceRuntimeActiveTeardown: Sendable {
@@ -211,9 +215,9 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     ///   - freeSurface: The free operation; defaults to
     ///     `ghostty_surface_free`.
     /// - Returns: A ticket that completes after the native free and userdata
-    ///   releases, or `nil` when the supplied ownership reservation is invalid
-    ///   or the bounded submission ingress rejects the request. On `nil`, the
-    ///   caller retains the native pointer and its callback userdata.
+    ///   releases, or `nil` when the supplied ownership reservation is invalid,
+    ///   was already transferred, or the submission stream has terminated. On
+    ///   `nil`, the caller retains the native pointer and its callback userdata.
     @discardableResult
     nonisolated func enqueueRuntimeTeardown(
         id: UUID,
@@ -232,9 +236,10 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             ghostty_surface_free(surface)
         }
     ) -> TerminalSurfaceRuntimeTeardownTicket? {
-        guard runtimeOwnershipAdmission.contains(
-            runtimeOwnershipReservation
-        ) else {
+        guard let ingressReservation =
+            runtimeOwnershipAdmission.claimIngressReservation(
+                for: runtimeOwnershipReservation
+            ) else {
             return nil
         }
         let completion = TerminalSurfaceRuntimeTeardownCompletion()
@@ -255,16 +260,23 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         let submission = TerminalSurfaceRuntimeTeardownSubmission.enqueue(
             request: request,
             executionLane: executionLane,
-            isolatedHibernationReservation: isolatedHibernationReservation
+            isolatedHibernationReservation: isolatedHibernationReservation,
+            ingressReservation: ingressReservation
         )
         switch submissionContinuation.yield(submission) {
         case .enqueued:
             return ticket
         case .dropped, .terminated:
-            runtimeOwnershipAdmission.release(runtimeOwnershipReservation)
+            runtimeOwnershipAdmission.releaseFailedSubmission(
+                ownership: runtimeOwnershipReservation,
+                ingress: ingressReservation
+            )
             return nil
         @unknown default:
-            runtimeOwnershipAdmission.release(runtimeOwnershipReservation)
+            runtimeOwnershipAdmission.releaseFailedSubmission(
+                ownership: runtimeOwnershipReservation,
+                ingress: ingressReservation
+            )
             return nil
         }
     }
@@ -276,26 +288,49 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     /// releases its reservation through the normal completion path.
     @discardableResult
     nonisolated func cancelRuntimeTeardown(ticketID: UUID) async -> Bool {
+        guard let ingressReservation =
+            runtimeOwnershipAdmission.reserveControlIngress() else {
+            return false
+        }
         let result = AsyncStream<Bool>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
         )
         switch submissionContinuation.yield(
-            .cancel(ticketID: ticketID, result: result.continuation)
+            .cancel(
+                ticketID: ticketID,
+                result: result.continuation,
+                ingressReservation: ingressReservation
+            )
         ) {
         case .enqueued:
             var iterator = result.stream.makeAsyncIterator()
             return await iterator.next() ?? false
         case .dropped, .terminated:
+            runtimeOwnershipAdmission.releaseIngress(ingressReservation)
             result.continuation.finish()
             return false
         @unknown default:
+            runtimeOwnershipAdmission.releaseIngress(ingressReservation)
             result.continuation.finish()
             return false
         }
     }
 
     nonisolated func cancelAllRuntimeTeardowns() {
-        _ = submissionContinuation.yield(.cancelAll)
+        guard let ingressReservation =
+            runtimeOwnershipAdmission.reserveControlIngress() else {
+            return
+        }
+        switch submissionContinuation.yield(
+            .cancelAll(ingressReservation: ingressReservation)
+        ) {
+        case .enqueued:
+            break
+        case .dropped, .terminated:
+            runtimeOwnershipAdmission.releaseIngress(ingressReservation)
+        @unknown default:
+            runtimeOwnershipAdmission.releaseIngress(ingressReservation)
+        }
     }
 
     private func receive(
@@ -305,18 +340,22 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         case .enqueue(
             let request,
             let executionLane,
-            let isolatedHibernationReservation
+            let isolatedHibernationReservation,
+            let ingressReservation
         ):
+            runtimeOwnershipAdmission.releaseIngress(ingressReservation)
             await enqueue(
                 request,
                 executionLane: executionLane,
                 isolatedHibernationReservation:
                     isolatedHibernationReservation
             )
-        case .cancel(let ticketID, let result):
+        case .cancel(let ticketID, let result, let ingressReservation):
+            runtimeOwnershipAdmission.releaseIngress(ingressReservation)
             result.yield(cancelStoredTeardown(ticketID: ticketID))
             result.finish()
-        case .cancelAll:
+        case .cancelAll(let ingressReservation):
+            runtimeOwnershipAdmission.releaseIngress(ingressReservation)
             cancelAllStoredTeardowns()
         }
     }
