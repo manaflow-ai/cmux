@@ -23,6 +23,7 @@ export const operations = Object.freeze({
   sessionSnapshot: op("session.snapshot", "read"),
   sessionCreationResolve: op("session.creation.resolve", "read"),
   sessionEvents: op("session.events", "stream_open"),
+  sessionJournalSubscribe: op("session.journal.subscribe", "stream_open"),
   sessionPing: op("session.ping", "read"),
   sessionShutdown: op("session.shutdown", "mutation"),
   sessionReloadConfig: op("session.reload_config", "mutation"),

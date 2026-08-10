@@ -121,6 +121,7 @@ fn agent_source(value: &str) -> anyhow::Result<AgentSource> {
 mod tests {
     use super::*;
     use crate::resource::{AgentPublicId, NotificationPublicId, TerminalPublicId};
+    #[cfg(unix)]
     use crate::terminal_host_runtime::TerminalHostIdentity;
     use crate::workspace_registry::{RegistryAgentProjection, RegistryNotificationProjection};
 
@@ -143,6 +144,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn zero_view_terminal_projections_restore_by_stable_content_identity() {
         let terminal = TerminalPublicId::parse("term_00000000000000000000000000000001").unwrap();

@@ -17,15 +17,16 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use cmux_tui_core::resource::FrontendProjectionPublicId;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
-    DEFAULT_VIEWPORT_PANE_WIDTH, Direction, GraphicsStatus, GuardedMouseEncode, LayoutUndoError,
-    LayoutUndoResult, MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, MuxEvent, Node,
-    PairingChallenge, PaneId, PointerSemanticProbe, PointerSnapshotProbe, Rect, ScreenId, SplitDir,
-    SplitEdge, SplitId, SurfaceId, SurfaceKind, TerminalPointerSnapshot, ViewportColumn,
-    ViewportLayoutResult, VirtualRect, WorkspaceId, ZoomMode, exact_split_for_pane_edge,
-    exact_split_for_pane_edge_with_viewport, layout_screen, layout_screen_with_viewport,
-    split_sides, zellij_default_pane_layout,
+    DEFAULT_VIEWPORT_PANE_WIDTH, Direction, FrontendFocusTarget, FrontendJournalEvent,
+    GraphicsStatus, GuardedMouseEncode, LayoutUndoError, LayoutUndoResult, MAX_VIEWPORT_PANE_WIDTH,
+    MIN_VIEWPORT_PANE_WIDTH, MuxEvent, Node, PairingChallenge, PaneId, PointerSemanticProbe,
+    PointerSnapshotProbe, Rect, ScreenId, SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind,
+    TerminalPointerSnapshot, ViewportColumn, ViewportLayoutResult, VirtualRect, WorkspaceId,
+    ZoomMode, exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
+    layout_screen_with_viewport, split_sides, zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -365,6 +366,165 @@ impl SessionEventWorker {
 impl Drop for SessionEventWorker {
     fn drop(&mut self) {
         self.stop_and_join();
+    }
+}
+
+struct PendingFrontendJournalEvent {
+    sequence: u64,
+    retry_at: Instant,
+    session: Session,
+    event: Box<FrontendJournalEvent>,
+}
+
+impl PendingFrontendJournalEvent {
+    fn slot(&self) -> usize {
+        match self.event.as_ref() {
+            FrontendJournalEvent::Focus { .. } => 0,
+            FrontendJournalEvent::Resize { .. } => 1,
+            FrontendJournalEvent::Viewport { .. } => 2,
+        }
+    }
+}
+
+#[derive(Default)]
+struct FrontendJournalQueueState {
+    pending: [Option<PendingFrontendJournalEvent>; 3],
+    next_sequence: u64,
+    stopping: bool,
+}
+
+#[derive(Default)]
+struct FrontendJournalQueue {
+    state: Mutex<FrontendJournalQueueState>,
+    changed: Condvar,
+}
+
+impl FrontendJournalQueue {
+    fn push(&self, session: Session, event: FrontendJournalEvent) {
+        let slot = match &event {
+            FrontendJournalEvent::Focus { .. } => 0,
+            FrontendJournalEvent::Resize { .. } => 1,
+            FrontendJournalEvent::Viewport { .. } => 2,
+        };
+        let mut state = self.state.lock().unwrap();
+        if state.stopping {
+            return;
+        }
+        state.next_sequence = state.next_sequence.wrapping_add(1).max(1);
+        let sequence = state.next_sequence;
+        state.pending[slot] = Some(PendingFrontendJournalEvent {
+            sequence,
+            retry_at: Instant::now(),
+            session,
+            event: Box::new(event),
+        });
+        drop(state);
+        self.changed.notify_one();
+    }
+
+    fn take(&self) -> Option<PendingFrontendJournalEvent> {
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if state.stopping {
+                return None;
+            }
+            let now = Instant::now();
+            if let Some(slot) = state
+                .pending
+                .iter()
+                .enumerate()
+                .filter_map(|(slot, pending)| {
+                    pending
+                        .as_ref()
+                        .filter(|pending| pending.retry_at <= now)
+                        .map(|pending| (slot, pending.sequence))
+                })
+                .min_by_key(|(_, sequence)| *sequence)
+                .map(|(slot, _)| slot)
+            {
+                return state.pending[slot].take();
+            }
+            if let Some(retry_at) =
+                state.pending.iter().flatten().map(|pending| pending.retry_at).min()
+            {
+                let wait = retry_at.saturating_duration_since(now);
+                (state, _) = self.changed.wait_timeout(state, wait).unwrap();
+            } else {
+                state = self.changed.wait(state).unwrap();
+            }
+        }
+    }
+
+    fn retry(&self, mut pending: PendingFrontendJournalEvent) {
+        let slot = pending.slot();
+        let mut state = self.state.lock().unwrap();
+        if state.stopping || state.pending[slot].is_some() {
+            return;
+        }
+        pending.retry_at = Instant::now() + Duration::from_millis(100);
+        state.pending[slot] = Some(pending);
+        drop(state);
+        self.changed.notify_one();
+    }
+
+    fn stop(&self) {
+        self.state.lock().unwrap().stopping = true;
+        self.changed.notify_one();
+    }
+
+    #[cfg(test)]
+    fn pending_count(&self) -> usize {
+        self.state.lock().unwrap().pending.iter().flatten().count()
+    }
+}
+
+struct FrontendJournalWorker {
+    queue: Option<Arc<FrontendJournalQueue>>,
+    worker: Option<JoinHandle<()>>,
+}
+
+impl FrontendJournalWorker {
+    fn spawn() -> anyhow::Result<Self> {
+        let queue = Arc::new(FrontendJournalQueue::default());
+        let worker_queue = queue.clone();
+        let worker = std::thread::Builder::new()
+            .name("frontend-session-journal".into())
+            .spawn(move || run_frontend_journal_worker(&worker_queue))?;
+        Ok(Self { queue: Some(queue), worker: Some(worker) })
+    }
+
+    #[cfg(test)]
+    const fn disabled() -> Self {
+        Self { queue: None, worker: None }
+    }
+
+    fn send(&self, session: Session, event: FrontendJournalEvent) {
+        if let Some(queue) = &self.queue {
+            queue.push(session, event);
+        }
+    }
+
+    fn stop_and_join(&mut self) {
+        if let Some(queue) = self.queue.take() {
+            queue.stop();
+        }
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+impl Drop for FrontendJournalWorker {
+    fn drop(&mut self) {
+        self.stop_and_join();
+    }
+}
+
+fn run_frontend_journal_worker(queue: &FrontendJournalQueue) {
+    while let Some(pending) = queue.take() {
+        if pending.session.journal_frontend_event(pending.event.as_ref().clone()).is_err() {
+            queue.retry(pending);
+        }
     }
 }
 
@@ -3688,6 +3848,43 @@ pub enum FocusTarget {
     ProjectionRail(usize),
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FrontendFocusSnapshot {
+    target: FrontendFocusTarget,
+    workspace_id: Option<cmux_tui_core::resource::WorkspacePublicId>,
+    screen_id: Option<cmux_tui_core::resource::ScreenPublicId>,
+    pane_id: Option<cmux_tui_core::resource::PanePublicId>,
+    tab_id: Option<cmux_tui_core::resource::TabPublicId>,
+    content_id: Option<cmux_tui_core::resource::ContentPublicId>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FrontendResizeSnapshot {
+    cols: u16,
+    rows: u16,
+    cell_width: u16,
+    cell_height: u16,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FrontendViewportSnapshot {
+    screen_id: Option<cmux_tui_core::resource::ScreenPublicId>,
+    offset: u64,
+    target: u64,
+    settled: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FrontendPresentationSnapshot {
+    focus: FrontendFocusSnapshot,
+    resize: FrontendResizeSnapshot,
+    viewport: FrontendViewportSnapshot,
+}
+
+fn frontend_journal_event_id() -> String {
+    format!("event_frontend_{}", uuid::Uuid::new_v4().simple())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RailPlacement {
     pub kind: RailKind,
@@ -6303,6 +6500,10 @@ pub struct App {
     session_event_worker: Option<SessionEventWorker>,
     session_generation: u64,
     app_events: SyncSender<AppEvent>,
+    frontend_journal: FrontendJournalWorker,
+    frontend_projection_id: FrontendProjectionPublicId,
+    last_frontend_presentation: Option<FrontendPresentationSnapshot>,
+    outer_size: (u16, u16),
     host_input: HostInputRuntime,
     machine_action_worker: Option<MachineActionWorker>,
     machine_action_in_flight: bool,
@@ -7758,11 +7959,23 @@ fn run_with_machine_updates_inner(
         .or_else(|| machine_ui.as_ref().and_then(|machine| machine.notice.clone()));
     let machine_selection_intent = machine_ui.as_ref().and_then(|machine| machine.snapshot.active);
     let machine_presented = machine_ui.as_ref().and_then(|machine| machine.snapshot.active);
+    let frontend_journal = match FrontendJournalWorker::spawn() {
+        Ok(worker) => worker,
+        Err(error) => return Err(terminal_restore.restore_after_error(error)),
+    };
+    let frontend_projection_id = match FrontendProjectionPublicId::random() {
+        Ok(id) => id,
+        Err(error) => return Err(terminal_restore.restore_after_error(error.into())),
+    };
     let mut app = App {
         session,
         session_event_worker: Some(session_event_worker),
         session_generation,
         app_events: tx,
+        frontend_journal,
+        frontend_projection_id,
+        last_frontend_presentation: None,
+        outer_size: (0, 0),
         host_input,
         machine_action_worker,
         machine_action_in_flight: false,
@@ -8876,6 +9089,7 @@ impl App {
         } else {
             PointerRoutePhase::Fresh
         };
+        self.journal_frontend_presentation();
         let mut terminal_paints = TerminalPaintPacer::after_paint(Instant::now());
 
         let mut replay_ready =
@@ -9048,6 +9262,7 @@ impl App {
     }
 
     fn shutdown_background_workers(&mut self) {
+        self.frontend_journal.stop_and_join();
         if let Some(mut updates) = self.machine_update_pump.take() {
             updates.stop_and_join();
         }
@@ -9787,6 +10002,7 @@ impl App {
         } = prepared;
         self.pty_input.activate_session_generation(generation);
         self.session_generation = generation;
+        self.last_frontend_presentation = None;
         let previous_session = std::mem::replace(&mut self.session, session);
         let previous_worker = self.session_event_worker.replace(event_worker);
         self.mux_titles = mux_titles;
@@ -9940,7 +10156,153 @@ impl App {
                 PointerRoutePhase::Fresh
             };
         }
+        self.journal_frontend_presentation();
         Ok(())
+    }
+
+    fn frontend_presentation_snapshot(&self) -> FrontendPresentationSnapshot {
+        let workspace = self.tree.active_workspace();
+        let screen = workspace.and_then(|workspace| workspace.active_screen_ref());
+        let pane = screen.and_then(|screen| screen.pane(screen.active_pane));
+        let tab = pane.and_then(|pane| pane.tabs.get(pane.active_tab));
+        let focus = FrontendFocusSnapshot {
+            target: match self.focus {
+                FocusTarget::Pane => FrontendFocusTarget::Pane,
+                FocusTarget::MachineRail => FrontendFocusTarget::MachineRail,
+                FocusTarget::WorkspaceRail => FrontendFocusTarget::WorkspaceRail,
+                FocusTarget::TabsRail => FrontendFocusTarget::TabsRail,
+                FocusTarget::ProjectionRail(_) => FrontendFocusTarget::ProjectionRail,
+            },
+            workspace_id: workspace.and_then(|workspace| workspace.resource_id.clone()),
+            screen_id: screen.and_then(|screen| screen.resource_id.clone()),
+            pane_id: pane.and_then(|pane| pane.resource_id.clone()),
+            tab_id: tab.and_then(|tab| tab.public_id.clone()),
+            content_id: tab.and_then(|tab| tab.content_id.clone()),
+        };
+        let resize = FrontendResizeSnapshot {
+            cols: self.outer_size.0,
+            rows: self.outer_size.1,
+            cell_width: self.cell_pixels.0,
+            cell_height: self.cell_pixels.1,
+        };
+        let (target, settled) = screen
+            .and_then(|screen| self.viewport_states.get(&screen.id))
+            .map_or((self.viewport_offset, true), |motion| {
+                (motion.target.round() as u64, !motion.animating())
+            });
+        let viewport = FrontendViewportSnapshot {
+            screen_id: screen.and_then(|screen| screen.resource_id.clone()),
+            offset: if settled { self.viewport_offset } else { target },
+            target,
+            settled,
+        };
+        FrontendPresentationSnapshot { focus, resize, viewport }
+    }
+
+    fn frontend_presentation_unchanged(&self) -> bool {
+        let Some(previous) = &self.last_frontend_presentation else { return false };
+        let workspace = self.tree.active_workspace();
+        let screen = workspace.and_then(|workspace| workspace.active_screen_ref());
+        let pane = screen.and_then(|screen| screen.pane(screen.active_pane));
+        let tab = pane.and_then(|pane| pane.tabs.get(pane.active_tab));
+        let target = match self.focus {
+            FocusTarget::Pane => FrontendFocusTarget::Pane,
+            FocusTarget::MachineRail => FrontendFocusTarget::MachineRail,
+            FocusTarget::WorkspaceRail => FrontendFocusTarget::WorkspaceRail,
+            FocusTarget::TabsRail => FrontendFocusTarget::TabsRail,
+            FocusTarget::ProjectionRail(_) => FrontendFocusTarget::ProjectionRail,
+        };
+        if previous.focus.target != target
+            || previous.focus.workspace_id.as_ref()
+                != workspace.and_then(|workspace| workspace.resource_id.as_ref())
+            || previous.focus.screen_id.as_ref()
+                != screen.and_then(|screen| screen.resource_id.as_ref())
+            || previous.focus.pane_id.as_ref() != pane.and_then(|pane| pane.resource_id.as_ref())
+            || previous.focus.tab_id.as_ref() != tab.and_then(|tab| tab.public_id.as_ref())
+            || previous.focus.content_id.as_ref() != tab.and_then(|tab| tab.content_id.as_ref())
+        {
+            return false;
+        }
+        if previous.resize
+            != (FrontendResizeSnapshot {
+                cols: self.outer_size.0,
+                rows: self.outer_size.1,
+                cell_width: self.cell_pixels.0,
+                cell_height: self.cell_pixels.1,
+            })
+        {
+            return false;
+        }
+        let (target, settled) = screen
+            .and_then(|screen| self.viewport_states.get(&screen.id))
+            .map_or((self.viewport_offset, true), |motion| {
+                (motion.target.round() as u64, !motion.animating())
+            });
+        previous.viewport.screen_id.as_ref()
+            == screen.and_then(|screen| screen.resource_id.as_ref())
+            && previous.viewport.offset == if settled { self.viewport_offset } else { target }
+            && previous.viewport.target == target
+            && previous.viewport.settled == settled
+    }
+
+    fn journal_frontend_presentation(&mut self) {
+        if self.outer_size.0 == 0 || self.outer_size.1 == 0 {
+            return;
+        }
+        if self.frontend_presentation_unchanged() {
+            return;
+        }
+        let next = self.frontend_presentation_snapshot();
+        let previous = self.last_frontend_presentation.replace(next.clone());
+        let generation = format!("{}_{}", self.frontend_projection_id, self.session_generation);
+        let session = self.session.inner.clone();
+        if previous.as_ref().is_none_or(|previous| previous.focus != next.focus) {
+            let focus = next.focus;
+            self.frontend_journal.send(
+                session.clone(),
+                FrontendJournalEvent::Focus {
+                    event_id: frontend_journal_event_id(),
+                    frontend_projection_id: self.frontend_projection_id.clone(),
+                    generation: generation.clone(),
+                    target: focus.target,
+                    workspace_id: focus.workspace_id,
+                    screen_id: focus.screen_id,
+                    pane_id: focus.pane_id,
+                    tab_id: focus.tab_id,
+                    content_id: focus.content_id,
+                },
+            );
+        }
+        if previous.as_ref().is_none_or(|previous| previous.resize != next.resize) {
+            let resize = next.resize;
+            self.frontend_journal.send(
+                session.clone(),
+                FrontendJournalEvent::Resize {
+                    event_id: frontend_journal_event_id(),
+                    frontend_projection_id: self.frontend_projection_id.clone(),
+                    generation: generation.clone(),
+                    cols: resize.cols,
+                    rows: resize.rows,
+                    cell_width: resize.cell_width,
+                    cell_height: resize.cell_height,
+                },
+            );
+        }
+        if previous.as_ref().is_none_or(|previous| previous.viewport != next.viewport) {
+            let viewport = next.viewport;
+            self.frontend_journal.send(
+                session,
+                FrontendJournalEvent::Viewport {
+                    event_id: frontend_journal_event_id(),
+                    frontend_projection_id: self.frontend_projection_id.clone(),
+                    generation,
+                    screen_id: viewport.screen_id,
+                    offset: viewport.offset,
+                    target: viewport.target,
+                    settled: viewport.settled,
+                },
+            );
+        }
     }
 
     fn mark_pointer_route_for_rebuild(&mut self, action: RenderAction) {
@@ -11770,6 +12132,7 @@ impl App {
     /// content sizes to surfaces.
     fn sync_layout(&mut self, size: (u16, u16)) {
         let (width, height) = size;
+        self.outer_size = size;
         let sidebar_layout = if self.surface_only.is_some() {
             SidebarLayout {
                 content: Rect { x: 0, y: 0, width, height },
@@ -20964,12 +21327,13 @@ mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
         DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,
-        DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, GraphicIdentity,
-        GraphicPlacement, GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode,
-        HostInputIngress, HostInputRuntime, MachineActionWorker, MachineConnectRoute, MenuAction,
-        MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession,
-        OuterCursorSpec, PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge,
-        PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
+        DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, FrontendJournalQueue,
+        FrontendJournalWorker, GraphicIdentity, GraphicPlacement, GraphicSourceRect,
+        GraphicsSceneCache, GuardedMouseEncode, HostInputIngress, HostInputRuntime,
+        MachineActionWorker, MachineConnectRoute, MenuAction, MenuItem, MutationImpact,
+        MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession, OuterCursorSpec, PaneArea,
+        PaneAreaProjection, PaneContentGeneration, PaneEdge, PaneFocusHistory,
+        PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
         PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
         Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
         RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SessionCompletion,
@@ -20994,6 +21358,7 @@ mod tests {
         start_ordered_session, swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
         workspace_creation_selection,
     };
+    use cmux_tui_core::{FrontendFocusTarget, FrontendJournalEvent};
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -21001,6 +21366,7 @@ mod tests {
     use std::sync::{Arc, Barrier, Mutex};
     use std::time::{Duration, Instant};
 
+    use cmux_tui_core::resource::FrontendProjectionPublicId;
     use cmux_tui_core::{
         AgentSource, AgentState, BrowserFrame, BrowserStatus, Direction, LayoutUndoError, Mux,
         MuxEvent, Node, PointerSnapshotProbe, Rect, SplitDir, SurfaceId, SurfaceKind,
@@ -21081,6 +21447,106 @@ mod tests {
             urgent.render_immediately(RenderAction::None, started),
             RenderAction::Paint,
             "deferred input must flush the pointer route before replay"
+        );
+    }
+
+    #[test]
+    fn frontend_journal_skips_unchanged_presentation_frames() {
+        let mux = Mux::new("frontend-journal-frame-dedupe", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.outer_size = (80, 24);
+        assert!(!app.frontend_presentation_unchanged());
+        app.last_frontend_presentation = Some(app.frontend_presentation_snapshot());
+        assert!(app.frontend_presentation_unchanged());
+
+        app.outer_size.0 = 81;
+        assert!(!app.frontend_presentation_unchanged());
+        app.outer_size.0 = 80;
+        app.focus = FocusTarget::WorkspaceRail;
+        assert!(!app.frontend_presentation_unchanged());
+    }
+
+    #[test]
+    fn frontend_journal_queue_keeps_only_the_latest_event_of_each_type() {
+        let queue = FrontendJournalQueue::default();
+        fn event_id(event: &FrontendJournalEvent) -> &str {
+            match event {
+                FrontendJournalEvent::Focus { event_id, .. }
+                | FrontendJournalEvent::Resize { event_id, .. }
+                | FrontendJournalEvent::Viewport { event_id, .. } => event_id,
+            }
+        }
+        let session = Session::Local(Mux::new(
+            "frontend-journal-bounded-coalescing",
+            SurfaceOptions::default(),
+        ));
+        let projection =
+            FrontendProjectionPublicId::parse("projection_00000000000000000000000000000001")
+                .unwrap();
+        let focus = |event_id: &str| FrontendJournalEvent::Focus {
+            event_id: event_id.into(),
+            frontend_projection_id: projection.clone(),
+            generation: "generation-1".into(),
+            target: FrontendFocusTarget::Pane,
+            workspace_id: None,
+            screen_id: None,
+            pane_id: None,
+            tab_id: None,
+            content_id: None,
+        };
+
+        queue.push(session.clone(), focus("focus-old"));
+        queue.push(
+            session.clone(),
+            FrontendJournalEvent::Resize {
+                event_id: "resize-latest".into(),
+                frontend_projection_id: projection.clone(),
+                generation: "generation-1".into(),
+                cols: 80,
+                rows: 24,
+                cell_width: 8,
+                cell_height: 16,
+            },
+        );
+        queue.push(
+            session.clone(),
+            FrontendJournalEvent::Viewport {
+                event_id: "viewport-latest".into(),
+                frontend_projection_id: projection.clone(),
+                generation: "generation-1".into(),
+                screen_id: None,
+                offset: 0,
+                target: 0,
+                settled: true,
+            },
+        );
+        queue.push(session.clone(), focus("focus-latest"));
+
+        assert_eq!(queue.pending_count(), 3);
+        assert_eq!(event_id(&queue.take().unwrap().event), "resize-latest");
+        assert_eq!(event_id(&queue.take().unwrap().event), "viewport-latest");
+        assert_eq!(event_id(&queue.take().unwrap().event), "focus-latest");
+
+        queue.push(session.clone(), focus("focus-retry"));
+        queue.push(
+            session,
+            FrontendJournalEvent::Resize {
+                event_id: "resize-ready".into(),
+                frontend_projection_id: projection,
+                generation: "generation-1".into(),
+                cols: 81,
+                rows: 24,
+                cell_width: 8,
+                cell_height: 16,
+            },
+        );
+        let failed = queue.take().unwrap();
+        assert_eq!(event_id(&failed.event), "focus-retry");
+        queue.retry(failed);
+        assert_eq!(
+            event_id(&queue.take().unwrap().event),
+            "resize-ready",
+            "a delayed retry must not block another coalesced event type"
         );
     }
 
@@ -23951,6 +24417,8 @@ mod tests {
             name: None,
             tabs: vec![TabView {
                 surface,
+                public_id: None,
+                content_id: None,
                 terminal_id: None,
                 short_id: format!("t{surface}"),
                 name: None,
@@ -24008,6 +24476,8 @@ mod tests {
             name: None,
             tabs: vec![TabView {
                 surface,
+                public_id: None,
+                content_id: None,
                 terminal_id: None,
                 short_id: format!("t{surface}"),
                 name: None,
@@ -24078,6 +24548,8 @@ mod tests {
                     name: None,
                     tabs: vec![TabView {
                         surface: 100 + id,
+                        public_id: None,
+                        content_id: None,
                         terminal_id: None,
                         short_id: format!("t{id}"),
                         name: None,
@@ -24138,6 +24610,8 @@ mod tests {
             name: None,
             tabs: vec![TabView {
                 surface: 100 + id,
+                public_id: None,
+                content_id: None,
                 terminal_id: None,
                 short_id: format!("t{id}"),
                 name: None,
@@ -24268,6 +24742,8 @@ mod tests {
                             name: None,
                             tabs: vec![TabView {
                                 surface: 11,
+                                public_id: None,
+                                content_id: None,
                                 terminal_id: None,
                                 short_id: "t1".to_string(),
                                 name: None,
@@ -24288,6 +24764,8 @@ mod tests {
                             name: None,
                             tabs: vec![TabView {
                                 surface: 12,
+                                public_id: None,
+                                content_id: None,
                                 terminal_id: None,
                                 short_id: "t2".to_string(),
                                 name: None,
@@ -34073,6 +34551,8 @@ mod tests {
     fn browser_completion_tree(created_surface: SurfaceId, active_surface: SurfaceId) -> TreeView {
         let tab = |surface| TabView {
             surface,
+            public_id: None,
+            content_id: None,
             terminal_id: None,
             short_id: format!("{surface:06}"),
             name: None,
@@ -38811,6 +39291,13 @@ mod tests {
             session_event_worker: None,
             session_generation: 1,
             app_events: events,
+            frontend_journal: FrontendJournalWorker::disabled(),
+            frontend_projection_id: FrontendProjectionPublicId::parse(
+                "projection_00000000000000000000000000000001",
+            )
+            .unwrap(),
+            last_frontend_presentation: None,
+            outer_size: (0, 0),
             host_input: HostInputRuntime::new(),
             machine_action_worker: None,
             machine_action_in_flight: false,
@@ -38996,6 +39483,8 @@ mod tests {
                         focused_at: 0,
                         tabs: vec![TabView {
                             surface,
+                            public_id: None,
+                            content_id: None,
                             terminal_id: None,
                             short_id: "000001".to_string(),
                             name: Some("tab".to_string()),

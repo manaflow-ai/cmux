@@ -19,9 +19,10 @@ use crate::resource::{
 };
 use crate::sidebar_resource::{sidebar_snapshot, sidebar_view_id};
 use crate::workspace_registry::{
-    RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus,
-    RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryTerminal,
-    RegistryViewport, ResourceEffectOutcome, ResourceEffectPreparation, TerminalLifecycle,
+    FrontendProjection, RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource,
+    RegistryBrowserStatus, RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab,
+    RegistryTerminal, RegistryViewport, ResourceEffectOutcome, ResourceEffectPreparation,
+    TerminalLifecycle,
 };
 use crate::{Mux, ResourceSelectors};
 
@@ -29,6 +30,34 @@ use crate::{Mux, ResourceSelectors};
 thread_local! {
     static SNAPSHOT_BEFORE_PROJECTION_HOOK: RefCell<Option<Box<dyn FnOnce()>>> =
         RefCell::new(None);
+}
+
+pub(crate) fn public_frontend_projection_snapshot(
+    session_id: &SessionPublicId,
+    id: &FrontendProjectionPublicId,
+    stored: &FrontendProjection,
+) -> Result<Value, ResourceError> {
+    let malformed = || {
+        ResourceError::operation_failed(
+            "frontend_projection.get",
+            "stored frontend projection is malformed",
+            json!({"frontend_projection":id}),
+        )
+    };
+    let envelope = stored.projection.as_object().ok_or_else(&malformed)?;
+    let frontend_id = envelope.get("frontend_id").and_then(Value::as_str).ok_or_else(&malformed)?;
+    let window_id = envelope.get("window_id").and_then(Value::as_str).ok_or_else(&malformed)?;
+    let generation = envelope.get("generation").and_then(Value::as_str).ok_or_else(&malformed)?;
+    let projection = envelope.get("projection").cloned().ok_or_else(&malformed)?;
+    Ok(json!({
+        "id":id,
+        "session_id":session_id,
+        "frontend_id":frontend_id,
+        "window_id":window_id,
+        "generation":generation,
+        "projection":projection,
+        "projection_revision":stored.projection_revision.to_string(),
+    }))
 }
 
 #[cfg(test)]
@@ -692,12 +721,8 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
             .frontend_projections
             .into_iter()
             .map(|projection| {
-                let id = FrontendProjectionPublicId::parse(projection.subject_key)?;
-                Ok(json!({
-                    "id": id,
-                    "session_id": topology.session_id,
-                    "projection": projection.projection,
-                }))
+                let id = FrontendProjectionPublicId::parse(projection.subject_key.as_str())?;
+                public_frontend_projection_snapshot(&topology.session_id, &id, &projection)
             })
             .collect::<Result<Vec<_>, ResourceError>>()?;
         let _terminal_defaults = public_projections.terminal_defaults;
@@ -852,7 +877,7 @@ fn public_browser_snapshot(
             RegistryBrowserSource::External => "external",
             RegistryBrowserSource::Launched => "launched",
             RegistryBrowserSource::Unknown => match durable.launch {
-                RegistryBrowserLaunch::Create => "launched",
+                RegistryBrowserLaunch::Create => "external",
                 RegistryBrowserLaunch::Adopted => "external",
             },
         });
@@ -1095,6 +1120,9 @@ mod tests {
                 "machine":"current",
                 "session":"current",
                 "frontend_projection":"projection_00000000000000000000000000000001",
+                "frontend_id":"cmux-test",
+                "window_id":"window-snapshot-cut",
+                "generation":"launch-snapshot-cut",
                 "projection":{"cut":"after"},
             }),
             Some("snapshot-cut-projection"),
