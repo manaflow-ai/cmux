@@ -20736,8 +20736,8 @@ mod tests {
         let host = mux
             .resource_terminal_host_identity(&surface)
             .expect("test terminal has a host identity");
-        let public_id = match surface.resource_identity().unwrap().content_id {
-            ContentPublicId::Terminal(public_id) => public_id,
+        let public_id = match &surface.resource_identity().unwrap().content_id {
+            ContentPublicId::Terminal(public_id) => public_id.clone(),
             ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
         };
         let mutation = WorkspaceMutation::new("lost-host-close-reply", "legacy-client").unwrap();
@@ -20781,8 +20781,8 @@ mod tests {
         let host = mux
             .resource_terminal_host_identity(&surface)
             .expect("test terminal has a host identity");
-        let public_id = match surface.resource_identity().unwrap().content_id {
-            ContentPublicId::Terminal(public_id) => public_id,
+        let public_id = match &surface.resource_identity().unwrap().content_id {
+            ContentPublicId::Terminal(public_id) => public_id.clone(),
             ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
         };
         let host_close = mux
