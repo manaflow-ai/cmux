@@ -5240,11 +5240,8 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     private func launchConnectedAppViaManualPairing(port: UInt16) throws -> XCUIApplication {
         let portText = String(port)
-        guard let finalPortDigit = portText.last else {
-            throw URLError(.badURL)
-        }
         let app = launchApp(mockData: true, environment: [
-            "CMUX_UITEST_ADD_DEVICE_PORT": String(portText.dropLast()),
+            "CMUX_UITEST_ADD_DEVICE_PORT": portText,
         ], launchArguments: [
             "-cmux.mobile.taskComposerEnabled", "YES",
         ])
@@ -5258,8 +5255,6 @@ final class cmuxUITests: XCTestCase {
 
         let portField = app.textFields["MobileAddDevicePortField"]
         XCTAssertTrue(portField.waitForExistence(timeout: 4))
-        portField.tap()
-        portField.typeText(String(finalPortDigit))
         XCTAssertEqual(hostField.value as? String, "127.0.0.1")
         XCTAssertEqual(portField.value as? String, portText)
 
