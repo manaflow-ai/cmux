@@ -437,7 +437,7 @@ fn run_pty(
     let (event_sender, event_receiver) = mpsc::channel();
     let writer_for_reader = writer.clone();
     let marker_bytes = marker.into_bytes();
-    let diagnostic = Arc::new(Mutex::new(Vec::new()));
+    let diagnostic = Arc::new(Mutex::new(VecDeque::new()));
     let diagnostic_for_reader = diagnostic.clone();
     let probe_queries = Arc::new(AtomicUsize::new(0));
     let probe_queries_for_reader = probe_queries.clone();
@@ -719,10 +719,13 @@ fn headless_args(session: &str, socket: &Path, state: Option<&Path>) -> Vec<Stri
 
 struct RunningHeadless {
     child: Option<Child>,
+    process_tree: CapturedProcessTree,
     socket: PathBuf,
     started: Instant,
     events: mpsc::Receiver<StreamEvent>,
-    reader: Option<thread::JoinHandle<std::io::Result<Vec<u8>>>>,
+    reader_receiver: mpsc::Receiver<io::Result<Vec<u8>>>,
+    reader: Option<thread::JoinHandle<()>>,
+    reader_cancelled: Arc<AtomicBool>,
 }
 
 struct CompletionTimings {
@@ -733,22 +736,46 @@ struct CompletionTimings {
 impl RunningHeadless {
     fn start(common: &Common, args: Vec<String>, socket: &Path, wrapped: bool) -> Result<Self> {
         let mut command = common.std_command(&args, wrapped)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
         command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
         let started = Instant::now();
         let mut child = command.spawn()?;
+        let process_tree = CapturedProcessTree::new(child.id());
         let stderr = child.stderr.take().context("headless stderr pipe missing")?;
         let needle =
             format!("cmux-tui: headless, control socket at {}", socket.display()).into_bytes();
         let (sender, events) = mpsc::channel();
-        let reader = thread::Builder::new()
-            .name("startup-benchmark-stderr".into())
-            .spawn(move || read_until_event(stderr, needle, sender))?;
+        let (reader_sender, reader_receiver) = mpsc::channel();
+        let reader_cancelled = Arc::new(AtomicBool::new(false));
+        let reader_cancelled_for_thread = reader_cancelled.clone();
+        let reader =
+            match thread::Builder::new().name("startup-benchmark-stderr".into()).spawn(move || {
+                let result = read_until_event(stderr, needle, sender, reader_cancelled_for_thread);
+                let _ = reader_sender.send(result);
+            }) {
+                Ok(reader) => reader,
+                Err(error) => {
+                    let tree_error = process_tree.terminate().err();
+                    if tree_error.is_some() {
+                        let _ = child.kill();
+                    }
+                    let _ = child.wait_timeout(PROCESS_TIMEOUT);
+                    return Err(error).context("spawn headless stderr reader");
+                }
+            };
         Ok(Self {
             child: Some(child),
+            process_tree,
             socket: socket.to_path_buf(),
             started,
             events,
+            reader_receiver,
             reader: Some(reader),
+            reader_cancelled,
         })
     }
 
@@ -756,76 +783,144 @@ impl RunningHeadless {
         match self.events.recv_timeout(EVENT_TIMEOUT) {
             Ok(StreamEvent::Found(at)) => Ok(at),
             Ok(StreamEvent::Ended) => {
-                let output = self.terminate_and_read();
-                bail!(
-                    "headless process exited before readiness: {}",
-                    String::from_utf8_lossy(&output)
-                );
+                self.fail(anyhow!("headless process exited before readiness"))
             }
             Ok(StreamEvent::Failed(error)) => {
-                let output = self.terminate_and_read();
-                bail!(
-                    "headless stderr failed before readiness ({error}): {}",
-                    String::from_utf8_lossy(&output)
-                );
+                self.fail(anyhow!("headless stderr failed before readiness: {error}"))
             }
-            Err(error) => {
-                let output = self.terminate_and_read();
-                bail!(
-                    "headless readiness deadline expired ({error}): {}",
-                    String::from_utf8_lossy(&output)
-                );
-            }
+            Err(error) => self.fail(anyhow!("headless readiness deadline expired: {error}")),
         }
     }
 
     fn shutdown_and_wait(&mut self, common: &Common) -> Result<CompletionTimings> {
         let exit_started = Instant::now();
         json_cli(common, &self.socket, &["session", "current", "shutdown"])?;
-        let child = self.child.as_mut().context("headless process already reaped")?;
-        let status = wait_child(child, PROCESS_TIMEOUT)?;
+        let status = self.wait_for_exit()?;
         let process_exit = exit_started.elapsed();
-        let join_started = Instant::now();
-        let output = self.join_reader()?;
-        let thread_join = join_started.elapsed();
         self.child = None;
+        let join_started = Instant::now();
+        let output = self.finish_reader(PROCESS_TIMEOUT)?;
+        let thread_join = join_started.elapsed();
         if !status.success() {
             bail!("headless process exited with {status}: {}", String::from_utf8_lossy(&output));
         }
         Ok(CompletionTimings { process_exit, thread_join })
     }
 
-    fn join_reader(&mut self) -> Result<Vec<u8>> {
-        self.reader
-            .take()
-            .context("headless reader already joined")?
-            .join()
-            .map_err(|_| anyhow!("headless stderr reader panicked"))?
-            .map_err(Into::into)
+    fn wait_for_exit(&mut self) -> Result<ExitStatus> {
+        let child = self.child.as_mut().context("headless process already reaped")?;
+        if let Some(status) = child.wait_timeout(PROCESS_TIMEOUT)? {
+            return Ok(status);
+        }
+        let tree_error = self.process_tree.terminate().err();
+        let kill_error = if tree_error.is_some() { child.kill().err() } else { None };
+        let status = child
+            .wait_timeout(PROCESS_TIMEOUT)?
+            .context("headless process did not exit after full-tree termination")?;
+        let mut error = anyhow!("headless process exceeded {PROCESS_TIMEOUT:?} and was killed");
+        if let Some(tree_error) = tree_error {
+            error = error.context(format!("process-tree termination also failed: {tree_error}"));
+        }
+        if let Some(kill_error) = kill_error {
+            error = error.context(format!("direct child kill also failed: {kill_error}"));
+        }
+        Err(error.context(format!("killed process status was {status}")))
     }
 
-    fn terminate_and_read(&mut self) -> Vec<u8> {
-        if let Some(child) = self.child.as_mut() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-        self.child = None;
+    fn cancel_reader(&self) -> io::Result<()> {
+        let reader = self
+            .reader
+            .as_ref()
+            .ok_or_else(|| io::Error::other("headless stderr reader already joined"))?;
+        cancel_blocking_reader(reader, &self.reader_cancelled)
+    }
+
+    fn finish_reader(&mut self, timeout: Duration) -> Result<Vec<u8>> {
+        let result = match self.reader_receiver.recv_timeout(timeout) {
+            Ok(result) => result,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let tree_error = self.process_tree.terminate_after_exit().err();
+                let cancel_error = self.cancel_reader().err();
+                let recovery = self
+                    .reader_receiver
+                    .recv_timeout(PROCESS_TIMEOUT)
+                    .context("wait for headless stderr after cancellation");
+                let result = match recovery {
+                    Ok(result) => result,
+                    Err(recovery) => {
+                        let mut error = recovery;
+                        if let Some(tree_error) = tree_error {
+                            error = error.context(format!(
+                                "process-tree termination also failed: {tree_error}"
+                            ));
+                        }
+                        if let Some(cancel_error) = cancel_error {
+                            error = error.context(format!(
+                                "stderr-reader cancellation also failed: {cancel_error}"
+                            ));
+                        }
+                        return Err(error);
+                    }
+                };
+                result
+            }
+            Err(error) => return Err(error).context("wait for headless stderr completion"),
+        };
         self.reader
             .take()
-            .and_then(|reader| reader.join().ok())
-            .and_then(Result::ok)
-            .unwrap_or_default()
+            .context("headless stderr reader already joined")?
+            .join()
+            .map_err(|_| anyhow!("headless stderr reader panicked"))?;
+        result.context("read headless stderr")
+    }
+
+    fn terminate_and_read(&mut self) -> Result<Vec<u8>> {
+        let mut process_error = None;
+        if let Some(child) = self.child.as_mut() {
+            let tree_error = self.process_tree.terminate().err();
+            let kill_error = if tree_error.is_some() { child.kill().err() } else { None };
+            let status = child.wait_timeout(PROCESS_TIMEOUT)?;
+            if status.is_none() || tree_error.is_some() || kill_error.is_some() {
+                let mut error = status
+                    .map(|status| anyhow!("terminated headless process exited with {status}"))
+                    .unwrap_or_else(|| anyhow!("headless process did not exit after termination"));
+                if let Some(tree_error) = tree_error {
+                    error = error
+                        .context(format!("process-tree termination also failed: {tree_error}"));
+                }
+                if let Some(kill_error) = kill_error {
+                    error = error.context(format!("direct child kill also failed: {kill_error}"));
+                }
+                process_error = Some(error);
+            }
+        }
+        self.child = None;
+        self.cancel_reader()?;
+        let output = self.finish_reader(PROCESS_TIMEOUT)?;
+        if let Some(error) = process_error {
+            return Err(
+                error.context(format!("headless stderr: {}", String::from_utf8_lossy(&output)))
+            );
+        }
+        Ok(output)
+    }
+
+    fn fail<T>(&mut self, error: anyhow::Error) -> Result<T> {
+        match self.terminate_and_read() {
+            Ok(output) => {
+                Err(error.context(format!("headless stderr: {}", String::from_utf8_lossy(&output))))
+            }
+            Err(cleanup) => {
+                Err(error.context(format!("headless cleanup also failed: {cleanup:#}")))
+            }
+        }
     }
 }
 
 impl Drop for RunningHeadless {
     fn drop(&mut self) {
-        if let Some(child) = self.child.as_mut() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-        if let Some(reader) = self.reader.take() {
-            let _ = reader.join();
+        if self.child.is_some() || self.reader.is_some() {
+            let _ = self.terminate_and_read();
         }
     }
 }
@@ -840,24 +935,37 @@ fn read_until_event(
     mut reader: impl Read,
     needle: Vec<u8>,
     sender: mpsc::Sender<StreamEvent>,
+    cancelled: Arc<AtomicBool>,
 ) -> std::io::Result<Vec<u8>> {
-    let mut output = Vec::new();
+    let mut output = VecDeque::new();
+    let mut pending = Vec::new();
     let mut found = false;
     let mut buffer = [0_u8; 4096];
     loop {
+        if cancelled.load(Ordering::Acquire) {
+            return Ok(output.into_iter().collect());
+        }
         match reader.read(&mut buffer) {
             Ok(0) => {
                 if !found {
                     let _ = sender.send(StreamEvent::Ended);
                 }
-                return Ok(output);
+                return Ok(output.into_iter().collect());
             }
             Ok(read) => {
-                append_bounded(&mut output, &buffer[..read]);
-                if !found && contains(&output, &needle) {
-                    found = true;
-                    let _ = sender.send(StreamEvent::Found(Instant::now()));
+                append_bounded_tail(&mut output, &buffer[..read]);
+                if !found {
+                    pending.extend_from_slice(&buffer[..read]);
+                    if contains(&pending, &needle) {
+                        found = true;
+                        let _ = sender.send(StreamEvent::Found(Instant::now()));
+                    } else {
+                        retain_tail(&mut pending, needle.len().saturating_sub(1));
+                    }
                 }
+            }
+            Err(_) if cancelled.load(Ordering::Acquire) => {
+                return Ok(output.into_iter().collect());
             }
             Err(error) => {
                 let _ = sender.send(StreamEvent::Failed(error.to_string()));
@@ -890,7 +998,7 @@ struct PtyRuntime {
     status_thread: Option<thread::JoinHandle<()>>,
     reader_receiver: mpsc::Receiver<io::Result<PtyReadResult>>,
     reader_thread: Option<thread::JoinHandle<()>>,
-    diagnostic: Arc<Mutex<Vec<u8>>>,
+    diagnostic: Arc<Mutex<VecDeque<u8>>>,
     probe_queries: Arc<AtomicUsize>,
     probe_responses: Arc<AtomicUsize>,
     reader_cancelled: Arc<AtomicBool>,
@@ -913,7 +1021,10 @@ impl PtyRuntime {
         let output = self
             .diagnostic
             .lock()
-            .map(|output| String::from_utf8_lossy(&output).into_owned())
+            .map(|output| {
+                let output: Vec<u8> = output.iter().copied().collect();
+                String::from_utf8_lossy(&output).into_owned()
+            })
             .unwrap_or_else(|_| "<PTY diagnostic lock poisoned>".into());
         error.context(format!(
             "PTY failure snapshot: queries={} responses={} output={output:?}",
@@ -924,27 +1035,20 @@ impl PtyRuntime {
 
     #[cfg(windows)]
     fn cancel_reader_io(&self) -> io::Result<()> {
-        use std::os::windows::io::AsRawHandle;
-
-        self.reader_cancelled.store(true, Ordering::Release);
         let reader = self
             .reader_thread
             .as_ref()
             .ok_or_else(|| io::Error::other("PTY reader thread already joined"))?;
-        // SAFETY: this live JoinHandle owns the exact reader thread. The call
-        // only cancels synchronous I/O issued by that thread.
-        let result = unsafe { cancel_synchronous_io(reader.as_raw_handle()) };
-        if result != 0 {
-            return Ok(());
-        }
-        let error = io::Error::last_os_error();
-        const ERROR_NOT_FOUND: i32 = 1168;
-        if error.raw_os_error() == Some(ERROR_NOT_FOUND) { Ok(()) } else { Err(error) }
+        cancel_blocking_reader(reader, &self.reader_cancelled)
     }
 
     #[cfg(not(windows))]
     fn cancel_reader_io(&self) -> io::Result<()> {
-        Ok(())
+        let reader = self
+            .reader_thread
+            .as_ref()
+            .ok_or_else(|| io::Error::other("PTY reader thread already joined"))?;
+        cancel_blocking_reader(reader, &self.reader_cancelled)
     }
 
     fn finish(
@@ -1063,6 +1167,34 @@ unsafe extern "system" {
     fn cancel_synchronous_io(thread: std::os::windows::io::RawHandle) -> i32;
 }
 
+#[cfg(windows)]
+fn cancel_blocking_reader(
+    thread: &thread::JoinHandle<()>,
+    cancelled: &AtomicBool,
+) -> io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+
+    cancelled.store(true, Ordering::Release);
+    // SAFETY: the live JoinHandle owns the exact reader thread. The call only
+    // cancels synchronous I/O issued by that thread.
+    let result = unsafe { cancel_synchronous_io(thread.as_raw_handle()) };
+    if result != 0 {
+        return Ok(());
+    }
+    let error = io::Error::last_os_error();
+    const ERROR_NOT_FOUND: i32 = 1168;
+    if error.raw_os_error() == Some(ERROR_NOT_FOUND) { Ok(()) } else { Err(error) }
+}
+
+#[cfg(not(windows))]
+fn cancel_blocking_reader(
+    _thread: &thread::JoinHandle<()>,
+    cancelled: &AtomicBool,
+) -> io::Result<()> {
+    cancelled.store(true, Ordering::Release);
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy)]
 struct PtyProcessTree {
     #[cfg(windows)]
@@ -1123,7 +1255,9 @@ fn terminate_windows_process_tree(child_id: u32) -> io::Result<()> {
         Some(status) => Err(io::Error::other(format!("taskkill exited with {status}"))),
         None => {
             child.kill()?;
-            let status = child.wait()?;
+            let status = child
+                .wait_timeout(PROCESS_TIMEOUT)?
+                .ok_or_else(|| io::Error::other("taskkill did not exit after direct kill"))?;
             Err(io::Error::other(format!(
                 "taskkill exceeded {PROCESS_TIMEOUT:?} and was killed with {status}"
             )))
@@ -1136,12 +1270,12 @@ fn read_pty(
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     marker: Vec<u8>,
     sender: mpsc::Sender<PtyEvent>,
-    diagnostic: Arc<Mutex<Vec<u8>>>,
+    diagnostic: Arc<Mutex<VecDeque<u8>>>,
     probe_queries: Arc<AtomicUsize>,
     probe_responses: Arc<AtomicUsize>,
     reader_cancelled: Arc<AtomicBool>,
 ) -> std::io::Result<PtyReadResult> {
-    let mut output = Vec::new();
+    let mut output = VecDeque::new();
     let mut probes = ProbeTracker::default();
     let mut frame_marker = FrameMarkerTracker::new(marker);
     let mut frame_seen = false;
@@ -1153,19 +1287,19 @@ fn read_pty(
                     let _ = sender.send(PtyEvent::Ended);
                 }
                 return Ok(PtyReadResult {
-                    output,
+                    output: output.into_iter().collect(),
                     probe_responses: probes.responses,
                     probe_kinds: probes.kinds(),
                     cursor_visibility: frame_marker.visibility,
                 });
             }
             Ok(read) => {
-                append_bounded(&mut output, &buffer[..read]);
+                append_bounded_tail(&mut output, &buffer[..read]);
                 {
                     let mut diagnostic = diagnostic
                         .lock()
                         .map_err(|_| io::Error::other("PTY diagnostic lock poisoned"))?;
-                    append_bounded(&mut diagnostic, &buffer[..read]);
+                    append_bounded_tail(&mut diagnostic, &buffer[..read]);
                 }
                 let responses = probes.observe(&buffer[..read]);
                 probe_queries.store(probes.responses, Ordering::Relaxed);
@@ -1185,7 +1319,7 @@ fn read_pty(
             Err(error) => {
                 if reader_cancelled.load(Ordering::Acquire) {
                     return Ok(PtyReadResult {
-                        output,
+                        output: output.into_iter().collect(),
                         probe_responses: probes.responses,
                         probe_kinds: probes.kinds(),
                         cursor_visibility: frame_marker.visibility,
@@ -1316,13 +1450,6 @@ fn retain_tail(bytes: &mut Vec<u8>, keep: usize) {
     }
 }
 
-fn append_bounded(output: &mut Vec<u8>, bytes: &[u8]) {
-    output.extend_from_slice(bytes);
-    if output.len() > MAX_CAPTURE_BYTES {
-        output.drain(..output.len() - MAX_CAPTURE_BYTES);
-    }
-}
-
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     find(haystack, needle).is_some()
 }
@@ -1364,7 +1491,7 @@ fn run_captured(mut command: Command) -> Result<Captured> {
         Err(error) => {
             let _ = process_tree.terminate();
             let _ = child.kill();
-            let _ = child.wait();
+            let _ = child.wait_timeout(PROCESS_TIMEOUT);
             return Err(error).context("spawn captured stdout reader");
         }
     };
@@ -1378,21 +1505,30 @@ fn run_captured(mut command: Command) -> Result<Captured> {
         Err(error) => {
             let _ = process_tree.terminate();
             let _ = child.kill();
-            let _ = child.wait();
+            let _ = child.wait_timeout(PROCESS_TIMEOUT);
             let _ = stdout.cancel();
-            let _ = stdout.join();
+            if capture_receiver.recv_timeout(PROCESS_TIMEOUT).is_ok() {
+                let _ = stdout.join();
+            }
             return Err(error).context("spawn captured stderr reader");
         }
     };
     let mut lifecycle_error = None;
-    let status = if let Some(status) = child.wait_timeout(PROCESS_TIMEOUT)? {
-        status
+    let mut status = None;
+    if let Some(completed) = child.wait_timeout(PROCESS_TIMEOUT)? {
+        status = Some(completed);
     } else {
         let tree_error = process_tree.terminate().err();
         let kill_error = if tree_error.is_some() { child.kill().err() } else { None };
-        let status = child.wait()?;
-        let mut error =
-            anyhow!("process exceeded {PROCESS_TIMEOUT:?} and was killed with {status}");
+        status = child.wait_timeout(PROCESS_TIMEOUT)?;
+        let mut error = status
+            .as_ref()
+            .map(|status| {
+                anyhow!("process exceeded {PROCESS_TIMEOUT:?} and was killed with {status}")
+            })
+            .unwrap_or_else(|| {
+                anyhow!("process exceeded {PROCESS_TIMEOUT:?} and did not exit after termination")
+            });
         if let Some(tree_error) = tree_error {
             error = error.context(format!("process-tree termination also failed: {tree_error}"));
         }
@@ -1400,8 +1536,7 @@ fn run_captured(mut command: Command) -> Result<Captured> {
             error = error.context(format!("direct child kill also failed: {kill_error}"));
         }
         lifecycle_error = Some(error);
-        status
-    };
+    }
     let duration = started.elapsed();
     let mut stdout_result = None;
     let mut stderr_result = None;
@@ -1442,6 +1577,7 @@ fn run_captured(mut command: Command) -> Result<Captured> {
     if let Some(error) = lifecycle_error {
         return Err(error);
     }
+    let status = status.context("captured process returned no exit status")?;
     let stdout = stdout_result.context("stdout reader returned no result")??;
     let stderr = stderr_result.context("stderr reader returned no result")??;
     Ok(Captured { status, stdout, stderr, duration })
@@ -1504,28 +1640,20 @@ impl CaptureReader {
 
     #[cfg(windows)]
     fn cancel(&self) -> io::Result<()> {
-        use std::os::windows::io::AsRawHandle;
-
-        self.cancelled.store(true, Ordering::Release);
         let thread = self
             .thread
             .as_ref()
             .ok_or_else(|| io::Error::other("capture reader thread already joined"))?;
-        // SAFETY: this live JoinHandle owns the exact capture reader thread.
-        // The call only cancels synchronous I/O issued by that thread.
-        let result = unsafe { cancel_synchronous_io(thread.as_raw_handle()) };
-        if result != 0 {
-            return Ok(());
-        }
-        let error = io::Error::last_os_error();
-        const ERROR_NOT_FOUND: i32 = 1168;
-        if error.raw_os_error() == Some(ERROR_NOT_FOUND) { Ok(()) } else { Err(error) }
+        cancel_blocking_reader(thread, &self.cancelled)
     }
 
     #[cfg(not(windows))]
     fn cancel(&self) -> io::Result<()> {
-        self.cancelled.store(true, Ordering::Release);
-        Ok(())
+        let thread = self
+            .thread
+            .as_ref()
+            .ok_or_else(|| io::Error::other("capture reader thread already joined"))?;
+        cancel_blocking_reader(thread, &self.cancelled)
     }
 
     fn join(&mut self) -> Result<()> {
@@ -1613,7 +1741,9 @@ fn wait_child(child: &mut Child, timeout: Duration) -> Result<ExitStatus> {
         return Ok(status);
     }
     child.kill()?;
-    let status = child.wait()?;
+    let status = child
+        .wait_timeout(PROCESS_TIMEOUT)?
+        .context("process did not exit after direct-child kill")?;
     bail!("process exceeded {timeout:?} and was killed with {status}")
 }
 
@@ -1869,6 +1999,26 @@ mod tests {
 
         assert_eq!(output.len(), MAX_CAPTURE_BYTES);
         assert_eq!(output, input[input.len() - MAX_CAPTURE_BYTES..]);
+    }
+
+    #[test]
+    fn headless_stderr_retains_a_bounded_tail_and_finds_split_readiness() {
+        let needle = b"ready across a read boundary".to_vec();
+        let mut input = vec![b'x'; MAX_CAPTURE_BYTES + 4096 - 5];
+        input.extend_from_slice(&needle);
+        let (sender, events) = mpsc::channel();
+
+        let output = read_until_event(
+            io::Cursor::new(input),
+            needle,
+            sender,
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+
+        assert!(matches!(events.recv().unwrap(), StreamEvent::Found(_)));
+        assert_eq!(output.len(), MAX_CAPTURE_BYTES);
+        assert!(output.ends_with(b"ready across a read boundary"));
     }
 
     #[test]
