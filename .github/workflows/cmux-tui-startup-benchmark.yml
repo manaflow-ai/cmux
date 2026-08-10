@@ -856,7 +856,7 @@ jobs:
                       "measured_event": 1,
                       "validation": validation[scenario],
                       "process_exit": 1,
-                      "thread_join": 1,
+                      "thread_join": 0 if scenario == "incompatible" else 1,
                       "fixture_cleanup": 0 if scenario in persistent else 1,
                       "root_deferral": 0 if scenario in persistent else 1,
                       "final_reclaim": 0,

@@ -38,14 +38,15 @@ pub struct RunPhases {
 
 impl RunPhases {
     fn validate_sample(&self) -> Result<()> {
-        for (name, phase) in [
-            ("measured-event", &self.measured_event),
-            ("process-exit", &self.process_exit),
-            ("thread-join", &self.thread_join),
-        ] {
+        for (name, phase) in
+            [("measured-event", &self.measured_event), ("process-exit", &self.process_exit)]
+        {
             if phase.count != 1 {
                 bail!("sample {name} count is {}, expected 1", phase.count);
             }
+        }
+        if self.thread_join.count > 1 {
+            bail!("sample thread-join count is {}, expected at most 1", self.thread_join.count);
         }
         if self.final_reclaim.count != 0 || self.final_reclaim.wall_ns != 0 {
             bail!("sample performed final reclamation before evidence publication");

@@ -1,6 +1,6 @@
 use std::env;
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, mpsc};
@@ -135,7 +135,7 @@ impl Fixture {
                 let terminal_id = find_key_string(&created, "terminal_id")
                     .context("workspace create did not return a terminal_id")?;
                 let topology = json_cli(&common, &socket, &["terminal", "list"])?;
-                if !json_contains_string(&topology, &terminal_id) {
+                if !terminal_list_contains_id(&topology, &terminal_id) {
                     bail!("restored fixture terminal list omitted {terminal_id}");
                 }
                 server.shutdown_and_wait(&common)?;
@@ -562,7 +562,7 @@ fn run_restored(common: &mut Common, state: &Path, terminal_id: &str) -> Result<
     server.wait_ready()?;
     let validation_started = Instant::now();
     let topology = json_cli(common, &socket, &["terminal", "list"])?;
-    if !json_contains_string(&topology, terminal_id) {
+    if !terminal_list_contains_id(&topology, terminal_id) {
         bail!("restored terminal list omitted saved terminal {terminal_id}");
     }
     let validation = validation_started.elapsed();
@@ -622,7 +622,6 @@ fn run_incompatible(
             measured_event: PhaseMetric::completed(captured.duration)?,
             validation: PhaseMetric::completed(validation)?,
             process_exit: PhaseMetric::completed(captured.duration)?,
-            thread_join: PhaseMetric::completed(captured.thread_join_duration)?,
             ..RunPhases::default()
         },
     })
@@ -1057,36 +1056,33 @@ struct Captured {
     stdout: Vec<u8>,
     stderr: Vec<u8>,
     duration: Duration,
-    thread_join_duration: Duration,
 }
 
 fn run_captured(mut command: Command) -> Result<Captured> {
-    command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    // Pipe readers cannot prove completion when a descendant inherits a writer.
+    // Regular files decouple output availability from descendant lifetimes.
+    let mut stdout_file = tempfile::tempfile().context("create stdout capture file")?;
+    let mut stderr_file = tempfile::tempfile().context("create stderr capture file")?;
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(stdout_file.try_clone()?))
+        .stderr(Stdio::from(stderr_file.try_clone()?));
     let started = Instant::now();
     let mut child = command.spawn()?;
-    let stdout = child.stdout.take().context("stdout pipe missing")?;
-    let stderr = child.stderr.take().context("stderr pipe missing")?;
-    let stdout_reader = thread::spawn(move || read_bounded(stdout));
-    let stderr_reader = thread::spawn(move || read_bounded(stderr));
-    let status = wait_child(&mut child, PROCESS_TIMEOUT);
+    let status = wait_child(&mut child, PROCESS_TIMEOUT)?;
     let duration = started.elapsed();
-    let join_started = Instant::now();
-    let stdout = stdout_reader.join().map_err(|_| anyhow!("stdout reader panicked"))??;
-    let stderr = stderr_reader.join().map_err(|_| anyhow!("stderr reader panicked"))??;
-    let thread_join_duration = join_started.elapsed();
-    Ok(Captured { status: status?, stdout, stderr, duration, thread_join_duration })
+    let stdout = read_bounded_snapshot(&mut stdout_file)?;
+    let stderr = read_bounded_snapshot(&mut stderr_file)?;
+    Ok(Captured { status, stdout, stderr, duration })
 }
 
-fn read_bounded(mut reader: impl Read) -> std::io::Result<Vec<u8>> {
-    let mut output = Vec::new();
-    let mut buffer = [0_u8; 4096];
-    loop {
-        let read = reader.read(&mut buffer)?;
-        if read == 0 {
-            return Ok(output);
-        }
-        append_bounded(&mut output, &buffer[..read]);
-    }
+fn read_bounded_snapshot(file: &mut fs::File) -> io::Result<Vec<u8>> {
+    let available = file.metadata()?.len();
+    let capture = available.min(MAX_CAPTURE_BYTES as u64);
+    file.seek(SeekFrom::Start(available - capture))?;
+    let mut output = Vec::with_capacity(capture as usize);
+    file.take(capture).read_to_end(&mut output)?;
+    Ok(output)
 }
 
 fn wait_child(child: &mut Child, timeout: Duration) -> Result<ExitStatus> {
@@ -1267,13 +1263,12 @@ fn find_key_string(value: &Value, key: &str) -> Option<String> {
     }
 }
 
-fn json_contains_string(value: &Value, expected: &str) -> bool {
-    match value {
-        Value::String(value) => value == expected,
-        Value::Array(array) => array.iter().any(|value| json_contains_string(value, expected)),
-        Value::Object(object) => object.values().any(|value| json_contains_string(value, expected)),
-        _ => false,
-    }
+fn terminal_list_contains_id(value: &Value, expected: &str) -> bool {
+    value.as_array().is_some_and(|terminals| {
+        terminals
+            .iter()
+            .any(|terminal| terminal.get("id").and_then(Value::as_str) == Some(expected))
+    })
 }
 
 fn find_named_file(root: &Path, name: &str) -> Result<Option<PathBuf>> {
@@ -1323,12 +1318,32 @@ mod tests {
     }
 
     #[test]
-    fn recursive_json_checks_use_values_not_serialized_substrings() {
-        let value =
-            serde_json::json!({"terminal": {"id": "term:exact"}, "other": "term:exact-more"});
-        assert!(json_contains_string(&value, "term:exact"));
-        assert!(!json_contains_string(&value, "term:exa"));
-        assert_eq!(find_key_string(&value, "id").as_deref(), Some("term:exact"));
+    fn terminal_list_requires_an_exact_top_level_record_id() {
+        let value = serde_json::json!([
+            {"id": "term:exact", "workspace_ref": "workspace:one"},
+            {"id": "term:other", "title": "term:exact-more"}
+        ]);
+        assert!(terminal_list_contains_id(&value, "term:exact"));
+        assert!(!terminal_list_contains_id(&value, "term:exa"));
+        assert!(!terminal_list_contains_id(
+            &serde_json::json!({"metadata": {"id": "term:exact"}}),
+            "term:exact"
+        ));
+        assert!(!terminal_list_contains_id(
+            &serde_json::json!([{"id": "term:other", "terminal_id": "term:exact"}]),
+            "term:exact"
+        ));
+    }
+
+    #[test]
+    fn capture_snapshot_does_not_wait_for_writer_eof() {
+        let mut capture = tempfile::tempfile().unwrap();
+        let mut retained_writer = capture.try_clone().unwrap();
+        retained_writer.write_all(b"complete output").unwrap();
+        retained_writer.flush().unwrap();
+
+        assert_eq!(read_bounded_snapshot(&mut capture).unwrap(), b"complete output");
+        drop(retained_writer);
     }
 
     #[test]
