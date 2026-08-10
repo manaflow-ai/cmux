@@ -168,12 +168,6 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
     @Test func textWithURLSchemeIsNeverTreatedAsFilePath() {
         #expect(
             TerminalPathResolver(fileExists: { _ in true }).resolveOpenURLFilePath(
-                "file:///tmp/test.md",
-                cwd: "/tmp"
-            ) == nil
-        )
-        #expect(
-            TerminalPathResolver(fileExists: { _ in true }).resolveOpenURLFilePath(
                 "mailto:test@example.com",
                 cwd: "/tmp"
             ) == nil

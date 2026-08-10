@@ -56,16 +56,31 @@ struct TerminalLinkOpenCoordinator {
         }
         if !trimmed.isEmpty,
            canResolveLocalFilePath,
-           let resolvedPath = TerminalPathResolver().resolveOpenURLFilePath(
+           let reference = TerminalPathResolver().resolveOpenURLFileReference(
                trimmed,
                cwd: resolvedWorkingDirectory(request: request, container: container)
            ) {
-            let fileURL = URL(fileURLWithPath: resolvedPath)
-            if CommandClickFileOpenRouter.shouldRouteInCmux(
-                path: resolvedPath,
-                defaults: defaults
-            ) {
-                log("link.openURL resolvedAsFilePath=\(resolvedPath)")
+            if let line = reference.line {
+                log(
+                    "link.openURL resolvedAsFileLocation=\(reference.path):\(line)" +
+                    (reference.column.map { ":\($0)" } ?? "")
+                )
+                PreferredEditorService(defaults: defaults).open(
+                    URL(fileURLWithPath: reference.path),
+                    reference.line,
+                    reference.column
+                )
+                return true
+            }
+
+            let isExplicitLocalFileURL = isExplicitFileURL(trimmed)
+            if !isExplicitLocalFileURL,
+               CommandClickFileOpenRouter.shouldRouteInCmux(
+                   path: reference.path,
+                   defaults: defaults
+               ) {
+                let fileURL = URL(fileURLWithPath: reference.path)
+                log("link.openURL resolvedAsFilePath=\(reference.path)")
                 return routeLocalFile(
                     fileURL,
                     request: request,
@@ -73,7 +88,9 @@ struct TerminalLinkOpenCoordinator {
                     unavailableReason: "file route unavailable"
                 )
             }
-            normalizedOpenURLString = resolvedPath
+            if !isExplicitLocalFileURL {
+                normalizedOpenURLString = reference.path
+            }
         }
 
         guard let target = resolveTerminalOpenURLTarget(normalizedOpenURLString) else {
@@ -287,6 +304,10 @@ struct TerminalLinkOpenCoordinator {
         }
         log("link.openURL opening externally reason=\(reason) url=\(url)")
         return externalOpen(url)
+    }
+
+    private func isExplicitFileURL(_ rawValue: String) -> Bool {
+        URL(string: rawValue)?.scheme?.caseInsensitiveCompare("file") == .orderedSame
     }
 
     private static func resolveContainer(
