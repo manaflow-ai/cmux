@@ -155,21 +155,16 @@ struct AgentSessionAutoResumeSwiftTests {
             snapshotSource.sessionSnapshot(includeScrollback: false)
         )
         let restoredPanelID = try #require(restoredPanelIDs[snapshotPanelID])
-        restoredSource.updatePanelShellActivityState(
-            panelId: restoredPanelID,
-            state: .promptIdle
-        )
-
-        let commandTitle = "cd /tmp/cmux-issue-9619-transfer"
-        #expect(!restoredSource.updatePanelTitle(panelId: restoredPanelID, title: commandTitle))
         let detached = try #require(restoredSource.detachSurface(panelId: restoredPanelID))
         #expect(detached.restoredPanelTitleBoundary != nil)
 
-        let dock = DockSplitStore(
-            workspaceId: UUID(),
-            baseDirectoryProvider: { nil }
-        )
-        defer { dock.closeAllPanels() }
+        let manager = TabManager()
+        let dockWorkspace = try #require(manager.selectedWorkspace)
+        let dock = dockWorkspace.dockSplit
+        defer {
+            dock.closeAllPanels()
+            dockWorkspace.teardownAllPanels()
+        }
         let dockPaneID = try #require(dock.bonsplitController.allPaneIds.first)
         #expect(
             dock.attachDetachedSurface(
@@ -178,11 +173,45 @@ struct AgentSessionAutoResumeSwiftTests {
                 focus: false
             ) == restoredPanelID
         )
+        let dockTabID = try #require(dock.surfaceId(forPanelId: restoredPanelID))
+        let dockTerminal = try #require(dock.panels[restoredPanelID] as? TerminalPanel)
+        #expect(dock.bonsplitController.tab(dockTabID)?.title == persistedTitle)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: GhosttyTitleChange(
+                tabId: dock.workspaceId,
+                surfaceId: restoredPanelID,
+                title: "zsh",
+                sourceSurfaceIdentifier: ObjectIdentifier(dockTerminal.surface)
+            ).userInfo
+        )
+        dock.flushPendingTerminalTitleUpdates()
+        #expect(dock.bonsplitController.tab(dockTabID)?.title == persistedTitle)
+
+        dock.updatePanelShellActivityState(panelId: restoredPanelID, state: .promptIdle)
+        let commandTitle = "cd /tmp/cmux-issue-9619-transfer"
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: GhosttyTitleChange(
+                tabId: dock.workspaceId,
+                surfaceId: restoredPanelID,
+                title: commandTitle,
+                sourceSurfaceIdentifier: ObjectIdentifier(dockTerminal.surface)
+            ).userInfo
+        )
+        dock.flushPendingTerminalTitleUpdates()
+        #expect(dock.bonsplitController.tab(dockTabID)?.title == persistedTitle)
 
         // The Dock already owns the transferred promptIdle state. A duplicate
         // report must not discard the pending title before commandRunning.
         dock.updatePanelShellActivityState(panelId: restoredPanelID, state: .promptIdle)
         dock.updatePanelShellActivityState(panelId: restoredPanelID, state: .commandRunning)
+        dock.flushPendingTerminalTitleUpdates()
+        #expect(dockTerminal.displayTitle == commandTitle)
+        #expect(dock.bonsplitController.tab(dockTabID)?.title == commandTitle)
         let detachedFromDock = try #require(dock.detachSurface(panelId: restoredPanelID))
         #expect(detachedFromDock.restoredPanelTitleBoundary == nil)
 
