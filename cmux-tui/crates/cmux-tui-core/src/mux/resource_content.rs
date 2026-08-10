@@ -677,15 +677,15 @@ impl Mux {
         // Exited terminals are durable receipts with no runtime. Their absence
         // from live state is not an explicit close.
         let terminal_resources = registry.live_terminal_resource_ids()?;
-        let mut preserved_terminal_ids = terminal_resources
-            .iter()
-            .filter_map(|(host_id, terminal_id)| {
-                terminal_records
-                    .get(host_id)
-                    .is_some_and(|terminal| terminal.lifecycle == TerminalLifecycle::Exited)
-                    .then(|| terminal_id.clone())
-            })
-            .collect::<HashSet<_>>();
+        let mut preserved_terminal_ids = HashSet::new();
+        for (host_id, terminal_id) in &terminal_resources {
+            if terminal_records
+                .get(host_id)
+                .is_some_and(|terminal| terminal.lifecycle == TerminalLifecycle::Exited)
+            {
+                preserved_terminal_ids.insert(terminal_id.clone());
+            }
+        }
         if let Some(terminal_id) = retained_terminal_id {
             preserved_terminal_ids.insert(terminal_id.clone());
         }
@@ -1200,7 +1200,7 @@ impl Mux {
 
 fn ordered_terminal_tab_ids(
     state: &State,
-) -> anyhow::Result<HashMap<crate::resource::TerminalPublicId, Vec<TabPublicId>>> {
+) -> anyhow::Result<HashMap<TerminalPublicId, Vec<TabPublicId>>> {
     let mut tabs = Vec::new();
     for pane in state.panes.values() {
         for (position, surface_slot) in pane.tabs.iter().enumerate() {
