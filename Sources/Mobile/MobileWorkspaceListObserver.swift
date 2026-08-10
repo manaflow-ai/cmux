@@ -29,7 +29,6 @@ final class MobileWorkspaceListObserver {
     private var selectionCancellable: AnyCancellable?
     private var groupsCancellable: AnyCancellable?
     private var groupConfigCancellable: AnyCancellable?
-    private var notificationsCancellable: AnyCancellable?
     private var unreadIndicatorsObservation: SidebarUnreadObservation?
     private struct WorkspaceCancellableEntry {
         let objectID: ObjectIdentifier
@@ -44,12 +43,6 @@ final class MobileWorkspaceListObserver {
     private var subscriptionsChangeObserver: NSObjectProtocol?
     private var pipelinesAttached = false
     private var lastSummaryHash: Int = 0
-    /// The notification array and unread projection can publish for the same
-    /// mutation. One bounded coalescer owns their shared update so a continuous
-    /// burst still emits the latest summary once per throttle window.
-    private lazy var notificationSummaryUpdateCoalescer = NotificationBurstCoalescer(
-        delay: Double(throttleMilliseconds) / 1_000
-    )
     /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
     /// events within the window collapse to one trailing emit carrying the
@@ -140,7 +133,6 @@ final class MobileWorkspaceListObserver {
         selectionCancellable = nil
         groupsCancellable = nil
         groupConfigCancellable = nil
-        notificationsCancellable = nil
         unreadIndicatorsObservation?.cancel()
         unreadIndicatorsObservation = nil
         perWorkspaceCancellables.removeAll()
@@ -192,42 +184,19 @@ final class MobileWorkspaceListObserver {
                 self?.emitIfNeeded(force: false)
             }
         attachGroupConfigPipeline()
-        // Last-activity preview lines come from the notification store, which is
-        // not part of the TabManager graph. A new notification (or a cleared one)
-        // changes a row's preview + relative time without touching the tab set,
-        // groups, panels, or title, so observe `$notifications` to push it.
-        // Marking a notification read also flows through `$notifications` (the
-        // mutated element re-publishes the array), which the unread flag in the
-        // per-workspace signature turns into a hash change.
-        //
-        // `@Published` emits from `willSet`, while summary reads require the
-        // post-`didSet` indexes. Both this source and `sidebarUnread` therefore
-        // signal one trailing timer instead of recomputing synchronously or
-        // maintaining two independent throttled callbacks.
-        notificationsCancellable = notificationStore?.$notifications
-            .sink { [weak self] _ in
-                self?.scheduleNotificationSummaryUpdate()
-            }
-        // Workspace-level unread indicators and notification summaries share
-        // one equality-guarded projection. Observe that model instead of the
-        // store's legacy Combine fields so all indicator mutation paths have a
-        // single publication boundary.
+        // Workspace previews and unread indicators share one immutable,
+        // equality-guarded snapshot. Its synchronous post-mutation publication
+        // means this observer never needs to reconcile a legacy willSet stream
+        // with the notification indexes on a timer.
         if let notificationStore {
             unreadIndicatorsObservation = notificationStore.sidebarUnread.observeSummaryChanges(
                 owner: self
             ) { observer, _ in
-                observer.scheduleNotificationSummaryUpdate()
+                observer.emitIfNeeded(force: false)
             }
         }
 
         refreshPerWorkspaceSubscriptions(tabs: tabManager.tabs)
-    }
-
-    private func scheduleNotificationSummaryUpdate() {
-        notificationSummaryUpdateCoalescer.signal { [weak self] in
-            guard let self, pipelinesAttached else { return }
-            emitIfNeeded(force: false)
-        }
     }
 
     private func attachGroupConfigPipeline() {
@@ -267,7 +236,10 @@ final class MobileWorkspaceListObserver {
     }
 
     private func currentPreviewSignatures(for tabs: [Workspace]) -> [UUID: Int] {
-        Self.previewSignatures(for: tabs, notificationStore: notificationStore)
+        Self.previewSignatures(
+            for: tabs,
+            unreadSnapshot: notificationStore?.sidebarUnread.snapshot
+        )
     }
 
     /// A per-workspace signature of the notification-store state the mobile
@@ -280,18 +252,18 @@ final class MobileWorkspaceListObserver {
     /// with notifications unavailable).
     static func previewSignatures(
         for tabs: [Workspace],
-        notificationStore: TerminalNotificationStore?
+        unreadSnapshot: SidebarUnreadSnapshot?
     ) -> [UUID: Int] {
-        let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-preview-signatures", "workspaces=\(tabs.count) hasStore=\(notificationStore != nil)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
-        guard let notificationStore else { return [:] }
+        let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-preview-signatures", "workspaces=\(tabs.count) hasSnapshot=\(unreadSnapshot != nil)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
+        guard let unreadSnapshot else { return [:] }
         var signatures: [UUID: Int] = [:]
         for workspace in tabs {
-            let latest = notificationStore.latestNotification(forTabId: workspace.id)
-            let isUnread = notificationStore.workspaceIsUnread(forTabId: workspace.id)
-            guard latest != nil || isUnread else { continue }
+            let summary = unreadSnapshot.summary(forWorkspaceId: workspace.id)
+            let isUnread = unreadSnapshot.workspaceIsUnread(forWorkspaceId: workspace.id)
+            guard summary.hasLatestNotification || isUnread else { continue }
             var hasher = Hasher()
-            hasher.combine(latest?.id)
-            hasher.combine(latest?.createdAt)
+            hasher.combine(summary.latestNotificationId)
+            hasher.combine(summary.latestNotificationCreatedAt)
             hasher.combine(isUnread)
             signatures[workspace.id] = hasher.finalize()
         }

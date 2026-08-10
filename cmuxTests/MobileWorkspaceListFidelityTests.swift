@@ -594,7 +594,7 @@ struct MobileWorkspaceListFidelityTests {
         #expect(readPayload["has_unread"] as? Bool == false)
         let readSignatures = MobileWorkspaceListObserver.previewSignatures(
             for: [workspace],
-            notificationStore: store
+            unreadSnapshot: store.sidebarUnread.snapshot
         )
 
         #expect(store.setPanelDerivedUnread(true, forTabId: workspace.id))
@@ -610,7 +610,7 @@ struct MobileWorkspaceListFidelityTests {
 
         let unreadSignatures = MobileWorkspaceListObserver.previewSignatures(
             for: [workspace],
-            notificationStore: store
+            unreadSnapshot: store.sidebarUnread.snapshot
         )
         #expect(
             readSignatures[workspace.id] != unreadSignatures[workspace.id],

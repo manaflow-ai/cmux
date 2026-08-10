@@ -635,6 +635,8 @@ final class TerminalNotificationStore: ObservableObject {
         return SidebarWorkspaceUnreadSummary(
             unreadCount: count,
             latestNotificationText: latestText,
+            latestNotificationId: latestNotification?.id,
+            latestNotificationCreatedAt: latestNotification?.createdAt,
             hasLatestNotification: latestNotification != nil
         )
     }

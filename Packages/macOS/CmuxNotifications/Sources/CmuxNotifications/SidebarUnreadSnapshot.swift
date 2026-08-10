@@ -6,6 +6,10 @@ public struct SidebarWorkspaceUnreadSummary: Equatable, Sendable {
     public var unreadCount: Int
     /// The trimmed body or title of the latest notification, when present.
     public var latestNotificationText: String?
+    /// The stable identity of the latest notification, when present.
+    public var latestNotificationId: UUID?
+    /// The creation time of the latest notification, when present.
+    public var latestNotificationCreatedAt: Date?
     /// Whether the workspace has a latest notification that can be cleared.
     public var hasLatestNotification: Bool
 
@@ -13,10 +17,14 @@ public struct SidebarWorkspaceUnreadSummary: Equatable, Sendable {
     public init(
         unreadCount: Int,
         latestNotificationText: String?,
+        latestNotificationId: UUID? = nil,
+        latestNotificationCreatedAt: Date? = nil,
         hasLatestNotification: Bool = false
     ) {
         self.unreadCount = unreadCount
         self.latestNotificationText = latestNotificationText
+        self.latestNotificationId = latestNotificationId
+        self.latestNotificationCreatedAt = latestNotificationCreatedAt
         self.hasLatestNotification = hasLatestNotification
     }
 }

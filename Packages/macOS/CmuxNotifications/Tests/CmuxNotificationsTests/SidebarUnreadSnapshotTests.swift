@@ -334,6 +334,50 @@ struct SidebarUnreadSnapshotTests {
 
     @Test
     @MainActor
+    func notificationIdentityChangesPublishWhenVisibleSummaryIsUnchanged() {
+        let workspaceID = UUID()
+        let firstNotificationID = UUID()
+        let secondNotificationID = UUID()
+        let createdAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let model = SidebarUnreadModel()
+        let recorder = SidebarUnreadValueRecorder<SidebarUnreadSnapshot>()
+        let observation = model.observeSummaryChanges(owner: recorder) { recorder, snapshot in
+            recorder.values.append(snapshot)
+        }
+        defer { observation.cancel() }
+
+        model.applyWorkspaceSummaryProjection(
+            forWorkspaceId: workspaceID,
+            summary: SidebarWorkspaceUnreadSummary(
+                unreadCount: 1,
+                latestNotificationText: "Finished",
+                latestNotificationId: firstNotificationID,
+                latestNotificationCreatedAt: createdAt,
+                hasLatestNotification: true
+            ),
+            totalUnreadCount: 1
+        )
+        model.applyWorkspaceSummaryProjection(
+            forWorkspaceId: workspaceID,
+            summary: SidebarWorkspaceUnreadSummary(
+                unreadCount: 1,
+                latestNotificationText: "Finished",
+                latestNotificationId: secondNotificationID,
+                latestNotificationCreatedAt: createdAt,
+                hasLatestNotification: true
+            ),
+            totalUnreadCount: 1
+        )
+
+        #expect(recorder.values.count == 2)
+        #expect(
+            recorder.values.last?.summary(forWorkspaceId: workspaceID).latestNotificationId
+                == secondNotificationID
+        )
+    }
+
+    @Test
+    @MainActor
     func reentrantPublicationsRemainOrderedForEveryObserver() {
         let model = SidebarUnreadModel()
         let first = SidebarUnreadValueRecorder<Int>()
