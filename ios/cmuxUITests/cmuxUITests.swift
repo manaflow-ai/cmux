@@ -2576,6 +2576,67 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
+    /// The fully populated production row must leave every fixed edge action
+    /// tappable while only the provider/model viewport absorbs width pressure.
+    @MainActor
+    func testTaskComposerAccessibilityXXXLKeepsAttachmentAndEdgeControlsVisible() async throws {
+        let server = try MobileSyncMockHostServer(advertisesTaskAttachments: true)
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_ATTACH_URL": try attachURL(port: port).absoluteString,
+        ], launchArguments: [
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryAccessibilityXXXL",
+        ])
+        defer { app.terminate() }
+
+        waitForWorkspaceShell(in: app)
+        let composerButton = app.buttons["MobileTaskComposerButton"]
+        if !composerButton.waitForExistence(timeout: 4) {
+            let backButton = app.buttons["MobileWorkspaceBackButton"]
+            XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+            backButton.tap()
+        }
+        XCTAssertTrue(composerButton.waitForExistence(timeout: 4))
+        composerButton.tap()
+
+        let prompt = taskComposerPrompt(in: app)
+        XCTAssertTrue(prompt.waitForExistence(timeout: 4))
+        let attachment = app.buttons["MobileTaskComposerAttachmentButton"]
+        XCTAssertTrue(
+            attachment.waitForExistence(timeout: 4),
+            "The connected attachment-capable host must exercise the fully populated row"
+        )
+
+        selectTaskComposerAgent(named: "OpenCode", in: app)
+        let model = app.buttons["MobileTaskComposerModelPill"]
+        XCTAssertTrue(model.waitForExistence(timeout: 3))
+        model.tap()
+        tapMenuItem(app.buttons["Claude Opus 4.8"], in: app)
+
+        let options = app.buttons["MobileTaskComposerOptionsButton"]
+        let scroller = app.scrollViews["MobileTaskComposerPillScroller"]
+        let submit = app.buttons["MobileTaskComposerSubmitButton"]
+        for control in [options, attachment, submit] {
+            XCTAssertTrue(control.waitForExistence(timeout: 3))
+            XCTAssertGreaterThanOrEqual(control.frame.width, 44)
+            XCTAssertGreaterThanOrEqual(control.frame.height, 44)
+            XCTAssertTrue(control.isHittable)
+        }
+        XCTAssertTrue(scroller.waitForExistence(timeout: 3))
+        XCTAssertGreaterThanOrEqual(attachment.frame.minX - options.frame.maxX, 9)
+        XCTAssertGreaterThanOrEqual(scroller.frame.minX - attachment.frame.maxX, 9)
+        XCTAssertGreaterThanOrEqual(submit.frame.minX - scroller.frame.maxX, 9)
+        XCTAssertGreaterThan(scroller.frame.width, 0)
+
+        print(
+            "MPILL_GEOMETRY options=\(options.frame) attachment=\(attachment.frame) "
+                + "scroller=\(scroller.frame) submit=\(submit.frame)"
+        )
+    }
+
     /// Agent templates need an instruction before launch, while the plain
     /// shell remains a useful zero-prompt workspace shortcut.
     @MainActor
@@ -7895,6 +7956,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let workspaceCreateSelectsCreatedWorkspace: Bool
     private let holdsTerminalPasteResponse: Bool
     private let rejectsTerminalPaste: Bool
+    private let advertisesTaskAttachments: Bool
     private let macInstanceTag: String
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
@@ -7964,6 +8026,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         workspaceCreateSelectsCreatedWorkspace: Bool = true,
         holdsTerminalPasteResponse: Bool = false,
         rejectsTerminalPaste: Bool = false,
+        advertisesTaskAttachments: Bool = false,
         macInstanceTag: String = mockHostInstanceTag()
     ) throws {
         listener = try NWListener(using: .tcp, on: .any)
@@ -7972,6 +8035,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         self.workspaceCreateSelectsCreatedWorkspace = workspaceCreateSelectsCreatedWorkspace
         self.holdsTerminalPasteResponse = holdsTerminalPasteResponse
         self.rejectsTerminalPaste = rejectsTerminalPaste
+        self.advertisesTaskAttachments = advertisesTaskAttachments
         self.macInstanceTag = macInstanceTag
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
@@ -8357,7 +8421,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     }
 
     private func mobileHostStatusResult() -> [String: Any] {
-        let capabilities = [
+        var capabilities = [
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
@@ -8373,6 +8437,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             "dogfood.v1",
             "workspace.groups.v1",
         ]
+        if advertisesTaskAttachments {
+            capabilities.append("task.attachments.v1")
+        }
         return [
             "mac_device_id": "ui-test-mac",
             "mac_display_name": "UI Test Mac",
