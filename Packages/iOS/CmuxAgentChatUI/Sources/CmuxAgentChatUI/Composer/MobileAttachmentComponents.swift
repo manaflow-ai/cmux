@@ -25,7 +25,7 @@ struct MobileAttachmentCardLayout: Sendable {
     let spacing: CGFloat
     let removalHitTarget: CGFloat
 
-    static let standard = Self(
+    static let referenceAligned = Self(
         side: 120,
         spacing: 6,
         removalHitTarget: 44
@@ -149,9 +149,9 @@ public struct MobileAttachmentCardStrip: View {
     private let progress: [UUID: Double]
     private let remove: (UUID) -> Void
     private let onPreviewDismiss: () -> Void
-    private let layout = MobileAttachmentCardLayout.standard
+    private let layout = MobileAttachmentCardLayout.referenceAligned
     @State private var preview: MobileStagedAttachment?
-    @ScaledMetric(relativeTo: .body) private var cardSide: CGFloat = MobileAttachmentCardLayout.standard.side
+    @ScaledMetric(relativeTo: .body) private var cardSide: CGFloat = MobileAttachmentCardLayout.referenceAligned.side
 
     public init(
         attachments: [MobileStagedAttachment],
