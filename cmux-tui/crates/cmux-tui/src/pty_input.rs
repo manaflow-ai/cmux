@@ -1722,12 +1722,20 @@ mod tests {
         })
         .unwrap();
         let sender = dispatcher.sender();
+        let (settled_tx, settled_rx) = std::sync::mpsc::channel();
 
         assert_eq!(
-            sender.enqueue_coalescing_surface_operation(
+            sender.enqueue_mutation(
                 "clear terminal history",
-                41,
+                PtyMutationIdentity {
+                    coalesce_key: Some(("clear terminal history", 41, 0)),
+                    failure_surface_id: Some(41),
+                    concurrent_surface_operation: true,
+                    ..Default::default()
+                },
                 false,
+                None,
+                Some(Box::new(move || settled_tx.send(()).unwrap())),
                 || Err(anyhow::anyhow!("partial fallback write")),
             ),
             PtyInputEnqueueResult::Accepted
@@ -1740,6 +1748,7 @@ mod tests {
         );
 
         sender.retire_surface(41);
+        settled_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
         let state = sender.queue.state.lock().unwrap();
         assert!(!state.failed_lanes.contains(&lane(41)));
