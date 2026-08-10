@@ -55,6 +55,7 @@ struct MobileRootPresentationState: Equatable {
         case continueWithAutoConnect
         case openConnectionSettings
         case presentSettings
+        case dismissSettings(presentAutoConnectMigration: Bool)
         case presentPairing(PairingPresentation)
         case presentChild(ChildPresentation)
         case dismissChild(ChildPresentation)
@@ -122,6 +123,15 @@ struct MobileRootPresentationState: Equatable {
         case .presentSettings:
             guard presentation == nil else { return .none }
             presentation = .settings
+            return .none
+
+        case let .dismissSettings(presentAutoConnectMigration):
+            guard presentation == .settings || presentation == .connectionSettings else {
+                return .none
+            }
+            presentation = presentAutoConnectMigration
+                ? .autoConnectMigrationIntroduction
+                : nil
             return .none
 
         case let .presentPairing(pairingPresentation):

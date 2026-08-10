@@ -97,7 +97,20 @@ struct MobileRootPresentationStateTests {
         #expect(state.apply(.presentAutoConnectMigrationIfIdle) == .none)
         #expect(state.presentation == .settings)
 
-        #expect(state.apply(.sheetDidRequestDismissal) == .none)
+        #expect(
+            state.apply(.dismissSettings(presentAutoConnectMigration: true)) == .none
+        )
+        #expect(state.presentation == .autoConnectMigrationIntroduction)
+        #expect(state.isRootSheetPresented)
+    }
+
+    @Test func rootSettingsDismissesWhenNoMigrationIsPending() {
+        var state = MobileRootPresentationState()
+        state.apply(.presentSettings)
+
+        #expect(
+            state.apply(.dismissSettings(presentAutoConnectMigration: false)) == .none
+        )
         #expect(state.isIdle)
     }
 

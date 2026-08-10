@@ -221,6 +221,7 @@ struct CMUXMobileRootView: View {
             onDismiss: rootPresentationDidDismiss
         ) {
             rootPresentationContent
+                .interactiveDismissDisabled(shouldHoldRootSettingsForMigration)
         }
         #else
         .sheet(isPresented: addDeviceSheetBinding) {
@@ -538,7 +539,21 @@ struct CMUXMobileRootView: View {
             startPairingScanner: showPairingScanner,
             signOut: signOut,
             store: store,
-            initialFocus: initialFocus
+            initialFocus: initialFocus,
+            dismissAction: dismissRootSettings
+        )
+    }
+
+    /// Keeps the root modal session alive while advancing queued migration content.
+    private var shouldHoldRootSettingsForMigration: Bool {
+        rootPresentation.presentation == .settings
+            && isAutoConnectMigrationReady
+    }
+
+    /// Settings and the queued migration share one host, so no dismissal race exists.
+    private func dismissRootSettings() {
+        handleRootPresentation(
+            .dismissSettings(presentAutoConnectMigration: isAutoConnectMigrationReady)
         )
     }
 
@@ -550,16 +565,21 @@ struct CMUXMobileRootView: View {
     /// Presents only after the authenticated shell owns the screen and no
     /// higher-priority pairing or explicit-attach flow owns a modal slot.
     private func presentAutoConnectMigrationIfEligible() {
-        guard autoConnectMigrationStore?.resolution == .pending,
-              onboardingStore.progress == .complete,
-              authManager.isAuthenticated,
-              !authManager.isRestoringSession,
-              scenePhase == .active,
-              !hasInjectedAttachLaunchRoute,
+        guard isAutoConnectMigrationReady,
               rootPresentation.isIdle else {
             return
         }
         handleRootPresentation(.presentAutoConnectMigrationIfIdle)
+    }
+
+    /// All migration gates except ownership of the shared modal slot.
+    private var isAutoConnectMigrationReady: Bool {
+        autoConnectMigrationStore?.resolution == .pending
+            && onboardingStore.progress == .complete
+            && authManager.isAuthenticated
+            && !authManager.isRestoringSession
+            && scenePhase == .active
+            && !hasInjectedAttachLaunchRoute
     }
 
     /// Applies one root presentation action and performs its domain side effect.
