@@ -593,9 +593,8 @@ fn merge_projection(
     }
     let current_is_final = matches!(current.state.as_str(), "done" | "interrupted");
     let next_is_active = matches!(next.state.as_str(), "working" | "blocked" | "idle");
-    let newer_socket_activity = next.source == "socket"
-        && next_is_active
-        && next.updated_at_ms > current.updated_at_ms;
+    let newer_socket_activity =
+        next.source == "socket" && next_is_active && next.updated_at_ms > current.updated_at_ms;
     if next.begins_session
         || (current_is_final && next_is_active)
         || newer_socket_activity
