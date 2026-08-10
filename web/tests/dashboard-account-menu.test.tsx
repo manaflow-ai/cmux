@@ -4,6 +4,7 @@ import type React from "react";
 import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 
 let currentUser: {
+  id: string;
   displayName: string;
   primaryEmail: string;
   signOut: () => Promise<void>;
@@ -32,6 +33,8 @@ const handlers: {
 const routerPush = mock(() => undefined);
 const routerReplace = mock(() => undefined);
 const routerRefresh = mock(() => undefined);
+const setQueryData = mock(() => undefined);
+let organizationQueryKey: readonly unknown[] | undefined;
 
 mock.module("@stackframe/stack", () => ({
   AccountSettings: () => <section data-testid="stack-account-settings" />,
@@ -62,7 +65,11 @@ mock.module("@stackframe/stack", () => ({
 }));
 
 mock.module("@tanstack/react-query", () => ({
-  useQuery: () => organizationQuery,
+  useQuery: (options: { queryKey: readonly unknown[] }) => {
+    organizationQueryKey = options.queryKey;
+    return organizationQuery;
+  },
+  useQueryClient: () => ({ setQueryData }),
 }));
 
 mock.module("next/navigation", () =>
@@ -111,7 +118,7 @@ mock.module("@/i18n/navigation", () => ({
   }),
 }));
 
-const { DashboardAccountMenu } = await import(
+const { DashboardAccountMenu, __test } = await import(
   "../app/[locale]/dashboard/dashboard-account-menu"
 );
 
@@ -136,8 +143,10 @@ describe("dashboard account menu", () => {
     delete handlers.switchOrganization;
     routerPush.mockClear();
     routerRefresh.mockClear();
+    setQueryData.mockClear();
     const setSelectedTeam = mock(async () => undefined);
     currentUser = {
+      id: "user-lawrence",
       displayName: "Lawrence",
       primaryEmail: "lawrence@example.com",
       signOut: async () => undefined,
@@ -160,6 +169,10 @@ describe("dashboard account menu", () => {
     expect(html).toContain('data-team-ids="team-2"');
     expect(html).not.toContain("Not authorized");
     expect(html).toContain("signOut");
+    expect(organizationQueryKey).toEqual([
+      "coderouter-organizations",
+      "user-lawrence",
+    ]);
 
     const invokeSwitch = handlers.switchOrganization as
       | ((
@@ -178,6 +191,7 @@ describe("dashboard account menu", () => {
       "/dashboard/coderouter?team=team-2",
     );
     expect(routerRefresh).toHaveBeenCalledTimes(1);
+    expect(setQueryData).toHaveBeenCalled();
   });
 
   test("uses the unlocalized auth handler and names the compact sign-in link", () => {
@@ -197,6 +211,7 @@ describe("dashboard account menu", () => {
       isError: true,
     };
     currentUser = {
+      id: "user-lawrence",
       displayName: "Lawrence",
       primaryEmail: "lawrence@example.com",
       signOut: async () => undefined,
@@ -208,5 +223,16 @@ describe("dashboard account menu", () => {
 
     expect(html).toContain('href="/dashboard/team"');
     expect(html).not.toContain("animate-pulse");
+  });
+
+  test("rejects malformed organization entries at the response boundary", () => {
+    expect(__test.parseOrganizationCatalog({
+      selectedTeamId: null,
+      teams: [null],
+    })).toBeNull();
+    expect(__test.parseOrganizationCatalog({
+      selectedTeamId: "missing",
+      teams: [{ id: "team-1", name: "Team", personal: false }],
+    })).toBeNull();
   });
 });
