@@ -544,6 +544,23 @@ fn server_lifecycle_start_rejects_inline_relay_ticket_without_echoing_secret() {
 }
 
 #[test]
+fn public_command_payload_preserves_relay_ticket_argument() {
+    let output = lifecycle_cli(&[
+        "workspace",
+        "current",
+        "run",
+        "--",
+        "tool",
+        "--relay-ticket",
+        "child-value",
+    ]);
+    let diagnostic = String::from_utf8(output.stderr).unwrap();
+
+    assert_ne!(output.status.code(), Some(2), "{diagnostic}");
+    assert!(!diagnostic.contains("inline relay tickets are not accepted"), "{diagnostic}");
+}
+
+#[test]
 fn server_lifecycle_start_rejects_output_modes_without_starting_an_owner() {
     let dir = unique_temp_dir("server-start-output-mode");
     fs::create_dir_all(&dir).unwrap();

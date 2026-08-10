@@ -13610,6 +13610,50 @@ mod tests {
     }
 
     #[test]
+    fn paused_server_rejects_resource_shutdown_until_lifecycle_readiness() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let request = resource_request(
+            "paused-resource-shutdown",
+            "session.shutdown",
+            json!({"machine":"current","session":"current","force":true}),
+            Some("paused-resource-shutdown"),
+        );
+
+        assert!(handle_connection_message(&mux, client, &request, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], false);
+        assert!(response["error"]["message"].as_str().unwrap().contains("not ready"));
+        assert!(!mux.daemon_shutdown_requested());
+        assert!(!mux.control_clients.daemon_handoff_pending());
+    }
+
+    #[test]
+    fn paused_server_rejects_resource_reload_until_lifecycle_readiness() {
+        let mux = test_mux();
+        let events = mux.subscribe_config_reload();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let request = resource_request(
+            "paused-resource-reload",
+            "session.reload_config",
+            json!({"machine":"current","session":"current"}),
+            Some("paused-resource-reload"),
+        );
+
+        assert!(handle_connection_message(&mux, client, &request, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], false);
+        assert!(response["error"]["message"].as_str().unwrap().contains("not ready"));
+        assert!(events.try_recv().is_err());
+    }
+
+    #[test]
     fn resource_shutdown_replay_reserves_handoff_and_retries_the_post_ack_exit() {
         let root = std::env::temp_dir().join(format!(
             "cmux-resource-shutdown-replay-{}-{}",
