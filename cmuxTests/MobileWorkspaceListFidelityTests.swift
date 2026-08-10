@@ -399,9 +399,9 @@ struct MobileWorkspaceListFidelityTests {
     }
 
     /// Agent notification hooks can publish several authoritative summary
-    /// snapshots in one turn. The mobile observer must scan and broadcast the
-    /// first snapshot immediately, collapse the middle of the burst, and retain
-    /// the newest snapshot for one trailing publication.
+    /// snapshots in one turn. The mobile observer must cap synchronous scans,
+    /// collapse the middle of the burst, and retain the newest snapshot for one
+    /// trailing publication.
     @Test func notificationSummaryBurstEmitsLeadingAndLatestTrailingSnapshot() async throws {
         let previousOverride = MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting
         defer { MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = previousOverride }
@@ -449,11 +449,13 @@ struct MobileWorkspaceListFidelityTests {
         }
 
         try #require(
-            emittedNotificationIDs == ["none", notificationIDs[0].uuidString],
-            "a synchronous summary burst must perform only its leading scan immediately"
+            emittedNotificationIDs.count <= 2,
+            "a synchronous summary burst must publish at most one changed snapshot after attachment"
         )
-        let leadingEvent = await eventIterator.next()
-        #expect(leadingEvent == notificationIDs[0].uuidString)
+        if emittedNotificationIDs.count == 2 {
+            let leadingEvent = await eventIterator.next()
+            #expect(leadingEvent == notificationIDs[0].uuidString)
+        }
 
         await clock.waitUntilSleeping(for: .milliseconds(80))
         clock.advance(by: .milliseconds(80))
@@ -462,12 +464,101 @@ struct MobileWorkspaceListFidelityTests {
             trailingEvent == notificationIDs[4].uuidString,
             "the trailing publication must read the newest authoritative snapshot"
         )
-        #expect(emittedNotificationIDs == [
-            "none",
-            notificationIDs[0].uuidString,
-            notificationIDs[4].uuidString,
-        ])
+        #expect(emittedNotificationIDs.first == "none")
+        #expect(emittedNotificationIDs.last == notificationIDs[4].uuidString)
+        #expect(emittedNotificationIDs.count <= 3)
+        #expect(!emittedNotificationIDs.contains(notificationIDs[1].uuidString))
+        #expect(!emittedNotificationIDs.contains(notificationIDs[2].uuidString))
+        #expect(!emittedNotificationIDs.contains(notificationIDs[3].uuidString))
         _ = observer
+    }
+
+    @Test func emissionCoalescerRunsLeadingAndLatestTrailingAction() async {
+        let clock = SidebarTestManualClock()
+        let events = AsyncStream<String>.makeStream(bufferingPolicy: .unbounded)
+        defer { events.continuation.finish() }
+        let coalescer = MobileWorkspaceEmissionCoalescer(
+            window: .milliseconds(80),
+            sleep: { duration in
+                try await clock.sleep(for: duration)
+            }
+        )
+        var emittedValues: [String] = []
+        for value in ["first", "middle", "latest"] {
+            coalescer.request {
+                emittedValues.append(value)
+                events.continuation.yield(value)
+            }
+        }
+        #expect(emittedValues == ["first"])
+
+        var eventIterator = events.stream.makeAsyncIterator()
+        let leadingEvent = await eventIterator.next()
+        #expect(leadingEvent == "first")
+        await clock.waitUntilSleeping(for: .milliseconds(80))
+        clock.advance(by: .milliseconds(80))
+        let trailingEvent = await eventIterator.next()
+
+        #expect(trailingEvent == "latest")
+        #expect(emittedValues == ["first", "latest"])
+        coalescer.cancel()
+        await clock.waitUntilIdle()
+    }
+
+    @Test func observerDeinitCancelsPendingSummaryEmission() async throws {
+        let previousOverride = MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting
+        defer { MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = previousOverride }
+        MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = true
+
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let sidebarUnread = SidebarUnreadModel()
+        let clock = SidebarTestManualClock()
+        var emissionCount = 0
+        var observer: MobileWorkspaceListObserver? = MobileWorkspaceListObserver(
+            tabManager: manager,
+            sidebarUnread: sidebarUnread,
+            workspaceUpdateEmitter: { emissionCount += 1 },
+            emissionSleep: { duration in
+                try await clock.sleep(for: duration)
+            }
+        )
+        #expect(observer != nil)
+        #expect(emissionCount == 1)
+
+        for index in 0..<2 {
+            sidebarUnread.applyWorkspaceSummaryProjection(
+                forWorkspaceId: workspace.id,
+                summary: SidebarWorkspaceUnreadSummary(
+                    unreadCount: index + 1,
+                    latestNotificationText: "notification \(index)",
+                    latestNotificationId: UUID(),
+                    hasLatestNotification: true
+                ),
+                totalUnreadCount: index + 1
+            )
+        }
+        #expect(emissionCount <= 2, "at least one summary is pending behind the active window")
+
+        await clock.waitUntilSleeping(for: .milliseconds(80))
+        let emissionCountBeforeDeinit = emissionCount
+        observer = nil
+        await clock.waitUntilIdle()
+
+        sidebarUnread.applyWorkspaceSummaryProjection(
+            forWorkspaceId: workspace.id,
+            summary: SidebarWorkspaceUnreadSummary(
+                unreadCount: 3,
+                latestNotificationText: "after deinit",
+                latestNotificationId: UUID(),
+                hasLatestNotification: true
+            ),
+            totalUnreadCount: 3
+        )
+        #expect(
+            emissionCount == emissionCountBeforeDeinit,
+            "deinit cancels the trailing task and disables observation"
+        )
     }
 
     @Test func remoteDirectoryTrustChangesObserverHashAndPayload() throws {

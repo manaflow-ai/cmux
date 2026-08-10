@@ -16,6 +16,10 @@ private let mobileWorkspaceObserverLog = Logger(subsystem: "dev.cmux", category:
 /// the `@Published` source of truth instead of trying to catch every caller.
 @MainActor
 final class MobileWorkspaceListObserver {
+    /// One shared output window keeps every observed mutation source from
+    /// bypassing the expensive full-list scan and mobile broadcast cap.
+    private static let throttleMilliseconds = 80
+
     private weak var tabManager: TabManager?
     /// The authoritative unread snapshot that supplies each workspace's
     /// last-activity preview and unread state.
@@ -41,19 +45,10 @@ final class MobileWorkspaceListObserver {
     private var subscriptionsChangeObserver: NSObjectProtocol?
     private var pipelinesAttached = false
     private var lastSummaryHash: Int = 0
+    private let emissionCoalescer: MobileWorkspaceEmissionCoalescer
     /// Delivery is injected so tests can observe actual publications without
     /// reaching into hash-deduplication state.
     private let workspaceUpdateEmitter: @MainActor () -> Void
-    /// Cancellable suspension is injected for deterministic burst tests. The
-    /// emission gate owns when this sleeper is used.
-    private let emissionSleep: @Sendable (Duration) async throws -> Void
-    /// Throttle window with `latest: true`. First event in a burst emits
-    /// immediately (iPhone gets the change in milliseconds), subsequent
-    /// events within the window collapse to one trailing emit carrying the
-    /// final state. So a single action is instant; a burst caps at ~1 emit
-    /// per 80 ms. Hash-diff suppresses no-op rebroadcasts.
-    private let throttleMilliseconds: Int = 80
-
     #if DEBUG
     /// Test seam: fidelity tests exercise the pipelines without a live phone
     /// connection, so they force presence on instead of registering a real
@@ -87,6 +82,10 @@ final class MobileWorkspaceListObserver {
         self.tabManager = tabManager
         self.sidebarUnread = sidebarUnread
         self.configStore = configStore
+        self.emissionCoalescer = MobileWorkspaceEmissionCoalescer(
+            window: .milliseconds(Self.throttleMilliseconds),
+            sleep: emissionSleep
+        )
         self.workspaceUpdateEmitter = workspaceUpdateEmitter ?? {
             MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
             // v2 phones get per-record deltas instead of the empty invalidation
@@ -94,7 +93,6 @@ final class MobileWorkspaceListObserver {
             // call returns immediately when no phone subscribed to the delta topic.
             MobileStateSyncHost.shared.broadcastIfSubscribed()
         }
-        self.emissionSleep = emissionSleep
         #if DEBUG
         cmuxDebugLog("mobile.observer init tabs=\(tabManager.tabs.count)")
         #endif
@@ -120,7 +118,7 @@ final class MobileWorkspaceListObserver {
         configStore = next
         guard pipelinesAttached else { return }
         attachGroupConfigPipeline()
-        emitIfNeeded(force: false)
+        requestEmission()
     }
 
     deinit {
@@ -149,6 +147,7 @@ final class MobileWorkspaceListObserver {
         selectionCancellable = nil
         groupsCancellable = nil
         groupConfigCancellable = nil
+        emissionCoalescer.cancel()
         unreadIndicatorsObservation?.cancel()
         unreadIndicatorsObservation = nil
         perWorkspaceCancellables.removeAll()
@@ -171,22 +170,22 @@ final class MobileWorkspaceListObserver {
         emitIfNeeded(force: true)
 
         tabsCancellable = tabManager.tabsPublisher
-            .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
+            .throttle(for: .milliseconds(Self.throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] tabs in
                 guard let self else { return }
                 #if DEBUG
                 cmuxDebugLog("mobile.observer tabs sink fired count=\(tabs.count)")
                 #endif
                 self.refreshPerWorkspaceSubscriptions(tabs: tabs)
-                self.emitIfNeeded(force: false)
+                self.requestEmission()
             }
         // Selection changes (Mac user clicks a different sidebar tab) need
         // to push to iPhone too. iPhone's selectedWorkspaceID drives which
         // terminal it displays.
         selectionCancellable = tabManager.selectedTabIdPublisher
-            .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
+            .throttle(for: .milliseconds(Self.throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+                self?.requestEmission()
             }
         // Group structure (order, name, collapse/pin, anchor, membership) is
         // iOS-facing: the phone renders collapsible group sections. A pure
@@ -195,9 +194,9 @@ final class MobileWorkspaceListObserver {
         // collapsed from the Mac (or from the phone's own collapse RPC, which is
         // authoritative + re-fetch based, not optimistic).
         groupsCancellable = tabManager.workspaceGroupsPublisher
-            .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
+            .throttle(for: .milliseconds(Self.throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+                self?.requestEmission()
             }
         attachGroupConfigPipeline()
         // Workspace previews and unread indicators share one immutable,
@@ -208,7 +207,7 @@ final class MobileWorkspaceListObserver {
             unreadIndicatorsObservation = sidebarUnread.observeSummaryChanges(
                 owner: self
             ) { observer, _ in
-                observer.emitIfNeeded(force: false)
+                observer.requestEmission()
             }
         }
 
@@ -219,12 +218,12 @@ final class MobileWorkspaceListObserver {
         groupConfigCancellable = configStore?.$workspaceGroupConfigs
             .dropFirst()
             .throttle(
-                for: .milliseconds(throttleMilliseconds),
+                for: .milliseconds(Self.throttleMilliseconds),
                 scheduler: RunLoop.main,
                 latest: true
             )
             .sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+                self?.requestEmission()
             }
     }
 
@@ -357,13 +356,20 @@ final class MobileWorkspaceListObserver {
                 workspace.paneLayoutVersionPublisher.map { _ in () }.eraseToAnyPublisher(),
             ]
             let merged = Publishers.MergeMany(publishers)
-                .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
+                .throttle(for: .milliseconds(Self.throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             perWorkspaceCancellables[workspace.id] = WorkspaceCancellableEntry(
                 objectID: ObjectIdentifier(workspace),
                 cancellable: merged.sink { [weak self] _ in
-                    self?.emitIfNeeded(force: false)
+                    self?.requestEmission()
                 }
             )
+        }
+    }
+
+    private func requestEmission() {
+        emissionCoalescer.request { [weak self] in
+            guard let self, pipelinesAttached else { return }
+            emitIfNeeded(force: false)
         }
     }
 
