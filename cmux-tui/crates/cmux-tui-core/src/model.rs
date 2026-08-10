@@ -274,36 +274,28 @@ impl Node {
         split_id: SplitId,
         dir: SplitDir,
         new_pane: PaneId,
+        insert_first: bool,
+        ratio: f32,
     ) -> bool {
         match self {
             Node::Leaf(id) if *id == target => {
                 let old = Node::Leaf(*id);
                 let new = Node::Leaf(new_pane);
                 let (a, b) = if insert_first { (new, old) } else { (old, new) };
-                *self = Node::Split {
-                    id: split_id,
-                    dir,
-                    ratio,
-                    a: Box::new(a),
-                    b: Box::new(b),
-                };
+                *self = Node::Split { id: split_id, dir, ratio, a: Box::new(a), b: Box::new(b) };
                 true
             }
             Node::Leaf(_) => false,
             Node::Split { a, b, .. } => {
-                a.split_leaf(target, split_id, dir, new_pane)
-                    || b.split_leaf(target, split_id, dir, new_pane)
+                a.split_leaf(target, split_id, dir, new_pane, insert_first, ratio)
+                    || b.split_leaf(target, split_id, dir, new_pane, insert_first, ratio)
             }
             Node::Stack { panes, expanded } if panes.contains(&target) => {
                 *expanded = target;
                 let old = std::mem::replace(self, Node::Leaf(target));
-                *self = Node::Split {
-                    id: split_id,
-                    dir,
-                    ratio: 0.5,
-                    a: Box::new(old),
-                    b: Box::new(Node::Leaf(new_pane)),
-                };
+                let new = Node::Leaf(new_pane);
+                let (a, b) = if insert_first { (new, old) } else { (old, new) };
+                *self = Node::Split { id: split_id, dir, ratio, a: Box::new(a), b: Box::new(b) };
                 true
             }
             Node::Stack { .. } => false,

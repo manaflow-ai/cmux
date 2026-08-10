@@ -63,11 +63,11 @@ pub(crate) struct EntityIdentityAllocator {
 }
 
 impl EntityIdentityAllocator {
-    pub(crate) fn new() -> Self {
-        Self { next_legacy_id: AtomicU64::new(1) }
+    pub(crate) fn new(next_legacy_id: u64) -> Self {
+        Self { next_legacy_id: AtomicU64::new(next_legacy_id) }
     }
 
-    fn next_legacy_id(&self) -> u64 {
+    pub(crate) fn next_legacy_id(&self) -> u64 {
         self.next_legacy_id.fetch_add(1, Ordering::Relaxed)
     }
 

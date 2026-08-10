@@ -2305,7 +2305,7 @@ fn persisted_node(node: &Node, state: &State) -> anyhow::Result<PersistedNode> {
                 .ok_or_else(|| anyhow::anyhow!("split tree references missing pane {pane_id}"))?
                 .uuid,
         }),
-        Node::Split { dir, ratio, a, b } => Ok(PersistedNode::Split {
+        Node::Split { dir, ratio, a, b, .. } => Ok(PersistedNode::Split {
             direction: match dir {
                 SplitDir::Right => PersistedSplitDirection::Horizontal,
                 SplitDir::Down => PersistedSplitDirection::Vertical,
@@ -2320,6 +2320,7 @@ fn persisted_node(node: &Node, state: &State) -> anyhow::Result<PersistedNode> {
 fn restored_node(
     node: &PersistedNode,
     pane_ids: &BTreeMap<PaneUuid, PaneId>,
+    next_split_id: &mut impl FnMut() -> SplitId,
 ) -> anyhow::Result<Node> {
     match node {
         PersistedNode::Leaf { pane_uuid } => {
@@ -2328,13 +2329,14 @@ fn restored_node(
             })?))
         }
         PersistedNode::Split { direction, ratio, first, second } => Ok(Node::Split {
+            id: next_split_id(),
             dir: match direction {
                 PersistedSplitDirection::Horizontal => SplitDir::Right,
                 PersistedSplitDirection::Vertical => SplitDir::Down,
             },
             ratio: *ratio,
-            a: Box::new(restored_node(first, pane_ids)?),
-            b: Box::new(restored_node(second, pane_ids)?),
+            a: Box::new(restored_node(first, pane_ids, next_split_id)?),
+            b: Box::new(restored_node(second, pane_ids, next_split_id)?),
         }),
     }
 }
@@ -3774,7 +3776,7 @@ impl Mux {
             workspace_registry: Mutex::new(registry),
             state: Mutex::new(state),
             subscribers: MuxEventBroadcaster::default(),
-            next_id: AtomicU64::new(next_id),
+            entity_ids: EntityIdentityAllocator::new(next_id),
             next_notification_id: AtomicU64::new(next_notification_id),
             next_active_at: AtomicU64::new(1),
             next_in_process_resize_owner: AtomicU64::new(1),
@@ -5072,6 +5074,10 @@ impl Mux {
             true,
             topology_limits,
         )
+    }
+
+    fn next_id(&self) -> u64 {
+        self.entity_ids.next_legacy_id()
     }
 
     fn next_active_at(&self) -> u64 {
@@ -13663,8 +13669,9 @@ impl Mux {
                     .screen_of(target)
                     .ok_or_else(|| anyhow::anyhow!("canonical target pane has no screen"))?;
                 let (pane_id, pane_uuid) = self.entity_ids.pane();
+                let split_id = self.next_id();
                 let mut root = state.workspaces[workspace_index].screens[screen_index].root.clone();
-                if !root.split_leaf(target, dir, pane_id, insert_first, ratio) {
+                if !root.split_leaf(target, split_id, dir, pane_id, insert_first, ratio) {
                     anyhow::bail!("canonical target pane disappeared before browser split commit");
                 }
                 state.surfaces.insert(surface.id, surface.clone());
@@ -13923,8 +13930,9 @@ impl Mux {
                 .screen_of(target)
                 .ok_or_else(|| anyhow::anyhow!("canonical target pane has no screen"))?;
             let (pane_id, pane_uuid) = self.entity_ids.pane();
+            let split_id = self.next_id();
             let mut root = state.workspaces[workspace_index].screens[screen_index].root.clone();
-            if !root.split_leaf(target, dir, pane_id, insert_first, ratio) {
+            if !root.split_leaf(target, split_id, dir, pane_id, insert_first, ratio) {
                 anyhow::bail!("canonical target pane disappeared before split commit");
             }
             state.surfaces.insert(surface.id, surface.clone());
@@ -14049,10 +14057,11 @@ impl Mux {
             let target_screen_uuid =
                 state.workspaces[target_workspace_index].screens[target_screen_index].uuid;
             let (pane_id, pane_uuid) = self.entity_ids.pane();
+            let split_id = self.next_id();
             let mut candidate = state.value.clone();
             let split = candidate.workspaces[target_workspace_index].screens[target_screen_index]
                 .root
-                .split_leaf(target, dir, pane_id, insert_first, ratio);
+                .split_leaf(target, split_id, dir, pane_id, insert_first, ratio);
             if !split {
                 anyhow::bail!("canonical target pane disappeared before candidate split");
             }
@@ -16386,6 +16395,7 @@ impl Mux {
         }
         let _mutation = self.ensure_terminal_lock.lock().unwrap();
         let (pane_id, pane_uuid) = self.entity_ids.pane();
+        let split_id = self.next_id();
         let active_at = self.next_active_at();
         let (screen_id, source_workspace_uuid, target_workspace_uuid) = {
             let mut state = self.state.lock().unwrap();
@@ -16411,7 +16421,7 @@ impl Mux {
                 state.workspaces[target_workspace_index].screens[target_screen_index].id;
             let split = state.workspaces[target_workspace_index].screens[target_screen_index]
                 .root
-                .split_leaf(target, dir, pane_id, insert_first, ratio);
+                .split_leaf(target, split_id, dir, pane_id, insert_first, ratio);
             if !split {
                 anyhow::bail!("pane {target} disappeared before split commit");
             }

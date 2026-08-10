@@ -4046,7 +4046,7 @@ impl Mux {
                     &mut screen.root
                 };
                 anyhow::ensure!(
-                    root.split_leaf(target, split, dir, pane_id),
+                    root.split_leaf(target, split, dir, pane_id, false, 0.5),
                     "target pane disappeared from its layout"
                 );
                 if before_target {

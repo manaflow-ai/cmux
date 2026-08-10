@@ -6,8 +6,12 @@ import tarfile
 from typing import BinaryIO, Optional, Tuple
 
 
-ROOT = "GhosttyKit.xcframework"
-MACOS_LIBRARY_PREFIX = ROOT + "/macos-"
+GHOSTTY_KIT_ROOT = "GhosttyKit.xcframework"
+ROOTS = {
+    GHOSTTY_KIT_ROOT,
+    "GhosttySceneRendererKit.xcframework",
+}
+MACOS_LIBRARY_PREFIX = GHOSTTY_KIT_ROOT + "/macos-"
 NATIVE_SENTRY_MARKERS = (
     b"sentry-init",
     b"sentry_options_new",
@@ -78,8 +82,9 @@ def main() -> None:
                         f"{marker.decode()!r}: {member.name}"
                     )
 
-        if not saw_root:
-            raise SystemExit(f"archive missing {ROOT}")
+        missing = ROOTS - saw_roots
+        if missing:
+            raise SystemExit(f"archive missing {', '.join(sorted(missing))}")
 
 
 if __name__ == "__main__":

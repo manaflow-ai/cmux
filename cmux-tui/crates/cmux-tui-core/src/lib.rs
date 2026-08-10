@@ -63,14 +63,13 @@ pub use layout::{
 pub use model::{Node, Pane, Screen, State, ViewportColumn, Workspace};
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CanonicalSnapshot,
-    CellPixelUpdate,
-    CellPixelUpdateFailure, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError,
-    LayoutSpec, LayoutUndoError, LayoutUndoResult, Mux, MuxEvent, NotificationEvent,
-    NotificationLevel, ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
-    ProviderWorkspaceAuthorityUpdateError, ResourceNotification, RunPlacement,
-    SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, SurfaceResizeReporter,
-    TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult, WorkspacePlacement,
-    ZoomMode, ZoomState,
+    CellPixelUpdate, CellPixelUpdateFailure, Direction, GraphicsStatus, LayoutLeafSpec,
+    LayoutRatioError, LayoutSpec, LayoutUndoError, LayoutUndoResult, Mux, MuxEvent,
+    NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority,
+    ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, ResourceNotification,
+    RunPlacement, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
+    SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult,
+    WorkspacePlacement, ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use presentation::{Presentation, PresentationScroll, PresentationView, PresentationZoom};
@@ -103,12 +102,6 @@ pub use surface::{
     SurfaceOptions, SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
     TerminalPointerSnapshot,
 };
-pub use workspace_registry::{
-    FrontendProjection, PersistentSessionStateReset, PersistentSessionStateResetPreview,
-    PersistentSessionStateResetter, ProjectionCommit, RegistryCommit, RegistryEvent,
-    RegistrySnapshot, RegistryWorkspace, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation,
-    WorkspaceRegistry,
-};
 pub use terminal_activity::{
     LEGACY_TERMINAL_ACTIVITY_READER_UUID, NotificationLevel, TerminalActivityFact,
     TerminalActivityKind, TerminalActivityReadReceipt, TerminalActivitySnapshot,
@@ -116,6 +109,12 @@ pub use terminal_activity::{
 pub use topology::{
     ResnapshotReason, ResnapshotRequired, TopologyDelta, TopologyDeltaReceiver, TopologyLimits,
     TopologyOperation, TopologyResume, TopologySnapshot, TopologySubscription, TopologyTargets,
+};
+pub use workspace_registry::{
+    FrontendProjection, PersistentSessionStateReset, PersistentSessionStateResetPreview,
+    PersistentSessionStateResetter, ProjectionCommit, RegistryCommit, RegistryEvent,
+    RegistrySnapshot, RegistryWorkspace, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation,
+    WorkspaceRegistry,
 };
 
 pub use cmux_remote_protocol::REMOTE_SESSION_MESSAGE_MAX_BYTES;

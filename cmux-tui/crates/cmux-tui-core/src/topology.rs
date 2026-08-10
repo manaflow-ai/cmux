@@ -613,7 +613,7 @@ fn node_json(state: &State, node: &Node) -> Value {
             "pane": pane,
             "pane_uuid": state.pane_uuid(*pane),
         }),
-        Node::Split { dir, ratio, a, b } => json!({
+        Node::Split { dir, ratio, a, b, .. } => json!({
             "type": "split",
             "dir": match dir {
                 crate::SplitDir::Right => "right",
