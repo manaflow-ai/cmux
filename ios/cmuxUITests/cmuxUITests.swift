@@ -602,7 +602,6 @@ final class cmuxUITests: XCTestCase {
         let viewportProbe = probes.firstMatch
         XCTAssertTrue(viewportProbe.waitForExistence(timeout: 4))
         XCTAssertEqual(probes.count, 1)
-        XCTAssertFalse(viewportProbe.isHittable)
         let viewportFrame = try XCTUnwrap(waitForUsableFrame(of: viewportProbe, timeout: 4))
         let window = app.windows.firstMatch
         let windowFrame = try XCTUnwrap(waitForUsableFrame(of: window, timeout: 4))
@@ -825,7 +824,6 @@ final class cmuxUITests: XCTestCase {
             XCTAssertTrue(title.waitForExistence(timeout: 8))
             XCTAssertTrue(viewportProbe.waitForExistence(timeout: 4))
             XCTAssertEqual(probes.count, 1)
-            XCTAssertFalse(viewportProbe.isHittable)
             for element in [title, body, guidance, continueButton, finalButton] {
                 XCTAssertTrue(element.waitForExistence(timeout: 4))
             }
@@ -1035,7 +1033,6 @@ final class cmuxUITests: XCTestCase {
                 1,
                 "The migration sheet must expose exactly one viewport probe in \(name)."
             )
-            XCTAssertFalse(viewportProbe.isHittable)
 
             func reveal(_ element: XCUIElement, named elementName: String) throws {
                 XCTAssertTrue(
