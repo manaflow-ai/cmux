@@ -1234,12 +1234,13 @@ jobs:
           exit 0
 
       - name: Upload startup evidence before fixture reclamation
+        id: upload_startup_evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cmux-tui-startup-${{ matrix.platform }}
           path: ${{ env.ARTIFACT_DIR }}/
-          if-no-files-found: warn
+          if-no-files-found: error
           include-hidden-files: true
           retention-days: 30
 
@@ -1247,6 +1248,8 @@ jobs:
         if: always()
         continue-on-error: true
         shell: bash
+        env:
+          EVIDENCE_UPLOAD_OUTCOME: ${{ steps.upload_startup_evidence.outcome }}
         run: |
           set +e
           python3 - <<'PY'
@@ -1268,9 +1271,16 @@ jobs:
           detail = ""
           deferred_root_count = 0
           final_reclaim_count = 0
+          upload_succeeded = os.environ.get("EVIDENCE_UPLOAD_OUTCOME") == "success"
 
           same_path = os.path.normcase(str(fixture_parent)) == os.path.normcase(str(expected_parent))
-          if not same_path:
+          if not upload_succeeded:
+              status = "skipped-upload-failed"
+              detail = (
+                  "fixture reclamation refused because startup evidence upload outcome was "
+                  f"{os.environ.get('EVIDENCE_UPLOAD_OUTCOME')!r}"
+              )
+          elif not same_path:
               detail = f"fixture parent {fixture_parent} is not exact expected path {expected_parent}"
           elif not fixture_parent.exists():
               status = "already-absent"
@@ -1324,7 +1334,7 @@ jobs:
               "deferred_root_count": deferred_root_count,
               "final_reclaim_count": final_reclaim_count,
               "wall_ns": time.monotonic_ns() - started,
-              "evidence_uploaded_before_reclamation": True,
+              "evidence_uploaded_before_reclamation": upload_succeeded,
           }
           artifact_root.mkdir(parents=True, exist_ok=True)
           result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
