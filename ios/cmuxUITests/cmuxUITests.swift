@@ -2199,7 +2199,7 @@ final class cmuxUITests: XCTestCase {
                     : "task-classic-file-quick-look-open",
                 app: app
             )
-            let done = app.buttons["Done"]
+            let done = app.buttons["MobileAttachmentPreviewDone"]
             XCTAssertTrue(done.waitForExistence(timeout: 2))
             done.tap()
             XCTAssertTrue(preview.waitForNonExistence(timeout: 4))
@@ -2299,7 +2299,7 @@ final class cmuxUITests: XCTestCase {
 
         app.buttons["MobileAttachmentCard.0"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["MobileAttachmentPreview"].waitForExistence(timeout: 4))
-        let done = app.buttons["完了"]
+        let done = app.buttons["MobileAttachmentPreviewDone"]
         XCTAssertTrue(done.waitForExistence(timeout: 2))
         done.tap()
         XCTAssertTrue(app.descendants(matching: .any)["MobileAttachmentPreview"].waitForNonExistence(timeout: 4))
@@ -2338,7 +2338,7 @@ final class cmuxUITests: XCTestCase {
         card.tap()
         let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
         XCTAssertTrue(preview.waitForExistence(timeout: 4))
-        app.buttons["Done"].tap()
+        app.buttons["MobileAttachmentPreviewDone"].tap()
         XCTAssertTrue(preview.waitForNonExistence(timeout: 4))
     }
 
@@ -2363,7 +2363,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["MobileAttachmentPreview"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.staticTexts["Preview Unavailable"].waitForExistence(timeout: 2))
         keepScreenshot(named: "task-unsupported-preview-open", app: app)
-        app.buttons["Done"].tap()
+        app.buttons["MobileAttachmentPreviewDone"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["MobileAttachmentPreview"].waitForNonExistence(timeout: 4))
 
         let cards = app.buttons.matching(
@@ -2416,7 +2416,7 @@ final class cmuxUITests: XCTestCase {
                 app.buttons["MobileAttachmentCard.\(index)"].tap()
                 let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
                 XCTAssertTrue(preview.waitForExistence(timeout: 4), "cycle \(cycle), card \(index)")
-                app.buttons["Done"].tap()
+                app.buttons["MobileAttachmentPreviewDone"].tap()
                 XCTAssertTrue(preview.waitForNonExistence(timeout: 4), "cycle \(cycle), card \(index)")
                 XCTAssertEqual(prompt.value as? String, capturedDraft)
             }
@@ -2460,7 +2460,7 @@ final class cmuxUITests: XCTestCase {
         let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
         XCTAssertTrue(preview.waitForExistence(timeout: 4))
         keepScreenshot(named: "agent-chat-image-preview-open", app: app)
-        app.buttons["Done"].tap()
+        app.buttons["MobileAttachmentPreviewDone"].tap()
         XCTAssertTrue(preview.waitForNonExistence(timeout: 4))
         XCTAssertEqual(field.value as? String, capturedDraft)
         keepScreenshot(named: "agent-chat-preview-dismissed", app: app)
@@ -2526,7 +2526,7 @@ final class cmuxUITests: XCTestCase {
         let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
         XCTAssertTrue(preview.waitForExistence(timeout: 4))
         keepScreenshot(named: "terminal-image-preview-open", app: app)
-        app.buttons["Done"].tap()
+        app.buttons["MobileAttachmentPreviewDone"].tap()
         XCTAssertTrue(preview.waitForNonExistence(timeout: 4))
         XCTAssertEqual(field.value as? String, capturedDraft)
         keepScreenshot(named: "terminal-preview-dismissed", app: app)
@@ -6126,17 +6126,7 @@ final class cmuxUITests: XCTestCase {
         line: UInt = #line
     ) {
         guard app.keyboards.firstMatch.exists else { return }
-        let composerScrollView = app.scrollViews.containing(
-            .textField,
-            identifier: "MobileTaskComposerPrompt"
-        ).firstMatch
-        XCTAssertTrue(
-            composerScrollView.waitForExistence(timeout: 3),
-            "Task composer must expose its keyboard-dismissable vertical scroll view",
-            file: file,
-            line: line
-        )
-        composerScrollView.swipeDown(velocity: .fast)
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         XCTAssertTrue(
             waitForKeyboardDismissal(in: app),
             "Task composer keyboard must be fully dismissed before opening a source menu",
