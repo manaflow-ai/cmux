@@ -61,6 +61,38 @@ import Testing
         #expect(UITestConfig.value(for: "CMUX_UITEST_ADD_DEVICE_HOST", env: env) == nil)
     }
 
+    #if DEBUG
+    @Test(arguments: ["eligible", "ineligible"])
+    func autoConnectMigrationFixtureRequiresMockDataAndParsesEligibility(_ raw: String) {
+        let configuration = UITestConfig.autoConnectMigrationConfiguration(from: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": raw,
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "  migration-run  ",
+        ])
+
+        #expect(configuration?.eligibility.rawValue == raw)
+        #expect(configuration?.identifier == "migration-run")
+    }
+
+    @Test func autoConnectMigrationFixtureRejectsUnsafeOrIncompleteInputs() {
+        #expect(UITestConfig.autoConnectMigrationConfiguration(from: [
+            "CMUX_UITEST_MOCK_DATA": "0",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "run",
+        ]) == nil)
+        #expect(UITestConfig.autoConnectMigrationConfiguration(from: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "unknown",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "run",
+        ]) == nil)
+        #expect(UITestConfig.autoConnectMigrationConfiguration(from: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "   ",
+        ]) == nil)
+    }
+    #endif
+
     // MARK: - dogfoodAttachURL (NOT mock-gated)
 
     /// The core P2 fix: the dogfood attach URL must be returned even when mock data

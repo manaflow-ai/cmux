@@ -424,6 +424,76 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(element("MobileOnboardingConnectScene").exists)
     }
 
+    /// A migrating BETA install sees the explanation once, can follow its
+    /// recovery route to the existing picker, and retains Tailscale on relaunch.
+    @MainActor
+    func testAutoConnectMigrationIntroductionOpensFocusedConnectionSettingsAndPersistsTailscale() throws {
+        let fixtureID = UUID().uuidString
+        let environment = [
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": fixtureID,
+        ]
+        let app = launchApp(mockData: true, environment: environment)
+        defer { app.terminate() }
+
+        let sheet = app.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["cmux now uses Auto-Connect"].exists)
+        XCTAssertTrue(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "end-to-end encrypted")
+        ).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "Settings → Connection Method")
+        ).firstMatch.exists)
+
+        let continueButton = app.buttons["MobileAutoConnectMigrationContinue"]
+        let settingsButton = app.buttons["MobileAutoConnectMigrationOpenSettings"]
+        XCTAssertTrue(continueButton.exists)
+        XCTAssertTrue(settingsButton.isHittable)
+        settingsButton.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["MobileSettingsView"].waitForExistence(timeout: 4))
+        let picker = app.descendants(matching: .any)["MobileSettingsConnectionMethod"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 4))
+        XCTAssertTrue(picker.isHittable, "Connection Method must be visible without manual scrolling")
+        picker.tap()
+
+        let tailscale = app.descendants(matching: .any)["MobileSettingsConnectionMethodTailscale"]
+        XCTAssertTrue(tailscale.waitForExistence(timeout: 4))
+        tailscale.tap()
+        app.terminate()
+
+        let relaunched = launchApp(mockData: true, environment: environment)
+        defer { relaunched.terminate() }
+        XCTAssertFalse(
+            relaunched.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+                .waitForExistence(timeout: 2)
+        )
+        let settings = relaunched.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        settings.tap()
+        let retainedPicker = relaunched.descendants(matching: .any)["MobileSettingsConnectionMethod"]
+        XCTAssertTrue(retainedPicker.waitForExistence(timeout: 4))
+        XCTAssertEqual(retainedPicker.value as? String, "Tailscale Only")
+    }
+
+    /// The same deterministic shell can prove an ineligible fresh-install
+    /// snapshot never receives the migration sheet.
+    @MainActor
+    func testAutoConnectMigrationIneligibleLaunchDoesNotPresentSheet() throws {
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+        ])
+        defer { app.terminate() }
+
+        XCTAssertFalse(
+            app.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+                .waitForExistence(timeout: 2)
+        )
+        XCTAssertTrue(app.buttons["MobileWorkspaceSettingsMenu"].waitForExistence(timeout: 8))
+    }
+
     @MainActor
     func testAddDeviceManualHostValidationUsesStableIdentifiers() throws {
         let invalidHostApp = launchAddDeviceApp(environment: [
