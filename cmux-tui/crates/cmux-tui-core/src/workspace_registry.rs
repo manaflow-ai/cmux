@@ -2120,12 +2120,12 @@ fn sqlite_filesystem_path(path: &Path) -> anyhow::Result<Cow<'_, Path>> {
     {
         let parent = path
             .parent()
-            .ok_or_else(|| anyhow::anyhow!("SQLite path has no parent: {}", path.display()))?;
+            .ok_or_else(|| anyhow::anyhow!("workspace state path has no parent"))?;
         let file_name = path
             .file_name()
-            .ok_or_else(|| anyhow::anyhow!("SQLite path has no file name: {}", path.display()))?;
+            .ok_or_else(|| anyhow::anyhow!("workspace state path has no file name"))?;
         let parent = fs::canonicalize(parent)
-            .with_context(|| format!("resolve SQLite directory {}", parent.display()))?;
+            .context("resolve workspace state directory")?;
         Ok(Cow::Owned(parent.join(file_name)))
     }
     #[cfg(not(windows))]
