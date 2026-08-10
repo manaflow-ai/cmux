@@ -48,10 +48,10 @@ public struct MobileAttachmentPickerButton: View {
     public var body: some View {
         Menu {
             Button(action: choosePhotos) {
-                Label(localized("mobile.attachment.photos", "Photos"), systemImage: "photo.on.rectangle")
+                Label(String.mobileAttachmentLocalized("mobile.attachment.photos", "Photos"), systemImage: "photo.on.rectangle")
             }
             Button(action: chooseFiles) {
-                Label(localized("mobile.attachment.files", "Files"), systemImage: "folder")
+                Label(String.mobileAttachmentLocalized("mobile.attachment.files", "Files"), systemImage: "folder")
             }
         } label: {
             Image(systemName: style == .circularPlus ? "plus" : "paperclip")
@@ -62,7 +62,7 @@ public struct MobileAttachmentPickerButton: View {
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
-        .accessibilityLabel(localized("mobile.attachment.add", "Add Attachment"))
+        .accessibilityLabel(String.mobileAttachmentLocalized("mobile.attachment.add", "Add Attachment"))
         .accessibilityIdentifier("MobileAttachmentPickerButton")
     }
 }
@@ -151,13 +151,13 @@ public struct MobileAttachmentCardStrip: View {
                 if isPreparing {
                     HStack(spacing: 8) {
                         ProgressView()
-                        Text(localized("mobile.attachment.preparing", "Preparing…"))
+                        Text(String.mobileAttachmentLocalized("mobile.attachment.preparing", "Preparing…"))
                             .font(.subheadline)
                     }
                     .padding(12)
                     .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
                     .accessibilityElement(children: .combine)
-                    .accessibilityLabel(localized("mobile.attachment.preparing", "Preparing…"))
+                    .accessibilityLabel(String.mobileAttachmentLocalized("mobile.attachment.preparing", "Preparing…"))
                     .accessibilityIdentifier("MobileAttachmentPreparing")
                 }
             }
@@ -193,7 +193,7 @@ public struct MobileAttachmentCardStrip: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(String(
-                format: localized("mobile.attachment.preview.named", "Preview %@"),
+                format: String.mobileAttachmentLocalized("mobile.attachment.preview.named", "Preview %@"),
                 attachment.fileName
             ))
             .accessibilityIdentifier("MobileAttachmentCard.\(index)")
@@ -209,7 +209,7 @@ public struct MobileAttachmentCardStrip: View {
             .buttonStyle(.plain)
             .disabled(isDisabled)
             .accessibilityLabel(String(
-                format: localized("mobile.attachment.remove.named", "Remove %@"),
+                format: String.mobileAttachmentLocalized("mobile.attachment.remove.named", "Remove %@"),
                 attachment.fileName
             ))
             .accessibilityIdentifier("MobileAttachmentRemove.\(index)")
@@ -272,7 +272,7 @@ public struct MobileAttachmentCardStrip: View {
     private func fileExtension(for attachment: MobileStagedAttachment) -> String {
         let value = (attachment.fileName as NSString).pathExtension
         if value.isEmpty {
-            return localized("mobile.attachment.file", "FILE")
+            return String.mobileAttachmentLocalized("mobile.attachment.file", "FILE")
         } else {
             return value.uppercased()
         }
@@ -290,9 +290,9 @@ private struct MobileAttachmentPreview: View {
                     QuickLookPreview(url: attachment.localFileURL)
                 } else {
                     ContentUnavailableView(
-                        localized("mobile.attachment.preview.unsupported.title", "Preview Unavailable"),
+                        String.mobileAttachmentLocalized("mobile.attachment.preview.unsupported.title", "Preview Unavailable"),
                         systemImage: "doc.questionmark",
-                        description: Text(localized(
+                        description: Text(String.mobileAttachmentLocalized(
                             "mobile.attachment.preview.unsupported.message",
                             "This file type can’t be previewed."
                         ))
@@ -303,7 +303,7 @@ private struct MobileAttachmentPreview: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button(localized("mobile.attachment.done", "Done")) { dismiss() }
+                        Button(String.mobileAttachmentLocalized("mobile.attachment.done", "Done")) { dismiss() }
                     }
                 }
         }
@@ -333,7 +333,12 @@ private struct QuickLookPreview: UIViewControllerRepresentable {
     }
 }
 
-private func localized(_ key: String.LocalizationValue, _ fallback: String) -> String {
-    String(localized: key, defaultValue: fallback, bundle: .module)
+private extension String {
+    static func mobileAttachmentLocalized(
+        _ key: String.LocalizationValue,
+        _ fallback: String
+    ) -> String {
+        String(localized: key, defaultValue: fallback, bundle: .module)
+    }
 }
 #endif
