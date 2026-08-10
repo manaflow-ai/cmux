@@ -1,5 +1,3 @@
-#[cfg(unix)]
-use std::ffi::CStr;
 use std::fs;
 #[cfg(unix)]
 use std::fs::File;
@@ -327,7 +325,7 @@ fn server_establishes_shutdown_ownership_before_publishing_its_listener() {
     let ready_reader = std::thread::spawn(move || {
         use std::io::Read as _;
 
-        let mut marker = fs::File::open(ready_marker).unwrap();
+        let mut marker = File::open(ready_marker).unwrap();
         let mut signal = [0_u8; 1];
         marker.read_exact(&mut signal).unwrap();
         ready_sender.send(()).unwrap();
@@ -501,7 +499,7 @@ fn wait_for_pid_file(path: &std::path::Path, timeout: Duration) -> u32 {
         let change = libc::kevent {
             ident: directory.as_raw_fd() as libc::uintptr_t,
             filter: libc::EVFILT_VNODE,
-            flags: (libc::EV_ADD | libc::EV_ENABLE | libc::EV_CLEAR) as u16,
+            flags: libc::EV_ADD | libc::EV_ENABLE | libc::EV_CLEAR,
             fflags: libc::NOTE_WRITE | libc::NOTE_EXTEND | libc::NOTE_RENAME,
             data: 0,
             udata: std::ptr::null_mut(),
@@ -2311,51 +2309,6 @@ fn noun_first_ratio_commands_reject_nonfinite_values_before_connecting() {
         assert!(stderr.contains("--ratio must be greater than 0 and less than 1"), "{stderr}");
         assert!(!stderr.contains("cmux-tui"), "{stderr}");
     }
-}
-
-#[cfg(unix)]
-fn open_test_pty() -> (File, File) {
-    static PTY_NAME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    let _name_lock = PTY_NAME_LOCK.lock().unwrap();
-    let master_fd = unsafe { libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC) };
-    assert_ne!(master_fd, -1, "posix_openpt failed: {}", std::io::Error::last_os_error());
-    let master = unsafe { File::from_raw_fd(master_fd) };
-    let master_flags = unsafe { libc::fcntl(master.as_raw_fd(), libc::F_GETFD) };
-    assert_ne!(
-        master_flags,
-        -1,
-        "fcntl(F_GETFD) failed for PTY master: {}",
-        std::io::Error::last_os_error()
-    );
-    assert_ne!(master_flags & libc::FD_CLOEXEC, 0, "PTY master was created without close-on-exec");
-    assert_eq!(
-        unsafe { libc::grantpt(master.as_raw_fd()) },
-        0,
-        "grantpt failed: {}",
-        std::io::Error::last_os_error()
-    );
-    assert_eq!(
-        unsafe { libc::unlockpt(master.as_raw_fd()) },
-        0,
-        "unlockpt failed: {}",
-        std::io::Error::last_os_error()
-    );
-    let slave_name = unsafe { libc::ptsname(master.as_raw_fd()) };
-    assert!(!slave_name.is_null(), "ptsname failed: {}", std::io::Error::last_os_error());
-    let slave_name = unsafe { CStr::from_ptr(slave_name) }.to_owned();
-    let slave_fd =
-        unsafe { libc::open(slave_name.as_ptr(), libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC) };
-    assert_ne!(slave_fd, -1, "open PTY slave failed: {}", std::io::Error::last_os_error());
-    let slave = unsafe { File::from_raw_fd(slave_fd) };
-    let size = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
-    assert_ne!(
-        unsafe { libc::ioctl(slave.as_raw_fd(), libc::TIOCSWINSZ, &size) },
-        -1,
-        "set PTY size failed: {}",
-        std::io::Error::last_os_error()
-    );
-    (master, slave)
 }
 
 #[cfg(unix)]
@@ -4913,7 +4866,7 @@ fn find_session_database(state: &std::path::Path, session: &str) -> PathBuf {
 }
 
 #[cfg(unix)]
-fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
+fn create_live_terminal_host_record(root: &std::path::Path) -> File {
     fs::create_dir_all(root).unwrap();
     fs::set_permissions(root, fs::Permissions::from_mode(0o700)).unwrap();
     let terminal_id = "0000000000004000800000000000002a";

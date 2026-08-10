@@ -12906,6 +12906,7 @@ impl App {
                     } => {
                         if self
                             .pending_pointer_motion
+                            .as_ref()
                             .is_some_and(|pointer| pointer.destination == Some(surface))
                         {
                             self.pending_pointer_motion = None;
@@ -31094,7 +31095,7 @@ mod tests {
         assert!(!app.session.has_pending_mutations());
         assert_eq!(app.deferred_input.len(), 1);
         assert!(events.try_recv().is_err());
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     #[test]

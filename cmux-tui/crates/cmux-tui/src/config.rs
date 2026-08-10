@@ -5553,8 +5553,8 @@ mod tests {
     #[test]
     fn ghostty_config_helper_waits_for_the_process_creation_barrier() {
         let barrier = cmux_tui_process::ProcessCreationGuard::acquire();
-        let (started_sender, started_receiver) = std::sync::mpsc::channel();
-        let (result_sender, result_receiver) = std::sync::mpsc::channel();
+        let (started_sender, started_receiver) = mpsc::channel();
+        let (result_sender, result_receiver) = mpsc::channel();
         let helper = std::thread::spawn(move || {
             let mut command = Command::new("/usr/bin/printf");
             command

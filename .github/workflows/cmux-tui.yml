@@ -171,6 +171,7 @@ jobs:
           # Retain the full 128 MiB fairness workload under Valgrind with
           # explicit instrumentation-only bounds. Normal CI stays strict.
           CMUX_TEST_PERF_INSTRUMENTED: "valgrind"
+          VALGRIND_SHARD: ${{ matrix.shard }}
         run: |
           run_valgrind() {
             local bin="$1"
@@ -269,12 +270,23 @@ jobs:
             fi
           done < target/valgrind-test-binaries.txt
           if [ "$valgrind_pidfd_supported" = false ]; then
-            while read -r skip_scope; do
+            required_skip_scopes=()
+            case "$VALGRIND_SHARD" in
+              core) required_skip_scopes=(cmux_tui_core) ;;
+              tui) required_skip_scopes=(cmux_tui) ;;
+              remainder) required_skip_scopes=(browser_runtime pty websocket_transport) ;;
+              remote) ;;
+              *)
+                echo "Unknown Valgrind shard: $VALGRIND_SHARD" >&2
+                exit 1
+                ;;
+            esac
+            for skip_scope in "${required_skip_scopes[@]}"; do
               if [ -z "${seen_skip_scopes[$skip_scope]:-}" ]; then
                 echo "No test binary matched Valgrind skip scope: $skip_scope" >&2
                 exit 1
               fi
-            done < <(awk '!/^#/ && NF { print $1 }' dist/valgrind-pidfd-skips.txt | sort -u)
+            done
           fi
 
   valgrind-leak-check:

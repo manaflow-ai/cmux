@@ -1426,7 +1426,7 @@ mod tests {
         assert_eq!(dispatcher.enqueue(input()), PtyInputEnqueueResult::Accepted);
 
         assert!(dispatcher.shutdown(Duration::from_secs(1)));
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     #[test]

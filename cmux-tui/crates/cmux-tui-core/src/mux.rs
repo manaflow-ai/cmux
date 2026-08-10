@@ -27648,26 +27648,55 @@ mod tests {
         let mux = test_mux();
         let initial = mux.create_empty_workspace(None, None, None).unwrap();
         let events = mux.subscribe();
-        let close_ready = Arc::new(std::sync::Barrier::new(2));
-        let resume_close = Arc::new(std::sync::Barrier::new(2));
+        let final_failure_timeout = crate::test_timeout(Duration::from_secs(2));
+        let (close_reached_tx, close_reached_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_close_tx, release_close_rx) = std::sync::mpsc::sync_channel(1);
+        let release_close_rx = Arc::new(Mutex::new(release_close_rx));
         *mux.workspace_close_before_empty_check.lock().unwrap() = Some(Arc::new({
-            let close_ready = close_ready.clone();
-            let resume_close = resume_close.clone();
+            let release_close_rx = Arc::clone(&release_close_rx);
             move || {
-                close_ready.wait();
-                resume_close.wait();
+                close_reached_tx.send(()).unwrap();
+                release_close_rx
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(final_failure_timeout)
+                    .expect("close owner was not released before the final failure deadline");
             }
         }));
 
+        let (close_done_tx, close_done_rx) = std::sync::mpsc::sync_channel(1);
         let close_mux = mux.clone();
         let close = std::thread::spawn(move || {
-            close_mux.close_workspace_at_revision(initial.workspace, Some(1)).unwrap()
+            close_done_tx
+                .send(close_mux.close_workspace_at_revision(initial.workspace, Some(1)))
+                .unwrap();
         });
-        close_ready.wait();
-        let replacement = mux.create_empty_workspace(None, None, Some(2)).unwrap();
+        close_reached_rx.recv_timeout(final_failure_timeout).expect(
+            "close did not reach the empty-workspace check before the final failure deadline",
+        );
+
+        let (replacement_done_tx, replacement_done_rx) = std::sync::mpsc::sync_channel(1);
+        let replacement_mux = mux.clone();
+        let replacement_owner = std::thread::spawn(move || {
+            replacement_done_tx
+                .send(replacement_mux.create_empty_workspace(None, None, Some(2)))
+                .unwrap();
+        });
+        let replacement = replacement_done_rx
+            .recv_timeout(final_failure_timeout)
+            .expect("replacement creation did not finish before the final failure deadline")
+            .unwrap();
         *mux.workspace_close_before_empty_check.lock().unwrap() = None;
-        resume_close.wait();
-        assert_eq!(close.join().unwrap(), Some(2));
+        release_close_tx.send(()).unwrap();
+        assert_eq!(
+            close_done_rx
+                .recv_timeout(final_failure_timeout)
+                .expect("close did not finish after release before the final failure deadline")
+                .unwrap(),
+            Some(2)
+        );
+        close.join().unwrap();
+        replacement_owner.join().unwrap();
 
         let emitted = events.try_iter().collect::<Vec<_>>();
         assert!(emitted.iter().any(|event| matches!(

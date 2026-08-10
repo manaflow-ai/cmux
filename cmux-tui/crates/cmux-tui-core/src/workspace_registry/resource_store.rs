@@ -534,7 +534,7 @@ impl WorkspaceRegistry {
         validate_workspace_key(workspace_key)?;
         let mut statement = self.connection.prepare(
             "SELECT terminal_id, incarnation
-             FROM terminal_placements
+             FROM terminal_hosts
              WHERE workspace_key = ?1
                AND lifecycle != 'tombstoned'
              ORDER BY created_revision ASC, terminal_id ASC",

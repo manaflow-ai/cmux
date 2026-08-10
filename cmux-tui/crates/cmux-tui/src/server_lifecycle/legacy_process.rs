@@ -1052,14 +1052,14 @@ mod tests {
         let unavailable =
             ProcessIdentity { pid: process.pid, started_at: process.started_at.wrapping_add(1) };
         let session = CapturedSession { id: pid, members: vec![unavailable] };
-        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = mpsc::sync_channel(1);
         let reaper = std::thread::spawn(move || {
             release_rx.recv().unwrap();
             child.kill().unwrap();
             child.wait().unwrap()
         });
 
-        let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+        let (result_tx, result_rx) = mpsc::sync_channel(1);
         let waiter = std::thread::spawn(move || {
             result_tx
                 .send(session.kill_until_empty(Instant::now() + Duration::from_secs(1)))

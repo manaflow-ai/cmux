@@ -2704,7 +2704,7 @@ impl WorkspaceRegistry {
         self.terminal_snapshot_count.fetch_add(1, Ordering::Relaxed);
         let mut statement = self
             .connection
-            .prepare("SELECT terminal_id FROM terminal_placements ORDER BY terminal_id ASC")?;
+            .prepare("SELECT terminal_id FROM terminal_hosts ORDER BY terminal_id ASC")?;
         statement
             .query_map([], |row| row.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()
