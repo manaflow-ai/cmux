@@ -11248,6 +11248,8 @@ mod tests {
     use std::sync::mpsc::TryRecvError;
     use std::time::Duration;
 
+    static NEXT_TEST_SOCKET_DIR: AtomicU64 = AtomicU64::new(1);
+
     struct TestSocketDir(PathBuf);
 
     impl TestSocketDir {
@@ -11255,7 +11257,7 @@ mod tests {
             let path = std::env::temp_dir().join(format!(
                 "cmux-tui-server-{name}-{}-{}",
                 std::process::id(),
-                uuid::Uuid::new_v4()
+                NEXT_TEST_SOCKET_DIR.fetch_add(1, Ordering::Relaxed)
             ));
             std::fs::create_dir_all(&path).unwrap();
             Self(path)
@@ -18804,7 +18806,7 @@ mod tests {
         let mux = test_mux();
         let pending = serve_paused(mux.clone(), Some(path.clone())).unwrap();
         let mut stream = transport::connect(&path).unwrap();
-        writeln!(stream, r#"{"id":1,"cmd":"identify"}"#).unwrap();
+        writeln!(stream, r#"{{"id":1,"cmd":"identify"}}"#).unwrap();
         stream.flush().unwrap();
 
         assert!(mux.control_clients.client_ids().is_empty());
