@@ -2329,7 +2329,7 @@ impl Mux {
             &projection.changes,
         )?;
         let (terminal, resource) = match committed {
-            TerminalResourceCloseCommit::TerminalReplay(terminal) => {
+            TerminalResourceCloseCommit::Replay(terminal) => {
                 let result = TerminalCloseResult {
                     surface: None,
                     terminal_id: terminal_id.to_string(),

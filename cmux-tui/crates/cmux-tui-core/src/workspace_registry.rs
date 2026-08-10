@@ -360,7 +360,7 @@ pub struct TerminalRegistryCommit {
 /// A host mutation replay cannot acquire a public-resource side effect that
 /// was not part of its original transaction.
 pub(crate) enum TerminalResourceCloseCommit {
-    TerminalReplay(TerminalRegistryCommit),
+    Replay(TerminalRegistryCommit),
     Committed { terminal: TerminalRegistryCommit, resource: ResourcePatchCommit },
 }
 
@@ -2984,6 +2984,32 @@ impl WorkspaceRegistry {
         let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
         let resource_result_json = canonical_json(resource_result)?;
         let tx = self.connection.transaction()?;
+        if let Some(terminal) = terminal_replay(&tx, mutation, &fingerprint)? {
+            tx.commit()?;
+            return Ok(TerminalResourceCloseCommit::Replay(terminal));
+        }
+        if resource_store::resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)?.is_some()
+        {
+            let terminal =
+                read_terminal(&tx, terminal_id)?.context("terminal close state is unavailable")?;
+            anyhow::ensure!(
+                terminal.lifecycle == TerminalLifecycle::Tombstoned,
+                "terminal close state is unavailable"
+            );
+            let revision = transaction_terminal_revision(&tx)?;
+            let result = serde_json::json!({
+                "terminal_id": terminal_id,
+                "incarnation": terminal.incarnation,
+                "closed": true,
+                "already_closed": true,
+            });
+            tx.commit()?;
+            return Ok(TerminalResourceCloseCommit::Replay(TerminalRegistryCommit {
+                revision,
+                result,
+                replayed: true,
+            }));
+        }
         let terminal = close_terminal_in_transaction(
             &tx,
             &self.generation,
@@ -2994,61 +3020,50 @@ impl WorkspaceRegistry {
             terminal_id,
             expected_incarnation,
         )?;
-        if terminal.replayed {
-            // The original mutation may predate the combined close path. Its
-            // durable reply is final, so do not apply a patch to whichever
-            // public resource currently owns this terminal ID.
-            tx.commit()?;
-            return Ok(TerminalResourceCloseCommit::TerminalReplay(terminal));
-        }
-        let resource = if let Some(replayed) =
-            resource_store::resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)?
-        {
-            replayed
-        } else {
-            let previous_revision = transaction_resource_revision(&tx)?;
-            anyhow::ensure!(
-                previous_revision == expected_resource_revision,
-                "resource revision conflict: expected {expected_resource_revision}, current {previous_revision}"
-            );
-            let revision = previous_revision
-                .checked_add(1)
-                .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
-            let sqlite_revision =
-                i64::try_from(revision).context("resource revision exceeds SQLite range")?;
-            apply_resource_patch(&tx, patch, sqlite_revision)?;
-            tx.execute(
-                "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
-                [revision.to_string()],
-            )?;
-            tx.execute(
-                "INSERT INTO resource_mutations(
+        debug_assert!(!terminal.replayed);
+        let previous_revision = transaction_resource_revision(&tx)?;
+        anyhow::ensure!(
+            previous_revision == expected_resource_revision,
+            "resource revision conflict: expected {expected_resource_revision}, current {previous_revision}"
+        );
+        let revision = previous_revision
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
+        let sqlite_revision =
+            i64::try_from(revision).context("resource revision exceeds SQLite range")?;
+        apply_resource_patch(&tx, patch, sqlite_revision)?;
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [revision.to_string()],
+        )?;
+        tx.execute(
+            "INSERT INTO resource_mutations(
                    origin, idempotency_key, operation, fingerprint, result_json,
                    committed_revision
                  ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    mutation.origin,
-                    mutation.id,
-                    OPERATION,
-                    fingerprint,
-                    resource_result_json,
-                    sqlite_revision,
-                ],
-            )?;
-            append_resource_journal_record(
-                &tx,
-                revision,
-                previous_revision,
-                &mutation.origin,
-                &mutation.id,
+            params![
+                mutation.origin,
+                mutation.id,
                 OPERATION,
-                Some(patch),
-                resource_result,
-                resource_deltas,
-            )?;
-            resource_store::prune_resource_mutations(&tx)?;
-            ResourcePatchCommit { revision, result: resource_result.clone(), replayed: false }
-        };
+                fingerprint,
+                resource_result_json,
+                sqlite_revision,
+            ],
+        )?;
+        append_resource_journal_record(
+            &tx,
+            revision,
+            previous_revision,
+            &mutation.origin,
+            &mutation.id,
+            OPERATION,
+            Some(patch),
+            resource_result,
+            resource_deltas,
+        )?;
+        resource_store::prune_resource_mutations(&tx)?;
+        let resource =
+            ResourcePatchCommit { revision, result: resource_result.clone(), replayed: false };
         tx.commit()?;
         Ok(TerminalResourceCloseCommit::Committed { terminal, resource })
     }
