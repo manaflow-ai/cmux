@@ -13967,15 +13967,11 @@ fn terminal_content_placements(
     terminal_id: &TerminalPublicId,
     expected_host_id: Option<&str>,
 ) -> Vec<SurfaceId> {
-    let runtime = state.terminal_catalog.get(terminal_id);
     let mut targets = state
         .surfaces
         .iter()
         .filter_map(|(placement, candidate)| {
             if candidate.terminal_public_id() != Some(terminal_id) {
-                return None;
-            }
-            if runtime.is_some_and(|runtime| !candidate.shares_terminal_runtime(runtime)) {
                 return None;
             }
             if expected_host_id.is_some_and(|expected| {
@@ -19702,10 +19698,7 @@ mod tests {
             state
                 .resource_indexes
                 .content_placements
-                .insert(
-                    ContentPublicId::Terminal(public_id.clone()),
-                    vec![first.id, unrelated.id],
-                );
+                .insert(ContentPublicId::Terminal(public_id.clone()), vec![first.id, unrelated.id]);
             state.terminal_catalog.remove(&public_id);
             state.terminal_catalog_by_runtime.remove(&runtime_id);
         }

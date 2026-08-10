@@ -2813,12 +2813,8 @@ impl Mux {
                 let host = self
                     .resource_terminal_host_identity(&runtime)
                     .context("terminal omitted its durable host identity")?;
-                let placements = terminal_content_placements(
-                    self,
-                    state,
-                    &public_id,
-                    Some(&host.terminal_id),
-                );
+                let placements =
+                    terminal_content_placements(self, state, &public_id, Some(&host.terminal_id));
                 let screens = unique_screen_ids(
                     placements.iter().filter_map(|surface| surface_screen_id(state, *surface)),
                 );
@@ -2859,14 +2855,9 @@ impl Mux {
                 belongs_to_terminal(surface).then_some(*surface_id)
             })
             .collect::<Vec<_>>();
-        placements.extend(
-            state
-                .surfaces
-                .iter()
-                .filter_map(|(surface_id, surface)| {
-                    belongs_to_terminal(surface).then_some(*surface_id)
-                }),
-        );
+        placements.extend(state.surfaces.iter().filter_map(|(surface_id, surface)| {
+            belongs_to_terminal(surface).then_some(*surface_id)
+        }));
         placements.sort_unstable();
         placements.dedup();
         let changed_screens = unique_screen_ids(
