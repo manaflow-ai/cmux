@@ -7532,13 +7532,13 @@ impl Mux {
                 .terminal_runtime_by_viewer
                 .iter()
                 .filter_map(|(viewer, terminal)| (*terminal == runtime_id).then_some(*viewer))
-                .collect::<Vec<_>>();
-            for viewer in viewers {
-                sizing.surfaces.remove(&viewer);
-                sizing.report_order.retain(|(reported, _), _| *reported != viewer);
-                sizing.policies.remove(&viewer);
-                sizing.terminal_runtime_by_viewer.remove(&viewer);
+                .collect::<HashSet<_>>();
+            for viewer in &viewers {
+                sizing.surfaces.remove(viewer);
+                sizing.policies.remove(viewer);
             }
+            sizing.report_order.retain(|(reported, _), _| !viewers.contains(reported));
+            sizing.terminal_runtime_by_viewer.retain(|_, terminal| *terminal != runtime_id);
             sizing.terminal_authorities.remove(&runtime_id);
             drop(sizing);
             drop(sizing_lifecycle);
@@ -8907,8 +8907,7 @@ impl Mux {
         })
     }
 
-    fn cell_pixel_report_targets(&self, runtime: SurfaceId) -> Vec<SurfaceId> {
-        let state = self.state.lock().unwrap();
+    fn cell_pixel_report_targets_in_state(state: &State, runtime: SurfaceId) -> Vec<SurfaceId> {
         let Some(terminal_id) = state.terminal_catalog_by_runtime.get(&runtime) else {
             return state.surfaces.contains_key(&runtime).then_some(runtime).into_iter().collect();
         };
@@ -8920,17 +8919,22 @@ impl Mux {
             .collect()
     }
 
+    fn cell_pixel_report_targets(&self, runtime: SurfaceId) -> Vec<SurfaceId> {
+        Self::cell_pixel_report_targets_in_state(&self.state.lock().unwrap(), runtime)
+    }
+
     fn project_cell_pixel_update(&self, update: CellPixelUpdate) -> CellPixelUpdate {
+        let state = self.state.lock().unwrap();
         let mut projected = CellPixelUpdate::default();
         for (runtime, size, reservation_id) in update.resizes {
             projected.resizes.extend(
-                self.cell_pixel_report_targets(runtime)
+                Self::cell_pixel_report_targets_in_state(&state, runtime)
                     .into_iter()
                     .map(|placement| (placement, size, reservation_id)),
             );
         }
         for failure in update.failures {
-            let targets = self.cell_pixel_report_targets(failure.surface);
+            let targets = Self::cell_pixel_report_targets_in_state(&state, failure.surface);
             if targets.is_empty() {
                 projected.failures.push(failure);
                 continue;
