@@ -2744,6 +2744,14 @@ enum TerminalWindowPortalRegistry {
         return portal.updateEntryVisibility(forHostedId: hostedId, visibleInUI: visibleInUI)
     }
 
+    /// Whether the registry entry still names this anchor, including while the
+    /// anchor is temporarily detached and therefore has no live window binding.
+    static func hasEntry(for hostedView: GhosttySurfaceScrollView, boundTo anchorView: NSView) -> Bool {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return false }
+        return portal.isHostedViewBoundToAnchor(withId: hostedId, anchorView: anchorView)
+    }
+
     static func isHostedView(_ hostedView: GhosttySurfaceScrollView, boundTo anchorView: NSView) -> Bool {
         let hostedId = ObjectIdentifier(hostedView)
         guard let window = anchorView.window else { return false }

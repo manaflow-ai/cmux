@@ -154,7 +154,8 @@ extension GhosttyTerminalView {
                     TerminalWindowPortalRegistry.synchronizeForAnchor(host, syncLayout: false)
                     coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
                 }
-            } else if hostOwnsPortal, wasBoundToHost {
+            } else if hostOwnsPortal,
+                      TerminalWindowPortalRegistry.hasEntry(for: hostedView, boundTo: host) {
                 // Preserve the latest visibility intent while the SwiftUI host
                 // is temporarily detached. Its next move-to-window callback
                 // stages the authoritative rebind.
