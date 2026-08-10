@@ -71,6 +71,8 @@ let package = Package(
                 "CMUXMobileCore",
                 "CmuxAuthRuntime",
                 "CmuxMobilePairedMac",
+                "CmuxMobileBrowser",
+                "CmuxMobileBrowserStream",
                 "CmuxMobileRPC",
                 "CmuxMobileShellUI",
                 "CmuxAgentChat",
