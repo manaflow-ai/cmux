@@ -105,9 +105,8 @@ def run() -> None:
                 f"stdout:\n{listing.stdout}\nstderr:\n{listing.stderr}"
             )
         payload = json.loads(listing.stdout)
-        workspaces = payload.get("data", {}).get("workspaces")
-        if not isinstance(workspaces, list):
-            raise AssertionError(f"workspace list had no data.workspaces array: {payload!r}")
+        if not isinstance(payload, list):
+            raise AssertionError(f"workspace list was not an array: {payload!r}")
         print(f"Windows state path length: {len(str(state_path))}")
         print(f"Windows state path UTF-8 length: {len(str(state_path).encode('utf-8'))}")
         print(f"Published socket: {socket_path}")
