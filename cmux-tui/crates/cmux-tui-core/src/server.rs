@@ -5171,8 +5171,7 @@ fn complete_daemon_shutdown_after_ack(
             disconnect_client(mux, peer, true);
         }
     }
-    disconnect_client(mux, requesting_client, false);
-    false
+    true
 }
 
 pub fn detach_control_client(mux: &Arc<Mux>, client: u64) -> bool {
@@ -8687,6 +8686,13 @@ fn handle_connection_message(
     writer: &MessageWriter,
     scheduler: &Arc<ConnectionSurfaceScheduler>,
 ) -> bool {
+    // Keep an idle shutdown requester connected until owner cleanup closes
+    // the transport, so lifecycle clients receive authoritative completion.
+    // A pipelined message after the acknowledgement must not reach parsing or
+    // dispatch; returning false makes the connection loop close that client.
+    if mux.daemon_shutdown_requested() {
+        return false;
+    }
     if crate::resource_router::is_resource_protocol_message(message) {
         return handle_resource_connection_message(mux, client, message, writer);
     }
