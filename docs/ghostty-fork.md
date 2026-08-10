@@ -157,7 +157,7 @@ The final font integration landed in merge commits `23003282d` and
 - Patch commits:
   - `7ad529298` (test: cover atomic bracketed paste encoding)
   - `f27772d10` (fix: enqueue bracketed paste atomically)
-- Pinned integration commit:
+- Current cmux Ghostty submodule pin and artifact commit:
   - `f76c132e5` (descends from the atomic-paste patch and retains the
     `11aa609d7` VT stream-boundary API required by current cmux TUI code)
 - Files:
