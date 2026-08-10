@@ -74,4 +74,8 @@ final class FakeSurfaceRegistry: @unchecked Sendable, TerminalSurfaceRegistering
     func allSurfaces() -> [any TerminalSurfacing] {
         backing.allSurfaces()
     }
+
+    func allInProcessRendererSurfaces() -> [any TerminalSurfacing] {
+        backing.allInProcessRendererSurfaces()
+    }
 }

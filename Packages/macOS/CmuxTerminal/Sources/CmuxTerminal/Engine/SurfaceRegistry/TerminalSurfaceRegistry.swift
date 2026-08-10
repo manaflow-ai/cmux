@@ -21,6 +21,10 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     private let lock = NSLock()
     // SAFETY: every access is guarded by `lock`.
     nonisolated(unsafe) private let surfaces = NSHashTable<AnyObject>.weakObjects()
+    // SAFETY: every access is guarded by `lock`; the separate weak index keeps
+    // daemon-owned surfaces out of in-process renderer reclamation scans.
+    nonisolated(unsafe) private let inProcessRendererSurfaces =
+        NSHashTable<AnyObject>.weakObjects()
     // SAFETY: synchronous `deinit` callers cannot await an actor; `lock`
     // serializes every access from those callers and the main actor.
     nonisolated(unsafe) private var incrementalTraversalHead:
@@ -75,6 +79,9 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         lock.lock()
         defer { lock.unlock() }
         surfaces.add(surface)
+        if !surface.isExternallyManaged {
+            inProcessRendererSurfaces.add(surface)
+        }
         let identity = ObjectIdentifier(surface)
         if let existingNode =
                 incrementalTraversalNodes[identity],
@@ -136,6 +143,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         lock.lock()
         let surfaceId = surface.id
         surfaces.remove(surface)
+        inProcessRendererSurfaces.remove(surface)
         if let node = incrementalTraversalNodes.removeValue(
             forKey: ObjectIdentifier(surface)
         ) {
@@ -306,6 +314,20 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     /// All live registered surfaces, ordered by id for stable iteration.
     public func allSurfaces() -> [any TerminalSurfacing] {
         allSurfacesUnordered().sorted { lhs, rhs in
+            lhs.id.uuidString < rhs.id.uuidString
+        }
+    }
+
+    /// All live surfaces that own a Ghostty renderer in this process.
+    ///
+    /// This reads the dedicated weak index rather than filtering
+    /// ``allSurfaces()``. Its cost grows only with in-process terminals.
+    public func allInProcessRendererSurfaces() -> [any TerminalSurfacing] {
+        lock.lock()
+        let objects = inProcessRendererSurfaces.allObjects
+            .compactMap { $0 as? any TerminalSurfacing }
+        lock.unlock()
+        return objects.sorted { lhs, rhs in
             lhs.id.uuidString < rhs.id.uuidString
         }
     }

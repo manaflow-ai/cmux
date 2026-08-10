@@ -307,6 +307,28 @@ struct TerminalSurfaceRegistryTests {
         #expect(Set(ids) == Set(surfaces.map(\.id.uuidString)))
     }
 
+    @Test func inProcessRendererSnapshotExcludesExternalTerminals() {
+        let registry = TerminalSurfaceRegistry()
+        let native = FakeSurface()
+        let external = (0..<2_048).map { _ in
+            FakeSurface(isExternallyManaged: true)
+        }
+
+        registry.register(native)
+        for surface in external {
+            registry.register(surface)
+        }
+
+        #expect(registry.allSurfaces().count == external.count + 1)
+        let rendererSurfaces = registry.allInProcessRendererSurfaces()
+        #expect(rendererSurfaces.count == 1)
+        #expect(rendererSurfaces.first === native)
+
+        registry.unregister(native)
+        #expect(registry.allInProcessRendererSurfaces().isEmpty)
+        #expect(registry.allSurfaces().count == external.count)
+    }
+
     @Test func incrementalTraversalIsLazyAndWeak() {
         let registry = TerminalSurfaceRegistry()
         let retained = (0..<5).map { _ in FakeSurface() }
