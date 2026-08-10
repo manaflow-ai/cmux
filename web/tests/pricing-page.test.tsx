@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { stripeSubscriptions } from "../db/schema";
 import enMessages from "../messages/en.json";
+import jaMessages from "../messages/ja.json";
 import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 import { withAccountMutationLeaseSupport } from
   "./helpers/account-mutation-db-mock";
@@ -67,6 +68,15 @@ mock.module("../db/client", () => ({
 const { default: PricingPage } = await import("../app/[locale]/pricing/page");
 
 describe("localized pricing page", () => {
+  test("limits the Team-only benefit to aggregate CodeRouter for now", () => {
+    expect(enMessages.pricing.team.features).toEqual([
+      "Team-wide CodeRouter with anonymous aggregate usage and cost analytics",
+    ]);
+    expect(jaMessages.pricing.team.features).toEqual([
+      "匿名の集計使用量・コスト分析付きチーム全体 CodeRouter",
+    ]);
+  });
+
   beforeEach(() => {
     process.env.CMUX_VAULT_ENABLED = "0";
     stackConfigured = false;
