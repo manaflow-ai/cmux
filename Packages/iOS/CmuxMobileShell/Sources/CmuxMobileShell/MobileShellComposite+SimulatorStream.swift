@@ -170,7 +170,7 @@ extension MobileShellComposite {
     /// re-request the stream through the panel's serialized operation chain.
     /// The watchdog stays armed, so a recovery that dies silently retries on
     /// the next silent interval.
-    func handleStaleMobileSimulatorStream(panelID: String) {
+    public func handleStaleMobileSimulatorStream(panelID: String) {
         guard startedMobileSimulatorPanelIDs.contains(panelID) else {
             simulatorStreamStalenessMonitor.disarm(panelID: panelID)
             return
@@ -195,6 +195,11 @@ extension MobileShellComposite {
                 workspaceID: workspaceID
             )
         }
+    }
+
+    /// Clears a decode-level stall after the pane presents a real image.
+    public func mobileSimulatorFrameDidPresent(panelID: String) {
+        simulatorStreamStore?.simulatorFrameDidPresent(panelID: panelID)
     }
 
     public func sendMobileSimulatorPointer(_ input: MobileSimulatorPointerInput) async {

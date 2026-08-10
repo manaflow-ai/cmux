@@ -140,6 +140,13 @@ public final class MobileSimulatorStreamSurfaceState: Identifiable {
         streamStatus = .stalled
     }
 
+    /// Clears a decode-level stall only after the pane actually presents a
+    /// frame, not merely when another encoded payload reaches the phone.
+    public func markFramePresented() {
+        guard streamStatus == .stalled else { return }
+        streamStatus = .streaming
+    }
+
     /// A `locked` start rejection is an authoritative per-connection answer:
     /// another phone holds the panel's control lock, so any ownership this
     /// connection remembers from an earlier start no longer stands. Clearing
@@ -166,7 +173,9 @@ public final class MobileSimulatorStreamSurfaceState: Identifiable {
             )
         }
         latestFrame = frame
-        streamStatus = .streaming
+        if streamStatus != .stalled {
+            streamStatus = .streaming
+        }
         return .received(panelID: frame.panelID, sequence: frame.sequence, payloadBytes: payloadBytes)
     }
 }
@@ -248,6 +257,11 @@ public final class MobileSimulatorStreamStore {
 
     public func simulatorStreamWillStart(panelID: String) {
         statesByPanel[panelID]?.prepareForStreamStart()
+    }
+
+    /// Records that the pane presented a decoded frame for `panelID`.
+    public func simulatorFrameDidPresent(panelID: String) {
+        statesByPanel[panelID]?.markFramePresented()
     }
 
     /// Start acknowledgment: the Mac accepted THIS phone's stream start, so

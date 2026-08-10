@@ -132,6 +132,12 @@ extension WorkspaceDetailView {
                         payloadBytes: payloadBytes
                     )
                 },
+                presentationStalled: { panelID in
+                    await store.handleStaleMobileSimulatorStream(panelID: panelID)
+                },
+                presentationSucceeded: { panelID in
+                    await store.mobileSimulatorFrameDidPresent(panelID: panelID)
+                },
                 inputDiagnostic: { panelID, state, kind, detail in
                     await store.recordMobileSimulatorInputDiagnostic(
                         panelID: panelID,
