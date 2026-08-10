@@ -161,10 +161,12 @@ function DashboardOrganizationSwitcher() {
   const selectableTeams = teams.filter((team) => permittedIds.has(team.id));
   const personal = permittedCatalogTeams.find((team) => team.personal);
   const requestedTeamId = searchParams.get("team");
-  // Match the CodeRouter page: the explicit deep link is authoritative, with
-  // a deterministic first-permitted fallback when it is absent or stale.
+  // Match the CodeRouter page: an explicit deep link wins, then the
+  // server-authoritative selected team, then a deterministic permitted team.
   const selectedTeamId = requestedTeamId && permittedIds.has(requestedTeamId)
     ? requestedTeamId
+    : data.selectedTeamId && permittedIds.has(data.selectedTeamId)
+    ? data.selectedTeamId
     : permittedCatalogTeams[0]?.id;
   const switchOrganization = async (
     team: (typeof selectableTeams)[number] | null,

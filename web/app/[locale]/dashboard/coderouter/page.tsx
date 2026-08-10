@@ -79,6 +79,7 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
   let authenticated: {
     readonly authorized: Awaited<ReturnType<typeof authorizedSubrouterTeams>>;
     readonly accessToken: string | null;
+    readonly selectedTeamId: string | null;
   } | null;
   try {
     authenticated = await withSubrouterAuthorizationDeadline(
@@ -103,6 +104,7 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
         return {
           authorized,
           accessToken: authJson?.accessToken ?? null,
+          selectedTeamId: user.selectedTeamId,
         };
       },
     );
@@ -144,7 +146,11 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
   if (teams.length === 0) {
     redirect("/dashboard");
   }
-  const selectedTeam = selectTeam(teams, team);
+  const selectedTeam = selectTeam(
+    teams,
+    team,
+    authenticated.selectedTeamId,
+  );
   const [accountState, metrics] = await Promise.all([
     loadAccounts(selectedTeam, authenticated.accessToken),
     loadCoderouterTeamMetrics(selectedTeam.id),
@@ -442,10 +448,18 @@ function StatusPanel({ title, body }: { title: string; body: string }) {
   );
 }
 
-function selectTeam(teams: readonly DashboardTeam[], requestedTeamId: string | undefined): DashboardTeam {
+function selectTeam(
+  teams: readonly DashboardTeam[],
+  requestedTeamId: string | undefined,
+  selectedTeamId: string | null,
+): DashboardTeam {
   const requested = requestedTeamId?.trim();
   if (requested) {
     const selected = teams.find((team) => team.id === requested);
+    if (selected) return selected;
+  }
+  if (selectedTeamId) {
+    const selected = teams.find((team) => team.id === selectedTeamId);
     if (selected) return selected;
   }
   return teams[0];
