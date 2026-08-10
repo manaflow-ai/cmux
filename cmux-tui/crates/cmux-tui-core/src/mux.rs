@@ -19737,7 +19737,7 @@ mod tests {
             first.id,
             "detached-terminal-close",
             "terminal.close",
-            &json!({"terminal_id":host.terminal_id}),
+            &serde_json::json!({"terminal_id":host.terminal_id}),
         )
         .unwrap();
         assert!(mux.list_agents(None, None).is_empty());
