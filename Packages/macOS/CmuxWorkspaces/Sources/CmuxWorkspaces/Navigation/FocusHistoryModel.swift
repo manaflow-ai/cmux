@@ -28,20 +28,24 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
     private var focusHistoryRecordingSuppressionDepth = 0
     private var focusHistorySuppressedSelectionSideEffectGenerations: Set<UInt64> = []
     private let maxHistorySize: Int
+    private let now: @MainActor () -> Date
     private let navigationScope: @MainActor () -> FocusHistoryNavigationScope
 
     /// Creates a detached model; call ``attach(host:)`` before use.
     ///
     /// - Parameters:
     ///   - maxHistorySize: The legacy stack cap (50).
+    ///   - now: Supplies the timestamp for newly recorded focus entries.
     ///   - navigationScope: Supplies the current navigation scope. The model
     ///     reads it for each operation so a settings change applies without
     ///     rebuilding or clearing the recorded history.
     public init(
         maxHistorySize: Int = 50,
+        now: @escaping @MainActor () -> Date = Date.init,
         navigationScope: @escaping @MainActor () -> FocusHistoryNavigationScope = { .panesAndTabs }
     ) {
         self.maxHistorySize = maxHistorySize
+        self.now = now
         self.navigationScope = navigationScope
     }
 
@@ -93,7 +97,7 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
            historyIndex < focusHistory.count,
            focusHistory[historyIndex].entry.workspaceId == workspaceId {
             if focusHistory[historyIndex].entry != entry {
-                focusHistory[historyIndex] = FocusHistoryRecord(entry: entry)
+                focusHistory[historyIndex] = FocusHistoryRecord(entry: entry, focusedAt: now())
                 host?.focusHistoryRevisionDidChange()
             }
             return
@@ -118,7 +122,7 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
                     return
                 }
 
-                focusHistory.insert(FocusHistoryRecord(entry: entry), at: insertionIndex)
+                focusHistory.insert(FocusHistoryRecord(entry: entry, focusedAt: now()), at: insertionIndex)
                 let overflow = max(0, focusHistory.count - maxHistorySize)
                 if overflow > 0 {
                     focusHistory.removeFirst(overflow)
@@ -140,7 +144,7 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
             return
         }
 
-        focusHistory.append(FocusHistoryRecord(entry: entry))
+        focusHistory.append(FocusHistoryRecord(entry: entry, focusedAt: now()))
         if focusHistory.count > maxHistorySize {
             focusHistory.removeFirst(focusHistory.count - maxHistorySize)
         }
@@ -170,7 +174,7 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
            historyIndex < focusHistory.count - 1,
            focusHistory[historyIndex].entry.workspaceId == workspaceId {
             if focusHistory[historyIndex].entry != entry {
-                focusHistory[historyIndex] = FocusHistoryRecord(entry: entry)
+                focusHistory[historyIndex] = FocusHistoryRecord(entry: entry, focusedAt: now())
                 host?.focusHistoryRevisionDidChange()
             }
             return

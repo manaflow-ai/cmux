@@ -7,12 +7,12 @@ import {
   PROFILES,
   SDK_IR_SHA256,
   SDK_SCHEMA_VERSION,
-} from "cmux/raw";
+} from "cmux-sdk/raw";
 
-test("generated protocol coverage matches the canonical v10 IR", () => {
-  assert.equal(MUX_PROTOCOL_VERSION, 10);
+test("generated protocol coverage matches the canonical v11 IR", () => {
+  assert.equal(MUX_PROTOCOL_VERSION, 11);
   assert.equal(SDK_SCHEMA_VERSION, 2);
-  assert.equal(Object.keys(COMMAND_METADATA).length, 93);
+  assert.equal(Object.keys(COMMAND_METADATA).length, 97);
   assert.equal(Object.keys(EVENT_METADATA).length, 45);
   assert.equal(SDK_IR_SHA256.length, 64);
   assert.deepEqual(Object.keys(PROFILES).sort(), [

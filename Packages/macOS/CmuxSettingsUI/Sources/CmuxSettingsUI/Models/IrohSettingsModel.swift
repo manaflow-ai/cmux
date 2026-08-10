@@ -110,10 +110,14 @@ final class IrohSettingsModel {
         diagnosticReloadGeneration &+= 1
         let generation = diagnosticReloadGeneration
         let report = await controller.irohDiagnosticReport()
+        let exportText: String
+        if report.events.isEmpty {
+            exportText = ""
+        } else {
+            exportText = await report.humanReadableText()
+        }
         guard generation == diagnosticReloadGeneration else { return }
         diagnosticReport = report
-        diagnosticExportText = report.events.isEmpty
-            ? ""
-            : String(decoding: report.compactExport(), as: UTF8.self)
+        diagnosticExportText = exportText
     }
 }

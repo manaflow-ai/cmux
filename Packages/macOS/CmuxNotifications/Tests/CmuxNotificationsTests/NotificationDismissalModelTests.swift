@@ -37,6 +37,10 @@ private final class FakeHost: NotificationDismissalHosting {
         focusedPanelIds[workspaceId]
     }
 
+    func isNotificationTargetSelected(workspaceId: UUID, surfaceId: UUID?) -> Bool {
+        selectedWorkspaceId == workspaceId
+    }
+
     func focusedSurfaceId(in workspaceId: UUID) -> UUID? {
         focusedSurfaceIds[workspaceId]
     }

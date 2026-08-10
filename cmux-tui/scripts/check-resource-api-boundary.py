@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce the cmux resource-v1 public boundary.
+"""Enforce the cmux resource-v2 public boundary.
 
 The resource protocol intentionally has a smaller vocabulary than cmux's
 internal mux.  This checker keeps opaque ID and operation registries in sync,
@@ -69,11 +69,11 @@ SCAN_RULES = (
                 "README.md",
                 "bindings.md",
                 "cli.md",
-                "resource-api-v1.md",
-                "resource-api-v1.json",
-                "resource-operations-v1.md",
-                "resource-operations-v1.json",
-                "resource-operations-v1.schema.json",
+                "resource-api-v2.md",
+                "resource-api-v2.json",
+                "resource-operations-v2.md",
+                "resource-operations-v2.json",
+                "resource-operations-v2.schema.json",
             }
         ),
     ),
@@ -99,7 +99,7 @@ SCAN_RULES = (
         frozenset({".rs"}),
         cli_literals_only=True,
         # The remote daemon's relay routing key belongs to its separately
-        # versioned transport protocol, not to the resource-v1 selector model.
+        # versioned transport protocol, not to the resource-v2 selector model.
         private_identity_exceptions=frozenset({"relay-slot"}),
     ),
     ScanRule(
@@ -1237,10 +1237,15 @@ def _operation_catalog(
             text,
             f"top-level keys must be exactly {sorted(expected_root)!r}",
         )
-    if document.get("$schema") != "./resource-operations-v1.schema.json":
+    if document.get("$schema") != "./resource-operations-v2.schema.json":
         _catalog_diagnostic(diagnostics, path, text, "catalog must reference its checked-in schema")
-    if document.get("schema_version") != 1 or document.get("protocol") != "cmux.protocol/1":
-        _catalog_diagnostic(diagnostics, path, text, "catalog version/protocol must be v1")
+    if document.get("schema_version") != 1 or document.get("protocol") != "cmux.protocol/2":
+        _catalog_diagnostic(
+            diagnostics,
+            path,
+            text,
+            "catalog schema_version must be 1 and protocol must be cmux.protocol/2",
+        )
 
     scope_values = document.get("resource_scopes")
     if (
@@ -2850,9 +2855,9 @@ def _sdk_descriptor_classes(
         document = _json_object(path, diagnostics)
         if document is None:
             continue
-        if document.get("protocol") != "cmux.protocol/1":
+        if document.get("protocol") != "cmux.protocol/2":
             diagnostics.append(
-                Diagnostic(path, 1, 1, "boundary.sdk-descriptor", "protocol must be cmux.protocol/1")
+                Diagnostic(path, 1, 1, "boundary.sdk-descriptor", "protocol must be cmux.protocol/2")
             )
         if document.get("catalog_sha256") != expected_catalog_sha256:
             diagnostics.append(
@@ -2861,7 +2866,7 @@ def _sdk_descriptor_classes(
                     1,
                     1,
                     "boundary.sdk-descriptor",
-                    "catalog_sha256 must match canonical resource-operations-v1.json",
+                    "catalog_sha256 must match canonical resource-operations-v2.json",
                 )
             )
         value = document.get("operations")
@@ -2948,10 +2953,10 @@ def _compare_operation_classes(
 
 def check_contracts(tui: Path) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
-    markdown = tui / "spec/resource-api-v1.md"
-    schema = tui / "spec/resource-api-v1.json"
-    catalog_schema = tui / "spec/resource-operations-v1.schema.json"
-    catalog = tui / "spec/resource-operations-v1.json"
+    markdown = tui / "spec/resource-api-v2.md"
+    schema = tui / "spec/resource-api-v2.json"
+    catalog_schema = tui / "spec/resource-operations-v2.schema.json"
+    catalog = tui / "spec/resource-operations-v2.json"
     inventory = tui / "spec/inventory.json"
     resource = tui / "crates/cmux-tui-core/src/resource.rs"
 
@@ -3322,7 +3327,7 @@ def _scan_region(
                 text,
                 offset,
                 "boundary.private-identity",
-                f"private resource identity field {match.group(0)!r} cannot cross resource v1",
+                f"private resource identity field {match.group(0)!r} cannot cross resource v2",
             )
         )
 

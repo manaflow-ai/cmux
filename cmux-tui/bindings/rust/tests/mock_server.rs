@@ -42,11 +42,20 @@ fn socket_path() -> PathBuf {
     ))
 }
 
+fn scaled_test_duration(duration: Duration) -> Duration {
+    let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(1)
+        .max(1);
+    duration.saturating_mul(scale)
+}
+
 fn request(reader: &mut BufReader<UnixStream>) -> Value {
     let mut line = String::new();
     assert_ne!(reader.read_line(&mut line).unwrap(), 0);
     let value: Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(value["protocol"], "cmux.protocol/1");
+    assert_eq!(value["protocol"], "cmux.protocol/2");
     assert_eq!(value["type"], "request");
     assert!(value["id"].is_string());
     assert!(value["params"].is_object());
@@ -58,7 +67,7 @@ fn success(stream: &mut UnixStream, request: &Value, result: Value) {
         stream,
         "{}",
         json!({
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "response",
             "id": request["id"],
             "ok": true,
@@ -73,7 +82,7 @@ fn failure(stream: &mut UnixStream, request: &Value, code: &str, message: &str, 
         stream,
         "{}",
         json!({
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "response",
             "id": request["id"],
             "ok": false,
@@ -196,6 +205,7 @@ fn terminal_snapshot() -> Value {
     json!({
         "id": TERMINAL,
         "tab_id": TAB,
+        "tab_ids": [TAB],
         "title": "fixture",
         "cwd": "/tmp",
         "cols": 80,
@@ -385,7 +395,7 @@ fn every_created_path_operation_sends_a_validated_correlation_key() {
                 stream,
                 "{}",
                 json!({
-                    "protocol": "cmux.protocol/1",
+                    "protocol": "cmux.protocol/2",
                     "type": "response",
                     "id": request["id"],
                     "ok": false,
@@ -648,7 +658,7 @@ fn structured_errors_retain_all_protocol_fields() {
             stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "response",
                 "id": request["id"],
                 "ok": false,
@@ -694,7 +704,7 @@ fn layout_undo_confirmation_token_and_details_are_typed() {
             stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "response",
                 "id": request["id"],
                 "ok": false,
@@ -764,7 +774,7 @@ fn indeterminate_mutations_preserve_recovery_details_and_are_never_retried() {
             stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "response",
                 "id": request["id"],
                 "ok": false,
@@ -952,7 +962,7 @@ fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
             stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_item",
                 "stream_id": stream_id,
                 "sequence": "0",
@@ -970,7 +980,7 @@ fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
             stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_item",
                 "stream_id": stream_id,
                 "sequence": "1",
@@ -995,7 +1005,7 @@ fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
             stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_item",
                 "stream_id": stream_id,
                 "sequence": "2",
@@ -1015,7 +1025,7 @@ fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
             stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_end",
                 "stream_id": stream_id,
                 "reason": "canceled"
@@ -1072,6 +1082,10 @@ fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
 fn acknowledged_stream_remains_open_past_the_request_timeout() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();
+    let request_timeout = scaled_test_duration(Duration::from_millis(250));
+    let idle_delay = request_timeout.saturating_mul(2);
+    let (release_first_half, wait_for_first_half) = mpsc::channel();
+    let (release_second_half, wait_for_second_half) = mpsc::channel();
     let server = thread::spawn(move || {
         let (control, _) = listener.accept().unwrap();
         let (mut stream, _) = listener.accept().unwrap();
@@ -1083,9 +1097,9 @@ fn acknowledged_stream_remains_open_past_the_request_timeout() {
 
         // The request deadline bounds only opening the stream. An acknowledged
         // stream may remain healthy and idle for longer than that deadline.
-        thread::sleep(Duration::from_millis(150));
+        wait_for_first_half.recv().unwrap();
         let item = serde_json::to_vec(&json!({
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "stream_item",
             "stream_id": stream_id,
             "sequence": "0",
@@ -1095,7 +1109,7 @@ fn acknowledged_stream_remains_open_past_the_request_timeout() {
         let midpoint = item.len() / 2;
         stream.write_all(&item[..midpoint]).unwrap();
         stream.flush().unwrap();
-        thread::sleep(Duration::from_millis(150));
+        wait_for_second_half.recv().unwrap();
         stream.write_all(&item[midpoint..]).unwrap();
         stream.write_all(b"\n").unwrap();
 
@@ -1106,7 +1120,7 @@ fn acknowledged_stream_remains_open_past_the_request_timeout() {
             stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_end",
                 "stream_id": stream_id,
                 "reason": "canceled"
@@ -1116,16 +1130,22 @@ fn acknowledged_stream_remains_open_past_the_request_timeout() {
         drop(control);
     });
 
-    let client = cmux::Client::connect(
-        Config::from_socket_path(&path).with_timeout(Duration::from_millis(50)),
-    )
-    .unwrap();
+    let client =
+        cmux::Client::connect(Config::from_socket_path(&path).with_timeout(request_timeout))
+            .unwrap();
     let mut events = client
         .session(SessionId::parse(SESSION).unwrap())
         .events(EventStreamOptions::default())
         .unwrap();
+    let release = thread::spawn(move || {
+        thread::sleep(idle_delay);
+        release_first_half.send(()).unwrap();
+        thread::sleep(idle_delay);
+        release_second_half.send(()).unwrap();
+    });
     let item = events.recv().unwrap().unwrap();
     assert!(matches!(item.value, SessionEvent::Unknown { .. }));
+    release.join().unwrap();
     events.cancel().unwrap();
     client.close().unwrap();
     server.join().unwrap();
@@ -1148,7 +1168,7 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
             terminal_stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_item",
                 "stream_id": terminal_stream_id,
                 "sequence": "0",
@@ -1174,7 +1194,7 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
             terminal_stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_item",
                 "stream_id": terminal_stream_id,
                 "sequence": "1",
@@ -1207,7 +1227,7 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
             terminal_stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_end",
                 "stream_id": terminal_stream_id,
                 "reason": "canceled"
@@ -1262,7 +1282,7 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
             browser_stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_end",
                 "stream_id": browser_stream_id,
                 "reason": "canceled"
@@ -1316,7 +1336,7 @@ fn pre_ack_stream_limits_close_and_isolate_the_control_connection() {
 
             let item = |sequence: &str, blob: &str| {
                 json!({
-                    "protocol": "cmux.protocol/1",
+                    "protocol": "cmux.protocol/2",
                     "type": "stream_item",
                     "stream_id": stream_id,
                     "sequence": sequence,
@@ -1389,7 +1409,7 @@ fn explicit_cancel_is_deadline_bounded_and_closes_after_uncertain_cleanup() {
             stream,
             "{}",
             json!({
-                "protocol":"cmux.protocol/1",
+                "protocol":"cmux.protocol/2",
                 "type":"stream_item",
                 "stream_id":stream_id,
                 "sequence":"0",
@@ -1460,7 +1480,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                             stream,
                             "{}",
                             json!({
-                                "protocol":"cmux.protocol/1",
+                                "protocol":"cmux.protocol/2",
                                 "type":"stream_end",
                                 "stream_id":stream_id,
                                 "reason":"canceled",
@@ -1475,7 +1495,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"stream_end",
                             "stream_id":"stream_ffffffffffffffffffffffffffffffff",
                             "reason":"canceled",
@@ -1489,7 +1509,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"stream_end",
                             "stream_id":stream_id,
                             "reason":"completed",
@@ -1502,7 +1522,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"response",
                             "id":cancel["id"],
                             "ok":true,
@@ -1517,7 +1537,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"response",
                             "id":cancel["id"],
                             "ok":true,
@@ -1537,7 +1557,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"response",
                             "id":cancel["id"],
                             "ok":false,
@@ -1557,7 +1577,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"response",
                             "id":cancel["id"],
                             "ok":false,
@@ -1577,7 +1597,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"stream_item",
                             "stream_id":stream_id,
                             "sequence":"0",
@@ -1599,7 +1619,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"stream_end",
                             "stream_id":stream_id,
                             "reason":"canceled",
@@ -1610,7 +1630,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"stream_item",
                             "stream_id":stream_id,
                             "sequence":"0",
@@ -1632,7 +1652,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"stream_end",
                             "stream_id":stream_id,
                             "reason":"canceled",
@@ -1643,7 +1663,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"stream_item",
                             "stream_id":stream_id,
                             "sequence":"0",
@@ -1663,7 +1683,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"stream_end",
                             "stream_id":stream_id,
                             "reason":"canceled",
@@ -1678,7 +1698,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         stream,
                         "{}",
                         json!({
-                            "protocol":"cmux.protocol/1",
+                            "protocol":"cmux.protocol/2",
                             "type":"stream_end",
                             "stream_id":stream_id,
                             "reason":"error",
@@ -1732,7 +1752,7 @@ fn live_stream_overflow_sends_one_cancel_and_prevents_reuse() {
                 stream,
                 "{}",
                 json!({
-                    "protocol":"cmux.protocol/1",
+                    "protocol":"cmux.protocol/2",
                     "type":"stream_item",
                     "stream_id":stream_id,
                     "sequence":sequence.to_string(),
@@ -1781,7 +1801,7 @@ fn cancel_discards_unread_items_and_waits_for_response_and_end() {
             stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_item",
                 "stream_id": stream_id,
                 "sequence": "0",
@@ -1796,7 +1816,7 @@ fn cancel_discards_unread_items_and_waits_for_response_and_end() {
             stream,
             "{}",
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_end",
                 "stream_id": stream_id,
                 "reason": "canceled"
@@ -1847,7 +1867,7 @@ fn dropping_completed_and_gap_streams_does_not_send_cancel() {
             success(&mut stream, &open, json!({"stream_id": stream_id}));
 
             let mut end = json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_end",
                 "stream_id": stream_id,
                 "reason": reason
@@ -2335,7 +2355,8 @@ fn terminal_snapshot_lifecycle_invariants_are_strict() {
 
     let exited: TerminalSnapshot = serde_json::from_value(json!({
         "id": TERMINAL,
-        "tab_id": TAB,
+        "tab_id": null,
+        "tab_ids": [],
         "title": "finished",
         "cols": 80,
         "rows": 24,
@@ -2350,6 +2371,21 @@ fn terminal_snapshot_lifecycle_invariants_are_strict() {
     .unwrap();
     assert_eq!(exited.lifecycle, TerminalLifecycle::Exited);
     assert!(exited.exit.is_some());
+}
+
+#[test]
+fn terminal_snapshot_accepts_protocol_one_tab_id_only() {
+    let mut attached = terminal_snapshot();
+    attached.as_object_mut().unwrap().remove("tab_ids");
+    let attached: TerminalSnapshot = serde_json::from_value(attached).unwrap();
+    assert_eq!(attached.tab_ids, vec![attached.tab_id.clone().unwrap()]);
+
+    let mut detached = terminal_snapshot();
+    detached.as_object_mut().unwrap().remove("tab_ids");
+    detached["tab_id"] = json!(null);
+    let detached: TerminalSnapshot = serde_json::from_value(detached).unwrap();
+    assert_eq!(detached.tab_id, None);
+    assert!(detached.tab_ids.is_empty());
 }
 
 #[test]

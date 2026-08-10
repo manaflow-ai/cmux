@@ -135,6 +135,31 @@
     "faqFeatureA": "我们很想听到你的反馈。在 GitHub 上提交一个 <issuesLink>issue</issuesLink> 或 <prLink>pull request</prLink>，或者 <mailLink>给我们发邮件</mailLink>。"
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "概览",
+      "team": "团队"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "在提供商账户之间路由 LLM 请求，支持故障转移和按用量调度。",
+      "coderouterLink": "打开 coderouter"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "管理共享 AI 账户，并使用 coderouter 路由请求。",
+      "title": "coderouter",
+      "description": "coderouter 在提供商账户之间路由 LLM 请求，支持故障转移和按用量调度。"
+    },
+    "accountMenu": {
+      "label": "账户菜单",
+      "settings": "设置",
+      "billing": "账单",
+      "signOut": "退出登录",
+      "signingOut": "正在退出…",
+      "signOutError": "无法退出登录，请重试。",
+      "signIn": "登录"
+    },
     "aiAccounts": {
       "metaTitle": "AI 账户 — cmux",
       "metaDescription": "管理 cmux 的团队 AI 服务商账户。",
@@ -867,6 +892,8 @@
       "concepts": "核心概念",
       "anchorTitle": "锚点工作区",
       "anchorDesc": "每个分组都恰好由一个称为锚点的工作区拥有。侧边栏中的分组标题栏就是锚点的呈现形式——锚点没有单独的行。点击标题名称区域会聚焦到锚点的面板；点击箭头则切换折叠状态。",
+      "anchorNew": "分组的锚点在创建时始终是一个全新的工作区；无论是对所选工作区进行分组还是创建分组，都不会将现有工作区中的任何一个提升为锚点。（之后关闭锚点时，确实会提升分组中第一个仍保留的成员，见下文。）对所选工作区进行分组时，锚点的工作目录继承自第一个选中的工作区；通过 CLI 创建且未指定 --cwd 时，则继承自当前工作区。",
+      "anchorClose": "关闭锚点工作区时，只会关闭该工作区，并将分组中第一个仍保留的成员（按照分组顺序仍存在的成员中最靠前的一个）提升为新锚点，因此分组及其其他成员会保持不变（被提升的成员随后会在标题栏中显示分组名称）。当锚点是分组中唯一的工作区时，分组会被移除。要将分组展开为未分组的工作区，请使用取消工作区分组；要关闭分组中的所有工作区，请使用删除分组。",
       "identityTitle": "分组标识",
       "identityDesc": "一个分组拥有名称、图标（一个 SF Symbol，默认为 folder.fill）以及一个可选的自定义颜色。这些与锚点工作区自身的自定义设置相互独立。锚点的颜色和图标在创建时取自分组，但之后两者可以各自变化。",
       "pinningTitle": "固定",
@@ -1406,7 +1433,16 @@
     "changelog": {
       "title": "更新日志",
       "metaDescription": "cmux 发布说明和版本历史。原生 macOS 终端的新功能、问题修复和变更记录。",
-      "metaTitle": "更新日志"
+      "metaTitle": "更新日志",
+      "versionTitle": "cmux {version} · 更新日志",
+      "releaseNavLabel": "cmux {version} 附近的版本",
+      "sections": {
+        "added": "新增",
+        "changed": "更改",
+        "fixed": "修复",
+        "removed": "移除",
+        "contributors": "贡献者"
+      }
     },
     "navItems": {
       "gettingStarted": "入门指南",
@@ -3560,7 +3596,6 @@
     "title": "适用于 {platform} 的 cmux",
     "tagline": "将 Chromium 浏览器与智能体工作区融为一体。",
     "logoAlt": "cmux 应用图标",
-    "portableCta": "便携版 ZIP",
     "featuresTitle": "专为智能体工作打造",
     "features": {
       "chromium": {
@@ -3582,7 +3617,7 @@
     },
     "installTitle": "安装",
     "releaseTitle": "版本与更新",
-    "releaseBody": "这些链接始终指向 <github>GitHub Releases</github> 上的最新稳定版本。cmux 会在安装更新前验证已签名的更新清单。",
+    "releaseBody": "这些链接始终指向 <github>GitHub Releases</github> 上的最新 Nightly 版本。cmux 会在安装更新前验证已签名的更新清单。",
     "sourceLink": "在 GitHub 上查看源代码",
     "otherPlatform": "适用于 {platform} 的 cmux",
     "macLink": "Mac 版 cmux 终端",
@@ -3592,6 +3627,7 @@
       "metaDescription": "下载 Windows x64 版 cmux：一款免费开源的 Chromium 浏览器与智能体工作区，提供面向任务的标签页和终端界面。",
       "subtitle": "原生 x64 版本，提供 Chromium 标签页、cmux 工作区和熟悉的 Windows 键盘操作。",
       "primaryCta": "下载安装程序（.exe）",
+      "secondaryCta": "便携版 ZIP",
       "requirements": "Windows 10 或更高版本 · x64",
       "installBody": "运行安装程序并按照 Windows 提示操作。如果希望将 cmux 保留在文件夹中而不进行全局安装，请选择便携版 ZIP。"
     },
@@ -3600,9 +3636,10 @@
       "metaTitle": "下载 Linux 版 cmux",
       "metaDescription": "下载 Linux x64 版 cmux：一款免费开源的 Chromium 浏览器与智能体工作区，提供面向任务的标签页和终端界面。",
       "subtitle": "原生 x64 版本，提供 Chromium 标签页、cmux 工作区和集成终端界面。",
-      "primaryCta": "下载 .deb",
-      "requirements": "Debian 或 Ubuntu · x64",
-      "installBody": "下载 Debian 软件包并使用软件包管理器安装。若需按用户安装和应用内更新，请选择便携版 ZIP。"
+      "primaryCta": "下载支持自动更新的安装程序（.run）",
+      "secondaryCta": "Debian 软件包（.deb）",
+      "requirements": "Linux · x64",
+      "installBody": "运行一次用户级安装程序。它会将 cmux 安装到 ~/.local，无需 root 权限，并启用已签名的应用内更新。如果希望由软件包管理器管理更新，请改选 Debian 软件包。"
     }
   },
   "emails": {

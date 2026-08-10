@@ -84,6 +84,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             settings: settings,
             isActive: false,
             isMultiSelected: false,
+            hasUserCustomTitle: false,
             canCloseWorkspace: true,
             accessibilityWorkspaceCount: 1,
             unreadCount: 0,
@@ -145,6 +146,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         return SidebarAppKitRowActions(
             commands: commands,
             onOpenStatusURL: { _ in },
+            onOpenWorkspaceDescriptionURL: { _ in },
             onOpenPullRequest: { _ in },
             onOpenPort: { _ in },
             onToggleChecklistExpansion: {},
@@ -203,14 +205,15 @@ struct SidebarWorkspaceRowSuspensionTests {
         )
         cell.beginInlineRename()
         let field = try #require(
-            Self.descendants(of: cell).compactMap { $0 as? SidebarRowInlineRenameField }.first
+            Self.descendants(of: cell).compactMap { $0 as? SidebarInlineRenameTextField }.first
         )
         field.stringValue = "Renamed while closing"
 
         cell.suspendPresentation(commitEdits: true)
 
         #expect(committedTitle == "Renamed while closing")
-        #expect(field.isHidden)
+        #expect(field.superview == nil)
+        #expect(!cell.isEditing)
     }
 
     @Test

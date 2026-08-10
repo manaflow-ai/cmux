@@ -76,7 +76,7 @@ _cmux_start_tracked_bg() {
     local __pid=""
     (
         "$@" >/dev/null 2>&1 &
-        printf '%s\n' "$!" > "$__pid_file"
+        printf '%s\n' "$!" >| "$__pid_file"
     )
     if [[ -r "$__pid_file" ]]; then
         IFS= read -r __pid < "$__pid_file" || __pid=""
@@ -361,7 +361,12 @@ _cmux_install_cli_command_shim() {
         else
             printf 'exec "%s" "$@"\n' "$escaped_wrapper"
         fi
-    } >"$shim_path" 2>/dev/null || return 0
+    # `>|` forces the truncate so cmux can always refresh its own generated
+    # shim, even when the user's interactive bash has `noclobber` set. A plain
+    # `>` is refused under noclobber and prints `cannot overwrite existing file`
+    # on every prompt (the redirect failure is reported by the shell, so the
+    # `2>/dev/null` on the compound command does not suppress it).
+    } >|"$shim_path" 2>/dev/null || return 0
     /bin/chmod 0700 "$shim_path" >/dev/null 2>&1 || return 0
 
     if [[ "$command_name" == "claude" ]]; then
@@ -790,7 +795,7 @@ _cmux_store_pr_command_hint() {
     target="${target//$'\n'/ }"
     target="${target//$'\r'/ }"
     target="${target//$'\t'/ }"
-    printf '%s\t%s\n' "$_CMUX_LAST_PR_ACTION" "$target" > "$_CMUX_PR_ACTION_HINT_FILE" 2>/dev/null || true
+    printf '%s\t%s\n' "$_CMUX_LAST_PR_ACTION" "$target" >| "$_CMUX_PR_ACTION_HINT_FILE" 2>/dev/null || true
 }
 
 _cmux_load_pr_command_hint() {
@@ -1284,7 +1289,7 @@ _cmux_report_pr_for_path() {
                 "${gh_repo_args[@]}" \
                 --json number,state,url \
                 --jq '[.number, .state, .url] | @tsv' \
-                2>"$err_file"
+                2>|"$err_file"
     )"
     gh_status=$?
     if [[ -f "$err_file" ]]; then
@@ -1565,7 +1570,7 @@ _cmux_bash_history_command() {
     local HISTTIMEFORMAT=
     local history_file="${TMPDIR:-/tmp}/cmux-history-$$-${RANDOM:-0}"
     local line="" history_number="" last_number=""
-    builtin history 1 > "$history_file" 2>/dev/null || {
+    builtin history 1 >| "$history_file" 2>/dev/null || {
         /bin/rm -f -- "$history_file" >/dev/null 2>&1 || true
         return 1
     }
@@ -1578,7 +1583,7 @@ _cmux_bash_history_command() {
         fi
         [[ "$history_number" == "$last_number" ]] && return 1
         if [[ -n "${_CMUX_BASH_HISTORY_LAST_FILE:-}" ]]; then
-            printf '%s\n' "$history_number" > "$_CMUX_BASH_HISTORY_LAST_FILE" 2>/dev/null || true
+            printf '%s\n' "$history_number" >| "$_CMUX_BASH_HISTORY_LAST_FILE" 2>/dev/null || true
         fi
         printf '%s\n' "${BASH_REMATCH[2]}"
         return 0

@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
-MUX_PROTOCOL = 10
-IR_SHA256 = '56597ffacc6ef7d83023966ca55a6f176ebc27d34f45256d41dff5985684105d'
+MUX_PROTOCOL = 11
+IR_SHA256 = '2bce28216d72a0d5419ba02efc7610f3a9a67d28f6dbf05da73016fb941b512e'
 
 
 @dataclass(frozen=True)
@@ -356,6 +356,29 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'create-surface-with-receipt': CommandMetadata(
+        'create-surface-with-receipt',
+        'control',
+        10,
+        'creation-receipts-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'argv': CommandFieldMetadata(None, None),
+            'cols': CommandFieldMetadata(None, None),
+            'cwd': CommandFieldMetadata(None, None),
+            'operation': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'receipt': CommandFieldMetadata(None, None),
+            'rows': CommandFieldMetadata(None, None),
+            'selector_fallbacks': CommandFieldMetadata(None, None),
+            'selectors': CommandFieldMetadata(None, None),
+            'url': CommandFieldMetadata(None, None),
+            'width': CommandFieldMetadata(None, None),
+            'workspace': CommandFieldMetadata(None, None),
+        },
+    ),
     'create-terminal': CommandMetadata(
         'create-terminal',
         'control',
@@ -393,6 +416,18 @@ COMMANDS = {
             'mutation_id': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),
+        },
+    ),
+    'detach-attached-view': CommandMetadata(
+        'detach-attached-view',
+        'frontend',
+        10,
+        'view-attachment-detach-v1',
+        ('frontend',),
+        None,
+        {
+            'lease': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'detach-client': CommandMetadata(
@@ -546,6 +581,18 @@ COMMANDS = {
         None,
         {
             'surface': CommandFieldMetadata(None, None),
+            'ttl_ms': CommandFieldMetadata(None, None),
+        },
+    ),
+    'mint-terminal-renderer-by-terminal': CommandMetadata(
+        'mint-terminal-renderer-by-terminal',
+        'frontend',
+        11,
+        None,
+        ('frontend',),
+        None,
+        {
+            'terminal': CommandFieldMetadata(None, None),
             'ttl_ms': CommandFieldMetadata(None, None),
         },
     ),
@@ -780,6 +827,18 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'release-attached-view-size': CommandMetadata(
+        'release-attached-view-size',
+        'frontend',
+        10,
+        'view-attachment-lease-v1',
+        ('frontend',),
+        None,
+        {
+            'lease': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
     'release-surface-size': CommandMetadata(
         'release-surface-size',
         'control',
@@ -879,6 +938,20 @@ COMMANDS = {
             'session': CommandFieldMetadata(None, None),
             'source': CommandFieldMetadata(None, None),
             'state': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'resize-attached-view': CommandMetadata(
+        'resize-attached-view',
+        'frontend',
+        10,
+        'view-attachment-lease-v1',
+        ('frontend',),
+        None,
+        {
+            'cols': CommandFieldMetadata(None, None),
+            'lease': CommandFieldMetadata(None, None),
+            'rows': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
         },
     ),

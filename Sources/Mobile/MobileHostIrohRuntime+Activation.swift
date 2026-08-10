@@ -1,12 +1,12 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
-import CryptoKit
 import Foundation
 
 @MainActor
 extension MobileHostIrohRuntime {
     func activate(accountID: String, revision: UInt64) async throws {
+        beginIrohRouteActivation(revision: revision)
         guard let auth else { throw CmxIrohHostRuntimeError.inactive }
         // Pin the runtime's broker to the session identity that owns
         // `accountID` — a cheap local check now, and every broker request
@@ -100,7 +100,8 @@ extension MobileHostIrohRuntime {
         }
         let rawBroker = try CmxIrohTrustBrokerClient(
             baseURL: brokerBaseURL,
-            tokenSource: CmxIrohBrokerTokenSource(
+            tokenSource: .accountPinned(
+                to: accountID,
                 // An ATOMIC authenticated snapshot per fetch, validated
                 // against the activation's ACCOUNT pin: identity and
                 // credentials come from one transition-checked capture, so an
@@ -115,7 +116,7 @@ extension MobileHostIrohRuntime {
                 // strand the runtime on nil credentials until relaunch. The
                 // snapshot's pair capture is store-level (no network while the
                 // stored access token is valid).
-                credentialPair: { [weak auth] in
+                snapshot: { [weak auth] in
                     guard let auth else { return nil }
                     let session: AuthenticatedSessionSnapshot
                     do {
@@ -128,12 +129,25 @@ extension MobileHostIrohRuntime {
                     // store, a re-mint is in flight or offline) rethrow so
                     // the broker classifies them connectivity instead of
                     // tearing the host runtime down as unauthorized.
-                    guard session.accountID == accountID else { return nil }
-                    return CmxIrohBrokerCredentials(
-                        accessToken: session.accessToken,
-                        refreshToken: session.refreshToken
+                    return CmxIrohAccountCredentialSnapshot(
+                        accountID: session.accountID,
+                        credentials: CmxIrohBrokerCredentials(
+                            accessToken: session.accessToken,
+                            refreshToken: session.refreshToken
+                        )
                     )
+                },
+                forceRefresh: { [weak auth] in
+                    guard let auth else { return }
+                    _ = try await auth.forceRefreshAccessToken()
                 }
+            ),
+            discoveryScope: try CmxConnectivityDiscoveryScope(
+                deviceID: deviceID,
+                appInstanceID: appInstanceID,
+                tag: tag,
+                platform: .mac,
+                peerPlatform: .ios
             ),
             backpressureMode: .callerOwned
         )
@@ -270,6 +284,11 @@ extension MobileHostIrohRuntime {
                     .admissionSucceeded,
                     a: DiagnosticTransportKind.iroh.rawValue
                 ))
+                CmuxEventBus.shared.publish(
+                    name: "mobile.iroh.admission.succeeded",
+                    category: "mobile",
+                    source: "mobile.iroh.host"
+                )
                 diagnosticLog.record(DiagnosticEvent(
                     .transportSessionLifecycle,
                     a: DiagnosticSessionLifecycleKind.established.rawValue,
@@ -304,6 +323,9 @@ extension MobileHostIrohRuntime {
                             authorization: .irohAdmission(session.peer),
                             artifactTransfers: artifactTransfers,
                             independentEventWriter: eventWriter,
+                            promoteUsableSession: {
+                                await session.markUsable()
+                            },
                             isCurrent: isCurrent
                         )
                     },
@@ -417,7 +439,6 @@ extension MobileHostIrohRuntime {
                         // therefore closes every Iroh-authorized connection and
                         // leaves Tailscale/other private-network sessions intact.
                         MobileHostService.shared.closeAllIrohConnections()
-                        MobileHostService.shared.updateIrohRoute(identity: nil)
                     }
                 )
             },
@@ -466,6 +487,7 @@ extension MobileHostIrohRuntime {
                 throw CancellationError()
             }
             await hostRuntime.stop()
+            clearIrohRoutePublication(revision: revision)
             throw error
         }
         guard revision == lifecycleRevision,
@@ -484,6 +506,7 @@ extension MobileHostIrohRuntime {
         runtime = hostRuntime
         activeAccountID = accountID
         activeAppInstanceID = appInstanceID
+        _ = publishIrohRouteIfActive(revision: revision)
         diagnosticLog.record(DiagnosticEvent(
             .endpointActive,
             a: DiagnosticTransportKind.iroh.rawValue
@@ -548,10 +571,58 @@ extension MobileHostIrohRuntime {
         if preparedSignOut?.pendingRevocation?.accountID == accountID {
             preparedSignOut = nil
         }
-        MobileHostService.shared.updateIrohRoute(
-            identity: binding.endpointID,
+        stageIrohRoute(binding, pathHints: pathHints, revision: revision)
+        if runtime != nil, activeAccountID == accountID {
+            _ = publishIrohRouteIfActive(revision: revision)
+        }
+    }
+
+    /// Starts a new availability generation. Persisted broker identity is not
+    /// a dialable route until the matching endpoint reports active.
+    func beginIrohRouteActivation(revision: UInt64) {
+        guard revision == lifecycleRevision else { return }
+        pendingIrohRouteBinding = nil
+        routePublicationPhase = .starting(revision: revision)
+        MobileHostService.shared.updateIrohRoute(identity: nil)
+    }
+
+    func stageIrohRoute(
+        _ binding: CmxIrohBrokerBindingMetadata,
+        pathHints: [CmxIrohPathHint],
+        revision: UInt64
+    ) {
+        guard revision == lifecycleRevision else { return }
+        pendingIrohRouteBinding = (
+            revision: revision,
+            binding: binding,
             pathHints: pathHints
         )
+    }
+
+    /// Publishes only the binding staged by the activation generation whose
+    /// endpoint has completed `start()`.
+    @discardableResult
+    func publishIrohRouteIfActive(revision: UInt64) -> Bool {
+        guard revision == lifecycleRevision,
+              let pendingIrohRouteBinding,
+              pendingIrohRouteBinding.revision == revision else { return false }
+        self.pendingIrohRouteBinding = nil
+        routePublicationPhase = .active(
+            revision: revision,
+            binding: pendingIrohRouteBinding.binding
+        )
+        MobileHostService.shared.updateIrohRoute(
+            identity: pendingIrohRouteBinding.binding.endpointID,
+            pathHints: pendingIrohRouteBinding.pathHints
+        )
+        return true
+    }
+
+    func clearIrohRoutePublication(revision: UInt64? = nil) {
+        if let revision, revision != lifecycleRevision { return }
+        pendingIrohRouteBinding = nil
+        routePublicationPhase = .unavailable
+        MobileHostService.shared.updateIrohRoute(identity: nil)
     }
 
     private func allowsPersistence(
@@ -562,17 +633,5 @@ extension MobileHostIrohRuntime {
             && !signOutIntentActive
             && desiredActive
             && observedAccountID == accountID
-    }
-}
-
-private extension CmxIrohIdentityMaterial {
-    var peerIdentity: CmxIrohPeerIdentity? {
-        guard let privateKey = try? Curve25519.Signing.PrivateKey(
-            rawRepresentation: secretKey.bytes
-        ) else { return nil }
-        let endpointID = privateKey.publicKey.rawRepresentation
-            .map { String(format: "%02x", $0) }
-            .joined()
-        return try? CmxIrohPeerIdentity(endpointID: endpointID)
     }
 }

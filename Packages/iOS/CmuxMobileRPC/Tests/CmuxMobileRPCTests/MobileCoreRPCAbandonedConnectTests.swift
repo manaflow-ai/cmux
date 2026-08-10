@@ -195,7 +195,7 @@ import Testing
             allowsStackAuthFallback: true
         )
 
-        for id in ["stuck-connect-1", "stuck-connect-2", "stuck-connect-3"] {
+        for (index, id) in ["stuck-connect-1", "stuck-connect-2", "stuck-connect-3"].enumerated() {
             let request = try MobileCoreRPCClient.requestData(
                 method: "terminal.input",
                 params: [
@@ -207,10 +207,11 @@ import Testing
             )
             do {
                 _ = try await client.sendRequest(request)
-                Issue.record("Expected \(id) to time out")
-            } catch MobileShellConnectionError.requestTimedOut {
+                Issue.record("Expected \(id) to fail")
+            } catch MobileShellConnectionError.requestTimedOut where index == 0 {
+            } catch MobileShellConnectionError.routeCleanupBlocked where index > 0 {
             } catch {
-                Issue.record("Expected requestTimedOut for \(id), got \(error)")
+                Issue.record("Expected bounded admission failure for \(id), got \(error)")
             }
         }
 
@@ -278,9 +279,9 @@ import Testing
             do {
                 _ = try await client.sendRequest(retryRequest)
                 Issue.record("Expected \(id) to be rejected while cancelled connect cleanup is stuck")
-            } catch MobileShellConnectionError.requestTimedOut {
+            } catch MobileShellConnectionError.routeCleanupBlocked {
             } catch {
-                Issue.record("Expected requestTimedOut for \(id), got \(error)")
+                Issue.record("Expected routeCleanupBlocked for \(id), got \(error)")
             }
         }
 

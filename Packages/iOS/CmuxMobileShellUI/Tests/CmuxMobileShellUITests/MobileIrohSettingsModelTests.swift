@@ -122,7 +122,7 @@ struct MobileIrohSettingsModelTests {
         let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
         let report = diagnosticReport()
         controller.report = report
-        controller.exportData = Data("cmuxdiag v1\n25,1,,,1,,7".utf8)
+        controller.exportData = report.humanReadableExport()
         let model = MobileIrohSettingsModel(controller: controller)
 
         let observation = Task { await model.observe() }
@@ -130,7 +130,10 @@ struct MobileIrohSettingsModelTests {
         observation.cancel()
         await observation.value
 
-        #expect(model.diagnosticExportText == String(decoding: report.compactExport(), as: UTF8.self))
+        #expect(
+            model.diagnosticExportText
+                == String(decoding: report.humanReadableExport(), as: UTF8.self)
+        )
         #expect(model.diagnosticReport.events.count == 2)
         #expect(model.diagnosticReport.lastFailureKind == .timedOut)
     }
@@ -138,7 +141,7 @@ struct MobileIrohSettingsModelTests {
     @Test func clearDiagnosticReportClearsControllerAndReloadsModel() async {
         let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
         controller.report = diagnosticReport()
-        controller.exportData = Data("cmuxdiag v1\n25,1,,,1,,7".utf8)
+        controller.exportData = controller.report.humanReadableExport()
         let model = MobileIrohSettingsModel(controller: controller)
         let observation = Task { await model.observe() }
         await waitUntil { !model.diagnosticReport.events.isEmpty }

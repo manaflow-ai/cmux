@@ -22,11 +22,20 @@ fn socket_path() -> PathBuf {
     ))
 }
 
+fn test_timeout(duration: Duration) -> Duration {
+    let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(1);
+    duration.saturating_mul(scale)
+}
+
 fn request(reader: &mut BufReader<UnixStream>) -> Value {
     let mut line = String::new();
     assert_ne!(reader.read_line(&mut line).unwrap(), 0);
     let value: Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(value["protocol"], "cmux.protocol/1");
+    assert_eq!(value["protocol"], "cmux.protocol/2");
     assert_eq!(value["type"], "request");
     value
 }
@@ -36,7 +45,7 @@ fn success(stream: &mut UnixStream, request: &Value, result: Value) {
         stream,
         "{}",
         json!({
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "response",
             "id": request["id"],
             "ok": true,
@@ -82,7 +91,7 @@ fn snapshot(stream: &mut UnixStream, stream_id: &str, sequence: u64) {
         stream,
         "{}",
         json!({
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "stream_item",
             "stream_id": stream_id,
             "sequence": sequence.to_string(),
@@ -127,7 +136,7 @@ fn patch(stream: &mut UnixStream, stream_id: &str, sequence: u64, text: &str) {
         stream,
         "{}",
         json!({
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "stream_item",
             "stream_id": stream_id,
             "sequence": sequence.to_string(),
@@ -158,7 +167,7 @@ fn end_canceled(stream: &mut UnixStream, stream_id: &str) {
         stream,
         "{}",
         json!({
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "stream_end",
             "stream_id": stream_id,
             "reason": "canceled"
@@ -172,7 +181,7 @@ fn end_gap(stream: &mut UnixStream, stream_id: &str) {
         stream,
         "{}",
         json!({
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "stream_end",
             "stream_id": stream_id,
             "reason": "gap",
@@ -285,6 +294,9 @@ fn runtime_receives_render_snapshots_forwards_input_and_cancels_cleanly() {
 fn runtime_remains_attached_across_idle_request_timeout_and_accepts_late_snapshot() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();
+    let request_timeout = test_timeout(Duration::from_millis(250));
+    let (release_snapshot_tx, release_snapshot_rx) = std::sync::mpsc::channel();
+    let (snapshot_sent_tx, snapshot_sent_rx) = std::sync::mpsc::channel();
     let server = thread::spawn(move || {
         let (control, _) = listener.accept().unwrap();
         let (mut stream, _) = listener.accept().unwrap();
@@ -294,8 +306,9 @@ fn runtime_remains_attached_across_idle_request_timeout_and_accepts_late_snapsho
         let stream_id = attach["params"]["stream_id"].as_str().unwrap().to_string();
         success(&mut stream, &attach, json!({"stream_id": stream_id}));
 
-        thread::sleep(Duration::from_millis(150));
+        release_snapshot_rx.recv_timeout(test_timeout(Duration::from_secs(2))).unwrap();
         snapshot(&mut stream, &stream_id, 0);
+        snapshot_sent_tx.send(()).unwrap();
 
         let cancel = request(&mut reader);
         assert_eq!(cancel["operation"], "stream.cancel");
@@ -304,21 +317,22 @@ fn runtime_remains_attached_across_idle_request_timeout_and_accepts_late_snapsho
         drop(control);
     });
 
-    let client = cmux::Client::connect(
-        Config::from_socket_path(&path).with_timeout(Duration::from_millis(50)),
-    )
-    .unwrap();
+    let client =
+        cmux::Client::connect(Config::from_socket_path(&path).with_timeout(request_timeout))
+            .unwrap();
     let view = client
         .session(SessionId::parse(SESSION).unwrap())
         .sidebar_view(SidebarViewId::parse(VIEW).unwrap());
     let mut runtime = SidebarRuntime::start(view, SidebarConfig::default()).unwrap();
 
-    thread::sleep(Duration::from_millis(100));
+    thread::sleep(request_timeout.saturating_mul(2));
     assert_eq!(runtime.poll_updates(), 0);
     assert!(matches!(runtime.state(), SidebarRuntimeState::Attached));
     assert!(runtime.model().error.is_none());
 
-    let deadline = Instant::now() + Duration::from_secs(1);
+    release_snapshot_tx.send(()).unwrap();
+    snapshot_sent_rx.recv_timeout(test_timeout(Duration::from_secs(2))).unwrap();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(1));
     while runtime.poll_updates() == 0 {
         assert!(Instant::now() < deadline);
         thread::sleep(Duration::from_millis(5));
@@ -336,6 +350,7 @@ fn runtime_remains_attached_across_idle_request_timeout_and_accepts_late_snapsho
 fn bounded_queue_overflow_cancels_and_reports_recovery() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();
+    let (overflow_observed_tx, overflow_observed_rx) = std::sync::mpsc::channel();
     let server = thread::spawn(move || {
         let (control, _) = listener.accept().unwrap();
         let (mut stream, _) = listener.accept().unwrap();
@@ -350,6 +365,7 @@ fn bounded_queue_overflow_cancels_and_reports_recovery() {
         assert_eq!(cancel["operation"], "stream.cancel");
         success(&mut stream, &cancel, json!({}));
         end_canceled(&mut stream, &stream_id);
+        overflow_observed_tx.send(()).unwrap();
         drop(control);
     });
 
@@ -364,8 +380,10 @@ fn bounded_queue_overflow_cancels_and_reports_recovery() {
         SidebarConfig { queue_capacity: 1, ..SidebarConfig::default() },
     )
     .unwrap();
-    thread::sleep(Duration::from_millis(50));
-    let deadline = Instant::now() + Duration::from_secs(2);
+    overflow_observed_rx
+        .recv_timeout(test_timeout(Duration::from_secs(2)))
+        .expect("sidebar worker did not cancel the overflowing stream");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(2));
     loop {
         runtime.poll_updates();
         if runtime.model().error.is_some() {

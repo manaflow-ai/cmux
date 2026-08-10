@@ -94,7 +94,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y binutils clang libclang-dev pkg-config
+          sudo apt-get install -y binutils clang libclang-dev musl-tools pkg-config
 
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
@@ -127,7 +127,7 @@ jobs:
           printf 'MACOSX_DEPLOYMENT_TARGET=%s\n' "$target" >> "$GITHUB_ENV"
 
       - name: Install cargo-zigbuild
-        if: matrix.cross == true && runner.os != 'macOS'
+        if: matrix.cross == true && runner.os == 'Linux'
         shell: bash
         run: cargo install --locked cargo-zigbuild@0.20.0
 
@@ -153,8 +153,8 @@ jobs:
           cargo build -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
 
-      - name: Build cmux-tui (cross)
-        if: matrix.cross == true
+      - name: Build cmux-tui (Linux cross)
+        if: matrix.cross == true && runner.os == 'Linux'
         env:
           PACKAGE_NPM: ${{ inputs.package_npm }}
           VERSION: ${{ inputs.version }}
@@ -179,6 +179,27 @@ jobs:
             cargo zigbuild -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
             cargo zigbuild -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           fi
+
+      - name: Build cmux-tui (macOS cross)
+        if: matrix.cross == true && runner.os == 'macOS'
+        env:
+          CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
+          PACKAGE_NPM: ${{ inputs.package_npm }}
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          # Xcode's macOS SDK natively supports cross-architecture builds.
+          # cargo-zigbuild cannot resolve SDK frameworks when the host is arm64.
+          unset CMUX_GHOSTTY_SRC
+          CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
+          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT CMUX_TUI_DISTRIBUTION_VERSION
+          if [[ "$PACKAGE_NPM" == "true" ]]; then
+            CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
+            export CMUX_TUI_NPM_BOOTSTRAP_VERSION
+          fi
+          cargo build -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
+          cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
 
       - name: Stage binary
         shell: bash

@@ -18,8 +18,10 @@ unset CMUX_IPHONE_DEVICE_ID CMUX_IPHONE_QUEUE_FORCE_UNREACHABLE CMUX_IPHONE_QUEU
 
 DEVICE_ID="11111111-2222-3333-4444-555555555555"
 STATE_FILE="$TMP_DIR/device-state"   # "reachable" | "unreachable"
+PROCESS_STATE_FILE="$TMP_DIR/process-state" # "running" | "stopped"
 CALL_LOG="$TMP_DIR/calls.log"
 echo "unreachable" > "$STATE_FILE"
+echo "running" > "$PROCESS_STATE_FILE"
 : > "$CALL_LOG"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -59,7 +61,40 @@ fi
 if [[ "\${1:-}" == "devicectl" && "\${2:-}" == "device" && "\${3:-}" == "install" ]]; then
   exit 0
 fi
-if [[ "\${1:-}" == "devicectl" && "\${2:-}" == "device" && "\${3:-}" == "process" ]]; then
+if [[ "\${1:-}" == "devicectl" && "\${2:-}" == "device" && "\${3:-}" == "info" && "\${4:-}" == "apps" ]]; then
+  out=""
+  args=("\$@")
+  for ((i=0; i<\${#args[@]}; i++)); do
+    if [[ "\${args[i]}" == "--json-output" ]]; then out="\${args[i+1]}"; fi
+  done
+  cat > "\$out" <<JSON
+{"result": {"apps": [{
+  "bundleIdentifier": "dev.cmux.ios.tstq",
+  "url": "file:///private/var/containers/Bundle/Application/CURRENT/cmux.app/"
+}]}}
+JSON
+  exit 0
+fi
+if [[ "\${1:-}" == "devicectl" && "\${2:-}" == "device" && "\${3:-}" == "info" && "\${4:-}" == "processes" ]]; then
+  out=""
+  args=("\$@")
+  for ((i=0; i<\${#args[@]}; i++)); do
+    if [[ "\${args[i]}" == "--json-output" ]]; then out="\${args[i+1]}"; fi
+  done
+  if [[ "\$(cat "$PROCESS_STATE_FILE")" == "running" ]]; then
+    processes='[{"executable":"file:///private/var/containers/Bundle/Application/CURRENT/cmux.app/cmux","processIdentifier":4242}]'
+  else
+    processes='[]'
+  fi
+  printf '{"result":{"runningProcesses":%s}}\n' "\$processes" > "\$out"
+  exit 0
+fi
+if [[ "\${1:-}" == "devicectl" && "\${2:-}" == "device" && "\${3:-}" == "process" && "\${4:-}" == "terminate" ]]; then
+  [[ " \$* " == *" --pid 4242 "* ]] || exit 1
+  echo "stopped" > "$PROCESS_STATE_FILE"
+  exit 0
+fi
+if [[ "\${1:-}" == "devicectl" && "\${2:-}" == "device" && "\${3:-}" == "process" && "\${4:-}" == "launch" ]]; then
   exit 0
 fi
 echo "fake xcrun: unhandled: \$*" >&2
@@ -141,10 +176,14 @@ ok "CMUX_IPHONE_QUEUE_FORCE_UNREACHABLE keeps the entry queued"
 [[ ! -d "$ENTRY" ]] || fail "entry should be removed after a successful install"
 grep -q "xcrun devicectl device install app --device $DEVICE_ID" "$CALL_LOG" \
   || fail "drain should devicectl-install on the recorded device"
+terminate_line="$(grep -n "devicectl device process terminate --device $DEVICE_ID --pid 4242" "$CALL_LOG" | head -n1 | cut -d: -f1 || true)"
+install_line="$(grep -n "devicectl device install app --device $DEVICE_ID" "$CALL_LOG" | head -n1 | cut -d: -f1 || true)"
+[[ -n "$terminate_line" && "$terminate_line" -lt "$install_line" ]] \
+  || fail "drain must terminate the registered tagged app before replacing its bundle"
 grep -q -- "mobile-dev-launch --tag tstq --device --device-id $DEVICE_ID --ensure-mac" "$CALL_LOG" \
   || fail "drain should signed-launch via mobile-dev-launch.sh with --ensure-mac"
 grep -q "cmux notify --title" "$CALL_LOG" || fail "drain should send a cmux notification"
-ok "reconnect drain installs, signed-launches with --ensure-mac, and notifies"
+ok "reconnect drain terminates before install, signed-launches with --ensure-mac, and notifies"
 
 # --- failed signed launch never falls back to plain launch --------------------
 echo "unreachable" > "$STATE_FILE"

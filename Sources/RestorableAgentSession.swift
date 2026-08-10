@@ -924,6 +924,14 @@ struct RestorableAgentSessionIndex: Sendable {
     private struct SessionKey: Hashable {
         let kind: RestorableAgentKind
         let sessionId: String
+
+        init(kind: RestorableAgentKind, sessionId: String) {
+            self.kind = kind
+            self.sessionId = ManagedAgentSessionIdentity.canonicalSessionID(
+                kind: kind.rawValue,
+                sessionID: sessionId
+            )
+        }
     }
 
     private struct PanelKindKey: Hashable {
@@ -1243,7 +1251,11 @@ struct RestorableAgentSessionIndex: Sendable {
                         entry: shouldReplace ? entry : existingPanelIDCandidate.entry,
                         isAmbiguous: existingPanelIDCandidate.isAmbiguous ||
                             existingPanelIDCandidate.panelKey != key ||
-                            existingPanelIDCandidate.entry.snapshot.sessionId != entry.snapshot.sessionId
+                            !ManagedAgentSessionIdentity.sessionIDsMatch(
+                                kind: kind.rawValue,
+                                lhs: existingPanelIDCandidate.entry.snapshot.sessionId,
+                                rhs: entry.snapshot.sessionId
+                            )
                     )
                 } else {
                     hookCandidatesByPanelIdAndKind[panelIDKindKey] = PanelIDKindCandidate(
@@ -1384,7 +1396,11 @@ struct RestorableAgentSessionIndex: Sendable {
         [resolved, panelCandidate, sessionCandidate].compactMap { $0 }
             .filter {
                 $0.snapshot.kind == snapshot.kind &&
-                    $0.snapshot.sessionId == snapshot.sessionId
+                    ManagedAgentSessionIdentity.sessionIDsMatch(
+                        kind: snapshot.kind.rawValue,
+                        lhs: $0.snapshot.sessionId,
+                        rhs: snapshot.sessionId
+                    )
             }
             .max { $0.updatedAt < $1.updatedAt }
     }

@@ -106,6 +106,18 @@ struct WorkspaceListView: View {
     var isInitialConnectionLoading = false
     var initialConnectionTimedOut = false
     var retryInitialConnection: (() -> Void)?
+    /// How the aggregated All Computers list orders its rows. Passed as a value
+    /// snapshot so no `@Observable` store crosses the `List` boundary; the
+    /// device-local preference lives on the shell store.
+    var workspaceSortMode: MobileWorkspaceSortMode = .automatic
+    /// Persist a sort-mode choice on this device. `nil` hides the sort menu
+    /// (previews and macOS fallback).
+    var setWorkspaceSortMode: ((MobileWorkspaceSortMode) -> Void)? = nil
+    /// The user's computer order for ``MobileWorkspaceSortMode/computerPriority``,
+    /// highest first, as Mac device ids.
+    var workspaceComputerPriority: [String] = []
+    /// Persist a computer order on this device.
+    var setWorkspaceComputerPriority: (([String]) -> Void)? = nil
     /// Shared across the normal workspace tab and its native search
     /// presentation so filters compose with the active query.
     let filterState: WorkspaceListFilterState
@@ -114,6 +126,8 @@ struct WorkspaceListView: View {
     var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
+    /// Presents the view-options card (sort tiles + filter rows).
+    @State var showingViewOptionsPopover = false
     @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
     @State private var showingDeviceTree = false
     @State private var changesSheetTarget: WorkspaceChangesSheetTarget? = nil
@@ -133,11 +147,27 @@ struct WorkspaceListView: View {
     /// state while `List` is recycling swipe-action rows.
     @State var workspacePendingCloseID: MobileWorkspacePreview.ID?
     /// The workspace whose UIKit context-menu rename action is presenting the
-    /// list-scoped SwiftUI rename sheet.
+    /// list-scoped rename alert.
     @State var workspacePendingRenameID: MobileWorkspacePreview.ID?
+    /// Stable text storage for the list-scoped workspace rename alert.
+    @State var workspaceRenameDraft = ""
     /// The workspace whose UIKit context-menu action is presenting the shared
     /// customization sheet.
     @State var workspacePendingCustomizationID: MobileWorkspacePreview.ID?
+    /// The group whose UIKit context-menu action is presenting the shared
+    /// rename alert.
+    @State var workspaceGroupPendingRenameID: MobileWorkspaceGroupPreview.ID?
+    /// Stable text storage for the list-scoped group rename alert.
+    @State var workspaceGroupRenameDraft = ""
+    /// The group and destructive operation awaiting confirmation from a UIKit
+    /// context-menu action.
+    @State var workspaceGroupDestructiveRequest = WorkspaceGroupDestructiveRequestState()
+    var workspaceGroupPendingDestructiveID: MobileWorkspaceGroupPreview.ID? {
+        workspaceGroupDestructiveRequest.groupID
+    }
+    var workspaceGroupPendingDestructiveAction: WorkspaceGroupHeaderPendingDestructiveAction? {
+        workspaceGroupDestructiveRequest.action
+    }
     @State var optimisticFlatState = MobileWorkspaceOptimisticOrderReconciler()
     @State var optimisticGroupedState = MobileWorkspaceOptimisticOrderReconciler()
     /// In-flight move RPC count plus the tail of the send chain. Moves stay
@@ -179,15 +209,96 @@ struct WorkspaceListView: View {
         macTitlePickerPendingSelection != nil
     }
 
-    /// Groups render from the payload while unfiltered and scoped to the
-    /// foreground Mac. Search, filters, and multi-Mac scopes flatten the list;
-    /// the independently fetched collapse capability does not gate rendering.
+    /// Whether the list presents the recency sort: chosen mode `.recentActivity`
+    /// while the visible scope spans computers (All Computers). A single-Mac
+    /// scope keeps that Mac's own order — the sort exists to make the
+    /// cross-computer order deterministic, not to rewrite one Mac's sidebar.
+    var appliesRecencySort: Bool {
+        guard workspaceSortMode == .recentActivity else { return false }
+        switch visibleMacSelection {
+        case .all, .automatic:
+            return true
+        case .machine:
+            return false
+        }
+    }
+
+    /// The sort mode the filter menu offers, or `nil` to hide the sort section:
+    /// sorting is an All Computers concern, so a single-machine scope (whose
+    /// order is the Mac's own sidebar order) offers none. No computer-count
+    /// gate: the preference is worth setting before a second computer pairs,
+    /// and a wedged or offline secondary connection must not hide the control.
+    var workspaceSortMenuMode: MobileWorkspaceSortMode? {
+        guard setWorkspaceSortMode != nil else { return nil }
+        switch visibleMacSelection {
+        case .all, .automatic:
+            return workspaceSortMode
+        case .machine:
+            return nil
+        }
+    }
+
+    /// Computers offered by the computer-order editor, one per physical Mac,
+    /// in their effective order: stored priority first, then the list's
+    /// current display order. Present computers come straight from the
+    /// aggregated rows (not the filter menu's machine list, which empties
+    /// below its two-machine floor and would drop a singleton or reorder the
+    /// tail); paired-but-offline computers follow, keeping their slot while
+    /// disconnected.
+    var computerOrderSheetMachines: [WorkspaceFilterMachine] {
+        let names = macDisplayNamesByID()
+        let aliasIndex = macSelectionScope.aliasIndex
+        var machines: [WorkspaceFilterMachine] = []
+        var seenDeviceIDs = Set<String>()
+        for workspace in workspaces {
+            guard let deviceID = workspace.macDeviceID, !deviceID.isEmpty else { continue }
+            let representativeID = aliasIndex.deviceRepresentativeID(for: deviceID)
+            guard seenDeviceIDs.insert(representativeID).inserted else { continue }
+            machines.append(WorkspaceFilterMachine(
+                id: representativeID,
+                macDeviceID: representativeID,
+                instanceTag: nil,
+                name: names[representativeID] ?? names[deviceID]
+                    ?? workspace.macDisplayName ?? representativeID,
+                buildLabel: nil
+            ))
+        }
+        for mac in displayPairedMacsForPicker where !mac.macDeviceID.isEmpty {
+            let representativeID = aliasIndex.deviceRepresentativeID(for: mac.macDeviceID)
+            guard seenDeviceIDs.insert(representativeID).inserted else { continue }
+            machines.append(WorkspaceFilterMachine(
+                id: representativeID,
+                macDeviceID: representativeID,
+                instanceTag: nil,
+                name: names[representativeID] ?? mac.resolvedName,
+                buildLabel: nil
+            ))
+        }
+        var rank: [String: Int] = [:]
+        for (index, deviceID) in workspaceComputerPriority.enumerated()
+            where rank[deviceID] == nil {
+            rank[deviceID] = index
+        }
+        return machines.enumerated()
+            .sorted { lhs, rhs in
+                let lhsRank = rank[lhs.element.macDeviceID] ?? Int.max
+                let rhsRank = rank[rhs.element.macDeviceID] ?? Int.max
+                if lhsRank != rhsRank { return lhsRank < rhsRank }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
+    }
+
+    /// Groups render from every available Mac payload while unfiltered. Search
+    /// and explicit filters flatten the results; selecting All Computers does
+    /// not discard the group structure. The recency sort interleaves computers
+    /// by time, which no group section can survive, so it also presents flat.
     var rendersGroupedSections: Bool {
         !groups.isEmpty
             && trimmedQuery.isEmpty
             && filter.readState == .all
             && filter.machines.isEmpty
-            && canRenderGroupsForSelection
+            && !appliesRecencySort
     }
 
     private func matchesQuery(
@@ -221,6 +332,9 @@ struct WorkspaceListView: View {
                 currentFilter.matches(workspace, parsedMachines: parsedMachines)
                     && matchesQuery(workspace, query: query, groupsByID: groupLookup)
             }
+        }
+        if appliesRecencySort {
+            return MobileWorkspaceRecencyOrder().displayOrder(matches)
         }
         return matches.enumerated()
             .sorted { lhs, rhs in
@@ -424,12 +538,13 @@ struct WorkspaceListView: View {
                 )
             }
         }
-        .sheet(isPresented: workspaceRenameIsPresented) {
-            if let workspaceID = workspacePendingRenameID,
-               let workspace = workspaces.first(where: { $0.id == workspaceID }) {
-                WorkspaceRenameSheet(currentName: workspace.name) { newName in
-                    renameWorkspace?(workspaceID, newName)
-                }
+        .workspaceRenameDialog(
+            isPresented: workspaceRenameIsPresented,
+            text: $workspaceRenameDraft
+        ) {
+            let trimmed = workspaceRenameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let workspaceID = workspacePendingRenameID, !trimmed.isEmpty {
+                renameWorkspace?(workspaceID, trimmed)
             }
         }
         .sheet(isPresented: workspaceCustomizationIsPresented) {
@@ -438,6 +553,14 @@ struct WorkspaceListView: View {
                 WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
                     await customizeWorkspace?(workspaceID, initialDraft, submittedDraft) ?? .failure()
                 }
+            }
+        }
+        .workspaceGroupRenameDialog(
+            isPresented: workspaceGroupRenameIsPresented,
+            text: $workspaceGroupRenameDraft
+        ) { newName in
+            if let groupID = workspaceGroupPendingRenameID {
+                renameWorkspaceGroup?(groupID, newName)
             }
         }
         .sheet(item: $changesSheetTarget) { target in
@@ -475,6 +598,39 @@ struct WorkspaceListView: View {
                     defaultValue: "This will close the workspace on your Mac."
                 )
             )
+        }
+        .confirmationDialog(
+            workspaceGroupDestructiveDialogTitle,
+            isPresented: workspaceGroupDestructiveConfirmationIsPresented,
+            titleVisibility: .visible
+        ) {
+            if workspaceGroupPendingDestructiveAction == .ungroup,
+               let groupID = workspaceGroupPendingDestructiveID,
+               ungroupWorkspaceGroup != nil {
+                Button(
+                    L10n.string("mobile.workspaceGroup.ungroup.confirmAction", defaultValue: "Ungroup"),
+                    role: .destructive
+                ) {
+                    confirmWorkspaceGroupDestructiveAction()
+                }
+                .accessibilityIdentifier("MobileWorkspaceGroupUngroupConfirmButton-\(groupID.rawValue)")
+            }
+            if workspaceGroupPendingDestructiveAction == .delete,
+               let groupID = workspaceGroupPendingDestructiveID,
+               deleteWorkspaceGroup != nil {
+                Button(
+                    L10n.string("mobile.workspaceGroup.delete.confirmAction", defaultValue: "Delete Group"),
+                    role: .destructive
+                ) {
+                    confirmWorkspaceGroupDestructiveAction()
+                }
+                .accessibilityIdentifier("MobileWorkspaceGroupDeleteConfirmButton-\(groupID.rawValue)")
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                clearWorkspaceGroupDestructiveRequest()
+            }
+        } message: {
+            Text(workspaceGroupDestructiveDialogMessage)
         }
         #endif
     }
@@ -725,6 +881,12 @@ struct WorkspaceListView: View {
                 && capabilities.supportsWorkspaceMetadata ? customizeWorkspace : nil,
             setPinned: capabilities.supportsWorkspaceActions ? setPinned : nil,
             setUnread: capabilities.supportsReadStateActions ? setUnread : nil,
+            groupMoveMenu: capabilities.supportsMoveActions ? {
+                groupMoveMenu(for: workspace.id)
+            } : nil,
+            moveToGroup: capabilities.supportsMoveActions ? { id, groupID in
+                joinGroupAtEnd(workspaceID: id, groupID: groupID)
+            } : nil,
             closeWorkspace: capabilities.supportsCloseActions ? requestWorkspaceClose : nil,
             isConfirmingClose: closeConfirmationBinding(for: workspace.id),
             confirmCloseWorkspace: capabilities.supportsCloseActions && closeWorkspace != nil ? { _ in
