@@ -11882,6 +11882,55 @@ mod tests {
         }
     }
 
+    struct TimedOutFlushSink {
+        outbound: Arc<BoundedOutbound>,
+    }
+
+    impl MessageSink for TimedOutFlushSink {
+        fn send_initial(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_initial(text, stream)
+        }
+
+        fn send_stream(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_regular(text, stream)
+        }
+
+        fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
+            self.outbound.push_control(text)
+        }
+
+        fn send_terminal(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_terminal(text, stream)
+        }
+
+        fn flush_control(&self, _timeout: Duration) -> std::io::Result<()> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "timed out while flushing the shutdown response",
+            ))
+        }
+
+        fn is_open(&self) -> bool {
+            self.outbound.is_open()
+        }
+
+        fn close(&self) {
+            self.outbound.close();
+        }
+    }
+
     fn blocking_flush_writer() -> (
         MessageWriter,
         Arc<BoundedOutbound>,
@@ -15095,6 +15144,19 @@ mod tests {
     struct FlushRecordingWriter {
         bytes: Vec<u8>,
         flushes: usize,
+    }
+
+    #[test]
+    fn timed_out_control_flush_discards_the_pending_response() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(TimedOutFlushSink { outbound: outbound.clone() });
+        writer.send_control(&json!({"ok": true})).unwrap();
+
+        let error = writer.flush_control(Duration::from_secs(1)).unwrap_err();
+
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        assert!(!writer.is_open());
+        assert_eq!(outbound.try_pop(), None);
     }
 
     impl Write for FlushRecordingWriter {

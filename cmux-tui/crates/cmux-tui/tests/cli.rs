@@ -8,6 +8,8 @@ use std::net::Shutdown;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 #[cfg(unix)]
+use std::os::unix::ffi::OsStringExt;
+#[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -800,6 +802,26 @@ fn uvx_spelling_server_stop_is_absent_idempotent_with_stable_output_modes() {
     assert_success(&quiet);
     assert!(quiet.stdout.is_empty());
     assert!(quiet.stderr.is_empty());
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn absent_server_stop_serializes_a_non_utf8_inherited_socket_path() {
+    let dir = unique_temp_dir("server-stop-non-utf8-socket");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join(std::ffi::OsString::from_vec(b"mux-\xff.sock".to_vec()));
+    let output = Command::new(bin())
+        .args(["--json", "server", "stop"])
+        .env("CMUX_TUI_SOCKET", &socket)
+        .env_remove("CMUX_MUX_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    let result = json_output(&output);
+    assert_eq!(result["status"], "not_running");
+    assert_eq!(result["socket"], socket.to_string_lossy().as_ref());
     fs::remove_dir_all(dir).unwrap();
 }
 
