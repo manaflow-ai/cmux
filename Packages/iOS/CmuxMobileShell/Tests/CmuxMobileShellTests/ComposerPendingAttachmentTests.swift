@@ -318,7 +318,11 @@ import Testing
         }
         let staged = composite.pendingAttachments(forTerminalID: "term-a")
         #expect(staged.count == 8)
-        #expect(staged.reduce(0) { $0 + $1.byteCount } == 64 * 1024 * 1024)
+        let stagedByteCount: Int = staged.reduce(into: 0) { total, attachment in
+            total += attachment.byteCount
+        }
+        let expectedByteCount: Int = 64 * 1024 * 1024
+        #expect(stagedByteCount == expectedByteCount)
 
         let overflow = composite.addPendingAttachment(
             Self.bytes(count: 1, fill: 0xFF),

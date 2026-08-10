@@ -29,7 +29,7 @@ import Testing
         #expect(store.terminalSendStatus(forTerminalID: terminalID) == .sending)
 
         await router.releaseFirstPasteImage()
-        await submit.value
+        _ = await submit.value
 
         #expect(store.terminalSendStatus(forTerminalID: terminalID) == .sent)
     }
@@ -168,7 +168,7 @@ import Testing
         await router.awaitFirstPasteImageReached()
         store.selectTerminal(MobileTerminalPreview.ID(rawValue: termB))
         await router.releaseFirstPasteImage()
-        await submit.value
+        _ = await submit.value
 
         let images = await router.recordedPasteImages()
         let pastes = await router.recordedPastes()
@@ -203,7 +203,7 @@ import Testing
         await router.awaitFirstPasteImageReached()
         store.terminalInputText = "edited after send"
         await router.releaseFirstPasteImage()
-        await submit.value
+        _ = await submit.value
 
         let pastes = await router.recordedPastes()
         #expect(pastes.map(\.surfaceID) == [termA])
@@ -236,7 +236,7 @@ import Testing
         store.selectTerminal(MobileTerminalPreview.ID(rawValue: termB))
         store.terminalInputText = "b-draft"
         await router.releaseFirstPasteImage()
-        await submit.value
+        _ = await submit.value
 
         let pastes = await router.recordedPastes()
         #expect(pastes.map(\.surfaceID) == [termA])
@@ -263,9 +263,9 @@ import Testing
         let first = Task { await store.submitComposer() }
         await router.awaitFirstPasteImageReached()
         let second = Task { await store.submitComposer() }
-        await second.value
+        _ = await second.value
         await router.releaseFirstPasteImage()
-        await first.value
+        _ = await first.value
 
         let images = await router.recordedPasteImages()
         let pastes = await router.recordedPastes()
@@ -357,7 +357,7 @@ import Testing
         await router.awaitFirstPasteImageReached()
         store.removePendingAttachment(id: secondID, forTerminalID: termA)
         await router.releaseFirstPasteImage()
-        await submit.value
+        _ = await submit.value
 
         let images = await router.recordedPasteImages()
         let pastes = await router.recordedPastes()
@@ -423,7 +423,7 @@ import Testing
         let newRouter = RoutingHostRouter()
         try installFreshRemoteClient(on: store, router: newRouter)
         await firstRouter.releaseFirstPasteImage()
-        await submit.value
+        _ = await submit.value
 
         // The first image reached the OLD session (it was already in flight); the
         // second image and the text never sent at all.
@@ -462,7 +462,7 @@ import Testing
         let newRouter = RoutingHostRouter()
         try installFreshRemoteClient(on: store, router: newRouter)
         await firstRouter.releaseFirstPasteImage()
-        await submit.value
+        _ = await submit.value
 
         // Only the in-flight first image reached the old connection; nothing else.
         #expect(await firstRouter.recordedPasteImages().count == 1)
