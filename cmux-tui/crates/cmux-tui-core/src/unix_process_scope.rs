@@ -13,6 +13,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io;
+#[cfg(target_os = "macos")]
 use std::mem::size_of;
 #[cfg(target_os = "linux")]
 use std::os::fd::FromRawFd;
