@@ -58,7 +58,7 @@ use resource_store::{
     initialize_resource_mutation_retention, migrate_resource_agent_projections,
     migrate_resource_browser_metadata, migrate_resource_mutations_to_session_scope,
     migrate_resource_tabs_to_multiview, resource_tabs_has_legacy_content_uniqueness,
-    validate_resource_invariants, validate_resource_patch,
+    validate_resource_invariants,
 };
 
 const SCHEMA_VERSION: i64 = 9;
@@ -2872,7 +2872,7 @@ impl WorkspaceRegistry {
             validate_terminal_identity("terminal incarnation", incarnation)?;
         }
         if let Some(patch) = patch {
-            validate_resource_patch(patch)?;
+            resource_store::validate_resource_patch(patch)?;
         }
         let fingerprint_value = serde_json::json!({
             "op": "close-terminal",

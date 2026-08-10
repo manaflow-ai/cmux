@@ -2227,16 +2227,14 @@ impl Mux {
     ) -> anyhow::Result<TerminalCloseResult> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
-        let fingerprint = json!({
-            "op":"close-terminal",
-            "terminal_id":terminal_id,
-            "incarnation":terminal_incarnation,
-        });
         let mut registry = self.workspace_registry.lock().unwrap();
-        let public_id = registry.terminal_resource_id(terminal_id)?;
+        // This lookup excludes tombstoned resource rows. A repeated close
+        // after both tombstones therefore takes the no-resource path below
+        // and cannot create a false resource revision or event.
+        let live_public_id = registry.terminal_resource_id(terminal_id)?;
         let mut state = self.state.lock().unwrap();
 
-        let Some(public_id) = public_id else {
+        let Some(public_id) = live_public_id else {
             let commit = registry.close_terminal(
                 mutation,
                 expected_generation,
