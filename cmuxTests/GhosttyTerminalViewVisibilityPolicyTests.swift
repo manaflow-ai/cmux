@@ -313,11 +313,11 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             reasons: [],
             reason: "test.detachedHide"
         )
-        await flushPortalReconciliationPasses()
+        coordinator.portalReconciliationScheduler.flushPendingReconciliation()
 
-        // A detached geometry pass hides the hosted view regardless of the
-        // entry's visibility flag. Reattach and synchronize again: only the
-        // hidden intent persisted by reconciliation prevents a stale reveal.
+        // Reattach before the queued geometry pass can prune the detached,
+        // hidden entry. Synchronizing now distinguishes persisted visibility
+        // intent from the geometry pass merely hiding or removing the view.
         container.addSubview(host)
         #expect(TerminalWindowPortalRegistry.isHostedView(panel.hostedView, boundTo: host))
         TerminalWindowPortalRegistry.synchronizeForAnchor(host, syncLayout: false)

@@ -52,7 +52,8 @@ final class TerminalPortalReconciliationScheduler {
         }
     }
 
-    private func flushPendingReconciliation() {
+    /// Flushes the staged reconciliation at a caller-owned safe boundary.
+    func flushPendingReconciliation() {
         let reasons = pendingReasons
         let reconciliation = pendingReconciliation
         pendingReasons = []
