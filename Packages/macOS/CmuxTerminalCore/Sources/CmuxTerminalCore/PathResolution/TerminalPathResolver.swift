@@ -1008,8 +1008,8 @@ public struct TerminalPathResolver: Sendable {
         )
     }
 
-    /// review R2-B2 — test-only probe-budget-override entry, reachable
-    /// only via `@testable import`: lets a fixture deterministically
+    /// review R2-B2 — package-internal probe-budget-override entry, reachable
+    /// from tests via `@testable import`: lets a fixture deterministically
     /// exhaust a SMALL injected budget on the way to what would
     /// otherwise be the winning candidate, instead of needing to
     /// contort a real-shaped fixture into spending the full 15-probe
@@ -1017,7 +1017,7 @@ public struct TerminalPathResolver: Sendable {
     /// ``resolveWrappedCandidateSharedEntry(seed:rows:clickedIndex:columns:cwd:purpose:probeBudget:)``
     /// production's `purpose`-required overload above calls — never a
     /// parallel reimplementation.
-    func resolveWrappedCandidateForTesting(
+    func resolveWrappedCandidate(
         seed: TerminalWrappedPathSeed,
         rows: [String],
         clickedIndex: Int,

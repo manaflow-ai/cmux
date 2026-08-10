@@ -30,6 +30,27 @@ public struct ExternalHoverSurfaceLease: @unchecked Sendable {
     public let surface: ghostty_surface_t
 }
 
+/// Retains the actor task that tombstones a lifetime until the teardown
+/// coordinator has admitted the matching native free. The registry is
+/// synchronous so the invalidation task is registered before a nonisolated
+/// surface deinit can enqueue its teardown request.
+final class ExternalHoverInvalidationTaskRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var tasks: [RuntimeSurfaceLifetimeID: Task<Void, Never>] = [:]
+
+    func insert(_ task: Task<Void, Never>, for lifetimeID: RuntimeSurfaceLifetimeID) {
+        lock.lock()
+        tasks[lifetimeID] = task
+        lock.unlock()
+    }
+
+    func remove(for lifetimeID: RuntimeSurfaceLifetimeID) -> Task<Void, Never>? {
+        lock.lock()
+        defer { lock.unlock() }
+        return tasks.removeValue(forKey: lifetimeID)
+    }
+}
+
 /// (C) ExternalHover diagnostics — a bare `@unchecked Sendable` transport
 /// for one already-known-live surface pointer, crossing into
 /// `ExternalHoverWorkService.drainForRenderTrigger`'s actor isolation.

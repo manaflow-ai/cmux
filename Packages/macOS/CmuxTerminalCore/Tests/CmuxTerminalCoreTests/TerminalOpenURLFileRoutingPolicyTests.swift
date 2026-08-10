@@ -71,6 +71,7 @@ import CmuxTerminalCore
             ("example.com/docs/report.md", false),
             ("localhost/docs/report.md", false),
             ("127.0.0.1/docs/report.md", false),
+            ("user@host/path", false),
             ("https://example.com/docs/report.md", false),
             ("report.md", false),
         ]

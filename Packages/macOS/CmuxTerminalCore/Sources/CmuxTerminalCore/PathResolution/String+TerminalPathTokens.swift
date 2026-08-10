@@ -364,22 +364,7 @@ extension String {
     /// underlining — see ``TerminalWrappedPathCellSpan``.
     func trailingContinuationFragmentWithRange() -> (fragment: String, startColumn: Int, endColumn: Int)? {
         guard unicodeScalars.allSatisfy(\.isASCII) else { return nil }
-        let characters = Array(self)
-        guard !characters.isEmpty else { return nil }
-
-        var end = characters.count - 1
-        while end >= 0, characters[end] == " " {
-            end -= 1
-        }
-        guard end >= 0, !characters.isWrapTokenBoundary(at: end) else { return nil }
-
-        var start = end
-        while start > 0, !characters.isWrapTokenBoundary(at: start - 1) {
-            start -= 1
-        }
-        let fragment = String(characters[start...end])
-        guard !fragment.isEmpty else { return nil }
-        return (fragment, start, end + 1)
+        return trailingContinuationFragmentScan()
     }
 
     /// design-next-round-bundle-8810.md §1 — the same trailing token
@@ -403,6 +388,12 @@ extension String {
     /// - Returns: The trailing fragment, or `nil` for a row that's empty
     ///   or entirely whitespace.
     func trailingContinuationFragmentText() -> String? {
+        trailingContinuationFragmentScan()?.fragment
+    }
+
+    private func trailingContinuationFragmentScan()
+        -> (fragment: String, startColumn: Int, endColumn: Int)?
+    {
         let characters = Array(self)
         guard !characters.isEmpty else { return nil }
 
@@ -417,7 +408,8 @@ extension String {
             start -= 1
         }
         let fragment = String(characters[start...end])
-        return fragment.isEmpty ? nil : fragment
+        guard !fragment.isEmpty else { return nil }
+        return (fragment, start, end + 1)
     }
 
     /// final-spec-scope-expansion-8810.md §1 — the 0-indexed column of the

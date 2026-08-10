@@ -54,6 +54,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     private let isolatedHibernationQueues: [DispatchQueue]
     private nonisolated let isolatedHibernationAdmission =
         TerminalSurfaceRuntimeTeardownAdmission()
+    private nonisolated let externalHoverInvalidationTasks = ExternalHoverInvalidationTaskRegistry()
 
     // cmux fork: (B) ExternalHover — native-surface lease. See
     // `acquireExternalHoverLease`/`releaseExternalHoverLease` below.
@@ -96,20 +97,13 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
 
     /// (C) diagnostics — review round3 B4. `nonisolated`, matching
     /// `defaultDrainExternalHoverDiagnostics`'s own isolation — see
-    /// `DrainExternalHoverRing`'s doc. NOT YET routed through the
-    /// diagnostics gate below (that stays the static
-    /// `ExternalHoverDiagnosticsGate.isEnabled` for now) — wiring an
-    /// injected gate in is the fix half of this finding; this property's
-    /// addition, and `defaultDrainExternalHoverDiagnostics`'s use of it
-    /// instead of an inline C call, is scaffolding only.
+    /// `DrainExternalHoverRing`'s doc. The default diagnostic flow reads this
+    /// injected source when the diagnostics gate is enabled.
     private nonisolated let drainExternalHoverRing: DrainExternalHoverRing
 
-    /// (C) diagnostics — review round3 B4/B1. NOT YET read by
-    /// `defaultDrainExternalHoverDiagnostics` (that guard stays the
-    /// static `ExternalHoverDiagnosticsGate.isEnabled` for now) — see
-    /// `DiagnosticsEnabled`'s own doc. This property's addition is
-    /// scaffolding only; wiring the guard to read it is the fix half of
-    /// this finding.
+    /// (C) diagnostics — review round3 B4/B1. The default diagnostic flow
+    /// reads this injected gate before draining the ring, so tests and
+    /// production use the same gate contract.
     private nonisolated let diagnosticsEnabled: DiagnosticsEnabled
 
     /// Creates the process's teardown coordinator.
@@ -211,6 +205,17 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             executionLane: deferred.executionLane,
             isolatedHibernationReservation: deferred.isolatedHibernationReservation
         )
+    }
+
+    /// Retains the matching ExternalHover lifetime-invalidation task until its
+    /// teardown request reaches admission. This closes the race where native
+    /// surface teardown could otherwise run before the actor tombstones its
+    /// cache and lifetime state.
+    nonisolated func retainExternalHoverInvalidationTask(
+        _ task: Task<Void, Never>,
+        for lifetimeID: RuntimeSurfaceLifetimeID
+    ) {
+        externalHoverInvalidationTasks.insert(task, for: lifetimeID)
     }
 
     /// (C) ExternalHover diagnostics — the real production drain+log
@@ -426,6 +431,9 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             TerminalSurfaceRuntimeTeardownReservation? = nil
     ) async {
         let lifetimeID = request.lifetimeID
+        if let invalidationTask = externalHoverInvalidationTasks.remove(for: lifetimeID) {
+            await invalidationTask.value
+        }
         retiredRuntimeGenerationWatermark[lifetimeID.surfaceID] = max(
             retiredRuntimeGenerationWatermark[lifetimeID.surfaceID] ?? 0,
             lifetimeID.runtimeSurfaceGeneration
@@ -438,8 +446,11 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
                 // silently overwrite and orphan the first request's
                 // completion/ticket. Caught in DEBUG via assert; in release
                 // this drops the second request rather than double-admitting
-                // or double-freeing.
+                // or double-freeing. Complete the second request's transport
+                // envelope before returning so it cannot leak userdata or
+                // leave its ticket waiting forever.
                 assert(false, "duplicate teardown request for the same runtime lifetime \(lifetimeID)")
+                await finishFree(request)
                 return
             }
             deferredHoverTeardowns[lifetimeID] = DeferredRuntimeTeardown(

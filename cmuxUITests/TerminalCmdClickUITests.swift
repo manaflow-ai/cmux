@@ -27,20 +27,23 @@ final class TerminalCmdClickUITests: XCTestCase {
     private var wrapSetupDataPath = ""
     private var wrapCommandPath = ""
     private var fixtureDirectoryURL: URL!
+    private var harnessDirectoryURL: URL!
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
 
-        fixtureDirectoryURL = FileManager.default.temporaryDirectory
+        fixtureDirectoryURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("c-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        harnessDirectoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ui-test-terminal-cmd-click-\(UUID().uuidString)", isDirectory: true)
-        hoverDiagnosticsPath = fixtureDirectoryURL.appendingPathComponent("hover.json").path
-        openCapturePath = fixtureDirectoryURL.appendingPathComponent("open.log").path
-        openURLCapturePath = fixtureDirectoryURL.appendingPathComponent("open-url.log").path
-        setupDataPath = fixtureDirectoryURL.appendingPathComponent("setup.json").path
-        commandPath = fixtureDirectoryURL.appendingPathComponent("command.json").path
-        wrapSetupDataPath = fixtureDirectoryURL.appendingPathComponent("wrap-setup.json").path
-        wrapCommandPath = fixtureDirectoryURL.appendingPathComponent("wrap-command.json").path
+        hoverDiagnosticsPath = harnessDirectoryURL.appendingPathComponent("hover.json").path
+        openCapturePath = harnessDirectoryURL.appendingPathComponent("open.log").path
+        openURLCapturePath = harnessDirectoryURL.appendingPathComponent("open-url.log").path
+        setupDataPath = harnessDirectoryURL.appendingPathComponent("setup.json").path
+        commandPath = harnessDirectoryURL.appendingPathComponent("command.json").path
+        wrapSetupDataPath = harnessDirectoryURL.appendingPathComponent("wrap-setup.json").path
+        wrapCommandPath = harnessDirectoryURL.appendingPathComponent("wrap-command.json").path
 
         try? FileManager.default.removeItem(atPath: hoverDiagnosticsPath)
         try? FileManager.default.removeItem(atPath: openCapturePath)
@@ -49,6 +52,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         try? FileManager.default.removeItem(atPath: commandPath)
         try? FileManager.default.removeItem(atPath: wrapSetupDataPath)
         try? FileManager.default.removeItem(atPath: wrapCommandPath)
+        try? FileManager.default.createDirectory(at: harnessDirectoryURL, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: fixtureDirectoryURL, withIntermediateDirectories: true)
         XCTAssertTrue(
             FileManager.default.createFile(
@@ -75,6 +79,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         try? FileManager.default.removeItem(atPath: wrapSetupDataPath)
         try? FileManager.default.removeItem(atPath: wrapCommandPath)
         try? FileManager.default.removeItem(at: fixtureDirectoryURL)
+        try? FileManager.default.removeItem(at: harnessDirectoryURL)
         super.tearDown()
     }
 
@@ -515,50 +520,33 @@ final class TerminalCmdClickUITests: XCTestCase {
     // live terminal column count so the wrap lands exactly one character
     // past the row edge, which the app alone can measure.
     func testCmdClickHardWrappedPathTopRowOpensJoinedPath() throws {
-        let app = launchWrapScenarioApp(captureOpenPaths: true)
-        defer { app.terminate() }
-
-        let expectedResolvedPath = try waitForWrapReadySetup()
-
-        let result = try runWrapCommand(action: "cmd_click_wrapped_token_top")
-        XCTAssertEqual(
-            result["lastCommandSucceeded"] as? String,
-            "1",
-            "Expected cmd-click on the leading wrapped row to open the joined path. result=\(result)"
-        )
-        XCTAssertEqual(
-            result["lastCommandOpenedPath"] as? String,
-            expectedResolvedPath,
-            "Expected cmd-click to join the hard-wrapped absolute path across both rows. result=\(result)"
-        )
-
-        let openedPaths = waitForCapturedOpenPaths(timeout: 5.0)
-        guard !openedPaths.isEmpty else {
-            XCTFail("Expected an open-path capture after the wrapped-path click. result=\(result)")
-            return
-        }
-        XCTAssertEqual(
-            openedPaths.count,
-            1,
-            "Expected the hard-wrapped path to open exactly once. opened=\(openedPaths)"
-        )
-        XCTAssertTrue(
-            openedPaths.contains(expectedResolvedPath),
-            "Expected the joined path to open. opened=\(openedPaths) expected=\(expectedResolvedPath)"
+        try assertHardWrappedPathClick(
+            action: "cmd_click_wrapped_token_top",
+            rowDescription: "leading wrapped row"
         )
     }
 
     func testCmdClickHardWrappedPathBottomRowOpensJoinedPath() throws {
+        try assertHardWrappedPathClick(
+            action: "cmd_click_wrapped_token_bottom",
+            rowDescription: "trailing wrapped row"
+        )
+    }
+
+    private func assertHardWrappedPathClick(
+        action: String,
+        rowDescription: String
+    ) throws {
         let app = launchWrapScenarioApp(captureOpenPaths: true)
         defer { app.terminate() }
 
         let expectedResolvedPath = try waitForWrapReadySetup()
 
-        let result = try runWrapCommand(action: "cmd_click_wrapped_token_bottom")
+        let result = try runWrapCommand(action: action)
         XCTAssertEqual(
             result["lastCommandSucceeded"] as? String,
             "1",
-            "Expected cmd-click on the trailing wrapped row to open the joined path. result=\(result)"
+            "Expected cmd-click on the \(rowDescription) to open the joined path. result=\(result)"
         )
         XCTAssertEqual(
             result["lastCommandOpenedPath"] as? String,
@@ -960,6 +948,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_WRAP_PATH"] = wrapSetupDataPath
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_WRAP_COMMAND_PATH"] = wrapCommandPath
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_WRAP_FIXTURE_DIR"] = fixtureDirectoryURL.path
+        app.launchEnvironment["CMUX_UI_TEST_OPEN_SUPPORTED_FILES_IN_CMUX"] = "0"
         if captureOpenPaths {
             app.launchEnvironment["CMUX_UI_TEST_CAPTURE_OPEN_PATH"] = openCapturePath
         }
@@ -994,11 +983,11 @@ final class TerminalCmdClickUITests: XCTestCase {
         action: String,
         timeout: TimeInterval = 10.0
     ) throws -> [String: Any] {
+        let commandID = UUID().uuidString
         let request: [String: Any] = [
-            "id": UUID().uuidString,
+            "id": commandID,
             "action": action,
         ]
-        let commandID = request["id"] as! String
         let data = try JSONSerialization.data(withJSONObject: request, options: [.sortedKeys])
         try data.write(to: URL(fileURLWithPath: wrapCommandPath))
 

@@ -418,7 +418,12 @@ class GhosttyApp {
             defer { ghostty_surface_free_text(lease.surface, &text) }
             let rawText: String
             if let ptr = text.text, text.text_len > 0 {
-                rawText = String(decoding: Data(bytes: ptr, count: Int(text.text_len)), as: UTF8.self)
+                rawText = ptr.withMemoryRebound(to: UInt8.self, capacity: Int(text.text_len)) { rebound in
+                    String(
+                        decoding: UnsafeBufferPointer(start: rebound, count: Int(text.text_len)),
+                        as: UTF8.self
+                    )
+                }
             } else {
                 rawText = ""
             }
@@ -4107,12 +4112,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate lazy var externalHoverOwnerCoordinator = externalHoverDiagnosticsRenderDemandTracker.makeExternalHoverOwnerCoordinator(
         scheduler: { DispatchQueue.main.async(execute: $0) },
         project: { [weak self] entry in self?.applyExternalHoverProjection(entry) },
-        logTransition: { [weak self] verdict in
-            guard let self else { return }
+        logTransition: { [surfaceSerial = externalHoverSurfaceSerial] verdict in
             #if DEBUG
             if ExternalHoverDiagnosticsGate.isEnabled {
                 cmuxDebugLog(
-                    "link.externalHover stage=transition surfaceSerial=\(self.externalHoverSurfaceSerial) " +
+                    "link.externalHover stage=transition surfaceSerial=\(surfaceSerial) " +
                     "event=\(verdict.event.map(String.init) ?? "none") active=\(verdict.active) " +
                     "identityMatched=\(verdict.identityMatched) pendingMatched=\(verdict.pendingMatched) " +
                     "committed=\(verdict.committed)"
@@ -6568,16 +6572,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             cmdHeld: event.modifierFlags.contains(.command),
             suppressPathHover: suppressCommandPathHover
         )
-        if event.modifierFlags.contains(.command), !suppressCommandPathHover {
-            requestExternalHoverRecompute()
-        } else {
-            clearExternalHoverCandidate(reason: event.modifierFlags.contains(.command) ? "selectionActive" : "cmdReleased")
-        }
+        updateExternalHoverForPointerState(
+            commandHeld: event.modifierFlags.contains(.command),
+            suppressed: suppressCommandPathHover
+        )
     }
 
     private func shouldSuppressCommandPathHover(for flags: NSEvent.ModifierFlags) -> Bool {
         guard flags.contains(.command), let surface else { return false }
         return ghostty_surface_has_selection(surface)
+    }
+
+    private func updateExternalHoverForPointerState(commandHeld: Bool, suppressed: Bool) {
+        if commandHeld, !suppressed {
+            requestExternalHoverRecompute()
+        } else {
+            clearExternalHoverCandidate(reason: commandHeld ? "selectionActive" : "cmdReleased")
+        }
     }
 
     private func hoverModsFromFlags(
@@ -6935,7 +6946,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// and `readPhysicalViewportSnapshot(expectedMetrics:)` anchors both to
     /// the identical resize/reflow generation instead of two independent
     /// (and possibly inconsistent) fetches a few instructions apart.
-    private func currentGridMetrics() -> ghostty_surface_grid_metrics_s? {
+    func currentGridMetrics() -> ghostty_surface_grid_metrics_s? {
         guard let surface else { return nil }
         var metrics = ghostty_surface_grid_metrics_s()
         guard ghostty_surface_grid_metrics(surface, &metrics),
@@ -7280,7 +7291,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// call itself is coherent (Ghostty takes its renderer mutex for the
     /// whole capture); this before/after metrics check only guards the
     /// window around that call, not within it.
-    private func readPhysicalViewportSnapshot(
+    func readPhysicalViewportSnapshot(
         expectedMetrics: ghostty_surface_grid_metrics_s
     ) -> TerminalPhysicalViewportSnapshot? {
         guard let surface else { return nil }
@@ -7307,7 +7318,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         defer { ghostty_surface_free_text(surface, &text) }
         let raw: String
         if let ptr = text.text, text.text_len > 0 {
-            raw = String(decoding: Data(bytes: ptr, count: Int(text.text_len)), as: UTF8.self)
+            raw = ptr.withMemoryRebound(to: UInt8.self, capacity: Int(text.text_len)) { rebound in
+                String(
+                    decoding: UnsafeBufferPointer(start: rebound, count: Int(text.text_len)),
+                    as: UTF8.self
+                )
+            }
         } else {
             raw = ""
         }
@@ -7515,7 +7531,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         #if DEBUG
-        cmuxDebugLog("link.wrappedPath resolved=\(candidate.path)")
+        cmuxDebugLog("link.wrappedPath resolvedPath=\(candidate.path)")
         #endif
         if let termSurface = terminalSurface,
            let workspace = termSurface.owningWorkspace(),
@@ -7577,8 +7593,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private static func hasExplicitScheme(_ rawValue: String) -> Bool {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        return URL(string: trimmed)?.scheme != nil
+        TerminalOpenURLFileRoutingPolicy.hasExplicitURLScheme(rawValue)
     }
 
     #if DEBUG
@@ -7615,7 +7630,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let resolution = resolveWordUnderCursorPath(at: point) else { return }
 
         #if DEBUG
-        cmuxDebugLog("link.wordFallback resolved=\(resolution.path) source=\(resolution.source.rawValue)")
+        cmuxDebugLog("link.wordFallback resolvedPath=\(resolution.path) source=\(resolution.source.rawValue)")
         #endif
 
         PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))
@@ -7960,19 +7975,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ghosttyConsumed: Bool,
         commandClickState: CommandClickContextState? = nil
     ) -> WordPathResolution? {
-        switch commandClickState {
-        case .nativePassthrough:
-            return nil
-        case .overridePending(let candidate):
+        switch TerminalCommandClickArbitrator.releaseAction(
+            finalState: commandClickState,
+            ghosttyConsumed: ghosttyConsumed
+        ) {
+        case .none:
+            break
+        case .openWrappedCandidate(let candidate):
             commitWrappedCandidate(candidate)
             return nil
-        case .prepared(let candidate):
-            if !ghosttyConsumed {
-                commitWrappedCandidate(candidate)
-            }
-            return nil
-        case nil:
-            break
         }
 
         guard let surface else { return nil }
@@ -8059,7 +8070,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         #if DEBUG
         cmuxDebugLog(
-            "link.wordFallback resolved=\(resolution.path) source=\(resolution.source.rawValue) consumed=\(ghosttyConsumed ? 1 : 0)"
+            "link.wordFallback resolvedPath=\(resolution.path) source=\(resolution.source.rawValue) consumed=\(ghosttyConsumed ? 1 : 0)"
         )
         var payload: [String: Any] = [
             "flags": debugModifierString(modifierFlags),
@@ -8228,17 +8239,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             payload["rawToken"] = resolution.rawToken
         }
         return payload
-    }
-
-    /// Reads one physical grid row's raw text, for UI tests that need to
-    /// locate a hard-wrapped row without relying on the unwrapped-snapshot
-    /// text used elsewhere in this file (which joins soft-wrapped rows back
-    /// into one logical line).
-    func debugReadPhysicalRow(_ row: Int) -> String? {
-        guard let metrics = currentGridMetrics(),
-              let snapshot = readPhysicalViewportSnapshot(expectedMetrics: metrics),
-              row >= 0, row < snapshot.lines.count else { return nil }
-        return snapshot.lines[row]
     }
 
     func debugSimulateStationaryCommandClick(at point: NSPoint) -> [String: Any] {
@@ -8525,11 +8525,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             cmdHeld: event.modifierFlags.contains(.command),
             suppressPathHover: suppressCommandPathHover
         )
-        if event.modifierFlags.contains(.command), !suppressCommandPathHover {
-            requestExternalHoverRecompute()
-        } else {
-            clearExternalHoverCandidate(reason: event.modifierFlags.contains(.command) ? "selectionActive" : "cmdReleased")
-        }
+        updateExternalHoverForPointerState(
+            commandHeld: event.modifierFlags.contains(.command),
+            suppressed: suppressCommandPathHover
+        )
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -8711,12 +8710,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // nonisolated `deinit` (neither is `@MainActor`-isolated — the
         // coordinator is a plain `NSLock`-guarded class, and the actor call
         // is `nonisolated`/fire-and-forget by design).
+        externalHoverOwnerCoordinator.teardown()
         if let terminalSurface {
             let lifetimeID = RuntimeSurfaceLifetimeID(
                 surfaceID: terminalSurface.id,
                 runtimeSurfaceGeneration: terminalSurface.runtimeSurfaceGeneration
             )
-            externalHoverOwnerCoordinator.teardown()
             GhosttyApp.externalHoverWorkService.invalidateSurface(lifetimeID)
         }
         terminalSurface = nil
@@ -9531,9 +9530,6 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.debugSimulateStationaryCommandClick(at: debugPointInSurface(point))
     }
 
-    func debugReadPhysicalRow(_ row: Int) -> String? {
-        surfaceView.debugReadPhysicalRow(row)
-    }
 #endif
 
     func portalBindingGuardState() -> (surfaceId: UUID?, generation: UInt64?, state: String) {

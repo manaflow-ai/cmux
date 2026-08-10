@@ -98,15 +98,6 @@ public actor ExternalHoverWorkService {
     /// of a source-shape inspection of `resolveFully` itself.
     public typealias ReadMetricsCalculator = @Sendable (String) -> ExternalHoverReadMetrics
 
-#if DEBUG
-    /// Test-only seam for proving that the diagnostics gate selects the
-    /// intended resolver API. This is compiled out of Release builds.
-    enum DebugResolutionPath: Sendable {
-        case candidateOnly
-        case structuredOutcome
-    }
-#endif
-
     /// Bounded per-drain capacity — matches the Zig ring's own fixed
     /// capacity (64), so one drain call always empties the ring in a
     /// single round-trip under normal (non-pathological) hover rates.
@@ -174,47 +165,13 @@ public actor ExternalHoverWorkService {
     /// own doc.
     private let surfaceSerialRegistry: ExternalHoverSurfaceSerialRegistry
 
-    private var cachesByLifetime: [RuntimeSurfaceLifetimeID: ExternalHoverCandidateCache] = [:]
-#if DEBUG
-    private var debugResolutionPathObserver: (@Sendable (DebugResolutionPath) -> Void)?
-#endif
-    /// The highest `requestGeneration` seen for each lifetime, updated
-    /// unconditionally at the START of every `process(_:)` call — this is
-    /// an ADDITIONAL defense against an out-of-order actor-queue arrival
-    /// (review Blocking 5), never the sole acceptance boundary; the
-    /// mirror-based `isCurrent` check below is.
-    private var latestRequestGenerationByLifetime: [RuntimeSurfaceLifetimeID: UInt64] = [:]
+    internal var cachesByLifetime: [RuntimeSurfaceLifetimeID: ExternalHoverCandidateCache] = [:]
     /// Lifetimes `invalidateSurface` has tombstoned. A request for a
     /// closed lifetime can never rebuild a cache entry, even if it
     /// otherwise looks current by generation — review Blocking 5's fix
     /// for the contradiction in the original design doc ("dropCache" vs.
     /// "the next process rebuilds it").
     private var closedLifetimes: Set<RuntimeSurfaceLifetimeID> = []
-
-    /// Test-only accessor — no production caller needs to read the cache
-    /// from outside the actor's own pipeline.
-    func debugCache(for lifetimeID: RuntimeSurfaceLifetimeID) -> ExternalHoverCandidateCache? {
-        cachesByLifetime[lifetimeID]
-    }
-
-    /// (C) diagnostics test-only accessor — the ring's cumulative
-    /// `dropped_count` last reported for `lifetimeID` (by EITHER this
-    /// actor's own drains or the teardown coordinator's final drain,
-    /// since both share `droppedCountTracker`), so a test can assert
-    /// `droppedDelta` is computed against the PREVIOUS report, not
-    /// re-derived or re-reported from scratch.
-    func debugPreviousDroppedCount(for lifetimeID: RuntimeSurfaceLifetimeID) -> UInt64? {
-        droppedCountTracker.debugPreviousDroppedCount(for: lifetimeID)
-    }
-
-#if DEBUG
-    /// Test-only observer for the resolver path selected by `resolveFully`.
-    func debugSetResolutionPathObserver(
-        _ observer: (@Sendable (DebugResolutionPath) -> Void)?
-    ) {
-        debugResolutionPathObserver = observer
-    }
-#endif
 
     public init(
         teardownCoordinator: TerminalSurfaceRuntimeTeardownCoordinator,
@@ -402,10 +359,6 @@ public actor ExternalHoverWorkService {
         if diagnosticsEnabled() {
             rememberSurfaceSerial(request)
         }
-        latestRequestGenerationByLifetime[request.lifetimeID] = max(
-            latestRequestGenerationByLifetime[request.lifetimeID] ?? 0,
-            request.requestGeneration
-        )
         // Checkpoint 1 (start).
         guard isCurrent(request, checkpoint: "processStart") else { return }
 
@@ -523,6 +476,14 @@ public actor ExternalHoverWorkService {
         // inside the resolver's own tests.
         let maxSpan = UInt32(TerminalPhysicalRowWindow.maxSnapshotRows - 1) / 2
         let topRow = clickedRow > maxSpan ? clickedRow - maxSpan : 0
+        guard clickedRow < request.viewportRowCount else {
+#if DEBUG
+            if diagnosticsOn {
+                logRead(outcome: "rejected", reason: "noRowsInViewport", topRow: topRow, rowCount: 0, expectedRows: 0)
+            }
+#endif
+            return nil
+        }
         let rowCount = min(UInt32(TerminalPhysicalRowWindow.maxSnapshotRows), request.viewportRowCount - topRow)
         guard rowCount > 0 else {
 #if DEBUG
@@ -624,7 +585,6 @@ public actor ExternalHoverWorkService {
 #if DEBUG
             var evaluatorOutcome: TerminalWrappedResolutionOutcome?
             if diagnosticsOn {
-                debugResolutionPathObserver?(.structuredOutcome)
                 let resolution = resolver.resolveWrappedCandidateWithOutcome(
                     seed: seed, rows: lines, clickedIndex: clickedIndex, columns: snapshot.columns, cwd: request.cwd,
                     purpose: .hover
@@ -632,7 +592,6 @@ public actor ExternalHoverWorkService {
                 candidate = resolution.candidate
                 evaluatorOutcome = resolution.evaluatorOutcome
             } else {
-                debugResolutionPathObserver?(.candidateOnly)
                 candidate = resolver.resolveWrappedCandidate(
                     seed: seed, rows: lines, clickedIndex: clickedIndex, columns: snapshot.columns, cwd: request.cwd,
                     purpose: .hover
@@ -1039,20 +998,20 @@ public actor ExternalHoverWorkService {
 
     /// Surface replacement/teardown: closes `lifetimeID` (a monotonic
     /// tombstone, never reopened — a NEW lifetime for the same surfaceID
-    /// gets its own fresh entry, never this one) and drops its cache and
-    /// generation tracking. A request for this lifetime already in the
+    /// gets its own fresh entry, never this one) and drops its cache. A
+    /// request for this lifetime already in the
     /// actor's queue becomes a no-op via `isCurrent`'s
-    /// `closedLifetimes` check, even if it would otherwise still look
-    /// current by generation.
+    /// `closedLifetimes` check.
     @discardableResult
     public nonisolated func invalidateSurface(_ lifetimeID: RuntimeSurfaceLifetimeID) -> Task<Void, Never> {
-        Task { await self.closeLifetime(lifetimeID) }
+        let task = Task { await self.closeLifetime(lifetimeID) }
+        teardownCoordinator.retainExternalHoverInvalidationTask(task, for: lifetimeID)
+        return task
     }
 
     private func closeLifetime(_ lifetimeID: RuntimeSurfaceLifetimeID) {
         closedLifetimes.insert(lifetimeID)
         cachesByLifetime.removeValue(forKey: lifetimeID)
-        latestRequestGenerationByLifetime.removeValue(forKey: lifetimeID)
         // review non-blocking N2 — deliberately does NOT clear
         // `droppedCountTracker`'s entry for `lifetimeID` here: this
         // actor's `invalidateSurface` and the teardown coordinator's own

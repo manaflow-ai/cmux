@@ -327,10 +327,9 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             }
         )
 
-        // Give the enqueue Task a chance to run — it must NOT free while the
-        // lease is still outstanding.
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(await ticket.wait(timeout: .zero) == false)
+        // The ticket must remain incomplete while the lease is still
+        // outstanding.
+        #expect(await ticket.wait(timeout: .milliseconds(50)) == false)
         #expect(await recorder.freed.isEmpty)
 
         // Releasing the last outstanding lease is what finally admits the
@@ -432,8 +431,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         // leaseB (a genuinely different, still-outstanding lease) is live.
         await coordinator.releaseExternalHoverLease(leaseA)
         await coordinator.releaseExternalHoverLease(leaseA)
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(await ticket.wait(timeout: .zero) == false)
+        #expect(await ticket.wait(timeout: .milliseconds(50)) == false)
         #expect(await recorder.freed.isEmpty)
 
         await coordinator.releaseExternalHoverLease(leaseB)
@@ -482,8 +480,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             }
         )
 
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(await ticket.wait(timeout: .zero) == false)
+        #expect(await ticket.wait(timeout: .milliseconds(50)) == false)
 
         await coordinator.releaseExternalHoverLease(lease)
         #expect(await ticket.wait(timeout: .seconds(1)))
@@ -537,18 +534,16 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
     /// above), and releasing the lease that was gating the free must not
     /// deadlock or use-after-free the surface the drain itself just
     /// touched.
-    @Test func deferredTeardownAfterLeaseReleaseStillDrainsBeforeFreeing() async {
+    @Test func deferredTeardownAfterLeaseReleaseStillDrainsBeforeFreeing() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         nonisolated(unsafe) let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         defer { surface.deallocate() }
         let lifetimeID = RuntimeSurfaceLifetimeID(surfaceID: UUID(), runtimeSurfaceGeneration: 1)
         let recorder = TeardownLifetimeRecorder()
 
-        let lease = try? await coordinator.acquireExternalHoverLease(lifetimeID: lifetimeID, surface: surface)
-        guard let lease else {
-            Issue.record("expected a lease to be granted")
-            return
-        }
+        let lease = try #require(
+            await coordinator.acquireExternalHoverLease(lifetimeID: lifetimeID, surface: surface)
+        )
 
         let ticket = coordinator.enqueueRuntimeTeardown(
             id: lifetimeID.surfaceID,
@@ -563,7 +558,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
 
         // While the lease is outstanding, teardown must be fully parked
         // — neither the drain nor the free has run yet.
-        try? await Task.sleep(for: .milliseconds(50))
+        #expect(await ticket.wait(timeout: .milliseconds(50)) == false)
         #expect(recorder.snapshot().isEmpty, "a deferred teardown must not drain or free while a hover lease is still outstanding")
 
         await coordinator.releaseExternalHoverLease(lease)

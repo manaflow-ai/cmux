@@ -2409,7 +2409,7 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
     // review R2-B2/design-decision-b1-fallback-policy.md rule 1 —
     // required test 7: an all-ASCII, multi-row fixture where the REAL
     // winning candidate exists on disk, but a small INJECTED probe
-    // budget (`resolveWrappedCandidateForTesting`'s `maxProbes`, review
+    // budget (the package-internal `maxProbes` overload, review
     // R2-B2's test-only seam) is exhausted by two earlier, genuinely-
     // nonexistent candidates before the search ever reaches it — the
     // evaluator must never fall back to the legacy overload for either
@@ -2447,7 +2447,7 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         let clickRecorder = ProbeRecorder(existingPaths: [realWinningCandidate])
         let clickResolver = TerminalPathResolver(fileExists: clickRecorder.fileExists)
         #expect(
-            clickResolver.resolveWrappedCandidateForTesting(
+            clickResolver.resolveWrappedCandidate(
                 seed: seed, rows: rows, clickedIndex: 1, columns: 6, cwd: cwd, purpose: .click, maxProbes: maxProbes
             ) == nil
         )
@@ -2463,7 +2463,7 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         let hoverRecorder = ProbeRecorder(existingPaths: [realWinningCandidate])
         let hoverResolver = TerminalPathResolver(fileExists: hoverRecorder.fileExists)
         #expect(
-            hoverResolver.resolveWrappedCandidateForTesting(
+            hoverResolver.resolveWrappedCandidate(
                 seed: seed, rows: rows, clickedIndex: 1, columns: 6, cwd: cwd, purpose: .hover, maxProbes: maxProbes
             ) == nil
         )

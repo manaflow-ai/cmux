@@ -23,12 +23,10 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
 // below are unchanged from the original scaffolding commit, only the
 // call shape is corrected to one the evaluator can actually satisfy.
 //
-// Per final-spec §12's implementation order, `wrappedPathSeed`'s row-local
-// short-circuit (needed for `.rowLocalHitAwaitingMirrorSlashSeam`) is
-// gated on issue #8810 bug B's real-machine root-cause confirmation and is
-// NOT changed in this pass — so the mirror-seam tests' "click the
-// row-local-hit row itself" cases stay red until that gate lifts (see each
-// test's own comment for exactly which assertion that is).
+// `wrappedPathSeed` now returns the provisional
+// `.rowLocalHitAwaitingMirrorSlashSeam` seed for the strict-full row-local
+// hit, so the mirror-seam test's `row0Candidate?.path` assertion exercises
+// the same passing behavior as the row1/row2 cases.
 @Suite struct TerminalWrapGeometryTests {
     // MARK: - mirror slash seam / disposition (final-spec §13, "mirror
     // slash seam / disposition")

@@ -25,7 +25,7 @@ import Testing
         let delta = tracker.reportAndComputeDelta(lifetimeID: lifetimeID, cumulative: 5)
 
         #expect(delta == 5)
-        #expect(tracker.debugPreviousDroppedCount(for: lifetimeID) == 5)
+        #expect(tracker.previousByLifetime[lifetimeID] == 5)
     }
 
     /// This is the exact review B5 scenario: whichever side (the actor's
@@ -89,10 +89,10 @@ import Testing
         let lifetimeID = Self.makeLifetime()
 
         _ = tracker.reportAndComputeDelta(lifetimeID: lifetimeID, cumulative: 6)
-        #expect(tracker.debugPreviousDroppedCount(for: lifetimeID) == 6)
+        #expect(tracker.previousByLifetime[lifetimeID] == 6)
 
         tracker.closeLifetime(lifetimeID)
 
-        #expect(tracker.debugPreviousDroppedCount(for: lifetimeID) == nil)
+        #expect(tracker.previousByLifetime[lifetimeID] == nil)
     }
 }

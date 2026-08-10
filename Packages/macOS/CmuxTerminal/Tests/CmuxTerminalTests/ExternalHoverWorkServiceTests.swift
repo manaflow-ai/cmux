@@ -111,8 +111,6 @@ import Testing
         var metricsCalls = 0
         var lastMetrics: ExternalHoverReadMetrics?
 #if DEBUG
-        var candidateOnlyResolutionCalls = 0
-        var structuredOutcomeResolutionCalls = 0
         var windowPreparationCalls = 0
         var evaluatorCalls = 0
 #endif
@@ -260,7 +258,7 @@ import Testing
         await service.submit(request).value
 
         #expect(mailboxCoordinator.currentMailbox.pending?.path == Self.existingPath)
-        let cache = await service.debugCache(for: lifetimeID)
+        let cache = await service.cachesByLifetime[lifetimeID]
         #expect(cache?.topRow == 2)
         #expect(cache?.rowCount == 7)
         // Absolute viewport ranges: the clicked token ("file.txt") at row 5
@@ -335,7 +333,7 @@ import Testing
             ExternalHoverCellRangeValue(row: 5, startColumn: 2, endColumn: UInt16(clickedRow.count)),
             ExternalHoverCellRangeValue(row: 6, startColumn: 0, endColumn: UInt16(nextRow.count)),
         ])
-        let cache = await service.debugCache(for: lifetimeID)
+        let cache = await service.cachesByLifetime[lifetimeID]
         #expect(cache?.path == expectedPath)
     }
 
@@ -684,7 +682,7 @@ import Testing
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
         )).value
-        let primedCache = await service.debugCache(for: lifetimeID)
+        let primedCache = await service.cachesByLifetime[lifetimeID]
         #expect(primedCache?.path == Self.existingPath)
 
         // 2. The click path never touches `service`/`mirror`/
@@ -732,7 +730,7 @@ import Testing
         // 3. The hover actor's cache is exactly as it was before the
         //    click-path call ran — never read, never invalidated, never
         //    touched by it.
-        let cacheAfterClick = await service.debugCache(for: lifetimeID)
+        let cacheAfterClick = await service.cachesByLifetime[lifetimeID]
         #expect(cacheAfterClick?.path == Self.existingPath)
         #expect(counts.reads == 1, "the click-path resolution above must not have gone through the hover actor's read closure")
     }
@@ -884,12 +882,12 @@ import Testing
             surface: surfaceB, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 5
         )).value
 
-        let cacheA = await service.debugCache(for: lifetimeA)
-        let cacheB = await service.debugCache(for: lifetimeB)
+        let cacheA = await service.cachesByLifetime[lifetimeA]
+        let cacheB = await service.cachesByLifetime[lifetimeB]
         #expect(cacheA?.path == Self.existingPath)
         #expect(cacheB?.path == Self.existingPath)
-        #expect(await service.debugPreviousDroppedCount(for: lifetimeA) == 3)
-        #expect(await service.debugPreviousDroppedCount(for: lifetimeB) == 11)
+        #expect(coordinator.droppedCountTracker.previousByLifetime[lifetimeA] == 3)
+        #expect(coordinator.droppedCountTracker.previousByLifetime[lifetimeB] == 11)
     }
 
     /// Drain liveness #5: ring overflow's `droppedDelta` is derived
@@ -917,7 +915,7 @@ import Testing
             lifetimeID: lifetimeID, surface: ExternalHoverRenderTriggerSurface(surface), surfaceSerial: 1,
             coordinator: demandCoordinator
         )
-        #expect(await service.debugPreviousDroppedCount(for: lifetimeID) == 3)
+        #expect(coordinator.droppedCountTracker.previousByLifetime[lifetimeID] == 3)
 
         // No NEW drops between drains — the ring's cumulative value is
         // unchanged.
@@ -925,7 +923,7 @@ import Testing
             lifetimeID: lifetimeID, surface: ExternalHoverRenderTriggerSurface(surface), surfaceSerial: 1,
             coordinator: demandCoordinator
         )
-        #expect(await service.debugPreviousDroppedCount(for: lifetimeID) == 3, "an unchanged cumulative count must not be re-added")
+        #expect(coordinator.droppedCountTracker.previousByLifetime[lifetimeID] == 3, "an unchanged cumulative count must not be re-added")
 
         // A genuinely new overflow batch bumps the cumulative value —
         // the tracked previous value must advance to match, not stay
@@ -935,7 +933,7 @@ import Testing
             lifetimeID: lifetimeID, surface: ExternalHoverRenderTriggerSurface(surface), surfaceSerial: 1,
             coordinator: demandCoordinator
         )
-        #expect(await service.debugPreviousDroppedCount(for: lifetimeID) == 9)
+        #expect(coordinator.droppedCountTracker.previousByLifetime[lifetimeID] == 9)
     }
 
     /// Structured-reason/currentness classification: `CurrentnessVerdict`
@@ -1073,14 +1071,12 @@ import Testing
         #expect(counts.drainCalls == 0, "gate OFF must never drain on the render-trigger path either")
     }
 
-#if DEBUG
-    /// Review B1 — the diagnostics gate must choose the cheap candidate-only
-    /// resolver in the normal path. With diagnostics enabled, the same
-    /// fixture may use the structured outcome path for logging, but it must
-    /// resolve to the identical candidate and cell ranges. The observer is
-    /// an executable DEBUG seam: this test does not infer the selected path
-    /// from log absence or source shape.
-    @Test func diagnosticsGateSelectsCandidateOnlyPathOffAndStructuredPathOnWithSameParity() async {
+    /// Review B1 — diagnostics-enabled and diagnostics-disabled resolution
+    /// use the same injected resolver and preserve identical candidates and
+    /// cell ranges. The resolver's own counting seam verifies that both
+    /// paths prepare and evaluate exactly once without adding a service-level
+    /// test hook.
+    @Test func diagnosticsGatePreservesResolverParityAcrossBothGateStates() async {
         let offTeardownCoordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let onTeardownCoordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let offCounts = CallCounts()
@@ -1124,23 +1120,6 @@ import Testing
             resolver: instrumentedResolver(for: onCounts), diagnosticsEnabled: { true }
         )
 
-        await offService.debugSetResolutionPathObserver { path in
-            switch path {
-            case .candidateOnly:
-                offCounts.candidateOnlyResolutionCalls += 1
-            case .structuredOutcome:
-                offCounts.structuredOutcomeResolutionCalls += 1
-            }
-        }
-        await onService.debugSetResolutionPathObserver { path in
-            switch path {
-            case .candidateOnly:
-                onCounts.candidateOnlyResolutionCalls += 1
-            case .structuredOutcome:
-                onCounts.structuredOutcomeResolutionCalls += 1
-            }
-        }
-
         await offService.submit(makeRequest(
             lifetimeID: offLifetimeID, mirror: offMirror, coordinator: offMailboxCoordinator,
             surface: offSurface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
@@ -1150,10 +1129,6 @@ import Testing
             surface: onSurface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
         )).value
 
-        #expect(offCounts.candidateOnlyResolutionCalls == 1)
-        #expect(offCounts.structuredOutcomeResolutionCalls == 0)
-        #expect(onCounts.candidateOnlyResolutionCalls == 0)
-        #expect(onCounts.structuredOutcomeResolutionCalls == 1)
         #expect(offCounts.windowPreparationCalls == 1, "gate OFF must prepare one evaluation window")
         #expect(offCounts.evaluatorCalls == 1, "gate OFF must evaluate once")
         #expect(onCounts.windowPreparationCalls == 1, "structured outcome must prepare one evaluation window")
@@ -1170,14 +1145,13 @@ import Testing
         #expect(offCounts.lastSetterRanges?.sorted { $0.row < $1.row } == expectedRanges)
         #expect(onCounts.lastSetterRanges?.sorted { $0.row < $1.row } == expectedRanges)
 
-        let offCache = await offService.debugCache(for: offLifetimeID)
-        let onCache = await onService.debugCache(for: onLifetimeID)
+        let offCache = await offService.cachesByLifetime[offLifetimeID]
+        let onCache = await onService.cachesByLifetime[onLifetimeID]
         #expect(offCache?.path == Self.existingPath)
         #expect(onCache?.path == Self.existingPath)
         #expect(offCache?.ranges.sorted { $0.row < $1.row } == expectedRanges)
         #expect(onCache?.ranges.sorted { $0.row < $1.row } == expectedRanges)
     }
-#endif
 
     /// Review round2 B4 — completion condition #5: with the injected gate
     /// ON, `resolveFully`'s `stage=read` line must appear via the REAL
@@ -1590,12 +1564,12 @@ import Testing
             coordinator: Self.makeCoordinator()
         )
 
-        #expect(await service.debugPreviousDroppedCount(for: lifetimeID) == 12)
+        #expect(teardownCoordinator.droppedCountTracker.previousByLifetime[lifetimeID] == 12)
         // Read straight off the teardown coordinator's OWN tracker
         // reference — proving this is the literal same instance the
         // actor wrote into, not a value that merely happens to match.
         #expect(
-            teardownCoordinator.droppedCountTracker.debugPreviousDroppedCount(for: lifetimeID) == 12,
+            teardownCoordinator.droppedCountTracker.previousByLifetime[lifetimeID] == 12,
             "the teardown coordinator's own tracker must observe the actor's report directly, since they share one instance"
         )
     }
@@ -1709,7 +1683,7 @@ import Testing
         // throughout this test — see the dedicated gate-OFF test below
         // for the "regardless of gate state" half of the requirement).
         #expect(teardownCoordinator.surfaceSerialRegistry.serial(for: lifetimeID) == nil)
-        #expect(teardownCoordinator.droppedCountTracker.debugPreviousDroppedCount(for: lifetimeID) == nil)
+        #expect(teardownCoordinator.droppedCountTracker.previousByLifetime[lifetimeID] == nil)
     }
 
     /// Review round3 B1: teardown cleanup must run regardless of the
@@ -1746,7 +1720,7 @@ import Testing
             requestGeneration: 1, surfaceSerial: 999
         )).value
         #expect(teardownCoordinator.surfaceSerialRegistry.serial(for: lifetimeID) == 999)
-        #expect(teardownCoordinator.droppedCountTracker.debugPreviousDroppedCount(for: lifetimeID) != nil)
+        #expect(teardownCoordinator.droppedCountTracker.previousByLifetime[lifetimeID] != nil)
 
         // Teardown, with the COORDINATOR's own gate OFF.
         let ticket = teardownCoordinator.enqueueRuntimeTeardown(
@@ -1766,7 +1740,7 @@ import Testing
             "gate-OFF teardown must still discard the surfaceSerial registry entry"
         )
         #expect(
-            teardownCoordinator.droppedCountTracker.debugPreviousDroppedCount(for: lifetimeID) == nil,
+            teardownCoordinator.droppedCountTracker.previousByLifetime[lifetimeID] == nil,
             "gate-OFF teardown must still discard the dropped-count tracker entry"
         )
     }
@@ -1937,7 +1911,7 @@ import Testing
             ExternalHoverCellRangeValue(row: 6, startColumn: 0, endColumn: 6),
             ExternalHoverCellRangeValue(row: 7, startColumn: 0, endColumn: 6),
         ])
-        let cache = await service.debugCache(for: lifetimeID)
+        let cache = await service.cachesByLifetime[lifetimeID]
         #expect(cache?.path == expectedCandidate)
     }
 

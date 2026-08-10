@@ -19,7 +19,7 @@ public struct TerminalOpenURLFileRoutingPolicy: Sendable {
         rawOpenURLValue: String,
         target: TerminalOpenURLTarget
     ) -> Bool {
-        guard !hasExplicitURLScheme(rawOpenURLValue) else { return false }
+        guard !Self.hasExplicitURLScheme(rawOpenURLValue) else { return false }
         guard target.url.isFileURL else { return false }
         return isLocalFileURL(target.url)
     }
@@ -41,7 +41,7 @@ public struct TerminalOpenURLFileRoutingPolicy: Sendable {
     public func isLikelyLocalPathReference(_ rawValue: String) -> Bool {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-        guard URL(string: trimmed)?.scheme == nil else { return false }
+        guard !Self.hasExplicitURLScheme(trimmed) else { return false }
 
         if (trimmed as NSString).isAbsolutePath ||
             trimmed.hasPrefix("./") ||
@@ -60,7 +60,9 @@ public struct TerminalOpenURLFileRoutingPolicy: Sendable {
         return true
     }
 
-    private func hasExplicitURLScheme(_ rawValue: String) -> Bool {
+    /// Returns whether the trimmed raw callback value contains a non-empty URL
+    /// scheme. All terminal URL-routing paths use this same predicate.
+    public static func hasExplicitURLScheme(_ rawValue: String) -> Bool {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let scheme = URL(string: trimmed)?.scheme else { return false }
         return !scheme.isEmpty

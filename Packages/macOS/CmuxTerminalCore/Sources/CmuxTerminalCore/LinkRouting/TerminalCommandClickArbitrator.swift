@@ -1,4 +1,3 @@
-import CmuxTerminalCore
 import Foundation
 
 /// The in-flight state of a hard-wrapped-path command-click candidate for
@@ -9,7 +8,7 @@ import Foundation
 /// gesture; this type carries no mutable state of its own, which is what
 /// lets `TerminalCommandClickArbitrator`'s transitions be unit tested
 /// without a live Ghostty surface.
-enum CommandClickContextState: Equatable {
+public enum CommandClickContextState: Equatable {
     /// A wrapped-path candidate was prepared before Ghostty's release call;
     /// no native `open_url` callback claimed it (yet).
     case prepared(TerminalWrappedPathResolution)
@@ -28,10 +27,10 @@ enum CommandClickContextState: Equatable {
 /// candidate against Ghostty's own `open_url` callback and the eventual
 /// release, isolated from `GhosttyNSView` so every transition can be
 /// exercised without a live Ghostty surface.
-enum TerminalCommandClickArbitrator {
+public enum TerminalCommandClickArbitrator {
     /// The effect the release handler should perform for a gesture's final
     /// state.
-    enum ReleaseAction: Equatable {
+    public enum ReleaseAction: Equatable {
         /// No wrapped candidate was in play; fall through to the existing
         /// word-under-cursor release logic.
         case none
@@ -62,7 +61,7 @@ enum TerminalCommandClickArbitrator {
     ///   claim the URL (return `true`, suppressing Ghostty's own
     ///   `internal_os.open`) instead of passing through to
     ///   `TerminalLinkOpenCoordinator`.
-    static func openURLCallbackResult(
+    public static func openURLCallbackResult(
         currentState: CommandClickContextState?,
         hasExplicitScheme: Bool,
         matchKey: String
@@ -89,7 +88,7 @@ enum TerminalCommandClickArbitrator {
     ///     `open_url` callback it triggered.
     ///   - ghosttyConsumed: Whether Ghostty's release call reported the
     ///     click as consumed (it resolved a native link target itself).
-    static func releaseAction(
+    public static func releaseAction(
         finalState: CommandClickContextState?,
         ghosttyConsumed: Bool
     ) -> ReleaseAction {

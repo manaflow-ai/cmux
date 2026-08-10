@@ -18,7 +18,7 @@ import Foundation
 /// readable/writable from there without an `await`.
 public final class ExternalHoverDroppedCountTracker: @unchecked Sendable {
     private let lock = NSLock()
-    private var previousByLifetime: [RuntimeSurfaceLifetimeID: UInt64] = [:]
+    internal var previousByLifetime: [RuntimeSurfaceLifetimeID: UInt64] = [:]
 
     public init() {}
 
@@ -48,10 +48,4 @@ public final class ExternalHoverDroppedCountTracker: @unchecked Sendable {
         previousByLifetime.removeValue(forKey: lifetimeID)
     }
 
-    /// Test-only accessor.
-    func debugPreviousDroppedCount(for lifetimeID: RuntimeSurfaceLifetimeID) -> UInt64? {
-        lock.lock()
-        defer { lock.unlock() }
-        return previousByLifetime[lifetimeID]
-    }
 }

@@ -251,14 +251,20 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
     /// (C) diagnostics — review round2 B2: prunes every armed event OTHER
     /// than `event` (the one whose setter call just succeeded) from
     /// `pendingDiagnosticsRenderEvents`, without ever calling
-    /// `manageDiagnosticsRenderDemand` — `event` itself is always still in
-    /// the set (this coordinator's own `armDiagnosticsDemand` call for it
-    /// runs strictly before `setterCall`), so pruning can never make the
-    /// set empty here.
+    /// `manageDiagnosticsRenderDemand` when that pruning leaves no event
+    /// armed. `event` normally remains in the set because this coordinator's
+    /// own `armDiagnosticsDemand` call runs strictly before `setterCall`, but
+    /// the lock-protected result is authoritative if that assumption changes.
     private func supersedePriorDiagnosticsDemand(keeping event: UInt64) {
-        diagnosticsLock.lock()
-        defer { diagnosticsLock.unlock() }
-        pendingDiagnosticsRenderEvents = pendingDiagnosticsRenderEvents.filter { $0 == event }
+        let shouldRelease: Bool = {
+            diagnosticsLock.lock()
+            defer { diagnosticsLock.unlock() }
+            pendingDiagnosticsRenderEvents = pendingDiagnosticsRenderEvents.filter { $0 == event }
+            return pendingDiagnosticsRenderEvents.isEmpty
+        }()
+        if shouldRelease {
+            manageDiagnosticsRenderDemand(false)
+        }
     }
 
     private func releaseAllDiagnosticsDemand() {

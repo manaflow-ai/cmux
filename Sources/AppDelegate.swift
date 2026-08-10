@@ -3120,6 +3120,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let commandPath = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_WRAP_COMMAND_PATH"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let fixtureDirectoryURL = URL(fileURLWithPath: fixtureDirectory, isDirectory: true)
+        if let rawOpenSupportedFiles = env["CMUX_UI_TEST_OPEN_SUPPORTED_FILES_IN_CMUX"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawOpenSupportedFiles.isEmpty {
+            FileRouteSettingsStore(defaults: .standard).setSupportedFileRouteEnabled(rawOpenSupportedFiles == "1")
+        }
 
         var seeded = false
         var resolved = false
@@ -3194,7 +3199,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let cols = max(Int(metrics.columns), 1)
             let cellWidth = CGFloat(metrics.cell_width)
             let cellHeight = CGFloat(metrics.cell_height)
-            guard expectedPath.count > cols else { return nil }
+            guard expectedPath.count > cols else {
+                writeState(
+                    ready: false,
+                    setupError: "Wrapped-path fixture requires more than " + String(cols) +
+                        " columns, got " + String(expectedPath.count)
+                )
+                return nil
+            }
 
             let xInset = CGFloat(metrics.padding_left)
             let yInset = CGFloat(metrics.padding_top)
@@ -3285,7 +3297,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             if !seeded {
-                seeded = true
                 guard let workspace else {
                     writeState(ready: false, setupError: "Missing workspace")
                     resolved = true
@@ -3311,14 +3322,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     cleanup()
                     return
                 }
-                let size = ghostty_surface_size(surface)
-                let cols = max(Int(size.columns), 1)
+                var gridMetrics = ghostty_surface_grid_metrics_s()
+                guard ghostty_surface_grid_metrics(surface, &gridMetrics), gridMetrics.columns > 0 else {
+                    writeState(ready: false)
+                    return
+                }
+                let cols = Int(gridMetrics.columns)
                 // Exact repro shape from issue #8810: a single trailing
                 // character spills onto the next physical row (the
                 // `TMLlaborator` / `y` split), so the fixture path lands
                 // exactly one character past the live column count.
                 let prefixLength = fixtureDirectoryURL.path.count + 1
-                let nameLength = max(5, (cols + 1) - prefixLength)
+                let nameLength = (cols + 1) - prefixLength
+                guard nameLength >= 5 else {
+                    writeState(
+                        ready: false,
+                        setupError: "Wrapped-path fixture requires at least 5 filename characters; columns=\(cols) prefixLength=\(prefixLength)"
+                    )
+                    resolved = true
+                    cleanup()
+                    return
+                }
                 let fileName = String(repeating: "w", count: nameLength) + ".txt"
                 let fileURL = fixtureDirectoryURL.appendingPathComponent(fileName)
                 do {
@@ -3341,6 +3365,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 sendTextWhenReady(shellCommand, to: workspace, beforeSend: {
                     workspace.updatePanelDirectory(panelId: terminalPanel.id, directory: fixtureDirectoryURL.path)
                 })
+                seeded = true
             }
 
             guard let expectedPath else {
