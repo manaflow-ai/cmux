@@ -34,9 +34,9 @@ use crate::MuxEvent;
 use crate::mux::ResourceWaitWake;
 use crate::platform;
 use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
+use crate::terminal_host_protocol::TerminalExit;
 #[cfg(not(unix))]
 use crate::terminal_host_protocol::TerminalExitOutcome;
-use crate::terminal_host_protocol::{TerminalExit, wait_for_native_child_status};
 use crate::{Mux, SurfaceId};
 
 pub use crate::browser::{

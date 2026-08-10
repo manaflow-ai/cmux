@@ -33,7 +33,7 @@ use crate::terminal_host_protocol::{
     KITTY_IMAGE_ALIAS_ENCODED_LEN, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind,
     PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure,
     decode_terminal_exit, encode_host_launch_failure, encode_terminal_exit, read_frame,
-    wait_for_native_child_status, write_frame,
+    write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 3;

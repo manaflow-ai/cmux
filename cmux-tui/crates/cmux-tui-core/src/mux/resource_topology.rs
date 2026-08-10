@@ -2456,6 +2456,11 @@ impl Mux {
                     terminal_host_cleanup_receipt(&workspace_host_identities),
                 );
         }
+        let closed_workspace_terminals = if closed_workspace_key.is_some() {
+            Self::terminal_public_ids_for_hosted(&registry, &workspace_host_identities)?
+        } else {
+            Vec::new()
+        };
         let cleanup_identities = if closed_workspace_key.is_some() {
             workspace_host_identities
         } else {
@@ -2475,16 +2480,11 @@ impl Mux {
                 TERMINAL_HOST_CLEANUP_RECEIPT_FIELD.to_string(),
                 terminal_host_cleanup_receipt(&cleanup_identities),
             );
-        let closed_workspace_terminals = if closed_workspace_key.is_some() {
-            Self::terminal_public_ids_for_hosted(&registry, &workspace_host_identities)?
-        } else {
-            Vec::new()
-        };
         #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
         }
-        let mut close = registry.commit_resource_close_patch(
+        let close = registry.commit_resource_close_patch(
             idempotency_key,
             operation_name,
             fingerprint,

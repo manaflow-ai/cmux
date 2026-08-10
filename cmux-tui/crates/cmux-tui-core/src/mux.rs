@@ -4159,6 +4159,7 @@ impl Mux {
             Ok(binding) => binding,
             Err(_) => return false,
         };
+        #[cfg(test)]
         let id = restored_binding
             .as_ref()
             .and_then(|binding| binding.placements.first().map(|(slot, _)| *slot))
