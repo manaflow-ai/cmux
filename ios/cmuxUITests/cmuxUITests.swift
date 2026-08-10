@@ -2234,18 +2234,18 @@ final class cmuxUITests: XCTestCase {
     func testTaskComposerHostDiscoveredAndColdEmptyCatalogSubmissions() async throws {
         let discoveredModelID = "us.anthropic.claude-opus-5[1m]"
         let discoveredModelName = "Opus (1M context)"
-        let server = try MobileSyncMockHostServer(
-            supportsManualAttachTicket: true,
-            taskModelsByProvider: [
-                "claude": [(id: discoveredModelID, displayName: discoveredModelName)],
-            ]
-        )
+        let server = try MobileSyncMockHostServer(taskModelsByProvider: [
+            "claude": [(id: discoveredModelID, displayName: discoveredModelName)],
+        ])
         let port = try await server.start()
 
-        // Use the established production pairing fixture: it enables the New
-        // Task entrypoint and proves the capability handshake before this test
-        // exercises the host-discovered model request.
-        let hostApp = try launchConnectedAppViaManualPairing(port: port)
+        // The injected attach ticket uses the production connection and
+        // capability handshake while avoiding the independent Add Computer UI.
+        // Enable New Task explicitly because this focused test owns that entrypoint.
+        let hostApp = try launchConnectedApp(
+            port: port,
+            launchArguments: ["-cmux.mobile.taskComposerEnabled", "YES"]
+        )
         let backButton = hostApp.buttons["MobileWorkspaceBackButton"]
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
         tap(backButton, in: hostApp)
@@ -5417,11 +5417,15 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchConnectedApp(port: UInt16, assertStatusRows: Bool = true) throws -> XCUIApplication {
+    private func launchConnectedApp(
+        port: UInt16,
+        assertStatusRows: Bool = true,
+        launchArguments: [String] = []
+    ) throws -> XCUIApplication {
         let attachURL = try attachURL(port: port)
         let app = launchApp(mockData: true, environment: [
             "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
-        ])
+        ], launchArguments: launchArguments)
         waitForWorkspaceShell(in: app)
         try openSelectedWorkspaceIfNeeded(app)
         if assertStatusRows {
