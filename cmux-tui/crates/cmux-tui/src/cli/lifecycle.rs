@@ -47,7 +47,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 json!({
                     "status":"not_running",
                     "session":expected_session,
-                    "socket":socket_output.clone(),
+                    "socket":socket_output,
                     "message":crate::localization::catalog().local_server.not_running,
                 }),
                 global.output,

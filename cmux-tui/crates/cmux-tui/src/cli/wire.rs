@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::resource::{
-    EnvelopeType, MAX_MESSAGE_BYTES, OperationClass, PROTOCOL, ResourceOperation, ResponseEnvelope,
-    StreamEndEnvelope, StreamEndReason, StreamItemEnvelope,
+    EnvelopeType, MAX_MESSAGE_BYTES, OperationClass, PROTOCOL, ResponseEnvelope, StreamEndEnvelope,
+    StreamEndReason, StreamItemEnvelope,
 };
 use serde_json::{Value, json};
 
@@ -438,7 +438,8 @@ fn localize_operation_error(plan: &RequestPlan, error: &mut Value) {
     let is_lifecycle_operation = matches!(
         &plan.operation,
         WireOperation::Typed(
-            ResourceOperation::SessionShutdown | ResourceOperation::SessionReloadConfig
+            cmux_tui_core::resource::ResourceOperation::SessionShutdown
+                | cmux_tui_core::resource::ResourceOperation::SessionReloadConfig
         )
     );
     if is_lifecycle_operation
