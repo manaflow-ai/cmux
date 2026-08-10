@@ -2561,14 +2561,14 @@ final class cmuxUITests: XCTestCase {
     /// tappable while only the provider/model viewport absorbs width pressure.
     @MainActor
     func testTaskComposerAccessibilityXXXLKeepsAttachmentAndEdgeControlsVisible() async throws {
-        let server = try MobileSyncMockHostServer(advertisesTaskAttachments: true)
+        let server = try MobileSyncMockHostServer(
+            supportsManualAttachTicket: true,
+            advertisesTaskAttachments: true
+        )
         let port = try await server.start()
         defer { server.stop() }
 
-        let app = launchApp(mockData: true, environment: [
-            "CMUX_UITEST_ATTACH_URL": try attachURL(port: port).absoluteString,
-        ], launchArguments: [
-            "-cmux.mobile.taskComposerEnabled", "YES",
+        let app = try launchConnectedAppViaManualPairing(port: port, additionalLaunchArguments: [
             "-UIPreferredContentSizeCategoryName",
             "UICTContentSizeCategoryAccessibilityXXXL",
         ])
@@ -5214,7 +5214,10 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchConnectedAppViaManualPairing(port: UInt16) throws -> XCUIApplication {
+    private func launchConnectedAppViaManualPairing(
+        port: UInt16,
+        additionalLaunchArguments: [String] = []
+    ) throws -> XCUIApplication {
         let portText = String(port)
         guard let finalPortDigit = portText.last else {
             throw URLError(.badURL)
@@ -5223,7 +5226,7 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_ADD_DEVICE_PORT": String(portText.dropLast()),
         ], launchArguments: [
             "-cmux.mobile.taskComposerEnabled", "YES",
-        ])
+        ] + additionalLaunchArguments)
         let pairingForm = app.otherElements["MobileAddDeviceForm"]
         XCTAssertTrue(pairingForm.waitForExistence(timeout: 8))
 
