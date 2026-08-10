@@ -1,6 +1,7 @@
 #if os(iOS)
 enum OnboardingStage: Int, CaseIterable, Hashable, Sendable {
     case agents
+    case simulator
     case notifications
     case connect
 
@@ -9,6 +10,7 @@ enum OnboardingStage: Int, CaseIterable, Hashable, Sendable {
     var analyticsValue: String {
         switch self {
         case .agents: "agents"
+        case .simulator: "simulator"
         case .notifications: "notifications"
         case .connect: "connect"
         }

@@ -2286,6 +2286,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var surfaceTabBarButtonGlobalConfigPath: String?
     private var surfaceTabBarButtonConfiguration: SurfaceTabBarButtonConfiguration?
     private var featureFlagsObserver: NSObjectProtocol?
+    private var simulatorBootPresenceObserver: NSObjectProtocol?
 
     /// The pane-tree sub-model (CmuxPanes): owns the panel registry, the
     /// surface-id mapping, and the pane-layout bookkeeping. The legacy
@@ -3492,6 +3493,15 @@ final class Workspace: Identifiable, ObservableObject {
                 self?.reapplySurfaceTabBarButtonsForFeatureFlags()
             }
         }
+        simulatorBootPresenceObserver = NotificationCenter.default.addObserver(
+            forName: .cmuxSimulatorBootPresenceDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.reapplySurfaceTabBarButtonsForFeatureFlags()
+            }
+        }
     }
 
     private var sharedLiveAgentIndexObserver: NSObjectProtocol?
@@ -3509,6 +3519,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
         if let featureFlagsObserver {
             NotificationCenter.default.removeObserver(featureFlagsObserver)
+        }
+        if let simulatorBootPresenceObserver {
+            NotificationCenter.default.removeObserver(simulatorBootPresenceObserver)
         }
         activeRemoteSessionControllerID = nil
         remoteSessionTransitionTask?.cancel()
@@ -3553,12 +3566,32 @@ final class Workspace: Identifiable, ObservableObject {
             terminalCommandSourcePaths: terminalCommandSourcePaths,
             workspaceCommands: workspaceCommands
         )
-        let buttons = buttons.filter { button in
+        var buttons = buttons.filter { button in
             guard case .builtIn(let builtInAction) = button.action else { return true }
             if builtInAction == .mobileConnect { return CmuxFeatureFlags.shared.isMobileConnectButtonEnabled }
             if builtInAction == .newAgentChat { return CmuxFeatureFlags.shared.isAgentChatUIEnabled }
             if builtInAction == .newSimulator { return CmuxFeatureFlags.shared.isSimulatorEnabled }
             return true
+        }
+        // Contextual affordance: while any Simulator is booted, surface the
+        // New Simulator button even though it is not in the default set, so
+        // the feature shows up exactly when the user is doing iOS work and
+        // stays out of the way otherwise. A button already present (default
+        // or user-configured) wins; re-applied via
+        // `.cmuxSimulatorBootPresenceDidChange`.
+        if CmuxFeatureFlags.shared.isSimulatorEnabled,
+           AppDelegate.shared?.simulatorBootPresence.hasBootedDevice == true,
+           !buttons.contains(where: { button in
+               if case .builtIn(.newSimulator) = button.action { return true }
+               return false
+           }) {
+            buttons.append(.builtIn(
+                .newSimulator,
+                tooltip: String(
+                    localized: "simulator.tabBar.bootedTooltip",
+                    defaultValue: "A Simulator is booted — open it in a pane"
+                )
+            ))
         }
         let executableButtons = Dictionary(
             uniqueKeysWithValues: buttons.compactMap { button in

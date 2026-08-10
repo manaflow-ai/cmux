@@ -80,9 +80,16 @@ struct WorkspaceRow: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(previewLineLimit, reservesSpace: true)
 
-                    if let changesChip, changesChip.filesChanged > 0 {
+                    if hasTrailingChips {
                         Spacer(minLength: 8)
-                        changesChipView(changesChip)
+                        HStack(spacing: 4) {
+                            if !workspace.simulators.isEmpty {
+                                WorkspaceSimulatorChipLabel(workspace: workspace)
+                            }
+                            if let changesChip, changesChip.filesChanged > 0 {
+                                changesChipView(changesChip)
+                            }
+                        }
                     }
                 }
             }
@@ -109,6 +116,10 @@ struct WorkspaceRow: View {
             }
         }
         .contentShape(Rectangle())
+    }
+
+    private var hasTrailingChips: Bool {
+        !workspace.simulators.isEmpty || (changesChip?.filesChanged ?? 0) > 0
     }
 
     @ViewBuilder

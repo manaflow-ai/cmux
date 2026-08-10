@@ -499,6 +499,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var workspaceChangeChipsByWorkspaceID: [String: MobileWorkspaceChangesChip] = [:]
     /// Device-local persistence for the one-time workspace-changes hint.
     @ObservationIgnored var workspaceChangesHintDismissalStore: MobileWorkspaceChangesHintDismissalStore
+    /// Device-local persistence for the one-time simulator hint banner.
+    @ObservationIgnored var simulatorStreamHintDismissalStore: MobileSimulatorStreamHintDismissalStore
+    /// Observable mirror of the simulator hint dismissal, so every mounted
+    /// workspace view drops the banner the moment it is dismissed anywhere.
+    /// Written only by `dismissSimulatorStreamHint()`.
+    public internal(set) var simulatorStreamHintDismissed: Bool
 
     func setWorkspaceChangeChipsByWorkspaceID(
         _ chips: [String: MobileWorkspaceChangesChip]
@@ -1491,6 +1497,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         groupCollapseStore: MobileWorkspaceGroupCollapseStore = MobileWorkspaceGroupCollapseStore(),
         workspaceSortStore: MobileWorkspaceSortStore = MobileWorkspaceSortStore(),
         workspaceChangesHintDismissalStore: MobileWorkspaceChangesHintDismissalStore = MobileWorkspaceChangesHintDismissalStore(),
+        simulatorStreamHintDismissalStore: MobileSimulatorStreamHintDismissalStore = MobileSimulatorStreamHintDismissalStore(),
         workspaceChangesSchedulingClock: any Clock<Duration> = ContinuousClock(),
         controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock(),
         connectionHandoffDrainTimeoutNanoseconds: UInt64 = 3_000_000_000,
@@ -1508,6 +1515,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.workspaceSortMode = workspaceSortStore.mode
         self.workspaceComputerPriority = workspaceSortStore.computerPriority
         self.workspaceChangesHintDismissalStore = workspaceChangesHintDismissalStore
+        self.simulatorStreamHintDismissalStore = simulatorStreamHintDismissalStore
+        self.simulatorStreamHintDismissed = simulatorStreamHintDismissalStore.isDismissed
         self.workspaceChangesSchedulingClock = workspaceChangesSchedulingClock
         self.controlPlaneSchedulingClock = controlPlaneSchedulingClock
         self.connectionHandoffDrainTimeoutNanoseconds =

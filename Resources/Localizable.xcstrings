@@ -225567,6 +225567,23 @@
         }
       }
     },
+    "simulator.action.quickStart": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を起動"
+          }
+        }
+      }
+    },
     "simulator.action.refresh": {
       "extractionState": "manual",
       "localizations": {
@@ -230901,6 +230918,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "処理中"
+          }
+        }
+      }
+    },
+    "simulator.status.selectToStart.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick an iPhone or iPad and it boots automatically. Once running, you can control it from the cmux iOS app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhoneまたはiPadを選ぶと自動的に起動します。起動後はcmuxのiOSアプリから操作できます。"
+          }
+        }
+      }
+    },
+    "simulator.phoneControl.teaser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control this Simulator from your iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このシミュレータをiPhoneから操作できます"
+          }
+        }
+      }
+    },
+    "simulator.phoneControl.teaser.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Up"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定"
+          }
+        }
+      }
+    },
+    "simulator.phoneControl.teaser.dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
+          }
+        }
+      }
+    },
+    "simulator.tabBar.bootedTooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A Simulator is booted — open it in a pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シミュレータが起動中です — ペインで開けます"
           }
         }
       }

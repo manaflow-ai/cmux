@@ -4,6 +4,16 @@ import Foundation
 
 @MainActor
 extension MobileShellComposite {
+    /// Permanently dismisses the workspace simulator hint banner. Called by
+    /// the banner's close button and by any successful simulator stream
+    /// selection, since organically opening one proves the hint is no longer
+    /// needed.
+    public func dismissSimulatorStreamHint() {
+        guard !simulatorStreamHintDismissed else { return }
+        simulatorStreamHintDismissed = true
+        simulatorStreamHintDismissalStore.markDismissed()
+    }
+
     /// Serializes start/stop transitions per panel through the composite-owned
     /// operation chain, so a foreground restart cannot overlap a still-running
     /// background stop against the Mac's single-controller ownership.

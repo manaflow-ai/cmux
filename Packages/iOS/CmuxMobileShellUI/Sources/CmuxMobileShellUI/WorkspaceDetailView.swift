@@ -929,8 +929,11 @@ struct WorkspaceDetailView: View {
         Task { await store.startMobileBrowserStream(panelID: panelID) }
     }
 
-    private func selectSimulatorStreamFromToolbar(_ panelID: String) {
+    func selectSimulatorStreamFromToolbar(_ panelID: String) {
         dismissTerminalKeyboardForChrome()
+        // Opening a simulator stream anywhere proves the discovery hint's
+        // lesson landed; retire the banner for good.
+        store.dismissSimulatorStreamHint()
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
         let workspaceID = workspace.rpcWorkspaceID.rawValue

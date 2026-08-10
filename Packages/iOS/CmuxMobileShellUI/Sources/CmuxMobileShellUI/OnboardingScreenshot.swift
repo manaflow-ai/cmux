@@ -9,6 +9,7 @@ import UIKit
 struct OnboardingScreenshot: View {
     enum Content: String, CaseIterable {
         case workspaces
+        case simulator
         case notifications
 
         var accessibilityIdentifier: String {

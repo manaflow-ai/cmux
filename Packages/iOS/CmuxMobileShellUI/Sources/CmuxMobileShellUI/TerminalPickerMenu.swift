@@ -60,18 +60,32 @@ struct TerminalPickerMenu: View, Equatable {
             }
         }
 
-        if value.supportsSimulatorStream, !value.simulatorStreamRows.isEmpty {
+        if value.supportsSimulatorStream {
             Section(L10n.string("mobile.simulatorStream.menuTitle", defaultValue: "Mac Simulators")) {
-                ForEach(value.simulatorStreamRows) { panel in
-                    Button { actions.selectSimulatorStream(panel.id) } label: {
-                        Label(
-                            panel.label,
-                            systemImage: panel.id == value.activeSimulatorStreamPanelID
-                                ? "checkmark.circle.fill"
-                                : "iphone"
-                        )
+                if value.simulatorStreamRows.isEmpty {
+                    // Teaching empty state: the capability exists but this
+                    // workspace has no Simulator pane yet, so name the
+                    // Mac-side step instead of hiding the feature entirely.
+                    Label(
+                        L10n.string(
+                            "mobile.simulatorStream.emptyHint",
+                            defaultValue: "Attach a Simulator pane in cmux on your Mac to control it from here"
+                        ),
+                        systemImage: "iphone.badge.play"
+                    )
+                    .accessibilityIdentifier("SimulatorStreamEmptyHint")
+                } else {
+                    ForEach(value.simulatorStreamRows) { panel in
+                        Button { actions.selectSimulatorStream(panel.id) } label: {
+                            Label(
+                                panel.label,
+                                systemImage: panel.id == value.activeSimulatorStreamPanelID
+                                    ? "checkmark.circle.fill"
+                                    : "iphone"
+                            )
+                        }
+                        .accessibilityIdentifier("SimulatorStreamMenuItem-\(panel.id)")
                     }
-                    .accessibilityIdentifier("SimulatorStreamMenuItem-\(panel.id)")
                 }
             }
         }
