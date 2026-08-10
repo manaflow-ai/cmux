@@ -103,7 +103,6 @@ public struct TaskComposerAccessibilityPreviewView: View {
         self.holdsSubmissionInPreparation = environment[
             "CMUX_UITEST_TASK_COMPOSER_HOLD_PREPARATION"
         ] == "1"
-        self.requestsInitialFocus = environment["CMUX_UITEST_TASK_COMPOSER_DRAFT"] == nil
         let attachmentFixtures = MobileAttachmentAccessibilityFixtures()
         if environment["CMUX_UITEST_TASK_COMPOSER_MAX_ATTACHMENTS"] == "1" {
             self.attachmentFixtures = attachmentFixtures.maximumCount()
@@ -114,6 +113,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
         } else {
             self.attachmentFixtures = []
         }
+        self.requestsInitialFocus = self.attachmentFixtures.isEmpty
         _directoryPaginationRecoveryPreview = State(
             initialValue: presentsDirectoryPaginationRecovery
                 ? TaskComposerDirectoryPaginationRecoveryPreview()
