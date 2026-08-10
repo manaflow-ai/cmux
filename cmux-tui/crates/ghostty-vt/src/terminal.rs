@@ -3129,10 +3129,10 @@ impl Terminal {
     }
 
     pub fn select_cursor(&mut self) -> Result<SelectionSnapshot> {
-        let (column, row) = self.cursor_position().ok_or(crate::Error::NoValue)?;
+        let (column, row) = self.cursor_position().ok_or(Error::NoValue)?;
         let grid_ref = self
             .grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, column, u64::from(row))
-            .ok_or(crate::Error::InvalidValue)?;
+            .ok_or(Error::InvalidValue)?;
         let selection = sys::GhosttySelection {
             size: size_of::<sys::GhosttySelection>(),
             start: grid_ref,
@@ -3155,10 +3155,10 @@ impl Terminal {
     ) -> Result<SelectionSnapshot> {
         let grid_ref = self
             .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, start.column, u64::from(start.row))
-            .ok_or(crate::Error::InvalidValue)?;
+            .ok_or(Error::InvalidValue)?;
         let end_ref = self
             .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, end.column, u64::from(end.row))
-            .ok_or(crate::Error::InvalidValue)?;
+            .ok_or(Error::InvalidValue)?;
         let selection = sys::GhosttySelection {
             size: size_of::<sys::GhosttySelection>(),
             start: grid_ref,
@@ -3175,7 +3175,7 @@ impl Terminal {
     ) -> Result<Option<SelectionSnapshot>> {
         let grid_ref = self
             .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, point.column, u64::from(point.row))
-            .ok_or(crate::Error::InvalidValue)?;
+            .ok_or(Error::InvalidValue)?;
         let options = sys::GhosttyTerminalSelectWordOptions {
             size: size_of::<sys::GhosttyTerminalSelectWordOptions>(),
             ref_: grid_ref,
@@ -3203,7 +3203,7 @@ impl Terminal {
     ) -> Result<Option<SelectionSnapshot>> {
         let grid_ref = self
             .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, point.column, u64::from(point.row))
-            .ok_or(crate::Error::InvalidValue)?;
+            .ok_or(Error::InvalidValue)?;
         let options = sys::GhosttyTerminalSelectLineOptions {
             size: size_of::<sys::GhosttyTerminalSelectLineOptions>(),
             ref_: grid_ref,
@@ -3293,7 +3293,7 @@ impl Terminal {
         let mut viewport_matches = Vec::new();
         viewport_matches
             .try_reserve_exact(viewport_capacity)
-            .map_err(|_| crate::Error::OutOfMemory)?;
+            .map_err(|_| Error::OutOfMemory)?;
         viewport_matches.resize_with(viewport_capacity, || sys::GhosttySelection {
             size: size_of::<sys::GhosttySelection>(),
             ..Default::default()
