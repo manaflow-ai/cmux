@@ -246,9 +246,6 @@ jobs:
       - name: Validate release bundle stripping
         run: ./tests/test_strip_release_bundle.sh
 
-      - name: Validate terminal backend service scripts
-        run: ./tests/test_terminal_backend_service_scripts.sh
-
       - name: Validate current GhosttyKit checksum pin
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
 
@@ -533,6 +530,10 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
+
+      - name: Validate terminal backend service scripts
+        if: ${{ matrix.shard == 4 }}
+        run: ./tests/test_terminal_backend_service_scripts.sh
 
       - name: Capture Ghostty revision
         id: ghostty-revision
