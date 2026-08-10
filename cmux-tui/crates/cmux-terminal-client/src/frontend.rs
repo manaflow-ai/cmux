@@ -7,7 +7,9 @@ use std::time::{Duration, Instant};
 use bytes::Bytes;
 use cmux_remote::mux_codec::{MuxLineAssembler, encode_line};
 use cmux_remote::service::{ServiceMultiplexer, ServiceStream, StreamChunk};
-use cmux_remote_protocol::{Lane, RESOURCE_PROTOCOL, Service, ServiceControl};
+use cmux_remote_protocol::{
+    Lane, REMOTE_SESSION_MESSAGE_MAX_BYTES, RESOURCE_PROTOCOL, Service, ServiceControl,
+};
 use cmux_terminal_host_protocol::{Frame, MessageKind};
 use serde_json::{Value, json};
 use tokio::runtime::Runtime;
@@ -21,6 +23,8 @@ use super::{
 
 const FRONTEND_CONNECTION_TIMEOUT_ERROR: &str = "frontend connection timed out";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+const RESOURCE_UPDATE_QUEUE_MAX_ITEMS: usize = 256;
+const RESOURCE_UPDATE_QUEUE_MAX_BYTES: usize = REMOTE_SESSION_MESSAGE_MAX_BYTES * 2;
 const RESOURCE_STREAM_END_NONE: u8 = 0;
 const RESOURCE_STREAM_END_COMPLETED: u8 = 1;
 const RESOURCE_STREAM_END_CANCELED: u8 = 2;
@@ -30,12 +34,55 @@ const RESOURCE_STREAM_END_ERROR: u8 = 5;
 
 type PendingResponse = oneshot::Sender<Result<Value, String>>;
 
+#[derive(Default)]
+struct ResourceUpdateQueue {
+    updates: VecDeque<Vec<u8>>,
+    bytes: usize,
+}
+
+impl ResourceUpdateQueue {
+    fn push(&mut self, update: Vec<u8>) -> bool {
+        self.push_bounded(
+            update,
+            RESOURCE_UPDATE_QUEUE_MAX_ITEMS,
+            RESOURCE_UPDATE_QUEUE_MAX_BYTES,
+        )
+    }
+
+    fn push_bounded(
+        &mut self,
+        update: Vec<u8>,
+        maximum_items: usize,
+        maximum_bytes: usize,
+    ) -> bool {
+        if self.updates.len() >= maximum_items
+            || update.len() > maximum_bytes.saturating_sub(self.bytes)
+        {
+            return false;
+        }
+        self.bytes += update.len();
+        self.updates.push_back(update);
+        true
+    }
+
+    fn pop_front(&mut self) -> Option<Vec<u8>> {
+        let update = self.updates.pop_front()?;
+        self.bytes = self.bytes.saturating_sub(update.len());
+        Some(update)
+    }
+
+    fn clear(&mut self) {
+        self.updates.clear();
+        self.bytes = 0;
+    }
+}
+
 struct FrontendControlState {
     pending: Mutex<HashMap<String, PendingResponse>>,
     updates: Arc<ClientUpdates>,
     status: Mutex<String>,
     closed: AtomicBool,
-    resource_updates: Mutex<VecDeque<Vec<u8>>>,
+    resource_updates: Mutex<ResourceUpdateQueue>,
     resource_updates_overflowed: AtomicBool,
     resource_stream_ended: AtomicBool,
     resource_stream_end_reason: AtomicU8,
@@ -48,7 +95,7 @@ impl FrontendControlState {
             updates,
             status: Mutex::new("ready".into()),
             closed: AtomicBool::new(false),
-            resource_updates: Mutex::new(VecDeque::new()),
+            resource_updates: Mutex::new(ResourceUpdateQueue::default()),
             resource_updates_overflowed: AtomicBool::new(false),
             resource_stream_ended: AtomicBool::new(false),
             resource_stream_end_reason: AtomicU8::new(RESOURCE_STREAM_END_NONE),
@@ -58,11 +105,10 @@ impl FrontendControlState {
     fn push_resource_update(&self, value: &Value) {
         let encoded = serde_json::to_vec(value).unwrap_or_default();
         let mut queue = self.resource_updates.lock().unwrap();
-        if queue.len() >= 256 {
+        if !queue.push(encoded) {
             self.resource_updates_overflowed.store(true, Ordering::Release);
             return;
         }
-        queue.push_back(encoded);
         self.updates.notify();
     }
 
@@ -172,7 +218,7 @@ unsafe fn copy_resource_update_from_state(
         return true;
     }
     let mut queue = state.resource_updates.lock().unwrap();
-    let Some(payload) = queue.front() else {
+    let Some(payload) = queue.updates.front() else {
         return update.ended;
     };
     update.payload_length = payload.len();
@@ -994,6 +1040,23 @@ mod tests {
     use crate::{NativeRenderEventKind, TerminalPublicId};
 
     #[test]
+    fn resource_update_queue_bounds_retained_bytes() {
+        let mut queue = ResourceUpdateQueue::default();
+        assert!(queue.push_bounded(vec![1; 6], 256, 10));
+        assert_eq!(queue.bytes, 6);
+        assert!(!queue.push_bounded(vec![2; 5], 256, 10));
+        assert_eq!(queue.bytes, 6);
+        assert_eq!(queue.updates.len(), 1);
+
+        assert_eq!(queue.pop_front(), Some(vec![1; 6]));
+        assert_eq!(queue.bytes, 0);
+        assert!(queue.push_bounded(vec![3; 10], 256, 10));
+        queue.clear();
+        assert_eq!(queue.bytes, 0);
+        assert!(queue.updates.is_empty());
+    }
+
+    #[test]
     fn resource_delta_queue_preserves_order_and_fails_closed_on_overflow() {
         let updates = Arc::new(ClientUpdates::default());
         let state = FrontendControlState::new(updates);
@@ -1004,15 +1067,11 @@ mod tests {
         assert!(state.resource_updates_overflowed.load(Ordering::Acquire));
         {
             let queue = state.resource_updates.lock().unwrap();
-            assert_eq!(queue.len(), 256);
-            assert_eq!(
-                serde_json::from_slice::<Value>(queue.front().unwrap()).unwrap()["sequence"],
-                0
-            );
-            assert_eq!(
-                serde_json::from_slice::<Value>(queue.back().unwrap()).unwrap()["sequence"],
-                255
-            );
+            let first = serde_json::from_slice::<Value>(queue.updates.front().unwrap()).unwrap();
+            let last = serde_json::from_slice::<Value>(queue.updates.back().unwrap()).unwrap();
+            assert_eq!(queue.updates.len(), 256);
+            assert_eq!(first["sequence"], 0);
+            assert_eq!(last["sequence"], 255);
         }
         let mut overflow = CmuxFrontendResourceUpdate {
             payload_length: usize::MAX,
@@ -1025,7 +1084,7 @@ mod tests {
         });
         assert!(overflow.overflowed);
         assert_eq!(overflow.payload_length, 0);
-        assert!(state.resource_updates.lock().unwrap().is_empty());
+        assert!(state.resource_updates.lock().unwrap().updates.is_empty());
         assert!(!state.resource_updates_overflowed.load(Ordering::Acquire));
         state.push_resource_update(&json!({"type":"stream_item","sequence":257}));
         state.resource_stream_end_reason.store(RESOURCE_STREAM_END_COMPLETED, Ordering::Release);
