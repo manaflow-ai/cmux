@@ -287,7 +287,9 @@ fn run_response(
                 if !response.ok {
                     let mut error = serde_json::to_value(response.error.expect("validated error"))
                         .expect("resource errors serialize");
-                    localize_operation_error(plan, &mut error);
+                    if matches!(global.output, OutputMode::Quiet | OutputMode::Human) {
+                        localize_operation_error(plan, &mut error);
+                    }
                     return print_operation_error(&error, global.output);
                 }
                 let result = response.result.expect("validated result");
