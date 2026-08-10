@@ -7691,8 +7691,8 @@ impl Mux {
 
     #[cfg(test)]
     pub(crate) fn insert_surface_runtime_for_test(&self, surface: Arc<Surface>) {
-        let previous = self.state.lock().unwrap().surfaces.insert(surface.id, surface);
-        assert!(previous.is_none(), "test surface id already exists");
+        insert_surface_checked(&mut self.state.lock().unwrap(), surface)
+            .expect("test surface must satisfy runtime registration invariants");
     }
 
     #[cfg(test)]
