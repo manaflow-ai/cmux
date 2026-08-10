@@ -7469,8 +7469,12 @@ impl Mux {
         Ok(actual_identity)
     }
 
-    pub fn cancel_daemon_handoff(&self) {
-        self.control_clients.cancel_daemon_handoff();
+    pub(crate) fn commit_daemon_handoff(&self, requesting_client: u64) -> anyhow::Result<()> {
+        self.control_clients.commit_daemon_handoff(requesting_client)
+    }
+
+    pub fn cancel_daemon_handoff(&self, requesting_client: u64) {
+        self.control_clients.cancel_daemon_handoff(requesting_client);
     }
 
     /// Ask the owning frontend loop to leave through the normal daemon

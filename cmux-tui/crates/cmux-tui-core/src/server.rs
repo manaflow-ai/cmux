@@ -3405,13 +3405,19 @@ struct ResourceClientRecord {
     attached: Vec<(SurfaceId, Option<(u16, u16)>)>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DaemonHandoffReservation {
+    Pending(u64),
+    Committed(u64),
+}
+
 #[derive(Default)]
 struct ClientRegistryState {
     clients: BTreeMap<u64, ClientRecord>,
     attached_by_surface: HashMap<SurfaceId, HashSet<u64>>,
     /// Shares the registry lock with registration so accepting a handoff and
     /// admitting a new owner cannot pass each other.
-    daemon_handoff_requester: Option<u64>,
+    daemon_handoff: Option<DaemonHandoffReservation>,
 }
 
 pub(crate) struct ClientRegistry {
@@ -3440,7 +3446,7 @@ impl ClientRegistry {
     fn register(&self, transport: ClientTransport, writer: MessageWriter) -> u64 {
         let client = self.next_id.fetch_add(1, Ordering::Relaxed);
         let mut state = self.state.lock().unwrap();
-        if state.daemon_handoff_requester.is_some() {
+        if state.daemon_handoff.is_some() {
             drop(state);
             writer.close();
             return client;
@@ -3475,7 +3481,7 @@ impl ClientRegistry {
 
     #[cfg(test)]
     fn daemon_handoff_pending(&self) -> bool {
-        self.state.lock().unwrap().daemon_handoff_requester.is_some()
+        self.state.lock().unwrap().daemon_handoff.is_some()
     }
 
     fn is_unix(&self, client: u64) -> bool {
@@ -3637,7 +3643,7 @@ impl ClientRegistry {
         capabilities: Option<Vec<String>>,
     ) -> anyhow::Result<(Option<String>, Option<String>)> {
         let mut state = self.state.lock().unwrap();
-        if kind.as_deref() == Some("native-browser") && state.daemon_handoff_requester.is_some() {
+        if kind.as_deref() == Some("native-browser") && state.daemon_handoff.is_some() {
             anyhow::bail!("daemon handoff is already in progress");
         }
         let record = state
@@ -3672,7 +3678,7 @@ impl ClientRegistry {
         let kind = kind.map(|kind| validate_resource_client_label("kind", kind)).transpose()?;
         let mut state = self.state.lock().unwrap();
         if kind.as_ref().and_then(|kind| kind.as_deref()) == Some("native-browser")
-            && state.daemon_handoff_requester.is_some()
+            && state.daemon_handoff.is_some()
         {
             return Err(ResourceError::operation_failed(
                 "client.metadata.update",
@@ -3786,15 +3792,34 @@ impl ClientRegistry {
         {
             anyhow::bail!("another native-browser frontend still owns this daemon");
         }
-        if state.daemon_handoff_requester.is_some() {
+        if state.daemon_handoff.is_some() {
             anyhow::bail!("daemon handoff is already in progress");
         }
-        state.daemon_handoff_requester = Some(requesting_client);
+        state.daemon_handoff = Some(DaemonHandoffReservation::Pending(requesting_client));
         Ok(())
     }
 
-    pub(crate) fn cancel_daemon_handoff(&self) {
-        self.state.lock().unwrap().daemon_handoff_requester = None;
+    pub(crate) fn commit_daemon_handoff(&self, requesting_client: u64) -> anyhow::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        match state.daemon_handoff {
+            Some(DaemonHandoffReservation::Pending(requester))
+                if requester == requesting_client =>
+            {
+                state.daemon_handoff =
+                    Some(DaemonHandoffReservation::Committed(requesting_client));
+                Ok(())
+            }
+            _ => anyhow::bail!("daemon handoff reservation changed before commit"),
+        }
+    }
+
+    pub(crate) fn cancel_daemon_handoff(&self, requesting_client: u64) {
+        let mut state = self.state.lock().unwrap();
+        if state.daemon_handoff
+            == Some(DaemonHandoffReservation::Pending(requesting_client))
+        {
+            state.daemon_handoff = None;
+        }
     }
 
     pub(crate) fn list_json(&self, requesting_client: u64) -> Value {
@@ -4289,8 +4314,8 @@ impl ClientRegistry {
     fn remove(&self, client: u64) -> Option<ClientRecord> {
         let mut state = self.state.lock().unwrap();
         let record = state.clients.remove(&client)?;
-        if state.daemon_handoff_requester == Some(client) {
-            state.daemon_handoff_requester = None;
+        if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
+            state.daemon_handoff = None;
         }
         for surface in record.attached.keys() {
             if let Some(clients) = state.attached_by_surface.get_mut(surface) {
@@ -4822,7 +4847,10 @@ fn complete_daemon_shutdown_after_ack(
     writer: &MessageWriter,
 ) -> bool {
     if writer.flush_control(SHUTDOWN_ACK_FLUSH_TIMEOUT).is_err() {
-        mux.cancel_daemon_handoff();
+        mux.cancel_daemon_handoff(requesting_client);
+        return false;
+    }
+    if mux.commit_daemon_handoff(requesting_client).is_err() {
         return false;
     }
     mux.request_daemon_shutdown();
@@ -4934,12 +4962,12 @@ fn handle_resource_session_shutdown(
             if sent {
                 complete_daemon_shutdown_after_ack(mux, client, writer)
             } else {
-                mux.cancel_daemon_handoff();
+                mux.cancel_daemon_handoff(client);
                 false
             }
         }
         Err(error) => {
-            mux.cancel_daemon_handoff();
+            mux.cancel_daemon_handoff(client);
             send_resource_response(writer, id, operation, Err(error))
         }
     }
@@ -7193,7 +7221,7 @@ fn handle_request_with_cancellation(
         if sent {
             return complete_daemon_shutdown_after_ack(mux, client, writer);
         } else {
-            mux.cancel_daemon_handoff();
+            mux.cancel_daemon_handoff(client);
         }
     }
     if detach_self && response_ok && sent {
@@ -16353,7 +16381,7 @@ mod tests {
         assert!(!mux.control_clients.contains(late));
         assert!(!late_writer.is_open());
 
-        mux.cancel_daemon_handoff();
+        mux.cancel_daemon_handoff(requester);
         let retry_writer = test_writer();
         let retry = mux.control_clients.register(ClientTransport::Unix, retry_writer.clone());
         assert!(mux.control_clients.contains(retry));
@@ -16374,6 +16402,23 @@ mod tests {
         let retry = mux.control_clients.register(ClientTransport::Unix, retry_writer.clone());
         assert!(mux.control_clients.contains(retry));
         assert!(retry_writer.is_open());
+    }
+
+    #[test]
+    fn committed_daemon_handoff_requester_disconnect_keeps_the_fence() {
+        let mux = test_mux();
+        let requester = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
+        mux.commit_daemon_handoff(requester).unwrap();
+        mux.request_daemon_shutdown();
+
+        assert!(disconnect_client(&mux, requester, false));
+        assert!(mux.control_clients.daemon_handoff_pending());
+
+        let retry_writer = test_writer();
+        let retry = mux.control_clients.register(ClientTransport::Unix, retry_writer.clone());
+        assert!(!mux.control_clients.contains(retry));
+        assert!(!retry_writer.is_open());
     }
 
     #[cfg(unix)]
