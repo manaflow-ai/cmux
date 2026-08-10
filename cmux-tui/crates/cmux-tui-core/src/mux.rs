@@ -21476,6 +21476,32 @@ mod tests {
     }
 
     #[test]
+    fn legacy_host_close_retires_a_zero_view_terminal_resource() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let terminal_id = first.terminal_public_id().cloned().unwrap();
+        let host =
+            mux.resource_terminal_host_identity(&first).expect("test terminal has a host identity");
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, None).unwrap();
+
+        mux.close_surface(first.id).unwrap();
+        assert_terminal_view_detached(&mux, &first);
+
+        let closed = mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
+
+        assert_eq!(closed.surface, None);
+        assert!(!closed.already_closed);
+        assert!(mux.terminal_resource(&terminal_id).is_none());
+        assert!(mux.surface(first.id).is_none());
+        assert!(mux.surface(second.id).is_some());
+        assert_eq!(
+            mux.resolve_terminal(&host.terminal_id).unwrap().unwrap().terminal.lifecycle,
+            TerminalLifecycle::Tombstoned
+        );
+    }
+
+    #[test]
     fn replayed_resource_close_does_not_acquire_terminal_effects() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();

@@ -2261,48 +2261,53 @@ impl Mux {
             return Err(terminal_close_state_error("terminal resource changed hosts"));
         }
         let content_id = ContentPublicId::Terminal(public_id.clone());
-        let (target, mut plan) = if let Some(runtime) =
-            state.terminal_catalog.get(&public_id).cloned()
-        {
-            let host = self.resource_terminal_host_identity(&runtime).ok_or_else(|| {
-                terminal_close_state_error("terminal runtime omitted its durable host identity")
-            })?;
-            if host.terminal_id != terminal_id {
-                return Err(terminal_close_state_error("terminal resource changed hosts"));
-            }
-            if let Some(expected) = expected_incarnation {
-                anyhow::ensure!(host.incarnation == expected, "terminal_incarnation_mismatch");
-            }
-            let target = state.placements_of_content(&content_id).first().copied();
-            let plan = self.resource_close_plan_locked(
-                ResourceOperation::TerminalClose,
-                EffectSlots { workspace: None, screen: None, pane: None, tab: Some(runtime.id) },
-                &registry,
-                &state,
-                &notifications,
-            )?;
-            (target, plan)
-        } else {
-            if !state.placements_of_content(&content_id).is_empty() {
-                return Err(terminal_close_state_error(format!(
-                    "live terminal resource {public_id} has views but no runtime owner"
-                )));
-            }
-            (
-                None,
-                ResourceClosePlan {
-                    state: state.clone(),
-                    removed: Vec::new(),
-                    terminal_runtime: None,
-                    closed_terminal_public_id: Some(public_id.clone()),
-                    terminal_batch: Vec::new(),
-                    workspace_close: None,
-                    delta: None,
-                    changed_screens: Vec::new(),
-                    selection_resync: false,
-                },
-            )
-        };
+        let (target, mut plan) =
+            if let Some(runtime) = state.terminal_catalog.get(&public_id).cloned() {
+                let host = self.terminal_resource_host_identity(&runtime).ok_or_else(|| {
+                    terminal_close_state_error("terminal runtime omitted its durable host identity")
+                })?;
+                if host.terminal_id != terminal_id {
+                    return Err(terminal_close_state_error("terminal resource changed hosts"));
+                }
+                if let Some(expected) = expected_incarnation {
+                    anyhow::ensure!(host.incarnation == expected, "terminal_incarnation_mismatch");
+                }
+                let target = state.placements_of_content(&content_id).first().copied();
+                let plan = self.resource_close_plan_locked(
+                    ResourceOperation::TerminalClose,
+                    EffectSlots {
+                        workspace: None,
+                        screen: None,
+                        pane: None,
+                        tab: None,
+                        terminal: Some(public_id.clone()),
+                    },
+                    &registry,
+                    &state,
+                    &notifications,
+                )?;
+                (target, plan)
+            } else {
+                if !state.placements_of_content(&content_id).is_empty() {
+                    return Err(terminal_close_state_error(format!(
+                        "live terminal resource {public_id} has views but no runtime owner"
+                    )));
+                }
+                (
+                    None,
+                    ResourceClosePlan {
+                        state: state.clone(),
+                        removed: Vec::new(),
+                        terminal_runtime: None,
+                        closed_terminal_public_id: Some(public_id.clone()),
+                        terminal_batch: Vec::new(),
+                        workspace_close: None,
+                        delta: None,
+                        changed_screens: Vec::new(),
+                        selection_resync: false,
+                    },
+                )
+            };
         let mut projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
         if !projection.patch.changes.iter().any(|change| {
