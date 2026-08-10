@@ -1525,9 +1525,9 @@ mod tests {
         assert!(mux.daemon_shutdown_requested());
         let records = mux.session_journal_after(0, 1024).unwrap().records;
         assert!(
-            records.iter().all(|record| {
-                record.correlation_id.as_deref() != Some("commit_deadline_1")
-            }),
+            records
+                .iter()
+                .all(|record| { record.correlation_id.as_deref() != Some("commit_deadline_1") }),
             "a producer transaction must roll back after its deadline"
         );
         drop(mux);
@@ -1587,9 +1587,9 @@ mod tests {
         producer.join().unwrap();
         let records = mux.session_journal_after(0, 1024).unwrap().records;
         assert!(
-            records.iter().any(|record| {
-                record.correlation_id.as_deref() == Some("admitted_commit_1")
-            }),
+            records
+                .iter()
+                .any(|record| { record.correlation_id.as_deref() == Some("admitted_commit_1") }),
             "the caller must observe success for the admitted durable commit"
         );
         drop(mux);
