@@ -910,7 +910,7 @@ impl PtyRuntime {
             .ok_or_else(|| io::Error::other("PTY reader thread already joined"))?;
         // SAFETY: this live JoinHandle owns the exact reader thread. The call
         // only cancels synchronous I/O issued by that thread.
-        let result = unsafe { CancelSynchronousIo(reader.as_raw_handle()) };
+        let result = unsafe { cancel_synchronous_io(reader.as_raw_handle()) };
         if result != 0 {
             return Ok(());
         }
@@ -1036,7 +1036,8 @@ impl PtyRuntime {
 #[cfg(windows)]
 #[link(name = "kernel32")]
 unsafe extern "system" {
-    fn CancelSynchronousIo(thread: std::os::windows::io::RawHandle) -> i32;
+    #[link_name = "CancelSynchronousIo"]
+    fn cancel_synchronous_io(thread: std::os::windows::io::RawHandle) -> i32;
 }
 
 #[derive(Debug, Clone, Copy)]
