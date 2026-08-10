@@ -18413,6 +18413,8 @@ mod tests {
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
         let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let first_runtime = first.terminal_runtime_id().unwrap();
+        let second_runtime = second.terminal_runtime_id().unwrap();
         wait_for_kitty_image_budget(&mux);
 
         {
@@ -18435,8 +18437,8 @@ mod tests {
             let budget = mux.kitty_image_budget.lock().unwrap();
             (
                 !budget.worker_running,
-                budget.blocked_surfaces.contains(&first.id),
-                !budget.entries.contains_key(&second.id),
+                budget.blocked_surfaces.contains(&first_runtime),
+                !budget.entries.contains_key(&second_runtime),
             )
         };
 
