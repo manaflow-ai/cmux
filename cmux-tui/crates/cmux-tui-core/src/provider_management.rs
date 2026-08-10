@@ -225,6 +225,27 @@ pub struct ProviderManagementServer {
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
+#[cfg(all(test, target_os = "linux"))]
+struct ProviderPeerTestHook {
+    entered: std::sync::mpsc::SyncSender<()>,
+    release: Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+#[cfg(all(test, target_os = "linux"))]
+static PROVIDER_PEER_TEST_HOOK: Mutex<Option<Arc<ProviderPeerTestHook>>> = Mutex::new(None);
+
+#[cfg(all(test, target_os = "linux"))]
+static PROVIDER_PEER_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+#[cfg(all(test, target_os = "linux"))]
+fn wait_for_provider_peer_test_release() {
+    let hook = PROVIDER_PEER_TEST_HOOK.lock().unwrap().clone();
+    if let Some(hook) = hook {
+        let _ = hook.entered.send(());
+        let _ = hook.release.lock().unwrap().recv();
+    }
+}
+
 #[cfg(any(target_os = "linux", test))]
 fn reap_finished_peer_threads(peers: &mut Vec<std::thread::JoinHandle<()>>) {
     let mut index = 0;
@@ -294,6 +315,8 @@ pub fn serve(
                 let peer_active = active.clone();
                 match std::thread::Builder::new().name("provider-management-peer".into()).spawn(
                     move || {
+                        #[cfg(test)]
+                        wait_for_provider_peer_test_release();
                         let result = (|| {
                             let uid = peer_uid(&stream)?;
                             if uid != 0 {
@@ -443,6 +466,31 @@ mod tests {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
+    #[cfg(target_os = "linux")]
+    struct ProviderPeerTestHookGuard;
+
+    #[cfg(target_os = "linux")]
+    impl ProviderPeerTestHookGuard {
+        fn install() -> (Self, std::sync::mpsc::Receiver<()>, std::sync::mpsc::SyncSender<()>) {
+            let (entered, entered_rx) = std::sync::mpsc::sync_channel(1);
+            let (release, release_rx) = std::sync::mpsc::sync_channel(1);
+            let previous =
+                PROVIDER_PEER_TEST_HOOK.lock().unwrap().replace(Arc::new(ProviderPeerTestHook {
+                    entered,
+                    release: Mutex::new(release_rx),
+                }));
+            assert!(previous.is_none(), "provider peer test hook was already installed");
+            (Self, entered_rx, release)
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    impl Drop for ProviderPeerTestHookGuard {
+        fn drop(&mut self) {
+            PROVIDER_PEER_TEST_HOOK.lock().unwrap().take();
+        }
+    }
+
     const MUX_GENERATION: &str = "0123456789abcdef0123456789abcdef";
     const AUTHORITY_ONE: &str = "provider-authority-one-0000000000000001";
     const AUTHORITY_TWO: &str = "provider-authority-two-0000000000000002";
@@ -485,6 +533,38 @@ mod tests {
         for peer in peers {
             peer.join().unwrap();
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn dropping_server_does_not_wait_without_limit_for_a_tracked_peer() {
+        use std::os::unix::net::{UnixListener, UnixStream};
+
+        let _test_guard = PROVIDER_PEER_TEST_LOCK.lock().unwrap();
+        let (hook_guard, entered, release) = ProviderPeerTestHookGuard::install();
+        let socket = std::env::temp_dir()
+            .join(format!("cmux-provider-management-drop-deadline-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket);
+        let listener = UnixListener::bind(&socket).unwrap();
+        let server = serve(listener, mux()).unwrap();
+        let client = UnixStream::connect(&socket).unwrap();
+        let peer_entered = entered.recv_timeout(Duration::from_secs(1)).is_ok();
+        let (dropped, drop_result) = std::sync::mpsc::sync_channel(1);
+        let dropper = std::thread::spawn(move || {
+            drop(server);
+            let _ = dropped.send(());
+        });
+
+        let prompt = drop_result.recv_timeout(Duration::from_secs(1)).is_ok();
+        let _ = release.send(());
+        drop(client);
+        let dropper_result = dropper.join();
+        drop(hook_guard);
+        let _ = std::fs::remove_file(socket);
+
+        assert!(peer_entered, "the provider peer did not reach its tracked owner signal");
+        assert!(dropper_result.is_ok(), "the provider server drop helper panicked");
+        assert!(prompt, "provider server drop waited without limit for a tracked peer");
     }
 
     #[cfg(target_os = "linux")]

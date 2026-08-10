@@ -482,6 +482,24 @@ fn parse_devtools_url(line: &str) -> Option<String> {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    struct ForcedReaperPending;
+
+    #[cfg(unix)]
+    impl ForcedReaperPending {
+        fn new() -> Self {
+            FORCE_REAPER_PENDING.store(true, Ordering::Release);
+            Self
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for ForcedReaperPending {
+        fn drop(&mut self) {
+            FORCE_REAPER_PENDING.store(false, Ordering::Release);
+        }
+    }
+
     #[test]
     fn parses_devtools_endpoint() {
         assert_eq!(
@@ -657,6 +675,45 @@ mod tests {
         }
 
         assert!(reaped, "dropping Chrome discarded an unconfirmed child without reaping it");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn kill_retry_waits_for_reaper_completion_before_reporting_success() {
+        let _guard = REAPER_TEST_LOCK.lock().unwrap();
+        let (_observer, events) = ReaperTestObserver::install();
+        let child = Command::new("cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let chrome = Chrome {
+            child: Mutex::new(Some(child)),
+            profile_dir: make_profile_dir().unwrap(),
+            profile_ephemeral: true,
+            web_socket_url: "ws://127.0.0.1/unused".to_string(),
+            reaper: Mutex::new(Some(chrome_reaper_lease().unwrap())),
+        };
+        let pending = ForcedReaperPending::new();
+
+        FORCE_KILL_TIMEOUT.set(true);
+        let first = chrome.kill_until(Instant::now() + Duration::from_secs(1));
+        FORCE_KILL_TIMEOUT.set(false);
+        wait_for_reaper_test_event(&events, ReaperTestEvent::Attempt(pid));
+
+        FORCE_KILL_TIMEOUT.set(true);
+        let second = chrome.kill_until(Instant::now() + Duration::from_secs(1));
+        FORCE_KILL_TIMEOUT.set(false);
+
+        drop(pending);
+        wait_for_reaper_test_event(&events, ReaperTestEvent::Complete(pid));
+        let third = chrome.kill_until(Instant::now() + Duration::from_secs(1));
+
+        assert!(!first, "the first forced timeout reported completion");
+        assert!(!second, "a retry reported success before the reaper confirmed process exit");
+        assert!(third, "a retry did not report success after confirmed process exit");
     }
 
     #[cfg(unix)]
