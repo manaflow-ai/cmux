@@ -46,4 +46,24 @@ final class NativeScrollInteractionUITests: XCTestCase {
         XCTAssertEqual(values[0], values[1], accuracy: 0.2)
         XCTAssertEqual(values[2], 0, accuracy: 0.2)
     }
+
+    func testHalfRowOffsetMovesRendererPixels() throws {
+        app.terminate()
+        app.launchArguments = ["-scroll-lab-half-row"]
+        app.launch()
+
+        let metrics = app.staticTexts["nativeScrollMetrics"]
+        XCTAssertTrue(metrics.waitForExistence(timeout: 5))
+        let fractionalRenderer = NSPredicate(
+            format: "value CONTAINS %@",
+            "Fractional renderer active"
+        )
+        expectation(for: fractionalRenderer, evaluatedWith: metrics)
+        waitForExpectations(timeout: 5)
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Half-row renderer presentation"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
 }
