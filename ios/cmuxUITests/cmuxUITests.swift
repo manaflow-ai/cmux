@@ -2463,6 +2463,48 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
+    /// Regular-width presentation must not strand the composer controls at
+    /// the bottom of a centered form sheet while the software keyboard is
+    /// docked to the screen below it.
+    @MainActor
+    func testTaskComposerAccessoryBarStaysAttachedToIPadKeyboard() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(taskComposerPrompt(in: app).waitForExistence(timeout: 8))
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
+        let options = app.buttons["MobileTaskComposerOptionsButton"]
+        let submit = app.buttons["MobileTaskComposerSubmitButton"]
+        XCTAssertTrue(options.waitForExistence(timeout: 3))
+        XCTAssertTrue(submit.waitForExistence(timeout: 3))
+
+        let controlToKeyboardGap = keyboard.frame.minY - submit.frame.maxY
+        XCTAssertGreaterThanOrEqual(
+            controlToKeyboardGap,
+            0,
+            "The composer controls must remain above the software keyboard"
+        )
+        XCTAssertLessThanOrEqual(
+            controlToKeyboardGap,
+            8,
+            "The composer controls must remain visually attached to the software keyboard"
+        )
+        XCTAssertEqual(
+            options.frame.maxY,
+            submit.frame.maxY,
+            accuracy: 1,
+            "The fixed edge controls must share one keyboard-pinned row"
+        )
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "task-composer-ipad-keyboard-attachment"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     /// Accessibility text sizes must preserve a useful prompt canvas instead
     /// of allowing the persistent action to consume most of the visible sheet.
     @MainActor
