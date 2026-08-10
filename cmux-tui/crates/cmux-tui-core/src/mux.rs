@@ -6740,6 +6740,22 @@ impl Mux {
         if let Some(incarnation) = terminal_incarnation {
             validate_terminal_hex(incarnation, "invalid_terminal_incarnation")?;
         }
+        let replay = self.workspace_registry.lock().unwrap().validate_terminal_close_request(
+            mutation,
+            expected_generation,
+            expected_revision,
+            terminal_id,
+            terminal_incarnation,
+        )?;
+        if let Some(commit) = replay {
+            return Ok(TerminalCloseResult {
+                surface: None,
+                terminal_id: terminal_id.to_string(),
+                terminal_incarnation: commit.result["incarnation"].as_str().map(str::to_owned),
+                already_closed: commit.result["already_closed"].as_bool().unwrap_or(true),
+                terminal_revision: commit.revision,
+            });
+        }
 
         // A detached terminal is a valid durable state. Close each view with
         // the existing scoped topology transaction first. The final SQLite
@@ -6812,8 +6828,8 @@ impl Mux {
                 let empty_result = serde_json::json!({});
                 let close = registry.close_terminal_with_resource_patch(
                     mutation,
-                    expected_generation,
-                    expected_revision,
+                    None,
+                    None,
                     patch.as_ref().map(|_| state.resource_revision),
                     terminal_id,
                     terminal_incarnation,

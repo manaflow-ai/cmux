@@ -2682,6 +2682,60 @@ impl WorkspaceRegistry {
         terminal_replay(&self.connection, mutation, &fingerprint)
     }
 
+    /// Validate a terminal-close compare-and-swap before the mux changes any
+    /// view topology. A successful check claims the request preconditions for
+    /// the close sequence. Terminal IDs cannot be resurrected with another
+    /// incarnation, so later view detaches cannot target a replacement host.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn validate_terminal_close_request(
+        &self,
+        mutation: &WorkspaceMutation,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        terminal_id: &str,
+        expected_incarnation: Option<&str>,
+    ) -> anyhow::Result<Option<TerminalRegistryCommit>> {
+        validate_identifier("mutation id", &mutation.id)?;
+        validate_identifier("mutation origin", &mutation.origin)?;
+        validate_terminal_identity("terminal id", terminal_id)?;
+        if let Some(incarnation) = expected_incarnation {
+            validate_terminal_identity("terminal incarnation", incarnation)?;
+        }
+        let fingerprint = canonical_json(&serde_json::json!({
+            "op": "close-terminal",
+            "terminal_id": terminal_id,
+            "incarnation": expected_incarnation,
+        }))?;
+        if let Some(replay) = terminal_replay(&self.connection, mutation, &fingerprint)? {
+            return Ok(Some(replay));
+        }
+        if let Some(expected) = expected_generation
+            && expected != self.generation
+        {
+            anyhow::bail!(
+                "terminal generation conflict: expected {expected}, current {}",
+                self.generation
+            );
+        }
+        let current_revision = current_terminal_revision(&self.connection)?;
+        if let Some(expected) = expected_revision
+            && expected != current_revision
+        {
+            anyhow::bail!(
+                "terminal revision conflict: expected {expected}, current {current_revision}"
+            );
+        }
+        let Some(terminal) = read_terminal(&self.connection, terminal_id)? else {
+            anyhow::bail!("unknown terminal {terminal_id}; it may not have been adopted yet");
+        };
+        if let Some(expected) = expected_incarnation
+            && terminal.incarnation.as_deref() != Some(expected)
+        {
+            anyhow::bail!("terminal_incarnation_mismatch");
+        }
+        Ok(None)
+    }
+
     /// Commits one terminal state transition and its event in a single SQLite
     /// transaction. Callers reserve a stable id in `launching` before spawning
     /// a host, then advance it through `adopting`/`running` only after the host
