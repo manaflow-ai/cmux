@@ -97,6 +97,10 @@ extension SettingsWindowSharedStateSuites {
             // full-screen cmux window.
             #expect(window.collectionBehavior.contains(.moveToActiveSpace))
             #expect(window.collectionBehavior.contains(.fullScreenAuxiliary))
+            // A user who enables automatic macOS window tabbing must still
+            // receive a standalone Settings window, never a terminal tab that
+            // makes the open request appear to have done nothing.
+            #expect(window.tabbingMode == .disallowed)
         }
 
         @Test func toolbarToggleSharesTheMenuCommandNotificationPath() throws {
