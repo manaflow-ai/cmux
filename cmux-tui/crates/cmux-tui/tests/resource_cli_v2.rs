@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
+use cmux_tui_core::resource::PROTOCOL;
 use serde_json::{Value, json};
 use wait_timeout::ChildExt;
 
@@ -911,7 +912,7 @@ fn pre_ready_resource_reload_uses_selected_locale() {
         let request: Value = serde_json::from_str(&line).unwrap();
         assert_eq!(request["operation"], "session.reload_config");
         let response = json!({
-            "protocol":"cmux.protocol/1",
+            "protocol":PROTOCOL,
             "type":"response",
             "id":request["id"],
             "ok":false,
@@ -962,7 +963,7 @@ fn pre_ready_resource_reload_json_preserves_server_message() {
         let request: Value = serde_json::from_str(&line).unwrap();
         assert_eq!(request["operation"], "session.reload_config");
         let response = json!({
-            "protocol":"cmux.protocol/1",
+            "protocol":PROTOCOL,
             "type":"response",
             "id":request["id"],
             "ok":false,
