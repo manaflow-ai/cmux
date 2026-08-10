@@ -724,7 +724,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
-    func testMissingSurfaceTabBarConfigurationUsesDiscoverableSimulatorDefault() throws {
+    func testMissingSurfaceTabBarConfigurationDoesNotAddSimulatorButtonOnMac() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -744,7 +744,6 @@ final class CmuxConfigDecodingTests: XCTestCase {
             [
                 CmuxSurfaceTabBarBuiltInAction.newTerminal.configID,
                 CmuxSurfaceTabBarBuiltInAction.newBrowser.configID,
-                CmuxSurfaceTabBarBuiltInAction.newSimulator.configID,
                 CmuxSurfaceTabBarBuiltInAction.splitRight.configID,
                 CmuxSurfaceTabBarBuiltInAction.splitDown.configID,
             ]
