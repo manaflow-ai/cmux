@@ -5,6 +5,7 @@ import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxTestSupport
 import CmuxTerminal
+import CmuxTerminalCore
 import CmuxFoundation
 import CmuxSettings
 
@@ -180,9 +181,46 @@ struct TerminalPanelView: View {
             }
         }
         .background(Color(nsColor: appearance.contentBackgroundColor))
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
+        .onAppear {
+            refreshTerminalFontSize()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            refreshTerminalFontSize()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: .terminalSurfaceFontSizeLineageDidChange,
+                object: panel.surface
+            )
+        ) { _ in
+            refreshTerminalFontSize()
+        }
+    }
+
+    /// Keeps the text box font in sync with the surface's runtime zoom
+    /// (Cmd+Ctrl+= / - / 0), not just the configured Ghostty size (issue #9463).
+    private func refreshTerminalFontSize() {
+        terminalFontSize = Self.resolvedTerminalFontSize(
+            lineage: panel.surface.fontSizeLineageSnapshot(),
+            configuredFontSize: GhosttyConfig.load(
+                globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
+            ).fontSize,
+            magnificationPercent: GlobalFontMagnification.storedPercent
+        )
+    }
+
+    static func resolvedTerminalFontSize(
+        lineage: TerminalFontSizeLineage?,
+        configuredFontSize: CGFloat,
+        magnificationPercent: Int
+    ) -> CGFloat {
+        guard let lineage else { return configuredFontSize }
+        return CGFloat(
+            CmuxSurfaceConfigTemplate.runtimeFontSize(
+                fromBasePoints: lineage.basePoints,
+                percent: magnificationPercent
+            )
+        )
     }
 
     private var sessionContentWidthPresentation: SessionContentWidthPresentation {

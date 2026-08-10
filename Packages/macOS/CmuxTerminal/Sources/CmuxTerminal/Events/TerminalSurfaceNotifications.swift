@@ -11,4 +11,10 @@ public extension Notification.Name {
     /// completes (`object`: the surface model).
     static let terminalSurfaceDidCompleteClipboardRead =
         Notification.Name("terminalSurfaceDidCompleteClipboardRead")
+
+    /// Posted by ``TerminalSurface`` after its font-size lineage changes
+    /// (runtime zoom, reset, or config reconciliation; `object`: the
+    /// surface model).
+    static let terminalSurfaceFontSizeLineageDidChange =
+        Notification.Name("cmux.terminalSurfaceFontSizeLineageDidChange")
 }
