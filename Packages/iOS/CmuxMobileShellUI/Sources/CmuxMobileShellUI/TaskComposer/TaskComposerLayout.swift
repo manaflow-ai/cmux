@@ -159,6 +159,8 @@ struct TaskComposerLayout: View {
         // provides the visual boundary below.
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .background(Color(uiColor: .systemBackground))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileTaskComposerAccessoryBar")
     }
 
     private var optionsButton: some View {

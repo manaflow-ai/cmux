@@ -2449,6 +2449,75 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
+    /// Regular-width presentation must not strand the composer controls at
+    /// the bottom of a centered form sheet while the software keyboard is
+    /// docked to the screen below it.
+    @MainActor
+    func testTaskComposerAccessoryBarStaysAttachedToIPadKeyboard() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(taskComposerPrompt(in: app).waitForExistence(timeout: 8))
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
+        let options = app.buttons["MobileTaskComposerOptionsButton"]
+        let submit = app.buttons["MobileTaskComposerSubmitButton"]
+        let accessoryBar = app.otherElements["MobileTaskComposerAccessoryBar"]
+        XCTAssertTrue(options.waitForExistence(timeout: 3))
+        XCTAssertTrue(submit.waitForExistence(timeout: 3))
+        XCTAssertTrue(accessoryBar.waitForExistence(timeout: 3))
+
+        let controlToKeyboardGap = keyboard.frame.minY - submit.frame.maxY
+        let assistantOccupants = (
+            app.buttons.allElementsBoundByIndex
+                + app.staticTexts.allElementsBoundByIndex
+        ).filter { element in
+            let frame = element.frame
+            return !frame.isEmpty
+                && frame.minY >= accessoryBar.frame.maxY - 1
+                && frame.maxY <= keyboard.frame.minY + 1
+        }
+        XCTAssertFalse(
+            assistantOccupants.isEmpty,
+            "The keyplane gap must contain the iPad text-input assistant strip"
+        )
+        let assistantTop = assistantOccupants.map(\.frame.minY).min()
+        let accessoryToAssistantGap = try XCTUnwrap(assistantTop) - accessoryBar.frame.maxY
+        print(
+            "MPILL_DOCK_XCUI accessory=\(accessoryBar.frame) submit=\(submit.frame) "
+                + "assistantTop=\(assistantTop ?? -1) keyboard=\(keyboard.frame)"
+        )
+        XCTAssertGreaterThanOrEqual(
+            controlToKeyboardGap,
+            0,
+            "The composer controls must remain above the software keyboard"
+        )
+        XCTAssertLessThanOrEqual(
+            accessoryToAssistantGap,
+            12,
+            "The composer bar must meet the iPad assistant strip without form-sheet whitespace"
+        )
+        XCTAssertEqual(
+            accessoryBar.frame.maxY - submit.frame.maxY,
+            6,
+            accuracy: 1,
+            "The submit control must keep the bar's six-point bottom inset"
+        )
+        XCTAssertEqual(
+            options.frame.maxY,
+            submit.frame.maxY,
+            accuracy: 1,
+            "The fixed edge controls must share one keyboard-pinned row"
+        )
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "task-composer-ipad-keyboard-attachment"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     /// Accessibility text sizes must preserve a useful prompt canvas instead
     /// of allowing the persistent action to consume most of the visible sheet.
     @MainActor
