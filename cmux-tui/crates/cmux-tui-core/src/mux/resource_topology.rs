@@ -2330,6 +2330,7 @@ impl Mux {
         if let Some(runtime) = effects.runtime.as_ref() {
             self.purge_terminal_runtime_side_tables(runtime);
             runtime.kill();
+            self.finish_terminal_kitty_retirement(runtime);
         }
         drop(effects.removed);
         for target in effects.targets {

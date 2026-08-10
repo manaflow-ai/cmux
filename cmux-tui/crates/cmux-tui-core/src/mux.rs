@@ -7044,11 +7044,11 @@ impl Mux {
     fn terminate_terminal_runtime(&self, runtime: &Arc<Surface>) {
         let identity = self.resource_terminal_host_identity(runtime);
         #[cfg(unix)]
-        let acknowledged = match runtime
+        let (acknowledged, runtime_stopped) = match runtime
             .terminate_host_and_wait_for_exit(Instant::now() + TERMINAL_HOST_CLOSE_WAIT)
         {
-            Ok(Some((path, exit))) => acknowledge_exact_terminal_host_exit(&path, &exit),
-            Ok(None) => false,
+            Ok(Some((path, exit))) => (acknowledge_exact_terminal_host_exit(&path, &exit), true),
+            Ok(None) => (false, true),
             Err(error) => {
                 if let Some(identity) = identity.as_ref() {
                     eprintln!(
@@ -7056,10 +7056,15 @@ impl Mux {
                         identity.terminal_id
                     );
                 }
-                false
+                (false, runtime.is_dead())
             }
         };
+        #[cfg(not(unix))]
+        let runtime_stopped = true;
         runtime.kill();
+        if runtime_stopped {
+            self.finish_terminal_kitty_retirement(runtime);
+        }
         #[cfg(unix)]
         if !acknowledged && let Some(identity) = identity {
             self.terminate_discovered_terminal_host(
@@ -7537,19 +7542,16 @@ impl Mux {
             sizing.terminal_authorities.remove(&runtime_id);
             drop(sizing);
             drop(sizing_lifecycle);
-            {
-                let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
-                let mut pending = self.pending_cell_pixels.lock().unwrap();
-                if let Some(update) = pending.as_mut() {
-                    update.failures.remove(&runtime_id);
-                    if update.failures.is_empty() {
-                        let target = update.target;
-                        *self.cell_pixels.lock().unwrap() = target;
-                        *pending = None;
-                    }
+            let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+            let mut pending = self.pending_cell_pixels.lock().unwrap();
+            if let Some(update) = pending.as_mut() {
+                update.failures.remove(&runtime_id);
+                if update.failures.is_empty() {
+                    let target = update.target;
+                    *self.cell_pixels.lock().unwrap() = target;
+                    *pending = None;
                 }
             }
-            self.retire_kitty_image_resource(runtime_id);
         }
         if let Some(terminal_id) = runtime.terminal_public_id() {
             self.purge_terminal_side_tables(terminal_id);
@@ -8081,22 +8083,30 @@ impl Mux {
         Ok(())
     }
 
+    fn finish_terminal_kitty_retirement(&self, surface: &Surface) {
+        let Some(mux) = surface.terminal_mux() else { return };
+        debug_assert!(std::ptr::eq(self, Arc::as_ptr(&mux)));
+        mux.retire_kitty_image_resource(surface);
+    }
+
     /// A view can retain a terminal after the resource leaves the catalog.
-    /// Retire the resource budget by stable runtime identity instead of Arc
-    /// lifetime so retained views cannot keep process-wide quota ownership.
-    fn retire_kitty_image_resource(&self, runtime_id: SurfaceId) {
-        let removed = {
+    /// Clear retained graphics before stable runtime retirement frees quota.
+    fn retire_kitty_image_resource(self: &Arc<Self>, surface: &Surface) {
+        let runtime_id = surface.terminal_runtime_id().unwrap_or(surface.id);
+        let released = surface.release_kitty_graphics_for_retirement().is_ok();
+        {
             let mut budget = self.kitty_image_budget.lock().unwrap();
-            let removed = budget.entries.remove(&runtime_id).is_some();
-            if removed {
+            if released {
+                budget.entries.remove(&runtime_id);
                 budget.blocked_surfaces.remove(&runtime_id);
                 Self::rebalance_kitty_image_budget_owners(&mut budget);
+            } else if let Some(entry) = budget.entries.get_mut(&runtime_id) {
+                entry.removing = true;
+                budget.blocked_surfaces.remove(&runtime_id);
             }
-            removed
-        };
-        if removed {
-            self.kitty_image_budget_changed.notify_all();
         }
+        self.kitty_image_budget_changed.notify_all();
+        self.start_kitty_image_budget_worker();
     }
 
     pub(crate) fn resource_terminal_host_identity(
@@ -11832,7 +11842,7 @@ impl Mux {
                 self.emit(MuxEvent::SurfaceExited(placement.id));
             }
             self.purge_terminal_runtime_side_tables(surface);
-            self.start_kitty_image_budget_worker();
+            self.retire_kitty_image_resource(surface);
             if !removed.is_empty() {
                 self.emit(MuxEvent::TreeChanged);
             }
@@ -18825,6 +18835,7 @@ mod tests {
                 !budget.entries.contains_key(&second_runtime),
             )
         };
+        second.set_kitty_graphics_limits(1_024, 1_024, 1, 1).unwrap();
         let closed_limits =
             second.with_terminal(|terminal| terminal.kitty_graphics_limits().unwrap()).unwrap();
 
