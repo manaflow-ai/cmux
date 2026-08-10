@@ -86,6 +86,11 @@ describe("localized pricing page", () => {
     ).toBe(
       "Yes. Team is $35/user/mo, or $28/user/mo when billed annually, and adds shared CodeRouter with anonymous aggregate usage and cost analytics.",
     );
+    expect(
+      enMessages.pricing.compare.rows.find(
+        (row) => row.label === "Cloud agents on Cloud VMs",
+      )?.team,
+    ).toBe("20 hrs/mo, then usage-based");
   });
 
   beforeEach(() => {
