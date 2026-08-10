@@ -2284,12 +2284,12 @@ impl Mux {
             let changed_screens = unique_screen_ids(
                 targets.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
             );
-            let removed = if let Some(runtime) = runtime.as_ref() {
-                remove_terminal_runtime_from_state(self, &mut state, runtime).0
+            let removed = if let Some(public_id) = catalog_public_id.as_ref() {
+                remove_terminal_content_from_state(self, &mut state, public_id, &targets).1
             } else {
                 let mut removed = Vec::new();
                 let mut split_index_dirty = false;
-                for target in targets {
+                for target in targets.iter().copied() {
                     let (surface, changed) = remove_surface(self, &mut state, target);
                     split_index_dirty |= changed;
                     if let Some(surface) = surface {

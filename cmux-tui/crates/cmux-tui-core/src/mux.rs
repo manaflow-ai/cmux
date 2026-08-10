@@ -20799,6 +20799,47 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn replayed_terminal_close_removes_every_host_matched_stale_view() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let second = projected_terminal_view(&mux, &first);
+        let host = mux.resource_terminal_host_identity(&first).unwrap();
+        let public_id = first.terminal_public_id().cloned().unwrap();
+        let mutation = WorkspaceMutation::new("terminal-close-stale-views", "test").unwrap();
+
+        mux.close_terminal_with_mutation(
+            &host.terminal_id,
+            Some(&host.incarnation),
+            None,
+            None,
+            &mutation,
+        )
+        .unwrap();
+        {
+            let mut state = mux.state.lock().unwrap();
+            insert_surface_checked(&mut state, first.clone()).unwrap();
+            insert_surface_checked(&mut state, second.clone()).unwrap();
+            state
+                .resource_indexes
+                .content_placements
+                .remove(&ContentPublicId::Terminal(public_id));
+        }
+
+        mux.close_terminal_with_mutation(
+            &host.terminal_id,
+            Some(&host.incarnation),
+            None,
+            None,
+            &mutation,
+        )
+        .unwrap();
+
+        assert!(mux.surface(first.id).is_none());
+        assert!(mux.surface(second.id).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn terminal_only_close_replay_repairs_resource_state_and_memory() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
