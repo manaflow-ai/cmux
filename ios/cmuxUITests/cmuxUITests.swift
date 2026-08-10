@@ -2226,6 +2226,85 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// A model returned as authoritative host discovery must travel through
+    /// the production RPC, picker, and workspace-create command unchanged.
+    /// The same test then proves a cold empty catalog still submits the
+    /// default provider command without inventing a model choice.
+    @MainActor
+    func testTaskComposerHostDiscoveredAndColdEmptyCatalogSubmissions() async throws {
+        let discoveredModelID = "us.anthropic.claude-opus-5[1m]"
+        let discoveredModelName = "Opus (1M context)"
+        let server = try MobileSyncMockHostServer(taskModelsByProvider: [
+            "claude": [(id: discoveredModelID, displayName: discoveredModelName)],
+        ])
+        let port = try await server.start()
+
+        let hostApp = try launchConnectedApp(port: port)
+        let backButton = hostApp.buttons["MobileWorkspaceBackButton"]
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+        tap(backButton, in: hostApp)
+        XCTAssertTrue(
+            hostApp.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+                .waitForExistence(timeout: 4)
+        )
+        tap(hostApp.buttons["MobileTaskComposerButton"], in: hostApp)
+
+        let hostPrompt = taskComposerPrompt(in: hostApp)
+        XCTAssertTrue(hostPrompt.waitForExistence(timeout: 8))
+        let requestedHostModels = await server.waitForTaskModelListRequest(provider: "claude")
+        XCTAssertTrue(
+            requestedHostModels,
+            "The production composer must request models from the selected host"
+        )
+        let hostModel = hostApp.buttons["MobileTaskComposerModelPill"]
+        XCTAssertTrue(hostModel.waitForExistence(timeout: 4))
+        tap(hostModel, in: hostApp)
+        tapMenuItem(hostApp.buttons[discoveredModelName], in: hostApp)
+        XCTAssertEqual(hostModel.value as? String, discoveredModelName)
+
+        let hostPromptText = "Use an installed-agent model"
+        try typeText(hostPromptText, into: hostPrompt, in: hostApp)
+        tap(hostApp.buttons["MobileTaskComposerSubmitButton"], in: hostApp)
+        guard let request = await server.waitForWorkspaceCreateRequest(timeout: 8) else {
+            XCTFail("The host never received the discovered-model task")
+            hostApp.terminate()
+            server.stop()
+            return
+        }
+        XCTAssertEqual(
+            request.initialCommand,
+            "claude --model '\(discoveredModelID)' -- \"$CMUX_TASK_PROMPT\""
+        )
+        XCTAssertEqual(request.initialEnvironment, ["CMUX_TASK_PROMPT": hostPromptText])
+        hostApp.terminate()
+        server.stop()
+
+        let emptyCatalog = #"{"schemaVersion":1,"updatedAt":"2026-08-10T00:00:00Z","providers":{"claude":{"defaultModel":"unused","models":[]}}}"#
+        let emptyApp = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_MODEL_CATALOG_JSON": emptyCatalog,
+        ])
+        defer { emptyApp.terminate() }
+
+        let emptyPrompt = taskComposerPrompt(in: emptyApp)
+        XCTAssertTrue(emptyPrompt.waitForExistence(timeout: 8))
+        XCTAssertTrue(waitForKeyboardFocus(of: emptyPrompt, timeout: 3))
+        XCTAssertFalse(
+            emptyApp.buttons["MobileTaskComposerModelPill"].waitForExistence(timeout: 2),
+            "A cold empty catalog must not invent a model pill"
+        )
+        let provider = emptyApp.buttons["MobileTaskComposerAgentPill"]
+        XCTAssertTrue(provider.waitForExistence(timeout: 3))
+        XCTAssertEqual(provider.value as? String, "Claude")
+
+        let emptyPromptText = "Use the provider default"
+        try typeText(emptyPromptText, into: emptyPrompt, in: emptyApp)
+        tap(emptyApp.buttons["MobileTaskComposerSubmitButton"], in: emptyApp)
+        let submittedCommand = emptyApp.staticTexts["MobileTaskComposerSubmittedInitialCommand"]
+        XCTAssertTrue(submittedCommand.waitForExistence(timeout: 4))
+        XCTAssertEqual(submittedCommand.label, "claude -- \"$CMUX_TASK_PROMPT\"")
+    }
+
     /// Regression: every task-composer action must remain discoverable through
     /// the accessibility hierarchy, and its exposed activation frame must meet
     /// Apple's 44-point minimum on both compact and regular-width layouts.
@@ -2514,6 +2593,11 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(options.waitForExistence(timeout: 3))
         XCTAssertTrue(submit.waitForExistence(timeout: 3))
         XCTAssertTrue(accessoryBar.waitForExistence(timeout: 3))
+        XCTAssertGreaterThanOrEqual(
+            keyboard.frame.height,
+            180,
+            "Verification requires the visible software keyplane, not only the iPad assistant strip"
+        )
 
         let controlToKeyboardGap = keyboard.frame.minY - submit.frame.maxY
         let assistantOccupants = (
@@ -2568,10 +2652,13 @@ final class cmuxUITests: XCTestCase {
     /// of allowing the persistent action to consume most of the visible sheet.
     @MainActor
     func testTaskComposerAccessibilityXXXLKeepsPrimaryActionCompact() throws {
+        let longModelName = "Opus 4.8 (1M context) via Installed Agent"
+        let longModelCatalog = #"{"schemaVersion":1,"updatedAt":"2026-08-10T00:00:00Z","providers":{"claude":{"defaultModel":"us.anthropic.claude-opus-4-8[1m]","models":[{"id":"us.anthropic.claude-opus-4-8[1m]","label":"Opus 4.8 (1M context) via Installed Agent"}]},"opencode":{"defaultModel":"anthropic/long-model","models":[{"id":"anthropic/long-model","label":"Opus 4.8 (1M context) via Installed Agent"}]}}}"#
         let app = launchApp(
             mockData: false,
             environment: [
                 "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+                "CMUX_UITEST_TASK_MODEL_CATALOG_JSON": longModelCatalog,
             ],
             launchArguments: [
                 "-UIPreferredContentSizeCategoryName",
@@ -2597,9 +2684,20 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(options.waitForExistence(timeout: 3))
         XCTAssertTrue(model.waitForExistence(timeout: 3))
         tap(model, in: app)
-        tapMenuItem(app.buttons["Claude Opus 4.8"], in: app)
+        tapMenuItem(app.buttons[longModelName], in: app)
         XCTAssertTrue(scroller.waitForExistence(timeout: 3))
         XCTAssertTrue(create.waitForExistence(timeout: 3))
+
+        XCTAssertEqual(options.label, "Task Options")
+        XCTAssertTrue(options.isHittable)
+        XCTAssertEqual(agentMenu.label, "Agent")
+        XCTAssertEqual(agentMenu.value as? String, "OpenCode")
+        XCTAssertTrue(agentMenu.isHittable)
+        XCTAssertEqual(model.label, "Model")
+        XCTAssertEqual(model.value as? String, longModelName)
+        XCTAssertTrue(model.isHittable)
+        XCTAssertEqual(create.label, "Start Task")
+        XCTAssertTrue(create.isHittable)
 
         let windowFrame = app.windows.firstMatch.frame
         XCTAssertGreaterThanOrEqual(
@@ -8073,6 +8171,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let holdsTerminalPasteResponse: Bool
     private let rejectsTerminalPaste: Bool
     private let advertisesTaskAttachments: Bool
+    private let taskModelsByProvider: [String: [(id: String, displayName: String)]]
     private let macInstanceTag: String
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
@@ -8083,6 +8182,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var terminalScrollRequestsReceived = 0
     private var streamOffset: UInt64 = 1
     private var terminalPasteRequestReached = false
+    private var taskModelListRequests: [String] = []
     private var terminalPasteRequestReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var heldTerminalPasteResponse: (() -> Void)?
     private var workspaces: [Workspace] = [
@@ -8143,6 +8243,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         holdsTerminalPasteResponse: Bool = false,
         rejectsTerminalPaste: Bool = false,
         advertisesTaskAttachments: Bool = false,
+        taskModelsByProvider: [String: [(id: String, displayName: String)]] = [:],
         macInstanceTag: String = mockHostInstanceTag()
     ) throws {
         listener = try NWListener(using: .tcp, on: .any)
@@ -8152,6 +8253,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         self.holdsTerminalPasteResponse = holdsTerminalPasteResponse
         self.rejectsTerminalPaste = rejectsTerminalPaste
         self.advertisesTaskAttachments = advertisesTaskAttachments
+        self.taskModelsByProvider = taskModelsByProvider
         self.macInstanceTag = macInstanceTag
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
@@ -8241,6 +8343,28 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             try? await Task.sleep(nanoseconds: 50_000_000)
         }
         return await latestWorkspaceCreateRequest()
+    }
+
+    func waitForTaskModelListRequest(
+        provider: String,
+        timeout: TimeInterval = 8
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if await requestedTaskModelProviders().contains(provider) {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return await requestedTaskModelProviders().contains(provider)
+    }
+
+    private func requestedTaskModelProviders() async -> [String] {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: self.taskModelListRequests)
+            }
+        }
     }
 
     private func latestWorkspaceCreateRequest() async -> WorkspaceCreateRequest? {
@@ -8513,6 +8637,13 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             result = ["stream_id": params["stream_id"] as? String ?? "events"]
         case "mobile.host.status":
             result = mobileHostStatusResult()
+        case "mobile.task.models.list":
+            let provider = params["provider"] as? String ?? ""
+            taskModelListRequests.append(provider)
+            let models = taskModelsByProvider[provider, default: []].map { model in
+                ["id": model.id, "display_name": model.displayName]
+            }
+            result = ["source": "discovered", "models": models]
         case "mobile.terminal.viewport", "terminal.viewport":
             result = [
                 "columns": params["viewport_columns"] as? Int ?? 80,
@@ -8555,6 +8686,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         ]
         if advertisesTaskAttachments {
             capabilities.append("task.attachments.v1")
+        }
+        if !taskModelsByProvider.isEmpty {
+            capabilities.append("task.models.v1")
         }
         return [
             "mac_device_id": "ui-test-mac",

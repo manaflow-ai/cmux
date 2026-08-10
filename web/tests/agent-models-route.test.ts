@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 
 import { agentModelCatalog } from "../data/agent-models";
 
-const { GET, OPTIONS } = await import("../app/api/agent-models/route");
+const { GET, OPTIONS, validateAndDeduplicateCatalog } = await import("../app/api/agent-models/route");
 
 describe("agent models route", () => {
   test("serves the checked-in model catalog with cache, CORS, and a strong ETag", async () => {
@@ -90,5 +90,45 @@ describe("agent models route", () => {
     expect(response.headers.get("access-control-allow-origin")).toBe("*");
     expect(response.headers.get("access-control-allow-methods")).toBe("GET, OPTIONS");
     expect(response.headers.get("access-control-allow-headers")).toBe("If-None-Match, Content-Type");
+  });
+
+  test("validates the schema and deduplicates provider model identifiers", () => {
+    const duplicateCatalog = structuredClone(agentModelCatalog) as {
+      providers: {
+        claude: {
+          models: Array<{ id: string; label: string }>;
+        };
+      };
+    };
+    duplicateCatalog.providers.claude.models.push({
+      id: agentModelCatalog.providers.claude.models[0].id,
+      label: "Duplicate must not ship",
+    });
+
+    const normalized = validateAndDeduplicateCatalog(duplicateCatalog);
+    expect(
+      normalized.providers.claude.models.filter(
+        (model) => model.id === agentModelCatalog.providers.claude.models[0].id,
+      ),
+    ).toHaveLength(1);
+    expect(normalized.providers.claude.models[0].label).toBe(
+      agentModelCatalog.providers.claude.models[0].label,
+    );
+
+    expect(() => validateAndDeduplicateCatalog({
+      schemaVersion: 2,
+      updatedAt: agentModelCatalog.updatedAt,
+      providers: agentModelCatalog.providers,
+    })).toThrow("schemaVersion");
+    expect(() => validateAndDeduplicateCatalog({
+      ...agentModelCatalog,
+      providers: {
+        ...agentModelCatalog.providers,
+        claude: {
+          defaultModel: "missing-default",
+          models: agentModelCatalog.providers.claude.models,
+        },
+      },
+    })).toThrow("defaultModel");
   });
 });
