@@ -225,8 +225,7 @@ fn append_prejournal_projection_migration(
     let digest = Sha256::digest(
         format!("{PREJOURNAL_MIGRATION_FORMAT}/{session_id}/{}", projection.terminal_id).as_bytes(),
     );
-    let event_id =
-        format!("event_agent_projection_migration_{}", encode_lower_hex(&digest));
+    let event_id = format!("event_agent_projection_migration_{}", encode_lower_hex(&digest));
     let producer =
         JournalProducer { kind: "migration".into(), id: PREJOURNAL_MIGRATION_PRODUCER_ID.into() };
     let subjects = vec![
