@@ -794,12 +794,18 @@ extension TerminalSurface {
             runtimeSurfaceAdmissionOverflowSequence = nil
             return nil
         case .rejected:
-            runtimeSurfaceAdmissionOverflowSequence =
+            let overflowRegistration =
                 teardownCoordinator
-                    .registerRuntimeSurfaceOwnershipRecoveryOverflow(
-                        surfaceID: id,
-                        surface: self
-                    )
+                .registerRuntimeSurfaceOwnershipRecoveryOverflow(
+                    surfaceID: id,
+                    surface: self
+                )
+            switch overflowRegistration {
+            case .registered(let sequence), .updated(let sequence):
+                runtimeSurfaceAdmissionOverflowSequence = sequence
+            case .rejected:
+                failRuntimeSurfaceCreationForOverflowCapacity()
+            }
             return nil
         }
     }
@@ -886,6 +892,18 @@ extension TerminalSurface {
         runtimeSurfaceAdmissionOverflowSequence = nil
         runtimeSurfaceAdmissionDeferredCreationSource = nil
         runtimeSurfaceAdmissionDeferredCreationView = nil
+    }
+
+    @MainActor
+    private func failRuntimeSurfaceCreationForOverflowCapacity() {
+        cancelRuntimeSurfaceCreationAfterAdmissionRecovery()
+        paneHost.showRuntimeSurfaceCreationFailure(
+            message: String(
+                localized: "terminal.surface.runtimeCreation.capacityExceeded",
+                defaultValue:
+                    "Unable to start this terminal because too many terminal sessions are still closing."
+            )
+        )
     }
 
     @MainActor

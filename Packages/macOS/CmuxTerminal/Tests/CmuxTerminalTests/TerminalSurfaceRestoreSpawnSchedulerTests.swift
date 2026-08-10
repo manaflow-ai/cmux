@@ -466,13 +466,14 @@ import CmuxTerminalCore
 
         for _ in 0..<(32 * 2 + 1) {
             let surfaceID = UUID()
-            let sequence = coordinator
+            let registration = coordinator
                 .registerRuntimeSurfaceOwnershipRecoveryOverflow(
                     surfaceID: surfaceID,
                     surface: fixture.surface
                 )
-            #expect(sequence > previousSequence)
-            previousSequence = sequence
+            let expectedSequence = previousSequence + 1
+            #expect(registration == .registered(sequence: expectedSequence))
+            previousSequence = registration.sequence ?? previousSequence
             coordinator.cancelRuntimeSurfaceOwnershipRecoveryOverflow(
                 surfaceID: surfaceID
             )
@@ -498,7 +499,16 @@ import CmuxTerminalCore
             )
         let updatedSnapshot =
             coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
-        #expect(updatedSequence == firstSequence)
+        let firstSequenceValue = firstSequence.sequence
+        #expect(firstSequenceValue != nil)
+        #expect(
+            firstSequence
+                == .registered(sequence: firstSequenceValue ?? 0)
+        )
+        #expect(
+            updatedSequence
+                == .updated(sequence: firstSequenceValue ?? 0)
+        )
         #expect(updatedSnapshot.entryCount == 1)
         #expect(updatedSnapshot.linkedNodeCount == 1)
         #expect(updatedSnapshot.headID == repeatedID)
@@ -512,7 +522,10 @@ import CmuxTerminalCore
                 surfaceID: repeatedID,
                 surface: fixture.surface
             )
-        #expect(replacementSequence > firstSequence)
+        #expect(
+            replacementSequence
+                == .registered(sequence: (firstSequenceValue ?? 0) + 1)
+        )
         coordinator.cancelRuntimeSurfaceOwnershipRecoveryOverflow(
             surfaceID: repeatedID
         )
@@ -537,23 +550,27 @@ import CmuxTerminalCore
         let firstID = UUID()
         let secondID = UUID()
 
-        _ = coordinator.registerRuntimeSurfaceOwnershipRecoveryOverflow(
+        let first = coordinator.registerRuntimeSurfaceOwnershipRecoveryOverflow(
             surfaceID: firstID,
             surface: fixture.surface
         )
-        _ = coordinator.registerRuntimeSurfaceOwnershipRecoveryOverflow(
+        let second = coordinator.registerRuntimeSurfaceOwnershipRecoveryOverflow(
             surfaceID: secondID,
             surface: fixture.surface
         )
-        _ = coordinator.registerRuntimeSurfaceOwnershipRecoveryOverflow(
+        let updated = coordinator.registerRuntimeSurfaceOwnershipRecoveryOverflow(
             surfaceID: secondID,
             surface: fixture.surface
         )
-        _ = coordinator.registerRuntimeSurfaceOwnershipRecoveryOverflow(
+        let rejected = coordinator.registerRuntimeSurfaceOwnershipRecoveryOverflow(
             surfaceID: UUID(),
             surface: fixture.surface
         )
 
+        #expect(first == .registered(sequence: 1))
+        #expect(second == .registered(sequence: 2))
+        #expect(updated == .updated(sequence: 2))
+        #expect(rejected == .rejected)
         let snapshot =
             coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
         #expect(snapshot.entryCount == 2)

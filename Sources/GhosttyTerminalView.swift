@@ -294,7 +294,12 @@ extension GhosttySurfaceCallbackContext {
 // The surface model drives its views through the CmuxTerminal hosting seams;
 // the concrete view classes conform here.
 extension GhosttyNSView: TerminalSurfaceNativeViewing {}
-extension GhosttySurfaceScrollView: TerminalSurfacePaneHosting {}
+extension GhosttySurfaceScrollView: TerminalSurfacePaneHosting {
+    func showRuntimeSurfaceCreationFailure(message: String) {
+        runtimeSurfaceCreationFailureLabel.stringValue = message
+        runtimeSurfaceCreationFailureLabel.isHidden = false
+    }
+}
 
 extension TerminalSurface {
     /// Concrete-typed convenience over ``TerminalSurface/paneHost`` for app
@@ -8228,6 +8233,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
     private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView?
+    private let runtimeSurfaceCreationFailureLabel = NSTextField(wrappingLabelWithString: "")
     private var hasVisibilityRevealRefreshScheduled = false
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
@@ -8531,6 +8537,28 @@ final class GhosttySurfaceScrollView: NSView {
         addSubview(mobileViewportBorderOverlayView, positioned: .above, relativeTo: scrollView)
         paneDropTargetView.hostedView = self
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
+        runtimeSurfaceCreationFailureLabel.translatesAutoresizingMaskIntoConstraints = false
+        runtimeSurfaceCreationFailureLabel.alignment = .center
+        runtimeSurfaceCreationFailureLabel.textColor = .labelColor
+        runtimeSurfaceCreationFailureLabel.drawsBackground = true
+        runtimeSurfaceCreationFailureLabel.backgroundColor = .windowBackgroundColor.withAlphaComponent(0.94)
+        runtimeSurfaceCreationFailureLabel.wantsLayer = true
+        runtimeSurfaceCreationFailureLabel.layer?.cornerRadius = 8
+        runtimeSurfaceCreationFailureLabel.layer?.masksToBounds = true
+        runtimeSurfaceCreationFailureLabel.isHidden = true
+        addSubview(runtimeSurfaceCreationFailureLabel, positioned: .above, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            runtimeSurfaceCreationFailureLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            runtimeSurfaceCreationFailureLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            runtimeSurfaceCreationFailureLabel.leadingAnchor.constraint(
+                greaterThanOrEqualTo: leadingAnchor,
+                constant: 24
+            ),
+            runtimeSurfaceCreationFailureLabel.trailingAnchor.constraint(
+                lessThanOrEqualTo: trailingAnchor,
+                constant: -24
+            ),
+        ])
         synchronizeScrollbarAppearance()
         inactiveOverlayView.wantsLayer = true
         inactiveOverlayView.layer?.backgroundColor = NSColor.clear.cgColor

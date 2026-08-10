@@ -241767,6 +241767,23 @@
         }
       }
     },
+    "terminal.surface.runtimeCreation.capacityExceeded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to start this terminal because too many terminal sessions are still closing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了処理中のターミナルセッションが多すぎるため、このターミナルを開始できません。"
+          }
+        }
+      }
+    },
     "terminal.shortcut.name.ctrlL": {
       "extractionState": "manual",
       "localizations": {

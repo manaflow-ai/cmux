@@ -63,7 +63,9 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     /// Creates the process's teardown coordinator.
     public init() {
         let recoveryRescanScheduler =
-            TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler()
+            TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler(
+                maximumEntryCount: Self.maximumRuntimeSurfaceOwnerCount
+            )
         submissionDrain = TerminalSurfaceRuntimeTeardownSubmissionDrain(
             maximumBufferedOperationCount:
                 Self.maximumRuntimeSurfaceOwnerCount
@@ -80,7 +82,9 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
 
     init(maximumRuntimeSurfaceOwnerCount: Int) {
         let recoveryRescanScheduler =
-            TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler()
+            TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler(
+                maximumEntryCount: maximumRuntimeSurfaceOwnerCount
+            )
         submissionDrain = TerminalSurfaceRuntimeTeardownSubmissionDrain(
             maximumBufferedOperationCount:
                 maximumRuntimeSurfaceOwnerCount
@@ -125,7 +129,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     nonisolated func registerRuntimeSurfaceOwnershipRecoveryOverflow(
         surfaceID: UUID,
         surface: TerminalSurface
-    ) -> UInt64 {
+    ) -> TerminalSurfaceRuntimeOwnershipRecoveryOverflowRegistration {
         recoveryRescanScheduler.registerOverflow(
             surfaceID: surfaceID,
             surface: surface

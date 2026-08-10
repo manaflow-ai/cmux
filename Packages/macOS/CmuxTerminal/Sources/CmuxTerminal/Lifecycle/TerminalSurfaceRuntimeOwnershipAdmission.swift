@@ -26,8 +26,7 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
     init(
         maximumOwnerCount: Int,
         recoveryRescanScheduler:
-            TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler =
-                TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler()
+            TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler? = nil
     ) {
         precondition(
             maximumOwnerCount >= TerminalSurfaceRuntimeTeardownCoordinator
@@ -36,6 +35,9 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
         )
         self.maximumOwnerCount = maximumOwnerCount
         self.recoveryRescanScheduler = recoveryRescanScheduler
+            ?? TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler(
+                maximumEntryCount: maximumOwnerCount
+            )
     }
 
     func reserve() -> TerminalSurfaceRuntimeOwnershipReservation? {

@@ -11,6 +11,8 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
 {
   private static let maximumBatchCount = 32
 
+  private let maximumEntryCount: Int
+
   private final class OverflowEntry {
     let surfaceID: UUID
     let sequence: UInt64
@@ -44,6 +46,11 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
 
   private let state = OSAllocatedUnfairLock(initialState: State())
 
+  internal init(maximumEntryCount: Int) {
+    precondition(maximumEntryCount > 0)
+    self.maximumEntryCount = maximumEntryCount
+  }
+
   #if DEBUG
     internal var debugSnapshot:
       (
@@ -72,14 +79,18 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
   internal func registerOverflow(
     surfaceID: UUID,
     surface: TerminalSurface
-  ) -> UInt64 {
+  ) -> TerminalSurfaceRuntimeOwnershipRecoveryOverflowRegistration {
     var startGate: TerminalSurfaceRuntimeTeardownStartGate?
-    let sequence = state.withLock { state in
+    let registration = state.withLock { state in
       if let entry = state.entriesByID[surfaceID] {
         entry.surface = surface
         state.rescanRequested = true
         prepareRescanTaskIfNeeded(state: &state, startGate: &startGate)
-        return entry.sequence
+        return .updated(sequence: entry.sequence)
+      }
+
+      guard state.entriesByID.count < maximumEntryCount else {
+        return .rejected
       }
 
       precondition(state.nextSequence < UInt64.max)
@@ -100,10 +111,10 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
       state.tailID = surfaceID
       state.rescanRequested = true
       prepareRescanTaskIfNeeded(state: &state, startGate: &startGate)
-      return entry.sequence
+      return .registered(sequence: entry.sequence)
     }
     startGate?.start()
-    return sequence
+    return registration
   }
 
   internal func cancelOverflow(surfaceID: UUID) {

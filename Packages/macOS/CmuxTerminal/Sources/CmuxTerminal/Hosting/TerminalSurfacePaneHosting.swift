@@ -26,6 +26,9 @@ public protocol TerminalSurfacePaneHosting: NSView {
     /// indicator text.
     func syncKeyStateIndicator(text: String?)
 
+    /// Shows a permanent failure message when the native terminal cannot start.
+    func showRuntimeSurfaceCreationFailure(message: String)
+
     /// Notifies the pane that explicit terminal input is about to be sent.
     func terminalSurfaceDidReceiveExplicitInput()
 
