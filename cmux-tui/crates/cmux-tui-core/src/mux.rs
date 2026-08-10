@@ -15713,6 +15713,32 @@ mod tests {
     }
 
     #[test]
+    fn closing_last_terminal_view_retires_its_surface_id_but_keeps_the_terminal() {
+        let mux = test_mux();
+        let terminal = mux.new_workspace(Some("source".into()), None).unwrap();
+        let terminal_id = terminal.terminal_public_id().cloned().unwrap();
+        let pane = mux.with_state(|state| state.pane_of(terminal.id).unwrap());
+        // Keep the pane and workspace live after the tested placement closes.
+        mux.new_tab(Some(pane), None, None).unwrap();
+
+        assert!(mux.close_surface(terminal.id).unwrap());
+        assert!(!mux.with_state(|state| state.surfaces.contains_key(&terminal.id)));
+        assert!(
+            mux.surface(terminal.id).is_none(),
+            "a closed placement ID must not remain as a terminal runtime alias"
+        );
+
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        let terminal_snapshot = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|candidate| candidate["id"] == terminal_id.as_str())
+            .expect("terminal content must survive its last view");
+        assert_eq!(terminal_snapshot["tab_ids"], json!([]));
+    }
+
+    #[test]
     fn terminal_projection_event_matches_every_changed_public_snapshot() {
         let mux = test_mux();
         let source = mux.new_workspace(Some("source".into()), None).unwrap();
