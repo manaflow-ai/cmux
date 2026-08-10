@@ -118,7 +118,23 @@ struct LifecycleDocument<'a> {
 pub struct FixtureRoot {
     parent: PathBuf,
     path: Option<PathBuf>,
+    next_run_id: u64,
     quiescent: bool,
+}
+
+fn fixture_root_name(process: u32, sequence: u64) -> String {
+    format!("r-{process:010}-{sequence:020}")
+}
+
+fn run_directory_name(id: u64) -> String {
+    format!("run-{id:020}")
+}
+
+pub fn longest_control_socket_path(parent: &Path) -> PathBuf {
+    parent
+        .join(fixture_root_name(u32::MAX, u64::MAX))
+        .join(run_directory_name(u64::MAX))
+        .join("mux.sock")
 }
 
 impl FixtureRoot {
@@ -126,13 +142,14 @@ impl FixtureRoot {
         let process = std::process::id();
         loop {
             let sequence = ROOT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-            let name = format!("r-{process:010}-{sequence:020}");
+            let name = fixture_root_name(process, sequence);
             let path = parent.join(name);
             match fs::create_dir(&path) {
                 Ok(()) => {
                     return Ok(Self {
                         parent: parent.to_path_buf(),
                         path: Some(path),
+                        next_run_id: 1,
                         quiescent: false,
                     });
                 }
@@ -148,6 +165,14 @@ impl FixtureRoot {
 
     pub fn mark_quiescent(&mut self) {
         self.quiescent = true;
+    }
+
+    pub fn next_run_path(&mut self) -> Result<(PathBuf, u64)> {
+        let id = self.next_run_id;
+        let path = self.path().join(run_directory_name(id));
+        fs::create_dir(&path)?;
+        self.next_run_id = self.next_run_id.checked_add(1).context("run id overflow")?;
+        Ok((path, id))
     }
 
     pub fn defer(&mut self, recorder: &mut LifecycleRecorder) -> Result<PhaseMetric> {

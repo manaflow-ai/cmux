@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
+#[cfg(unix)]
+use super::lifecycle::longest_control_socket_path;
 use super::{Scenario, TargetKind};
 
 const MAX_WARMUPS: usize = 100;
@@ -188,9 +190,7 @@ fn validate_fixture_socket_path_budget(parent: &Path) -> Result<()> {
     use std::os::unix::ffi::OsStrExt;
 
     const MAX_SOCKET_PATH_BYTES: usize = 103;
-    const LONGEST_RELATIVE_SOCKET_PATH_BYTES: usize = 69;
-    let socket_path_bytes =
-        parent.as_os_str().as_bytes().len() + LONGEST_RELATIVE_SOCKET_PATH_BYTES;
+    let socket_path_bytes = longest_control_socket_path(parent).as_os_str().as_bytes().len();
     if socket_path_bytes > MAX_SOCKET_PATH_BYTES {
         bail!(
             "--fixture-parent would require {socket_path_bytes} bytes for the longest control socket path, maximum is {MAX_SOCKET_PATH_BYTES}"
@@ -270,6 +270,10 @@ mod tests {
     #[test]
     fn fixture_parent_reserves_the_full_unix_socket_path_budget() {
         assert!(validate_fixture_socket_path_budget(Path::new("/tmp/cbf")).is_ok());
+        let hosted_parent = Path::new("/private/tmp/cbf-85575338-1");
+        let longest = longest_control_socket_path(hosted_parent);
+        assert_eq!(longest.file_name().and_then(|name| name.to_str()), Some("mux.sock"));
+        assert!(validate_fixture_socket_path_budget(hosted_parent).is_ok());
         assert!(
             validate_fixture_socket_path_budget(Path::new(&format!("/tmp/{}", "x".repeat(80))))
                 .is_err()

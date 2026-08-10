@@ -258,7 +258,6 @@ struct Common {
     target: Target,
     root: FixtureRoot,
     config: PathBuf,
-    next_id: u64,
     wrap_measured_process: bool,
     setup_evidence: Evidence,
 }
@@ -280,7 +279,6 @@ impl Common {
             target,
             root,
             config,
-            next_id: 1,
             wrap_measured_process,
             setup_evidence: Evidence::default(),
         })
@@ -290,12 +288,8 @@ impl Common {
         self.root.path().join(name)
     }
 
-    fn next_path(&mut self, stem: &str) -> Result<(PathBuf, u64)> {
-        let id = self.next_id;
-        let path = self.path(&format!("{stem}-{id:020}"));
-        fs::create_dir_all(&path)?;
-        self.next_id += 1;
-        Ok((path, id))
+    fn next_path(&mut self) -> Result<(PathBuf, u64)> {
+        self.root.next_run_path()
     }
 
     fn session_name(&self, scenario: &str) -> String {
@@ -394,7 +388,7 @@ fn copy_base_environment(mut set: impl FnMut(String, String)) {
 }
 
 fn run_cold(common: &mut Common) -> Result<RunResult> {
-    let (run, id) = common.next_path("cold")?;
+    let (run, id) = common.next_path()?;
     let socket = run.join("mux.sock");
     let session = format!("{}-{id:020}", common.session_name("cold"));
     let marker = format!("[{session}] ");
@@ -524,7 +518,7 @@ fn run_pty(
 }
 
 fn run_headless(common: &mut Common) -> Result<RunResult> {
-    let (run, id) = common.next_path("headless")?;
+    let (run, id) = common.next_path()?;
     let socket = run.join("mux.sock");
     let session = format!("{}-{id:020}", common.session_name("headless"));
     let args = headless_args(&session, &socket, None);
@@ -554,7 +548,7 @@ fn run_headless(common: &mut Common) -> Result<RunResult> {
 }
 
 fn run_restored(common: &mut Common, state: &Path, terminal_id: &str) -> Result<RunResult> {
-    let (run, _) = common.next_path("restored-run")?;
+    let (run, _) = common.next_path()?;
     let socket = run.join("mux.sock");
     let session = common.session_name("restored");
     let args = headless_args(&session, &socket, Some(state));
@@ -593,7 +587,7 @@ fn run_incompatible(
     database: &Path,
     expected: &str,
 ) -> Result<RunResult> {
-    let (run, _) = common.next_path("incompatible-run")?;
+    let (run, _) = common.next_path()?;
     let socket = run.join("mux.sock");
     let session = common.session_name("incompatible");
     let args = headless_args(&session, &socket, Some(state));
