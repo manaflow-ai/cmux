@@ -2148,11 +2148,6 @@ final class cmuxUITests: XCTestCase {
             "MobileNotificationFeedRow-studio-agent-question"
         ]
         XCTAssertTrue(questionRow.waitForExistence(timeout: 3))
-        let inlineActions = app.buttons["MobileNotificationFeedQuestionOption-0-actions"]
-        XCTAssertTrue(inlineActions.waitForExistence(timeout: 3))
-        XCTAssertTrue(inlineActions.label.contains("Approve and answer without leaving the Feed."))
-        inlineActions.tap()
-
         let notes = app.textFields["MobileNotificationFeedQuestionCustom-1"]
         for _ in 0..<5 where !notes.isHittable {
             app.swipeUp(velocity: .slow)
@@ -2162,7 +2157,20 @@ final class cmuxUITests: XCTestCase {
         notes.typeText("Show every pending question")
         let questionSubmit = app.buttons["MobileNotificationFeedQuestionSubmit"]
         XCTAssertTrue(questionSubmit.waitForExistence(timeout: 3))
+        XCTAssertFalse(questionSubmit.isEnabled)
+
+        let inlineActions = app.buttons["MobileNotificationFeedQuestionOption-0-actions"]
+        for _ in 0..<5 where !inlineActions.isHittable {
+            app.swipeDown(velocity: .slow)
+        }
+        XCTAssertTrue(inlineActions.isHittable)
+        XCTAssertTrue(inlineActions.label.contains("Approve and answer without leaving the Feed."))
+        inlineActions.tap()
         XCTAssertTrue(questionSubmit.isEnabled)
+        for _ in 0..<5 where !questionSubmit.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(questionSubmit.isHittable)
         questionSubmit.tap()
         XCTAssertTrue(questionRow.waitForNonExistence(timeout: 3))
 
@@ -2192,6 +2200,7 @@ final class cmuxUITests: XCTestCase {
             mockData: false,
             environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
         )
+        defer { app.terminate() }
         let settings = app.buttons["MobileWorkspaceSettingsMenu"]
         XCTAssertTrue(settings.waitForExistence(timeout: 8))
         tap(settings, in: app)
@@ -2200,6 +2209,21 @@ final class cmuxUITests: XCTestCase {
             app.swipeUp(velocity: .slow)
         }
         XCTAssertTrue(picker.isHittable)
+        for (design, title) in [
+            ("timeline", "Timeline"),
+            ("cards", "Cards"),
+            ("compact", "Compact"),
+            ("conversation", "Conversation"),
+            ("commandCenter", "Command Center"),
+        ] {
+            picker.tap()
+            let option = app.descendants(matching: .any)[
+                "MobileSettingsNotificationFeedDesignOption-\(design)"
+            ]
+            XCTAssertTrue(option.waitForExistence(timeout: 3))
+            option.tap()
+            XCTAssertTrue((picker.value as? String)?.contains(title) == true)
+        }
         app.terminate()
 
         for (design, title) in [

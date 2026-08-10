@@ -84,6 +84,73 @@ struct MobileNotificationFeedDTOTests {
         #expect(first.retargetsToLiveSurfaceOwner)
     }
 
+    @Test("Bounded list response limits structured workstream content")
+    func boundedWorkstreamDecodeLimitsNestedContent() throws {
+        let questions = (0..<20).map { questionIndex in
+            [
+                "id": "q\(questionIndex)",
+                "header": "header-long",
+                "prompt": "prompt-long",
+                "multi_select": true,
+                "options": (0..<40).map { optionIndex in
+                    [
+                        "id": "o\(optionIndex)",
+                        "label": "label-long",
+                        "description": "description-long",
+                    ] as [String: Any]
+                },
+            ] as [String: Any]
+        }
+        let payload: [String: Any] = [
+            "revision": 19,
+            "notifications": [],
+            "workstreams": [[
+                "id": "item",
+                "workstream_id": "session",
+                "workspace_id": "workspace",
+                "surface_id": "surface",
+                "source": "claude-long",
+                "kind": "question-long",
+                "created_at": "2026-08-09T12:00:00Z",
+                "request_id": "request",
+                "tool_name": "tool-long",
+                "tool_input": "input-long",
+                "plan": "plan-long",
+                "default_mode": "manual-long",
+                "questions": questions,
+            ]],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+
+        let response = try MobileNotificationFeedListResponse(
+            decodingBounded: data,
+            maxNotifications: 1,
+            stringLimits: MobileNotificationFeedListStringLimits(
+                identifierByteLimit: 8,
+                titleByteLimit: 5,
+                subtitleByteLimit: 4,
+                bodyByteLimit: 6,
+                metadataByteLimit: 4
+            )
+        )
+
+        let item = try #require(response.workstreams.first)
+        #expect(item.workspaceID == "workspace")
+        #expect(item.surfaceID == "surface")
+        #expect(item.source == "clau")
+        #expect(item.kind == "ques")
+        #expect(item.toolName == "tool")
+        #expect(item.toolInput == "input-")
+        #expect(item.plan == "plan-l")
+        #expect(item.defaultMode == "manu")
+        #expect(item.questions.count == 16)
+        #expect(item.questions.first?.header == "head")
+        #expect(item.questions.first?.prompt == "prompt")
+        #expect(item.questions.first?.options.count == 32)
+        #expect(item.questions.first?.options.first?.label == "labe")
+        #expect(item.questions.first?.options.first?.description == "desc")
+    }
+
     @Test("Revision-only changed event rejects malformed payloads")
     func changedEventDecode() {
         #expect(MobileNotificationFeedChangedEvent.decode(Data(#"{"revision":18}"#.utf8))?.revision == 18)
