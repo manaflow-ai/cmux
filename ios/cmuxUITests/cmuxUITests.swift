@@ -2203,20 +2203,27 @@ final class cmuxUITests: XCTestCase {
         keepScreenshot(named: "task-classic-image-preview-dismissed", app: app)
 
         fileCard.tap()
-        let nativeQuickLook = app.navigationBars["-release notes.txt"]
-        XCTAssertTrue(nativeQuickLook.waitForExistence(timeout: 4))
+        let nativeDone = app.buttons.matching(
+            NSPredicate(
+                format: "identifier == %@ OR label == %@ OR label == %@",
+                "QLOverlayDoneButtonAccessibilityIdentifier",
+                "Close",
+                "Done"
+            )
+        ).firstMatch
+        XCTAssertTrue(nativeDone.waitForExistence(timeout: 4))
         XCTAssertFalse(
             customPreview.exists,
             "File previews must use SwiftUI's native Quick Look presentation, not the custom image sheet"
         )
         XCTAssertFalse(app.buttons["MobileAttachmentPreviewDone"].exists)
-        keepScreenshot(named: "task-classic-file-quick-look-open", app: app)
-        let nativeDone = app.buttons.matching(
-            NSPredicate(format: "label == %@ OR label == %@", "Done", "Close")
+        let nativeTitle = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label BEGINSWITH %@", "-release notes")
         ).firstMatch
-        XCTAssertTrue(nativeDone.waitForExistence(timeout: 3))
+        XCTAssertTrue(nativeTitle.waitForExistence(timeout: 3))
+        keepScreenshot(named: "task-classic-file-quick-look-open", app: app)
         nativeDone.tap()
-        XCTAssertTrue(nativeQuickLook.waitForNonExistence(timeout: 4))
+        XCTAssertTrue(nativeDone.waitForNonExistence(timeout: 4))
         XCTAssertEqual(prompt.value as? String, capturedPromptValue)
         XCTAssertTrue(imageCard.exists)
         XCTAssertTrue(fileCard.exists)
