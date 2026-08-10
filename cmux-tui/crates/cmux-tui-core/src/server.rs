@@ -15562,6 +15562,7 @@ mod tests {
                     "machine":"current",
                     "session":"current",
                     "stream_id":stream_id,
+                    "filter":{"max_sensitivity":"sensitive"},
                 }),
                 None,
             );
