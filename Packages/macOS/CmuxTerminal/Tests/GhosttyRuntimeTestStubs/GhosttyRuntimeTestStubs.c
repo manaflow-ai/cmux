@@ -92,6 +92,13 @@ bool cmux_test_ghostty_surface_free_wait_until_started(void) {
     return started;
 }
 
+bool cmux_test_ghostty_surface_free_blocking_did_start(void) {
+    pthread_mutex_lock(&cmux_test_surface_free_mutex);
+    const bool started = cmux_test_surface_free_started;
+    pthread_mutex_unlock(&cmux_test_surface_free_mutex);
+    return started;
+}
+
 bool cmux_test_ghostty_surface_free_blocking_is_active(void) {
     pthread_mutex_lock(&cmux_test_surface_free_mutex);
     const bool active =

@@ -156,9 +156,9 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
                 surface: surface,
                 callbackContext: nil,
                 freeSurface: { pointer in
-                    let pointerBits = UInt(bitPattern: pointer)
+                    let bits = UInt(bitPattern: pointer)
                     freedSurfaceBits.withLock {
-                        _ = $0.insert(pointerBits)
+                        _ = $0.insert(bits)
                     }
                 }
             )
@@ -166,7 +166,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
 
         for ticket in laterTickets {
             try #require(
-                await ticket.wait(timeout: .seconds(5)),
+                await ticket.wait(timeout: .seconds(1)),
                 "a stuck native free stranded a later close"
             )
         }
@@ -177,7 +177,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         )
 
         releaseStuckFree.signal()
-        #expect(await stuckTicket.wait(timeout: .seconds(5)))
+        #expect(await stuckTicket.wait(timeout: .seconds(1)))
     }
 
     @Test func allBlockedCloseSlotsStillBeginLaterProcessTeardown() async throws {
@@ -342,19 +342,47 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
 
     @Test func staleIsolatedReservationFallsBackToBoundedClose() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
-        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
-        defer { surface.deallocate() }
+        let surfaces = (0..<2).map { _ in
+            UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        }
+        defer { for surface in surfaces { surface.deallocate() } }
+        let isolatedFreeStarted = AsyncStream<Void>.makeStream()
+        let releaseIsolatedFree = DispatchSemaphore(value: 0)
         let freeCount = OSAllocatedUnfairLock(initialState: 0)
+        defer {
+            releaseIsolatedFree.signal()
+            isolatedFreeStarted.continuation.finish()
+        }
         let staleReservation = try #require(
             await coordinator.reserveIsolatedHibernationTeardown()
         )
         await coordinator.cancelIsolatedHibernationTeardown(staleReservation)
+        let blockingReservation = try #require(
+            await coordinator.reserveIsolatedHibernationTeardown()
+        )
+        let blockingTicket = coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.blockingIsolatedReservation",
+            surface: surfaces[0],
+            callbackContext: nil,
+            manualIOContext: nil,
+            byteTeeLease: nil,
+            executionLane: .isolatedHibernation,
+            isolatedHibernationReservation: blockingReservation,
+            freeSurface: { _ in
+                isolatedFreeStarted.continuation.yield()
+                _ = releaseIsolatedFree.wait(timeout: .distantFuture)
+            }
+        )
+        var isolatedFreeIterator = isolatedFreeStarted.stream.makeAsyncIterator()
+        _ = await isolatedFreeIterator.next()
 
         let ticket = coordinator.enqueueRuntimeTeardown(
             id: UUID(),
             workspaceId: UUID(),
             reason: "test.staleIsolatedReservation",
-            surface: surface,
+            surface: surfaces[1],
             callbackContext: nil,
             manualIOContext: nil,
             byteTeeLease: nil,
@@ -367,6 +395,10 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
 
         #expect(await ticket.wait(timeout: .seconds(1)))
         #expect(freeCount.withLock { $0 } == 1)
+        #expect(await blockingTicket.wait(timeout: .zero) == false)
+
+        releaseIsolatedFree.signal()
+        #expect(await blockingTicket.wait(timeout: .seconds(1)))
     }
 
     @Test func byteTeeCallbackOwnerIsReleasedOnlyAfterNativeFreeReturns() async {

@@ -483,6 +483,8 @@ struct MobileSettingsView: View {
                     ))
                 }
 
+                MobileSettingsDiagnosticsSection()
+
                 MobileSettingsLegalSupportSection()
 
                 Section(L10n.string("mobile.settings.about", defaultValue: "About")) {
@@ -743,5 +745,49 @@ struct MobileSettingsView: View {
         )
     }
     #endif
+}
+
+/// App-wide log sharing. Lives at the settings top level, not the Iroh
+/// screen: the app log covers every feature (simulator, browser, composer,
+/// lifecycle), and the network log covers all connection diagnostics, not
+/// one transport.
+private struct MobileSettingsDiagnosticsSection: View {
+    var body: some View {
+        Section {
+            if let url = AppLog.defaultAppLogFileURL,
+               FileManager.default.fileExists(atPath: url.path) {
+                ShareLink(item: url) {
+                    Label(
+                        L10n.string(
+                            "mobile.settings.diagnostics.shareAppLog",
+                            defaultValue: "Share App Log"
+                        ),
+                        systemImage: "doc.text"
+                    )
+                }
+                .accessibilityIdentifier("MobileSettingsShareAppLog")
+            }
+            if let url = AppLog.defaultNetworkLogFileURL,
+               FileManager.default.fileExists(atPath: url.path) {
+                ShareLink(item: url) {
+                    Label(
+                        L10n.string(
+                            "mobile.settings.diagnostics.shareNetworkLog",
+                            defaultValue: "Share Network Log"
+                        ),
+                        systemImage: "network"
+                    )
+                }
+                .accessibilityIdentifier("MobileSettingsShareNetworkLog")
+            }
+        } header: {
+            Text(L10n.string("mobile.settings.diagnostics", defaultValue: "Diagnostics"))
+        } footer: {
+            Text(L10n.string(
+                "mobile.settings.diagnostics.footer",
+                defaultValue: "The App Log records in-app activity; the Network Log records connection diagnostics. Terminal contents and credentials are never written."
+            ))
+        }
+    }
 }
 #endif

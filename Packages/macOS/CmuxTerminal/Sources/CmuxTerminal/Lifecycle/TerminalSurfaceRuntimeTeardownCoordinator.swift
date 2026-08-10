@@ -13,11 +13,11 @@ internal import CMUXDebugLog
 /// for a bounded native-free slot, keeping process lifetime independent from
 /// resource-destruction admission without invalidating a borrowed pointer.
 ///
-/// Close/deinit frees run on a bounded set of utility slots so stuck native
-/// joins cannot create unbounded worker threads. Each admitted hibernation owns
-/// a separate, independently startable utility slot. Deadline observers report,
-/// but never block on, stuck frees. The app constructs exactly one instance and
-/// injects it through
+/// Close/deinit frees run on a bounded set of utility slots so one stuck native
+/// join cannot strand later closes and stuck joins cannot create unbounded
+/// worker threads. Each admitted hibernation owns a separate, independently
+/// startable utility slot. Deadline observers report, but never block on, stuck
+/// frees. The app constructs exactly one instance and injects it through
 /// ``TerminalSurfaceRuntimeDependencies``.
 public actor TerminalSurfaceRuntimeTeardownCoordinator {
     /// Maximum number of close/deinit native frees that can run concurrently.

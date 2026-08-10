@@ -6,8 +6,6 @@ import { z } from "zod";
 import { env } from "@/app/env";
 import { recordSpanError, setSpanAttributes, withApiRouteSpan } from "../../../services/telemetry";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const feedbackRecipient = "feedback@manaflow.com";
 const maxAttachmentCount = 10;

@@ -28,6 +28,23 @@ import Testing
         #expect(await wait.value == false)
     }
 
+    @Test func surfaceFreeGateDoesNotInterceptAnotherRuntimeSurface() {
+        let gatedSurface = fakeRuntimeSurface()
+        let unrelatedSurface = UnsafeMutableRawPointer(bitPattern: 0x7542)!
+        cmux_test_ghostty_surface_free_blocking_begin(gatedSurface)
+        defer {
+            cmux_test_ghostty_surface_free_release()
+            cmux_test_ghostty_surface_free_blocking_reset()
+        }
+
+        ghostty_surface_free(unrelatedSurface)
+
+        #expect(
+            !cmux_test_ghostty_surface_free_blocking_did_start(),
+            "the test gate intercepted a different runtime surface"
+        )
+    }
+
     @Test func teardownSurfaceKeepsMainActorResponsiveWhileNativeFreeIsBlocked() async {
         let surface = makeSurface()
         let runtimeSurface = fakeRuntimeSurface()
@@ -138,6 +155,36 @@ import Testing
         let completed = await recorder.waitForEventCount(2)
         #expect(completed, "timed out waiting for native free and tee-lease release")
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
+    }
+
+    @Test func agentHibernationEndsCurrentTerminalProcessGeneration() {
+        let registry = TerminalSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let originalLifecycleID = surface.terminalLifecycleId
+
+        #expect(registry.isCurrentSurface(
+            id: surface.id,
+            terminalLifecycleID: originalLifecycleID
+        ))
+        #expect(surface.suspendRuntimeSurfaceForAgentHibernation(
+            reason: "test.lifecycle"
+        ))
+
+        let replacementLifecycleID = surface.terminalLifecycleId
+        #expect(replacementLifecycleID != originalLifecycleID)
+        #expect(!registry.isCurrentSurface(
+            id: surface.id,
+            terminalLifecycleID: originalLifecycleID
+        ))
+        #expect(registry.isCurrentSurface(
+            id: surface.id,
+            terminalLifecycleID: replacementLifecycleID
+        ))
+        #expect(
+            surface.startupEnvironmentValue(
+                "CMUX_TERMINAL_LIFECYCLE_ID"
+            ) == replacementLifecycleID.uuidString
+        )
     }
 
     @Test func agentHibernationResumeWaitsForNativeFreeCompletion() async {
@@ -303,8 +350,8 @@ import Testing
                 runtimeTeardown: runtimeTeardown,
                 restoreSpawnScheduler: TerminalSurfaceRestoreSpawnScheduler(interSpawnDelay: .zero),
                 runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
-                    claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
-                    installClaudeCommandShim: { _, _, _ in nil },
+                    agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
+                    installAgentCommandShims: { _, _, _ in nil },
                     isExecutableFile: { _ in false }
                 ),
                 sessionPortBase: 40_000,
