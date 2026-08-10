@@ -1,4 +1,4 @@
-internal import Foundation
+public import Foundation
 
 /// One exact, locally bounded interaction-mode route for a canonical surface.
 public struct BackendTerminalInteractionModeEventSubscription: Sendable {
