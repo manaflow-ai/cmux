@@ -2189,10 +2189,16 @@ final class cmuxUITests: XCTestCase {
         )
         keepScreenshot(named: "task-classic-attachments", app: app)
 
-        for card in [imageCard, fileCard] {
+        for (index, card) in [imageCard, fileCard].enumerated() {
             card.tap()
             let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
             XCTAssertTrue(preview.waitForExistence(timeout: 4))
+            keepScreenshot(
+                named: index == 0
+                    ? "task-classic-image-preview-open"
+                    : "task-classic-file-quick-look-open",
+                app: app
+            )
             let done = app.buttons["Done"]
             XCTAssertTrue(done.waitForExistence(timeout: 2))
             done.tap()
@@ -2200,6 +2206,10 @@ final class cmuxUITests: XCTestCase {
             XCTAssertEqual(prompt.value as? String, capturedPromptValue)
             XCTAssertTrue(imageCard.exists)
             XCTAssertTrue(fileCard.exists)
+            keepScreenshot(
+                named: "task-classic-preview-dismissed-\(index)",
+                app: app
+            )
         }
 
         let sourceMenu = app.buttons["MobileTaskComposerAttachmentButton"]
@@ -2221,6 +2231,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(fileCard.waitForNonExistence(timeout: 3))
         XCTAssertTrue(imageCard.exists)
         XCTAssertEqual(prompt.value as? String, capturedPromptValue)
+        keepScreenshot(named: "task-classic-file-removed", app: app)
     }
 
     @MainActor
@@ -2354,6 +2365,7 @@ final class cmuxUITests: XCTestCase {
         unsupportedCard.tap()
         XCTAssertTrue(app.descendants(matching: .any)["MobileAttachmentPreview"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.staticTexts["Preview Unavailable"].waitForExistence(timeout: 2))
+        keepScreenshot(named: "task-unsupported-preview-open", app: app)
         app.buttons["Done"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["MobileAttachmentPreview"].waitForNonExistence(timeout: 4))
 
@@ -2450,15 +2462,18 @@ final class cmuxUITests: XCTestCase {
         imageCard.tap()
         let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
         XCTAssertTrue(preview.waitForExistence(timeout: 4))
+        keepScreenshot(named: "agent-chat-image-preview-open", app: app)
         app.buttons["Done"].tap()
         XCTAssertTrue(preview.waitForNonExistence(timeout: 4))
         XCTAssertEqual(field.value as? String, capturedDraft)
+        keepScreenshot(named: "agent-chat-preview-dismissed", app: app)
 
         app.buttons["MobileAttachmentRemove.1"].tap()
         XCTAssertTrue(fileCard.waitForNonExistence(timeout: 3))
         XCTAssertTrue(imageCard.exists)
         XCTAssertEqual(field.value as? String, capturedDraft)
         XCTAssertEqual(table.cells.count, initialMessageCount)
+        keepScreenshot(named: "agent-chat-file-removed", app: app)
     }
 
     @MainActor
@@ -2505,14 +2520,17 @@ final class cmuxUITests: XCTestCase {
         imageCard.tap()
         let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
         XCTAssertTrue(preview.waitForExistence(timeout: 4))
+        keepScreenshot(named: "terminal-image-preview-open", app: app)
         app.buttons["Done"].tap()
         XCTAssertTrue(preview.waitForNonExistence(timeout: 4))
         XCTAssertEqual(field.value as? String, capturedDraft)
+        keepScreenshot(named: "terminal-preview-dismissed", app: app)
 
         app.buttons["MobileAttachmentRemove.1"].tap()
         XCTAssertTrue(fileCard.waitForNonExistence(timeout: 3))
         XCTAssertEqual(field.value as? String, capturedDraft)
         XCTAssertFalse(app.staticTexts["MobileComposerSendFailure"].exists)
+        keepScreenshot(named: "terminal-file-removed", app: app)
     }
 
     @MainActor
