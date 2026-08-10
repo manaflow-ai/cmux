@@ -11,8 +11,11 @@ extension WorkspaceDetailView {
     let shouldAutoFocus = activeSurface == .terminal
         && store.shouldAutoFocusTerminalSurface(terminalID)
         && !store.isComposerPresented
+    Group {
+    switch terminalRuntimeOwner.state {
+    case .ready(let runtime):
     GhosttySurfaceRepresentable(
-        runtimeResult: terminalRuntimeOwner.result,
+        runtime: runtime,
         workspaceID: workspace.id.rawValue,
         surfaceID: terminalID,
         store: store,
@@ -61,6 +64,13 @@ extension WorkspaceDetailView {
             }
         }
     )
+    case .failed:
+        TerminalRendererFailureView(
+            theme: store.activeTerminalTheme,
+            retry: { terminalRuntimeOwner.retry() }
+        )
+    }
+    }
     .popover(
         item: $terminalArtifactFilesContext,
         attachmentAnchor: .point(terminalArtifactFilesContext?.anchor ?? .bottom),
@@ -107,6 +117,35 @@ extension WorkspaceDetailView {
     .ignoresSafeArea(.keyboard, edges: .bottom)
     // Keep the grid clear of the Dynamic Island and nav bar.
     .padding(.top, terminalTopPadding)
+    }
+}
+
+private struct TerminalRendererFailureView: View {
+    let theme: TerminalTheme
+    let retry: @MainActor () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text(String(
+                localized: "mobile.terminal.rendererFailed",
+                defaultValue: "Terminal renderer failed to start."
+            ))
+            Button {
+                retry()
+            } label: {
+                Text(String(
+                    localized: "mobile.terminal.rendererRetry",
+                    defaultValue: "Retry"
+                ))
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("MobileTerminalRendererRetry")
+        }
+        .foregroundStyle(theme.terminalForegroundColor)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(theme.terminalBackgroundColor)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileTerminalRendererFailure")
     }
 }
 #endif

@@ -435,19 +435,45 @@ public final class GhosttyRuntime {
 
 /// Process-lifetime owner for Ghostty initialization.
 ///
-/// Construct this before mounting SwiftUI terminal surfaces. Views consume the
-/// captured result and never make C runtime initialization part of their mount
+/// Construct this before mounting SwiftUI terminal surfaces. Views consume its
+/// observable state and never make C runtime initialization part of their mount
 /// lifecycle. The factory seam keeps initialization-count coverage independent
 /// of libghostty global state.
 @MainActor
 @Observable
 public final class GhosttyRuntimeOwner {
-    public let result: Result<GhosttyRuntime, any Error>
+    public enum State {
+        case ready(GhosttyRuntime)
+        case failed(any Error)
+    }
+
+    public private(set) var state: State
+    @ObservationIgnored private let makeRuntime: @MainActor () throws -> GhosttyRuntime
 
     public init(
-        makeRuntime: () throws -> GhosttyRuntime = { try GhosttyRuntime.shared() }
+        makeRuntime: @escaping @MainActor () throws -> GhosttyRuntime = {
+            try GhosttyRuntime.shared()
+        }
     ) {
-        result = Result(catching: makeRuntime)
+        self.makeRuntime = makeRuntime
+        state = Self.resolve(using: makeRuntime)
+    }
+
+    /// Retries a failed process-owned initialization. A ready runtime is stable
+    /// for the process lifetime and is never replaced.
+    public func retry() {
+        guard case .failed = state else { return }
+        state = Self.resolve(using: makeRuntime)
+    }
+
+    private static func resolve(
+        using makeRuntime: @MainActor () throws -> GhosttyRuntime
+    ) -> State {
+        do {
+            return .ready(try makeRuntime())
+        } catch {
+            return .failed(error)
+        }
     }
 }
 
