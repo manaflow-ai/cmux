@@ -5219,7 +5219,9 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     private func launchConnectedAppViaManualPairing(port: UInt16) throws -> XCUIApplication {
         let portText = String(port)
+        let fixtureName = "manual-\(UUID().uuidString)"
         let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_ADD_DEVICE_NAME": fixtureName,
             "CMUX_UITEST_ADD_DEVICE_PORT": portText,
         ], launchArguments: [
             "-cmux.mobile.taskComposerEnabled", "YES",
