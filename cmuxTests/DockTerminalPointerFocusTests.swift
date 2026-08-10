@@ -24,6 +24,55 @@ struct DockTerminalPointerFocusTests {
 #endif
     }
 
+    @Test("Right-click applies terminal focus before a cold runtime exists")
+    func rightClickAppliesTerminalFocusBeforeColdRuntimeExists() async throws {
+#if DEBUG
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            window.isReleasedWhenClosed = false
+            let contentView = NSView(frame: window.contentLayoutRect)
+            window.contentView = contentView
+            let panel = TerminalPanel(
+                workspaceId: UUID(),
+                focusPlacement: .rightSidebarDock,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            let surfaceView = GhosttyNSView(frame: contentView.bounds)
+            surfaceView.terminalSurface = panel.surface
+            contentView.addSubview(surfaceView)
+            window.makeKeyAndOrderFront(nil)
+            defer {
+                panel.close()
+                window.orderOut(nil)
+                window.close()
+            }
+
+            var focusRequestCount = 0
+            var acceptedInputCount = 0
+            surfaceView.onFocus = { focusRequestCount += 1 }
+            panel.surface.onExplicitInput = { acceptedInputCount += 1 }
+            #expect(!panel.surface.hasLiveSurface)
+
+            surfaceView.rightMouseDown(with: try mouseDownEvent(
+                type: .rightMouseDown,
+                at: NSPoint(x: 24, y: 24),
+                window: window
+            ))
+
+            #expect(focusRequestCount == 1)
+            #expect(window.firstResponder === surfaceView)
+            #expect(acceptedInputCount == 1)
+        }
+#else
+        Issue.record("Ghostty pointer-focus coverage is only available in DEBUG")
+#endif
+    }
+
 #if DEBUG
     private func exercisePointerDownActivation() async throws {
         let previousAppDelegate = AppDelegate.shared
