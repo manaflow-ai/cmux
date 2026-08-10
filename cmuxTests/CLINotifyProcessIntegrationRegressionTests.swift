@@ -3307,7 +3307,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let sessionId = "large-subagent-session"
         let turnId = "child-turn"
         let transcriptURL = context.root.appendingPathComponent("codex-large-subagent.jsonl")
-        let sessionMeta = #"{"type":"session_meta","payload":{"id":"\#(sessionId)","thread_source":"subagent","source":{"subagent":{"parent_thread_id":"parent-thread"}}}}"#
+        let sessionMetaPadding = String(repeating: "m", count: 1_100_000)
+        let sessionMeta = #"{"type":"session_meta","payload":{"id":"\#(sessionId)","thread_source":"subagent","source":{"subagent":{"parent_thread_id":"parent-thread"}},"base_instructions":"\#(sessionMetaPadding)"}}"#
+        XCTAssertGreaterThan(sessionMeta.utf8.count, 1024 * 1024)
+        XCTAssertLessThanOrEqual(sessionMeta.utf8.count, 4 * 1024 * 1024)
         let filler = String(
             repeating: #"{"type":"event_msg","payload":{"type":"token_count"}}"# + "\n",
             count: 12_000
@@ -3339,8 +3342,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "Large-transcript subagent Stop should remain Feed telemetry, saw \(context.state.commands)"
         )
         XCTAssertFalse(
-            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
-            "Large-transcript subagent Stop should not publish a child resume binding, saw \(context.state.commands)"
+            context.state.commands.contains {
+                guard let method = self.jsonObject($0)?["method"] as? String else {
+                    return false
+                }
+                return method.hasPrefix("surface.resume.")
+            },
+            "Large-transcript subagent Stop should not mutate resume bindings, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("set_agent_lifecycle codex ") },
+            "Large-transcript subagent Stop should not mutate Codex lifecycle, saw \(context.state.commands)"
         )
         XCTAssertFalse(
             context.state.commands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
