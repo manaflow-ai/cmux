@@ -2323,6 +2323,20 @@ impl Mux {
             });
         };
 
+        // Planning the resource projection can fail before the atomic close
+        // reaches the registry transaction. Validate the canonical terminal
+        // first so a stale incarnation has one stable protocol error even
+        // while the in-memory runtime catalog is being restored.
+        if let Some(expected) = terminal_incarnation {
+            let terminal = registry
+                .terminal_record(terminal_id)?
+                .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
+            anyhow::ensure!(
+                terminal.incarnation.as_deref() == Some(expected),
+                "terminal_incarnation_mismatch"
+            );
+        }
+
         let mut plan = self.resource_terminal_close_plan_locked(
             terminal_id,
             terminal_incarnation,
