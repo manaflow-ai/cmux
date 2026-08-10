@@ -477,4 +477,73 @@ describe("dashboard account menu", () => {
       "/dashboard/coderouter?team=team-2",
     );
   });
+
+  test("reconciles the last successful switch when the queued switch fails", async () => {
+    searchTeam = "team-1";
+    organizationQuery = {
+      data: {
+        selectedTeamId: "team-1",
+        teams: [
+          {
+            id: "team-2",
+            name: "Team Two",
+            personal: false,
+            permissions: { use: true, manageAccounts: false },
+          },
+          {
+            id: "team-3",
+            name: "Team Three",
+            personal: false,
+            permissions: { use: true, manageAccounts: false },
+          },
+        ],
+      },
+      isPending: false,
+      isError: false,
+    };
+    let finishFirstSwitch: (() => void) | undefined;
+    const firstSwitch = new Promise<void>((resolve) => {
+      finishFirstSwitch = resolve;
+    });
+    let requestCount = 0;
+    const serialSetSelectedTeam = mock(() => {
+      requestCount += 1;
+      return requestCount === 1
+        ? firstSwitch
+        : Promise.reject(new Error("Stack unavailable"));
+    });
+    currentUser = {
+      id: "user-lawrence",
+      displayName: "Lawrence",
+      primaryEmail: "lawrence@example.com",
+      signOut: async () => undefined,
+      selectedTeam: { id: "team-1" },
+      useTeams: () => [
+        { id: "team-2", displayName: "Team Two" },
+        { id: "team-3", displayName: "Team Three" },
+      ],
+      setSelectedTeam: serialSetSelectedTeam,
+    };
+    routerPush.mockClear();
+    renderToStaticMarkup(<DashboardAccountMenu />);
+
+    await handlers.switchOrganization?.({
+      id: "team-2",
+      displayName: "Team Two",
+    });
+    await handlers.switchOrganization?.({
+      id: "team-3",
+      displayName: "Team Three",
+    });
+    finishFirstSwitch?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(serialSetSelectedTeam).toHaveBeenCalledTimes(2);
+    expect(routerPush).toHaveBeenCalledWith(
+      "/dashboard/coderouter?team=team-2",
+    );
+    expect(routerPush).not.toHaveBeenCalledWith(
+      "/dashboard/coderouter?team=team-3",
+    );
+  });
 });

@@ -218,7 +218,7 @@ function DashboardOrganizationSwitcher() {
     }
     runSwitch(request);
   };
-  function applySuccessfulSwitch(request: SwitchRequest) {
+  function recordSuccessfulSwitch(request: SwitchRequest) {
     const { team, organizationId } = request;
     queryClient.setQueryData<OrganizationCatalog>(
       organizationQueryKey,
@@ -231,6 +231,10 @@ function DashboardOrganizationSwitcher() {
       queryKey: organizationQueryKey,
       exact: true,
     });
+    return organizationId;
+  }
+  function applySuccessfulSwitch(request: SwitchRequest) {
+    const organizationId = recordSuccessfulSwitch(request);
     router.push(
       `/dashboard/coderouter?team=${
         encodeURIComponent(organizationId)
@@ -238,7 +242,10 @@ function DashboardOrganizationSwitcher() {
     );
     router.refresh();
   }
-  function runSwitch(request: SwitchRequest) {
+  function runSwitch(
+    request: SwitchRequest,
+    fallback: SwitchRequest | null = null,
+  ) {
     setSwitchPending(true);
     setSwitchError(false);
     let timedOut = false;
@@ -261,7 +268,8 @@ function DashboardOrganizationSwitcher() {
       const queued = queuedSwitchRef.current;
       queuedSwitchRef.current = null;
       if (queued) {
-        runSwitch(queued);
+        recordSuccessfulSwitch(request);
+        runSwitch(queued, request);
         return;
       }
       if (!timedOut) {
@@ -285,11 +293,12 @@ function DashboardOrganizationSwitcher() {
       const queued = queuedSwitchRef.current;
       queuedSwitchRef.current = null;
       if (queued) {
-        runSwitch(queued);
+        runSwitch(queued, fallback);
         return;
       }
       setSwitchPending(false);
       setSwitchError(true);
+      if (fallback) applySuccessfulSwitch(fallback);
     });
   }
   const shared = {
