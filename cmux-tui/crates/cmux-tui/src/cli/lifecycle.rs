@@ -38,7 +38,6 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         global.session = Some(session);
     }
     let expected_session = global.session.clone();
-    let session = expected_session.as_deref().unwrap_or("main").to_string();
     let socket = super::wire::resolve_socket(&global);
     let stream = match transport::connect(&socket) {
         Ok(stream) => stream,
