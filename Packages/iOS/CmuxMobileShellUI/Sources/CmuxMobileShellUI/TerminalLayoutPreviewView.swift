@@ -144,6 +144,11 @@ private struct TerminalAttachmentComposerAccessibilityHost: View {
             isSignedIn: true,
             workspaces: [workspace]
         )
+        if let draft = ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_TERMINAL_ATTACHMENT_DRAFT"
+        ] {
+            store.terminalInputText = draft
+        }
         let attachmentFixtures = MobileAttachmentAccessibilityFixtures()
         let attachments = ProcessInfo.processInfo.environment[
             "CMUX_UITEST_TERMINAL_ATTACHMENT_FIXTURE"

@@ -16,6 +16,7 @@ struct AgentChatDemoScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var stack: DemoStack?
     @State private var contentWidth: CGFloat = 0
+    @State private var draft = ""
     private let attachmentFixtures: [MobileStagedAttachment]
 
     init(style: AgentChatDemoScreenStyle = .standalone) {
@@ -149,6 +150,7 @@ struct AgentChatDemoScreen: View {
         case .standalone:
             ChatScreen(
                 store: stack.store,
+                draft: $draft,
                 providesOwnChrome: false,
                 onOpenTerminal: {}
             )
@@ -156,6 +158,7 @@ struct AgentChatDemoScreen: View {
         case .inlineWorkspace:
             ChatScreen(
                 store: stack.store,
+                draft: $draft,
                 accessoryLeadingShortcuts: previewLeadingShortcuts,
                 accessoryShortcuts: previewScrollableShortcuts(for: stack),
                 providesOwnChrome: false,

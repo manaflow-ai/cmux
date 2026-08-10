@@ -2482,13 +2482,14 @@ final class cmuxUITests: XCTestCase {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_TERMINAL_PREVIEW": "1",
             "CMUX_UITEST_TERMINAL_ATTACHMENT_COMPOSER": "1",
+            "CMUX_UITEST_TERMINAL_ATTACHMENT_DRAFT": "Keep terminal draft",
         ])
         defer { app.terminate() }
 
         let field = app.textFields["MobileComposerField"]
         XCTAssertTrue(field.waitForExistence(timeout: 8))
-        try typeText("Keep terminal draft", into: field, in: app)
         let capturedDraft = try XCTUnwrap(field.value as? String)
+        XCTAssertEqual(capturedDraft, "Keep terminal draft")
 
         let container = app.descendants(matching: .any)["MobileComposerFieldContainer"]
         let imageCard = app.buttons["MobileAttachmentCard.0"]
