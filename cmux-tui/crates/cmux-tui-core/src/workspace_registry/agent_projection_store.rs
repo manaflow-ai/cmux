@@ -485,7 +485,13 @@ fn merge_projection(
     next: AgentProjectionRow,
 ) -> AgentProjectionRow {
     match current {
-        Some(current) if current.source == "hook" && next.source == "socket" => current,
+        Some(current)
+            if current.source == "hook"
+                && next.source == "socket"
+                && current.source_session == next.source_session =>
+        {
+            current
+        }
         _ => next,
     }
 }

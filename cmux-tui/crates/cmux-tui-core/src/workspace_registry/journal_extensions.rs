@@ -1,4 +1,3 @@
-use super::agent_projection_store::apply_agent_projection_journal_record;
 use super::*;
 use crate::resource::WireDecimal;
 use crate::workspace_registry::session_journal::{
@@ -1484,16 +1483,6 @@ fn append_journal_ingress_transaction(
             resource_revision: None,
             previous_resource_revision: None,
         },
-    )?;
-    apply_agent_projection_journal_record(
-        tx,
-        sequence,
-        &ingress.kind,
-        occurred_at_ms,
-        &producer,
-        &subjects,
-        &ingress.payload,
-        None,
     )?;
     let result = json!({
         "producer_id":ingress.producer_id,

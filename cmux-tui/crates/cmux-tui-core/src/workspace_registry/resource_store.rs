@@ -1,4 +1,3 @@
-use super::agent_projection_store::apply_agent_projection_journal_record;
 use super::*;
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
@@ -484,7 +483,7 @@ impl WorkspaceRegistry {
                 sqlite_revision,
             ],
         )?;
-        let sequence = append_resource_journal_record(
+        append_resource_journal_record(
             &tx,
             revision,
             previous_revision,
@@ -494,23 +493,6 @@ impl WorkspaceRegistry {
             None,
             result,
             deltas,
-        )?;
-        let producer =
-            JournalProducer { kind: "resource_operation".into(), id: mutation.origin.clone() };
-        let payload = serde_json::json!({
-            "idempotency_key": mutation.id,
-            "result": result,
-            "changes": deltas,
-        });
-        apply_agent_projection_journal_record(
-            &tx,
-            sequence,
-            OPERATION,
-            unix_epoch_ms()?,
-            &producer,
-            &[],
-            &payload,
-            Some(revision),
         )?;
         prune_resource_mutations(&tx)?;
         tx.commit()?;

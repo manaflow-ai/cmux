@@ -863,6 +863,16 @@ pub(super) fn append_journal_record(
             transaction,
             sequence,
         )?;
+        super::agent_projection_store::apply_agent_projection_journal_record(
+            transaction,
+            sequence,
+            append.kind,
+            append.occurred_at_ms,
+            append.producer,
+            append.subjects,
+            append.payload,
+            append.resource_revision,
+        )?;
     }
     Ok(sequence)
 }
