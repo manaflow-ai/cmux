@@ -94,11 +94,14 @@ final class TaskComposerKeyboardDockViewController<Canvas: View, Accessory: View
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         #if DEBUG
+        let guideFrame = view.keyboardLayoutGuide.layoutFrame
+        let viewInWindow = view.convert(view.bounds, to: view.window)
+        let guideInWindow = view.convert(guideFrame, to: view.window)
         let geometry = "view=\(view.bounds) safe=\(view.safeAreaInsets) "
-            + "guide=\(view.keyboardLayoutGuide.layoutFrame) "
+            + "viewInWindow=\(viewInWindow) guide=\(guideFrame) "
+            + "guideInWindow=\(guideInWindow) "
             + "accessory=\(accessoryHostingController.view.frame) "
-            + "accessorySafe=\(accessoryHostingController.view.safeAreaInsets) "
-            + "intrinsic=\(accessoryHostingController.view.intrinsicContentSize)"
+            + "accessorySafe=\(accessoryHostingController.view.safeAreaInsets)"
         guard geometry != lastLoggedGeometry else { return }
         lastLoggedGeometry = geometry
         print("MPILL_DOCK_GEOMETRY \(geometry)")
