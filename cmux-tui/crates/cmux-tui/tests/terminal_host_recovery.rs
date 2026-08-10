@@ -3545,7 +3545,9 @@ fn wait_for_stream_disconnect(stream: &mut UnixStream, timeout: Duration) -> boo
             1 => {
                 // SAFETY: kevent initialized exactly one event after returning one.
                 let event = unsafe { event.assume_init() };
-                return event.filter == libc::EVFILT_READ && event.flags & libc::EV_EOF != 0;
+                if event.filter == libc::EVFILT_READ && event.flags & libc::EV_EOF != 0 {
+                    return true;
+                }
             }
             0 => return false,
             _ if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted => {
