@@ -83,13 +83,24 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             1,
         );
     }
-    if identity["lifecycle_ready"].as_bool() == Some(false) {
-        return local_error(
-            "server.unavailable",
-            crate::localization::catalog().local_server.starting,
-            global.output,
-            3,
-        );
+    match identity.get("lifecycle_ready") {
+        Some(Value::Bool(true)) | None => {}
+        Some(Value::Bool(false)) => {
+            return local_error(
+                "server.unavailable",
+                crate::localization::catalog().local_server.starting,
+                global.output,
+                3,
+            );
+        }
+        Some(_) => {
+            return local_error(
+                "server.invalid_identity",
+                crate::localization::catalog().local_server.invalid_identity,
+                global.output,
+                3,
+            );
+        }
     }
     let actual_session = identity["session"].as_str().unwrap_or_default();
     if actual_session.is_empty() {

@@ -1699,20 +1699,26 @@ fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc
 }
 
 struct ServedMuxCleanup {
-    mux: Arc<Mux>,
+    mux: Option<Arc<Mux>>,
     socket_path: PathBuf,
 }
 
 impl ServedMuxCleanup {
     fn new(mux: Arc<Mux>, socket_path: PathBuf) -> Self {
-        Self { mux, socket_path }
+        Self { mux: Some(mux), socket_path }
+    }
+
+    fn disarm(&mut self) {
+        self.mux = None;
     }
 }
 
 impl Drop for ServedMuxCleanup {
     fn drop(&mut self) {
-        self.mux.shutdown();
-        cmux_tui_core::server::cleanup(&self.socket_path);
+        if let Some(mux) = self.mux.take() {
+            mux.shutdown();
+            cmux_tui_core::server::cleanup(&self.socket_path);
+        }
     }
 }
 
@@ -1976,7 +1982,7 @@ fn run_server(
         eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
     }
     let served_socket = pending_server.into_bound_path();
-    let served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
+    let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
 
     let machine_runtime = (config.machine_sidebar.enabled
         || !config.machine_sidebar.create_sources.is_empty()
@@ -2026,6 +2032,7 @@ fn run_server(
             remote_shutdown,
             result.and(owner_event_result),
         );
+        served_mux_cleanup.disarm();
         drop(served_mux_cleanup);
         shutdown_result
     }
@@ -2034,6 +2041,7 @@ fn run_server(
         drop(websocket_server);
         mux.shutdown();
         cmux_tui_core::server::cleanup(&socket_path);
+        served_mux_cleanup.disarm();
         drop(served_mux_cleanup);
         result.and(owner_event_result)
     }
@@ -2723,6 +2731,33 @@ mod tests {
         .to_string();
 
         assert!(error.contains("injected remote shutdown failure"), "{error}");
+        assert!(mux.daemon_shutdown_requested());
+        assert!(!socket_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn normal_server_cleanup_disarms_the_fallback_guard() {
+        let socket_path = std::env::temp_dir().join(format!(
+            "cmux-normal-shutdown-{}-{}.sock",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::write(&socket_path, b"test socket marker").unwrap();
+        let mux = Arc::new(Mux::new("normal-shutdown", SurfaceOptions::default()));
+        let mut cleanup = ServedMuxCleanup::new(mux.clone(), socket_path.clone());
+
+        finish_server_shutdown(
+            Some(()),
+            &mux,
+            &socket_path,
+            Ok::<Option<()>, anyhow::Error>(None),
+            Ok(()),
+        )
+        .unwrap();
+        cleanup.disarm();
+
+        assert!(cleanup.mux.is_none());
         assert!(mux.daemon_shutdown_requested());
         assert!(!socket_path.exists());
     }

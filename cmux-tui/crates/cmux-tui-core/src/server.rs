@@ -5171,7 +5171,8 @@ fn complete_daemon_shutdown_after_ack(
             disconnect_client(mux, peer, true);
         }
     }
-    true
+    disconnect_client(mux, requesting_client, false);
+    false
 }
 
 pub fn detach_control_client(mux: &Arc<Mux>, client: u64) -> bool {
@@ -19303,6 +19304,7 @@ mod tests {
     #[test]
     fn daemon_shutdown_is_local_fenced_and_queues_ack_first() {
         let rejected = test_mux();
+        rejected.mark_server_lifecycle_ready();
         let rejected_outbound = Arc::new(BoundedOutbound::default());
         let rejected_writer =
             MessageWriter::new(QueuedSink { outbound: rejected_outbound.clone(), control: None });
@@ -19363,6 +19365,7 @@ mod tests {
         assert!(!rejected.daemon_shutdown_requested());
 
         let accepted = test_mux();
+        accepted.mark_server_lifecycle_ready();
         let accepted_outbound = Arc::new(BoundedOutbound::default());
         let accepted_writer =
             MessageWriter::new(QueuedSink { outbound: accepted_outbound.clone(), control: None });
@@ -19399,6 +19402,7 @@ mod tests {
     #[test]
     fn daemon_shutdown_waits_for_ack_flush_before_disconnecting_the_owner() {
         let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
         let (writer, outbound, flush_entered, release_flush) = blocking_flush_writer();
         let requester = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let interactive = mux.control_clients.register(ClientTransport::Unix, test_writer());
@@ -19433,6 +19437,7 @@ mod tests {
     #[test]
     fn daemon_shutdown_force_preserves_the_identity_fence() {
         let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
         let owner_writer = test_writer();
         let owner = mux.control_clients.register(ClientTransport::Unix, owner_writer.clone());
         handle_command(
