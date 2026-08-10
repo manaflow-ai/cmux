@@ -601,10 +601,7 @@ impl JournalIngressSender {
             .map_err(|_| anyhow::anyhow!("session journal writer panicked during shutdown"))
     }
 
-    pub(crate) fn install_writer(
-        &self,
-        writer: std::thread::JoinHandle<()>,
-    ) -> anyhow::Result<()> {
+    pub(crate) fn install_writer(&self, writer: std::thread::JoinHandle<()>) -> anyhow::Result<()> {
         let mut installed = self.writer.lock().unwrap();
         anyhow::ensure!(installed.is_none(), "session journal writer is already installed");
         *installed = Some(writer);
@@ -682,9 +679,7 @@ impl JournalIngressSender {
     }
 
     fn writer_error(&self) -> String {
-        self.state
-            .admission_error()
-            .unwrap_or_else(|| "session journal writer stopped".into())
+        self.state.admission_error().unwrap_or_else(|| "session journal writer stopped".into())
     }
 
     fn wait_for_commit_result<T>(

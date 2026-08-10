@@ -461,22 +461,21 @@ impl ProcessScopeTracker {
                     let mut state = self.state.lock().unwrap();
                     let scan_complete = scan.next.is_none();
                     if let Some(progress) = state.finalizing.get_mut(&registration) {
-                        progress
-                            .snapshots
-                            .extend(scan.snapshots.iter().map(|snapshot| {
-                                (snapshot.identity, *snapshot)
-                            }));
+                        progress.snapshots.extend(
+                            scan.snapshots.iter().map(|snapshot| (snapshot.identity, *snapshot)),
+                        );
                         progress.matches.extend(scan.matches.iter().copied());
                         if let Some(next) = scan.next {
                             progress.cursor = next;
                         }
                     }
-                    if scan_complete
-                        && let Some(progress) = state.finalizing.remove(&registration)
+                    if scan_complete && let Some(progress) = state.finalizing.remove(&registration)
                     {
-                        completed = state.scopes.get(&registration).cloned().map(|scope| {
-                            (scope, progress.snapshots, progress.matches)
-                        });
+                        completed = state
+                            .scopes
+                            .get(&registration)
+                            .cloned()
+                            .map(|scope| (scope, progress.snapshots, progress.matches));
                     }
                 }
                 for (scope, identity) in scan.matches {
@@ -719,15 +718,10 @@ fn scan_registered_processes(
     let mut inspected_processes = 0_usize;
     let mut last_completed_pid = cursor.after_pid;
     let resumed_pid = cursor.file_descriptors.map(|(pid, _)| pid);
-    for pid in pids
-        .into_iter()
-        .filter(|pid| *pid > cursor.after_pid || resumed_pid == Some(*pid))
-    {
+    for pid in pids.into_iter().filter(|pid| *pid > cursor.after_pid || resumed_pid == Some(*pid)) {
         if inspected_processes >= MAX_SCAN_PROCESSES {
-            result.next = Some(ProcessScanCursor {
-                after_pid: last_completed_pid,
-                file_descriptors: None,
-            });
+            result.next =
+                Some(ProcessScanCursor { after_pid: last_completed_pid, file_descriptors: None });
             include_lineage_matches(scopes, &result.snapshots, &mut result.matches);
             return result;
         }
@@ -871,15 +865,10 @@ fn scan_registered_processes(
     let mut inspected_processes = 0_usize;
     let mut last_completed_pid = cursor.after_pid;
     let resumed_pid = cursor.file_descriptors.map(|(pid, _)| pid);
-    for pid in pids
-        .into_iter()
-        .filter(|pid| *pid > cursor.after_pid || resumed_pid == Some(*pid))
-    {
+    for pid in pids.into_iter().filter(|pid| *pid > cursor.after_pid || resumed_pid == Some(*pid)) {
         if inspected_processes >= MAX_SCAN_PROCESSES {
-            result.next = Some(ProcessScanCursor {
-                after_pid: last_completed_pid,
-                file_descriptors: None,
-            });
+            result.next =
+                Some(ProcessScanCursor { after_pid: last_completed_pid, file_descriptors: None });
             include_lineage_matches(scopes, &result.snapshots, &mut result.matches);
             return result;
         }
@@ -904,8 +893,7 @@ fn scan_registered_processes(
             .file_descriptors
             .filter(|(resume_pid, _)| *resume_pid == pid)
             .map_or(-1, |(_, fd)| fd);
-        let file_scan =
-            mac_process_file_markers(pid, after_fd, &mut remaining_file_descriptors);
+        let file_scan = mac_process_file_markers(pid, after_fd, &mut remaining_file_descriptors);
         for marker in file_scan.markers {
             if let Some(scope_indexes) = file_markers.get(&marker) {
                 for scope in scope_indexes {

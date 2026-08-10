@@ -4110,10 +4110,7 @@ impl Surface {
         self.as_pty().map(|pty| pty.journal_capture_epoch.load(Ordering::Acquire))
     }
 
-    pub(crate) fn finish_terminal_reader(
-        &self,
-        deadline: Instant,
-    ) -> Option<TerminalJournalGap> {
+    pub(crate) fn finish_terminal_reader(&self, deadline: Instant) -> Option<TerminalJournalGap> {
         let Some(pty) = self.as_pty() else {
             return None;
         };
