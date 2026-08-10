@@ -664,7 +664,7 @@ fn session_reset_state_rejects_global_routing_options() {
             .output()
             .unwrap();
         assert!(!output.status.success(), "{option} unexpectedly reached reset execution");
-        let error: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let error = json_error(&output);
         assert_eq!(error["code"], "session.reset_state.routing_options_unsupported");
         assert_eq!(error["details"]["options"], serde_json::json!([option]));
         assert!(error["message"].as_str().unwrap().contains(option));
@@ -1977,7 +1977,10 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
 
     let identify = raw_cli(&server, serde_json::json!({"id":"identify-human","cmd":"identify"}));
     assert_success(&identify);
-    assert!(String::from_utf8_lossy(&identify.stdout).contains("\"protocol\":10"));
+    assert!(
+        String::from_utf8_lossy(&identify.stdout)
+            .contains(&format!("\"protocol\":{}", cmux_tui_core::server::PROTOCOL_VERSION))
+    );
 
     let identify_json =
         raw_cli(&server, serde_json::json!({"id":"identify-json","cmd":"identify"}));
@@ -2335,11 +2338,37 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     let select_bare = cli(&server, &["tab"]);
     assert_eq!(select_bare.status.code(), Some(2));
 
-    let close = cli(&server, &["--quiet", "terminal", &terminal, "close"]);
-    assert_success(&close);
-    let closed_read = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
-    assert_eq!(closed_read.status.code(), Some(1));
-    assert_eq!(json_error(&closed_read)["code"], "selector.not_found");
+    // Keep terminal.close focused on its CLI contract; multiview close semantics have dedicated
+    // core coverage.
+    let close_projection = json_cli(&server, &["tab", projected_tab, "close"]);
+    assert_success(&close_projection);
+    let remaining_terminal = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
+    assert_success(&remaining_terminal);
+
+    let mut terminal_closed = false;
+    for attempt in 0..3 {
+        let key = format!("matrix-terminal-close-{attempt}");
+        let close = json_cli(&server, &["terminal", &terminal, "close", "--idempotency-key", &key]);
+        if !close.status.success() {
+            assert_eq!(close.status.code(), Some(1));
+            let error = json_error(&close);
+            assert_eq!(error["code"], "mutation.indeterminate");
+            assert_eq!(error["details"]["idempotency_key"], key);
+            assert_eq!(error["details"]["operation"], "terminal.close");
+            assert_eq!(error["details"]["recovery"], "inspect_state_then_retry_with_new_key");
+        }
+
+        let read = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
+        if !read.status.success() {
+            assert_eq!(read.status.code(), Some(1));
+            assert_eq!(json_error(&read)["code"], "selector.not_found");
+            terminal_closed = true;
+            break;
+        }
+        assert_success(&read);
+        assert!(!close.status.success(), "successful close left the terminal addressable");
+    }
+    assert!(terminal_closed, "terminal remained addressable after three inspected close attempts");
 
     let bogus = Command::new(bin())
         .args(["--json", "--socket"])
@@ -2830,6 +2859,7 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
         workspace_key: String::new(),
         supports_set_defaults: true,
         supports_clear_history: true,
+        supports_terminate_ack: false,
     };
     let record_path = record.record_path(root);
     let live_path = record_path.with_extension(format!("{incarnation}-{host_start_nonce}.live"));
