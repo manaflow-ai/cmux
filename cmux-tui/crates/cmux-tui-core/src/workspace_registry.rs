@@ -69,11 +69,10 @@ pub use resource_store::{
     ResourceEventPage, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
 };
 use resource_store::{
-    apply_resource_patch, create_resource_schema,
-    initialize_resource_mutation_retention, migrate_resource_agent_projections,
-    migrate_resource_browser_metadata, migrate_resource_mutations_to_session_scope,
-    migrate_resource_tabs_to_multiview, resource_tabs_needs_multiview_normalization,
-    validate_resource_invariants,
+    apply_resource_patch, create_resource_schema, initialize_resource_mutation_retention,
+    migrate_resource_agent_projections, migrate_resource_browser_metadata,
+    migrate_resource_mutations_to_session_scope, migrate_resource_tabs_to_multiview,
+    resource_tabs_needs_multiview_normalization, validate_resource_invariants,
 };
 pub use session_journal::{
     JournalAuthority, JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity,

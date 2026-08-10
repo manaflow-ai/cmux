@@ -2411,13 +2411,11 @@ impl Mux {
                 expected_incarnation,
             )?;
             let newly_closed =
-                !terminal.replayed
-                    && !terminal.result["already_closed"].as_bool().unwrap_or(false);
+                !terminal.replayed && !terminal.result["already_closed"].as_bool().unwrap_or(false);
             if newly_closed {
                 self.emit_terminal_registry_changed(&registry, terminal.revision);
             }
-            let closed_incarnation =
-                terminal.result["incarnation"].as_str().map(str::to_owned);
+            let closed_incarnation = terminal.result["incarnation"].as_str().map(str::to_owned);
             let mut state = self.state.lock().unwrap();
             let catalog_public_ids = terminal_catalog_public_ids_by_host(
                 self,
@@ -2425,12 +2423,8 @@ impl Mux {
                 terminal_id,
                 closed_incarnation.as_deref(),
             );
-            let targets = terminal_host_placements(
-                self,
-                &state,
-                terminal_id,
-                closed_incarnation.as_deref(),
-            );
+            let targets =
+                terminal_host_placements(self, &state, terminal_id, closed_incarnation.as_deref());
             let target = targets.first().copied();
             let changed_screens = unique_screen_ids(
                 targets.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
@@ -2441,8 +2435,7 @@ impl Mux {
                 &catalog_public_ids,
                 &targets,
             );
-            let empty_revision =
-                state.workspaces.is_empty().then_some(state.workspace_revision);
+            let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
             drop(state);
             drop(registry);
             drop(_creation_fence);
@@ -2462,10 +2455,7 @@ impl Mux {
                 self.emit(MuxEvent::LayoutChanged(screen));
             }
             if !had_runtime {
-                self.terminate_discovered_terminal_host(
-                    terminal_id,
-                    closed_incarnation.as_deref(),
-                );
+                self.terminate_discovered_terminal_host(terminal_id, closed_incarnation.as_deref());
             }
             if newly_closed {
                 self.notify_terminal_exit_waiters(catalog_public_ids.first().cloned());
