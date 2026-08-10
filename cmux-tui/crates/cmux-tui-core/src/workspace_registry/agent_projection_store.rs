@@ -97,9 +97,6 @@ pub(super) fn rebuild_agent_projections_from_journal(
         derive_agent_projections_from_legacy_agent_index(&tx)?;
     for mut stored in stored_live_projections(&tx)? {
         let key = stored.terminal_id.to_string();
-        if projections.contains_key(&key) {
-            continue;
-        }
         stored.committed_sequence = append_prejournal_projection_migration(&tx, &stored)?;
         head_sequence = head_sequence.max(stored.committed_sequence);
         projections.insert(key, stored);
