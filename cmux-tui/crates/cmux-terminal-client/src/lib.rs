@@ -696,8 +696,7 @@ impl ClientState {
     fn apply(&mut self, frame: Frame) -> Result<FrameEffect, String> {
         let effect = match frame.kind {
             MessageKind::Snapshot => {
-                let snapshot = decode_host_snapshot_payload(&frame.payload)
-                    .map_err(|error| error.to_string())?;
+                let snapshot = decode_host_snapshot_payload(&frame.payload)?;
                 #[cfg(feature = "text-renderer")]
                 {
                     let mut terminal =
@@ -2693,10 +2692,9 @@ mod tests {
     }
 
     fn test_colors_payload() -> Vec<u8> {
-        let mut output = Vec::from(
+        let mut output =
             [2u16.to_le_bytes(), 8u16.to_le_bytes(), 0u16.to_le_bytes(), 0u16.to_le_bytes()]
-                .concat(),
-        );
+                .concat();
         output.extend_from_slice(&[1, 0]);
         output
     }

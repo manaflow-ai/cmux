@@ -1006,11 +1006,11 @@ mod tests {
             let queue = state.resource_updates.lock().unwrap();
             assert_eq!(queue.len(), 256);
             assert_eq!(
-                serde_json::from_slice::<Value>(&queue.front().unwrap()).unwrap()["sequence"],
+                serde_json::from_slice::<Value>(queue.front().unwrap()).unwrap()["sequence"],
                 0
             );
             assert_eq!(
-                serde_json::from_slice::<Value>(&queue.back().unwrap()).unwrap()["sequence"],
+                serde_json::from_slice::<Value>(queue.back().unwrap()).unwrap()["sequence"],
                 255
             );
         }
