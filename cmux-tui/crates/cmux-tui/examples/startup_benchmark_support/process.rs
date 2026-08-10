@@ -1966,6 +1966,14 @@ mod tests {
     }
 
     #[test]
+    fn frame_marker_accepts_a_later_split_cursor_position_escape() {
+        let mut tracker = FrameMarkerTracker::new(b"[bench-warm-1] ".to_vec());
+        assert_eq!(tracker.observe(b"\x1b[1;1H before [bench-warm"), None);
+        assert_eq!(tracker.observe(b"-1] frame bytes \x1b[6;"), None);
+        assert!(tracker.observe(b"49H").is_some());
+    }
+
+    #[test]
     fn frame_marker_survives_more_than_the_diagnostic_capture_limit() {
         let mut tracker = FrameMarkerTracker::new(b"[bench-cold-1] ".to_vec());
         assert_eq!(tracker.observe(b"[bench-cold-1] "), None);
