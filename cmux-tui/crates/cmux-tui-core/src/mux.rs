@@ -709,6 +709,14 @@ pub enum MuxEvent {
         surface: SurfaceId,
         title: Arc<str>,
     },
+    /// The latest agent state for one surface changed.
+    AgentChanged {
+        surface: SurfaceId,
+        state: Arc<str>,
+        source: Arc<str>,
+        session: Option<Arc<str>>,
+        updated_at_ms: u64,
+    },
     Bell(SurfaceId),
     Notification(NotificationEvent),
     GraphicsStatus(GraphicsStatus),
@@ -7321,20 +7329,25 @@ impl Mux {
         drop(records);
         drop(state);
         drop(registry);
+        let agent = AgentRecord {
+            surface,
+            terminal_id,
+            state: record.state,
+            source: record.source,
+            session: record.session,
+            updated_at_ms: record.updated_at_ms,
+        };
         if !commit.replayed {
             self.publish_resource_event();
+            self.emit(MuxEvent::AgentChanged {
+                surface: agent.surface,
+                state: Arc::from(agent.state.as_str()),
+                source: Arc::from(agent.source.as_str()),
+                session: agent.session.as_deref().map(Arc::from),
+                updated_at_ms: agent.updated_at_ms,
+            });
         }
-        Ok((
-            commit,
-            Some(AgentRecord {
-                surface,
-                terminal_id,
-                state: record.state,
-                source: record.source,
-                session: record.session,
-                updated_at_ms: record.updated_at_ms,
-            }),
-        ))
+        Ok((commit, Some(agent)))
     }
 
     /// Drop per-surface metadata for a surface that has left the tree.
@@ -19335,6 +19348,7 @@ mod tests {
     fn agent_reports_apply_hook_authority() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
+        let events = mux.subscribe();
         let initial_revision = mux.with_state(|state| state.resource_revision);
         let initial_epoch = mux.resource_event_epoch();
         let socket = mux
@@ -19347,6 +19361,19 @@ mod tests {
             .unwrap();
         assert_eq!(socket.state, AgentState::Working);
         assert_eq!(socket.source, AgentSource::Socket);
+        assert!(matches!(
+            events.recv_timeout(Duration::from_millis(100)),
+            Ok(MuxEvent::AgentChanged {
+                surface: event_surface,
+                state,
+                source,
+                session: Some(session),
+                ..
+            }) if event_surface == surface.id
+                && state.as_ref() == "working"
+                && source.as_ref() == "socket"
+                && session.as_ref() == "socket-session"
+        ));
 
         let hook = mux
             .report_agent(
@@ -19377,13 +19404,30 @@ mod tests {
         assert_eq!(mux.with_state(|state| state.resource_revision), initial_revision + 3);
         assert_eq!(mux.resource_event_epoch(), initial_epoch + 3);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
-        let events = mux.resource_events_after(initial_revision).unwrap();
-        assert_eq!(events.batches.len(), 3);
-        assert_eq!(events.batches[0].changes[0]["value"]["source"], "socket");
-        assert_eq!(events.batches[1].changes[0]["value"]["source"], "hook");
-        assert_eq!(events.batches[2].changes[0]["value"]["source"], "hook");
-        assert_eq!(events.batches[2].changes[0]["value"]["state"], "blocked");
-        assert_eq!(events.batches[2].changes[0]["value"]["source_session"], "hook-session");
+        let resource_events = mux.resource_events_after(initial_revision).unwrap();
+        assert_eq!(resource_events.batches.len(), 3);
+        assert_eq!(resource_events.batches[0].changes[0]["value"]["source"], "socket");
+        assert_eq!(resource_events.batches[1].changes[0]["value"]["source"], "hook");
+        assert_eq!(resource_events.batches[2].changes[0]["value"]["source"], "hook");
+        assert_eq!(resource_events.batches[2].changes[0]["value"]["state"], "blocked");
+        assert_eq!(
+            resource_events.batches[2].changes[0]["value"]["source_session"],
+            "hook-session"
+        );
+        assert!(matches!(
+            events.recv_timeout(Duration::from_millis(100)),
+            Ok(MuxEvent::AgentChanged {
+                surface: event_surface,
+                state,
+                source,
+                session: Some(session),
+                ..
+            }) if event_surface == surface.id
+                && state.as_ref() == "blocked"
+                && source.as_ref() == "hook"
+                && session.as_ref() == "hook-session"
+        ));
+        assert!(!events.try_iter().any(|event| matches!(event, MuxEvent::TreeChanged)));
     }
 
     #[test]
@@ -23087,7 +23131,7 @@ mod tests {
                             },
                             ResourceChange::SetScreenOrder {
                                 workspace_id: workspace.public_id.clone(),
-                                screen_ids: vec![screen.clone()],
+                                screen_ids: vec![screen],
                             },
                             ResourceChange::SetTabOrder {
                                 pane_id: pane.clone(),
