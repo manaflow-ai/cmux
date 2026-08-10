@@ -27,6 +27,8 @@ use ghostty_vt::{
     Terminal, TerminalColorOverrides, TerminalPointerSemanticSnapshot, TrackedScreenPoint,
 };
 
+#[cfg(unix)]
+use crate::MuxEvent;
 use crate::mux::ResourceWaitWake;
 use crate::platform;
 use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
@@ -3708,7 +3710,7 @@ impl Surface {
                                     Ordering::Release,
                                 );
                                 if !reconnect_mux
-                                    .terminal_host_connection_lost(surface.id, &identity)
+                                    .terminal_host_connection_lost(pty.runtime_id, &identity)
                                 {
                                     return;
                                 }
@@ -6221,6 +6223,60 @@ impl ChildKiller for TestChildKiller {
 }
 
 impl PtySurface {
+    fn view_scrollbar_locked(&self, term: &mut Terminal) -> Option<Scrollbar> {
+        let scrollbar = term.scrollbar()?;
+        let bottom = scrollbar.total.saturating_sub(scrollbar.len);
+        let screen = term.active_screen();
+        let mut viewport = self.viewport.lock().unwrap();
+        let had_anchor = viewport.anchor(screen).is_some();
+        let resolved = viewport
+            .anchor(screen)
+            .and_then(|anchor| term.tracked_screen_point(anchor))
+            .map(|(_, row)| u64::from(row).min(bottom));
+        let offset = match (had_anchor, resolved) {
+            (_, Some(offset)) => offset,
+            (false, None) => bottom,
+            (true, None) if bottom > 0 => {
+                *viewport.anchor_mut(screen) = term.track_screen_point(0, 0).ok();
+                if viewport.anchor(screen).is_some() { 0 } else { bottom }
+            }
+            (true, None) => {
+                *viewport.anchor_mut(screen) = None;
+                bottom
+            }
+        };
+        if offset == bottom {
+            *viewport.anchor_mut(screen) = None;
+        }
+        Some(Scrollbar { offset, ..scrollbar })
+    }
+
+    fn set_view_scroll_offset_locked(&self, term: &mut Terminal, offset: u64) {
+        let Some(scrollbar) = term.scrollbar() else { return };
+        let bottom = scrollbar.total.saturating_sub(scrollbar.len);
+        let target = offset.min(bottom);
+        let screen = term.active_screen();
+        let mut viewport = self.viewport.lock().unwrap();
+        let anchor = viewport.anchor_mut(screen);
+        if target == bottom {
+            *anchor = None;
+            return;
+        }
+        let Ok(target) = u32::try_from(target) else {
+            *anchor = None;
+            return;
+        };
+        if anchor
+            .as_mut()
+            .is_some_and(|anchor| term.set_tracked_screen_point(anchor, 0, target).is_ok())
+        {
+            return;
+        }
+        *anchor = term.track_screen_point(0, target).ok();
+    }
+}
+
+impl PtyTerminalRuntime {
     fn journal_target(&self) -> Option<(Arc<Mux>, Arc<TerminalPublicId>)> {
         let terminal_id = self.terminal_public_id.clone()?;
         let mux = self.mux.upgrade()?;
@@ -6289,60 +6345,6 @@ impl PtySurface {
         );
     }
 
-    fn view_scrollbar_locked(&self, term: &mut Terminal) -> Option<Scrollbar> {
-        let scrollbar = term.scrollbar()?;
-        let bottom = scrollbar.total.saturating_sub(scrollbar.len);
-        let screen = term.active_screen();
-        let mut viewport = self.viewport.lock().unwrap();
-        let had_anchor = viewport.anchor(screen).is_some();
-        let resolved = viewport
-            .anchor(screen)
-            .and_then(|anchor| term.tracked_screen_point(anchor))
-            .map(|(_, row)| u64::from(row).min(bottom));
-        let offset = match (had_anchor, resolved) {
-            (_, Some(offset)) => offset,
-            (false, None) => bottom,
-            (true, None) if bottom > 0 => {
-                *viewport.anchor_mut(screen) = term.track_screen_point(0, 0).ok();
-                if viewport.anchor(screen).is_some() { 0 } else { bottom }
-            }
-            (true, None) => {
-                *viewport.anchor_mut(screen) = None;
-                bottom
-            }
-        };
-        if offset == bottom {
-            *viewport.anchor_mut(screen) = None;
-        }
-        Some(Scrollbar { offset, ..scrollbar })
-    }
-
-    fn set_view_scroll_offset_locked(&self, term: &mut Terminal, offset: u64) {
-        let Some(scrollbar) = term.scrollbar() else { return };
-        let bottom = scrollbar.total.saturating_sub(scrollbar.len);
-        let target = offset.min(bottom);
-        let screen = term.active_screen();
-        let mut viewport = self.viewport.lock().unwrap();
-        let anchor = viewport.anchor_mut(screen);
-        if target == bottom {
-            *anchor = None;
-            return;
-        }
-        let Ok(target) = u32::try_from(target) else {
-            *anchor = None;
-            return;
-        };
-        if anchor
-            .as_mut()
-            .is_some_and(|anchor| term.set_tracked_screen_point(anchor, 0, target).is_ok())
-        {
-            return;
-        }
-        *anchor = term.track_screen_point(0, target).ok();
-    }
-}
-
-impl PtyTerminalRuntime {
     #[cfg(test)]
     fn run_geometry_test_hook(&self, step: PtyGeometryTestStep) {
         let hook = self.geometry_test_hook.lock().unwrap().clone();

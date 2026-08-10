@@ -7676,7 +7676,12 @@ impl Mux {
         &self,
         terminal_id: &TerminalPublicId,
     ) -> Option<Arc<Surface>> {
-        self.state.lock().unwrap().terminal_catalog.get(terminal_id).cloned()
+        self.state
+            .lock()
+            .unwrap()
+            .terminal_catalog
+            .get(terminal_id)
+            .map(TerminalResource::compatibility_surface)
     }
 
     #[cfg(test)]
