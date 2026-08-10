@@ -5175,11 +5175,8 @@ fn journal_agent_rebuild_includes_resource_agent_reports() {
         });
         registry
             .commit_agent_projection(
-                &WorkspaceMutation::new(
-                    "journal-agent-resource-report-rebuild",
-                    "socket-test",
-                )
-                .unwrap(),
+                &WorkspaceMutation::new("journal-agent-resource-report-rebuild", "socket-test")
+                    .unwrap(),
                 &json!({"source_session":"resource-report-session"}),
                 Some(1),
                 &terminal_id,
