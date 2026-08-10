@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import shutil
@@ -19,7 +20,7 @@ START_TIMEOUT_SECONDS = 20
 
 def make_state_path(root: Path) -> Path:
     state = root / "state"
-    while len(str(state)) + 121 < STATE_PATH_LENGTH:
+    while len(str(state)) + 121 < STATE_PATH_LENGTH - 1:
         state /= "界" * 120
     remaining = STATE_PATH_LENGTH - len(str(state)) - 1
     if not 1 <= remaining <= 255:
@@ -46,35 +47,37 @@ def run() -> None:
     socket_path = root / "server.sock"
     state_path = make_state_path(root)
     config_path = root / "config.json"
-    root.mkdir(parents=True)
     extended_state_path = extended_path(state_path)
-    extended_state_path.mkdir(parents=True)
-    (extended_state_path / "machine-id").write_bytes(
-        f"machine_{uuid.uuid4().hex}\n".encode()
-    )
-    (extended_state_path / "resource-effect-pepper").write_bytes(os.urandom(32))
-    config_path.write_text("{}\n", encoding="utf-8")
     env = os.environ.copy()
     env["CMUX_TUI_CONFIG"] = str(config_path)
+    env["CMUX_TUI_STATE_DIR"] = str(state_path)
     session = f"long-state-{uuid.uuid4().hex[:8]}"
-    process = subprocess.Popen(
-        [
-            str(binary),
-            "--headless",
-            "--session",
-            session,
-            "--socket",
-            str(socket_path),
-            "--state",
-            str(state_path),
-        ],
-        env=env,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
+    process: subprocess.Popen[str] | None = None
     try:
+        root.mkdir(parents=True)
+        extended_state_path.mkdir(parents=True)
+        (extended_state_path / "machine-id").write_bytes(
+            f"machine_{uuid.uuid4().hex}\n".encode()
+        )
+        (extended_state_path / "resource-effect-pepper").write_bytes(os.urandom(32))
+        config_path.write_text("{}\n", encoding="utf-8")
+        process = subprocess.Popen(
+            [
+                str(binary),
+                "--headless",
+                "--session",
+                session,
+                "--socket",
+                str(socket_path),
+                "--state",
+                str(state_path),
+            ],
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
         deadline = time.monotonic() + START_TIMEOUT_SECONDS
         while not socket_path.exists():
             exit_code = process.poll()
@@ -101,32 +104,41 @@ def run() -> None:
                 f"workspace list failed with {listing.returncode}\n"
                 f"stdout:\n{listing.stdout}\nstderr:\n{listing.stderr}"
             )
+        payload = json.loads(listing.stdout)
+        workspaces = payload.get("data", {}).get("workspaces")
+        if not isinstance(workspaces, list):
+            raise AssertionError(f"workspace list had no data.workspaces array: {payload!r}")
         print(f"Windows state path length: {len(str(state_path))}")
         print(f"Windows state path UTF-8 length: {len(str(state_path).encode('utf-8'))}")
         print(f"Published socket: {socket_path}")
     finally:
-        if process.poll() is None:
-            subprocess.run(
-                [
-                    str(binary),
-                    "--socket",
-                    str(socket_path),
-                    "--json",
-                    "session",
-                    "current",
-                    "shutdown",
-                ],
-                env=env,
-                capture_output=True,
-                timeout=START_TIMEOUT_SECONDS,
-                check=False,
-            )
-            try:
-                process.wait(timeout=START_TIMEOUT_SECONDS)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
-        shutil.rmtree(extended_path(root), ignore_errors=True)
+        try:
+            if process is not None and process.poll() is None:
+                try:
+                    subprocess.run(
+                        [
+                            str(binary),
+                            "--socket",
+                            str(socket_path),
+                            "--json",
+                            "session",
+                            "current",
+                            "shutdown",
+                        ],
+                        env=env,
+                        capture_output=True,
+                        timeout=START_TIMEOUT_SECONDS,
+                        check=False,
+                    )
+                except subprocess.TimeoutExpired:
+                    pass
+                try:
+                    process.wait(timeout=START_TIMEOUT_SECONDS)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+        finally:
+            shutil.rmtree(extended_path(root), ignore_errors=True)
 
 
 if __name__ == "__main__":
