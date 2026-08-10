@@ -2,13 +2,46 @@ import CMUXAgentLaunch
 import Foundation
 
 struct CachedAgentProcessIdentityValidator: Sendable {
+    enum HermesSessionValidation: Sendable {
+        /// A cached snapshot can outlive a conversation switch in the same process.
+        case cachedSnapshot
+
+        /// The current hook-store record was loaded alongside the process observation.
+        case currentHookRecord
+    }
+
     func currentProcess(
         _ process: CmuxTopProcessArguments,
-        matches snapshot: SessionRestorableAgentSnapshot
+        matches snapshot: SessionRestorableAgentSnapshot,
+        hermesSessionValidation: HermesSessionValidation = .cachedSnapshot
     ) -> Bool {
         if let liveKind = normalizedProcessValue(process.environment["CMUX_AGENT_LAUNCH_KIND"]),
            !Self.launchKind(liveKind, matches: snapshot.kind, launcher: snapshot.launchCommand?.launcher) {
             return false
+        }
+        if snapshot.kind == .hermesAgent {
+            let observed = VaultObservedAgentProcess(
+                processName: process.arguments.first.map(Self.executableBasename) ?? "",
+                processPath: process.arguments.first,
+                arguments: process.arguments,
+                environment: process.environment
+            )
+            guard CmuxVaultAgentRegistration.builtInHermes.detect.matches(observed),
+                  observed.isInteractiveHermesAgentInvocation else {
+                return false
+            }
+            guard let explicitSessionID = CmuxVaultAgentPersistedSessionStore.hermesStateDB
+                .explicitSessionID(arguments: process.arguments) else {
+                // A fresh hook record supplies the missing session identity. A
+                // cached snapshot cannot: Hermes can switch conversations without
+                // changing its PID or bare argv.
+                return hermesSessionValidation == .currentHookRecord
+            }
+            return ManagedAgentSessionIdentity.sessionIDsMatch(
+                kind: snapshot.kind.rawValue,
+                lhs: explicitSessionID,
+                rhs: snapshot.sessionId
+            )
         }
         guard currentProcessExecutable(process.arguments, environment: process.environment, matches: snapshot) else {
             return false

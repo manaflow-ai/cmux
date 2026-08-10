@@ -287,7 +287,7 @@ extension TerminalSurface {
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
         backgroundSurfaceStartSource = .normal
-        cancelClaudeCommandShimInstallLifecycle()
+        cancelAgentCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
 
         let callbackContext = surfaceCallbackContext
@@ -426,7 +426,7 @@ extension TerminalSurface {
         cancelRuntimeSurfaceCreationAfterAdmissionRecovery()
         backgroundSurfaceStartQueued = false
         backgroundSurfaceStartSource = .normal
-        cancelClaudeCommandShimInstallLifecycle()
+        cancelAgentCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
@@ -847,13 +847,13 @@ extension TerminalSurface {
         ) {
             return
         }
-        let claudeShimState = claudeCommandShimStateForSurface(view: view, source: source)
-        guard claudeShimState.isReady else { return }
+        let agentShimState = agentCommandShimStateForSurface(view: view, source: source)
+        guard agentShimState.isReady else { return }
         if shouldPaceRuntimeSurfaceCreation(source: source) {
             enqueueRestoredRuntimeSurfaceCreation(for: view)
             return
         }
-        let claudeShim = claudeShimState.shim
+        let agentCommandShims = agentShimState.shims
 #if DEBUG
         runtimeSurfaceCreateAttemptCountForTesting += 1
 #endif
@@ -903,7 +903,7 @@ extension TerminalSurface {
             app: app,
             for: view,
             scaleFactors: scaleFactors,
-            claudeShim: claudeShim
+            agentCommandShims: agentCommandShims
         )
         surface = runtimeSurfaceCreation.createdSurface
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput

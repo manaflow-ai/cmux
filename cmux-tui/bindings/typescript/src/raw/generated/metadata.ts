@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 11, IR 2bce28216d72a0d5419ba02efc7610f3a9a67d28f6dbf05da73016fb941b512e. */
+/* cmux-tui mux protocol 11, IR 244462152d8a0475d139067043a1133ea0588be588e03d153954addf273f99c9. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 11 as const;
-export const SDK_IR_SHA256 = "2bce28216d72a0d5419ba02efc7610f3a9a67d28f6dbf05da73016fb941b512e" as const;
+export const SDK_IR_SHA256 = "244462152d8a0475d139067043a1133ea0588be588e03d153954addf273f99c9" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1081,6 +1081,7 @@ export const COMMAND_METADATA = {
     },
     "stream": {
       "event_names": [
+        "agent-changed",
         "bell",
         "client-attached",
         "client-changed",
@@ -1205,6 +1206,14 @@ export const COMMAND_METADATA = {
   }
 } as const;
 export const EVENT_METADATA = {
+  "agent-changed": {
+    "since": 11,
+    "capability": null,
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
   "bell": {
     "since": 5,
     "capability": null,
@@ -10005,6 +10014,60 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
   }
 };
 export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
+  "agent-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "agent-changed"
+        }
+      },
+      "session": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "source": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "AgentSource"
+        }
+      },
+      "state": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "AgentState"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "updated_at_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "bell": {
     "additional_properties": false,
     "fields": {
