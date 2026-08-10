@@ -265,7 +265,7 @@ struct TaskComposerLayout: View {
             )
         } label: {
             HStack(spacing: 7) {
-                Image(systemName: "brain.head.profile")
+                Image(systemName: "cpu")
                     .font(.caption.weight(.semibold))
                     .accessibilityHidden(true)
 
