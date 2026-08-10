@@ -208,6 +208,43 @@ actor RoutingHostRouter {
         var directoryPath: String?
         var directoryOffset: Int?
         var directoryLimit: Int?
+
+        static func attachmentUpload(
+            operationID: UUID,
+            uploadID: UUID,
+            fileName: String,
+            totalBytes: Int,
+            offset: Int,
+            data: Data,
+            isLast: Bool
+        ) -> Self {
+            Self(
+                method: "mobile.task.attachment.upload",
+                id: UUID().uuidString,
+                streamID: nil,
+                surfaceID: nil,
+                imageFormat: nil,
+                text: nil,
+                notificationIDs: nil,
+                clientID: nil,
+                groupID: nil,
+                title: nil,
+                workingDirectory: nil,
+                initialCommand: nil,
+                initialEnv: nil,
+                operationID: operationID.uuidString,
+                uploadID: uploadID.uuidString,
+                fileName: fileName,
+                totalBytes: totalBytes,
+                uploadOffset: offset,
+                uploadDataBase64: data.base64EncodedString(),
+                uploadIsLast: isLast,
+                query: nil,
+                directoryPath: nil,
+                directoryOffset: nil,
+                directoryLimit: nil
+            )
+        }
     }
 
     func response(_ info: RequestInfo) async -> Data? {

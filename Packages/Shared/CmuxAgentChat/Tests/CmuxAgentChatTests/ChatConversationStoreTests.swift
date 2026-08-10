@@ -504,6 +504,74 @@ struct ChatConversationStoreTests {
         #expect(operationAttempts[1] == operationAttempts[0])
     }
 
+    @Test("a staged attachment stays retryable until its successful send echoes")
+    func stagedAttachmentLifetimeEndsAtEchoReconciliation() async throws {
+        let source = SilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.isConnected })
+
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chat-owned-attachment-\(UUID()).txt")
+        try Data("owned bytes".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let attachment = ChatOutboundAttachment(
+            localFileURL: fileURL,
+            byteCount: 11,
+            fileName: "owned.txt",
+            kind: .file
+        )
+
+        await store.send(text: "inspect this", attachments: [attachment])
+        #expect(FileManager.default.fileExists(atPath: fileURL.path))
+
+        await source.emit(.appended([Self.prose(seq: 0, role: .user, text: "/tmp/owned.txt inspect this")]))
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).isEmpty })
+        #expect(!FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
+    @Test("reset releases delivered staged attachments but preserves failed retry files")
+    func resetReleasesOnlyDeliveredStagedAttachments() async throws {
+        let source = SilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.isConnected })
+
+        let deliveredURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chat-reset-delivered-\(UUID()).txt")
+        let failedURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chat-reset-failed-\(UUID()).txt")
+        try Data("delivered".utf8).write(to: deliveredURL)
+        try Data("failed".utf8).write(to: failedURL)
+        defer {
+            try? FileManager.default.removeItem(at: deliveredURL)
+            try? FileManager.default.removeItem(at: failedURL)
+        }
+
+        await store.send(text: "delivered", attachments: [ChatOutboundAttachment(
+            localFileURL: deliveredURL,
+            byteCount: 9,
+            fileName: "delivered.txt",
+            kind: .file
+        )])
+        await source.setSendFailure(true)
+        await store.send(text: "failed", attachments: [ChatOutboundAttachment(
+            localFileURL: failedURL,
+            byteCount: 6,
+            fileName: "failed.txt",
+            kind: .file
+        )])
+
+        await source.emit(.reset)
+        #expect(await TestPoller.waitUntil {
+            Self.pendingItems(store.rows).count == 1
+        })
+        #expect(!FileManager.default.fileExists(atPath: deliveredURL.path))
+        #expect(FileManager.default.fileExists(atPath: failedURL.path))
+    }
+
     @Test("retry while the agent is working re-queues instead of delivering")
     func retryWhileWorkingRequeues() async {
         let source = SilentSendEventSource()
@@ -607,6 +675,15 @@ struct ChatConversationStoreTests {
         store.discard(pendingID: item.id)
         #expect(Self.pendingItems(store.rows).isEmpty)
         #expect(!FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
+    @Test("legacy in-memory attachments do not duplicate full payloads as thumbnails")
+    func legacyAttachmentDoesNotDuplicatePayloadAsThumbnail() {
+        let bytes = Data(repeating: 0xAB, count: 1024)
+        let attachment = ChatOutboundAttachment(data: bytes, format: .png)
+
+        #expect(attachment.thumbnailData == nil)
+        #expect(attachment.byteCount == bytes.count)
     }
 
     // MARK: - Pagination

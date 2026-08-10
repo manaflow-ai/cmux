@@ -63,6 +63,33 @@ struct TerminalConversationStoreTests {
         })
     }
 
+    @Test("terminal command reconciliation releases staged attachment files")
+    @MainActor func terminalReconciliationReleasesStagedFiles() async throws {
+        let source = FixtureChatEventSource(terminalBacklog: [])
+        let store = Self.makeStore(source)
+        let run = Task { await store.run() }
+        defer { run.cancel() }
+        #expect(await Self.waitUntil { store.isConnected })
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("terminal-chat-attachment-\(UUID()).txt")
+        try Data("terminal".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        await store.send(text: "cat attachment", attachments: [ChatOutboundAttachment(
+            localFileURL: fileURL,
+            byteCount: 8,
+            fileName: "attachment.txt",
+            kind: .file
+        )])
+        #expect(FileManager.default.fileExists(atPath: fileURL.path))
+        await source.emitTerminalBlocks([
+            TerminalCommandBlock(id: 0, command: "cat attachment", isRunning: false),
+        ])
+
+        #expect(await Self.waitUntil { Self.pendings(store.rows).isEmpty })
+        #expect(!FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
     @Test("a terminal session never advertises more history (block paging unimplemented)")
     @MainActor func terminalNeverPagesHistory() async {
         let source = FixtureChatEventSource(

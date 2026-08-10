@@ -112,4 +112,35 @@ struct ChatConversationStoreSourceReplacementTests {
 
         #expect(store.agentState == .idle)
     }
+
+    @Test("source replacement releases delivered attachment files from the prior producer")
+    func sourceReplacementReleasesDeliveredStagedFiles() async throws {
+        let oldSource = FixtureChatEventSource()
+        let store = ChatConversationStore(
+            descriptor: Self.descriptor(),
+            source: oldSource,
+            sourceIdentity: "old",
+            now: { Self.baseTime }
+        )
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("source-replaced-chat-attachment-\(UUID()).txt")
+        try Data("old source".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        await store.send(text: "old prompt", attachments: [ChatOutboundAttachment(
+            localFileURL: fileURL,
+            byteCount: 10,
+            fileName: "old.txt",
+            kind: .file
+        )])
+        #expect(FileManager.default.fileExists(atPath: fileURL.path))
+
+        store.replaceSource(
+            FixtureChatEventSource(),
+            descriptor: Self.descriptor(),
+            sourceIdentity: "new"
+        )
+
+        #expect(!FileManager.default.fileExists(atPath: fileURL.path))
+    }
 }

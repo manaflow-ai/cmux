@@ -196,6 +196,59 @@ struct MobileTaskAttachmentStoreTests {
         }
     }
 
+    @Test func completedAttachmentLookupRejectsSymlinksEscapingTheOperationDirectory() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let operationID = UUID()
+        let uploadID = UUID()
+        let completed = try fixture.complete(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "inside.txt",
+            contents: "inside"
+        )
+        let completedURL = URL(fileURLWithPath: try #require(completed.path))
+        let outsideURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-attachment-outside-\(UUID()).txt")
+        try Data("outside".utf8).write(to: outsideURL)
+        defer { try? FileManager.default.removeItem(at: outsideURL) }
+        try FileManager.default.removeItem(at: completedURL)
+        try FileManager.default.createSymbolicLink(at: completedURL, withDestinationURL: outsideURL)
+
+        #expect(throws: MobileTaskAttachmentStoreError.self) {
+            try fixture.store.completedAttachmentURL(
+                operationID: operationID,
+                uploadID: uploadID
+            )
+        }
+    }
+
+    @Test func completedAttachmentLookupReturnsResolvedInRootRegularFile() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let operationID = UUID()
+        let uploadID = UUID()
+        let completed = try fixture.complete(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "linked.txt",
+            contents: "linked"
+        )
+        let completedURL = URL(fileURLWithPath: try #require(completed.path))
+        let targetURL = completedURL.deletingLastPathComponent()
+            .appendingPathComponent("resolved.txt")
+        try FileManager.default.moveItem(at: completedURL, to: targetURL)
+        try FileManager.default.createSymbolicLink(at: completedURL, withDestinationURL: targetURL)
+
+        let resolved = try fixture.store.completedAttachmentURL(
+            operationID: operationID,
+            uploadID: uploadID
+        )
+
+        #expect(resolved == targetURL.resolvingSymlinksInPath().standardizedFileURL)
+        #expect(try Data(contentsOf: resolved) == Data("linked".utf8))
+    }
+
     @Test func batchLookupFailsBeforeReturningAnyPathWhenLaterReferenceIsInvalid() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

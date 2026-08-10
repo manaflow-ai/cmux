@@ -419,4 +419,46 @@ import Testing
         #expect(remaining.first?.data == Self.bytes("img-2"))
         #expect(store.terminalInputText == "keep me")
     }
+
+    @Test func routingHostRejectsMetadataChangesOnNonzeroUploadChunks() async {
+        let router = RoutingHostRouter()
+        let operationID = UUID()
+        let changedOperationID = UUID()
+        let uploadID = UUID()
+        _ = await router.response(.attachmentUpload(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "original.txt",
+            totalBytes: 5,
+            offset: 0,
+            data: Data("he".utf8),
+            isLast: false
+        ))
+
+        _ = await router.response(.attachmentUpload(
+            operationID: changedOperationID,
+            uploadID: uploadID,
+            fileName: "changed.txt",
+            totalBytes: 5,
+            offset: 2,
+            data: Data("llo".utf8),
+            isLast: true
+        ))
+        #expect(await router.recordedUploads().isEmpty)
+
+        _ = await router.response(.attachmentUpload(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "original.txt",
+            totalBytes: 5,
+            offset: 2,
+            data: Data("llo".utf8),
+            isLast: true
+        ))
+        let completed = await router.recordedUploads()
+        #expect(completed.count == 1)
+        #expect(completed.first?.operationID == operationID.uuidString)
+        #expect(completed.first?.fileName == "original.txt")
+        #expect(completed.first?.bytes == Data("hello".utf8))
+    }
 }
