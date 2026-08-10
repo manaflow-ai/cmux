@@ -220,7 +220,12 @@ struct ChatConversationStoreTests {
         source: any ChatEventSource,
         lastReadSeq: Int? = nil,
         pageSize: Int = 10,
-        maxWindowCount: Int = 600
+        maxWindowCount: Int = 600,
+        releaseStagedFileURLs: @escaping ([URL]) -> Void = { urls in
+            for url in urls {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
     ) -> ChatConversationStore {
         ChatConversationStore(
             descriptor: descriptor(),
@@ -228,7 +233,8 @@ struct ChatConversationStoreTests {
             lastReadSeq: lastReadSeq,
             pageSize: pageSize,
             maxWindowCount: maxWindowCount,
-            now: { baseTime }
+            now: { baseTime },
+            releaseStagedFileURLs: releaseStagedFileURLs
         )
     }
 
@@ -529,6 +535,50 @@ struct ChatConversationStoreTests {
         await source.emit(.appended([Self.prose(seq: 0, role: .user, text: "/tmp/owned.txt inspect this")]))
         #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).isEmpty })
         #expect(!FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
+    @Test("one transcript batch releases all reconciled attachment files together")
+    func reconciliationBatchesAttachmentCleanup() async throws {
+        let source = SilentSendEventSource()
+        var releaseBatches: [[URL]] = []
+        let store = Self.makeStore(source: source) { urls in
+            releaseBatches.append(urls)
+        }
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.isConnected })
+
+        let firstURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chat-batch-first-\(UUID()).txt")
+        let secondURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chat-batch-second-\(UUID()).txt")
+        try Data("first".utf8).write(to: firstURL)
+        try Data("second".utf8).write(to: secondURL)
+        defer {
+            try? FileManager.default.removeItem(at: firstURL)
+            try? FileManager.default.removeItem(at: secondURL)
+        }
+
+        await store.send(text: "first", attachments: [ChatOutboundAttachment(
+            localFileURL: firstURL,
+            byteCount: 5,
+            fileName: "first.txt",
+            kind: .file
+        )])
+        await store.send(text: "second", attachments: [ChatOutboundAttachment(
+            localFileURL: secondURL,
+            byteCount: 6,
+            fileName: "second.txt",
+            kind: .file
+        )])
+        await source.emit(.appended([
+            Self.prose(seq: 0, role: .user, text: "/tmp/first.txt first"),
+            Self.prose(seq: 1, role: .user, text: "/tmp/second.txt second"),
+        ]))
+
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).isEmpty })
+        #expect(releaseBatches.count == 1)
+        #expect(Set(releaseBatches[0]) == Set([firstURL, secondURL]))
     }
 
     @Test("reset releases delivered staged attachments but preserves failed retry files")

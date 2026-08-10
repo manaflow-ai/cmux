@@ -307,32 +307,26 @@ import Testing
 
     @Test func addRejectsBeyondTotalByteBudget() {
         let composite = Self.makeComposite()
-        let budget = MobileShellComposite.maxPendingAttachmentTotalBytes
-        // A single image just under the per-image cap, staged a few times to
-        // approach the total budget. 4 MB each, under the 8 MB per-image cap.
-        let chunk = 4 * 1024 * 1024
-        var staged = 0
-        var fill: UInt8 = 1
-        while staged + chunk <= budget {
+        let chunk = MobileShellComposite.maxPendingAttachmentImageBytes
+        for index in 0..<8 {
             let id = composite.addPendingAttachment(
-                Self.bytes(count: chunk, fill: fill),
+                Self.bytes(count: chunk, fill: UInt8(index + 1)),
                 format: "jpg",
                 forTerminalID: "term-a"
             )
             #expect(id != nil)
-            staged += chunk
-            fill &+= 1
         }
-        // The remaining headroom is now smaller than one more chunk: that add
-        // exceeds the budget and must be rejected, leaving the set unchanged.
-        let countBefore = composite.pendingAttachments(forTerminalID: "term-a").count
+        let staged = composite.pendingAttachments(forTerminalID: "term-a")
+        #expect(staged.count == 8)
+        #expect(staged.reduce(0) { $0 + $1.byteCount } == 64 * 1024 * 1024)
+
         let overflow = composite.addPendingAttachment(
-            Self.bytes(count: chunk, fill: 0xFF),
+            Self.bytes(count: 1, fill: 0xFF),
             format: "jpg",
             forTerminalID: "term-a"
         )
         #expect(overflow == nil)
-        #expect(composite.pendingAttachments(forTerminalID: "term-a").count == countBefore)
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").count == 8)
     }
 
     @Test func addRejectsSingleImageOverPerImageCap() {
@@ -496,8 +490,8 @@ import Testing
     @Test func racingAddsCannotExceedByteBudget() {
         let composite = Self.makeComposite()
         let budget = MobileShellComposite.maxPendingAttachmentTotalBytes
-        // Each chunk is 4 MB; budget/4MB = 8 chunks fit. Two batches each try to
-        // add 8 chunks interleaved; only 8 total may land.
+        // Each chunk is 4 MB. Two batches each try to fill the whole budget;
+        // only one budget's worth of chunks may land.
         let chunk = 4 * 1024 * 1024
         let fits = budget / chunk
         var accepted = 0
@@ -554,7 +548,7 @@ import Testing
     /// though every individual terminal stays under its own per-terminal cap:
     /// without the global cap the all-terminals total grows linearly with
     /// terminal count and can OOM. One 4 MB image per terminal keeps each terminal
-    /// far under its 32 MB per-terminal budget, so only the global cap can bind.
+        /// far under its 64 MB per-terminal budget, so only the global cap can bind.
     @Test func globalByteBudgetRejectsAcrossManyTerminalsEachUnderPerTerminalCap() {
         let globalBudget = MobileShellComposite.maxPendingAttachmentTotalBytesAllTerminals
         let chunk = 4 * 1024 * 1024
@@ -566,7 +560,7 @@ import Testing
         var fill: UInt8 = 1
         for i in 0..<(fits + 2) {
             // Each terminal gets exactly one 4 MB image: per-terminal byte cap
-            // (32 MB) and per-terminal count cap (10) are never the binding limit.
+            // (64 MB) and per-terminal count cap (10) are never the binding limit.
             let id = composite.addPendingAttachment(
                 Self.bytes(count: chunk, fill: fill),
                 format: "jpg",
