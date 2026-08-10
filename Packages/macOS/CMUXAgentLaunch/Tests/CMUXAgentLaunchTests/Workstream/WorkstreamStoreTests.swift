@@ -139,7 +139,7 @@ struct WorkstreamStoreTests {
         }
     }
 
-    @Test("mobile first page overlays newly ingested ring rows")
+    @Test("mobile first page includes newly ingested rows")
     func mobileHistoryIncludesLiveTail() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-workstream-mobile-live-\(UUID().uuidString).jsonl")
@@ -162,6 +162,37 @@ struct WorkstreamStoreTests {
         let page = try await store.historyPage(endingBefore: nil, limit: 10)
 
         #expect(page.items.map(\.workstreamId) == ["persisted", "live"])
+    }
+
+    @Test("mobile history drains one ordered persistence writer before paging a burst")
+    func mobileHistoryDrainsBoundedPersistenceBurst() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-mobile-burst-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let gate = PersistenceAppendGate()
+        let persistence = WorkstreamPersistence(fileURL: tmp, beforeAppend: { await gate.wait() })
+        let store = WorkstreamStore(persistence: persistence, ringCapacity: 1_000)
+        for index in 0..<650 {
+            store.ingest(WorkstreamEvent(
+                sessionId: "burst-\(index)",
+                hookEventName: .notification,
+                source: "codex"
+            ))
+        }
+        let acceptedIDs = store.items.map(\.id)
+        #expect(store.activePersistenceDrainCount == 1)
+
+        let firstTask = Task { try await store.historyPage(endingBefore: nil, limit: 300) }
+        await gate.release()
+        let first = try await firstTask.value
+        let second = try await store.historyPage(endingBefore: first.nextCursor, limit: 300)
+        let third = try await store.historyPage(endingBefore: second.nextCursor, limit: 300)
+
+        #expect(first.items.map(\.id) == Array(acceptedIDs[350..<650]))
+        #expect(second.items.map(\.id) == Array(acceptedIDs[50..<350]))
+        #expect(third.items.map(\.id) == Array(acceptedIDs[0..<50]))
+        #expect(first.hasMore && second.hasMore && !third.hasMore)
+        #expect(store.activePersistenceDrainCount == 0)
     }
 
     @Test("mobile in-memory history rejects a cursor invalidated by ring eviction")
@@ -433,6 +464,23 @@ struct WorkstreamStoreTests {
         #expect(item.context?.planSummary == "Show the new feed UI.")
         #expect(item.context?.allowedPrompts.first?.tool == "Bash")
         #expect(item.context?.allowedPrompts.first?.prompt == "run reload.sh --tag feedctx")
+    }
+}
+
+private actor PersistenceAppendGate {
+    private var isReleased = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isReleased else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func release() {
+        isReleased = true
+        let current = waiters
+        waiters.removeAll()
+        current.forEach { $0.resume() }
     }
 }
 

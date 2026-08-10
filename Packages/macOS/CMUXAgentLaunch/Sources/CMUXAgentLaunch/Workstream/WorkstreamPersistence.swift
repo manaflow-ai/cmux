@@ -36,11 +36,17 @@ public actor WorkstreamPersistence {
     private let fileURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let beforeAppend: (@Sendable () async -> Void)?
     private var handle: FileHandle?
     private(set) var loadPageCallCount = 0
 
     public init(fileURL: URL) {
+        self.init(fileURL: fileURL, beforeAppend: nil)
+    }
+
+    init(fileURL: URL, beforeAppend: (@Sendable () async -> Void)?) {
         self.fileURL = fileURL
+        self.beforeAppend = beforeAppend
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
         self.encoder = enc
@@ -59,7 +65,8 @@ public actor WorkstreamPersistence {
 
     /// Appends a single item as a JSON line. Creates the file and parent
     /// directory lazily on first write.
-    public func append(_ item: WorkstreamItem) throws {
+    public func append(_ item: WorkstreamItem) async throws {
+        await beforeAppend?()
         let data = try encoder.encode(item.redactedForPersistence())
         var line = data
         line.append(0x0A) // "\n"
