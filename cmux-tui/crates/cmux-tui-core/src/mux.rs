@@ -8211,11 +8211,17 @@ impl Mux {
             }
             if retry_exhausted {
                 let mut budget = mux.kitty_image_budget.lock().unwrap();
-                let blocked = failed_surface_ids
-                    .into_iter()
-                    .filter(|id| budget.entries.contains_key(id))
-                    .collect::<Vec<_>>();
-                budget.blocked_surfaces.extend(blocked);
+                for id in failed_surface_ids {
+                    if budget.entries.get(&id).is_some_and(|entry| entry.removing) {
+                        // The terminal is already gone. Its graphics limits
+                        // no longer need an acknowledgement, and retaining a
+                        // blocked removal would leak this registry entry.
+                        budget.entries.remove(&id);
+                    } else if budget.entries.contains_key(&id) {
+                        budget.blocked_surfaces.insert(id);
+                    }
+                }
+                Self::rebalance_kitty_image_budget_owners(&mut budget);
                 budget.expansion_in_flight = false;
                 budget.worker_running = false;
                 drop(budget);
