@@ -8,14 +8,17 @@ import Testing
 #endif
 
 /// `AppDelegate.presentPreferencesWindow` seam tests: the shared menu/⌘,
-/// entrypoint must route through a result-reporting presenter and must not
-/// activate the app when presentation fails
+/// entrypoint must route through a result-reporting presenter. The presenter
+/// owns activation and exact window ordering, so the wrapper must not run a
+/// second app-wide activation after a successfully keyed Settings window.
+/// It activates only when a substitute presenter explicitly reports that it
+/// could merely order the window while the app stayed hidden.
 /// (https://github.com/manaflow-ai/cmux/issues/7777). Extracted from
 /// `AppDelegateShortcutRoutingTests` to stay within the file-length budget.
 @MainActor
 @Suite
 struct AppDelegatePresentPreferencesWindowTests {
-    @Test func showsCustomSettingsWindowAndActivates() {
+    @Test func showsCustomSettingsWindowWithoutReactivatingAfterPresentation() {
         var presentSettingsWindowCallCount = 0
         var activateApplicationCallCount = 0
         var receivedNavigationTargets: [SettingsNavigationTarget?] = []
@@ -32,7 +35,7 @@ struct AppDelegatePresentPreferencesWindowTests {
         )
 
         #expect(presentSettingsWindowCallCount == 1)
-        #expect(activateApplicationCallCount == 1)
+        #expect(activateApplicationCallCount == 0)
         #expect(receivedNavigationTargets == [nil])
     }
 
@@ -64,7 +67,7 @@ struct AppDelegatePresentPreferencesWindowTests {
         )
 
         #expect(presentSettingsWindowCallCount == 2)
-        #expect(activateApplicationCallCount == 2)
+        #expect(activateApplicationCallCount == 0)
         #expect(receivedNavigationTargets == [nil, nil])
     }
 
@@ -84,7 +87,7 @@ struct AppDelegatePresentPreferencesWindowTests {
         )
 
         #expect(receivedNavigationTarget == .keyboardShortcuts)
-        #expect(activateApplicationCallCount == 1)
+        #expect(activateApplicationCallCount == 0)
     }
 
     @Test func forwardsBrowserImportNavigationTarget() {
@@ -103,7 +106,7 @@ struct AppDelegatePresentPreferencesWindowTests {
         )
 
         #expect(receivedNavigationTarget == .browserImport)
-        #expect(activateApplicationCallCount == 1)
+        #expect(activateApplicationCallCount == 0)
     }
 
     @Test func doesNotActivateWhenPresentationFails() {
@@ -121,5 +124,20 @@ struct AppDelegatePresentPreferencesWindowTests {
         // A failed presentation must not silently activate the app as if it
         // succeeded.
         #expect(activateApplicationCallCount == 0)
+    }
+
+    @Test func activatesWhenPresenterCouldOnlyOrderWhileAppWasHidden() {
+        var activateApplicationCallCount = 0
+
+        AppDelegate.presentPreferencesWindow(
+            presentSettingsWindow: { _ in
+                .orderedWhileAppHidden
+            },
+            activateApplication: {
+                activateApplicationCallCount += 1
+            }
+        )
+
+        #expect(activateApplicationCallCount == 1)
     }
 }
