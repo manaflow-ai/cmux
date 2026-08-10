@@ -400,15 +400,17 @@ import Testing
 
     @Test func typedAdmissionReportsPerTerminalTotalBytesLimit() {
         let composite = Self.makeComposite()
-        let full = Self.stagedAttachment(
-            byteCount: MobileShellComposite.maxPendingAttachmentTotalBytes
+        let first = Self.stagedAttachment(
+            byteCount: MobileStagedAttachment.maximumFileBytes
         )
-        let overflow = Self.stagedAttachment()
-        defer {
-            try? FileManager.default.removeItem(at: full.localFileURL)
-            try? FileManager.default.removeItem(at: overflow.localFileURL)
-        }
-        #expect(composite.admitPendingAttachment(full, forTerminalID: "term-a").acceptedID != nil)
+        let second = Self.stagedAttachment(
+            byteCount: MobileStagedAttachment.maximumFileBytes
+        )
+        let overflow = Self.stagedAttachment(byteCount: 1)
+        let attachments = [first, second, overflow]
+        defer { attachments.forEach { try? FileManager.default.removeItem(at: $0.localFileURL) } }
+        #expect(composite.admitPendingAttachment(first, forTerminalID: "term-a").acceptedID != nil)
+        #expect(composite.admitPendingAttachment(second, forTerminalID: "term-a").acceptedID != nil)
 
         let result = composite.admitPendingAttachment(overflow, forTerminalID: "term-a")
 
@@ -436,12 +438,12 @@ import Testing
     @Test func typedAdmissionReportsGlobalByteCapacity() {
         let composite = Self.makeMultiTerminalComposite(terminalCount: 3)
         let first = Self.stagedAttachment(
-            byteCount: MobileShellComposite.maxPendingAttachmentTotalBytes
+            byteCount: MobileStagedAttachment.maximumFileBytes
         )
         let second = Self.stagedAttachment(
-            byteCount: MobileShellComposite.maxPendingAttachmentTotalBytes
+            byteCount: MobileStagedAttachment.maximumFileBytes
         )
-        let overflow = Self.stagedAttachment()
+        let overflow = Self.stagedAttachment(byteCount: 1)
         let attachments = [first, second, overflow]
         defer { attachments.forEach { try? FileManager.default.removeItem(at: $0.localFileURL) } }
         #expect(composite.admitPendingAttachment(first, forTerminalID: "term-0").acceptedID != nil)
@@ -490,9 +492,9 @@ import Testing
     @Test func racingAddsCannotExceedByteBudget() {
         let composite = Self.makeComposite()
         let budget = MobileShellComposite.maxPendingAttachmentTotalBytes
-        // Each chunk is 4 MB. Two batches each try to fill the whole budget;
-        // only one budget's worth of chunks may land.
-        let chunk = 4 * 1024 * 1024
+        // Eight 8 MB images fill the 64 MB byte budget before the 10-item cap.
+        // Two batches each try to fill the budget; only eight total may land.
+        let chunk = MobileShellComposite.maxPendingAttachmentImageBytes
         let fits = budget / chunk
         var accepted = 0
         var fill: UInt8 = 1
