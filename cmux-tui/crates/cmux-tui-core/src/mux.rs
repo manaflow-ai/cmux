@@ -13957,15 +13957,22 @@ fn register_terminal_runtime_checked(
     Ok(())
 }
 
-/// Remove a terminal catalog owner and every view that projects it. Durable
-/// exit and explicit close share this path so multiview teardown cannot leave
-/// a reverse catalog entry or a secondary placement behind. The runtime is
-/// optional because restored topology exists before host adoption.
+fn terminal_host_matches(
+    identity: &TerminalHostIdentity,
+    expected_id: &str,
+    expected_incarnation: Option<&str>,
+) -> bool {
+    identity.terminal_id == expected_id
+        && expected_incarnation.is_none_or(|expected| identity.incarnation == expected)
+}
+
+/// Discover every live view by its durable terminal identity. The runtime
+/// binding can be incomplete while restored topology is being adopted.
 fn terminal_content_placements(
     mux: &Mux,
     state: &State,
     terminal_id: &TerminalPublicId,
-    expected_host_id: Option<&str>,
+    expected_host: Option<(&str, Option<&str>)>,
 ) -> Vec<SurfaceId> {
     let mut targets = state
         .surfaces
@@ -13974,11 +13981,11 @@ fn terminal_content_placements(
             if candidate.terminal_public_id() != Some(terminal_id) {
                 return None;
             }
-            if expected_host_id.is_some_and(|expected| {
-                !mux.resource_terminal_host_identity(candidate)
-                    .is_some_and(|identity| identity.terminal_id == expected)
-            }) {
-                return None;
+            if let Some((expected_id, expected_incarnation)) = expected_host {
+                let identity = mux.resource_terminal_host_identity(candidate)?;
+                if !terminal_host_matches(&identity, expected_id, expected_incarnation) {
+                    return None;
+                }
             }
             Some(*placement)
         })
@@ -13987,20 +13994,21 @@ fn terminal_content_placements(
     targets
 }
 
+/// Remove a terminal catalog owner and one prevalidated view set. Durable exit
+/// and explicit close share this path so teardown scans the live state once.
 fn remove_terminal_content_from_state(
     mux: &Mux,
     state: &mut State,
     terminal_id: &TerminalPublicId,
-    expected_host_id: Option<&str>,
+    targets: &[SurfaceId],
 ) -> (Option<Arc<Surface>>, Vec<Arc<Surface>>, bool) {
-    let targets = terminal_content_placements(mux, state, terminal_id, expected_host_id);
     let runtime = state.terminal_catalog.remove(terminal_id);
     if let Some(runtime_id) = runtime.as_ref().and_then(|runtime| runtime.terminal_runtime_id()) {
         state.terminal_catalog_by_runtime.remove(&runtime_id);
     }
     let mut removed = Vec::with_capacity(targets.len());
     let mut split_index_dirty = false;
-    for target in targets {
+    for target in targets.iter().copied() {
         let (candidate, topology_changed) = remove_surface(mux, state, target);
         split_index_dirty |= topology_changed;
         if let Some(candidate) = candidate {
@@ -14032,11 +14040,19 @@ fn remove_terminal_runtime_from_state(
         return (Vec::new(), false);
     }
     let host = mux.resource_terminal_host_identity(runtime);
+    let targets = terminal_content_placements(
+        mux,
+        state,
+        &terminal_id,
+        host.as_ref().map(|host| {
+            (host.terminal_id.as_str(), Some(host.incarnation.as_str()))
+        }),
+    );
     let (_, removed, split_index_dirty) = remove_terminal_content_from_state(
         mux,
         state,
         &terminal_id,
-        host.as_ref().map(|host| host.terminal_id.as_str()),
+        &targets,
     );
     (removed, split_index_dirty)
 }
@@ -19702,6 +19718,15 @@ mod tests {
             state.terminal_catalog.remove(&public_id);
             state.terminal_catalog_by_runtime.remove(&runtime_id);
         }
+
+        let mut wrong_incarnation = host.incarnation.clone();
+        let replacement =
+            if wrong_incarnation.starts_with('0') { "1" } else { "0" };
+        wrong_incarnation.replace_range(0..1, replacement);
+        assert!(mux.close_terminal(&host.terminal_id, &wrong_incarnation).is_err());
+        assert!(mux.surface(first.id).is_some());
+        assert!(mux.surface(second.id).is_some());
+        assert!(mux.surface(unrelated.id).is_some());
 
         let closed = mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
 

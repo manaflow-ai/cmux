@@ -2424,8 +2424,12 @@ impl Mux {
         terminal_public_id: &TerminalPublicId,
     ) -> anyhow::Result<Option<TerminalExitDetachProjection>> {
         let content_id = ContentPublicId::Terminal(terminal_public_id.clone());
-        let targets =
-            terminal_content_placements(self, state, terminal_public_id, Some(terminal_id));
+        let targets = terminal_content_placements(
+            self,
+            state,
+            terminal_public_id,
+            Some((terminal_id, None)),
+        );
         let has_runtime = state.terminal_catalog.contains_key(terminal_public_id);
         if targets.is_empty() && !has_runtime {
             return Ok(None);
@@ -2455,7 +2459,7 @@ impl Mux {
             self,
             &mut projected,
             terminal_public_id,
-            Some(terminal_id),
+            &targets,
         );
         if let Some(runtime) = runtime.as_ref() {
             let host = self
@@ -2813,8 +2817,12 @@ impl Mux {
                 let host = self
                     .resource_terminal_host_identity(&runtime)
                     .context("terminal omitted its durable host identity")?;
-                let placements =
-                    terminal_content_placements(self, state, &public_id, Some(&host.terminal_id));
+                let placements = terminal_content_placements(
+                    self,
+                    state,
+                    &public_id,
+                    Some((host.terminal_id.as_str(), Some(host.incarnation.as_str()))),
+                );
                 let screens = unique_screen_ids(
                     placements.iter().filter_map(|surface| surface_screen_id(state, *surface)),
                 );
@@ -2839,27 +2847,22 @@ impl Mux {
         public_id: &TerminalPublicId,
         state: &State,
     ) -> anyhow::Result<ResourceClosePlan> {
-        let belongs_to_terminal = |surface: &Arc<Surface>| {
-            surface.terminal_public_id() == Some(public_id)
-                && self.resource_terminal_host_identity(surface).is_some_and(|identity| {
-                    identity.terminal_id == terminal_id
-                        && terminal_incarnation
-                            .is_none_or(|incarnation| identity.incarnation == incarnation)
-                })
-        };
-        let mut placements = state
-            .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
-            .iter()
-            .filter_map(|surface_id| {
-                let surface = state.surfaces.get(surface_id)?;
-                belongs_to_terminal(surface).then_some(*surface_id)
-            })
-            .collect::<Vec<_>>();
-        placements.extend(state.surfaces.iter().filter_map(|(surface_id, surface)| {
-            belongs_to_terminal(surface).then_some(*surface_id)
-        }));
-        placements.sort_unstable();
-        placements.dedup();
+        let terminal_runtime = state.terminal_catalog.get(public_id).cloned();
+        if let Some(runtime) = &terminal_runtime {
+            let identity = self
+                .resource_terminal_host_identity(runtime)
+                .context("terminal runtime omitted its durable host identity")?;
+            anyhow::ensure!(
+                terminal_host_matches(&identity, terminal_id, terminal_incarnation),
+                "terminal runtime changed incarnations before close"
+            );
+        }
+        let placements = terminal_content_placements(
+            self,
+            state,
+            public_id,
+            Some((terminal_id, terminal_incarnation)),
+        );
         let changed_screens = unique_screen_ids(
             placements.iter().filter_map(|surface| surface_screen_id(state, *surface)),
         );
@@ -2867,7 +2870,7 @@ impl Mux {
             ResourceCloseInputs {
                 surface_ids: placements,
                 changed_screens,
-                terminal_runtime: state.terminal_catalog.get(public_id).cloned(),
+                terminal_runtime,
                 terminal_batch: vec![(
                     terminal_id.to_string(),
                     terminal_incarnation.map(str::to_owned),
@@ -2904,13 +2907,11 @@ impl Mux {
         let mut removed = Vec::new();
         let mut split_index_changed = false;
         if let Some(public_id) = &terminal_public_id {
-            let expected_host_id =
-                terminal_batch.first().map(|(terminal_id, _)| terminal_id.as_str());
             let (removed_runtime, terminal_views, changed) = remove_terminal_content_from_state(
                 self,
                 &mut projected,
                 public_id,
-                expected_host_id,
+                &surface_ids,
             );
             anyhow::ensure!(
                 match (removed_runtime.as_ref(), terminal_runtime.as_ref()) {
