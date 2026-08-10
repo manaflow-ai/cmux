@@ -154,7 +154,16 @@ class SettingsUITestCase: XCTestCase {
 final class SettingsWindowPresentationUITests: SettingsUITestCase {
     func testCmdCommaPresentsKeySettingsOverFullScreenMainWindow() {
         let app = makeLaunchedApp()
-        let mainWindow = app.windows.firstMatch
+        let launchedMainWindow = app.windows.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "cmux.main.")
+        ).firstMatch
+        XCTAssertTrue(
+            poll(timeout: 4.0) { launchedMainWindow.exists },
+            "Main window did not expose its stable accessibility identifier"
+        )
+        let mainWindowIdentifier = launchedMainWindow.identifier
+        XCTAssertTrue(mainWindowIdentifier.hasPrefix("cmux.main."))
+        let mainWindow = app.windows[mainWindowIdentifier]
         let initialFrame = mainWindow.frame
 
         let settingsWindow = openSettings(app)
