@@ -1595,6 +1595,16 @@
           "presence": "required",
           "nullable": false,
           "since": 9
+        },
+        "lifecycle_ready": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "optional",
+          "nullable": false,
+          "default": true,
+          "since": 11
         }
       },
       "additional_properties": false

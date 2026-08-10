@@ -515,10 +515,7 @@ struct CreateSurfaceWithReceiptRequest {
 #[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
-    Identify {
-        #[serde(default)]
-        lifecycle: bool,
-    },
+    Identify,
     /// Gracefully hand this daemon's durable session to a replacement.
     /// The caller must fence the request with values from this daemon's
     /// `identify` response.
@@ -7290,6 +7287,11 @@ fn handle_request_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> bool {
     let Request { id, cmd } = request;
+    if matches!(&cmd, Command::ShutdownDaemon { .. } | Command::ReloadConfig)
+        && !mux.server_lifecycle_ready()
+    {
+        return send_request_error(writer, id, "server lifecycle is not ready");
+    }
     if let Command::VtState { surface } = &cmd {
         return match send_vt_state_command_response(mux, id.clone(), *surface, writer) {
             Ok(()) => true,
@@ -9208,7 +9210,7 @@ fn handle_command_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> anyhow::Result<Value> {
     match cmd {
-        Command::Identify { lifecycle: _ } => {
+        Command::Identify => {
             let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
                 "app": "cmux-tui",
@@ -15550,9 +15552,7 @@ mod tests {
     #[test]
     fn identify_and_ping_return_build_metadata() {
         let mux = test_mux();
-        let identity =
-            handle_command(&mux, 0, Command::Identify { lifecycle: false }, &test_writer())
-                .unwrap();
+        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
         assert_eq!(identity["app"].as_str(), Some("cmux-tui"));
         assert_eq!(identity["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(identity["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
@@ -18541,9 +18541,7 @@ mod tests {
     #[test]
     fn identify_advertises_additive_capabilities() {
         let mux = test_mux();
-        let identity =
-            handle_command(&mux, 0, Command::Identify { lifecycle: false }, &test_writer())
-                .unwrap();
+        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
 
         let capabilities = identity["capabilities"].as_array().expect("capabilities");
         for expected in [
@@ -18815,7 +18813,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn paused_server_binds_before_it_accepts_control_clients() {
+    fn paused_server_serves_identity_before_lifecycle_readiness() {
         let dir = TestSocketDir::create("paused-readiness");
         let path = dir.path().join("mux.sock");
         let mux = test_mux();
@@ -18836,7 +18834,7 @@ mod tests {
         assert_eq!(serde_json::from_str::<Value>(&response).unwrap()["ok"], true);
 
         let mut lifecycle = transport::connect(&path).unwrap();
-        writeln!(lifecycle, r#"{{"id":2,"cmd":"identify","lifecycle":true}}"#).unwrap();
+        writeln!(lifecycle, r#"{{"id":2,"cmd":"identify"}}"#).unwrap();
         lifecycle.flush().unwrap();
         let mut starting = String::new();
         BufReader::new(&mut lifecycle).read_line(&mut starting).unwrap();
@@ -18845,8 +18843,14 @@ mod tests {
             false
         );
 
+        writeln!(lifecycle, r#"{{"id":3,"cmd":"reload-config"}}"#).unwrap();
+        lifecycle.flush().unwrap();
+        let mut rejected = String::new();
+        BufReader::new(&mut lifecycle).read_line(&mut rejected).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&rejected).unwrap()["ok"], false);
+
         let served = pending.mark_ready().unwrap();
-        writeln!(lifecycle, r#"{{"id":3,"cmd":"identify","lifecycle":true}}"#).unwrap();
+        writeln!(lifecycle, r#"{{"id":4,"cmd":"identify"}}"#).unwrap();
         lifecycle.flush().unwrap();
         let mut ready = String::new();
         BufReader::new(lifecycle).read_line(&mut ready).unwrap();

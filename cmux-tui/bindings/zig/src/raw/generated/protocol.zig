@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 11;
-pub const ir_sha256 = "6c7f42663c8059b5e8c1cb0a1df201c1949665b925845653e46f5ef7f5742eb3";
+pub const ir_sha256 = "edeb627139683b278880c449a7c4126bac41451a3620b38d025ddf89ecb09f7a";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -356,6 +356,7 @@ pub const IdentifyResult = struct {
     daemon_handoff: i64,
     generation: []const u8,
     ghostty_commit: wire.Field([]const u8) = .absent,
+    lifecycle_ready: ?bool = null,
     pid: u32,
     protocol: u32,
     registry_id: []const u8,
@@ -366,6 +367,7 @@ pub const IdentifyResult = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "capabilities",
+        "lifecycle_ready",
     };
 };
 

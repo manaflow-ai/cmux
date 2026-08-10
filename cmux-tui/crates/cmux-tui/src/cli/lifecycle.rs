@@ -64,11 +64,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     };
     let mut connection = BufReader::new(stream);
     let deadline = Instant::now() + Duration::from_secs(10);
-    let identity = match exchange(
-        &mut connection,
-        json!({"id":1,"cmd":"identify","lifecycle":true}),
-        deadline,
-    ) {
+    let identity = match exchange(&mut connection, json!({"id":1,"cmd":"identify"}), deadline) {
         Ok(identity) => identity,
         Err(_) => {
             return local_error(

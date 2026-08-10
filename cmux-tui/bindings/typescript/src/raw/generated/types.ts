@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 11, IR 6c7f42663c8059b5e8c1cb0a1df201c1949665b925845653e46f5ef7f5742eb3. */
+/* cmux-tui mux protocol 11, IR edeb627139683b278880c449a7c4126bac41451a3620b38d025ddf89ecb09f7a. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -176,6 +176,7 @@ export type IdentifyResult = {
   "daemon_handoff": 1;
   "generation": string;
   "ghostty_commit"?: (string) | null;
+  "lifecycle_ready"?: boolean;
   "pid": number;
   "protocol": number;
   "registry_id": string;
