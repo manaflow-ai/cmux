@@ -2138,9 +2138,9 @@ final class cmuxUITests: XCTestCase {
             "MobileNotificationFeedRow-studio-agent-question"
         ]
         XCTAssertTrue(questionRow.waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["Approve and answer without leaving the Feed."].waitForExistence(timeout: 3))
         let inlineActions = app.buttons["MobileNotificationFeedQuestionOption-0-actions"]
         XCTAssertTrue(inlineActions.waitForExistence(timeout: 3))
+        XCTAssertTrue(inlineActions.label.contains("Approve and answer without leaving the Feed."))
         inlineActions.tap()
 
         let notes = app.textFields["MobileNotificationFeedQuestionCustom-1"]
