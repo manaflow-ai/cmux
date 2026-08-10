@@ -18,7 +18,7 @@ extension TerminalController: ControlNotificationContext {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String? = nil
     ) -> ControlNotificationCreateResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -62,7 +62,7 @@ extension TerminalController: ControlNotificationContext {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String? = nil
     ) -> ControlNotificationTargetedDeliveryResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -124,7 +124,7 @@ extension TerminalController: ControlNotificationContext {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String? = nil
     ) -> (workspaceID: UUID, surfaceID: UUID, windowID: UUID?)? {
         guard let owner = AppDelegate.shared?.notificationSurfaceOwner(surfaceID: surfaceID) else {
             return nil
@@ -151,7 +151,7 @@ extension TerminalController: ControlNotificationContext {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String? = nil
     ) -> ControlNotificationTargetedDeliveryResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable

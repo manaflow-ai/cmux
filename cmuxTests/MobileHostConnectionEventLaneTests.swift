@@ -410,6 +410,56 @@ extension MobileHostAuthorizationTests {
         }
     }
 
+    /// Simulator frames are full snapshots, so a phone that temporarily cannot
+    /// drain the event lane should keep the control connection and receive the
+    /// newest frame once draining resumes. Closing the connection here freezes
+    /// the phone view while pointer RPCs can still reconnect and keep moving
+    /// the Mac simulator.
+    @Test func testStalledSimulatorFrameSubscriberShedsOldFramesWithoutClosingConnection() async throws {
+        let transport = StalledSendMobileHostByteTransport()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        await session.subscribe(streamID: "events", topics: ["simulator.frame"])
+
+        for sequence in 0..<600 {
+            _ = await session.sendEvent(
+                topic: "simulator.frame",
+                payload: [
+                    "panel_id": "sim-panel-9401",
+                    "seq": sequence,
+                    "data_base64": "frame-\(sequence)",
+                ]
+            )
+        }
+
+        #expect(await transport.observedCloseCount() == 0)
+        #expect(await session.debugQueuedEventCountForTesting() <= 256)
+        #expect(await session.isSubscribed(to: "simulator.frame"))
+
+        await session.close(reason: "test cleanup")
+    }
+
+    @Test func testSimulatorFrameCoalescesByPanelID() {
+        #expect(MobileHostService.eventCoalesceKey(
+            topic: "simulator.frame",
+            payload: ["panel_id": "sim-panel-9401"]
+        ) == "sim-panel-9401")
+        #expect(MobileHostEventTopicPolicy.isDroppable(
+            topic: "simulator.frame",
+            coalesceKey: "sim-panel-9401"
+        ))
+        #expect(!MobileHostEventTopicPolicy.isDroppable(
+            topic: "simulator.state",
+            coalesceKey: "sim-panel-9401"
+        ))
+    }
+
     /// A subscriber whose transport accepted a frame but never completes the
     /// write (TCP zero-window peer) is torn down by the bounded event-send
     /// stall deadline instead of pinning the connection's queue, tasks, and
@@ -651,6 +701,34 @@ extension MobileHostAuthorizationTests {
         await session.close(reason: "test complete")
     }
 
+}
+
+@Suite
+struct MobileHostSimulatorFrameQueueDiagnosticsTests {
+    @Test func simulatorFrameSheddingReportsSafeCounters() {
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 1,
+            maximumByteCount: 1_000_000
+        )
+        queue.updateSubscribedTopics(["simulator.frame"])
+        let frame = Data(repeating: 0x61, count: 16)
+        #expect(queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-1",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+
+        let newest = queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-1",
+            isFullRenderGridFrame: false, frame: frame
+        )
+
+        #expect(newest.admitted)
+        #expect(newest.shedEventCount == 1)
+        #expect(newest.shedByteCount == 16)
+        #expect(newest.simulatorFrameShedPanelIDs == ["sim-1"])
+        #expect(newest.renderGridResyncSurfaceIDs.isEmpty)
+        #expect(queue.count == 1)
+    }
 }
 
 /// A byte transport whose `send` never completes on its own: it models a

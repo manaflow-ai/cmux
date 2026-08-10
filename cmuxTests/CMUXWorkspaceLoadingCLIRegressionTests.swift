@@ -39,6 +39,7 @@ import Testing
         let workspaceId = UUID().uuidString
 
         defer {
+            CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
@@ -178,46 +179,22 @@ import Testing
         handler: @escaping @Sendable (String) -> String
     ) -> DispatchSemaphore {
         let handled = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            var clientAddr = sockaddr_un()
-            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+        CLIMockAcceptLoopRegistry.shared.start(
+            listenerFD: listenerFD,
+            onConnection: { clientFD in
+                defer {
+                    Darwin.close(clientFD)
+                    handled.signal()
                 }
-            }
-            guard clientFD >= 0 else {
-                handled.signal()
-                return
-            }
-            defer {
-                Darwin.close(clientFD)
-                handled.signal()
-            }
-
-            var pending = Data()
-            var buffer = [UInt8](repeating: 0, count: 4096)
-            while true {
-                let count = Darwin.read(clientFD, &buffer, buffer.count)
-                if count < 0 {
-                    if errno == EINTR { continue }
-                    return
-                }
-                if count == 0 { return }
-                pending.append(buffer, count: count)
-
-                while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                    let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                    pending.removeSubrange(0...newlineRange.lowerBound)
-                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                cliMockServeLineFramedConnection(clientFD: clientFD) { line in
                     state.append(line)
-                    let response = handler(line) + "\n"
-                    _ = response.withCString { ptr in
-                        Darwin.write(clientFD, ptr, strlen(ptr))
-                    }
+                    return handler(line)
                 }
+            },
+            onListenerClosed: {
+                handled.signal()
             }
-        }
+        )
         return handled
     }
 
@@ -254,16 +231,13 @@ import Testing
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exitSignal.signal() }
+
         do {
             try process.run()
         } catch {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
-        }
-
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
         }
 
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut

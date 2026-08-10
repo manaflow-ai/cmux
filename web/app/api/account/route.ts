@@ -81,8 +81,6 @@ import {
   runVmWorkflow,
 } from "../../../services/vms/workflows";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const VAULT_OBJECT_DELETE_BATCH_SIZE = 100;
 const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
