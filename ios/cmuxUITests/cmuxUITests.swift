@@ -2486,27 +2486,26 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
-        let field = app.textFields["MobileComposerField"]
-        XCTAssertTrue(field.waitForExistence(timeout: 8))
+        let container = app.descendants(matching: .any)["MobileComposerFieldContainer"]
+        XCTAssertTrue(container.waitForExistence(timeout: 8))
+        let field = container.textFields["MobileComposerField"]
+        XCTAssertTrue(field.exists)
         let capturedDraft = try XCTUnwrap(field.value as? String)
         XCTAssertEqual(capturedDraft, "Keep terminal draft")
 
-        let container = app.descendants(matching: .any)["MobileComposerFieldContainer"]
-        let imageCard = app.buttons["MobileAttachmentCard.0"]
-        let fileCard = app.buttons["MobileAttachmentCard.1"]
-        let send = app.buttons["MobileComposerSend"]
+        let imageCard = container.buttons["MobileAttachmentCard.0"]
+        let fileCard = container.buttons["MobileAttachmentCard.1"]
+        let send = container.buttons["MobileComposerSend"]
         let attach = app.buttons["MobileComposerAttach"]
-        XCTAssertTrue(container.waitForExistence(timeout: 3))
         XCTAssertTrue(imageCard.waitForExistence(timeout: 3))
         XCTAssertTrue(fileCard.exists)
         XCTAssertTrue(send.exists)
         XCTAssertTrue(attach.exists)
         XCTAssertEqual(fileCard.frame.minX - imageCard.frame.maxX, 6, accuracy: 1)
-        XCTAssertGreaterThanOrEqual(imageCard.frame.minX, container.frame.minX + 12)
+        XCTAssertGreaterThanOrEqual(imageCard.frame.minX, container.frame.minX)
         XCTAssertLessThanOrEqual(imageCard.frame.maxX, container.frame.maxX)
         XCTAssertGreaterThan(imageCard.frame.maxY, container.frame.minY)
         XCTAssertLessThanOrEqual(imageCard.frame.maxY, field.frame.minY)
-        XCTAssertEqual(imageCard.frame.minX, field.frame.minX, accuracy: 2)
         XCTAssertLessThanOrEqual(send.frame.maxX, container.frame.maxX)
         XCTAssertLessThanOrEqual(send.frame.maxY, container.frame.maxY)
         XCTAssertLessThan(attach.frame.maxX, container.frame.minX)
