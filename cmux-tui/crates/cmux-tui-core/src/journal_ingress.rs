@@ -2206,9 +2206,10 @@ mod tests {
         let (shutdown_completed, shutdown_completion) = sync_channel(1);
         let shutdown = std::thread::spawn(move || {
             shutdown_completion
-                .send(shutdown_sender.close_and_join_until(
-                    Instant::now() + Duration::from_millis(100),
-                ))
+                .send(
+                    shutdown_sender
+                        .close_and_join_until(Instant::now() + Duration::from_millis(100)),
+                )
                 .unwrap();
         });
         let returned = shutdown_completed.recv_timeout(Duration::from_secs(1));
