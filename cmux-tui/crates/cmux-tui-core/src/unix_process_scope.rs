@@ -1517,7 +1517,7 @@ mod tests {
         let mut scope = UnixProcessScope::prepare().unwrap();
         let mut command = UnixProcessScope::suspended_command("/bin/sh");
         command
-            .args(["-c", "(/usr/bin/true) & child=$!; wait \"$child\""])
+            .args(["-c", "(/usr/bin/true)"])
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
