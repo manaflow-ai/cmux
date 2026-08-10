@@ -7,23 +7,21 @@ struct MobileAutoConnectMigrationSheet: View {
     let openConnectionSettings: () -> Void
 
     var body: some View {
-        NavigationStack {
-            ViewThatFits(in: .vertical) {
+        ViewThatFits(in: .vertical) {
+            MobileAutoConnectMigrationContent(
+                continueWithAutoConnect: continueWithAutoConnect,
+                openConnectionSettings: openConnectionSettings
+            )
+            .fixedSize(horizontal: false, vertical: true)
+
+            ScrollView {
                 MobileAutoConnectMigrationContent(
                     continueWithAutoConnect: continueWithAutoConnect,
                     openConnectionSettings: openConnectionSettings
                 )
-                .fixedSize(horizontal: false, vertical: true)
-
-                ScrollView {
-                    MobileAutoConnectMigrationContent(
-                        continueWithAutoConnect: continueWithAutoConnect,
-                        openConnectionSettings: openConnectionSettings
-                    )
-                }
-                .scrollBounceBehavior(.basedOnSize)
-                .accessibilityIdentifier("MobileAutoConnectMigrationScrollView")
             }
+            .scrollBounceBehavior(.basedOnSize)
+            .accessibilityIdentifier("MobileAutoConnectMigrationScrollView")
         }
         .presentationSizing(.fitted)
         .presentationDragIndicator(.visible)
