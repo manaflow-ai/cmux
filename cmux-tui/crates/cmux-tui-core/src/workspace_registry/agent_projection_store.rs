@@ -93,13 +93,22 @@ pub(super) fn rebuild_agent_projections_from_journal(
         return Ok(());
     }
 
-    let (mut projections, mut head_sequence) =
-        derive_agent_projections_from_legacy_agent_index(&tx)?;
+    let (mut candidates, mut head_sequence) =
+        agent_projection_candidates_from_legacy_agent_index(&tx)?;
     for mut stored in stored_live_projections(&tx)? {
-        let key = stored.terminal_id.to_string();
-        stored.committed_sequence = append_prejournal_projection_migration(&tx, &stored)?;
+        stored.committed_sequence = match stored_projection_journal_sequence(&tx, &stored)? {
+            Some(sequence) => sequence,
+            None => append_prejournal_projection_migration(&tx, &stored)?,
+        };
         head_sequence = head_sequence.max(stored.committed_sequence);
-        projections.insert(key, stored);
+        candidates.push(stored);
+    }
+    candidates.sort_by_key(|projection| projection.committed_sequence);
+    let mut projections = BTreeMap::new();
+    for next in candidates {
+        let key = next.terminal_id.to_string();
+        let current = projections.remove(&key);
+        projections.insert(key, merge_projection(current, next));
     }
     tx.execute("DELETE FROM resource_agent_projections", [])?;
     for projection in projections.into_values() {
@@ -262,9 +271,9 @@ fn append_prejournal_projection_migration(
     )
 }
 
-fn derive_agent_projections_from_legacy_agent_index(
+fn agent_projection_candidates_from_legacy_agent_index(
     connection: &Connection,
-) -> anyhow::Result<(BTreeMap<String, AgentProjectionRow>, u64)> {
+) -> anyhow::Result<(Vec<AgentProjectionRow>, u64)> {
     let mut statement = connection.prepare(
         "SELECT sequence
          FROM journal_event_index
@@ -281,7 +290,7 @@ fn derive_agent_projections_from_legacy_agent_index(
         .collect::<anyhow::Result<Vec<_>>>()?;
     sequences.sort_unstable();
 
-    let mut projections = BTreeMap::new();
+    let mut projections = Vec::new();
     for batch in sequences.chunks(1024) {
         for record in session_journal::query_session_journal_sequences(connection, batch)? {
             let Some(next) = projection_from_journal_record(
@@ -296,12 +305,56 @@ fn derive_agent_projections_from_legacy_agent_index(
             else {
                 continue;
             };
-            let key = next.terminal_id.to_string();
-            let current = projections.remove(&key);
-            projections.insert(key, merge_projection(current, next));
+            projections.push(next);
         }
     }
     Ok((projections, session_journal::session_journal_head(connection)?))
+}
+
+fn stored_projection_journal_sequence(
+    connection: &Connection,
+    stored: &AgentProjectionRow,
+) -> anyhow::Result<Option<u64>> {
+    let resource_revision = i64::try_from(stored.committed_sequence)
+        .context("stored agent projection revision exceeds SQLite range")?;
+    let resource_sequence = connection
+        .query_row(
+            "SELECT sequence FROM journal_event_index WHERE resource_revision = ?1",
+            [resource_revision],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        .map(u64::try_from)
+        .transpose()
+        .context("stored agent projection journal sequence is negative")?;
+    let head_sequence = session_journal::session_journal_head(connection)?;
+    let mut candidates = resource_sequence.into_iter().collect::<Vec<_>>();
+    if stored.committed_sequence <= head_sequence
+        && !candidates.contains(&stored.committed_sequence)
+    {
+        candidates.push(stored.committed_sequence);
+    }
+    for sequence in candidates {
+        let record = session_journal::query_session_journal_sequences(connection, &[sequence])?
+            .pop()
+            .context("stored agent projection journal record disappeared")?;
+        let Some(projected) = projection_from_journal_record(
+            record.sequence,
+            &record.kind,
+            record.occurred_at_ms,
+            &record.producer,
+            &record.subjects,
+            &record.payload,
+            record.resource_revision,
+        )?
+        else {
+            continue;
+        };
+        if projected.terminal_id == stored.terminal_id && projected.result == stored.result {
+            return Ok(Some(sequence));
+        }
+    }
+    Ok(None)
 }
 
 fn projection_from_journal_record(
