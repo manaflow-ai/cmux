@@ -354,6 +354,8 @@ struct JournalIngressState {
     failure_notifier: Mutex<Option<SyncSender<String>>>,
     #[cfg(test)]
     nonretryable_failure_hook: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
+    #[cfg(test)]
+    enqueue_full_notifier: Mutex<Option<SyncSender<()>>>,
 }
 
 impl JournalIngressState {
@@ -436,6 +438,13 @@ impl JournalIngressState {
 
     fn wait_for_queue_space(&self, observed: u64) -> Result<(), String> {
         self.wait_for_queue_space_until(observed, Instant::now() + JOURNAL_DURABLE_WAIT)
+    }
+
+    #[cfg(test)]
+    fn notify_enqueue_full_for_test(&self) {
+        if let Some(notifier) = self.enqueue_full_notifier.lock().unwrap().take() {
+            let _ = notifier.send(());
+        }
     }
 }
 
@@ -659,6 +668,11 @@ impl JournalIngressSender {
         *self.state.nonretryable_failure_hook.lock().unwrap() = Some((entered, release));
     }
 
+    #[cfg(test)]
+    fn install_enqueue_full_notifier_for_test(&self, notifier: SyncSender<()>) {
+        *self.state.enqueue_full_notifier.lock().unwrap() = Some(notifier);
+    }
+
     fn enqueue(
         &self,
         sender: &SyncSender<QueuedJournalEvent>,
@@ -668,6 +682,8 @@ impl JournalIngressSender {
         if let Some(error) = self.state.admission_error() {
             return Err(error);
         }
+        #[cfg(test)]
+        self.state.notify_enqueue_full_for_test();
         sender.send(event).map_err(|_| self.writer_error())?;
         if let Some(wake) = &self.wake_sender {
             match wake.try_send(()) {
@@ -2114,6 +2130,72 @@ mod tests {
                 .to_string()
                 .contains("admission is closed")
         );
+    }
+
+    #[test]
+    fn shutdown_closes_admission_while_a_terminal_producer_waits_for_space() {
+        let (sender, receivers) = JournalIngressSender::new(true);
+        let receivers = receivers.unwrap();
+        let sender = Arc::new(sender);
+        let terminal_id = Arc::new(public_id("term", 16, TerminalPublicId::parse));
+        for index in 0..JOURNAL_TERMINAL_QUEUE_CAPACITY {
+            sender.send(JournalIngressEvent::TerminalResize {
+                terminal_id: terminal_id.clone(),
+                generation: Arc::from("blocked-admission-generation"),
+                occurred_at_ms: u64::try_from(index).unwrap(),
+                cols: 80,
+                rows: 24,
+                cell_width: 8,
+                cell_height: 16,
+            });
+        }
+        let (queue_full, queue_full_receiver) = sync_channel(1);
+        sender.install_enqueue_full_notifier_for_test(queue_full);
+        let blocked_sender = sender.clone();
+        let blocked_terminal = terminal_id.clone();
+        let blocked = std::thread::spawn(move || {
+            blocked_sender.send(JournalIngressEvent::TerminalResize {
+                terminal_id: blocked_terminal,
+                generation: Arc::from("blocked-admission-generation"),
+                occurred_at_ms: u64::MAX,
+                cols: 81,
+                rows: 25,
+                cell_width: 8,
+                cell_height: 16,
+            });
+        });
+        queue_full_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let shutdown_sender = sender.clone();
+        let (shutdown_completed, shutdown_completion) = sync_channel(1);
+        let shutdown = std::thread::spawn(move || {
+            shutdown_completion
+                .send(shutdown_sender.close_and_join_until(
+                    Instant::now() + Duration::from_millis(100),
+                ))
+                .unwrap();
+        });
+        let returned = shutdown_completed.recv_timeout(Duration::from_secs(1));
+        assert!(
+            returned.is_ok(),
+            "shutdown waited on a terminal producer that held the admission lock"
+        );
+        returned.unwrap().unwrap();
+        blocked.join().unwrap();
+        shutdown.join().unwrap();
+
+        let queued = (0..JOURNAL_TERMINAL_QUEUE_CAPACITY)
+            .map(|_| receivers.terminal.recv().unwrap())
+            .collect::<Vec<_>>();
+        assert!(
+            queued.iter().all(|queued| matches!(
+                &queued.event,
+                JournalIngressEvent::TerminalResize { occurred_at_ms, .. }
+                    if *occurred_at_ms != u64::MAX
+            )),
+            "the event waiting outside the admission fence must not enter after close"
+        );
+        assert!(receivers.terminal.try_recv().is_err());
     }
 
     #[test]
