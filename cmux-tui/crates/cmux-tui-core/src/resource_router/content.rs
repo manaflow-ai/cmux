@@ -1961,7 +1961,15 @@ mod tests {
     fn terminal_wait_exit_latches_one_public_event_without_host_identity() {
         let (mux, surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
         let public_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
-        let tab_id = mux.with_state(|state| state.resource_indexes.tab_ids[&surface.id].clone());
+        let tab_id = public_session_snapshot(&mux).unwrap()["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == public_id.as_str())
+            .unwrap()["tab_ids"][0]
+            .as_str()
+            .unwrap()
+            .to_string();
         let durable = mux.terminal_registry_snapshot().unwrap();
         let internal = durable.terminals.first().expect("fixture has one durable terminal");
         let internal_id = internal.terminal_id.as_str();
@@ -2019,9 +2027,7 @@ mod tests {
             change["sequence"].as_u64() == u64::try_from(sequence).ok()
         }));
         assert!(changes.iter().any(|change| {
-            change["kind"] == "delete"
-                && change["resource"] == "tab"
-                && change["id"] == tab_id.as_str()
+            change["kind"] == "delete" && change["resource"] == "tab" && change["id"] == tab_id
         }));
         assert!(!changes.iter().any(|change| {
             change["kind"] == "delete"
@@ -2095,7 +2101,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn terminal_wait_exit_resolves_detached_id_after_exit_upsert_then_delete() {
+    fn terminal_wait_exit_resolves_detached_id_and_retains_exited_receipt() {
         let (mux, _surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
         let public_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
         let before = public_session_snapshot(&mux).unwrap()["cursor"]["revision"]
@@ -2125,7 +2131,16 @@ mod tests {
         assert_eq!(exited["exited_at"], "3456789");
 
         let snapshot = public_session_snapshot(&mux).unwrap();
-        assert_eq!(snapshot["terminals"], json!([]));
+        let terminal = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == public_id.as_str())
+            .expect("exited terminal receipt remains publicly addressable");
+        assert_eq!(terminal["lifecycle"], "exited");
+        assert_eq!(terminal["tab_id"], Value::Null);
+        assert_eq!(terminal["tab_ids"], json!([]));
+        assert_eq!(terminal["exit"]["outcome"], exited["outcome"]);
         let events = mux.resource_events_after(before).unwrap();
         assert_eq!(events.batches.len(), 1);
         let exit_changes = events.batches[0].changes.as_array().unwrap();
@@ -2140,7 +2155,7 @@ mod tests {
         assert_eq!(exit_upsert["value"]["lifecycle"], "exited");
         assert_eq!(exit_upsert["value"]["exit"]["outcome"], exited["outcome"]);
         assert_eq!(exit_upsert["sequence"], 0);
-        assert!(exit_changes.iter().any(|change| {
+        assert!(!exit_changes.iter().any(|change| {
             change["resource"] == "terminal"
                 && change["id"] == public_id.as_str()
                 && change["kind"] == "delete"
