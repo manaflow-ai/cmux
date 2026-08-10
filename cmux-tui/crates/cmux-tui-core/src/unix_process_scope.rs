@@ -269,6 +269,7 @@ impl UnixProcessScope {
     /// requested program. `bind` registers the stopped root and then releases
     /// it, so user code cannot detach before scope ownership exists.
     pub fn suspended_command(program: impl AsRef<OsStr>) -> Command {
+        let program = program.as_ref();
         #[cfg(target_os = "macos")]
         let mut command = {
             let mut command = Command::new("/usr/bin/sandbox-exec");
