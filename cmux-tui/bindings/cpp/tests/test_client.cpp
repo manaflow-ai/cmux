@@ -22,6 +22,7 @@ struct FakeState {
     std::deque<std::string> incoming;
     std::vector<std::string> outgoing;
     std::size_t receive_timeouts = 0;
+    std::size_t waiting_receivers = 0;
     bool closed = false;
 };
 
@@ -41,9 +42,14 @@ public:
 
     cmux::raw::Result<std::string> receive(std::chrono::milliseconds timeout) override {
         std::unique_lock lock(state_->mutex);
-        if (!state_->ready.wait_for(lock, timeout, [this] {
-                return state_->closed || !state_->incoming.empty();
-            })) {
+        ++state_->waiting_receivers;
+        state_->ready.notify_all();
+        const bool ready = state_->ready.wait_for(lock, timeout, [this] {
+            return state_->closed || !state_->incoming.empty();
+        });
+        --state_->waiting_receivers;
+        state_->ready.notify_all();
+        if (!ready) {
             ++state_->receive_timeouts;
             state_->ready.notify_all();
             return cmux::raw::make_error(cmux::raw::ErrorCode::timeout, "fake timeout");
@@ -75,6 +81,12 @@ cmux::raw::TransportFactory fake_factory(const std::shared_ptr<FakeState>& state
 void wait_for_send(const std::shared_ptr<FakeState>& state) {
     std::unique_lock lock(state->mutex);
     state->ready.wait(lock, [&] { return !state->outgoing.empty(); });
+}
+
+bool wait_for_receive(const std::shared_ptr<FakeState>& state) {
+    std::unique_lock lock(state->mutex);
+    return state->ready.wait_for(
+        lock, std::chrono::seconds(2), [&] { return state->waiting_receivers > 0; });
 }
 
 void wait_for_receive_timeouts(
@@ -533,9 +545,10 @@ TEST("stream close unblocks a pending next") {
     cmux::raw::Result<cmux::raw::Json> next =
         cmux::raw::make_error(cmux::raw::ErrorCode::protocol, "not started");
     std::thread reader([&] { next = event_stream.next(std::chrono::seconds(30)); });
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    const bool receive_started = wait_for_receive(stream_state);
     event_stream.close();
     reader.join();
+    CHECK(receive_started);
     CHECK(!next);
     CHECK_EQ(next.error().code, cmux::raw::ErrorCode::closed);
 }

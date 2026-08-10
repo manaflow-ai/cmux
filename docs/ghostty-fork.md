@@ -12,92 +12,31 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `90ba327fc`, which keeps process-group
-teardown fail-closed after the direct child has been reaped: a cached numeric
-group id is no longer trusted, while a foreground group freshly observed
-through the retained PTY remains eligible for bounded shutdown. It builds on
-`f66cfbd6f`, which integrates descendant and foreground job-control group
-reaping into fork `main`. It includes `d462c1d97`, the fork-main merge of the Hangul
-NFC/NFD font-resolution integration from
-https://github.com/manaflow-ai/ghostty/pull/185, including its test at
-`0316a8de8` and fix at `3fbdd078d`. It also includes `9513174f2`, the
-current-fork reapplication of the VT stream-boundary API previously pinned at
-`11aa609d7`. cmux uses that VT contract to retain incomplete escape-sequence
-bytes across distributed snapshot handoff. The current pin builds on
-`19d03fa4d`, which suppresses empty opener stderr diagnostics on top of
-`f0f8273b7`, the iOS startup locale/crash-reporting order fix. That commit
-follows `88357634c`, the fork-main
-merge of https://github.com/manaflow-ai/ghostty/pull/175. That previous merge combines
-the initial cmux theme-picker render fix at `5068b3a37` with terminal-owned
-semantic-prompt row lifecycle enforcement through `2d6e944e3` from
-https://github.com/manaflow-ai/ghostty/pull/176.
-The earlier integration combines the hidden-renderer reclamation and
-retry-deadline line through `4d6f0014f` with the resolved font-binding action
-callbacks originally ending at `80d7fb35a`.
-https://github.com/manaflow-ai/ghostty/pull/171 reapplied the font callback
-commits on current fork main and clarified the callback's non-reentrant
-contract. PR 172 then recorded the original font branch as ancestry without
-changing the integrated tree, so the final pin descends from both former
-gitlinks (`cd1f8e012` and `80d7fb35a`).
+The submodule pinned by this branch is `f76c132e5`, the fork-main merge of
+https://github.com/manaflow-ai/ghostty/pull/191. Its `533c27ae1` fix preserves
+saved cursors while formatter replay restores the active cursor after margins,
+origin mode, and tabstop state. The pin includes the prior fork changes below,
+including bounded embedded-surface process teardown through `90ba327fc`, Hangul
+canonical font resolution at `3fbdd078d`, and VT stream-boundary visibility at
+`9513174f2`.
 
-### Hangul NFC/NFD canonical font resolution
+### VT formatter cursor restoration after margins
 
 - Pull request:
-  - https://github.com/manaflow-ai/ghostty/pull/185
-- Commits:
-  - `0316a8de8` (test: NFC and NFD Hangul must resolve the same font face)
-  - `3fbdd078d` (font: resolve NFD Hangul clusters via canonical composition)
-- Files:
-  - `src/font/hangul.zig` (new)
-  - `src/font/main.zig`
-  - `src/font/shaper/run.zig`
-  - `src/font/shaper/coretext.zig` (test)
+  - https://github.com/manaflow-ai/ghostty/pull/191
+- Commit: `533c27ae1` (Preserve saved cursors during formatter replay)
+- File: `src/terminal/formatter.zig`
 - Summary:
-  - Font selection keyed on the raw stored codepoints of a grapheme cluster,
-    so a decomposed Hangul cluster queried the resolver with its leading jamo
-    while the equivalent precomposed syllable queried with the syllable
-    codepoint, selecting different fallback faces (and bypassing
-    `font-codepoint-map` entries for U+AC00-U+D7A3) for canonically
-    equivalent text.
-  - `src/font/hangul.zig` implements the algorithmic Hangul canonical
-    composition from The Unicode Standard ch. 3.12 (L+V, L+V+T, and LV+T
-    clusters over the modern jamo ranges). `RunIterator.indexForCell`
-    resolves the face through the composed codepoint first, so both
-    encodings produce the identical resolver query.
-  - Terminal cell contents and shaper input are unchanged: copy/paste of NFD
-    text still returns the original NFD codepoints, and CoreText/HarfBuzz
-    compose the cluster during shaping when the face carries the precomposed
-    glyph.
-- Conflict note:
-  - Upstream tracks the same defect in
-    https://github.com/ghostty-org/ghostty/discussions/4163. If upstream
-    lands its own cluster-level or normalization-based resolution, prefer
-    the upstream mechanism and drop `src/font/hangul.zig` plus the
-    `indexForCell` hook, keeping the `coretext.zig` regression test to prove
-    the behavior survives the merge.
-- Fixes:
-  - https://github.com/manaflow-ai/cmux/issues/9583
+  - Restores the active cursor after terminal-wide state during VT formatter
+    replay and derives CUP coordinates from the emitted margins and origin mode.
+  - Preserves application-owned saved cursors instead of using DECSC/DECRC as
+    replay scratch state.
+  - Fixes the formatter replay mismatch reported by the cmux Valgrind tests.
 - Artifact:
-  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3fbdd078dfc499134710d3cf9ce2c5e06fa101aa-crashsubdir-cmux-crash-sentry-off-v1
-  - SHA-256 `e8ce9217b32486f8070600b673d9a25e7270dcca9f5565781684f92ffb2f7eb5`
-    is pinned in `scripts/ghosttykit-checksums.txt`.
-
-### VT stream-boundary visibility
-
-- Commits:
-  - Original pin: `11aa609d7` (Expose safe VT stream snapshot boundary)
-  - Reapplied on current fork main: `9513174f2`
-- Files: `include/ghostty/vt/terminal.h`, `src/terminal/c/terminal.zig`,
-  `src/lib_vt.zig`
-- Summary:
-  - Exposes a read-only libghostty query that reports whether the VT stream
-    parser has no incomplete escape sequence buffered.
-  - Lets cmux cut a distributed terminal snapshot only at a replay-safe byte
-    boundary, while retaining later raw PTY bytes for each smart client.
-- Artifact:
-  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-11aa609d75dec882ef2f83171e2cbe887aeddbc5-crashsubdir-cmux-crash-sentry-off-v1
-  - SHA-256 `1a4acbcc9e0e5b20c0b4dad6660d0c08546a5d36192053834df960144fa8fdb9`
-    is pinned in `scripts/ghosttykit-checksums.txt`.
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f76c132e526f124fe4aaebd39f516751656844bc-crashsubdir-cmux-crash-sentry-off-v1
+  - The hosted build published the 129,284,050-byte archive and verified SHA-256
+    `af9f8f12e6f41ffe00b5b65f150bb887b19dc752e47d20d3c351696c803509af`,
+    which is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Bounded embedded-surface process teardown
 
@@ -167,6 +106,65 @@ gitlinks (`cd1f8e012` and `80d7fb35a`).
     targeted. Preserve separate direct-child and per-group liveness state, stop
     targeting a foreground group after it disappears, and preserve the shared
     SIGHUP, signal-`0` polling, SIGKILL, and bounded final-reap deadlines.
+
+### Hangul NFC/NFD canonical font resolution
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/185
+- Commits:
+  - `0316a8de8` (test: NFC and NFD Hangul must resolve the same font face)
+  - `3fbdd078d` (font: resolve NFD Hangul clusters via canonical composition)
+- Files:
+  - `src/font/hangul.zig` (new)
+  - `src/font/main.zig`
+  - `src/font/shaper/run.zig`
+  - `src/font/shaper/coretext.zig` (test)
+- Summary:
+  - Font selection keyed on the raw stored codepoints of a grapheme cluster,
+    so a decomposed Hangul cluster queried the resolver with its leading jamo
+    while the equivalent precomposed syllable queried with the syllable
+    codepoint, selecting different fallback faces (and bypassing
+    `font-codepoint-map` entries for U+AC00-U+D7A3) for canonically
+    equivalent text.
+  - `src/font/hangul.zig` implements the algorithmic Hangul canonical
+    composition from The Unicode Standard ch. 3.12 (L+V, L+V+T, and LV+T
+    clusters over the modern jamo ranges). `RunIterator.indexForCell`
+    resolves the face through the composed codepoint first, so both
+    encodings produce the identical resolver query.
+  - Terminal cell contents and shaper input are unchanged: copy/paste of NFD
+    text still returns the original NFD codepoints, and CoreText/HarfBuzz
+    compose the cluster during shaping when the face carries the precomposed
+    glyph.
+- Conflict note:
+  - Upstream tracks the same defect in
+    https://github.com/ghostty-org/ghostty/discussions/4163. If upstream
+    lands its own cluster-level or normalization-based resolution, prefer
+    the upstream mechanism and drop `src/font/hangul.zig` plus the
+    `indexForCell` hook, keeping the `coretext.zig` regression test to prove
+    the behavior survives the merge.
+- Fixes:
+  - https://github.com/manaflow-ai/cmux/issues/9583
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3fbdd078dfc499134710d3cf9ce2c5e06fa101aa-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `e8ce9217b32486f8070600b673d9a25e7270dcca9f5565781684f92ffb2f7eb5`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### VT stream-boundary visibility
+
+- Commits:
+  - Original pin: `11aa609d7` (Expose safe VT stream snapshot boundary)
+  - Reapplied on current fork main: `9513174f2`
+- Files: `include/ghostty/vt/terminal.h`, `src/terminal/c/terminal.zig`,
+  `src/lib_vt.zig`
+- Summary:
+  - Exposes a read-only libghostty query that reports whether the VT stream
+    parser has no incomplete escape sequence buffered.
+  - Lets cmux cut a distributed terminal snapshot only at a replay-safe byte
+    boundary, while retaining later raw PTY bytes for each smart client.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-11aa609d75dec882ef2f83171e2cbe887aeddbc5-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `1a4acbcc9e0e5b20c0b4dad6660d0c08546a5d36192053834df960144fa8fdb9`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
 
 The renderer line was reviewed in
 https://github.com/manaflow-ai/ghostty/pull/168, following the merged

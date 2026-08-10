@@ -285,9 +285,6 @@ impl WorkspaceRegistry {
                       projection.result_json,
                       projection.committed_revision
                FROM resource_agent_projections projection
-               JOIN resource_terminals terminal
-                 ON terminal.public_id = projection.terminal_id
-                AND terminal.deleted_revision IS NULL
                WHERE (?1 IS NULL OR projection.terminal_id = ?1)
              )
              SELECT terminal_id, result_json, committed_revision
@@ -424,7 +421,8 @@ impl WorkspaceRegistry {
                 validate_identifier("projection scope", &scope)?;
                 FrontendProjectionPublicId::parse(subject_key.clone())?;
                 anyhow::ensure!(
-                    schema_version == 1,
+                    schema_version
+                        == i64::from(RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION),
                     "frontend projection {subject_key} has unsupported schema version {schema_version}"
                 );
                 anyhow::ensure!(
@@ -778,9 +776,14 @@ mod tests {
                 "resource-api",
                 "session",
                 projection.as_str(),
-                1,
+                RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION,
                 None,
-                &json!({"columns":[1,2]}),
+                &json!({
+                    "frontend_id":"cmux-test",
+                    "window_id":"window-test",
+                    "generation":"launch-test",
+                    "projection":{"columns":[1,2]},
+                }),
             )
             .unwrap();
 
@@ -799,7 +802,10 @@ mod tests {
         assert_eq!(defaults.palette[255], Some(Rgb { r: 0xfd, g: 0xfe, b: 0xfe }));
         assert_eq!(restored.frontend_projections.len(), 1);
         assert_eq!(restored.frontend_projections[0].subject_key, projection.as_str());
-        assert_eq!(restored.frontend_projections[0].projection, json!({"columns":[1,2]}));
+        assert_eq!(
+            restored.frontend_projections[0].projection["projection"],
+            json!({"columns":[1,2]})
+        );
     }
 
     #[test]
