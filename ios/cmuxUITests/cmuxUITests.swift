@@ -2561,14 +2561,11 @@ final class cmuxUITests: XCTestCase {
     /// tappable while only the provider/model viewport absorbs width pressure.
     @MainActor
     func testTaskComposerAccessibilityXXXLKeepsAttachmentAndEdgeControlsVisible() async throws {
-        let server = try MobileSyncMockHostServer(
-            supportsManualAttachTicket: true,
-            advertisesTaskAttachments: true
-        )
+        let server = try MobileSyncMockHostServer(advertisesTaskAttachments: true)
         let port = try await server.start()
         defer { server.stop() }
 
-        let app = try launchConnectedAppViaManualPairing(
+        let app = try launchConnectedApp(
             port: port,
             additionalLaunchArguments: [
                 "-UIPreferredContentSizeCategoryName",
@@ -5199,11 +5196,15 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchConnectedApp(port: UInt16, assertStatusRows: Bool = true) throws -> XCUIApplication {
+    private func launchConnectedApp(
+        port: UInt16,
+        assertStatusRows: Bool = true,
+        additionalLaunchArguments: [String] = []
+    ) throws -> XCUIApplication {
         let attachURL = try attachURL(port: port)
         let app = launchApp(mockData: true, environment: [
             "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
-        ])
+        ], launchArguments: additionalLaunchArguments)
         waitForWorkspaceShell(in: app)
         try openSelectedWorkspaceIfNeeded(app)
         if assertStatusRows {
