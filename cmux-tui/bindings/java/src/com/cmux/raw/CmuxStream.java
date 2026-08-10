@@ -91,8 +91,9 @@ public final class CmuxStream<E extends ProtocolEvent> implements AutoCloseable 
         if (!buffered.isEmpty()) {
             event = buffered.removeFirst();
         } else {
+            JsonLineConnection.Deadline deadline = JsonLineConnection.deadline(timeout);
             while (true) {
-                Map<String, Object> message = connection.receive(timeout, beforeWait);
+                Map<String, Object> message = connection.receive(deadline, beforeWait);
                 if (message.containsKey("event")) {
                     event = Protocol.decodeEvent(message);
                     break;
