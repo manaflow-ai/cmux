@@ -16,6 +16,7 @@ import { Link, useRouter } from "@/i18n/navigation";
 const menuItemClass =
   "flex min-h-9 w-full cursor-default select-none items-center gap-2 px-2.5 py-2 text-left text-sm text-foreground no-underline outline-none data-[highlighted]:bg-code-bg";
 const ORGANIZATION_CATALOG_TIMEOUT_MS = 5_000;
+const ORGANIZATION_SWITCH_TIMEOUT_MS = 10_000;
 
 export function DashboardAccountMenu() {
   const t = useTranslations("dashboard.accountMenu");
@@ -141,6 +142,7 @@ function DashboardOrganizationSwitcher() {
     refetchOnMount: "always",
     refetchOnWindowFocus: "always",
     refetchOnReconnect: "always",
+    networkMode: "always",
   });
 
   if (isPending) {
@@ -193,7 +195,10 @@ function DashboardOrganizationSwitcher() {
     setSwitchPending(true);
     setSwitchError(false);
     try {
-      await user.setSelectedTeam(team);
+      await withDeadline(
+        user.setSelectedTeam(team),
+        ORGANIZATION_SWITCH_TIMEOUT_MS,
+      );
       queryClient.setQueryData<OrganizationCatalog>(
         organizationQueryKey,
         (current) =>
@@ -277,6 +282,24 @@ async function loadOrganizationCatalog(
   return parsed;
 }
 
+async function withDeadline<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(
+      () => reject(new Error("Operation timed out")),
+      timeoutMs,
+    );
+  });
+  try {
+    return await Promise.race([operation, deadline]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 function parseOrganizationCatalog(value: unknown): OrganizationCatalog | null {
   if (!isPlainRecord(value) || !Array.isArray(value.teams)) return null;
   const selectedTeamId = value.selectedTeamId;
@@ -326,7 +349,7 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-export const __test = { parseOrganizationCatalog };
+export const __test = { parseOrganizationCatalog, withDeadline };
 
 function ChevronsUpDown() {
   return (
