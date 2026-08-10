@@ -5,6 +5,38 @@ import Testing
 
 @MainActor
 @Suite struct MobileShellCompositeSimulatorStreamTests {
+    /// The toolbar action and RPC callbacks must mutate the same store instance
+    /// that SwiftUI renders. A disconnected selection remains active so the
+    /// pane can present its lifecycle overlay while reconnection is unavailable.
+    @Test func sharedSelectionActivatesCompositeOwnedDisconnectedSurface() async {
+        let streamStore = MobileSimulatorStreamStore()
+        streamStore.replaceSimulatorPanels(in: "workspace-1", with: [Self.descriptor()])
+        streamStore.setSimulatorStreamConnectionStatus(.disconnected)
+        let composite = MobileShellComposite(simulatorStreamStore: streamStore)
+
+        composite.selectMobileSimulatorStream(panelID: "sim-1", workspaceID: "workspace-1")
+
+        let active = streamStore.activeState(in: "workspace-1")
+        #expect(composite.simulatorStreamStore === streamStore)
+        #expect(active?.id == "sim-1")
+        #expect(active?.connectionStatus == .disconnected)
+
+        await composite.mobileSimulatorStreamSelectionCoordinator?.waitForIdle()
+        #expect(streamStore.activeState(in: "workspace-1") === active)
+    }
+
+    @Test func compositeRetainsPreactivatedLifecycleSurface() {
+        let streamStore = MobileSimulatorStreamStore()
+        streamStore.replaceSimulatorPanels(in: "workspace-1", with: [Self.descriptor()])
+        streamStore.setSimulatorStreamConnectionStatus(.disconnected)
+        let active = streamStore.activate(panelID: "sim-1", in: "workspace-1")
+
+        let composite = MobileShellComposite(simulatorStreamStore: streamStore)
+
+        #expect(composite.simulatorStreamStore.activeState(in: "workspace-1") === active)
+        #expect(active?.connectionStatus == .disconnected)
+    }
+
     /// Toolbar selection activates the panel (forcing `.starting`) before the
     /// start RPC runs. When the preflight guard fails (disconnected, missing
     /// capability, or no client), the optimistic spinner must settle back to

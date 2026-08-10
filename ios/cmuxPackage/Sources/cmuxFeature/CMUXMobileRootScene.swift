@@ -366,7 +366,6 @@ public struct CMUXMobileRootScene: View {
                 simulatorStreamStore: simulatorStreamStore
             ),
             browserStreamStore: browserStreamStore,
-            simulatorStreamStore: simulatorStreamStore,
             onboardingStore: onboardingStore,
             signOutHook: signOutHook
         )
@@ -377,7 +376,6 @@ public struct CMUXMobileRootScene: View {
                 simulatorStreamStore: simulatorStreamStore
             ),
             browserStreamStore: browserStreamStore,
-            simulatorStreamStore: simulatorStreamStore,
             signOutHook: signOutHook
         )
         #endif
@@ -386,7 +384,7 @@ public struct CMUXMobileRootScene: View {
     @MainActor
     package func makeStore(
         browserStreamEvents: (any BrowserStreamEventReceiving)? = nil,
-        simulatorStreamStore: MobileSimulatorStreamStore? = nil
+        simulatorStreamStore: MobileSimulatorStreamStore = MobileSimulatorStreamStore()
     ) -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
         let buildScope = MobileIOSBuildScope.current()

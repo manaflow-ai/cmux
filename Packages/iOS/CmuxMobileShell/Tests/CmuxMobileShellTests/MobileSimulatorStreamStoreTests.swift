@@ -5,6 +5,23 @@ import Testing
 
 @MainActor
 @Suite struct MobileSimulatorStreamStoreTests {
+    @Test func activatingPanelInvalidatesActiveSelectionObservation() async {
+        let store = MobileSimulatorStreamStore()
+        store.replaceSimulatorPanels(in: "workspace-1", with: [simulatorDescriptor()])
+
+        await confirmation("active selection changed") { selectionChanged in
+            withObservationTracking {
+                _ = store.activeState(in: "workspace-1")
+            } onChange: {
+                selectionChanged()
+            }
+
+            store.activate(panelID: "sim-1", in: "workspace-1")
+        }
+
+        #expect(store.activeState(in: "workspace-1")?.id == "sim-1")
+    }
+
     @Test func restartKeepsLastFrameVisibleUntilReplacementArrives() throws {
         let store = MobileSimulatorStreamStore()
         let descriptor = simulatorDescriptor()

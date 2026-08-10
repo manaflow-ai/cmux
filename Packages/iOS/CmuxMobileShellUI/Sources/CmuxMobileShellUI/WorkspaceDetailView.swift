@@ -949,21 +949,7 @@ struct WorkspaceDetailView: View {
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
         let workspaceID = workspace.rpcWorkspaceID.rawValue
-        let previousPanelID: String? = activeSimulatorStream.flatMap {
-            $0.id == panelID ? nil : $0.id
-        }
-        // Settle the previous panel's local state before activating the new
-        // one, so switching A -> B leaves A idle instead of frozen on a stale
-        // `.streaming`/`.starting` status.
-        if let previousPanelID {
-            simulatorStreamStore.deactivate(panelID: previousPanelID, in: workspaceID)
-        }
-        _ = simulatorStreamStore.activate(panelID: panelID, in: workspaceID)
-        store.transitionMobileSimulatorStreamSelection(
-            from: previousPanelID,
-            to: panelID,
-            workspaceID: workspaceID
-        )
+        store.selectMobileSimulatorStream(panelID: panelID, workspaceID: workspaceID)
     }
 
     private func stopActiveBrowserStream() {
@@ -973,14 +959,8 @@ struct WorkspaceDetailView: View {
     }
 
     private func stopActiveSimulatorStream() {
-        guard let stream = activeSimulatorStream else { return }
         let workspaceID = workspace.rpcWorkspaceID.rawValue
-        simulatorStreamStore.deactivate(in: workspaceID)
-        store.transitionMobileSimulatorStreamSelection(
-            from: stream.id,
-            to: nil,
-            workspaceID: workspaceID
-        )
+        store.clearMobileSimulatorStreamSelection(workspaceID: workspaceID)
     }
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {

@@ -189,7 +189,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if connectionState == .connected {
                 restartTerminalLanesForMountedSurfaces()
                 browserStreamEvents?.setBrowserStreamConnectionStatus(.connected)
-                simulatorStreamStore?.setSimulatorStreamConnectionStatus(.connected)
+                simulatorStreamStore.setSimulatorStreamConnectionStatus(.connected)
                 restartActiveMobileBrowserStreams()
                 restartActiveMobileSimulatorStreams()
                 scheduleWorkspaceChangesSummaryRefresh()
@@ -205,7 +205,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 browserStreamEvents?.setBrowserStreamConnectionStatus(
                     macConnectionStatus == .reconnecting ? .reconnecting : .disconnected
                 )
-                simulatorStreamStore?.setSimulatorStreamConnectionStatus(
+                simulatorStreamStore.setSimulatorStreamConnectionStatus(
                     macConnectionStatus == .reconnecting ? .reconnecting : .disconnected
                 )
                 resetWorkspaceChangesState()
@@ -508,8 +508,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Separate app-lifetime browser event sink; never stored in workspace preview state.
     @ObservationIgnored let browserStreamEvents: (any BrowserStreamEventReceiving)?
-    /// Separate app-lifetime simulator stream state; never stored in workspace preview state.
-    @ObservationIgnored let simulatorStreamStore: MobileSimulatorStreamStore?
+    /// Sole owner of Simulator panel selection and lifecycle state. SwiftUI
+    /// injects this exact instance so local presentation and RPC callbacks
+    /// cannot drift onto separate stores.
+    @ObservationIgnored public let simulatorStreamStore: MobileSimulatorStreamStore
     @ObservationIgnored let mobileBrowserStreamLifecycle = MobileBrowserStreamLifecycleCoordinator()
     @ObservationIgnored var startedMobileBrowserPanelIDs: Set<String> = []
     @ObservationIgnored var startedMobileSimulatorPanelIDs: Set<String> = []
@@ -1502,7 +1504,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalInputAckResubscribeClock: any Clock<Duration> = ContinuousClock(),
         taskTemplateStore: (any MobileTaskTemplateStoring)? = nil,
         browserStreamEvents: (any BrowserStreamEventReceiving)? = nil,
-        simulatorStreamStore: MobileSimulatorStreamStore? = nil,
+        simulatorStreamStore: MobileSimulatorStreamStore = MobileSimulatorStreamStore(),
         simulatorStreamStalenessClock: any Clock<Duration> = ContinuousClock(),
         storedMacReconnectRestoringDeadlineSeconds: Double = 15
     ) {
