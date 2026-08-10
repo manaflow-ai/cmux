@@ -4804,6 +4804,14 @@ impl Mux {
             remaining.min(sqlite_wait_cap),
             admit_commit,
         )?;
+        for event in events {
+            let crate::journal_ingress::JournalIngressEvent::Producer { ingress, .. } = *event
+            else {
+                continue;
+            };
+            self.sync_agent_records_from_journal_ingress(&registry, ingress)?;
+        }
+        drop(registry);
         self.publish_journal_event();
         Ok(commits)
     }
@@ -5019,24 +5027,24 @@ impl Mux {
         idempotency_key: &str,
     ) -> anyhow::Result<crate::JournalAppendCommit> {
         let validated = self.journal_kernel.validate_ingress(ingress)?;
-        let writer_enabled = self.journal_ingress.enabled();
-        let commit = if writer_enabled {
-            self.journal_ingress.send_producer(
+        if self.journal_ingress.enabled() {
+            return self.journal_ingress.send_producer(
                 ingress.clone(),
                 validated,
                 origin.into(),
                 idempotency_key.into(),
-            )?
-        } else {
-            self.workspace_registry.lock().unwrap().append_journal_ingress(
-                ingress,
-                &validated,
-                origin,
-                idempotency_key,
-            )?
-        };
-        self.sync_agent_records_from_journal_ingress(ingress)?;
-        if !writer_enabled && !commit.replayed {
+            );
+        }
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let commit = registry.append_journal_ingress(
+            ingress,
+            &validated,
+            origin,
+            idempotency_key,
+        )?;
+        self.sync_agent_records_from_journal_ingress(&registry, ingress)?;
+        drop(registry);
+        if !commit.replayed {
             self.publish_journal_event();
         }
         Ok(commit)
@@ -5044,6 +5052,7 @@ impl Mux {
 
     fn sync_agent_records_from_journal_ingress(
         &self,
+        registry: &WorkspaceRegistry,
         ingress: &crate::JournalIngress,
     ) -> anyhow::Result<()> {
         if ingress.producer_id != crate::AGENT_HOOK_PRODUCER_ID {
@@ -5059,7 +5068,6 @@ impl Mux {
             return Ok(());
         }
 
-        let registry = self.workspace_registry.lock().unwrap();
         let mut projections = Vec::with_capacity(terminal_ids.len());
         for terminal_id in terminal_ids {
             projections.extend(registry.public_agent_projections(Some(&terminal_id), None)?);

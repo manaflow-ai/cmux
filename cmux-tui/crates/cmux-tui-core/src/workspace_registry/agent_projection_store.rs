@@ -13,6 +13,9 @@ const AGENT_PROJECTION_JOURNAL_CANDIDATE_KEY: &str =
     "agent_projection_journal_candidate_sequence_v1";
 const AGENT_PROJECTION_JOURNAL_REBUILD_TARGET_KEY: &str =
     "agent_projection_journal_rebuild_target_sequence_v1";
+const AGENT_PROJECTION_PREJOURNAL_MIGRATION_CURSOR_KEY: &str =
+    "agent_projection_prejournal_migration_terminal_v1";
+const AGENT_PROJECTION_PREJOURNAL_MIGRATION_PAGE_SIZE: usize = 64;
 const AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE: usize = 1_024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,14 +78,12 @@ pub(super) fn rebuild_agent_projections_from_journal(
     let tx = connection.unchecked_transaction()?;
     let mut sequence = agent_projection_journal_cursor(&tx)?;
     if sequence.is_none() {
-        let original_head_sequence = session_journal::session_journal_head(&tx)?;
-        for mut stored in stored_live_projections(&tx)? {
-            stored.committed_sequence =
-                match stored_projection_journal_sequence(&tx, &stored, original_head_sequence)? {
-                    Some(sequence) => sequence,
-                    None => append_prejournal_projection_migration(&tx, &stored)?,
-                };
-            upsert_projection(&tx, &stored)?;
+        initialize_prejournal_projection_migration(&tx)?;
+    }
+    if prejournal_projection_migration_cursor(&tx)?.is_some() {
+        if !migrate_prejournal_projections_page(&tx)? {
+            tx.commit()?;
+            return Ok(());
         }
         store_agent_projection_journal_cursor(&tx, 0)?;
         sequence = Some(0);
@@ -128,7 +129,8 @@ pub(super) fn rebuild_agent_projections_from_journal(
 
 impl WorkspaceRegistry {
     pub(crate) fn agent_projection_rebuild_pending(&self) -> anyhow::Result<bool> {
-        Ok(agent_projection_journal_rebuild_target(&self.connection)?.is_some())
+        Ok(prejournal_projection_migration_cursor(&self.connection)?.is_some()
+            || agent_projection_journal_rebuild_target(&self.connection)?.is_some())
     }
 
     pub(crate) fn continue_agent_projection_rebuild(&self) -> anyhow::Result<bool> {
@@ -143,28 +145,12 @@ fn replay_agent_projection_journal_page(
     target_sequence: u64,
     head_sequence: u64,
 ) -> anyhow::Result<()> {
-    transaction.execute(
-        "UPDATE journal_event_index
-         SET kind = (
-           SELECT kind FROM session_journal
-           WHERE session_journal.sequence = journal_event_index.sequence
-         )
-         WHERE kind IS NULL
-           AND sequence IN (
-           SELECT sequence
-           FROM session_journal INDEXED BY session_journal_by_kind_sequence
-           WHERE kind >= 'agent.' AND kind < 'agent/'
-             AND sequence > ?1 AND sequence <= ?2
-           ORDER BY sequence ASC
-           LIMIT ?3
-         )",
-        params![
-            i64::try_from(sequence).context("agent rebuild cursor exceeds SQLite range")?,
-            i64::try_from(target_sequence).context("agent rebuild target exceeds SQLite range")?,
-            i64::try_from(AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE)
-                .context("agent rebuild page size exceeds SQLite range")?,
-        ],
-    )?;
+    if !session_journal::backfill_journal_event_index_kinds_page(
+        transaction,
+        AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE,
+    )? {
+        return Ok(());
+    }
     let projection_sequences = {
         let mut statement = transaction.prepare(
             "SELECT sequence
@@ -290,6 +276,84 @@ fn clear_agent_projection_journal_rebuild_target(
         [AGENT_PROJECTION_JOURNAL_REBUILD_TARGET_KEY],
     )?;
     Ok(())
+}
+
+fn initialize_prejournal_projection_migration(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    transaction.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, '')
+         ON CONFLICT(key) DO NOTHING",
+        [AGENT_PROJECTION_PREJOURNAL_MIGRATION_CURSOR_KEY],
+    )?;
+    Ok(())
+}
+
+fn prejournal_projection_migration_cursor(
+    connection: &Connection,
+) -> anyhow::Result<Option<String>> {
+    let cursor = connection
+        .query_row(
+            "SELECT value FROM meta WHERE key = ?1",
+            [AGENT_PROJECTION_PREJOURNAL_MIGRATION_CURSOR_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    cursor
+        .map(|cursor| {
+            if !cursor.is_empty() {
+                TerminalPublicId::parse(cursor.clone())
+                    .context("pre-journal projection migration cursor is invalid")?;
+            }
+            Ok(cursor)
+        })
+        .transpose()
+}
+
+fn migrate_prejournal_projections_page(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<bool> {
+    let Some(after_terminal_id) = prejournal_projection_migration_cursor(transaction)? else {
+        return Ok(true);
+    };
+    let original_head_sequence = session_journal::session_journal_head(transaction)?;
+    let mut stored = stored_live_projections_after(
+        transaction,
+        &after_terminal_id,
+        AGENT_PROJECTION_PREJOURNAL_MIGRATION_PAGE_SIZE.saturating_add(1),
+    )?;
+    let has_more = stored.len() > AGENT_PROJECTION_PREJOURNAL_MIGRATION_PAGE_SIZE;
+    if has_more {
+        stored.truncate(AGENT_PROJECTION_PREJOURNAL_MIGRATION_PAGE_SIZE);
+    }
+    for projection in &mut stored {
+        projection.committed_sequence = match stored_projection_journal_sequence(
+            transaction,
+            projection,
+            original_head_sequence,
+        )? {
+            Some(sequence) => sequence,
+            None => append_prejournal_projection_migration(transaction, projection)?,
+        };
+        upsert_projection(transaction, projection)?;
+    }
+    if has_more {
+        let terminal_id = stored
+            .last()
+            .context("pre-journal projection migration page was unexpectedly empty")?
+            .terminal_id
+            .as_str();
+        transaction.execute(
+            "UPDATE meta SET value = ?1 WHERE key = ?2",
+            params![terminal_id, AGENT_PROJECTION_PREJOURNAL_MIGRATION_CURSOR_KEY],
+        )?;
+        return Ok(false);
+    }
+    transaction.execute(
+        "DELETE FROM meta WHERE key = ?1",
+        [AGENT_PROJECTION_PREJOURNAL_MIGRATION_CURSOR_KEY],
+    )?;
+    Ok(true)
 }
 
 pub(super) fn advance_agent_projection_journal_cursor(
@@ -717,8 +781,10 @@ fn stored_projection(
     projection_from_resource_report(committed_sequence, &json!({"result":result}))
 }
 
-fn stored_live_projections(
+fn stored_live_projections_after(
     transaction: &Transaction<'_>,
+    after_terminal_id: &str,
+    limit: usize,
 ) -> anyhow::Result<Vec<AgentProjectionRow>> {
     let terminal_ids = {
         let mut statement = transaction.prepare(
@@ -727,9 +793,19 @@ fn stored_live_projections(
              JOIN resource_terminals terminal
                ON terminal.public_id = projection.terminal_id
              WHERE terminal.deleted_revision IS NULL
-             ORDER BY projection.terminal_id ASC",
+               AND projection.terminal_id > ?1
+             ORDER BY projection.terminal_id ASC
+             LIMIT ?2",
         )?;
-        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
+        statement
+            .query_map(
+                params![
+                    after_terminal_id,
+                    i64::try_from(limit).context("agent projection migration limit exceeds SQLite")?,
+                ],
+                |row| row.get::<_, String>(0),
+            )?
+            .collect::<Result<Vec<_>, _>>()?
     };
     terminal_ids
         .into_iter()

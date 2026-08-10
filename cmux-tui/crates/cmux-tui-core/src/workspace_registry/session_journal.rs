@@ -460,6 +460,72 @@ pub(super) fn ensure_journal_event_index_schema(
     Ok(())
 }
 
+pub(super) fn backfill_journal_event_index_kinds_page(
+    transaction: &Transaction<'_>,
+    active_limit: usize,
+) -> anyhow::Result<bool> {
+    let active_updates = transaction.execute(
+        "UPDATE journal_event_index
+         SET kind = (
+           SELECT kind FROM session_journal
+           WHERE session_journal.sequence = journal_event_index.sequence
+         )
+         WHERE kind IS NULL
+           AND sequence IN (
+             SELECT journal.sequence
+             FROM session_journal journal
+             JOIN journal_event_index event ON event.sequence = journal.sequence
+             WHERE event.kind IS NULL
+             ORDER BY journal.sequence ASC
+             LIMIT ?1
+           )",
+        [i64::try_from(active_limit).context("journal kind backfill limit exceeds SQLite")?],
+    )?;
+    let archived_segment = transaction
+        .query_row(
+            "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
+                    content, uncompressed_bytes, sha256
+             FROM journal_segments segment
+             WHERE EXISTS (
+               SELECT 1 FROM journal_event_index event
+               WHERE event.kind IS NULL
+                 AND event.sequence BETWEEN segment.start_sequence AND segment.end_sequence
+             )
+             ORDER BY start_sequence ASC
+             LIMIT 1",
+            [],
+            journal_segment_row,
+        )
+        .optional()?;
+    let archived_updates = if let Some(segment) = archived_segment {
+        let decoded = decode_journal_segment(segment)?;
+        let mut statement = transaction.prepare(
+            "UPDATE journal_event_index SET kind = ?1
+             WHERE sequence = ?2 AND kind IS NULL",
+        )?;
+        let mut updates = 0;
+        for record in decoded.records {
+            updates += statement.execute(params![
+                record.kind,
+                i64::try_from(record.sequence).context("journal sequence exceeds SQLite")?,
+            ])?;
+        }
+        updates
+    } else {
+        0
+    };
+    let pending = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM journal_event_index WHERE kind IS NULL)",
+        [],
+        |row| row.get::<_, bool>(0),
+    )?;
+    anyhow::ensure!(
+        !pending || active_updates != 0 || archived_updates != 0,
+        "journal event index kind backfill cannot find a journal record"
+    );
+    Ok(!pending)
+}
+
 pub(super) fn migrate_resource_events_to_session_journal(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
