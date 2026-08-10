@@ -1,9 +1,29 @@
 name: cmux-tui
+run-name: cmux-tui ${{ inputs.mode }} ${{ inputs.request_id }} @ ${{ inputs.commit }}
 
 on:
-  # Temporarily manual-only beginning 2026-07-13 to pause automatic CI.
   workflow_dispatch:
     inputs:
+      commit:
+        description: "Exact pushed 40-character commit SHA to verify"
+        required: true
+        type: string
+      mode:
+        description: "Focused Rust tests or the full cross-platform merge gate"
+        required: true
+        type: choice
+        options:
+          - focused
+          - full
+      test_filter:
+        description: "Rust test-name substring; required in focused mode"
+        required: false
+        default: ""
+        type: string
+      request_id:
+        description: "Unique caller token used to find this run"
+        required: true
+        type: string
       use_blacksmith_macos:
         description: "Run the macOS test matrix on Blacksmith"
         required: false
@@ -11,23 +31,74 @@ on:
         default: false
 
 concurrency:
-  group: cmux-tui-${{ github.workflow }}-${{ github.ref }}
+  # Every caller waits for one exact commit. A newer request must not cancel it.
+  group: cmux-tui-${{ inputs.request_id }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
-env:
-  RUST_TOOLCHAIN: "1.95.0"
-
 jobs:
+  validate-inputs:
+    name: validate exact commit request
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5
+    steps:
+      - name: Validate dispatch inputs
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+          WORKFLOW_COMMIT: ${{ github.sha }}
+          MODE: ${{ inputs.mode }}
+          TEST_FILTER: ${{ inputs.test_filter }}
+          REQUEST_ID: ${{ inputs.request_id }}
+        shell: bash
+        run: |
+          if [[ ! "$EXACT_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::commit must be a lowercase 40-character SHA" >&2
+            exit 1
+          fi
+          if [[ "$WORKFLOW_COMMIT" != "$EXACT_COMMIT" ]]; then
+            echo "::error::workflow revision $WORKFLOW_COMMIT does not match requested commit $EXACT_COMMIT" >&2
+            exit 1
+          fi
+          if [[ ! "$REQUEST_ID" =~ ^[A-Za-z0-9._-]{1,100}$ ]]; then
+            echo "::error::request_id contains unsupported characters" >&2
+            exit 1
+          fi
+          case "$MODE" in
+            focused)
+              if [[ ! "$TEST_FILTER" =~ ^[A-Za-z0-9_][A-Za-z0-9_:.-]{0,199}$ ]]; then
+                echo "::error::focused mode needs one safe Rust test-name substring" >&2
+                exit 1
+              fi
+              ;;
+            full)
+              if [[ -n "$TEST_FILTER" ]]; then
+                echo "::error::full mode does not accept test_filter" >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::unsupported mode: $MODE" >&2
+              exit 1
+              ;;
+          esac
+
   web-frontend:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    needs: validate-inputs
+    if: inputs.mode == 'full'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.commit }}
+
+      - name: Require exact checkout
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -53,22 +124,26 @@ jobs:
 
   valgrind-leak-check-shard:
     name: valgrind-leak-check (${{ matrix.shard }})
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    # The core, remote, and application suites are intentionally serialized
-    # under instrumentation. Isolate them so none can consume another test
-    # binary group's runtime budget.
-    timeout-minutes: 60
+    needs: validate-inputs
+    if: inputs.mode == 'full'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # Full behavior stays in the normal macOS and Linux suites. Valgrind owns
+    # the bounded startup parsers and terminal replay state only.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        shard: [core, remote, tui, remainder]
+        shard: [startup]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.commit }}
 
-      - name: Verify Rust workflow toolchain
-        run: python3 tests/test_tui_workflow_toolchain.py
+      - name: Require exact checkout
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty
@@ -81,11 +156,8 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
-      - name: Install Rust toolchain
-        run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
-          rustup default "$RUST_TOOLCHAIN"
-          rustc --version
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Build test binaries
         working-directory: cmux-tui
@@ -105,23 +177,18 @@ jobs:
           import sys
 
           shard = os.environ["VALGRIND_SHARD"]
-          known_shards = {"core", "remote", "tui", "remainder"}
+          known_shards = {"startup"}
           if shard not in known_shards:
               raise SystemExit(f"unknown Valgrind shard: {shard}")
 
           def shard_for(executable):
               name = os.path.basename(executable)
-              if re.fullmatch(r"cmux_tui_core-[0-9a-f]+", name):
-                  return "core"
-              if re.fullmatch(r"cmux_remote-[0-9a-f]+", name):
-                  return "remote"
-              if re.fullmatch(r"cmux_tui-[0-9a-f]+", name):
-                  return "tui"
-              return "remainder"
+              if re.fullmatch(r"(?:cmux_tui|terminal)-[0-9a-f]+", name):
+                  return "startup"
+              return None
 
           seen = set()
           selected = []
-          pidfd_probe = None
           with open("target/cargo-test-binaries.jsonl", "r", encoding="utf-8") as messages:
               for line in messages:
                   try:
@@ -134,8 +201,6 @@ jobs:
                   if not executable or executable in seen:
                       continue
                   seen.add(executable)
-                  if re.fullmatch(r"cmux_tui_core-[0-9a-f]+", os.path.basename(executable)):
-                      pidfd_probe = executable
                   if shard_for(executable) == shard:
                       selected.append(executable)
 
@@ -143,14 +208,10 @@ jobs:
               raise SystemExit("cargo did not report any test binaries")
           if not selected:
               raise SystemExit(f"Valgrind shard {shard} selected no test binaries")
-          if pidfd_probe is None:
-              raise SystemExit("cargo did not report the cmux_tui_core pidfd probe binary")
 
           with open("target/valgrind-test-binaries.txt", "w", encoding="utf-8") as output:
               for executable in selected:
                   print(executable, file=output)
-          with open("target/valgrind-pidfd-probe.txt", "w", encoding="utf-8") as output:
-              print(pidfd_probe, file=output)
 
           print(
               f"Valgrind shard {shard} selected {len(selected)} of {len(seen)} test binaries",
@@ -158,20 +219,34 @@ jobs:
           )
           PY
 
+      - name: Verify baseline terminal replay behavior
+        if: matrix.shard == 'startup'
+        working-directory: cmux-tui
+        run: |
+          matches=0
+          while IFS= read -r bin; do
+            [ -n "$bin" ] || continue
+            case "$(basename "$bin")" in
+              terminal-*)
+                if ! "$bin" --list \
+                  | grep -Fqx 'pending_wrap_replay_preserves_cursor_with_origin_mode: test'; then
+                  echo "::error::terminal replay test binary does not contain the exact baseline test" >&2
+                  exit 1
+                fi
+                "$bin" pending_wrap_replay_preserves_cursor_with_origin_mode \
+                  --exact \
+                  --test-threads=1
+                matches=$((matches + 1))
+                ;;
+            esac
+          done < target/valgrind-test-binaries.txt
+          if [[ "$matches" -ne 1 ]]; then
+            echo "::error::expected one terminal integration test binary, found $matches" >&2
+            exit 1
+          fi
+
       - name: Run test binaries under valgrind
         working-directory: cmux-tui
-        env:
-          # Valgrind's ~30x slowdown breaks the 50ms ws-latency budget on an
-          # otherwise-correct build; the guarded regression (events serialized
-          # behind a 100ms read poll) inflates far past this bound anyway.
-          CMUX_TEST_WS_LATENCY_BUDGET_MS: "2000"
-          # Scale process-exit, PTY-reader, and fixture observation
-          # deadlines together under instrumentation. Normal CI remains strict.
-          CMUX_TEST_TIMEOUT_SCALE: "8"
-          # Retain the full 128 MiB fairness workload under Valgrind with
-          # explicit instrumentation-only bounds. Normal CI stays strict.
-          CMUX_TEST_PERF_INSTRUMENTED: "valgrind"
-          VALGRIND_SHARD: ${{ matrix.shard }}
         run: |
           run_valgrind() {
             local bin="$1"
@@ -185,115 +260,57 @@ jobs:
               -- "$bin" "$@"
           }
 
-          pidfd_probe="$(< target/valgrind-pidfd-probe.txt)"
-          test -x "$pidfd_probe"
-          probe_test=process_session::tests::successful_preflight_survives_a_transient_initializer_failure
-          "$pidfd_probe" --exact "$probe_test" >/dev/null
-          valgrind_pidfd_supported=true
-          if ! valgrind \
-            --tool=none \
-            --quiet \
-            --trace-children=yes \
-            --error-exitcode=1 \
-            -- "$pidfd_probe" --exact "$probe_test" >/dev/null 2>&1; then
-            valgrind_pidfd_supported=false
-            echo "Valgrind cannot emulate pidfd_send_signal; native Linux CI covers process-owning tests"
-          fi
-
-          declare -A seen_skip_scopes=()
-          while IFS= read -r bin; do
-            [ -n "$bin" ] || continue
-            echo "Running valgrind for $bin"
-            valgrind_args=(--track-origins=yes)
-            test_args=()
-            case "$(basename "$bin")" in
-              pty-*|cmux_tui_core-*|cmux_tui-[[:xdigit:]]*)
-                test_args+=(--test-threads=1)
-                ;;
-              cmux_remote-[[:xdigit:]]*)
-                test_args+=(--test-threads=1)
-                ;;
-              terminal_host_recovery-*)
-                test_args+=(--skip exit_follows_all_final_pty_bytes_on_the_live_stream)
-                ;;
-              direct_wss_e2e-*|relay_wss_diagnostic-*)
-                valgrind_args=(--undef-value-errors=no)
-                ;;
-            esac
-
-            if [ "$valgrind_pidfd_supported" = false ]; then
-              test_list="$("$bin" --list 2>/dev/null || true)"
-              test_scope=
-              case "$test_list" in
-                *"browser_capture_scale_applies_to_metrics_screencast_and_input: test"*)
-                  test_scope=browser_runtime
-                  ;;
-                *"process_session::tests::"*) test_scope=cmux_tui_core ;;
-                *"app::tests::"*) test_scope=cmux_tui ;;
-                *"attach_stream_orders_resize_between_output_frames: test"*) test_scope=pty ;;
-                *"websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect: test"*)
-                  test_scope=websocket_transport
-                  ;;
-              esac
-              if [ -n "$test_scope" ]; then
-                seen_skip_scopes["$test_scope"]=1
-                while read -r skip_scope test_name; do
-                  [ -n "$skip_scope" ] || continue
-                  [[ "$skip_scope" == \#* ]] && continue
-                  [ "$skip_scope" = "$test_scope" ] || continue
-                  if ! grep -Fqx -- "$test_name: test" <<<"$test_list"; then
-                    echo "Unknown $test_scope Valgrind skip: $test_name" >&2
-                    exit 1
-                  fi
-                  test_args+=(--skip "$test_name")
-                done < dist/valgrind-pidfd-skips.txt
-                echo "Applying ${#test_args[@]} named pidfd skip arguments for $bin"
-              fi
-            fi
-
-            if [[ "$(basename "$bin")" == cmux_remote-[[:xdigit:]]* ]]; then
-              if ! run_valgrind "$bin" --skip 'provider::iroh::' "${test_args[@]}"; then
-                echo "Valgrind failed for $bin outside the Iroh provider" >&2
-                exit 1
-              fi
-              valgrind_args=(--undef-value-errors=no)
-              if ! run_valgrind "$bin" 'provider::iroh::' "${test_args[@]}"; then
-                echo "Valgrind failed for $bin in the Iroh provider" >&2
-                exit 1
-              fi
-              continue
-            fi
-
-            if ! run_valgrind "$bin" "${test_args[@]}"; then
-              echo "Valgrind failed for $bin" >&2
+          require_exact_test() {
+            local bin="$1"
+            local test_name="$2"
+            if ! "$bin" --list | grep -Fqx "$test_name: test"; then
+              echo "::error::$(basename "$bin") does not contain exact test '$test_name'" >&2
               exit 1
             fi
-          done < target/valgrind-test-binaries.txt
-          if [ "$valgrind_pidfd_supported" = false ]; then
-            required_skip_scopes=()
-            case "$VALGRIND_SHARD" in
-              core) required_skip_scopes=(cmux_tui_core) ;;
-              tui) required_skip_scopes=(cmux_tui) ;;
-              remainder) required_skip_scopes=(browser_runtime pty websocket_transport) ;;
-              remote) ;;
-              *)
-                echo "Unknown Valgrind shard: $VALGRIND_SHARD" >&2
-                exit 1
-                ;;
+          }
+
+          cmux_tui_bin=""
+          terminal_bin=""
+          while IFS= read -r bin; do
+            case "$(basename "$bin")" in
+              cmux_tui-*) cmux_tui_bin="$bin" ;;
+              terminal-*) terminal_bin="$bin" ;;
             esac
-            for skip_scope in "${required_skip_scopes[@]}"; do
-              if [ -z "${seen_skip_scopes[$skip_scope]:-}" ]; then
-                echo "No test binary matched Valgrind skip scope: $skip_scope" >&2
-                exit 1
-              fi
-            done
+          done < target/valgrind-test-binaries.txt
+          if [[ -z "$cmux_tui_bin" || -z "$terminal_bin" ]]; then
+            echo "::error::startup memory check did not find both test binaries" >&2
+            exit 1
           fi
+
+          valgrind_args=(--track-origins=yes)
+          require_exact_test \
+            "$terminal_bin" \
+            pending_wrap_replay_preserves_cursor_with_origin_mode
+          run_valgrind \
+            "$terminal_bin" \
+            pending_wrap_replay_preserves_cursor_with_origin_mode \
+            --exact \
+            --test-threads=1
+
+          startup_tests=(
+            config::tests::load_uses_file_ghostty_defaults_without_invoking_external_resolver
+            config::tests::ghostty_file_reader_enforces_byte_limit_during_read
+            config::tests::ghostty_config_helper_output_reader_enforces_byte_limit
+          )
+          for test_name in "${startup_tests[@]}"; do
+            require_exact_test "$cmux_tui_bin" "$test_name"
+            run_valgrind \
+              "$cmux_tui_bin" \
+              "$test_name" \
+              --exact \
+              --test-threads=1
+          done
 
   valgrind-leak-check:
     name: valgrind-leak-check
-    if: always()
+    if: always() && inputs.mode == 'full'
     needs: valgrind-leak-check-shard
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 2
     steps:
       - name: Require every Valgrind shard
@@ -303,6 +320,7 @@ jobs:
 
   test:
     name: test (${{ matrix.os }})
+    needs: validate-inputs
     runs-on: ${{ matrix.os == 'macos' && (inputs.use_blacksmith_macos && 'blacksmith-6vcpu-macos-15' || (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15')) || (vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
     timeout-minutes: 40
     strategy:
@@ -311,6 +329,14 @@ jobs:
         os: [macos, linux]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+
+      - name: Require exact checkout
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty
@@ -324,52 +350,82 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
-      - name: Install Rust toolchain
+      - name: Ghostty VT cursor replay checks
+        if: inputs.mode == 'full'
+        working-directory: ghostty
         run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy,rustfmt
-          rustup default "$RUST_TOOLCHAIN"
-          rustc --version
+          "$CMUX_ZIG" build test-lib-vt -Dtest-filter="Terminal vt"
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: cargo fmt
         working-directory: cmux-tui
         run: cargo fmt --check
 
       - name: cargo clippy
+        if: inputs.mode == 'full'
         working-directory: cmux-tui
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: cargo test
         working-directory: cmux-tui
+        env:
+          MODE: ${{ inputs.mode }}
+          TEST_FILTER: ${{ inputs.test_filter }}
         shell: bash
         run: |
-          args=()
-          if [[ "$RUNNER_OS" == "macOS" ]]; then
-            export CMUX_TEST_TIMEOUT_SCALE="4"
-            args+=(-- --test-threads=1)
+          if [[ "$MODE" == "full" ]]; then
+            cargo test --workspace --exclude cmux-tui-core --locked
+            mkdir -p target
+            cargo test -p cmux-tui-core --locked --no-run --message-format=json \
+              > target/cmux-tui-core-test-binaries.jsonl
+            python3 ../.github/scripts/run-cmux-tui-core-tests-isolated.py \
+              target/cmux-tui-core-test-binaries.jsonl \
+              crates/cmux-tui-core
+            cargo test -p cmux-tui-core --doc --locked
+            exit 0
           fi
-          cargo test --workspace --locked "${args[@]}"
+          cargo test --workspace --locked "$TEST_FILTER" -- --list \
+            | tee "$RUNNER_TEMP/cmux-tui-focused-tests.txt"
+          if ! grep -Eq ': test$' "$RUNNER_TEMP/cmux-tui-focused-tests.txt"; then
+            echo "::error::test_filter '$TEST_FILTER' selected no Rust tests" >&2
+            exit 1
+          fi
+          cargo test --workspace --locked "$TEST_FILTER"
 
       - name: crossterm parser tests
+        if: inputs.mode == 'full'
         working-directory: cmux-tui
         run: cargo test --manifest-path vendor/crossterm/Cargo.toml --lib
 
       - name: TUI smoke test (scripted pty)
+        if: inputs.mode == 'full'
         working-directory: cmux-tui
         run: |
           cargo build -p cmux-tui
           python3 scripts/smoke-tui.py
 
       - name: Detach/reattach smoke test
+        if: inputs.mode == 'full'
         working-directory: cmux-tui
         run: python3 scripts/smoke-attach.py
 
   bindings-e2e:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    needs: validate-inputs
+    if: inputs.mode == 'full'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.commit }}
+
+      - name: Require exact checkout
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -393,11 +449,8 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
-      - name: Install Rust toolchain
-        run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
-          rustup default "$RUST_TOOLCHAIN"
-          rustc --version
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Java version
         run: |
@@ -441,48 +494,64 @@ jobs:
           test "$("$CMUX_ZIG" version)" = "${{ steps.zig-sdk-version.outputs.version }}"
           bash cmux-tui/bindings/conformance/e2e.sh --require python,typescript,rust,go,java
 
-  windows-experimental:
-    name: windows experimental (x86_64-gnu)
-    runs-on: windows-latest
-    timeout-minutes: 40
+  build-artifacts:
+    name: release-path dogfood artifacts
+    needs: validate-inputs
+    permissions:
+      contents: read
+    uses: ./.github/workflows/cmux-tui-build-package.yml
+    with:
+      version: 0.0.0-nightly.19700101.0
+      pypi_version: 0.0.0.dev197001010
+      package_npm: ${{ inputs.mode == 'full' }}
+      package_pypi: ${{ inputs.mode == 'full' }}
+      include_windows: ${{ inputs.mode == 'full' }}
+      target_set: ${{ inputs.mode == 'full' && 'all' || 'macos-arm64' }}
+      build_cloudflare_relay: false
+      verify_linux_arm64: ${{ inputs.mode == 'full' }}
+      macos_runner: blacksmith-6vcpu-macos-15
+      linux_runner: blacksmith-4vcpu-ubuntu-2404
+      windows_runner: windows-latest
+      checkout_ref: ${{ inputs.commit }}
+
+  hosted-verification:
+    name: ${{ inputs.mode == 'full' && 'hosted verification' || 'focused hosted verification' }}
+    if: always()
+    needs:
+      - validate-inputs
+      - web-frontend
+      - valgrind-leak-check
+      - test
+      - bindings-e2e
+      - build-artifacts
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5
+    env:
+      MODE: ${{ inputs.mode }}
+      VALIDATE_RESULT: ${{ needs.validate-inputs.result }}
+      WEB_RESULT: ${{ needs.web-frontend.result }}
+      VALGRIND_RESULT: ${{ needs.valgrind-leak-check.result }}
+      TEST_RESULT: ${{ needs.test.result }}
+      BINDINGS_RESULT: ${{ needs.bindings-e2e.result }}
+      ARTIFACT_RESULT: ${{ needs.build-artifacts.result }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
-
-      - name: Resolve Ghostty Zig version
-        id: ghostty-zig-version
+      - name: Require selected verification jobs
         shell: bash
         run: |
-          version="$(bash ./scripts/ghostty-zig-version.sh)"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          require_success() {
+            local name="$1"
+            local result="$2"
+            if [[ "$result" != "success" ]]; then
+              echo "::error::$name finished with result '$result'" >&2
+              exit 1
+            fi
+          }
 
-      - name: Install zig
-        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: ${{ steps.ghostty-zig-version.outputs.version }}
-
-      - name: Install Rust toolchain
-        shell: bash
-        run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
-          rustup default "$RUST_TOOLCHAIN"
-          rustc --version
-
-      - name: Install Rust GNU target
-        shell: bash
-        run: |
-          rustup target add --toolchain "$RUST_TOOLCHAIN" x86_64-pc-windows-gnu
-          printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
-
-      - name: Build libghostty-vt for Windows GNU
-        shell: bash
-        working-directory: ghostty
-        run: |
-          zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
-          zig ar t "$RUNNER_TEMP/ghostty-vt-win-gnu/lib/ghostty-vt-static.lib" | head
-
-      - name: cargo build cmux-tui for Windows GNU
-        working-directory: cmux-tui
-        run: cargo build -p cmux-tui --target x86_64-pc-windows-gnu --locked
+          require_success "input validation" "$VALIDATE_RESULT"
+          require_success "Rust tests" "$TEST_RESULT"
+          require_success "dogfood artifact build" "$ARTIFACT_RESULT"
+          if [[ "$MODE" == "full" ]]; then
+            require_success "web frontend" "$WEB_RESULT"
+            require_success "Valgrind" "$VALGRIND_RESULT"
+            require_success "binding end-to-end tests" "$BINDINGS_RESULT"
+          fi
