@@ -24,6 +24,7 @@ private final class PortalBindLayoutCountingView: NSView {
 }
 
 @MainActor
+@Suite(.serialized)
 struct GhosttyTerminalViewVisibilityPolicyTests {
     @Test func staleRepresentableCannotOverwriteCurrentHostAttentionColor() {
         let panel = TerminalPanel(workspaceId: UUID())
@@ -242,6 +243,84 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         #expect(usedLatestReconciliation)
     }
 
+    @Test func detachedCurrentHostPersistsHiddenVisibilityBeforeRebind() async {
+        let size = NSSize(width: 480, height: 320)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        let host = GhosttyTerminalView.HostContainerView(frame: container.bounds)
+        window.contentView = container
+        container.addSubview(host)
+
+        let panel = TerminalPanel(workspaceId: UUID())
+        let coordinator = GhosttyTerminalView.Coordinator()
+        coordinator.attachGeneration = 1
+        coordinator.hostedView = panel.hostedView
+        coordinator.desiredIsVisibleInUI = true
+        let snapshot = TerminalPortalReconciliationSnapshot(
+            attachGeneration: coordinator.attachGeneration,
+            expectedSurfaceId: panel.surface.id,
+            expectedSurfaceGeneration: panel.surface.portalBindingGeneration(),
+            paneId: PaneID(),
+            ownershipGeneration: 1,
+            isCurrentPaneOwner: { true },
+            workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: "#FF69B4"),
+            sessionContentWidthPresentation: .disabled,
+            onFocus: nil,
+            onTriggerFlash: nil,
+            inactiveOverlayColor: .clear,
+            inactiveOverlayOpacity: 0,
+            showsInactiveOverlay: false,
+            searchState: nil,
+            dropZone: nil
+        )
+        defer {
+            coordinator.portalReconciliationScheduler.cancel()
+            TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
+            window.close()
+            panel.surface.teardownSurface()
+        }
+
+        window.orderFront(nil)
+        window.displayIfNeeded()
+        GhosttyTerminalView.stagePortalReconciliation(
+            hostedView: panel.hostedView,
+            host: host,
+            coordinator: coordinator,
+            terminalSurface: panel.surface,
+            snapshot: snapshot,
+            reasons: [.bindingRequired],
+            reason: "test.initialBind"
+        )
+        await flushPortalReconciliationPasses()
+        #expect(TerminalWindowPortalRegistry.isHostedView(panel.hostedView, boundTo: host))
+        #expect(!panel.hostedView.isHidden)
+
+        host.removeFromSuperview()
+        #expect(host.window == nil)
+        coordinator.desiredIsVisibleInUI = false
+        GhosttyTerminalView.stagePortalReconciliation(
+            hostedView: panel.hostedView,
+            host: host,
+            coordinator: coordinator,
+            terminalSurface: panel.surface,
+            snapshot: snapshot,
+            reasons: [],
+            reason: "test.detachedHide"
+        )
+        await flushPortalReconciliationPasses()
+
+        #expect(
+            panel.hostedView.isHidden,
+            "A detached current host must persist its hidden intent before the authoritative rebind"
+        )
+    }
+
     @Test func portalRegistryBindsDeferWindowLayoutUntilCoalescedPass() async {
         let size = NSSize(width: 640, height: 360)
         let window = NSWindow(
@@ -326,6 +405,21 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             window.contentView?.layoutSubtreeIfNeeded()
             hostingView.layoutSubtreeIfNeeded()
             RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+    }
+
+    private func flushPortalReconciliationPasses() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            RunLoop.main.perform(inModes: [.common]) {
+                continuation.resume()
+            }
+        }
+        for _ in 0..<4 {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                DispatchQueue.main.async {
+                    continuation.resume()
+                }
+            }
         }
     }
 

@@ -80,15 +80,21 @@ struct SidebarWorkspaceSwitchLayoutFaultTests {
     private nonisolated static func waitForLogMessage(_ expected: String, since startDate: Date) async throws -> Bool {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(5))
+        var readStart = startDate
         while clock.now < deadline {
+            // OSLogStore instances are fixed snapshots. Recreate the snapshot
+            // while advancing the date cursor instead of rescanning from the
+            // start of the workload on every poll.
             let store = try OSLogStore(scope: .currentProcessIdentifier)
-            let entries = try store.getEntries(at: store.position(date: startDate))
-            if entries.contains(where: { entry in
-                (entry as? OSLogEntryLog)?.composedMessage == expected
-            }) {
-                return true
+            let entries = try store.getEntries(at: store.position(date: readStart))
+            var newestEntryDate = readStart
+            for entry in entries {
+                guard entry.date >= readStart else { continue }
+                if (entry as? OSLogEntryLog)?.composedMessage == expected { return true }
+                if entry.date > newestEntryDate { newestEntryDate = entry.date }
             }
-            await Task.yield()
+            readStart = newestEntryDate
+            try await clock.sleep(for: .milliseconds(25))
         }
         return false
     }
@@ -105,7 +111,9 @@ struct SidebarWorkspaceSwitchLayoutFaultTests {
         return entries.compactMap { entry in
             guard entry.date >= startDate,
                   let message = (entry as? OSLogEntryLog)?.composedMessage,
-                  faultFragments.contains(where: message.localizedCaseInsensitiveContains) else {
+                  faultFragments.contains(where: {
+                      message.range(of: $0, options: .caseInsensitive) != nil
+                  }) else {
                 return nil
             }
             return message
