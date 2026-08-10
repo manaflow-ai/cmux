@@ -19694,8 +19694,10 @@ mod tests {
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
         // A second tab keeps the pane live after the terminal view detaches.
         let second = mux.new_tab(Some(pane), None, None).unwrap();
-        let host =
-            mux.resource_terminal_host_identity(&first).expect("test terminal has a host identity");
+        let terminal = first
+            .terminal_public_id()
+            .cloned()
+            .expect("test terminal has a public identity");
 
         mux.report_agent(
             first.id,
@@ -19733,13 +19735,17 @@ mod tests {
         assert_eq!(detached_report.state, AgentState::Blocked);
         assert_eq!(detached_report.session.as_deref(), Some("detached-hook"));
 
-        mux.commit_resource_terminal_close_effect(
-            first.id,
-            "detached-terminal-close",
+        public_request(
+            &mux,
+            "detached-terminal-close-request",
             "terminal.close",
-            &serde_json::json!({"terminal_id":host.terminal_id}),
-        )
-        .unwrap();
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal,
+            }),
+            Some("detached-terminal-close"),
+        );
         assert!(mux.list_agents(None, None).is_empty());
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
         assert_eq!(
