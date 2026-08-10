@@ -56,7 +56,8 @@ use crate::workspace_registry::{
     RegistryCommit, RegistryLayoutNode, RegistrySnapshot, RegistryTab, RegistryTerminal,
     RegistryViewport, RegistryWorkspace, ResourceChange, ResourceEffectOutcome,
     ResourceEffectPreparation, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
-    TerminalLifecycle, TerminalRegistrySnapshot, WorkspaceMutation, WorkspaceRegistry,
+    TerminalClosePreparation, TerminalLifecycle, TerminalRegistrySnapshot, WorkspaceMutation,
+    WorkspaceRegistry,
 };
 use crate::{
     PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,
@@ -6740,18 +6741,23 @@ impl Mux {
         if let Some(incarnation) = terminal_incarnation {
             validate_terminal_hex(incarnation, "invalid_terminal_incarnation")?;
         }
-        let replayed = {
-            let registry = self.workspace_registry.lock().unwrap();
-            registry
-                .validate_terminal_close_request(
-                    mutation,
-                    expected_generation,
-                    expected_revision,
-                    terminal_id,
-                    terminal_incarnation,
-                )?
-                .is_some()
+        let preparation = {
+            let mut registry = self.workspace_registry.lock().unwrap();
+            registry.reserve_terminal_close_request(
+                mutation,
+                expected_generation,
+                expected_revision,
+                terminal_id,
+                terminal_incarnation,
+            )?
         };
+        let reservation_owned =
+            matches!(&preparation, TerminalClosePreparation::Reserved { .. });
+        let _reserved_revision = match preparation {
+            TerminalClosePreparation::Committed(commit) => commit.revision,
+            TerminalClosePreparation::Reserved { revision } => revision,
+        };
+        let result = (|| -> anyhow::Result<TerminalCloseResult> {
 
         // A detached terminal is a valid durable state. Close each view with
         // the existing scoped topology transaction first. The final SQLite
@@ -6769,10 +6775,6 @@ impl Mux {
                 })
                 .collect::<Vec<_>>()
         };
-        anyhow::ensure!(
-            replayed || expected_revision.is_none() || initial_views.is_empty(),
-            "terminal close with expected revision requires a detached terminal"
-        );
         let mut closed_views = Vec::with_capacity(initial_views.len());
         for target in initial_views {
             if self.close_surface(target)? {
@@ -6886,6 +6888,24 @@ impl Mux {
             already_closed: commit.result["already_closed"].as_bool().unwrap_or(commit.replayed),
             terminal_revision: commit.revision,
         })
+        })();
+        match result {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                if reservation_owned
+                    && let Err(cleanup) = self
+                        .workspace_registry
+                        .lock()
+                        .unwrap()
+                        .cancel_terminal_close_reservation(mutation, terminal_id)
+                {
+                    return Err(error.context(format!(
+                        "terminal close reservation cleanup failed: {cleanup:#}"
+                    )));
+                }
+                Err(error)
+            }
+        }
     }
 
     /// A host can become Running before its topology binding is built. Keep

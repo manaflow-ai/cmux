@@ -331,6 +331,12 @@ pub(crate) struct TerminalResourceCloseCommit {
     pub resource: Option<ResourcePatchCommit>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum TerminalClosePreparation {
+    Committed(TerminalRegistryCommit),
+    Reserved { revision: u64 },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalBatchClose {
     pub revision: u64,
@@ -2458,6 +2464,9 @@ impl WorkspaceRegistry {
             let tx = connection.unchecked_transaction()?;
             create_resource_effect_schema(&tx)?;
             recover_resource_effects(&tx)?;
+            // The session lease proves that no prior writer is still active.
+            // A close reservation left by that writer no longer owns work.
+            tx.execute("DELETE FROM terminal_close_reservations", [])?;
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
             tx.commit()?;
@@ -2682,19 +2691,18 @@ impl WorkspaceRegistry {
         terminal_replay(&self.connection, mutation, &fingerprint)
     }
 
-    /// Validate a terminal-close compare-and-swap before the mux changes any
-    /// view topology. A successful check claims the request preconditions for
-    /// the close sequence. Terminal IDs cannot be resurrected with another
-    /// incarnation, so later view detaches cannot target a replacement host.
+    /// Durably claim a terminal-close compare-and-swap before the mux changes
+    /// view topology. A retry resumes the same reservation, while another
+    /// close request cannot claim this terminal until the owner finishes.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn validate_terminal_close_request(
-        &self,
+    pub(crate) fn reserve_terminal_close_request(
+        &mut self,
         mutation: &WorkspaceMutation,
         expected_generation: Option<&str>,
         expected_revision: Option<u64>,
         terminal_id: &str,
         expected_incarnation: Option<&str>,
-    ) -> anyhow::Result<Option<TerminalRegistryCommit>> {
+    ) -> anyhow::Result<TerminalClosePreparation> {
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         validate_terminal_identity("terminal id", terminal_id)?;
@@ -2706,8 +2714,34 @@ impl WorkspaceRegistry {
             "terminal_id": terminal_id,
             "incarnation": expected_incarnation,
         }))?;
-        if let Some(replay) = terminal_replay(&self.connection, mutation, &fingerprint)? {
-            return Ok(Some(replay));
+        let tx = self.connection.transaction()?;
+        if let Some(replay) = terminal_replay(&tx, mutation, &fingerprint)? {
+            return Ok(TerminalClosePreparation::Committed(replay));
+        }
+        let reservation = tx
+            .query_row(
+                "SELECT origin, mutation_id, fingerprint, reserved_revision
+                 FROM terminal_close_reservations WHERE terminal_id = ?1",
+                [terminal_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                    ))
+                },
+            )
+            .optional()?;
+        if let Some((origin, mutation_id, stored_fingerprint, revision)) = reservation {
+            anyhow::ensure!(
+                origin == mutation.origin
+                    && mutation_id == mutation.id
+                    && stored_fingerprint == fingerprint,
+                "terminal_close_in_progress"
+            );
+            let revision = u64::try_from(revision).context("terminal revision is negative")?;
+            return Ok(TerminalClosePreparation::Reserved { revision });
         }
         if let Some(expected) = expected_generation
             && expected != self.generation
@@ -2717,7 +2751,7 @@ impl WorkspaceRegistry {
                 self.generation
             );
         }
-        let current_revision = current_terminal_revision(&self.connection)?;
+        let current_revision = transaction_terminal_revision(&tx)?;
         if let Some(expected) = expected_revision
             && expected != current_revision
         {
@@ -2725,7 +2759,7 @@ impl WorkspaceRegistry {
                 "terminal revision conflict: expected {expected}, current {current_revision}"
             );
         }
-        let Some(terminal) = read_terminal(&self.connection, terminal_id)? else {
+        let Some(terminal) = read_terminal(&tx, terminal_id)? else {
             anyhow::bail!("unknown terminal {terminal_id}; it may not have been adopted yet");
         };
         if let Some(expected) = expected_incarnation
@@ -2733,7 +2767,29 @@ impl WorkspaceRegistry {
         {
             anyhow::bail!("terminal_incarnation_mismatch");
         }
-        Ok(None)
+        let sqlite_revision = i64::try_from(current_revision)
+            .context("terminal revision exceeds SQLite integer range")?;
+        tx.execute(
+            "INSERT INTO terminal_close_reservations(
+               terminal_id, origin, mutation_id, fingerprint, reserved_revision
+             ) VALUES(?1, ?2, ?3, ?4, ?5)",
+            params![terminal_id, mutation.origin, mutation.id, fingerprint, sqlite_revision],
+        )?;
+        tx.commit()?;
+        Ok(TerminalClosePreparation::Reserved { revision: current_revision })
+    }
+
+    pub(crate) fn cancel_terminal_close_reservation(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        terminal_id: &str,
+    ) -> anyhow::Result<()> {
+        self.connection.execute(
+            "DELETE FROM terminal_close_reservations
+             WHERE terminal_id = ?1 AND origin = ?2 AND mutation_id = ?3",
+            params![terminal_id, mutation.origin, mutation.id],
+        )?;
+        Ok(())
     }
 
     /// Commits one terminal state transition and its event in a single SQLite
@@ -2767,6 +2823,14 @@ impl WorkspaceRegistry {
         if let Some(replay) = terminal_replay(&tx, mutation, &fingerprint)? {
             return Ok(replay);
         }
+        let close_reserved = tx.query_row(
+            "SELECT EXISTS(
+               SELECT 1 FROM terminal_close_reservations WHERE terminal_id = ?1
+             )",
+            [&terminal.terminal_id],
+            |row| row.get::<_, bool>(0),
+        )?;
+        anyhow::ensure!(!close_reserved, "terminal_close_in_progress");
         if let Some(expected) = expected_generation
             && expected != self.generation
         {
@@ -3700,6 +3764,14 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
            committed_revision INTEGER NOT NULL,
            PRIMARY KEY(origin, mutation_id)
          );
+         CREATE TABLE IF NOT EXISTS terminal_close_reservations (
+           terminal_id TEXT PRIMARY KEY NOT NULL REFERENCES terminal_hosts(terminal_id),
+           origin TEXT NOT NULL,
+           mutation_id TEXT NOT NULL,
+           fingerprint TEXT NOT NULL,
+           reserved_revision INTEGER NOT NULL,
+           UNIQUE(origin, mutation_id)
+         );
          CREATE TABLE IF NOT EXISTS terminal_events (
            revision INTEGER PRIMARY KEY NOT NULL,
            kind TEXT NOT NULL,
@@ -4077,13 +4149,40 @@ fn close_terminal_in_transaction(
     if let Some(replay) = terminal_replay(transaction, mutation, fingerprint)? {
         return Ok(replay);
     }
-    if let Some(expected) = expected_generation
+    let reservation = transaction
+        .query_row(
+            "SELECT origin, mutation_id, fingerprint
+             FROM terminal_close_reservations WHERE terminal_id = ?1",
+            [terminal_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .optional()?;
+    let reserved = if let Some((origin, mutation_id, stored_fingerprint)) = reservation {
+        anyhow::ensure!(
+            origin == mutation.origin
+                && mutation_id == mutation.id
+                && stored_fingerprint == fingerprint,
+            "terminal_close_in_progress"
+        );
+        true
+    } else {
+        false
+    };
+    if !reserved
+        && let Some(expected) = expected_generation
         && expected != generation
     {
         anyhow::bail!("terminal generation conflict: expected {expected}, current {generation}");
     }
     let current_revision = transaction_terminal_revision(transaction)?;
-    if let Some(expected) = expected_revision
+    if !reserved
+        && let Some(expected) = expected_revision
         && expected != current_revision
     {
         anyhow::bail!(
@@ -4119,6 +4218,11 @@ fn close_terminal_in_transaction(
                 i64::try_from(current_revision)
                     .context("terminal revision exceeds SQLite integer range")?,
             ],
+        )?;
+        transaction.execute(
+            "DELETE FROM terminal_close_reservations
+             WHERE terminal_id = ?1 AND origin = ?2 AND mutation_id = ?3",
+            params![terminal_id, mutation.origin, mutation.id],
         )?;
         return Ok(TerminalRegistryCommit { revision: current_revision, result, replayed: false });
     }
@@ -4164,6 +4268,11 @@ fn close_terminal_in_transaction(
             result_json,
         ],
     )?;
+    transaction.execute(
+        "DELETE FROM terminal_close_reservations
+         WHERE terminal_id = ?1 AND origin = ?2 AND mutation_id = ?3",
+        params![terminal_id, mutation.origin, mutation.id],
+    )?;
     Ok(TerminalRegistryCommit { revision, result, replayed: false })
 }
 
@@ -4175,6 +4284,14 @@ fn close_terminals_in_transaction(
 ) -> anyhow::Result<TerminalBatchClose> {
     let mut rows = Vec::with_capacity(terminals.len());
     for (terminal_id, expected_incarnation) in terminals {
+        let close_reserved = transaction.query_row(
+            "SELECT EXISTS(
+               SELECT 1 FROM terminal_close_reservations WHERE terminal_id = ?1
+             )",
+            [terminal_id],
+            |row| row.get::<_, bool>(0),
+        )?;
+        anyhow::ensure!(!close_reserved, "terminal_close_in_progress");
         let terminal = read_terminal(transaction, terminal_id)?.ok_or_else(|| {
             anyhow::anyhow!("unknown terminal {terminal_id}; it may not have been adopted yet")
         })?;
