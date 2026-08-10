@@ -320,7 +320,7 @@ struct WorkspaceShellView: View {
             .onChange(of: visibleSimulatorWorkspaceID) { previousWorkspaceID, workspaceID in
                 guard let previousWorkspaceID,
                       previousWorkspaceID != workspaceID else { return }
-                store.stopActiveMobileSimulatorStream(in: previousWorkspaceID.rawValue)
+                store.stopActiveMobileSimulatorStream(in: previousWorkspaceID)
             }
             .onChange(of: workspaceSearchNavigationPath) { _, path in
                 guard path.isEmpty, searchSelectionReturnsToWorkspaces else { return }

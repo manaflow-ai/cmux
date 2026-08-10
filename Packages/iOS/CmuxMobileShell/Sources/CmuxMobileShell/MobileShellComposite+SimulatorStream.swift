@@ -1,5 +1,6 @@
 public import CMUXMobileCore
 import CmuxMobileRPC
+public import CmuxMobileShellModel
 import Foundation
 
 @MainActor
@@ -17,6 +18,13 @@ extension MobileShellComposite {
         await enqueueMobileSimulatorStreamOperation(panelID: panelID) { [weak self] in
             await self?.performMobileSimulatorStreamStop(panelID: panelID, workspaceID: workspaceID)
         }.value
+    }
+
+    /// Resolves an aggregate workspace row identity before stopping its
+    /// Mac-local simulator stream. Navigation owns row IDs, while stream state
+    /// and RPC calls remain keyed by the remote workspace identity.
+    public func stopActiveMobileSimulatorStream(in workspaceID: MobileWorkspacePreview.ID) {
+        stopActiveMobileSimulatorStream(in: remoteWorkspaceID(for: workspaceID).rawValue)
     }
 
     /// Ends the selected simulator stream because its workspace route is no
