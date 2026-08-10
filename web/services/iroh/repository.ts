@@ -30,6 +30,7 @@ import {
   type IrohPathHint,
   type IrohRegistrationPayload,
 } from "./model";
+import type { IrohDiscoveryScope } from "./discoveryScope";
 
 export const IROH_RETENTION_BATCH_SIZE = 500;
 export const IROH_RETENTION_MAX_ROWS = 10_000;
@@ -58,6 +59,11 @@ export type IrohChallengeRecord = typeof irohRegistrationChallenges.$inferSelect
 export type IrohRegistrationCommit = {
   readonly binding: IrohBindingRecord;
   readonly created: boolean;
+  readonly accountRevision: number;
+};
+export type IrohRevocationCommit = {
+  readonly revoked: boolean;
+  readonly accountRevision: number;
 };
 type CloudDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
 
@@ -100,7 +106,17 @@ export type IrohRepositoryShape = {
   }) => Effect.Effect<{
     readonly bindings: IrohBindingRecord[];
     readonly lanDiscoveryGeneration: number;
+    readonly accountRevision: number;
     readonly nextCursor: IrohDiscoveryCursor | null;
+  }, RepositoryError>;
+  readonly discoverySnapshot: (input: {
+    readonly userId: string;
+    readonly now: Date;
+    readonly scope?: IrohDiscoveryScope;
+  }) => Effect.Effect<{
+    readonly bindings: IrohBindingRecord[];
+    readonly lanDiscoveryGeneration: number;
+    readonly accountRevision: number;
   }, RepositoryError>;
   readonly findActiveBindings: (
     userId: string,
@@ -110,12 +126,12 @@ export type IrohRepositoryShape = {
     userId: string,
     endpointId: string,
   ) => Effect.Effect<IrohBindingRecord | null, RepositoryError>;
-  /** Returns true when the exact binding is owned and revoked, including retries. */
+  /** Returns the authoritative revision after revoking the owned binding. */
   readonly revokeBinding: (input: {
     readonly userId: string;
     readonly bindingId: string;
     readonly now: Date;
-  }) => Effect.Effect<boolean, RepositoryError>;
+  }) => Effect.Effect<IrohRevocationCommit, RepositoryError>;
   readonly pruneExpiredState: (input: {
     readonly userId: string;
     readonly now: Date;
@@ -358,7 +374,8 @@ function makeLiveRepository(): IrohRepositoryShape {
             .set({ consumedAt: input.now })
             .where(eq(irohRegistrationChallenges.id, challenge.id));
           if (!updated) throw new Error("binding update returned no row");
-          return { binding: updated, created: false };
+          const accountRevision = await advanceRouteRevision(tx, input.userId, input.now);
+          return { binding: updated, created: false, accountRevision };
         }
 
         // A NEW incarnation on an existing slot: the endpoint key rotated (a
@@ -452,7 +469,8 @@ function makeLiveRepository(): IrohRepositoryShape {
             eq(irohRegistrationChallenges.id, challenge.id),
             isNull(irohRegistrationChallenges.consumedAt),
           ));
-        return { binding, created: true };
+        const accountRevision = await advanceRouteRevision(tx, input.userId, input.now);
+        return { binding, created: true, accountRevision };
       });
     }),
 
@@ -463,6 +481,7 @@ function makeLiveRepository(): IrohRepositoryShape {
         const [existingState] = await tx
           .select({
             generation: irohAccountSecurityStates.lanDiscoveryGeneration,
+            revision: irohAccountSecurityStates.routeRevision,
           })
           .from(irohAccountSecurityStates)
           .where(eq(irohAccountSecurityStates.userId, input.userId))
@@ -474,11 +493,13 @@ function makeLiveRepository(): IrohRepositoryShape {
             .values({
               userId: input.userId,
               lanDiscoveryGeneration: 1,
+              routeRevision: 0,
               createdAt: input.now,
               updatedAt: input.now,
             })
             .returning({
               generation: irohAccountSecurityStates.lanDiscoveryGeneration,
+              revision: irohAccountSecurityStates.routeRevision,
             });
         const state = existingState ?? insertedState;
         if (!state) throw new Error("account security state returned no row");
@@ -502,12 +523,99 @@ function makeLiveRepository(): IrohRepositoryShape {
         return {
           bindings,
           lanDiscoveryGeneration: state.generation,
+          accountRevision: state.revision,
           nextCursor: rows.length > input.pageSize && last
             ? {
               generation: state.generation,
               afterBindingId: last.id,
             }
             : null,
+        };
+      });
+    }),
+
+    discoverySnapshot: (input) => repositoryEffect("discovery_snapshot", async () => {
+      return await cloudDb().transaction(async (tx) => {
+        await assertIrohUserMutationAllowed(tx, input.userId);
+        // Registration, revocation, pruning, and this read share one account
+        // lock. The complete connectivity snapshot therefore observes one
+        // committed binding set and revision, even when public discovery spans
+        // several pages.
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
+        const [existingState] = await tx
+          .select({
+            generation: irohAccountSecurityStates.lanDiscoveryGeneration,
+            revision: irohAccountSecurityStates.routeRevision,
+          })
+          .from(irohAccountSecurityStates)
+          .where(eq(irohAccountSecurityStates.userId, input.userId))
+          .limit(1);
+        const [insertedState] = existingState
+          ? []
+          : await tx
+            .insert(irohAccountSecurityStates)
+            .values({
+              userId: input.userId,
+              lanDiscoveryGeneration: 1,
+              routeRevision: 0,
+              createdAt: input.now,
+              updatedAt: input.now,
+            })
+            .returning({
+              generation: irohAccountSecurityStates.lanDiscoveryGeneration,
+              revision: irohAccountSecurityStates.routeRevision,
+            });
+        const state = existingState ?? insertedState;
+        if (!state) throw new Error("account security state returned no row");
+        const bindings = await tx
+          .select()
+          .from(irohEndpointBindings)
+          .where(and(
+            eq(irohEndpointBindings.userId, input.userId),
+            isNull(irohEndpointBindings.revokedAt),
+            input.scope
+              ? or(
+                and(
+                  eq(
+                    irohEndpointBindings.deviceUuid,
+                    input.scope.localBinding.deviceId,
+                  ),
+                  eq(
+                    irohEndpointBindings.appInstanceId,
+                    input.scope.localBinding.appInstanceId,
+                  ),
+                  eq(irohEndpointBindings.tag, input.scope.localBinding.tag),
+                  eq(
+                    irohEndpointBindings.platform,
+                    input.scope.localBinding.platform,
+                  ),
+                ),
+                and(
+                  eq(
+                    irohEndpointBindings.platform,
+                    input.scope.peerBindings.platform,
+                  ),
+                  input.scope.peerBindings.tags
+                    ? inArray(
+                      sql<string>`lower(${irohEndpointBindings.tag})`,
+                      [...input.scope.peerBindings.tags],
+                    )
+                    : undefined,
+                  input.scope.peerBindings.pairingEnabled === undefined
+                    ? undefined
+                    : eq(
+                      irohEndpointBindings.pairingEnabled,
+                      input.scope.peerBindings.pairingEnabled,
+                    ),
+                ),
+              )
+              : undefined,
+          ))
+          .orderBy(asc(irohEndpointBindings.id));
+        return {
+          bindings,
+          lanDiscoveryGeneration: state.generation,
+          accountRevision: state.revision,
         };
       });
     }),
@@ -556,8 +664,18 @@ function makeLiveRepository(): IrohRepositoryShape {
           ))
           .for("update")
           .limit(1);
-        if (!binding) return false;
-        if (binding.revokedAt) return true;
+        if (!binding) {
+          return {
+            revoked: false,
+            accountRevision: await currentRouteRevision(tx, input.userId, input.now),
+          };
+        }
+        if (binding.revokedAt) {
+          return {
+            revoked: true,
+            accountRevision: await currentRouteRevision(tx, input.userId, input.now),
+          };
+        }
 
         const revoked = await revokeActiveBindings(tx, {
           userId: input.userId,
@@ -565,8 +683,16 @@ function makeLiveRepository(): IrohRepositoryShape {
           now: input.now,
           reason: "user_requested",
         });
-        if (revoked.length === 0) return false;
-        return true;
+        if (revoked.length === 0) {
+          return {
+            revoked: false,
+            accountRevision: await currentRouteRevision(tx, input.userId, input.now),
+          };
+        }
+        return {
+          revoked: true,
+          accountRevision: await advanceRouteRevision(tx, input.userId, input.now),
+        };
       });
     }),
 
@@ -587,8 +713,10 @@ function makeLiveRepository(): IrohRepositoryShape {
           ))
           .limit(IROH_RETENTION_BATCH_SIZE)
           .for("update");
+        let routeChanged = false;
         for (const binding of bindings) {
           const retained = retainedStoredHints(binding.pathHints, input.now);
+          routeChanged ||= retained.length !== binding.pathHints.length;
           await tx
             .update(irohEndpointBindings)
             .set({
@@ -597,6 +725,9 @@ function makeLiveRepository(): IrohRepositoryShape {
               updatedAt: input.now,
             })
             .where(eq(irohEndpointBindings.id, binding.id));
+        }
+        if (routeChanged) {
+          await advanceRouteRevision(tx, input.userId, input.now);
         }
 
         const challengeRetentionCutoff = new Date(input.now.getTime() - 24 * 60 * 60 * 1_000);
@@ -946,6 +1077,55 @@ async function revokeActiveBindings(
       },
     });
   return revokedIds;
+}
+
+async function advanceRouteRevision(
+  tx: CloudDbTransaction,
+  userId: string,
+  now: Date,
+): Promise<number> {
+  const [state] = await tx
+    .insert(irohAccountSecurityStates)
+    .values({
+      userId,
+      lanDiscoveryGeneration: 1,
+      routeRevision: 1,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: irohAccountSecurityStates.userId,
+      set: {
+        routeRevision: sql`${irohAccountSecurityStates.routeRevision} + 1`,
+        updatedAt: now,
+      },
+    })
+    .returning({ revision: irohAccountSecurityStates.routeRevision });
+  if (!state) throw new Error("route revision update returned no row");
+  return state.revision;
+}
+
+async function currentRouteRevision(
+  tx: CloudDbTransaction,
+  userId: string,
+  now: Date,
+): Promise<number> {
+  const [state] = await tx
+    .insert(irohAccountSecurityStates)
+    .values({
+      userId,
+      lanDiscoveryGeneration: 1,
+      routeRevision: 0,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: irohAccountSecurityStates.userId,
+      set: { updatedAt: sql`${irohAccountSecurityStates.updatedAt}` },
+    })
+    .returning({ revision: irohAccountSecurityStates.routeRevision });
+  if (!state) throw new Error("route revision read returned no row");
+  return state.revision;
 }
 
 type RetentionBatchOperation = {

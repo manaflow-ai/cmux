@@ -51,11 +51,28 @@ struct TerminalPickerMenu: View, Equatable {
                         systemImage: terminal.id == value.selectedID
                             && !value.hasActiveBrowser
                             && value.activeBrowserStreamPanelID == nil
+                            && value.activeSimulatorStreamPanelID == nil
                             ? "checkmark.circle.fill"
                             : "terminal"
                     )
                 }
                 .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
+            }
+        }
+
+        if value.supportsSimulatorStream, !value.simulatorStreamRows.isEmpty {
+            Section(L10n.string("mobile.simulatorStream.menuTitle", defaultValue: "Mac Simulators")) {
+                ForEach(value.simulatorStreamRows) { panel in
+                    Button { actions.selectSimulatorStream(panel.id) } label: {
+                        Label(
+                            panel.label,
+                            systemImage: panel.id == value.activeSimulatorStreamPanelID
+                                ? "checkmark.circle.fill"
+                                : "iphone"
+                        )
+                    }
+                    .accessibilityIdentifier("SimulatorStreamMenuItem-\(panel.id)")
+                }
             }
         }
 

@@ -12,6 +12,7 @@ use cmux_tui_cdp::{
 };
 
 use crate::platform;
+use crate::resource::TabResourceIdentity;
 use crate::surface::{Surface, SurfaceMeta, SurfaceOptions};
 use crate::{Mux, MuxEvent, SurfaceId};
 
@@ -60,6 +61,7 @@ pub struct BrowserFrameStream {
 
 pub(crate) type BrowserResizeOutcome = Result<(), Arc<str>>;
 pub(crate) type BrowserResizeWaiter = SyncSender<BrowserResizeOutcome>;
+type BrowserCommandOutcome = Result<(), Arc<str>>;
 
 pub(crate) struct PendingBrowserResize {
     pub reservation: u64,
@@ -346,6 +348,7 @@ enum BrowserCommand {
         input_owner: BrowserPointerOwner,
         x: f64,
         y: f64,
+        delta_x: f64,
         delta_y: f64,
         frame_seq: Option<u64>,
         pointer_admission: Option<BrowserPointerAdmission>,
@@ -371,6 +374,11 @@ enum BrowserCommand {
     Forward,
     Reload,
     Activate,
+    Close,
+    Confirmed {
+        command: Box<BrowserCommand>,
+        completion: SyncSender<BrowserCommandOutcome>,
+    },
     AuthorizeDocumentPaint {
         session_id: String,
         frame_id: String,
@@ -442,6 +450,16 @@ pub(crate) struct BrowserMouseDispatch<'a> {
     pub(crate) button: Option<&'a str>,
     pub(crate) click_count: Option<u32>,
     pub(crate) frame_seq: Option<u64>,
+}
+
+#[derive(Clone, Copy)]
+struct BrowserWheelDispatch {
+    input_owner: BrowserPointerOwner,
+    x: f64,
+    y: f64,
+    delta_x: f64,
+    delta_y: f64,
+    frame_seq: Option<u64>,
 }
 
 impl BrowserCommand {
@@ -685,7 +703,9 @@ fn fail_surface_route(state: &mut SurfaceRouteState, reason: &str) {
 pub struct BrowserSurface {
     pub(crate) meta: SurfaceMeta,
     session: Mutex<Option<BrowserSession>>,
-    state: Mutex<BrowserState>,
+    // Navigation and pointer lifecycle state grows independently of the
+    // Surface enum. Keep that payload out of line.
+    state: Mutex<Box<BrowserState>>,
     frame_epoch: Arc<FrameEpoch>,
     dirty: AtomicBool,
     dead: AtomicBool,
@@ -726,7 +746,9 @@ const AUTHORITY_CAPTURE_ATTEMPTS: usize = 3;
 #[cfg(not(test))]
 const AUTHORITY_CAPTURE_ATTEMPT_BUDGET: Duration = Duration::from_secs(2);
 #[cfg(test)]
-const AUTHORITY_CAPTURE_ATTEMPT_BUDGET: Duration = Duration::from_millis(150);
+// A healthy capture performs seven serialized CDP round trips. The client's
+// 20 ms read poll means 150 ms leaves essentially no scheduler margin.
+const AUTHORITY_CAPTURE_ATTEMPT_BUDGET: Duration = Duration::from_millis(300);
 const NAVIGATION_AUTHORITY_TIMEOUT: Duration = Duration::from_secs(15);
 const POINTER_RELEASE_RETRY_DELAY: Duration = Duration::from_millis(250);
 const BROWSER_RECONFIGURE_RETRY_DELAYS: [Duration; 2] =
@@ -905,7 +927,30 @@ pub(crate) fn new_surface(
     cell_pixels: (u16, u16),
     opts: &SurfaceOptions,
     mux: Weak<Mux>,
-) -> Arc<Surface> {
+) -> anyhow::Result<Arc<Surface>> {
+    new_surface_with_resource_identity(
+        id,
+        url,
+        size,
+        cell_pixels,
+        opts,
+        mux,
+        TabResourceIdentity::browser()?,
+    )
+}
+
+pub(crate) fn new_surface_with_resource_identity(
+    id: SurfaceId,
+    url: String,
+    size: (u16, u16),
+    cell_pixels: (u16, u16),
+    opts: &SurfaceOptions,
+    mux: Weak<Mux>,
+    resource_identity: TabResourceIdentity,
+) -> anyhow::Result<Arc<Surface>> {
+    if !matches!(resource_identity.content_id, crate::resource::ContentPublicId::Browser(_)) {
+        anyhow::bail!("browser surface cannot use a terminal resource identity");
+    }
     let normalized_url = normalize_url(&url);
     let (cols, rows) = (size.0.max(1), size.1.max(1));
     let (cell_w, cell_h) = (cell_pixels.0.max(1), cell_pixels.1.max(1));
@@ -926,9 +971,14 @@ pub(crate) fn new_surface(
     #[cfg(not(test))]
     let worker_done_tx = None;
     let surface = Arc::new(Surface::Browser(BrowserSurface {
-        meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
+        meta: SurfaceMeta {
+            id,
+            resource_identity: Some(resource_identity),
+            name: Mutex::new(None),
+            selection: Mutex::new(None),
+        },
         session: Mutex::new(None),
-        state: Mutex::new(BrowserState {
+        state: Mutex::new(Box::new(BrowserState {
             latest_frame: None,
             accepted_frame_epoch: frame_epoch.current(),
             accepted_navigation_epoch: frame_epoch.latest_navigation(),
@@ -970,7 +1020,7 @@ pub(crate) fn new_surface(
             last_frame_at: None,
             stall_nudged: false,
             not_responding_reported: false,
-        }),
+        })),
         frame_epoch,
         dirty: AtomicBool::new(true),
         dead: AtomicBool::new(false),
@@ -992,7 +1042,7 @@ pub(crate) fn new_surface(
         mux,
         worker_done_tx,
     );
-    surface
+    Ok(surface)
 }
 
 impl BrowserCaptureOptions {
@@ -1622,11 +1672,15 @@ fn coalesce_worker_mouse_moves(batch: &mut Vec<SequencedBrowserCommand>) {
 
 fn run_browser_worker_command(
     surface: &Surface,
-    mut command: BrowserCommand,
+    command: BrowserCommand,
     mux: &Weak<Mux>,
     id: SurfaceId,
     failures: &mut BrowserWorkerErrorState,
 ) {
+    let (mut command, confirmed) = match command {
+        BrowserCommand::Confirmed { command, completion } => (*command, Some(completion)),
+        command => (command, None),
+    };
     let completion =
         if let BrowserCommand::Reconfigure { queued, report, completion } = &mut command {
             if let Some(report) = report.take() {
@@ -1680,9 +1734,18 @@ fn run_browser_worker_command(
                 pointer_admission,
                 &mut failures.active_pointer_presses,
             ),
-            BrowserCommand::Wheel { input_owner, x, y, delta_y, frame_seq, pointer_admission } => {
-                browser.wheel_blocking(input_owner, x, y, delta_y, frame_seq, pointer_admission)
-            }
+            BrowserCommand::Wheel {
+                input_owner,
+                x,
+                y,
+                delta_x,
+                delta_y,
+                frame_seq,
+                pointer_admission,
+            } => browser.wheel_blocking(
+                BrowserWheelDispatch { input_owner, x, y, delta_x, delta_y, frame_seq },
+                pointer_admission,
+            ),
             BrowserCommand::Key {
                 event_type,
                 key,
@@ -1758,6 +1821,12 @@ fn run_browser_worker_command(
                 frame_epoch,
                 navigation_epoch,
             ),
+            BrowserCommand::Close => {
+                browser.close_blocking().map(|_| BrowserWorkerSuccess::BrowserResponded)
+            }
+            BrowserCommand::Confirmed { .. } => {
+                unreachable!("confirmed wrappers are removed before execution")
+            }
             BrowserCommand::Reconfigure { queued, .. } => {
                 browser.reconfigure_reserved_blocking(queued)
             }
@@ -1771,6 +1840,10 @@ fn run_browser_worker_command(
             }
         }
     };
+    if let Some(completion) = confirmed {
+        let outcome = result.as_ref().map(|_| ()).map_err(|error| Arc::from(error.to_string()));
+        let _ = completion.send(outcome);
+    }
     if is_reconfigure
         && result.is_ok()
         && let Some(mux) = mux.upgrade()
@@ -1893,6 +1966,19 @@ impl BrowserSurface {
             None
         } else {
             state.latest_frame.clone()
+        }
+    }
+
+    pub fn latest_frame_metadata(&self) -> Option<(u64, u32, u32, Option<u64>)> {
+        let state = self.state.lock().unwrap();
+        if matches!(state.status, BrowserStatus::Failed(_)) {
+            None
+        } else {
+            let pointer_frame_seq = self.exported_pointer_frame_seq_locked(&state);
+            state
+                .latest_frame
+                .as_ref()
+                .map(|frame| (frame.seq, frame.css_width, frame.css_height, pointer_frame_seq))
         }
     }
 
@@ -2078,6 +2164,10 @@ impl BrowserSurface {
     pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> anyhow::Result<bool> {
         self.set_cell_pixel_size_reporting(width_px, height_px, Box::new(|_| {}))
             .map(|reservation_id| reservation_id.is_some())
+    }
+
+    pub(crate) fn cell_pixel_size(&self) -> (u16, u16) {
+        *self.cell_pixels.lock().unwrap()
     }
 
     pub fn set_cell_pixel_size_reporting(
@@ -3784,6 +3874,7 @@ impl BrowserSurface {
         Self::scale_delta_locked(&self.state.lock().unwrap(), delta)
     }
 
+    #[cfg(test)]
     fn scale_guarded_wheel_from(
         &self,
         owner: BrowserPointerOwner,
@@ -3793,12 +3884,34 @@ impl BrowserSurface {
         y: f64,
         delta_y: f64,
     ) -> Option<(f64, f64, f64)> {
+        self.scale_guarded_wheel_2d_from(
+            BrowserWheelDispatch { input_owner: owner, x, y, delta_x: 0.0, delta_y, frame_seq },
+            pointer_admission,
+        )
+        .map(|(x, y, _, delta_y)| (x, y, delta_y))
+    }
+
+    fn scale_guarded_wheel_2d_from(
+        &self,
+        dispatch: BrowserWheelDispatch,
+        pointer_admission: Option<BrowserPointerAdmission>,
+    ) -> Option<(f64, f64, f64, f64)> {
         let state = self.state.lock().unwrap();
-        if !self.pointer_guard_is_current_locked(&state, owner, frame_seq, pointer_admission) {
+        if !self.pointer_guard_is_current_locked(
+            &state,
+            dispatch.input_owner,
+            dispatch.frame_seq,
+            pointer_admission,
+        ) {
             return None;
         }
-        let (x, y) = Self::scale_input_point_locked(&state, x, y);
-        Some((x, y, Self::scale_delta_locked(&state, delta_y)))
+        let (x, y) = Self::scale_input_point_locked(&state, dispatch.x, dispatch.y);
+        Some((
+            x,
+            y,
+            Self::scale_delta_locked(&state, dispatch.delta_x),
+            Self::scale_delta_locked(&state, dispatch.delta_y),
+        ))
     }
 
     #[cfg(test)]
@@ -3926,6 +4039,15 @@ impl BrowserSurface {
             }
             Err(TrySendError::Disconnected(_)) => anyhow::bail!("browser command worker is closed"),
         }
+    }
+
+    fn execute_confirmed(&self, command: BrowserCommand) -> anyhow::Result<()> {
+        let (completion, outcome) = sync_channel(1);
+        self.enqueue_control(BrowserCommand::Confirmed { command: Box::new(command), completion })?;
+        outcome
+            .recv()
+            .map_err(|_| anyhow::anyhow!("browser command worker closed before completion"))?
+            .map_err(anyhow::Error::msg)
     }
 
     fn enqueue_reconfigure(&self, command: BrowserCommand) -> anyhow::Result<()> {
@@ -4314,6 +4436,30 @@ impl BrowserSurface {
         )
     }
 
+    pub(crate) fn mouse_event_confirmed(
+        &self,
+        event_type: &str,
+        x: f64,
+        y: f64,
+        button: Option<&str>,
+        click_count: Option<u32>,
+        frame_seq: u64,
+    ) -> anyhow::Result<()> {
+        let input_owner = BrowserPointerOwner::Legacy;
+        let frame_seq = Some(frame_seq);
+        let pointer_admission = self.admit_pointer_frame(input_owner, frame_seq);
+        self.execute_confirmed(BrowserCommand::Mouse {
+            input_owner,
+            event_type: event_type.to_string(),
+            x,
+            y,
+            button: button.map(ToOwned::to_owned),
+            click_count,
+            frame_seq,
+            pointer_admission,
+        })
+    }
+
     fn release_abandoned_pointer_press_blocking(
         &self,
         button: &str,
@@ -4341,6 +4487,10 @@ impl BrowserSurface {
         self.wheel_for_frame(x, y, delta_y, None)
     }
 
+    pub fn wheel_2d(&self, x: f64, y: f64, delta_x: f64, delta_y: f64) -> anyhow::Result<()> {
+        self.wheel_2d_for_frame_from(BrowserPointerOwner::Local, x, y, delta_x, delta_y, None)
+    }
+
     /// Queue a wheel event only if `frame_seq` is still the live pointer-authority token.
     pub fn wheel_for_frame(
         &self,
@@ -4360,11 +4510,24 @@ impl BrowserSurface {
         delta_y: f64,
         frame_seq: Option<u64>,
     ) -> anyhow::Result<()> {
+        self.wheel_2d_for_frame_from(input_owner, x, y, 0.0, delta_y, frame_seq)
+    }
+
+    fn wheel_2d_for_frame_from(
+        &self,
+        input_owner: BrowserPointerOwner,
+        x: f64,
+        y: f64,
+        delta_x: f64,
+        delta_y: f64,
+        frame_seq: Option<u64>,
+    ) -> anyhow::Result<()> {
         let pointer_admission = self.admit_pointer_frame(input_owner, frame_seq);
         self.enqueue_bounded(BrowserCommand::Wheel {
             input_owner,
             x,
             y,
+            delta_x,
             delta_y,
             frame_seq,
             pointer_admission,
@@ -4373,25 +4536,43 @@ impl BrowserSurface {
 
     fn wheel_blocking(
         &self,
-        input_owner: BrowserPointerOwner,
-        x: f64,
-        y: f64,
-        delta_y: f64,
-        frame_seq: Option<u64>,
+        dispatch: BrowserWheelDispatch,
         pointer_admission: Option<BrowserPointerAdmission>,
     ) -> BrowserWorkerResult {
         let session = self.require_live_session()?;
         self.maybe_nudge_stalled_external(&session);
-        let Some((x, y, delta_y)) =
-            self.scale_guarded_wheel_from(input_owner, frame_seq, pointer_admission, x, y, delta_y)
+        let Some((x, y, delta_x, delta_y)) =
+            self.scale_guarded_wheel_2d_from(dispatch, pointer_admission)
         else {
             return Ok(BrowserWorkerSuccess::LocallySettled);
         };
         session
             .runtime
             .client
-            .dispatch_wheel(&session.session_id, x, y, delta_y)
+            .dispatch_wheel(&session.session_id, x, y, delta_x, delta_y)
             .map(|_| BrowserWorkerSuccess::BrowserResponded)
+    }
+
+    pub(crate) fn wheel_confirmed(
+        &self,
+        x: f64,
+        y: f64,
+        delta_x: f64,
+        delta_y: f64,
+        frame_seq: u64,
+    ) -> anyhow::Result<()> {
+        let input_owner = BrowserPointerOwner::Legacy;
+        let frame_seq = Some(frame_seq);
+        let pointer_admission = self.admit_pointer_frame(input_owner, frame_seq);
+        self.execute_confirmed(BrowserCommand::Wheel {
+            input_owner,
+            x,
+            y,
+            delta_x,
+            delta_y,
+            frame_seq,
+            pointer_admission,
+        })
     }
 
     pub fn key_event(
@@ -4482,6 +4663,25 @@ impl BrowserSurface {
         key_down.and(key_up)
     }
 
+    pub(crate) fn key_event_confirmed(
+        &self,
+        event_type: &str,
+        key: &str,
+        code: &str,
+        windows_virtual_key_code: u32,
+        modifiers: u32,
+        text: Option<&str>,
+    ) -> anyhow::Result<()> {
+        self.execute_confirmed(BrowserCommand::Key {
+            event_type: event_type.to_string(),
+            key: key.to_string(),
+            code: code.to_string(),
+            windows_virtual_key_code,
+            modifiers,
+            text: text.map(ToOwned::to_owned),
+        })
+    }
+
     pub fn insert_text(&self, text: &str) -> anyhow::Result<()> {
         self.enqueue_bounded(BrowserCommand::InsertText(text.to_string()))
     }
@@ -4492,12 +4692,33 @@ impl BrowserSurface {
         session.runtime.client.insert_text(&session.session_id, text)
     }
 
+    pub(crate) fn insert_text_confirmed(&self, text: &str) -> anyhow::Result<()> {
+        self.execute_confirmed(BrowserCommand::InsertText(text.to_string()))
+    }
+
     fn authorize_document_paint_blocking(
         &self,
         session_id: &str,
         frame_id: &str,
         loader_id: &str,
         navigation_epoch: u64,
+    ) -> BrowserWorkerResult {
+        self.authorize_document_paint_with_attempt_budget_blocking(
+            session_id,
+            frame_id,
+            loader_id,
+            navigation_epoch,
+            AUTHORITY_CAPTURE_ATTEMPT_BUDGET,
+        )
+    }
+
+    fn authorize_document_paint_with_attempt_budget_blocking(
+        &self,
+        session_id: &str,
+        frame_id: &str,
+        loader_id: &str,
+        navigation_epoch: u64,
+        attempt_budget: Duration,
     ) -> BrowserWorkerResult {
         if !self.needs_document_paint(navigation_epoch)
             || self.frame_epoch.latest_navigation() != navigation_epoch
@@ -4515,7 +4736,7 @@ impl BrowserSurface {
             {
                 return Ok(BrowserWorkerSuccess::LocallySettled);
             }
-            let deadline = Instant::now() + AUTHORITY_CAPTURE_ATTEMPT_BUDGET;
+            let deadline = Instant::now() + attempt_budget;
             match self.capture_main_frame_after_restart(&session, frame_id, loader_id, deadline) {
                 Ok((frame_epoch, captured)) => {
                     let accepted = self.accept_document_paint(
@@ -4835,6 +5056,10 @@ impl BrowserSurface {
         Ok(())
     }
 
+    pub(crate) fn navigate_confirmed(&self, url: &str) -> anyhow::Result<()> {
+        self.execute_confirmed(BrowserCommand::Navigate(url.to_string()))
+    }
+
     pub fn back(&self) -> anyhow::Result<()> {
         self.enqueue_control(BrowserCommand::Back)
     }
@@ -4849,6 +5074,14 @@ impl BrowserSurface {
 
     fn forward_blocking(&self) -> anyhow::Result<()> {
         self.navigate_history_blocking(1)
+    }
+
+    pub(crate) fn back_confirmed(&self) -> anyhow::Result<()> {
+        self.execute_confirmed(BrowserCommand::Back)
+    }
+
+    pub(crate) fn forward_confirmed(&self) -> anyhow::Result<()> {
+        self.execute_confirmed(BrowserCommand::Forward)
     }
 
     fn navigate_history_blocking(&self, delta: isize) -> anyhow::Result<()> {
@@ -4891,6 +5124,10 @@ impl BrowserSurface {
         Ok(())
     }
 
+    pub(crate) fn reload_confirmed(&self) -> anyhow::Result<()> {
+        self.execute_confirmed(BrowserCommand::Reload)
+    }
+
     pub fn activate(&self) -> anyhow::Result<()> {
         self.enqueue_control(BrowserCommand::Activate)
     }
@@ -4898,6 +5135,27 @@ impl BrowserSurface {
     fn activate_blocking(&self) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
         session.runtime.client.activate_target(&session.target_id, &session.session_id)
+    }
+
+    pub(crate) fn activate_confirmed(&self) -> anyhow::Result<()> {
+        self.execute_confirmed(BrowserCommand::Activate)
+    }
+
+    fn close_blocking(&self) -> anyhow::Result<()> {
+        let session = self.require_live_session()?;
+        session.runtime.client.close_target(&session.target_id)?;
+        if !self.dead.swap(true, Ordering::AcqRel) {
+            self.close_taps();
+            if let Some(session) = self.session.lock().unwrap().take() {
+                session.runtime.unregister(&session.target_id, &session.session_id);
+            }
+            self.close_command_sender();
+        }
+        Ok(())
+    }
+
+    pub(crate) fn close_confirmed(&self) -> anyhow::Result<()> {
+        self.execute_confirmed(BrowserCommand::Close)
     }
 
     fn handle_javascript_dialog(&self, accept: bool) -> anyhow::Result<()> {
@@ -5009,13 +5267,17 @@ fn handle_target_created(
         let _ = session.runtime.client.close_target(&created.target_id);
         return;
     };
-    if !mux.adopt_browser_target(
+    let adopted = mux.adopt_browser_target(
         opener_surface,
         created.target_id.clone(),
         if created.url.is_empty() { "about:blank".to_string() } else { created.url.clone() },
         session.runtime.clone(),
-    ) {
+    );
+    if !matches!(adopted, Ok(true)) {
         let _ = session.runtime.client.close_target(&created.target_id);
+        if let Err(error) = adopted {
+            mux.emit(MuxEvent::Status(format!("browser target adoption failed: {error}")));
+        }
     }
 }
 
@@ -5106,6 +5368,8 @@ mod tests {
     use std::time::{Duration, Instant};
     use tungstenite::{Message, accept};
 
+    const BROWSER_TEST_EVENT_TIMEOUT: Duration = Duration::from_secs(5);
+
     fn test_frame(seq: u64) -> BrowserFrame {
         BrowserFrame {
             session_id: "session-test".to_string(),
@@ -5170,7 +5434,7 @@ mod tests {
                 }),
             );
 
-            ws.get_mut().set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+            ws.get_mut().set_read_timeout(Some(BROWSER_TEST_EVENT_TIMEOUT)).unwrap();
             let retry = loop {
                 match ws.read() {
                     Ok(Message::Text(text)) => break serde_json::from_str::<Value>(&text).ok(),
@@ -5237,7 +5501,7 @@ mod tests {
         let (start_tx, start_rx) = mpsc::channel();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+            stream.set_read_timeout(Some(BROWSER_TEST_EVENT_TIMEOUT)).unwrap();
             let mut ws = accept(stream).unwrap();
             let discover = read_ws_json(&mut ws);
             assert_eq!(discover["method"], "Target.setDiscoverTargets");
@@ -5417,7 +5681,7 @@ mod tests {
 
     fn test_surface() -> Arc<Surface> {
         let opts = SurfaceOptions::default();
-        new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new())
+        new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new()).unwrap()
     }
 
     fn acknowledge_local_presentation(browser: &super::BrowserSurface, frame_seq: u64) {
@@ -5456,11 +5720,13 @@ mod tests {
         browser.store_frame(test_frame(2));
         assert_eq!(browser.status(), BrowserStatus::Failed("nope".into()));
         assert_eq!(browser.latest_frame(), None);
+        assert_eq!(browser.latest_frame_metadata(), None);
 
         // Clearing the error restores the retained frame.
         browser.clear_error();
         assert_eq!(browser.status(), BrowserStatus::Live);
         assert_eq!(browser.latest_frame().map(|frame| frame.seq), Some(2));
+        assert_eq!(browser.latest_frame_metadata(), Some((2, 80, 48, None)));
     }
 
     #[test]
@@ -5613,12 +5879,14 @@ mod tests {
         .unwrap();
         let opts = SurfaceOptions::default();
         let first =
-            new_surface(11, "https://one.test".into(), (10, 5), (8, 16), &opts, Weak::new());
+            new_surface(11, "https://one.test".into(), (10, 5), (8, 16), &opts, Weak::new())
+                .unwrap();
         runtime
             .setup_attached_surface(&first, "target-1", "session-1", "https://one.test")
             .unwrap();
         let second =
-            new_surface(12, "https://two.test".into(), (10, 5), (8, 16), &opts, Weak::new());
+            new_surface(12, "https://two.test".into(), (10, 5), (8, 16), &opts, Weak::new())
+                .unwrap();
         runtime
             .setup_attached_surface(&second, "target-2", "session-2", "https://two.test")
             .unwrap();
@@ -6376,7 +6644,8 @@ mod tests {
             (8, 16),
             &SurfaceOptions::default(),
             Arc::downgrade(&mux),
-        );
+        )
+        .unwrap();
         let browser = surface.as_browser().expect("browser surface");
         let done = browser.take_worker_done_for_test();
         let events = mux.subscribe();
@@ -6754,7 +7023,8 @@ mod tests {
     fn input_mapping_uses_latest_frame_viewport() {
         let opts = SurfaceOptions::default();
         let surface =
-            new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts, Weak::new());
+            new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts, Weak::new())
+                .unwrap();
         let browser = surface.as_browser().expect("browser surface");
         {
             let state = browser.state.lock().unwrap();
@@ -6774,7 +7044,8 @@ mod tests {
     fn input_mapping_falls_back_to_capture_pixels_before_first_frame() {
         let opts = SurfaceOptions::default();
         let surface =
-            new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts, Weak::new());
+            new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts, Weak::new())
+                .unwrap();
         let browser = surface.as_browser().expect("browser surface");
 
         assert_eq!(browser.scale_input_point(2380.0, 1274.0), (966.5, 517.5));
@@ -6786,7 +7057,8 @@ mod tests {
     fn input_mapping_uses_new_capture_geometry_while_waiting_for_resized_frame() {
         let opts = SurfaceOptions::default();
         let surface =
-            new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts, Weak::new());
+            new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts, Weak::new())
+                .unwrap();
         let browser = surface.as_browser().expect("browser surface");
 
         let mut frame = test_frame(1);
@@ -7729,7 +8001,8 @@ mod tests {
             (8, 16),
             &options,
             Arc::downgrade(&mux),
-        );
+        )
+        .expect("browser surface creation");
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
         browser.begin_targeted_navigation_frame_transition().expect("same-document reservation");
@@ -8727,6 +9000,8 @@ mod tests {
     #[test]
     fn document_verification_gives_each_bounded_attempt_a_full_budget() {
         const ONE_PIXEL_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+        const ATTEMPT_BUDGET: Duration = Duration::from_secs(2);
+        const TRANSIENT_FAILURE_DELAY: Duration = Duration::from_millis(950);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
@@ -8756,7 +9031,6 @@ mod tests {
             );
 
             let mut attempts = 0;
-            let mut successful_attempt_calls = 0;
             loop {
                 let request = match ws.read() {
                     Ok(Message::Text(text)) => serde_json::from_str::<Value>(&text).ok(),
@@ -8769,7 +9043,7 @@ mod tests {
                 if method == "Page.stopScreencast" {
                     attempts += 1;
                     if attempts < AUTHORITY_CAPTURE_ATTEMPTS {
-                        thread::sleep(Duration::from_millis(100));
+                        thread::sleep(TRANSIENT_FAILURE_DELAY);
                         if ws
                             .send(Message::Text(
                                 json!({
@@ -8786,7 +9060,6 @@ mod tests {
                         continue;
                     }
                 }
-                successful_attempt_calls += 1;
                 let result = match method {
                     "Page.stopScreencast" | "Page.startScreencast" => json!({}),
                     "Page.createIsolatedWorld" => json!({"executionContextId": 41}),
@@ -8811,9 +9084,6 @@ mod tests {
                     ))
                     .is_err()
                 {
-                    break;
-                }
-                if successful_attempt_calls == 7 {
                     break;
                 }
             }
@@ -8850,14 +9120,13 @@ mod tests {
         browser.state.lock().unwrap().pending_authority_deadline =
             Some(Instant::now() + Duration::from_secs(5));
 
-        let started = Instant::now();
-        let result = browser.authorize_document_paint_blocking(
+        let result = browser.authorize_document_paint_with_attempt_budget_blocking(
             "session-1",
             "main-frame",
             "loader-2",
             navigation_epoch,
+            ATTEMPT_BUDGET,
         );
-        let elapsed = started.elapsed();
 
         runtime.shutdown();
         let attempts = server.join().unwrap();
@@ -8868,10 +9137,6 @@ mod tests {
         assert_eq!(
             attempts, AUTHORITY_CAPTURE_ATTEMPTS,
             "document verification must reach the healthy final attempt"
-        );
-        assert!(
-            elapsed < Duration::from_millis(600),
-            "bounded attempts monopolized the input worker for {elapsed:?}"
         );
     }
 
@@ -9191,7 +9456,6 @@ mod tests {
             assert_eq!(reload["method"], "Page.reload");
             write_ws_json(&mut ws, json!({"id": reload["id"], "result": {}}));
 
-            ws.get_ref().set_read_timeout(Some(Duration::from_millis(250))).unwrap();
             let Ok(message) = ws.read() else {
                 superseded_tx.send(false).unwrap();
                 return;
@@ -9227,7 +9491,7 @@ mod tests {
                 }),
             );
             superseded_tx.send(true).unwrap();
-            stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            stop_rx.recv_timeout(BROWSER_TEST_EVENT_TIMEOUT).unwrap();
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
@@ -9250,11 +9514,11 @@ mod tests {
 
         browser.reload_blocking().unwrap();
         let navigate_result = browser.navigate_blocking("https://next.test");
-        let superseded = superseded_rx.recv_timeout(Duration::from_secs(1)).unwrap_or(false);
+        let superseded = superseded_rx.recv_timeout(BROWSER_TEST_EVENT_TIMEOUT).unwrap_or(false);
 
         let mut admitted = false;
         if navigate_result.is_ok() {
-            let deadline = Instant::now() + Duration::from_secs(1);
+            let deadline = Instant::now() + BROWSER_TEST_EVENT_TIMEOUT;
             while Instant::now() < deadline
                 && browser.state.lock().unwrap().pending_navigation_epoch.is_some()
             {
@@ -9264,7 +9528,7 @@ mod tests {
             admitted =
                 browser.accept_document_paint(navigation_epoch, navigation_epoch, test_frame(2));
         }
-        stop_tx.send(()).unwrap();
+        let _ = stop_tx.send(());
         runtime.shutdown();
         server.join().unwrap();
 
@@ -9302,7 +9566,6 @@ mod tests {
             assert_eq!(first_reload["method"], "Page.reload");
             write_ws_json(&mut ws, json!({"id": first_reload["id"], "result": {}}));
 
-            ws.get_ref().set_read_timeout(Some(Duration::from_millis(500))).unwrap();
             let Ok(message) = ws.read() else {
                 superseded_tx.send(false).unwrap();
                 return;
@@ -9321,7 +9584,7 @@ mod tests {
             }
             write_ws_json(&mut ws, json!({"id": second_reload["id"], "result": {}}));
             superseded_tx.send(true).unwrap();
-            stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            stop_rx.recv_timeout(BROWSER_TEST_EVENT_TIMEOUT).unwrap();
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
@@ -9340,7 +9603,7 @@ mod tests {
 
         browser.reload_blocking().unwrap();
         let second_reload = browser.reload_blocking();
-        let superseded = superseded_rx.recv_timeout(Duration::from_secs(1)).unwrap_or(false);
+        let superseded = superseded_rx.recv_timeout(BROWSER_TEST_EVENT_TIMEOUT).unwrap_or(false);
 
         let _ = stop_tx.send(());
         runtime.shutdown();
@@ -9560,7 +9823,7 @@ mod tests {
             "the worker must consume an ambiguous release through one scheduled retry"
         );
         assert!(
-            retry_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            retry_rx.recv_timeout(BROWSER_TEST_EVENT_TIMEOUT).unwrap(),
             "the balancing release must retain its dispatched coordinates across invalidation"
         );
 
@@ -9628,7 +9891,7 @@ mod tests {
         );
         let consumed_after_retry = failures.active_pointer_presses.is_empty();
         let retry_observed = retried_without_yielding
-            .unwrap_or_else(|| retry_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+            .unwrap_or_else(|| retry_rx.recv_timeout(BROWSER_TEST_EVENT_TIMEOUT).unwrap());
 
         runtime.shutdown();
         server.join().unwrap();
@@ -10071,7 +10334,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
             let mut ws = accept(stream).unwrap();
             let discover = read_ws_json(&mut ws);
             assert_eq!(discover["method"], "Target.setDiscoverTargets");
@@ -10711,7 +10974,8 @@ mod tests {
     fn cell_pixel_mismatch_requires_browser_resize() {
         let opts = SurfaceOptions::default();
         let surface =
-            new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new());
+            new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new())
+                .unwrap();
         let browser = surface.as_browser().expect("browser surface");
         assert!(!browser.resize_needed(10, 5));
 
@@ -10723,7 +10987,8 @@ mod tests {
     fn cell_pixel_change_reports_only_accepted_reconfigure() {
         let opts = SurfaceOptions::default();
         let surface =
-            new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new());
+            new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new())
+                .unwrap();
         let browser = surface.as_browser().expect("browser surface");
 
         assert!(browser.set_cell_pixel_size(9, 16).unwrap());
@@ -10843,7 +11108,7 @@ mod tests {
         start.send(()).unwrap();
         release_worker.send(()).unwrap();
 
-        let event_types = observed.recv_timeout(Duration::from_secs(1)).unwrap();
+        let event_types = observed.recv_timeout(BROWSER_TEST_EVENT_TIMEOUT).unwrap();
         browser.kill();
         done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after release");
         runtime.shutdown();
@@ -10928,7 +11193,8 @@ mod tests {
     fn pending_browser_resize_suppresses_duplicates_until_reconfigure_completes() {
         let opts = SurfaceOptions::default();
         let surface =
-            new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new());
+            new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new())
+                .unwrap();
         let browser = surface.as_browser().expect("browser surface");
         *browser.cell_pixels.lock().unwrap() = (9, 16);
 

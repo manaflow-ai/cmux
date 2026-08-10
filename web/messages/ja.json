@@ -32,7 +32,6 @@
     "title": "{platform} 版 cmux",
     "tagline": "Chromium ブラウザとエージェントワークスペースを、ひとつに。",
     "logoAlt": "cmux アプリアイコン",
-    "portableCta": "ポータブル ZIP",
     "featuresTitle": "エージェント作業のための設計",
     "features": {
       "chromium": {
@@ -54,7 +53,7 @@
     },
     "installTitle": "インストール",
     "releaseTitle": "リリースとアップデート",
-    "releaseBody": "リンクは常に <github>GitHub Releases</github> の最新安定版を指します。cmux は署名済みアップデートマニフェストを検証してから更新をインストールします。",
+    "releaseBody": "リンクは常に <github>GitHub Releases</github> の最新ナイトリー版を指します。cmux は署名済みアップデートマニフェストを検証してから更新をインストールします。",
     "sourceLink": "GitHub でソースを見る",
     "otherPlatform": "{platform} 版 cmux",
     "macLink": "Mac 版 cmux ターミナル",
@@ -64,6 +63,7 @@
       "metaDescription": "Windows x64 版 cmux をダウンロード。タスク単位のタブとターミナルサーフェスを備えた、無料・オープンソースの Chromium ブラウザ兼エージェントワークスペースです。",
       "subtitle": "Chromium タブ、cmux ワークスペース、Windows で慣れたキー操作を備えたネイティブ x64 ビルドです。",
       "primaryCta": "インストーラー（.exe）をダウンロード",
+      "secondaryCta": "ポータブル ZIP",
       "requirements": "Windows 10 以降 · x64",
       "installBody": "インストーラーを実行し、Windows の案内に従ってください。システム全体にインストールせずフォルダ内で使いたい場合は、ポータブル ZIP を選べます。"
     },
@@ -72,9 +72,10 @@
       "metaTitle": "Linux 版 cmux をダウンロード",
       "metaDescription": "Linux x64 版 cmux をダウンロード。タスク単位のタブとターミナルサーフェスを備えた、無料・オープンソースの Chromium ブラウザ兼エージェントワークスペースです。",
       "subtitle": "Chromium タブ、cmux ワークスペース、統合ターミナルサーフェスを備えたネイティブ x64 ビルドです。",
-      "primaryCta": ".deb をダウンロード",
-      "requirements": "Debian または Ubuntu · x64",
-      "installBody": "Debian パッケージをダウンロードし、パッケージマネージャーでインストールしてください。ユーザー単位のインストールとアプリ内更新にはポータブル ZIP を選べます。"
+      "primaryCta": "自動更新対応インストーラー（.run）をダウンロード",
+      "secondaryCta": "Debian パッケージ（.deb）",
+      "requirements": "Linux · x64",
+      "installBody": "ユーザー単位インストーラーを一度実行してください。root 権限なしで ~/.local にインストールされ、署名済みのアプリ内更新が有効になります。更新をパッケージマネージャーで管理したい場合は、代わりに Debian パッケージを選択してください。"
     }
   },
   "meta": {
@@ -99,11 +100,11 @@
       "vaultGroup": "vault",
       "vaultOverview": "概要",
       "vaultSessions": "セッション",
-      "vaultCliSetup": "CLI設定",
-      "subrouterGroup": "subrouter",
-      "subrouterOverview": "概要",
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "概要",
       "accountGroup": "アカウント",
       "billing": "請求",
+      "team": "チーム",
       "testflight": "iOS TestFlight"
     },
     "home": {
@@ -112,13 +113,24 @@
       "vaultName": "vault",
       "vaultDescription": "同期済みエージェントセッションの閲覧とCLIアクセスの管理を行います。",
       "vaultLink": "vaultを開く",
-      "subrouterName": "subrouter",
-      "subrouterDescription": "プロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
-      "subrouterLink": "subrouterを開く"
+      "coderouterName": "coderouter",
+      "coderouterDescription": "プロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
+      "coderouterLink": "coderouterを開く"
     },
-    "subrouter": {
-      "title": "subrouter",
-      "description": "subrouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。"
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "共有AIアカウントを管理し、coderouterでリクエストをルーティングします。",
+      "title": "coderouter",
+      "description": "coderouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。"
+    },
+    "accountMenu": {
+      "label": "アカウントメニュー",
+      "settings": "設定",
+      "billing": "請求",
+      "signOut": "サインアウト",
+      "signingOut": "サインアウト中…",
+      "signOutError": "サインアウトできませんでした。もう一度お試しください。",
+      "signIn": "サインイン"
     },
     "billing": {
       "eyebrow": "アカウント",
@@ -136,20 +148,24 @@
         "upsellTitle": "クラウドエージェントやチーム請求が必要になったらアップグレードできます。",
         "upsellBody": "個人向けクラウド機能にはPro、共有請求とシート管理にはTeamを選択してください。",
         "testflightTitle": "cmux iOSアプリを入手",
-        "testflightBody": "iOSベータは、有効なProユーザーとTeamメンバーがTestFlightで利用できます。",
+        "testflightBody": "iOSベータは、有効な個人向けProサブスクリプションでTestFlightから利用できます。",
         "testflightCta": "iOSベータに参加"
       },
       "pro": {
         "name": "cmux Pro",
         "activeBody": "プランは{date}に更新されます。",
-        "pendingBody": "プランは{date}に終了する予定です。"
+        "pendingBody": "プランは{date}に終了する予定です。",
+        "monthlyPrice": "$30/月",
+        "annualPrice": "$24/月（年払い）",
+        "legacyAnnualPrice": "$20/月（年払い）"
       },
       "team": {
         "name": "cmux Team",
         "fallbackName": "チーム",
         "activeBody": "{team}は{date}に更新されます。",
         "pendingBody": "{team}は{date}に終了する予定です。",
-        "price": "$35/シート/月"
+        "price": "$35/シート/月",
+        "annualPrice": "$28/シート/月（年払い）"
       },
       "details": {
         "renewsOn": "更新日",
@@ -187,13 +203,13 @@
         "joined": "AppleからTestFlightの招待メールがまもなく届きます。",
         "left": "iOS TestFlightグループから退出しました。",
         "error": "TestFlightを更新できませんでした。しばらくしてから再試行してください。",
-        "ineligible": "iOS TestFlightには有効なProまたはTeamサブスクリプションが必要です。",
+        "ineligible": "iOS TestFlightには有効な個人Proサブスクリプションが必要です。",
         "needs_email": "iOS TestFlightに参加する前に、確認済みのメインメールを追加してください。",
         "unavailable": "現在、TestFlight登録は利用できません。"
       },
       "notEligible": {
         "title": "サブスクリプションが必要です",
-        "body": "iOS TestFlightアクセスは、有効なProユーザーとTeamサブスクリプションのメンバーが利用できます。"
+        "body": "iOS TestFlightアクセスは、有効な個人Proサブスクリプションのユーザーが利用できます。"
       },
       "needsEmail": {
         "title": "確認済みメールが必要です",
@@ -233,6 +249,8 @@
       "teamSwitcherLabel": "チーム",
       "notConfiguredTitle": "AIアカウント管理はまだ利用できません",
       "notConfiguredBody": "このデプロイではチームAIアカウントが有効になっていません。しばらくしてから再試行するか、サポートにお問い合わせください。",
+      "migrationPendingTitle": "アカウントを一時的に利用できません",
+      "migrationPendingBody": "共有アカウントは一時的に利用できません。しばらくしてからもう一度お試しください。",
       "loadErrorTitle": "アカウントを読み込めませんでした",
       "loadErrorBody": "アカウントサービスに接続できませんでした。しばらくしてから再試行してください。",
       "accountsTitle": "接続済みアカウント",
@@ -292,9 +310,9 @@
       "eyebrow": "cmux Vault",
       "title": "CLIアクセスを承認",
       "description": "cmux-vaultに表示されたコードを確認し、このデバイスをサインイン中のcmuxアカウントに接続します。",
-      "subrouterEyebrow": "Subrouter",
-      "subrouterTitle": "Subrouterアクセスを承認",
-      "subrouterDescription": "srに表示されたコードを確認し、このデバイスをサインイン中のcmuxチームに接続します。",
+      "coderouterEyebrow": "CodeRouter",
+      "coderouterTitle": "CodeRouterアクセスを承認",
+      "coderouterDescription": "crに表示されたコードを確認し、このデバイスをサインイン中のcmuxチームに接続します。",
       "codeLabel": "ユーザーコード",
       "approveButton": "アクセスを承認",
       "approving": "承認中...",
@@ -394,13 +412,22 @@
   },
   "pricing": {
     "metaTitle": "料金 — cmux",
-    "metaDescription": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、cmux Vault によるセッションバックアップ、モデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
-    "metaDescriptionShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、Vault、モデルゲートウェイを利用でき、Enterprise では SSO とセルフホストに対応します。",
-    "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
-    "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイを利用でき、Enterprise では SSO とセルフホストに対応します。",
+    "metaDescription": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、cmux Vault によるセッションバックアップ、CodeRouter が使えます。Enterprise は SSO とセルフホストに対応します。",
+    "metaDescriptionShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、Vault、CodeRouter を利用でき、Enterprise では SSO とセルフホストに対応します。",
+    "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM と CodeRouter が使えます。Enterprise は SSO とセルフホストに対応します。",
+    "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM と CodeRouter を利用でき、Enterprise では SSO とセルフホストに対応します。",
     "title": "料金",
     "perMonth": "/月",
+    "perMonthBilledYearly": "/月（年払い）",
     "perUserMonth": "/ユーザー/月",
+    "perUserMonthBilledYearly": "/ユーザー/月（年払い）",
+    "billingPeriod": "請求期間",
+    "monthly": "月払い",
+    "annual": "年払い",
+    "saveAnnual": "{discount}%割引",
+    "annualComparePrice": "${monthly}/月",
+    "teamMonthlyComparePrice": "${monthly}/ユーザー/月",
+    "teamAnnualComparePrice": "${monthly}/ユーザー/月",
     "currentPlan": "現在のプラン",
     "manageBilling": "請求を管理",
     "free": {
@@ -425,7 +452,7 @@
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
         "4 vCPU / 16 GB の VM で毎月20時間のアクティブ計算時間、超過分は従量課金",
-        "モデルゲートウェイ: 複数プロバイダーへのルーティングと使用量・コスト分析",
+        "CodeRouter: プロバイダーアカウント間のフェイルオーバー、使用量・コスト分析付きルーティング",
         "cmux iOS アプリとメールサポート"
       ],
       "vaultFeatures": [
@@ -446,7 +473,7 @@
         "シート管理: メンバーをいつでも追加・削除",
         "チームで共有する Cloud VM のプール計算時間",
         "共有のチームルール、設定、ワークスペーステンプレート",
-        "メンバーごとの使用量・コスト分析付きのチーム全体モデルゲートウェイ",
+        "メンバーごとの使用量・コスト分析付きのチーム全体 CodeRouter",
         "一元管理と優先メールサポート"
       ]
     },
@@ -457,7 +484,7 @@
       "featuresLead": "Team のすべてに加えて:",
       "features": [
         "セルフホストのクラウド実行とネットワーク、ネットワーク外に何も出ません",
-        "組織全体の使用量・コスト分析を備えたセルフホストのモデルゲートウェイ",
+        "組織全体の使用量・コスト分析を備えたセルフホストの CodeRouter",
         "SSO と SAML サインイン",
         "一元管理と共有チームルール",
         "ターミナルセッション、ネットワークリクエスト、ブラウザ操作の監査ログ",
@@ -528,7 +555,7 @@
           "enterprise": "カスタム"
         },
         {
-          "label": "モデルゲートウェイ: ルーティングと使用量分析",
+          "label": "CodeRouter: ルーティングと使用量分析",
           "free": "false",
           "pro": "true",
           "team": "true",
@@ -649,8 +676,8 @@
           "vault": true
         },
         {
-          "q": "モデルゲートウェイとは何ですか?",
-          "a": "各リクエストを複数プロバイダーの強力なモデルにルーティングし、使用量とコストの分析を1か所で提供するホスト型ゲートウェイです。自分のプロバイダーキーを持ち込めます。Enterprise では組織全体の管理のためにゲートウェイをセルフホストできます。"
+          "q": "CodeRouterとは何ですか?",
+          "a": "CodeRouter は各リクエストをプロバイダーアカウント間でフェイルオーバー付きでルーティングし、使用量とコストの分析を1か所で提供します。自分のプロバイダーアカウントを持ち込めます。Enterprise では組織全体の管理のために CodeRouter をセルフホストできます。"
         },
         {
           "q": "iOS アプリにまだ Tailscale が必要ですか?",
@@ -658,7 +685,7 @@
         },
         {
           "q": "課金はどのように行われますか?",
-          "a": "Pro は月額 $30、または年額 $240(年払いでは月あたり約 $20)で、4 vCPU / 16 GB の Cloud VM で毎月20時間のアクティブ計算時間が含まれます。それを超えると、VM サイズに応じてアクティブな計算時間あたりで課金されます(上記の Cloud VM サイズを参照)。アイドルの VM は自動的に一時停止し、エージェントを並列実行するとより多くの時間を使うだけです。ターミナルとローカルエージェントは無料のままです。"
+          "a": "Pro は月払いで $30/月、年払いでは $24/月（20%割引）で、4 vCPU / 16 GB の Cloud VM で毎月20時間のアクティブ計算時間が含まれます。それを超えると、VM サイズに応じてアクティブな計算時間あたりで課金されます（上記の Cloud VM サイズを参照）。アイドルの VM は自動的に一時停止し、エージェントを並列実行するとより多くの時間を使うだけです。ターミナルとローカルエージェントは無料のままです。"
         },
         {
           "q": "クラウドをセルフホストできますか?",
@@ -666,7 +693,7 @@
         },
         {
           "q": "チームプランはありますか?",
-          "a": "はい。Team は1ユーザーあたり月額 $35 です。チーム全体の一元請求、シート管理、Cloud VM 時間のプール、共有チームルールが含まれます。Enterprise では SSO、セルフホスト、監査ログが追加されます。"
+          "a": "はい。Team は月払いで $35/ユーザー/月、年払いでは $28/ユーザー/月です。チーム全体の一元請求、シート管理、Cloud VM 時間のプール、共有チームルールが含まれます。Enterprise では SSO、セルフホスト、監査ログが追加されます。"
         }
       ]
     },
@@ -678,6 +705,9 @@
     "billingUnavailable": "現在、決済をご利用いただけません。時間をおいてお試しください。",
     "billingCancelled": "チェックアウトはキャンセルされました。請求は発生していません。",
     "billingInvalidPlan": "指定されたプランはご利用いただけません。以下からプランをお選びください。",
+    "signedOutNotice": "サインインしていません。サインインすると、現在のプランの確認や購入済みプランの復元ができます。",
+    "signedOutSignIn": "サインイン",
+    "billingInvalidRelay": "アプリのチェックアウトリンクの有効期限が切れているか、検証できませんでした。cmuxに戻ってもう一度お試しください。",
     "welcomeTeam": "cmux Team のご購入が完了しました。"
   },
   "home": {
@@ -993,7 +1023,7 @@
         "simpleP2": "カスタムのエージェントハーネスや外部オーケストレーションは使いません。<code>/loop</code>は使わず、<code>/goal</code>もほとんど使いません。",
         "economicsTitle": "費用",
         "economicsP1": "API料金に換算すると、この使用量は約8万5000ドルです。実際に支払ったのは37個のChatGPT Pro 20xアカウントに対する7400ドルで、Tiboが提供したクォータリセットも使いました。<codexBar>CodexBar</codexBar>でローカルのトークン数とAPI料金換算を集計しました。",
-        "economicsP2": "3670億という数字も、アカウント全体の使用量より少なく出ています。<subrouter>Subrouter</subrouter>で共同創業者と同じアカウントプールを共有していますが、CodexBarが集計するのは私のマシン上のローカルトークン使用量だけだからです。",
+        "economicsP2": "3670億という数字も、アカウント全体の使用量より少なく出ています。<coderouter>CodeRouter</coderouter>で共同創業者と同じアカウントプールを共有していますが、CodexBarが集計するのは私のマシン上のローカルトークン使用量だけだからです。",
         "closing": "このワークフローでは判断に注意を集中できます。完了した作業を確認してエージェントのブロックを解除し、キューが空になったら次のタスクを始めます。"
       },
       "cmdShiftU": {
@@ -1034,10 +1064,10 @@
         "superRepoTitle": "スーパーリポはプロジェクトの司令部",
       "superRepoP1": "この制御用リポジトリをスーパーリポと呼びたいと思います。コーディングエージェントにとって、スーパーリポは一つ以上のソースリポジトリの上位にあり、プロンプトを分離されたタスク環境へ変換するためのデータ、スキル、origin、ワークツリー、運用ルールを保持します。",
       "superRepoP2": "<code>AGENTS.md</code>が制御プレーンです。エージェントが必要とする可能性のあるリポジトリ、各タスクのワークツリーを置く場所、リポジトリごとのセットアップ手順を定義します。一つのタスクでターミナル、ブラウザ連携、ルーター用の対応するワークツリーを作れますが、すべてのタスクで三つとも複製する必要はありません。",
-      "agentsExample": "cmux-hqで作業しています。タスクには次のリポジトリが関係する場合があります：\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nユーザーが新しいタスクを依頼したとき：\n1. タスクに必要なリポジトリを判断します。\n2. worktrees/[task]/[repo]に対応するワークツリーを作成します。\n3. 各ワークツリーのAGENTS.mdを読みます。\n4. セットアップスクリプトをすぐに起動し、タスクを続けます。",
+      "agentsExample": "cmux-hqで作業しています。タスクには次のリポジトリが関係する場合があります：\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/coderouter\n\nユーザーが新しいタスクを依頼したとき：\n1. タスクに必要なリポジトリを判断します。\n2. worktrees/[task]/[repo]に対応するワークツリーを作成します。\n3. 各ワークツリーのAGENTS.mdを読みます。\n4. セットアップスクリプトをすぐに起動し、タスクを続けます。",
       "agentTitle": "トポロジーをエージェントに選ばせる",
-      "agentP1": "cmuxではこのパターンを社内で使っています。公開ソースは<cmux>manaflow-ai/cmux</cmux>にあり、非公開の制御用リポジトリは<hq>manaflow-ai/cmuxterm-hq</hq>です。hqのルートから、cmuxにも関係する可能性があるsubrouterの問題をCodexやClaude Codeに依頼できます。エージェントは必要なワークツリーだけを作り、各リポジトリのAGENTS.mdを読み、セットアップスクリプトを起動し、その実行中にコードの調査を始めます。",
-      "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"subrouterのxyz問題を修正して。cmuxのxyzにも関係する可能性あり\"",
+      "agentP1": "cmuxではこのパターンを社内で使っています。公開ソースは<cmux>manaflow-ai/cmux</cmux>にあり、非公開の制御用リポジトリは<hq>manaflow-ai/cmuxterm-hq</hq>です。hqのルートから、cmuxにも関係する可能性があるCodeRouterの問題をCodexやClaude Codeに依頼できます。エージェントは必要なワークツリーだけを作り、各リポジトリのAGENTS.mdを読み、セットアップスクリプトを起動し、その実行中にコードの調査を始めます。",
+      "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"CodeRouterのxyz問題を修正して。cmuxのxyzにも関係する可能性あり\"",
       "agentP2": "<code>./scripts/new-worktree.sh</code>は一つのトポロジーを実装します。エージェントなら、互換性のないサブモジュールには別チェックアウト、信頼できないセットアップにはリモートサンドボックス、別OSにはVM、実験にはGPUスケジューラを選び、決定的な処理には既存のスクリプトを再利用できます。",
         "limitsTitle": "完了までの時間が短くなる理由",
         "limitsP1": "多くのプロジェクトでは、ワークツリーは並列化の一部にすぎません。MLでは、一つのコーディングエージェントが一つのワークツリーで複数の実験を書き、スケジューラが実行を複数のGPUへ配布できます。ワークツリーを増やしても計算資源は増えず、調整だけが増えます。",
@@ -1798,6 +1828,7 @@
         "paneBorderColor": "分割ワークスペースで cmux ペインの区切り線の色を上書きします。Ghostty 内部の分割ではなく、cmux のペイン境界に適用されます。",
         "activePaneBorderColor": "分割ワークスペースでフォーカス中の cmux ペインの周囲に描画する任意の境界線色です。",
         "notifications": {
+          "paneFlashColor": "ペインのフラッシュと未読通知リングの色を上書きします。未設定の場合は組み込みのシステムブルーを使用します。",
           "suppressOnlyFocusedSurface": "有効にすると、通知バナーはその対象がまさにフォーカス中のサーフェスである場合のみ自動的に取り下げられます。現在表示中のワークスペース内でフォーカスされていないサーフェス向けに配信されたバナーは、ワークスペースが表示されたときに取り消されるのではなく、そのサーフェスをフォーカスする（またはクリック／消去する）まで表示され続けます。オフの場合は従来のワークスペース表示時の取り下げ動作を維持します。",
           "agentPermissionPrompt": "エージェント（Claude Code など）がツールの実行にあなたの許可を待って停止しているときに通知します。エージェントの停止を解除するには操作が必要なため、既定でオンです。",
           "agentTurnComplete": "エージェントがターンを終えたことを通知するタイミングです。whenIdle（既定）は、実行中のバックグラウンドタスクや保留中のスケジュール再開が残っている間は通知を抑制し、作業が完全に片付いてから通知します。always はターン終了ごとに通知し、never は通知しません。",
@@ -2303,7 +2334,16 @@
     "changelog": {
       "title": "変更履歴",
       "metaDescription": "cmuxのリリースノートとバージョン履歴。ネイティブmacOSターミナルの新機能、バグ修正、変更点。",
-      "metaTitle": "変更履歴"
+      "metaTitle": "変更履歴",
+      "versionTitle": "cmux {version} · 変更履歴",
+      "releaseNavLabel": "cmux {version} 付近のリリース",
+      "sections": {
+        "added": "追加",
+        "changed": "変更",
+        "fixed": "修正",
+        "removed": "削除",
+        "contributors": "コントリビューター"
+      }
     },
     "claudeCodeTeams": {
       "title": "Claude Code Teams",
@@ -4732,6 +4772,19 @@
       "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
     }
   },
+  "emails": {
+    "proWelcome": {
+      "subject": "cmux Pro へようこそ！",
+      "fallbackName": "お客様",
+      "greeting": "{name} さん、こんにちは！",
+      "thanks": "cmux Pro にご参加いただきありがとうございます！現在、Pro の全体的な体験を準備しており、Cloud アクセスも近日提供予定です。",
+      "cloudStatus": "Cloud アクセスの提供開始時に、それまで Pro を購読いただいた月数に応じた利用クレジットをアカウントに付与します。",
+      "currentBenefit": "それまでの Pro 特典は cmux iOS の先行アクセスです。下のリンクから登録すると、登録完了後に Apple から TestFlight の招待が届きます。",
+      "testflightLink": "TestFlight に登録する：{url}",
+      "testflightLinkLabel": "TestFlight に登録する",
+      "signoff": "ご参加いただき、ありがとうございます！\ncmux チーム"
+    }
+  },
   "tui": {
     "marketing": {
       "sectionLabel": "TUI",
@@ -4869,19 +4922,9 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro が有効です",
     "title": "cmux Pro へようこそ",
-    "body": "プランには、Cloud VM 上のクラウドエージェント、毎月 20 コンピュート時間、モデルゲートウェイ、cmux iOS アプリが含まれます。まずはここから始めましょう。",
+    "body": "Pro の機能は現在も開発中です。Cloud アクセスは近日提供予定で、継続して購読した月数に応じた利用クレジットを付与します。現在の Pro には cmux iOS TestFlight アクセスが含まれます。",
     "done": "ダッシュボードへ",
     "steps": {
-      "modelGateway": {
-        "title": "モデルゲートウェイ",
-        "body": "使用量とコスト分析を見ながらプロバイダー間でルーティングします。",
-        "action": "モデルゲートウェイを開く"
-      },
-      "aiAccounts": {
-        "title": "AI アカウントを接続",
-        "body": "プロバイダーのアカウントを追加すると、cmux が処理をルーティングできます。",
-        "action": "プロバイダーを接続"
-      },
       "iosApp": {
         "title": "cmux iOS アプリ",
         "body": "スマートフォンで cmux を使えます。",

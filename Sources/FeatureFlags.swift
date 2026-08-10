@@ -43,6 +43,7 @@ final class CmuxFeatureFlags {
     #endif
 
     private static let mobileConnectButtonDefault = false
+    private static let sidebarAccountButtonDefault = true
 
     #if DEBUG
     private static let cloudVMUIDefault = true
@@ -56,7 +57,7 @@ final class CmuxFeatureFlags {
     private nonisolated static let mobileWorkspaceChangesDefault = false
     #endif
     private static let sidebarWorkspaceAgentSpinnerDefault = false
-    private static let simulatorDefault = true
+    private nonisolated static let simulatorDefault = true
     private static let workspaceTodoControlsDefault = false
     private static let appKitSidebarListDefault = true
 
@@ -108,6 +109,26 @@ final class CmuxFeatureFlags {
         defaultWhenUnavailable: CmuxFeatureFlags.mobileWorkspaceChangesDefault
     )
 
+    // FLAG(key: simulator-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+    // Controls every Simulator entrypoint and active pane. The enabled
+    // fallback preserves access when PostHog is unavailable, while the
+    // remote value provides a release kill switch. Declared nonisolated so
+    // the mobile host's off-main capability list can gate the advertised
+    // simulator capabilities on the same flag as RPC dispatch.
+    nonisolated static let simulatorFlag = CmuxFeatureFlagDefinition(
+        key: "simulator-enabled-release",
+        title: String(
+            localized: "featureFlags.simulator.title",
+            defaultValue: "Simulator"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.simulator.description",
+            defaultValue: "Enables iPhone and iPad Simulator panes, commands, and automation."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.simulatorDefault
+    )
+
     // Order is load-bearing for the positional typed accessors below. Flags
     // that need a stable public definition are declared independently and
     // included here without repeating their key literal.
@@ -130,18 +151,31 @@ final class CmuxFeatureFlags {
 
             // FLAG(key: mobile-connect-button-enabled-release, owner: lawrencecchen,
             //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
-            // Shows the top-right iPhone button that opens the Mobile Connect
-            // window. Hidden by default so QR pairing does not sit in primary
-            // window chrome; pairing remains available from Settings > Mobile
-            // and the command palette, and PostHog can re-enable the button.
+            // Shows the bottom-left sidebar iPhone button that opens the Tailscale
+            // Pairing workspace. It stays hidden until the remote flag or a
+            // local debug override enables it.
             CmuxFeatureFlagDefinition(
                 key: "mobile-connect-button-enabled-release",
-                title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Mobile Connect button"),
+                title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Tailscale Pairing button"),
                 flagDescription: String(
                     localized: "featureFlags.mobileConnect.description",
-                    defaultValue: "Shows the iPhone button that opens the Mobile Connect pairing window."
+                    defaultValue: "Shows the Tailscale Pairing button in the sidebar footer."
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.mobileConnectButtonDefault
+            ),
+
+            // FLAG(key: sidebar-account-button-enabled-release, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+            // Shows the account control in the bottom-left sidebar footer. The
+            // Settings account section remains available when this shortcut is off.
+            CmuxFeatureFlagDefinition(
+                key: "sidebar-account-button-enabled-release",
+                title: String(localized: "featureFlags.sidebarAccount.title", defaultValue: "Sidebar account button"),
+                flagDescription: String(
+                    localized: "featureFlags.sidebarAccount.description",
+                    defaultValue: "Shows the profile and sign-in control in the sidebar footer."
+                ),
+                defaultWhenUnavailable: CmuxFeatureFlags.sidebarAccountButtonDefault
             ),
 
             // FLAG(key: cloud-vm-ui-enabled-release, owner: lawrencecchen,
@@ -193,23 +227,7 @@ final class CmuxFeatureFlags {
                 defaultWhenUnavailable: CmuxFeatureFlags.sidebarWorkspaceAgentSpinnerDefault
             ),
 
-            // FLAG(key: simulator-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
-            // Controls every Simulator entrypoint and active pane. The enabled
-            // fallback preserves access when PostHog is unavailable, while the
-            // remote value provides a release kill switch.
-            CmuxFeatureFlagDefinition(
-                key: "simulator-enabled-release",
-                title: String(
-                    localized: "featureFlags.simulator.title",
-                    defaultValue: "Simulator"
-                ),
-                flagDescription: String(
-                    localized: "featureFlags.simulator.description",
-                    defaultValue: "Enables iPhone and iPad Simulator panes, commands, and automation."
-                ),
-                defaultWhenUnavailable: CmuxFeatureFlags.simulatorDefault
-            ),
+            CmuxFeatureFlags.simulatorFlag,
 
             // FLAG(key: workspace-todo-controls-enabled-release, owner: lawrencecchen,
             //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
@@ -244,23 +262,27 @@ final class CmuxFeatureFlags {
     }
 
     var isCloudVMUIEnabled: Bool {
-        effectiveValue(for: Self.allFlags[2])
-    }
-
-    var isAgentChatUIEnabled: Bool {
         effectiveValue(for: Self.allFlags[3])
     }
 
-    var isSidebarWorkspaceAgentSpinnerEnabled: Bool {
+    var isAgentChatUIEnabled: Bool {
         effectiveValue(for: Self.allFlags[4])
     }
 
-    var isSimulatorEnabled: Bool {
+    var isSidebarAccountButtonEnabled: Bool {
+        effectiveValue(for: Self.allFlags[2])
+    }
+
+    var isSidebarWorkspaceAgentSpinnerEnabled: Bool {
         effectiveValue(for: Self.allFlags[5])
     }
 
+    var isSimulatorEnabled: Bool {
+        effectiveValue(for: Self.simulatorFlag)
+    }
+
     var isWorkspaceTodoControlsEnabled: Bool {
-        effectiveValue(for: Self.allFlags[6])
+        effectiveValue(for: Self.allFlags[7])
     }
 
     var isAppKitSidebarListEnabled: Bool {

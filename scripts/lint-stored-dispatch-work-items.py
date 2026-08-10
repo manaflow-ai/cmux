@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Reject stored DispatchWorkItem declarations in cmux-owned Swift sources.
+"""Reject deferred-action handles that can build recursive release chains.
 
-The parent-repository gate covers Sources, CLI, ios, and package Sources.
-Gitlink dependencies such as Ghostty and Bonsplit remain dependency-owned and
-must be audited when their pinned revisions change.
+The parent-repository gate covers DispatchWorkItem declarations in Sources,
+CLI, ios, and package Sources. It also audits stored Task handles in ContentView,
+whose unusually large Swift value snapshots make replacement chains especially
+dangerous. Gitlink dependencies such as Ghostty and Bonsplit remain
+dependency-owned and must be audited when their pinned revisions change.
 """
 
 from __future__ import annotations
@@ -78,9 +80,10 @@ class Allowance:
     reason: str
 
 
-# These declarations never replace queued work. Context is part of each key so
-# moving a function-local timeout into stored owner state cannot inherit an
-# allowance merely by preserving its spelling.
+# These declarations cannot link replaced queued work through their owner's
+# stored state. Context is part of each key so moving a function-local timeout
+# into stored owner state cannot inherit an allowance merely by preserving its
+# spelling.
 ALLOWANCES = (
     Allowance(
         "Sources/AppDelegate.swift",
@@ -97,6 +100,30 @@ ALLOWANCES = (
         "local:AppDelegate.publishMultiWindowNotificationSocketStateIfNeeded",
         1,
         "function-local, single-shot UI-test deadline",
+    ),
+    Allowance(
+        "Sources/ContentView.swift",
+        "commandPaletteSearchIndexBuildTask",
+        "Task<Void,Never>?",
+        "member:ContentView",
+        1,
+        "cancellation helper clears the prior handle before detached index replacement",
+    ),
+    Allowance(
+        "Sources/ContentView.swift",
+        "commandPaletteSearchTask",
+        "Task<Void,Never>?",
+        "member:ContentView",
+        1,
+        "cancellation helper clears the prior handle before detached search replacement",
+    ),
+    Allowance(
+        "Sources/ContentView.swift",
+        "commandPaletteForkableAgentAvailabilityTasksByPanelKey",
+        "[String:Task<Void,Never>]",
+        "member:ContentView",
+        1,
+        "same-panel handle is removed before a replacement probe captures view state",
     ),
     Allowance(
         "Sources/Panels/MarkdownRemoteImageLoader.swift",
@@ -403,9 +430,12 @@ def _declaration_end(tokens: list[Token], start: int) -> int:
     return index
 
 
-def _dispatch_type_text(declaration_tokens: list[Token]) -> str | None:
+def _annotated_type_text(
+    declaration_tokens: list[Token],
+    audited_type: str,
+) -> str | None:
     values = [token.value for token in declaration_tokens if token.kind != "newline"]
-    if "DispatchWorkItem" not in values:
+    if audited_type not in values:
         return None
     paren_depth = 0
     bracket_depth = 0
@@ -434,7 +464,40 @@ def _dispatch_type_text(declaration_tokens: list[Token]) -> str | None:
 
     if annotation_colon is not None:
         end = equals if equals is not None else len(values)
-        return "".join(values[annotation_colon + 1 : end])
+        annotation = values[annotation_colon + 1 : end]
+        if audited_type in annotation:
+            return "".join(annotation)
+    return None
+
+
+def _dispatch_type_text(declaration_tokens: list[Token]) -> str | None:
+    values = [token.value for token in declaration_tokens if token.kind != "newline"]
+    if "DispatchWorkItem" not in values:
+        return None
+    if annotated_type := _annotated_type_text(declaration_tokens, "DispatchWorkItem"):
+        return annotated_type
+
+    paren_depth = 0
+    bracket_depth = 0
+    angle_depth = 0
+    equals: int | None = None
+    for index, value in enumerate(values):
+        if value == "=" and paren_depth == bracket_depth == angle_depth == 0:
+            equals = index
+            break
+        if value == "(":
+            paren_depth += 1
+        elif value == ")":
+            paren_depth = max(0, paren_depth - 1)
+        elif value == "[":
+            bracket_depth += 1
+        elif value == "]":
+            bracket_depth = max(0, bracket_depth - 1)
+        elif value == "<":
+            angle_depth += 1
+        elif value == ">" and angle_depth:
+            angle_depth -= 1
+
     if equals is None:
         return None
     initializer = values[equals + 1 :]
@@ -522,7 +585,14 @@ def scan_declarations(source: str, path: str) -> list[Declaration]:
         if _is_computed_property(tokens, index, end, scopes):
             continue
         declaration_tokens = tokens[index:end]
+        context = _declaration_context(scopes)
         type_text = _dispatch_type_text(declaration_tokens)
+        if (
+            type_text is None
+            and path == "Sources/ContentView.swift"
+            and context == "member:ContentView"
+        ):
+            type_text = _annotated_type_text(declaration_tokens, "Task")
         if type_text is None:
             continue
         declarations.append(
@@ -530,7 +600,7 @@ def scan_declarations(source: str, path: str) -> list[Declaration]:
                 path=path,
                 name=tokens[name_index].value,
                 type_text=type_text,
-                context=_declaration_context(scopes),
+                context=context,
                 line=token.line,
             )
         )
@@ -560,13 +630,14 @@ def main() -> int:
     if not unexpected and not stale:
         print(
             "lint-stored-dispatch-work-items: ok "
-            f"({len(found)} audited non-replacement declarations)"
+            f"({len(found)} audited deferred-action declarations)"
         )
         return 0
 
     print(
-        "Stored `var DispatchWorkItem` declarations in cmux-owned Swift sources can rebuild "
-        "recursive release chains. Use a scheduler that cannot retain prior queued work.",
+        "Stored DispatchWorkItem declarations, and Task handles in ContentView, can rebuild "
+        "recursive release chains. Use a scheduler that cannot retain prior queued work, or "
+        "prove that replacement drops the predecessor before capturing owner state.",
         file=sys.stderr,
     )
     lines_by_key: dict[tuple[str, str, str, str], list[int]] = collections.defaultdict(list)

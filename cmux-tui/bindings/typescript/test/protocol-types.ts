@@ -1,333 +1,166 @@
 import type {
+  BrowserAttachEvent,
+  BrowserStreamEvent,
   CmuxClient,
-  CmuxEvent,
-  CmuxFailureResponse,
+  CmuxCommand,
   CmuxRequest,
-  CmuxResponseData,
+  CmuxRequestParams,
+  CmuxResponseDataFor,
   CmuxStream,
-  BrowserFrame,
-  DecodedAttachEvent,
-  ExportLayoutResult,
+  Id,
   KnownCmuxEvent,
-  NewPaneRightOptions,
-  RenderAttachEvent,
-  RenderDeltaEvent,
-  RenderStateEvent,
-  Screen,
+  SerializedButNotEmittedEvent,
   Tree,
-  TreeDeltaEvent,
-} from "../src/browser.js";
+} from "cmux-sdk/raw";
 
-const failureResponse: CmuxFailureResponse = {
-  ok: false,
-  error: "layout changed",
-  error_code: "layout-undo-stale",
-};
-void failureResponse;
-const scaledBrowserFrame: BrowserFrame = {
-  seq: 1,
-  width: 80,
-  height: 24,
-  image_width: 160,
-  image_height: 48,
-  data: "cG5n",
-};
-void scaledBrowserFrame;
-const exportedViewportLayout: ExportLayoutResult = {
-  layout: { type: "leaf", pane: 1 },
-  panes: [{ pane: 1, surfaces: [2] }],
-  viewport_base_width: 1,
-  viewport_splits: [{ split: 3, width: 2 / 3 }],
-};
-void exportedViewportLayout;
+const surface: Id = 18_446_744_073_709_551_615n;
 
-const treeWithPaneRevision: Tree = { pane_revision: 7, workspaces: [] };
-void treeWithPaneRevision;
-const viewportScreen: Screen = {
-  id: 1,
-  name: null,
-  active: true,
-  active_pane: 2,
-  zoomed_pane: null,
-  layout: { type: "leaf", pane: 2 },
-  viewport_base_width: 1,
-  viewport_splits: [{ split: 3, width: 2 / 3 }],
-  panes: [],
+const read: CmuxRequest = { cmd: "read-screen", surface };
+const browserInput: CmuxRequest = {
+  cmd: "browser-key",
+  surface,
+  kind: "down",
+  key: "Enter",
+  code: "Enter",
+  windows_virtual_key_code: 13,
+  modifiers: 0,
 };
-void viewportScreen;
-const browserViewportOptions: NewPaneRightOptions = { width: 2 / 3 };
-void browserViewportOptions;
+const providerRename: CmuxRequest = {
+  cmd: "rename-provider-managed-workspace",
+  workspace: 1n,
+  key: "workspace-key",
+  name: "renamed",
+  authority: "opaque-authority",
+};
+void read;
+void browserInput;
+void providerRename;
 
-const requests = [
-  { cmd: "identify" },
-  { cmd: "ping" },
-  { cmd: "set-client-info", name: "browser", kind: "web" },
-  { cmd: "list-clients" },
-  { cmd: "detach-client", client: 2 },
-  { cmd: "set-client-sizing", surface: 1, client: 2, enabled: false },
-  { cmd: "reload-config" },
-  { cmd: "set-window-title", title: "cmux" },
-  { cmd: "clear-window-title" },
-  { cmd: "list-workspaces" },
-  { cmd: "create-workspace", name: "gui", key: "stable", expected_revision: 4 },
-  { cmd: "create-terminal", key: "stable", command: "echo ready", cols: 80, rows: 24 },
-  { cmd: "export-layout", screen: 1 },
-  { cmd: "apply-layout", layout: { type: "leaf" } },
-  { cmd: "apply-layout", layout: { type: "stack", panes: [1, 2], expanded: 2 } },
-  { cmd: "send", surface: 1, text: "ls\r" },
-  { cmd: "send", surface: 1, bytes: "AAEC", paste: true },
-  { cmd: "read-screen", surface: 1 },
-  { cmd: "read-scrollback", surface: 1, start: 0, count: 100 },
-  { cmd: "sidebar-plugin", cols: 20, rows: 40, relaunch: true },
-  { cmd: "vt-state", surface: 1 },
-  { cmd: "new-tab", pane: 1 },
-  { cmd: "new-browser-tab", url: "https://example.com" },
-  { cmd: "new-workspace", name: "sdk" },
-  { cmd: "new-screen", workspace: 1 },
-  { cmd: "new-pane", pane: 1 },
-  { cmd: "new-pane-right", pane: 1, width: 2 / 3 },
-  { cmd: "split", pane: 1, dir: "right" },
-  { cmd: "set-ratio", pane: 1, dir: "down", ratio: 0.5 },
-  { cmd: "set-split-ratio", split: 2, ratio: 0.5, transaction: 9 },
-  { cmd: "set-viewport-pane-width", pane: 1, width: 0.75, transaction: 9 },
-  { cmd: "undo-layout", pane: 1 },
-  { cmd: "undo-layout", pane: 1, revision: 8, confirm_close: true },
-  { cmd: "pane-neighbor", pane: 1, dir: "left" },
-  { cmd: "focus-direction", dir: "up" },
-  { cmd: "swap-pane", pane: 1, target: 2 },
-  { cmd: "zoom-pane", mode: "toggle" },
-  { cmd: "process-info", surface: 1 },
-  { cmd: "set-default-colors", fg: "#ffffff" },
-  { cmd: "close-surface", surface: 1 },
-  { cmd: "close-pane", pane: 1 },
-  { cmd: "close-screen", screen: 1 },
-  { cmd: "close-workspace", workspace: 1 },
-  { cmd: "rename-pane", pane: 1, name: "pane" },
-  { cmd: "rename-surface", surface: 1, name: "tab" },
-  { cmd: "rename-screen", screen: 1, name: "screen" },
-  { cmd: "rename-workspace", workspace: 1, name: "workspace" },
-  { cmd: "resize-surface", surface: 1, cols: 80, rows: 24 },
-  { cmd: "release-surface-size", surface: 1 },
-  { cmd: "focus-pane", pane: 1 },
-  { cmd: "select-tab", pane: 1, index: 0 },
-  { cmd: "select-screen", delta: 1 },
-  { cmd: "select-workspace", index: 0 },
-  { cmd: "move-tab", surface: 1, pane: 2, index: 0 },
-  { cmd: "move-workspace", workspace: 1, index: 0 },
-  { cmd: "scroll-surface", surface: 1, delta: -10 },
-  { cmd: "subscribe", tree_events: "deltas" },
-  { cmd: "attach-surface", surface: 1 },
-  { cmd: "attach-surface", surface: 1, mode: "render" },
-  { cmd: "wait-for", surface: "a8f3k2", pattern: "ready", timeout_ms: 5000 },
-  { cmd: "run", argv: ["echo", "ok"] },
-  { cmd: "send-key", surface: 1, keys: ["ctrl+c"] },
-  { cmd: "copy", surface: 1, mode: "screen" },
-  { cmd: "ids", kind: "surface" },
-  { cmd: "notify", title: "Build", body: "done" },
-  { cmd: "list-agents", state: "working" },
-  { cmd: "report-agent", surface: 1, state: "working", source: "socket" },
-] satisfies CmuxRequest[];
+const tree: Tree = {
+  registry_id: "registry",
+  generation: "generation",
+  workspace_revision: 1n,
+  terminal_revision: 2n,
+  pane_revision: 3n,
+  workspaces: [],
+};
+void tree;
 
-type IdentifyData = CmuxResponseData<(typeof requests)[0]>;
+type ReadParams = CmuxRequestParams<"read-screen">;
+const readParams: ReadParams = { surface };
+void readParams;
+
+type IdentifyData = CmuxResponseDataFor<"identify">;
 const identify: IdentifyData = {
   app: "cmux-tui",
-  version: "0.1.2",
-  protocol: 7,
+  version: "0.1.0",
+  protocol: 10,
   session: "main",
   pid: 1,
   registry_id: "registry",
   generation: "generation",
-  workspace_revision: 1,
-  terminal_revision: 2,
+  workspace_revision: 1n,
+  terminal_revision: 2n,
+  daemon_handoff: 1,
 };
 void identify;
 
-type LegacyWorkspaceMutationData = CmuxResponseData<{
-  cmd: "close-workspace";
-  workspace: number;
-}>;
-const legacyWorkspaceMutation: LegacyWorkspaceMutationData = {};
-void legacyWorkspaceMutation;
-
-const stackLayout = {
-  type: "stack",
-  panes: [1, 2, 3],
-  expanded: 3,
-} as const satisfies import("../src/browser.js").Layout;
-void stackLayout;
-
-function surfaceFromKnownEvent(event: KnownCmuxEvent): number | undefined {
+function eventSurface(event: KnownCmuxEvent): Id | undefined {
   switch (event.event) {
+    case "bell":
     case "surface-output":
-    case "scroll-changed":
+    case "surface-exited":
     case "surface-resized":
     case "surface-resize-failed":
-    case "surface-exited":
     case "title-changed":
-    case "bell":
+    case "scroll-changed":
     case "vt-state":
     case "output":
     case "resized":
-    case "detached": return event.surface;
-    case "client-attached":
-    case "client-changed":
-    case "client-detached": return undefined;
-    case "colors-changed": return undefined;
-    default: return undefined;
+    case "detached":
+    case "render-state":
+    case "render-delta":
+    case "browser-state":
+    case "frame":
+      return event.surface;
+    default:
+      return undefined;
   }
 }
+void eventSurface;
 
-const colorsChanged: KnownCmuxEvent = {
-  event: "colors-changed",
-  surface: 1,
-  fg: "#d8d9da",
-  bg: "#131415",
-  cursor: null,
-  selection_bg: null,
-  selection_fg: null,
-  palette: { "4": "#ff4f8b" },
-  cursor_style: "bar",
-  cursor_blink: false,
-};
-
-const futureEvent: CmuxEvent = { event: "future-event", extension: true };
-const protocolV6Resize: KnownCmuxEvent = {
-  event: "resized",
-  surface: 1,
-  cols: 80,
-  rows: 24,
-  data: "cmVwbGF5",
-};
-const protocolV7Resize: KnownCmuxEvent = {
-  event: "resized",
-  surface: 1,
-  cols: 80,
-  rows: 24,
-  replay: "cmVwbGF5",
-  colors: colorsChanged,
-};
-const clientEvents: KnownCmuxEvent[] = [
-  { event: "client-attached", client: 2, transport: "ws", name: "browser", kind: "web" },
-  { event: "client-changed", client: 2, name: "tablet", kind: "web" },
-  { event: "client-detached", client: 2 },
-];
-const resizeFailed: KnownCmuxEvent = {
-  event: "surface-resize-failed",
-  surface: 1,
-  cols: 120,
-  rows: 40,
-  error: "browser is not responding",
-  retry_after_ms: 250,
-};
-void surfaceFromKnownEvent;
-void colorsChanged;
-void futureEvent;
-void protocolV6Resize;
-void protocolV7Resize;
-void clientEvents;
-void resizeFailed;
-
-const renderState: RenderStateEvent = {
-  event: "render-state",
-  surface: 1,
-  size: { cols: 3, rows: 1 },
-  cursor: { x: 2, y: 0, style: "block", blink: true, visible: true, color: null },
-  default_fg: "#d8d9da",
-  default_bg: "#131415",
-  scrollback_rows: 42,
-  rows: [{
-    row: 0,
-    runs: [{ text: "$ x", fg: null, bg: null, attrs: 1, underline: "curly", width_hint: 3 }],
-  }],
-};
-const renderDelta: RenderDeltaEvent = {
-  event: "render-delta",
-  surface: 1,
-  cursor: renderState.cursor,
-  full: false,
-  rows: [],
-};
-const treeDelta: TreeDeltaEvent = {
-  event: "tab-renamed",
-  workspace: 1,
-  screen: 2,
-  pane: 3,
-  surface: 4,
-  entity: {
-    surface: 4,
-    kind: "pty",
-    browser_source: null,
-    name: "shell",
-    title: "shell",
-    size: { cols: 80, rows: 24 },
-    dead: false,
-  },
-};
-const legacyWorkspaceDelta: TreeDeltaEvent = {
-  event: "workspace-added",
-  workspace: 1,
-  index: 0,
-  entity: {
-    id: 1,
-    name: "legacy",
-    active: true,
-    screens: [],
-  },
-};
-const movedWorkspaceDelta: TreeDeltaEvent = {
-  event: "workspace-moved",
-  workspace: 1,
-  index: 0,
-  workspace_revision: 2,
-  entity: {
-    id: 1,
-    key: "stable",
-    name: "moved",
-    active: true,
-    screens: [],
-  },
-};
-// `workspace-moved` was introduced with the registry capability, so it has no
-// legacy shape without a revision and stable key.
-// @ts-expect-error missing registry revision and stable key
-const invalidMovedWorkspaceDelta: TreeDeltaEvent = {
-  event: "workspace-moved",
-  workspace: 1,
-  index: 0,
-  entity: {
-    id: 1,
-    name: "moved",
-    active: true,
-    screens: [],
-  },
-};
-void renderState;
-void renderDelta;
-void treeDelta;
-void legacyWorkspaceDelta;
-void movedWorkspaceDelta;
-void invalidMovedWorkspaceDelta;
-
-async function typedAttachModes(client: CmuxClient): Promise<void> {
-  const bytes: CmuxStream<DecodedAttachEvent> = await client.attachSurface(1);
-  const render: CmuxStream<RenderAttachEvent> = await client.attachSurface(1, { mode: "render" });
-  // @ts-expect-error Initial attach dimensions are an all-or-nothing pair.
-  void client.attachSurface(1, { cols: 80 });
-  bytes.close();
-  render.close();
+function browserAttachSubject(event: BrowserAttachEvent): Id | null | undefined {
+  switch (event.event) {
+    case "browser-state":
+      return event.url.length > 0 ? event.surface : undefined;
+    case "frame":
+    case "detached":
+    case "scroll-changed":
+      return event.surface;
+    case "notification":
+      return event.surface;
+    case "overflow":
+      return event.surface;
+    default: {
+      const exhaustive: never = event;
+      return exhaustive;
+    }
+  }
 }
-void typedAttachModes;
+void browserAttachSubject;
 
-// @ts-expect-error `read-screen` requires a surface id.
-const invalidRequest: CmuxRequest = { cmd: "read-screen" };
-void invalidRequest;
+function browserStreamSubject(event: BrowserStreamEvent): Id | null | undefined {
+  switch (event.event) {
+    case "browser-state":
+      return event.url.length > 0 ? event.surface : undefined;
+    case "frame":
+    case "detached":
+    case "scroll-changed":
+    case "notification":
+    case "overflow":
+      return event.surface;
+    case "unknown":
+      return event.raw.surface as Id | undefined;
+    default: {
+      const exhaustive: never = event;
+      return exhaustive;
+    }
+  }
+}
+void browserStreamSubject;
 
-// @ts-expect-error Registry terminal creation requires a workspace id or stable key.
-const invalidTerminalSelector: CmuxRequest = { cmd: "create-terminal" };
-// @ts-expect-error Workspace close requires a workspace id or stable key.
-const invalidCloseSelector: CmuxRequest = { cmd: "close-workspace" };
-// @ts-expect-error Workspace move requires a workspace id or stable key.
-const invalidMoveSelector: CmuxRequest = { cmd: "move-workspace", index: 0 };
-void invalidTerminalSelector;
-void invalidCloseSelector;
-void invalidMoveSelector;
+declare const browserClient: CmuxClient;
+const browserAttachment: Promise<CmuxStream<BrowserStreamEvent>> =
+  browserClient.attachBrowserSurface(surface, {
+    idleTimeoutMs: 30_000,
+    signal: new AbortController().signal,
+  });
+void browserAttachment;
+
+// @ts-expect-error Browser attachments never accept render mode.
+void browserClient.attachBrowserSurface(surface, { mode: "render" });
+
+const serializedOnly: SerializedButNotEmittedEvent = {
+  event: "client-list-invalidated",
+};
+void serializedOnly;
+
+type ActiveEventName = KnownCmuxEvent["event"];
+// @ts-expect-error Serialized-only events must not enter the active union.
+const inactiveEvent: ActiveEventName = "client-list-invalidated";
+void inactiveEvent;
+
+// @ts-expect-error IDs never accept IEEE-754 numbers.
+const unsafeId: Id = 1;
+void unsafeId;
+
+// @ts-expect-error read-screen requires a surface.
+const missingSurface: CmuxRequest = { cmd: "read-screen" };
+void missingSurface;
+
+// @ts-expect-error Canonical wire commands do not accept interactive short IDs.
+const shortId: CmuxRequest = { cmd: "read-screen", surface: "a8f3k2" };
+void shortId;
+
+declare const command: CmuxCommand;
+void command;

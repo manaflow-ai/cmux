@@ -36,6 +36,8 @@ extension TerminalController {
         "debug.empty_panel.count",
         "debug.empty_panel.reset",
         "debug.notification.focus",
+        "debug.notification.mode",
+        "debug.notification.emit",
         "debug.flash.count",
         "debug.flash.reset",
         "debug.canvas.command_scroll_hint",
@@ -46,6 +48,7 @@ extension TerminalController {
         "debug.window.screenshot",
         "debug.terminal.simulate_file_drop",
         "debug.sidebar.simulate_drag",
+        "debug.mobile.transport.disconnect",
         "mobile.dev_stack_auth.configure",
     ]
 }

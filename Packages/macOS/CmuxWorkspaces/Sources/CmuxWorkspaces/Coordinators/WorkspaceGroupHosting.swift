@@ -29,7 +29,7 @@ public protocol WorkspaceGroupHosting<Tab>: WorkspaceOrderHosting {
         select: Bool
     ) -> Tab
     /// Creates a member workspace for `createWorkspaceInGroup`, preserving the
-    /// initial-surface options and directory-customization tracking mode.
+    /// initial-surface options and creation-title ownership policy.
     func createWorkspaceForGroup(
         title: String?,
         workingDirectory: String?,

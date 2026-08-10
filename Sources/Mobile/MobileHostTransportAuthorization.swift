@@ -245,6 +245,7 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
             return entry.connection
         }
     }
+
 }
 
 enum MobileHostPublicStatusCache {
@@ -259,21 +260,39 @@ enum MobileHostPublicStatusCache {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
-    static func update(irohBinding binding: CmxIrohBrokerBinding?) {
+    static func update(
+        irohIdentity identity: CmxIrohPeerIdentity?,
+        pathHints: [CmxIrohPathHint] = []
+    ) {
         lock.lock()
-        if let binding {
+        if let identity {
             irohRoute = try? CmxAttachRoute(
                 id: CmxAttachTransportKind.iroh.rawValue,
                 kind: .iroh,
                 endpoint: .peer(
-                    identity: binding.endpointID,
-                    pathHints: binding.pathHints
+                    identity: identity,
+                    pathHints: pathHints
                 ),
                 priority: 0
             )
         } else {
             irohRoute = nil
         }
+        lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
+
+    static func update(irohBinding binding: CmxIrohBrokerBindingMetadata) {
+        lock.lock()
+        irohRoute = try? CmxAttachRoute(
+            id: CmxAttachTransportKind.iroh.rawValue,
+            kind: .iroh,
+            endpoint: .peer(
+                identity: binding.endpointID,
+                pathHints: binding.pathHints
+            ),
+            priority: 0
+        )
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
@@ -300,7 +319,10 @@ enum MobileHostPublicStatusCache {
 
     static func result(
         includeIdentity: Bool = false,
-        additionalCapabilities: Set<String> = []
+        additionalCapabilities: Set<String> = [],
+        phonePushAdmission: PhonePushAdmission = .unknown,
+        phonePushQueuePersistenceStatus: PhonePushQueuePersistenceStatus =
+            .unknown
     ) -> MobileHostRPCResult {
         lock.lock()
         let cachedRoutes = mergedRoutesLocked()
@@ -309,7 +331,10 @@ enum MobileHostPublicStatusCache {
             includeIdentity
                 ? MobileHostService.identityStatusPayload(
                     routes: cachedRoutes,
-                    additionalCapabilities: additionalCapabilities
+                    additionalCapabilities: additionalCapabilities,
+                    phonePushAdmission: phonePushAdmission,
+                    phonePushQueuePersistenceStatus:
+                        phonePushQueuePersistenceStatus
                 )
                 : MobileHostService.publicStatusPayload(routes: cachedRoutes)
         )

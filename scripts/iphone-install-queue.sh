@@ -37,9 +37,8 @@
 # launch never falls back to a plain launch; the entry moves to failed/ with
 # the error preserved.
 #
-# This script is intentionally SELF-CONTAINED (no repo lib sourcing) so the
-# LaunchAgent can run a stable copy from the queue dir even after the worktree
-# that enqueued a build has been pruned.
+# This script and ios-device-process.sh are installed together as stable copies
+# so the LaunchAgent remains independent of a pruned enqueuing worktree.
 #
 # Testing hooks: CMUX_IPHONE_QUEUE_FORCE_UNREACHABLE=1 makes every device probe
 # report unreachable (used by tests and for demonstrating the queue path while
@@ -52,6 +51,8 @@ PENDING_DIR="$QUEUE_DIR/pending"
 FAILED_DIR="$QUEUE_DIR/failed"
 LOGS_DIR="$QUEUE_DIR/logs"
 LOCK_DIR="$QUEUE_DIR/.drain-lock"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEVICE_PROCESS_HELPER="$SCRIPT_DIR/ios-device-process.sh"
 
 err() { printf 'iphone-install-queue: %s\n' "$*" >&2; }
 die() { err "$*"; exit 1; }
@@ -309,6 +310,17 @@ drain_entry() {
     return 2
   fi
 
+  if [[ ! -x "$DEVICE_PROCESS_HELPER" ]]; then
+    finish_failed "missing executable process helper: $DEVICE_PROCESS_HELPER"
+    return $?
+  fi
+  if ! "$DEVICE_PROCESS_HELPER" terminate-installed \
+      --device-id "$device_id" \
+      --bundle-id "$bundle_id" >>"$LOGS_DIR/drain.log" 2>&1; then
+    finish_failed "existing app process did not terminate before install (see logs/drain.log)"
+    return $?
+  fi
+
   log "installing $bundle_id (tag $tag) on $device_id"
   if ! xcrun devicectl device install app --device "$device_id" "$app" \
       >>"$LOGS_DIR/drain.log" 2>&1; then
@@ -335,9 +347,8 @@ drain_entry() {
   # Signed launch through the checkout's mobile-dev-launch.sh (auto sign-in +
   # auto-pair). Checkout fallback order: the enqueuing checkout, then the
   # LaunchAgent-baked checkout, then this script's own repo root.
-  local mdl="" candidate script_dir
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  for candidate in "$checkout" "${CMUX_IPHONE_QUEUE_CHECKOUT:-}" "$script_dir/.."; do
+  local mdl="" candidate
+  for candidate in "$checkout" "${CMUX_IPHONE_QUEUE_CHECKOUT:-}" "$SCRIPT_DIR/.."; do
     [[ -n "$candidate" ]] || continue
     if [[ -x "$candidate/scripts/mobile-dev-launch.sh" ]]; then
       mdl="$candidate/scripts/mobile-dev-launch.sh"

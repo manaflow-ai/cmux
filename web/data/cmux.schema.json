@@ -883,6 +883,12 @@
           "default": true,
           "description": "Flash the focused pane when requested."
         },
+        "paneFlashColor": {
+          "$ref": "#/$defs/colorHexOrNull",
+          "default": null,
+          "descriptionKey": "schemaDescriptions.notifications.paneFlashColor",
+          "description": "Override the pane flash and unread ring color. Null keeps the built-in blue."
+        },
         "suppressOnlyFocusedSurface": {
           "type": "boolean",
           "default": false,
@@ -1661,6 +1667,8 @@
               "focusRight",
               "focusUp",
               "focusDown",
+              "focusPreviousPane",
+              "focusNextPane",
               "splitRight",
               "splitDown",
               "toggleSplitZoom",

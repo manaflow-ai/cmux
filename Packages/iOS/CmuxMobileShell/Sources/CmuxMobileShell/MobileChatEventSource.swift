@@ -460,7 +460,7 @@ public actor MobileChatEventSource: ChatEventSource {
         }
         switch connectionError {
         case .invalidResponse, .connectionClosed, .requestTimedOut,
-             .transportWriteTimedOut,
+             .transportWriteTimedOut, .connectAttemptGated,
              .insecureManualRoute, .attachTicketExpired,
              .authorizationFailed, .accountMismatch, .routeCleanupBlocked:
             return .macUnreachable

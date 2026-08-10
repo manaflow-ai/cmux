@@ -22,6 +22,13 @@ struct ClosedPanelHistoryEntry: Codable {
     let tabIndex: Int
     let snapshot: SessionPanelSnapshot
     let fallbackSplitPlacement: ClosedPanelSplitPlacement?
+    /// Live workspace that owns a transferred Dock panel's restore machinery.
+    /// Dock history is not persisted, so this identity is valid only for the
+    /// current process.
+    let sourceWorkspaceId: UUID?
+    /// Workspace identity encoded into the panel snapshot. This can differ
+    /// from `sourceWorkspaceId` after a session restore.
+    let sourceSnapshotWorkspaceId: UUID?
 
     init(
         workspaceId: UUID,
@@ -30,7 +37,9 @@ struct ClosedPanelHistoryEntry: Codable {
         restoreInOriginalPane: Bool = true,
         tabIndex: Int,
         snapshot: SessionPanelSnapshot,
-        fallbackSplitPlacement: ClosedPanelSplitPlacement? = nil
+        fallbackSplitPlacement: ClosedPanelSplitPlacement? = nil,
+        sourceWorkspaceId: UUID? = nil,
+        sourceSnapshotWorkspaceId: UUID? = nil
     ) {
         self.workspaceId = workspaceId
         self.paneId = paneId
@@ -39,6 +48,8 @@ struct ClosedPanelHistoryEntry: Codable {
         self.tabIndex = tabIndex
         self.snapshot = snapshot
         self.fallbackSplitPlacement = fallbackSplitPlacement
+        self.sourceWorkspaceId = sourceWorkspaceId
+        self.sourceSnapshotWorkspaceId = sourceSnapshotWorkspaceId
     }
 }
 
@@ -492,7 +503,10 @@ final class ClosedItemHistoryStore: ObservableObject {
                 restoreInOriginalPane: false,
                 tabIndex: panelEntry.tabIndex,
                 snapshot: panelEntry.snapshot,
-                fallbackSplitPlacement: fallbackSplitPlacement
+                fallbackSplitPlacement: fallbackSplitPlacement,
+                sourceWorkspaceId: panelEntry.sourceWorkspaceId,
+                sourceSnapshotWorkspaceId:
+                    panelEntry.sourceSnapshotWorkspaceId
             )))
         }
         return (remappedRecords, didUpdate)
@@ -530,7 +544,10 @@ final class ClosedItemHistoryStore: ObservableObject {
                 restoreInOriginalPane: panelEntry.restoreInOriginalPane,
                 tabIndex: panelEntry.tabIndex,
                 snapshot: panelEntry.snapshot,
-                fallbackSplitPlacement: fallbackSplitPlacement
+                fallbackSplitPlacement: fallbackSplitPlacement,
+                sourceWorkspaceId: panelEntry.sourceWorkspaceId,
+                sourceSnapshotWorkspaceId:
+                    panelEntry.sourceSnapshotWorkspaceId
             )))
         }
         return (remappedRecords, didUpdate)

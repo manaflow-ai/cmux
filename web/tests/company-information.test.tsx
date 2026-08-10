@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import sitemap from "../app/sitemap";
-import CompanyInformationPage from "../app/[locale]/(legal)/company-information/page";
+import CompanyInformationPage, {
+  metadata,
+} from "../app/[locale]/(legal)/company-information/page";
+import { agentReadablePages } from "../app/lib/agent-page-paths";
 
 test("publishes the legal entity, contact, address, and both domains", () => {
   const html = renderToStaticMarkup(<CompanyInformationPage />);
@@ -16,10 +19,14 @@ test("publishes the legal entity, contact, address, and both domains", () => {
   expect(html).toContain("application/ld+json");
 });
 
-test("lists only the canonical English company-information page", () => {
+test("keeps the direct page out of discovery indexes", () => {
   const urls = sitemap()
     .map((entry) => entry.url)
     .filter((url) => url.endsWith("/company-information"));
 
-  expect(urls).toEqual(["https://cmux.com/company-information"]);
+  expect(urls).toEqual([]);
+  expect(
+    agentReadablePages.some((page) => page.path === "/company-information"),
+  ).toBe(false);
+  expect(metadata.robots).toEqual({ index: false, follow: false });
 });

@@ -2259,6 +2259,27 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
 
 @MainActor
 final class BrowserDefaultsNormalizationTests: XCTestCase {
+    /// The legacy forced-dark-mode migration must run through the same defaults
+    /// normalization entry point used at app startup. Registering a fallback for
+    /// `modeKey` before reading the legacy value makes an unset key look like an
+    /// explicit `.system` choice and silently skips the migration.
+    func testNormalizeMigratesLegacyForcedDarkModeBeforeDefaultFallbackRegistration() throws {
+        let suiteName = "cmux.browserDefaultsLegacyThemeMigrationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.removeObject(forKey: BrowserThemeSettings.modeKey)
+        defaults.set(true, forKey: BrowserThemeSettings.legacyForcedDarkModeEnabledKey)
+
+        BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
+
+        XCTAssertEqual(BrowserThemeSettings.mode(defaults: defaults), .dark)
+        XCTAssertEqual(
+            defaults.string(forKey: BrowserThemeSettings.modeKey),
+            BrowserThemeMode.dark.rawValue
+        )
+    }
+
     /// Moving default registration + settings normalization out of
     /// `BrowserPanelView.onAppear` into the model bootstrap (issue #5303) keeps the
     /// canonicalization behavior: an out-of-range or legacy raw value stored in
@@ -2347,6 +2368,30 @@ final class BrowserNewTabNavigationSeedTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelRemoteStoreTests: XCTestCase {
+    private var previousProfileID: UUID?
+
+    override func setUp() {
+        super.setUp()
+        previousProfileID = BrowserProfileStore.shared.lastUsedProfileID
+        // A local browser panel resolves its website data store through the
+        // last-used browser profile, and only the built-in default profile maps
+        // to `WKWebsiteDataStore.default()`. That selection is persisted in
+        // `UserDefaults`, so a profile some other test switched to (in this run
+        // or an earlier one) leaves the local-panel checks below resolving a
+        // leftover profile's store. Pin the built-in default so this suite
+        // tests store scoping instead of machine state.
+        BrowserProfileStore.shared.noteUsed(BrowserProfileStore.shared.builtInDefaultProfileID)
+    }
+
+    override func tearDown() {
+        // The pin above persists through UserDefaults, so put back whatever profile was
+        // selected before this suite ran rather than leaking the built-in default forward.
+        if let previousProfileID {
+            BrowserProfileStore.shared.noteUsed(previousProfileID)
+        }
+        super.tearDown()
+    }
+
     func testRemoteWorkspacePanelsShareWorkspaceScopedWebsiteDataStore() {
         let localPanel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
         let remoteWorkspaceId = UUID()
@@ -5070,11 +5115,13 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
                 "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
                 "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
                 "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_TERMINAL_LIFECYCLE_ID": "33333333-3333-3333-3333-333333333333",
+                "CMUX_SSH_ATTEMPT_ID": "44444444-4444-4444-4444-444444444444",
             ]
         )
 
         XCTAssertTrue(
-            output.contains(#"rpc surface.report_tty {"workspace_id":"11111111-1111-1111-1111-111111111111","tty_name":"ttys777","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
+            output.contains(#"rpc surface.report_tty {"workspace_id":"11111111-1111-1111-1111-111111111111","tty_name":"ttys777","terminal_lifecycle_id":"33333333-3333-3333-3333-333333333333","attempt_id":"44444444-4444-4444-4444-444444444444","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
             output
         )
     }
@@ -5207,11 +5254,13 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
                 "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
                 "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
                 "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_TERMINAL_LIFECYCLE_ID": "33333333-3333-3333-3333-333333333333",
+                "CMUX_SSH_ATTEMPT_ID": "44444444-4444-4444-4444-444444444444",
             ]
         )
 
         XCTAssertTrue(
-            result.stdout.contains(#"rpc surface.report_tty {"workspace_id":"11111111-1111-1111-1111-111111111111","tty_name":"ttys888","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
+            result.stdout.contains(#"rpc surface.report_tty {"workspace_id":"11111111-1111-1111-1111-111111111111","tty_name":"ttys888","terminal_lifecycle_id":"33333333-3333-3333-3333-333333333333","attempt_id":"44444444-4444-4444-4444-444444444444","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
             result.stdout
         )
     }
@@ -5254,11 +5303,13 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
                 "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
                 "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
                 "CMUX_PANEL_ID": "",
+                "CMUX_TERMINAL_LIFECYCLE_ID": "33333333-3333-3333-3333-333333333333",
+                "CMUX_SSH_ATTEMPT_ID": "44444444-4444-4444-4444-444444444444",
             ]
         )
 
         XCTAssertTrue(
-            result.stdout.contains(#"rpc surface.report_tty {"workspace_id":"11111111-1111-1111-1111-111111111111","tty_name":"ttys889"}"#),
+            result.stdout.contains(#"rpc surface.report_tty {"workspace_id":"11111111-1111-1111-1111-111111111111","tty_name":"ttys889","terminal_lifecycle_id":"33333333-3333-3333-3333-333333333333","attempt_id":"44444444-4444-4444-4444-444444444444"}"#),
             result.stdout
         )
         XCTAssertTrue(

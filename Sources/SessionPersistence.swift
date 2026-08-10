@@ -125,6 +125,9 @@ enum SessionRestorePolicy {
     static func isRunningUnderAutomatedTests(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Bool {
+        if environment["CMUX_TEST_PROCESS"] == "1" {
+            return true
+        }
         if environment["CMUX_UI_TEST_MODE"] == "1" {
             return true
         }
@@ -203,10 +206,10 @@ enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
 
     init(selection: SidebarSelection) {
         switch selection {
-        case .tabs:
+        case .tabs, .notifications:
+            // Notifications moved from a window-level overlay to a pane tab.
+            // Never persist the retired overlay selection.
             self = .tabs
-        case .notifications:
-            self = .notifications
         }
     }
 
@@ -215,7 +218,8 @@ enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
         case .tabs:
             return .tabs
         case .notifications:
-            return .notifications
+            // Migrate snapshots written by builds that used the overlay.
+            return .tabs
         }
     }
 }
@@ -261,7 +265,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case name, kind, command, cwd, checkpointId, source
         case environment, autoResume, approvalPolicy, approvalRecordId
-        case launchFlavor, updatedAt
+        case launchCommand, permissionMode, launchFlavor, updatedAt
     }
 
     var name: String?
@@ -271,6 +275,8 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     var checkpointId: String?
     var source: String?
     var environment: [String: String]?
+    var launchCommand: AgentLaunchCommandSnapshot?
+    var permissionMode: String?
     var autoResume: Bool?
     var approvalPolicy: SurfaceResumeApprovalPolicy?
     var approvalRecordId: String?
@@ -287,6 +293,8 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         checkpointId: String? = nil,
         source: String? = nil,
         environment: [String: String]? = nil,
+        launchCommand: AgentLaunchCommandSnapshot? = nil,
+        permissionMode: String? = nil,
         autoResume: Bool? = nil,
         approvalPolicy: SurfaceResumeApprovalPolicy? = nil,
         approvalRecordId: String? = nil,
@@ -307,6 +315,8 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         self.checkpointId = Self.normalized(checkpointId)
         self.source = normalizedSource
         self.environment = Self.normalizedEnvironment(environment)
+        self.launchCommand = Self.normalizedLaunchCommand(launchCommand)
+        self.permissionMode = Self.normalized(permissionMode)
         self.autoResume = autoResume
         self.approvalPolicy = approvalPolicy
         self.approvalRecordId = Self.normalized(approvalRecordId)
@@ -325,6 +335,11 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             checkpointId: try container.decodeIfPresent(String.self, forKey: .checkpointId),
             source: try container.decodeIfPresent(String.self, forKey: .source),
             environment: try container.decodeIfPresent([String: String].self, forKey: .environment),
+            launchCommand: try container.decodeIfPresent(
+                AgentLaunchCommandSnapshot.self,
+                forKey: .launchCommand
+            ),
+            permissionMode: try container.decodeIfPresent(String.self, forKey: .permissionMode),
             autoResume: try container.decodeIfPresent(Bool.self, forKey: .autoResume),
             approvalPolicy: try container.decodeIfPresent(SurfaceResumeApprovalPolicy.self, forKey: .approvalPolicy),
             approvalRecordId: try container.decodeIfPresent(String.self, forKey: .approvalRecordId),
@@ -351,6 +366,10 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         autoResume == true
     }
 
+    var usesLocalRestoreVerb: Bool {
+        launchFlavor == .local
+    }
+
     func shouldYieldToDetectedSurfaceResumeBinding(_ detectedBinding: SurfaceResumeBindingSnapshot) -> Bool {
         detectedBinding.isProcessDetected && (isProcessDetected || isAgentHookBinding)
     }
@@ -358,28 +377,19 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     func retargetingWorkingDirectory(_ workingDirectory: String?) -> SurfaceResumeBindingSnapshot {
         guard isAgentHookBinding else { return self }
         let normalizedCwd = Self.normalized(workingDirectory)
-        let retargetedCommand = TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
+        var retargeted = self
+        retargeted.command = TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
             in: command,
             previousWorkingDirectory: cwd,
             workingDirectory: normalizedCwd
         )
-        return SurfaceResumeBindingSnapshot(
-            name: name,
-            kind: kind,
-            command: retargetedCommand,
-            cwd: normalizedCwd,
-            checkpointId: checkpointId,
-            source: source,
-            environment: environment,
-            autoResume: autoResume,
-            approvalPolicy: approvalPolicy,
-            approvalRecordId: approvalRecordId,
-            launchFlavor: launchFlavor,
-            updatedAt: updatedAt
-        )
+        retargeted.cwd = normalizedCwd
+        if var launchCommand = retargeted.launchCommand {
+            launchCommand.workingDirectory = normalizedCwd
+            retargeted.launchCommand = launchCommand
+        }
+        return retargeted
     }
-    static let maxInlineStartupInputBytes = SessionRestorableAgentSnapshot.maxInlineStartupInputBytes
-
     var startupInput: String? {
         inlineStartupInput
     }
@@ -388,19 +398,8 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         inlineStartupInput(repairPortableAgentExecutable: true)
     }
 
-    func startupInputWithLauncherScript(
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        allowLauncherScript: Bool = true,
-        restoringWorkingDirectory: String? = nil
-    ) -> String? {
-        startupInputWithLauncherScript(
-            fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory,
-            allowLauncherScript: allowLauncherScript,
-            restoringWorkingDirectory: restoringWorkingDirectory,
-            repairPortableAgentExecutable: true
-        )
+    func restoreStartupInput() -> String? {
+        restoreStartupInput(repairPortableAgentExecutable: true)
     }
 
     private static func normalized(_ rawValue: String?) -> String? {
@@ -420,6 +419,15 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             result[key] = item.value
         }
         return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func normalizedLaunchCommand(
+        _ launchCommand: AgentLaunchCommandSnapshot?
+    ) -> AgentLaunchCommandSnapshot? {
+        guard var launchCommand else { return nil }
+        launchCommand.workingDirectory = normalized(launchCommand.workingDirectory)
+        launchCommand.environment = normalizedEnvironment(launchCommand.environment)
+        return launchCommand
     }
 
     private static func isSafeEnvironmentValue(_ value: String) -> Bool {
@@ -1636,6 +1644,8 @@ struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
 /// Marker for a workspace todo pane; the pane has no content of its own (the checklist
 /// persists on the workspace), so the panel `type` plus this empty marker is enough to restore it.
 struct SessionWorkspaceTodoPanelSnapshot: Codable, Sendable {}
+/// Marker for the global notifications pane; its feed lives in the notification store.
+struct SessionNotificationsPanelSnapshot: Codable, Sendable {}
 struct SessionProjectPanelSnapshot: Codable, Sendable {
     var projectPath: String
     var selectedNodePath: String?
@@ -1687,6 +1697,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var agentSession: SessionAgentSessionPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
     var workspaceTodo: SessionWorkspaceTodoPanelSnapshot? = nil
+    var notificationsPanel: SessionNotificationsPanelSnapshot? = nil
 }
 extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}
 
@@ -1791,6 +1802,8 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customTitleSource: Workspace.CustomTitleSource? = nil
     var customDescription: String?
     var customColor: String?
+    var customizationDirectory: String? = nil
+    var usesWorkspaceDirectoryCustomization: Bool? = nil // `nil` infers a legacy local root.
     var isPinned: Bool
     var groupId: UUID? = nil
     var isManuallyUnread: Bool? = nil

@@ -28,7 +28,8 @@ extension ShortcutAction {
              .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal,
              .clearScreenKeepScrollback:
             return .navigation
-        case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
+        case .focusLeft, .focusRight, .focusUp, .focusDown,
+             .focusPreviousPane, .focusNextPane, .splitRight, .splitDown,
              .toggleSplitZoom, .increaseWorkspaceTerminalFontSize,
              .decreaseWorkspaceTerminalFontSize, .resetWorkspaceTerminalFontSize,
              .equalizeSplits, .splitBrowserRight, .splitBrowserDown,

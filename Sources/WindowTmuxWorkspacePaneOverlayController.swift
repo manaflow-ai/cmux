@@ -40,7 +40,8 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
                 activePaneBorderRect: nil,
                 activePaneBorderColorHex: nil,
                 flashStartedAt: nil,
-                flashReason: nil
+                flashReason: nil,
+                workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: nil)
             )
         )
         super.init()
@@ -107,7 +108,8 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
                 activePaneBorderRect: model.activePaneBorderRect,
                 activePaneBorderColorHex: model.activePaneBorderColorHex,
                 flashStartedAt: model.flashStartedAt,
-                flashReason: model.flashReason
+                flashReason: model.flashReason,
+                workspaceAttentionColor: model.workspaceAttentionColor
             )
             containerView.alphaValue = 1
             containerView.isHidden = false
@@ -120,11 +122,17 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
                 activePaneBorderRect: nil,
                 activePaneBorderColorHex: nil,
                 flashStartedAt: nil,
-                flashReason: nil
+                flashReason: nil,
+                workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: nil)
             )
             containerView.alphaValue = 0
             containerView.isHidden = true
         }
+    }
+
+    func updateWorkspaceAttentionColor(_ color: WorkspaceAttentionColor) {
+        guard let lastRenderState else { return }
+        update(state: lastRenderState.replacingWorkspaceAttentionColor(with: color))
     }
 
     func scheduleGeometryRefresh(stateProvider: @MainActor @escaping () -> TmuxWorkspacePaneOverlayRenderState?) {

@@ -12,7 +12,6 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
     private let isRunningUnderAutomatedTests: @Sendable () -> Bool
     private let truncateScrollback: @Sendable (String?) -> String?
     private let hermesCodexEnvironment: WorkspaceHermesCodexEnvironment
-    private let temporaryDirectory: URL
 
     /// Creates a restore policy service.
     public init(
@@ -20,15 +19,13 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
         shouldRunPromptedSurfaceResume: @escaping @Sendable (Binding) -> Bool,
         isRunningUnderAutomatedTests: @escaping @Sendable () -> Bool,
         truncateScrollback: @escaping @Sendable (String?) -> String?,
-        hermesCodexEnvironment: WorkspaceHermesCodexEnvironment,
-        temporaryDirectory: URL
+        hermesCodexEnvironment: WorkspaceHermesCodexEnvironment
     ) {
         self.applyStoredApproval = applyStoredApproval
         self.shouldRunPromptedSurfaceResume = shouldRunPromptedSurfaceResume
         self.isRunningUnderAutomatedTests = isRunningUnderAutomatedTests
         self.truncateScrollback = truncateScrollback
         self.hermesCodexEnvironment = hermesCodexEnvironment
-        self.temporaryDirectory = temporaryDirectory
     }
 
     /// Resolves the scrollback text persisted for a terminal snapshot.
@@ -80,11 +77,9 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
     public func surfaceResumeStartupInput(
         _ resumeBinding: Binding?,
         autoResumeAgentSessions: Bool,
-        allowLauncherScript: Bool = false,
         promptForApproval: Bool = true,
         approvalStoreURL: URL,
-        approvalSigningSecret: Data? = nil,
-        fileManager: FileManager = .default
+        approvalSigningSecret: Data? = nil
     ) -> String? {
         guard let effectiveBinding = approvedSurfaceResumeBinding(
             resumeBinding,
@@ -95,24 +90,16 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
         ) else {
             return nil
         }
-        return effectiveBinding.startupInputWithLauncherScript(
-            fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory,
-            allowLauncherScript: allowLauncherScript,
-            restoringWorkingDirectory: nil
-        )
+        return effectiveBinding.restoreStartupInput()
     }
 
     /// Returns post-start input for a restored surface resume binding.
     public func surfaceResumeStartupLaunch(
         _ resumeBinding: Binding?,
         autoResumeAgentSessions: Bool,
-        allowLauncherScript: Bool = true,
         promptForApproval: Bool = true,
         approvalStoreURL: URL,
-        approvalSigningSecret: Data? = nil,
-        fileManager: FileManager = .default,
-        restoringWorkingDirectory: String? = nil
+        approvalSigningSecret: Data? = nil
     ) -> WorkspaceSurfaceResumeStartupLaunch? {
         guard let effectiveBinding = approvedSurfaceResumeBinding(
             resumeBinding,
@@ -124,29 +111,28 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
             return nil
         }
         return surfaceResumeStartupLaunch(
-            forApprovedBinding: effectiveBinding,
-            allowLauncherScript: allowLauncherScript,
-            fileManager: fileManager,
-            restoringWorkingDirectory: restoringWorkingDirectory
+            forApprovedBinding: effectiveBinding
         )
     }
 
     /// Returns post-start input for an already approved binding.
     public func surfaceResumeStartupLaunch(
-        forApprovedBinding effectiveBinding: Binding,
-        allowLauncherScript: Bool = true,
-        fileManager: FileManager = .default,
-        restoringWorkingDirectory: String? = nil
+        forApprovedBinding effectiveBinding: Binding
     ) -> WorkspaceSurfaceResumeStartupLaunch? {
-        guard let input = effectiveBinding.startupInputWithLauncherScript(
-            fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory,
-            allowLauncherScript: allowLauncherScript,
-            restoringWorkingDirectory: restoringWorkingDirectory
-        ) else {
+        guard let input = effectiveBinding.restoreStartupInput() else {
             return nil
         }
         return .input(input)
+    }
+
+    /// Prepares a binding used only when a legacy shell command must be restored.
+    ///
+    /// - Parameter binding: The persisted binding whose structured fields remain authoritative.
+    /// - Returns: A copy with compatibility-only provider setup applied to its shell command.
+    public func bindingForCompatibilityShellRestore(_ binding: Binding) -> Binding {
+        WorkspaceHermesAgentCommandBootstrapper(
+            hermesCodexEnvironment: hermesCodexEnvironment
+        ).bindingForStartup(binding)
     }
 
     /// Applies stored approval state and returns the binding allowed to run.
@@ -165,9 +151,9 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
         ) else {
             return nil
         }
-        effectiveBinding = WorkspaceHermesAgentCommandBootstrapper(
-            hermesCodexEnvironment: hermesCodexEnvironment
-        ).bindingForStartup(effectiveBinding)
+        if !effectiveBinding.usesLocalRestoreVerb {
+            effectiveBinding = bindingForCompatibilityShellRestore(effectiveBinding)
+        }
         if effectiveBinding.source == "agent-hook", !autoResumeAgentSessions {
             return nil
         }

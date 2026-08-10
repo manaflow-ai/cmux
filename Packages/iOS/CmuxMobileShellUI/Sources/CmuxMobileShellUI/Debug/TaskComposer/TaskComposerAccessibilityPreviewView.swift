@@ -51,6 +51,16 @@ public struct TaskComposerAccessibilityPreviewView: View {
             "CMUX_UITEST_TASK_COMPOSER_OPEN_DIRECTORY_PREVIEW"
         ] == "1"
         let templateStore = TaskComposerAccessibilityTemplateStore()
+        if environment["CMUX_UITEST_TASK_COMPOSER_LONG_PROMPT"] == "1" {
+            templateStore.setComposerDraft(MobileTaskComposerDraft(
+                prompt: Self.longPrompt,
+                templateID: templateStore.listTemplates().first?.id,
+                macDeviceID: Self.previewMac.macDeviceID,
+                macInstanceTag: Self.previewMac.instanceTag,
+                directory: "~",
+                didEditDirectory: false
+            ))
+        }
         if presentsOpenDirectory {
             templateStore.setLastDirectory(
                 "/Users/ui/previous-task",
@@ -197,6 +207,10 @@ public struct TaskComposerAccessibilityPreviewView: View {
         stackUserID: nil,
         instanceTag: "nightly"
     )
+
+    private static let longPrompt = (1...80)
+        .map { "Prompt line \($0): keep the editor scroll gesture inside the text canvas." }
+        .joined(separator: "\n")
 
     private static let stablePreviewMac = MobilePairedMac(
         macDeviceID: "task-composer-preview-mac",

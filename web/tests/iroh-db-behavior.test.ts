@@ -1279,6 +1279,95 @@ describe("Iroh trust broker database behavior", () => {
 
     expect(pageCounts).toEqual([128, 128, 45]);
     expect(bindingIds.size).toBe(301);
+    const complete = await Effect.runPromise(repo.discoverySnapshot({
+      userId,
+      now: new Date(NOW.getTime() + 302_000),
+    }));
+    expect(complete.bindings).toHaveLength(301);
+    expect(complete.accountRevision).toBe(registration.accountRevision);
+  });
+
+  dbTest("filters scoped discovery in the authoritative SQL snapshot", async () => {
+    const repo = requiredRepository();
+    const userId = "user-scoped-discovery";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const localId = await insertBinding({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      endpointId: "d1".repeat(32),
+      platform: "ios",
+      tag: "stable",
+    });
+    const eligibleMacId = await insertBinding({
+      userId,
+      endpointId: "d2".repeat(32),
+      platform: "mac",
+      tag: "FeatureA",
+      pairingEnabled: true,
+    });
+    await insertBinding({
+      userId,
+      endpointId: "d3".repeat(32),
+      platform: "mac",
+      tag: "other",
+      pairingEnabled: true,
+    });
+    await insertBinding({
+      userId,
+      endpointId: "d4".repeat(32),
+      platform: "mac",
+      tag: "default",
+      pairingEnabled: false,
+    });
+    await insertBinding({
+      userId,
+      endpointId: "d5".repeat(32),
+      platform: "ios",
+      tag: "stable",
+    });
+    const revokedMacId = await insertBinding({
+      userId,
+      endpointId: "d6".repeat(32),
+      platform: "mac",
+      tag: "nightly",
+      pairingEnabled: true,
+    });
+    await requiredSql()`
+      update iroh_endpoint_bindings
+      set revoked_at = ${NOW}, revoked_reason = 'test'
+      where id = ${revokedMacId}
+    `;
+    await insertBinding({
+      userId: "other-user",
+      endpointId: "d7".repeat(32),
+      platform: "mac",
+      tag: "default",
+      pairingEnabled: true,
+    });
+
+    const snapshot = await Effect.runPromise(repo.discoverySnapshot({
+      userId,
+      now: NOW,
+      scope: {
+        localBinding: {
+          deviceId,
+          appInstanceId,
+          tag: "stable",
+          platform: "ios",
+        },
+        peerBindings: {
+          platform: "mac",
+          tags: ["featurea", "nightly"],
+          pairingEnabled: true,
+        },
+      },
+    }));
+
+    expect(snapshot.bindings.map((binding) => binding.id)).toEqual(
+      [localId, eligibleMacId].sort(),
+    );
   });
 
   dbTest("enforces the UDP port range for each direct-address family", async () => {
@@ -1333,7 +1422,7 @@ describe("Iroh trust broker database behavior", () => {
       userId: "user-revoked-direct-ports",
       bindingId,
       now: NOW,
-    }))).toBe(true);
+    }))).toEqual({ revoked: true, accountRevision: 1 });
 
     const [stored] = await requiredSql()<Array<{
       directPortV4: number | null;
@@ -1388,7 +1477,7 @@ describe("Iroh trust broker database behavior", () => {
       userId,
       bindingId: firstBindingId,
       now: NOW,
-    }))).toBe(true);
+    }))).toEqual({ revoked: true, accountRevision: 1 });
     const afterFirstRevoke = await Effect.runPromise(repo.discoveryPage({
       userId,
       now: NOW,
@@ -1400,7 +1489,7 @@ describe("Iroh trust broker database behavior", () => {
       userId,
       bindingId: firstBindingId,
       now: new Date(NOW.getTime() + 60_000),
-    }))).toBe(true);
+    }))).toEqual({ revoked: true, accountRevision: 1 });
     const [retriedBinding] = await requiredSql()<Array<{ revokedAt: Date }>>`
       select revoked_at as "revokedAt"
       from iroh_endpoint_bindings
@@ -1416,14 +1505,14 @@ describe("Iroh trust broker database behavior", () => {
       userId: "user-lan-other",
       bindingId: firstBindingId,
       now: NOW,
-    }))).toBe(false);
+    }))).toEqual({ revoked: false, accountRevision: 0 });
     expect(await Effect.runPromise(repo.revokeBinding({
       userId,
       bindingId: randomUUID(),
       now: NOW,
-    }))).toBe(false);
+    }))).toEqual({ revoked: false, accountRevision: 1 });
 
-    let concurrentDiscovery: ReturnType<typeof Effect.runPromise> | undefined;
+    let concurrentSnapshot: ReturnType<typeof Effect.runPromise> | undefined;
     await requiredSql().begin(async (revocationSql) => {
       await revocationSql`
         select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${userId}`}, 0))
@@ -1436,20 +1525,22 @@ describe("Iroh trust broker database behavior", () => {
       `;
       await revocationSql`
         update iroh_account_security_states
-        set lan_discovery_generation = lan_discovery_generation + 1, updated_at = ${NOW}
+        set lan_discovery_generation = lan_discovery_generation + 1,
+            route_revision = route_revision + 1,
+            updated_at = ${NOW}
         where user_id = ${userId}
       `;
-      concurrentDiscovery = Effect.runPromise(repo.discoveryPage({
+      concurrentSnapshot = Effect.runPromise(repo.discoverySnapshot({
         userId,
         now: NOW,
-        pageSize: 256,
       }));
       await waitForAdvisoryLockWaiter();
     });
-    if (!concurrentDiscovery) throw new Error("concurrent discovery was not started");
-    const afterConcurrentRevoke = await concurrentDiscovery;
+    if (!concurrentSnapshot) throw new Error("concurrent discovery was not started");
+    const afterConcurrentRevoke = await concurrentSnapshot;
     expect(afterConcurrentRevoke).toMatchObject({
       lanDiscoveryGeneration: 3,
+      accountRevision: 2,
       bindings: [],
     });
     const otherAfter = await Effect.runPromise(repo.discoveryPage({
@@ -1660,7 +1751,7 @@ describe("Iroh trust broker database behavior", () => {
       userId: "user-relay-race",
       bindingId,
       now: new Date(NOW.getTime() + 1_000),
-    }))).toBe(true);
+    }))).toEqual({ revoked: true, accountRevision: 1 });
     expect(await Effect.runPromise(repo.completeRelayIssuance({
       userId: "user-relay-race",
       issuanceId: reservation.issuanceId,
@@ -1981,6 +2072,7 @@ async function insertBinding(input: {
   readonly endpointId: string;
   readonly platform?: "mac" | "ios";
   readonly tag?: string;
+  readonly pairingEnabled?: boolean;
   readonly pathHints?: unknown[];
 }): Promise<string> {
   const [row] = await requiredSql()<Array<{ id: string }>>`
@@ -1990,7 +2082,8 @@ async function insertBinding(input: {
       path_hints_next_expiry
     ) values (
       ${input.userId}, ${input.deviceUuid ?? randomUUID()}, ${input.appInstanceId ?? randomUUID()}, ${input.tag ?? "stable"},
-      ${input.platform ?? "mac"}, ${input.endpointId}, 1, true, '[]'::jsonb,
+      ${input.platform ?? "mac"}, ${input.endpointId}, 1,
+      ${input.pairingEnabled ?? true}, '[]'::jsonb,
       ${requiredSql().json((input.pathHints ?? []) as never)},
       ${earliestStoredHintExpiry(input.pathHints ?? [])}
     ) returning id::text

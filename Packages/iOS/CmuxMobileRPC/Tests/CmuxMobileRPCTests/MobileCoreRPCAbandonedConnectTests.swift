@@ -195,7 +195,7 @@ import Testing
             allowsStackAuthFallback: true
         )
 
-        for id in ["stuck-connect-1", "stuck-connect-2", "stuck-connect-3"] {
+        for (index, id) in ["stuck-connect-1", "stuck-connect-2", "stuck-connect-3"].enumerated() {
             let request = try MobileCoreRPCClient.requestData(
                 method: "terminal.input",
                 params: [
@@ -207,10 +207,11 @@ import Testing
             )
             do {
                 _ = try await client.sendRequest(request)
-                Issue.record("Expected \(id) to time out")
-            } catch MobileShellConnectionError.requestTimedOut {
+                Issue.record("Expected \(id) to fail")
+            } catch MobileShellConnectionError.requestTimedOut where index == 0 {
+            } catch MobileShellConnectionError.routeCleanupBlocked where index > 0 {
             } catch {
-                Issue.record("Expected requestTimedOut for \(id), got \(error)")
+                Issue.record("Expected bounded admission failure for \(id), got \(error)")
             }
         }
 
@@ -278,9 +279,9 @@ import Testing
             do {
                 _ = try await client.sendRequest(retryRequest)
                 Issue.record("Expected \(id) to be rejected while cancelled connect cleanup is stuck")
-            } catch MobileShellConnectionError.requestTimedOut {
+            } catch MobileShellConnectionError.routeCleanupBlocked {
             } catch {
-                Issue.record("Expected requestTimedOut for \(id), got \(error)")
+                Issue.record("Expected routeCleanupBlocked for \(id), got \(error)")
             }
         }
 
@@ -521,6 +522,60 @@ import Testing
             return
         }
         await registry.finishConnect(lease: nextLease)
+    }
+
+    @Test func activeRouteAdmissionReportsRouteGatedInsteadOfTimedOut()
+        async throws {
+        let registry = MobileRPCConnectAttemptRegistry()
+        let key = debugConnectAttemptKey(port: 59_134)
+        let firstTransport = ReleasableConnectTransport()
+        let firstSession = MobileCoreRPCSession(
+            connectAttemptKey: key,
+            connectAttemptRegistry: registry,
+            makeTransport: { firstTransport }
+        )
+        let secondSession = MobileCoreRPCSession(
+            connectAttemptKey: key,
+            connectAttemptRegistry: registry,
+            makeTransport: {
+                Issue.record("Gated route must not allocate transport")
+                return ReleasableConnectTransport()
+            }
+        )
+        let firstTask = Task {
+            try await firstSession.send(
+                payload: MobileCoreRPCClient.requestData(
+                    method: "mobile.host.status",
+                    id: "active-route-owner"
+                ),
+                requestID: "active-route-owner",
+                deadlineUptimeNanoseconds:
+                    DispatchTime.now().uptimeNanoseconds
+                    + 60_000_000_000
+            )
+        }
+        #expect(await firstTransport.waitUntilConnectStarted())
+
+        do {
+            _ = try await secondSession.send(
+                payload: MobileCoreRPCClient.requestData(
+                    method: "mobile.host.status",
+                    id: "active-route-contender"
+                ),
+                requestID: "active-route-contender",
+                deadlineUptimeNanoseconds:
+                    DispatchTime.now().uptimeNanoseconds
+                    + 60_000_000_000
+            )
+            Issue.record("Expected route gate to reject concurrent admission")
+        } catch MobileShellConnectionError.connectAttemptGated {
+        } catch {
+            Issue.record("Expected connectAttemptGated, got \(error)")
+        }
+
+        await firstTransport.releaseConnect()
+        _ = try await firstTask.value
+        await firstSession.tearDown(error: .connectionClosed)
     }
 
     @Test func connectAttemptKeySeparatesPeersAndIgnoresIrohHintChurn()

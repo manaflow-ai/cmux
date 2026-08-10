@@ -117,8 +117,9 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
 
     /// Create a brand-new workspace inheriting the anchor's cwd, attach it
     /// to the group, and position it within the group's tabs[] range per
-    /// `placement`. The customization flag lets generated-purpose workspaces
-    /// opt out of inheriting project identity. Returns the new workspace.
+    /// `placement`. Generated-purpose workspaces can keep a creation title as
+    /// automatic metadata instead of adopting it as a user-owned custom title.
+    /// Returns the new workspace.
     @discardableResult
     public func createWorkspaceInGroup(
         groupId: UUID,

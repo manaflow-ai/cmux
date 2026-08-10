@@ -334,6 +334,73 @@ struct RemoteInitialCommandBootstrapTests {
         #expect(recordedInvocations == "execute|\(home.path)|remote-only\ninteractive\ninteractive\n")
     }
 
+    @Test("relay TTY registration completes before the interactive shell starts")
+    func relayTTYRegistrationCompletesBeforeInteractiveShellStarts() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-relay-ready-bootstrap-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home")
+        let bin = root.appendingPathComponent("bin")
+        let cmuxBin = home.appendingPathComponent(".cmux/bin")
+        let fakeCmux = cmuxBin.appendingPathComponent("cmux")
+        let fakeShell = bin.appendingPathComponent("test-shell")
+        let reportStatus = root.appendingPathComponent("report-status")
+        let shellStarted = root.appendingPathComponent("shell-started")
+        try fileManager.createDirectory(at: cmuxBin, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let persistentPTYExecHelper = try writePersistentPTYExecHelper(to: bin)
+        try """
+        #!/bin/sh
+        if [ "${1:-}" = rpc ] && [ "${2:-}" = surface.report_tty ]; then
+          cmux_wait_count=0
+          while [ "$cmux_wait_count" -lt 100 ] && [ ! -e "$CMUX_TEST_SHELL_STARTED" ]; do
+            cmux_wait_count=$((cmux_wait_count + 1))
+            sleep 0.01
+          done
+          if [ -e "$CMUX_TEST_SHELL_STARTED" ]; then
+            printf raced > "$CMUX_TEST_REPORT_STATUS"
+          else
+            printf ready > "$CMUX_TEST_REPORT_STATUS"
+          fi
+        fi
+        printf '{"ok":true}\\n'
+        """.write(to: fakeCmux, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCmux.path)
+        try """
+        #!/bin/sh
+        : > "$CMUX_TEST_SHELL_STARTED"
+        cmux_wait_count=0
+        while [ "$cmux_wait_count" -lt 100 ] && [ ! -s "$CMUX_TEST_REPORT_STATUS" ]; do
+          cmux_wait_count=$((cmux_wait_count + 1))
+          sleep 0.01
+        done
+        cat "$CMUX_TEST_REPORT_STATUS"
+        """.write(to: fakeShell, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeShell.path)
+
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 64011,
+            shellFeatures: "ssh-env,ssh-terminfo"
+        )
+        let result = try runShell(script, environment: [
+            "CMUX_BOOTSTRAP_TTY": "ttys990",
+            "CMUX_PERSISTENT_PTY_EXEC_HELPER": persistentPTYExecHelper.path,
+            "CMUX_SSH_ATTEMPT_ID": "44444444-4444-4444-4444-444444444444",
+            "CMUX_TERMINAL_LIFECYCLE_ID": "33333333-3333-3333-3333-333333333333",
+            "CMUX_TEST_REPORT_STATUS": reportStatus.path,
+            "CMUX_TEST_SHELL_STARTED": shellStarted.path,
+            "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+            "HOME": home.path,
+            "PATH": "\(bin.path):/usr/bin:/bin",
+            "SHELL": fakeShell.path,
+        ])
+
+        #expect(result.status == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
+        #expect(result.stdout == "ready")
+    }
+
     @Test
     func whitespaceOnlyCommandDoesNotAddBootstrapWork() {
         let bootstrap = RemoteInitialCommandBootstrap(command: " \n\t ")

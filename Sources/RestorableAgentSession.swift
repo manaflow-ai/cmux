@@ -509,7 +509,7 @@ enum AgentResumeCommandBuilder {
         return environmentParts
     }
 
-    private static func resumeArguments(
+    fileprivate static func resumeArguments(
         kind: RestorableAgentKind,
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
@@ -773,7 +773,7 @@ enum AgentResumeCommandBuilder {
 }
 
 struct SessionRestorableAgentSnapshot: Codable, Sendable {
-    static let maxInlineStartupInputBytes = 900
+    private static let maxInlineForkInputBytes = 900
 
     var kind: RestorableAgentKind
     var sessionId: String
@@ -784,32 +784,44 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     /// user-owned claude resume/fork when no explicit launch flag covers it.
     var permissionMode: String? = nil
 
+    func preparedResumeArguments(
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        observedPermissionMode: String?
+    ) -> [String]? {
+        AgentResumeCommandBuilder.resumeArguments(
+            kind: kind,
+            sessionId: sessionId,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            customRegistration: registration,
+            observedPermissionMode: observedPermissionMode
+        )
+    }
+
     func resumeStartupInput(
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        allowLauncherScript: Bool = true,
-        allowOversizedInlineInput: Bool = false,
+        useLocalRestoreVerb: Bool = true,
         restoringWorkingDirectory: String? = nil
     ) -> String? {
+        if useLocalRestoreVerb {
+            let executable = AgentRestoreLaunch.cliStartupExecutableToken
+            guard AgentRestoreCLIArgument(rawValue: kind.rawValue) != nil,
+                  AgentRestoreCLIArgument(rawValue: sessionId) != nil else {
+                return " \(executable) restore --surface\n"
+            }
+            return " \(executable) restore \(kind.rawValue) \(sessionId)\n"
+        }
         let effectiveWorkingDirectory = resumeWorkingDirectory(
             preferred: restoringWorkingDirectory
         )
         let restoreCommand = resumeCommand(
-            includeWorkingDirectoryPrefix: !allowLauncherScript,
+            includeWorkingDirectoryPrefix: true,
             restoringWorkingDirectory: effectiveWorkingDirectory
         ).map { command in
             AgentRestoreLaunch(kind: kind.rawValue, sessionID: sessionId)?
                 .applying(toStoredCommand: command) ?? command
         }
-        return startupInput(
-            command: restoreCommand,
-            workingDirectory: allowLauncherScript ? effectiveWorkingDirectory : nil,
-            fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory,
-            allowLauncherScript: allowLauncherScript,
-            allowOversizedInlineInput: allowOversizedInlineInput,
-            alwaysUseLauncherScript: allowLauncherScript
-        )
+        return restoreCommand.map { $0 + "\n" }
     }
 
     func forkStartupInput(
@@ -831,16 +843,11 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         workingDirectory: String?,
         fileManager: FileManager,
         temporaryDirectory: URL,
-        allowLauncherScript: Bool = true,
-        allowOversizedInlineInput: Bool = false,
-        alwaysUseLauncherScript: Bool = false
+        allowLauncherScript: Bool = true
     ) -> String? {
         guard let command else { return nil }
         let inlineInput = command + "\n"
-        guard alwaysUseLauncherScript || inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
-            return inlineInput
-        }
-        guard alwaysUseLauncherScript || !allowOversizedInlineInput else {
+        guard inlineInput.utf8.count > Self.maxInlineForkInputBytes else {
             return inlineInput
         }
         guard allowLauncherScript else { return nil }
@@ -853,7 +860,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         ) else {
             return nil
         }
-        return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
+        return scriptInput.utf8.count <= Self.maxInlineForkInputBytes ? scriptInput : nil
     }
 
     private func resumeWorkingDirectory(preferred: String?) -> String? {
@@ -917,6 +924,14 @@ struct RestorableAgentSessionIndex: Sendable {
     private struct SessionKey: Hashable {
         let kind: RestorableAgentKind
         let sessionId: String
+
+        init(kind: RestorableAgentKind, sessionId: String) {
+            self.kind = kind
+            self.sessionId = ManagedAgentSessionIdentity.canonicalSessionID(
+                kind: kind.rawValue,
+                sessionID: sessionId
+            )
+        }
     }
 
     private struct PanelKindKey: Hashable {
@@ -1236,7 +1251,11 @@ struct RestorableAgentSessionIndex: Sendable {
                         entry: shouldReplace ? entry : existingPanelIDCandidate.entry,
                         isAmbiguous: existingPanelIDCandidate.isAmbiguous ||
                             existingPanelIDCandidate.panelKey != key ||
-                            existingPanelIDCandidate.entry.snapshot.sessionId != entry.snapshot.sessionId
+                            !ManagedAgentSessionIdentity.sessionIDsMatch(
+                                kind: kind.rawValue,
+                                lhs: existingPanelIDCandidate.entry.snapshot.sessionId,
+                                rhs: entry.snapshot.sessionId
+                            )
                     )
                 } else {
                     hookCandidatesByPanelIdAndKind[panelIDKindKey] = PanelIDKindCandidate(
@@ -1377,7 +1396,11 @@ struct RestorableAgentSessionIndex: Sendable {
         [resolved, panelCandidate, sessionCandidate].compactMap { $0 }
             .filter {
                 $0.snapshot.kind == snapshot.kind &&
-                    $0.snapshot.sessionId == snapshot.sessionId
+                    ManagedAgentSessionIdentity.sessionIDsMatch(
+                        kind: snapshot.kind.rawValue,
+                        lhs: $0.snapshot.sessionId,
+                        rhs: snapshot.sessionId
+                    )
             }
             .max { $0.updatedAt < $1.updatedAt }
     }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import SwiftUI
 
 enum InternalFlagsPresenter {
@@ -44,6 +45,10 @@ private final class InternalFlagsWindowController: NSWindowController {
 
 private struct InternalFlagsView: View {
     let flags: CmuxFeatureFlags
+#if DEBUG
+    @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
+    private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
+#endif
 
     private var rows: [InternalFlagRowSnapshot] {
         CmuxFeatureFlags.allFlags.map { definition in
@@ -77,6 +82,20 @@ private struct InternalFlagsView: View {
 
             ScrollView {
                 LazyVStack(spacing: 0) {
+#if DEBUG
+                    InternalBooleanSettingRow(
+                        title: String(
+                            localized: "debug.devBuildBanner.show",
+                            defaultValue: "Show Dev Build Banner"
+                        ),
+                        key: DevBuildBannerDebugSettings.sidebarBannerVisibleKey,
+                        settingDescription: String(
+                            localized: "debug.devBuildBanner.description",
+                            defaultValue: "Controls the red debug-build label below the sidebar footer."
+                        ),
+                        isOn: $showSidebarDevBuildBanner
+                    )
+#endif
                     ForEach(rows) { row in
                         InternalFlagRow(
                             snapshot: row,
@@ -110,6 +129,83 @@ private struct InternalFlagsView: View {
         }
         .frame(minWidth: 760, minHeight: 420)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
+#if DEBUG
+private struct InternalBooleanSettingRow: View {
+    let title: String
+    let key: String
+    let settingDescription: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        InternalFlagRowLayout(
+            title: title,
+            key: key,
+            flagDescription: settingDescription,
+            effectiveValue: isOn,
+            sourceTitle: String(localized: "featureFlags.source.local", defaultValue: "Local")
+        ) {
+            Picker(
+                String(localized: "featureFlags.override.pickerLabel", defaultValue: "Override"),
+                selection: $isOn
+            ) {
+                Text(String(localized: "featureFlags.override.on", defaultValue: "On"))
+                    .tag(true)
+                Text(String(localized: "featureFlags.override.off", defaultValue: "Off"))
+                    .tag(false)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 240)
+            .accessibilityIdentifier("InternalFlagsDevBuildBannerPicker")
+        }
+    }
+}
+#endif
+
+private struct InternalFlagRowLayout<OverrideControl: View>: View {
+    let title: String
+    let key: String
+    let flagDescription: String
+    let effectiveValue: Bool
+    let sourceTitle: String
+    @ViewBuilder let overrideControl: () -> OverrideControl
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                    .lineLimit(1)
+                Text(key)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                Text(flagDescription)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            InternalFlagValueBadge(isOn: effectiveValue)
+                .frame(width: 96, alignment: .leading)
+
+            Text(sourceTitle)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(width: 96, alignment: .leading)
+
+            overrideControl()
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 14)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
     }
 }
 
@@ -173,30 +269,13 @@ private struct InternalFlagRow: View {
     let setOverride: (Bool?) -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(snapshot.definition.title)
-                    .font(.headline)
-                    .lineLimit(1)
-                Text(snapshot.definition.key)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                Text(snapshot.definition.flagDescription)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            InternalFlagValueBadge(isOn: snapshot.resolution.effectiveValue)
-                .frame(width: 96, alignment: .leading)
-
-            Text(snapshot.sourceTitle)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .frame(width: 96, alignment: .leading)
-
+        InternalFlagRowLayout(
+            title: snapshot.definition.title,
+            key: snapshot.definition.key,
+            flagDescription: snapshot.definition.flagDescription,
+            effectiveValue: snapshot.resolution.effectiveValue,
+            sourceTitle: snapshot.sourceTitle
+        ) {
             VStack(alignment: .leading, spacing: 4) {
                 Picker(
                     String(localized: "featureFlags.override.pickerLabel", defaultValue: "Override"),
@@ -223,12 +302,6 @@ private struct InternalFlagRow: View {
                 }
             }
             .frame(width: 240)
-        }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 14)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .overlay(alignment: .bottom) {
-            Divider()
         }
     }
 }

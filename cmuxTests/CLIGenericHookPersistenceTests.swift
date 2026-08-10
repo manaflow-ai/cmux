@@ -314,7 +314,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }
@@ -582,7 +582,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ]
 
         func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
-            let serverHandled = startAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 4)
+            let serverHandled = startAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId)
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "hermes-agent", subcommand],
@@ -1369,7 +1369,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "GROK_HOME": grokHome.path,
         ]
 
-        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 80)
+        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId)
 
         func runGrokHook(_ subcommand: String, input: String) -> ProcessRunResult {
             let result = runProcess(
@@ -1791,11 +1791,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(fallback.stdout, "{}\n")
 
         let fallbackCommands = Array(state.commands.dropFirst(fallbackCommandStart))
-        XCTAssertTrue(
+        XCTAssertFalse(
             fallbackCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(waitingMessage)")
             },
-            "Expected empty Grok Notification payload to reuse the saved message, saw \(fallbackCommands)"
+            "Expected the saved-message fallback to dedupe the notification already delivered for that message, saw \(fallbackCommands)"
         )
         XCTAssertTrue(
             fallbackCommands.contains { $0.contains("set_status grok Grok needs input") },
@@ -1889,11 +1889,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(neutralFallback.stdout, "{}\n")
 
         let neutralFallbackCommands = Array(state.commands.dropFirst(neutralFallbackCommandStart))
-        XCTAssertTrue(
+        XCTAssertFalse(
             neutralFallbackCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(incompleteWaitingMessage)")
             },
-            "Expected empty payload to reuse the last terminal saved notification, saw \(neutralFallbackCommands)"
+            "Expected the saved-message fallback to dedupe the notification already delivered for that message, saw \(neutralFallbackCommands)"
         )
         XCTAssertTrue(
             neutralFallbackCommands.contains { $0.contains("set_status grok Grok needs input") },
@@ -3059,15 +3059,32 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try JSONSerialization.data(withJSONObject: legacyHookJSON, options: [.prettyPrinted, .sortedKeys])
             .write(to: codexHome.appendingPathComponent("hooks.json", isDirectory: false), options: .atomic)
 
+        let inheritedEnvironment = [
+            "HOME": root.path,
+            "CFFIXED_USER_HOME": root
+                .appendingPathComponent("inherited-app-host", isDirectory: true).path,
+            "XDG_CONFIG_HOME": root
+                .appendingPathComponent("inherited-app-host/.config", isDirectory: true).path,
+            "CMUX_APP_HOST_ISOLATION_REQUIRED": "1",
+            "CODEX_HOME": codexHome.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        let environmentResult = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [],
+            environment: inheritedEnvironment,
+            timeout: 5
+        )
+        XCTAssertEqual(environmentResult.status, 0, environmentResult.stderr)
+        let childEnvironment = Set(environmentResult.stdout.split(separator: "\n").map(String.init))
+        XCTAssertTrue(childEnvironment.contains("CFFIXED_USER_HOME=\(root.path)"))
+        XCTAssertTrue(childEnvironment.contains("XDG_CONFIG_HOME=\(root.path)/.config"))
+
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "install", "--yes"],
-            environment: [
-                "HOME": root.path,
-                "CODEX_HOME": codexHome.path,
-                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "CMUX_CLI_SENTRY_DISABLED": "1",
-            ],
+            environment: inheritedEnvironment,
             timeout: 5
         )
 

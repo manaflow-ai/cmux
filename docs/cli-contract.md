@@ -67,6 +67,7 @@ Environment:
 | `enable-browser` | Re-enable cmux browser creation and link interception. |
 | `browser-status` | Print whether cmux browser creation and link interception are enabled. |
 | `agent-hibernation` | Enable or disable routine Agent Hibernation. |
+| `restore` | Replace the CLI with a process restored from structured surface state. |
 | `restore-session` | Restore the previously saved cmux session. |
 | `open` | Open files, directories, or URLs in cmux. |
 | `feedback` | Open feedback UI or submit feedback with `--email`, `--body`, and repeated `--image`. |
@@ -101,6 +102,7 @@ Environment:
 | `workspace-action` | Run workspace context-menu actions from the CLI. |
 | `workspace` | Namespace for workspace verbs: `list`, `create`, `env`, `close`, `rename`, `select`, `status`, `reconnect`, `disconnect`, `group`. `workspace status` prints the workspace's todo lifecycle status (effective, inferred, override); `workspace status set <todo\|working\|needs-attention\|review\|done\|auto>` pins a manual lane (`auto` clears it; a pinned lane auto-clears once the inferred lane changes). `workspace env` prints a workspace's configured environment variables (see [Workspace environment variables](#workspace-environment-variables)); pass `--mask` to redact the values. `workspace reconnect` manually reconnects a remote (SSH) workspace — including one whose automatic reconnect suspended because the host was unreachable — and `workspace disconnect` stops its remote connection. `env`, `reconnect`, and `disconnect` accept a positional workspace handle or `--workspace <id\|ref\|index>`, defaulting to the caller's workspace, then the selected one. |
 | `todo` | Per-workspace checklist namespace: `add "text" [--state <pending\|in-progress\|completed>] [--origin <user\|agent>]`, `list`, `check <index\|id>`, `uncheck <index\|id>`, `start <index\|id>` (in-progress), `edit <index\|id> "text"`, `rm <index\|id>`, `clear`, `set ['<json>']` (atomic replace from a JSON item array, inline or piped on stdin), `open` (open or focus the workspace's todo pane). Targets the caller's workspace by default with `--workspace <id\|ref\|index>` override; `<index>` is the 1-based number printed by `todo list`. Items cap at 50 per workspace. See [Workspace todos](#workspace-todos). |
+| `comments` | Diff review comments namespace: `list` (alias `ls`) `[--repo <path>] [--all] [--json]` — read-only listing of review comments saved from the diff viewer for one git repository (default: the repository containing the current directory). Pending comments only by default; `--all` includes comments already delivered to an agent through a TextBox submission. Backed by the socket v2 method `comments.list`. |
 | `move-tab-to-new-workspace` | Move a tab or surface into a newly created workspace. |
 | `list-workspaces` | List workspaces. |
 | `new-workspace` | Create a workspace, optionally with cwd, command, description, layout, and per-workspace environment variables (`--env KEY=VALUE` repeatable, `--env-file <path>`). See [Workspace environment variables](#workspace-environment-variables). |
@@ -339,6 +341,12 @@ Browser subcommands:
 | `browser input`, `browser input_mouse`, `browser input_keyboard`, `browser input_touch` | Send low-level input. |
 | `browser identify` | Identify browser surface context. |
 
+`browser screenshot` reports `screenshot_mismatch` when conservative DOM/pixel
+attestation still disagrees after its retry, `timeout` when capture cannot
+complete within its bounded budget or another capture is already in progress,
+and `internal_error` for other failures. Clients may retry `timeout` and
+`screenshot_mismatch`; cmux does not return the suspect image.
+
 `browser viewport` changes the selected browser surface only. On WKWebView, the
 requested logical size becomes `window.innerWidth`/`window.innerHeight` and the
 page is uniformly scaled to fit inside the existing pane. The pane layout and
@@ -534,6 +542,7 @@ the expected text without connecting to a cmux socket.
 - `cmux remotes --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
+- `cmux comments --help` -> `Usage: cmux comments <subcommand> [options]`
 - `cmux help --help` -> `Usage: cmux help`
 - `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]`
 - `cmux docs` -> `Topics:`
@@ -553,6 +562,7 @@ the expected text without connecting to a cmux socket.
 - `cmux enable-browser --help` -> `Usage: cmux enable-browser [--json]`
 - `cmux browser-status --help` -> `Usage: cmux browser-status [--json]`
 - `cmux agent-hibernation --help` -> `Usage: cmux agent-hibernation <on|off> [--json]`
+- `cmux restore --help` -> `Usage: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>`
 - `cmux restore-session --help` -> `Usage: cmux restore-session`
 - `cmux open --help` -> `Usage: cmux open <path-or-url>...`
 - `cmux feedback --help` -> `Usage: cmux feedback`
@@ -672,6 +682,8 @@ the expected text without connecting to a cmux socket.
 - `cmux is-webview-focused --help` -> `Legacy alias for 'cmux browser is-webview-focused'`
 - `cmux markdown --help` -> `Usage: cmux markdown open <path>`
 <!-- cli-contract-help-probes:end -->
+
+For `cmux restore`, `--surface [id|ref]` uses the caller when omitted.
 
 ## No-Socket Negative Help Probes
 

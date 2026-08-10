@@ -317,15 +317,19 @@ extension TerminalController {
     func controlWindowDockSurfaceClose(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
+        hasSurfaceIDParam: Bool,
         tabManager: TabManager
     ) -> ControlSurfaceCloseResolution? {
         guard let windowDock = windowDockForRouting(routing, tabManager: tabManager) else { return nil }
         let resolved = resolvedWindowDockSurfaceId(
             explicitSurfaceID: surfaceID,
-            hasSurfaceIDParam: false,
+            hasSurfaceIDParam: hasSurfaceIDParam,
             routing: routing,
             dock: windowDock
         )
+        if resolved.invalidSurfaceID {
+            return .invalidSurfaceID
+        }
         guard let surfaceId = resolved.surfaceID else {
             return .noFocusedSurface
         }
@@ -385,9 +389,13 @@ extension TerminalController {
 
     func resolvedSurfaceIdForClose(
         explicitSurfaceID: UUID?,
+        hasSurfaceIDParam: Bool,
         routing: ControlRoutingSelectors,
         fallbackWorkspace: Workspace
     ) -> UUID? {
+        if hasSurfaceIDParam && explicitSurfaceID == nil {
+            return nil
+        }
         if let explicitSurfaceID {
             return explicitSurfaceID
         }

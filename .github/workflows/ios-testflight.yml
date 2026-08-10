@@ -1,14 +1,12 @@
 name: iOS TestFlight (CMUX INTERNAL)
 
 on:
-  # Scheduled batching instead of per-merge uploads: App Store Connect enforces a
-  # per-app upload quota that merge bursts exhausted. The decide job skips a
-  # scheduled run when main has not changed since the variant's last upload or
-  # when the changes touch no iOS-relevant paths. Manual dispatch remains
-  # available for intentional rebuilds.
+  # Poll main every 20 minutes and batch merges into one upload. The decide job
+  # skips scheduled runs when main is unchanged or the changes do not affect iOS.
+  # Manual dispatch remains available for intentional rebuilds.
   schedule:
-    # Hourly cmux INTERNAL upload of current main.
-    - cron: "7 * * * *"
+    # Check current main for a cmux INTERNAL upload every 20 minutes.
+    - cron: "7,27,47 * * * *"
     # Twice-daily (every 12 hours) cmux DEMO upload of current main.
     - cron: "37 5,17 * * *"
   workflow_dispatch:
@@ -66,13 +64,25 @@ jobs:
             // by which cron fired; dispatch runs use the variant input. Every
             // downstream job reads needs.decide.outputs.variant instead of
             // re-deriving it from event fields.
+            const internalCron = '7,27,47 * * * *';
             const demoCron = '37 5,17 * * *';
-            const isDemo =
-              (context.eventName === 'workflow_dispatch' &&
-                context.payload?.inputs?.variant === 'demo') ||
-              (context.eventName === 'schedule' && context.payload?.schedule === demoCron);
-            const variant = isDemo ? 'demo' : 'internal';
-            const canonicalArtifactName = isDemo
+            const requestedVariant = context.payload?.inputs?.variant;
+            const schedule = context.payload?.schedule;
+            let variant;
+            if (context.eventName === 'schedule' && schedule === internalCron) {
+              variant = 'internal';
+            } else if (context.eventName === 'schedule' && schedule === demoCron) {
+              variant = 'demo';
+            } else if (
+              context.eventName === 'workflow_dispatch' &&
+              ['internal', 'demo'].includes(requestedVariant)
+            ) {
+              variant = requestedVariant;
+            } else {
+              core.setFailed('unsupported TestFlight event, schedule, or variant');
+              return;
+            }
+            const canonicalArtifactName = variant === 'demo'
               ? 'ios-testflight-build-metadata-demo'
               : 'ios-testflight-build-metadata';
 
@@ -146,10 +156,10 @@ jobs:
             }
 
             // Resolve the most recent successful canonical upload as the base for
-            // this build's "What to Test" commit range. Key off the upload job,
-            // not whole-workflow success, because internal-group assignment happens
-            // after the IPA is already in App Store Connect. Restrict the lookup to
-            // main so a blocked feature-branch dispatch cannot poison the notes base.
+            // this build's "What to Test" commit range. Metadata artifacts are
+            // written only after the upload succeeds, and the repository artifact
+            // response includes the originating run's branch and head SHA. Looking
+            // them up directly keeps skipped schedule runs out of this history scan.
             //
             // Manual marketing-version-override uploads are deliberately excluded
             // from this canonical lane. They ship the current main SHA under an
@@ -166,46 +176,66 @@ jobs:
             // is necessarily a normal immediate beta cut and SHOULD count as the
             // last canonical upload.
             let lastUploadedSha = null;
+            let uploadHistoryKnown = true;
             try {
-              for (let page = 1; page <= 20 && !lastUploadedSha; page += 1) {
-                const runs = await github.rest.actions.listWorkflowRuns({
-                  owner,
-                  repo,
-                  workflow_id: 'ios-testflight.yml',
-                  branch: 'main',
-                  per_page: 100,
-                  page,
-                });
-                for (const run of runs.data.workflow_runs) {
-                  if (run.id === context.runId) continue;
-                  const jobs = await github.rest.actions.listJobsForWorkflowRun({
-                    owner,
-                    repo,
-                    run_id: run.id,
-                    per_page: 100,
-                  });
-                  const uploadJob = jobs.data.jobs.find((job) => job.name === 'Upload to TestFlight');
-                  if (uploadJob?.conclusion === 'success') {
-                    const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
-                      owner,
-                      repo,
-                      run_id: run.id,
-                      per_page: 100,
-                    });
-                    const artifactNames = new Set(
-                      (artifacts.data.artifacts || []).map((artifact) => artifact.name)
-                    );
-                    if (!artifactNames.has(canonicalArtifactName)) {
-                      continue;
-                    }
-                    lastUploadedSha = run.head_sha;
-                    break;
+              const perPage = 100;
+              const firstPage = await github.rest.actions.listArtifactsForRepo({
+                owner,
+                repo,
+                name: canonicalArtifactName,
+                per_page: perPage,
+                page: 1,
+              });
+              const totalCount = Number(firstPage.data.total_count);
+              if (!Number.isSafeInteger(totalCount) || totalCount < 0) {
+                throw new Error('invalid artifact count');
+              }
+              const pageCount = Math.max(1, Math.ceil(totalCount / perPage));
+              let latestArtifact = null;
+              const considerArtifacts = (artifacts) => {
+                for (const artifact of artifacts) {
+                  const run = artifact.workflow_run;
+                  if (
+                    artifact.name !== canonicalArtifactName ||
+                    run?.head_branch !== 'main' ||
+                    !run.head_sha ||
+                    Number(run.id) === Number(context.runId)
+                  ) {
+                    continue;
+                  }
+                  const createdAt = Date.parse(artifact.created_at);
+                  if (!Number.isFinite(createdAt)) {
+                    throw new Error('invalid artifact creation time');
+                  }
+                  if (
+                    !latestArtifact ||
+                    createdAt > latestArtifact.createdAt ||
+                    (createdAt === latestArtifact.createdAt &&
+                      Number(artifact.id) > Number(latestArtifact.id))
+                  ) {
+                    latestArtifact = {
+                      id: artifact.id,
+                      createdAt,
+                      headSha: run.head_sha,
+                    };
                   }
                 }
-                if (runs.data.workflow_runs.length < 100) break;
+              };
+              considerArtifacts(firstPage.data.artifacts || []);
+              for (let page = 2; page <= pageCount; page += 1) {
+                const response = await github.rest.actions.listArtifactsForRepo({
+                  owner,
+                  repo,
+                  name: canonicalArtifactName,
+                  per_page: perPage,
+                  page,
+                });
+                considerArtifacts(response.data.artifacts || []);
               }
-            } catch (e) {
-              core.warning(`could not resolve last uploaded sha: ${e.message}`);
+              lastUploadedSha = latestArtifact?.headSha || null;
+            } catch {
+              uploadHistoryKnown = false;
+              core.warning('could not resolve last uploaded sha; skipping scheduled upload');
             }
 
             // Manual runs are intentional rebuilds and always build. Scheduled
@@ -235,7 +265,10 @@ jobs:
             let shouldBuild = true;
             let reason = 'manual dispatch';
             if (context.eventName === 'schedule') {
-              if (!lastUploadedSha) {
+              if (!uploadHistoryKnown) {
+                shouldBuild = false;
+                reason = 'upload history unavailable';
+              } else if (!lastUploadedSha) {
                 reason = 'no prior upload found for this variant';
               } else if (lastUploadedSha === context.sha) {
                 shouldBuild = false;
@@ -288,19 +321,15 @@ jobs:
     timeout-minutes: 60
     outputs:
       final_build_number: ${{ steps.upload.outputs.final_build_number }}
+      bundle_id: ${{ steps.distribution.outputs.bundle_id }}
+      assign_internal_group: ${{ steps.distribution.outputs.assign_internal_group }}
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
       ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_ID }}
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME }}
-      CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP: ${{ github.event.inputs.marketing_version_override != '' && '1' || '0' }}
-      # Internal builds use separate bundle ID and display name (set here so
-      # provisioning profile step can use it). The manual demo variant ships the
-      # same main head as a separate app so demos are isolated from the internal
-      # firehose (and its per-app upload limit).
-      IOS_BETA_BUNDLE_ID: ${{ needs.decide.outputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
-      IOS_BETA_DISPLAY_NAME: ${{ needs.decide.outputs.variant == 'demo' && 'cmux DEMO' || 'cmux INTERNAL' }}
+      CMUX_TESTFLIGHT_PRO_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_PRO_GROUP_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -311,6 +340,18 @@ jobs:
           # range since the last beta.
           fetch-depth: 0
           fetch-tags: true
+
+      - name: Resolve TestFlight distribution
+        id: distribution
+        env:
+          INPUT_VARIANT: ${{ needs.decide.outputs.variant }}
+          INPUT_MARKETING_VERSION_OVERRIDE: ${{ github.event.inputs.marketing_version_override }}
+        run: |
+          python3 ./ios/scripts/resolve_testflight_distribution.py \
+            --variant "$INPUT_VARIANT" \
+            --marketing-version-override "$INPUT_MARKETING_VERSION_OVERRIDE" \
+            --github-env "$GITHUB_ENV" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Select Xcode
         run: |
@@ -405,56 +446,53 @@ jobs:
           IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64: ${{ secrets.IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64 }}
         run: |
           set -euo pipefail
-          # Determine which profile to use based on bundle ID
-          if [ "${IOS_BETA_BUNDLE_ID:-dev.cmux.app.beta}" = "dev.cmux.app.demo" ]; then
+          if [ "$IOS_BETA_PROFILE_TYPE" = "beta" ]; then
+            PROFILE_BASE64="${IOS_BETA_PROVISIONING_PROFILE_BASE64}"
+          elif [ "$IOS_BETA_PROFILE_TYPE" = "demo" ]; then
             # The demo profile is fetched from the ASC API by name instead of a
             # repository secret, so regenerating it in the developer portal
             # needs no secret rotation. Same credentials the upload uses.
-            PROFILE_BASE64="$(python3 ./ios/scripts/asc_download_profile.py --name "cmux Demo Distribution")"
-            EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.demo"
-            PROFILE_TYPE="demo"
-            SKIP_APS_ENVIRONMENT_CHECK=false
-          elif [ "${IOS_BETA_BUNDLE_ID:-dev.cmux.app.beta}" = "dev.cmux.app.internal" ]; then
+            PROFILE_BASE64="$(python3 ./ios/scripts/asc_download_profile.py --name "cmux Demo Distribution Push")"
+          elif [ "$IOS_BETA_PROFILE_TYPE" = "internal" ]; then
             PROFILE_BASE64="${IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64}"
-            EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.internal"
-            PROFILE_TYPE="internal"
-            SKIP_APS_ENVIRONMENT_CHECK=false
           else
-            PROFILE_BASE64="${IOS_BETA_PROVISIONING_PROFILE_BASE64}"
-            EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.beta"
-            PROFILE_TYPE="beta"
-            SKIP_APS_ENVIRONMENT_CHECK=false
-          fi
-
-          if [ -z "${PROFILE_BASE64:-}" ]; then
-            echo "Missing provisioning profile secret for $PROFILE_TYPE" >&2
+            echo "Unsupported TestFlight profile type: $IOS_BETA_PROFILE_TYPE" >&2
             exit 1
           fi
 
-          TMP_PROFILE="$RUNNER_TEMP/cmux-${PROFILE_TYPE}.mobileprovision"
-          TMP_PLIST="$RUNNER_TEMP/cmux-${PROFILE_TYPE}-profile.plist"
+          if [ -z "${PROFILE_BASE64:-}" ]; then
+            echo "Missing provisioning profile secret for $IOS_BETA_PROFILE_TYPE" >&2
+            exit 1
+          fi
+
+          TMP_PROFILE="$RUNNER_TEMP/cmux-${IOS_BETA_PROFILE_TYPE}.mobileprovision"
+          TMP_PLIST="$RUNNER_TEMP/cmux-${IOS_BETA_PROFILE_TYPE}-profile.plist"
           printf '%s' "$PROFILE_BASE64" | base64 --decode > "$TMP_PROFILE"
           security cms -D -i "$TMP_PROFILE" > "$TMP_PLIST"
 
           APP_ID="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "$TMP_PLIST")"
-          if [ "$APP_ID" != "$EXPECTED_APP_ID" ]; then
-            echo "$PROFILE_TYPE provisioning profile targets unexpected app ID: $APP_ID (expected $EXPECTED_APP_ID)" >&2
+          if [ "$APP_ID" != "$IOS_BETA_EXPECTED_APP_ID" ]; then
+            echo "$IOS_BETA_PROFILE_TYPE provisioning profile targets unexpected app ID: $APP_ID (expected $IOS_BETA_EXPECTED_APP_ID)" >&2
             exit 1
           fi
-          # Check aps-environment for every TestFlight provisioning profile.
-          if [ "${SKIP_APS_ENVIRONMENT_CHECK:-false}" != "true" ]; then
-            APS_ENVIRONMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:aps-environment" "$TMP_PLIST" 2>/dev/null || echo "")"
-            if [ -z "$APS_ENVIRONMENT" ] || [ "$APS_ENVIRONMENT" != "production" ]; then
-              echo "$PROFILE_TYPE provisioning profile aps-environment is '$APS_ENVIRONMENT', expected 'production'" >&2
-              exit 1
-            fi
+          # TestFlight uses production APNs. Both capabilities must be present
+          # in the installed profile or export can silently strip them.
+          APS_ENVIRONMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:aps-environment" "$TMP_PLIST" 2>/dev/null || echo "")"
+          if [ -z "$APS_ENVIRONMENT" ] || [ "$APS_ENVIRONMENT" != "production" ]; then
+            echo "$IOS_BETA_PROFILE_TYPE provisioning profile aps-environment is '${APS_ENVIRONMENT:-<absent>}', expected 'production'" >&2
+            exit 1
+          fi
+          TIME_SENSITIVE="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.usernotifications.time-sensitive" "$TMP_PLIST" 2>/dev/null || echo "")"
+          if [ "$TIME_SENSITIVE" != "true" ]; then
+            echo "$IOS_BETA_PROFILE_TYPE provisioning profile com.apple.developer.usernotifications.time-sensitive is '${TIME_SENSITIVE:-<absent>}', expected 'true'" >&2
+            exit 1
           fi
           PROFILE_NAME="$(/usr/libexec/PlistBuddy -c "Print :Name" "$TMP_PLIST")"
           PROFILE_UUID="$(/usr/libexec/PlistBuddy -c "Print :UUID" "$TMP_PLIST")"
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           cp "$TMP_PROFILE" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
           echo "IOS_BETA_PROVISIONING_PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
-          echo "Installed $PROFILE_TYPE provisioning profile: $PROFILE_NAME ($PROFILE_UUID)"
+          echo "Installed $IOS_BETA_PROFILE_TYPE provisioning profile: $PROFILE_NAME ($PROFILE_UUID)"
 
       - name: Use DEMO-badged app icon
         if: needs.decide.outputs.variant == 'demo'
@@ -475,6 +513,7 @@ jobs:
       - name: Archive, export, and upload to TestFlight
         id: upload
         env:
+          IOS_BETA_BUNDLE_ID: ${{ steps.distribution.outputs.bundle_id }}
           # Only set for manual workflow_dispatch with an explicit build number.
           # For push this is empty and the script generates a monotonic
           # 14-digit UTC timestamp itself (single source of the numbering scheme,
@@ -497,20 +536,9 @@ jobs:
           # Optional manual one-off override that reuses an older approved beta
           # marketing version so external testers can install it immediately.
           INPUT_MARKETING_VERSION_OVERRIDE: ${{ github.event.inputs.marketing_version_override }}
-          # Display name for automatic internal builds (auto-synced to internal group).
-          # The demo variant ships as "cmux DEMO" / dev.cmux.app.demo instead.
-          IOS_BETA_DISPLAY_NAME: ${{ needs.decide.outputs.variant == 'demo' && 'cmux DEMO' || 'cmux INTERNAL' }}
-          # Internal builds use separate bundle ID (dev.cmux.app.internal) so internal
-          # and external can coexist on same device.
-          IOS_BETA_BUNDLE_ID: ${{ needs.decide.outputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
-          INPUT_VARIANT: ${{ needs.decide.outputs.variant }}
         run: |
           set -euo pipefail
-          if [ "${INPUT_VARIANT:-internal}" = "demo" ] && [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
-            echo "variant=demo cannot be combined with marketing_version_override (the override path ships the external cmux BETA app)" >&2
-            exit 1
-          fi
-          if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
+          if [ "$IOS_TESTFLIGHT_UPLOAD_MODE" = "marketing_version_override" ]; then
             # One-time operator escape hatch: upload latest main as another build
             # of an already-approved beta marketing version, which avoids starting a
             # fresh Beta App Review for that version. This path intentionally
@@ -521,8 +549,6 @@ jobs:
               echo "build_number is not supported together with marketing_version_override in the cloud override path" >&2
               exit 1
             fi
-            unset IOS_BETA_DISPLAY_NAME
-            unset IOS_BETA_BUNDLE_ID
             ./ios/scripts/cloud-testflight.sh \
               --external \
               --marketing-version "$INPUT_MARKETING_VERSION_OVERRIDE" \
@@ -558,10 +584,10 @@ jobs:
         env:
           BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number || github.event.inputs.build_number || 'unknown' }}
           INPUT_MARKETING_VERSION_OVERRIDE: ${{ github.event.inputs.marketing_version_override }}
-          UPLOAD_BUNDLE_ID: ${{ github.event.inputs.marketing_version_override != '' && 'dev.cmux.app.beta' || needs.decide.outputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
-          UPLOAD_DISPLAY_NAME: ${{ github.event.inputs.marketing_version_override != '' && 'cmux BETA' || needs.decide.outputs.variant == 'demo' && 'cmux DEMO' || 'cmux INTERNAL' }}
-          UPLOAD_AUDIENCE: ${{ github.event.inputs.marketing_version_override != '' && 'external TestFlight testers' || 'internal TestFlight group' }}
-          UPLOAD_REVIEW_NOTE: ${{ github.event.inputs.marketing_version_override != '' && 'Beta App Review may be required' || 'no beta review needed' }}
+          UPLOAD_BUNDLE_ID: ${{ steps.distribution.outputs.bundle_id }}
+          UPLOAD_DISPLAY_NAME: ${{ steps.distribution.outputs.display_name }}
+          UPLOAD_AUDIENCE: ${{ steps.distribution.outputs.audience }}
+          UPLOAD_REVIEW_NOTE: ${{ steps.distribution.outputs.review_note }}
         run: |
           {
             echo "### iOS TestFlight upload"
@@ -570,6 +596,7 @@ jobs:
             echo "- signing: manual (CI-imported iOS distribution cert + beta profile)"
             if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
               echo "- marketing version override: \`${INPUT_MARKETING_VERSION_OVERRIDE}\`"
+              echo "- external groups: Founder's Edition and cmux Pro"
             else
               echo "- marketing version: checked-in beta marketing version"
             fi
@@ -581,14 +608,9 @@ jobs:
         if: success()
         env:
           FINAL_BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number }}
-          INPUT_MARKETING_VERSION_OVERRIDE: ${{ github.event.inputs.marketing_version_override }}
+          UPLOAD_MODE: ${{ steps.distribution.outputs.upload_mode }}
         run: |
           set -euo pipefail
-          if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
-            UPLOAD_MODE="marketing_version_override"
-          else
-            UPLOAD_MODE="checked_in_version"
-          fi
           cat > "$RUNNER_TEMP/ios-testflight-build.json" <<EOF
           {"head_sha":"${GITHUB_SHA}","build_number":"${FINAL_BUILD_NUMBER}","upload_mode":"${UPLOAD_MODE}"}
           EOF
@@ -599,7 +621,7 @@ jobs:
         with:
           # Variant-specific names keep the decide job's last-upload lookup (and
           # therefore skip logic + notes ranges) independent per app.
-          name: ${{ github.event.inputs.marketing_version_override != '' && 'ios-testflight-build-metadata-override' || needs.decide.outputs.variant == 'demo' && 'ios-testflight-build-metadata-demo' || 'ios-testflight-build-metadata' }}
+          name: ${{ steps.distribution.outputs.metadata_artifact }}
           path: ${{ runner.temp }}/ios-testflight-build.json
           retention-days: 30
 
@@ -616,7 +638,7 @@ jobs:
         # IPA reached TestFlight its symbols must be persisted even if a later
         # step (summary/metadata artifact) failed, or a shipped build becomes
         # unsymbolicatable again.
-        if: ${{ !cancelled() && steps.upload.outcome == 'success' && github.event.inputs.marketing_version_override == '' }}
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && steps.distribution.outputs.assign_internal_group == '1' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ios-dsyms-${{ needs.decide.outputs.variant }}-${{ steps.upload.outputs.final_build_number }}
@@ -629,14 +651,13 @@ jobs:
         run: |
           security delete-keychain ios-testflight.keychain >/dev/null 2>&1 || true
 
-  # NOTE: this lane uploads to dev.cmux.app.internal only, so there is no
-  # external-group assignment job here. The old assign-external-group job
-  # polled dev.cmux.app.beta for a build that now never arrives there and hung
-  # for its full 40-minute timeout on every run.
+  # Normal and demo runs assign their internal group after upload. A manual
+  # external marketing-version override assigns Founder's Edition and Pro
+  # inline in cloud-testflight.sh, so it must skip this internal-app lookup.
   assign-internal-group:
     name: Assign build to internal TestFlight group
     needs: [decide, upload]
-    if: github.ref == 'refs/heads/main' && needs.upload.result == 'success' && github.event.inputs.marketing_version_override == ''
+    if: github.ref == 'refs/heads/main' && needs.upload.result == 'success' && needs.upload.outputs.assign_internal_group == '1'
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     env:
@@ -651,7 +672,7 @@ jobs:
       # The demo variant assigns to the "cmux DEMO" internal group on the
       # dev.cmux.app.demo app record instead.
       CMUX_TESTFLIGHT_INTERNAL_GROUP_ID: ${{ needs.decide.outputs.variant == 'demo' && 'dd5c5cde-05a6-44e5-bd71-c2ec08a3ebfe' || vars.IOS_TESTFLIGHT_INTERNAL_GROUP_ID }}
-      ASSIGN_BUNDLE_ID: ${{ needs.decide.outputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
+      ASSIGN_BUNDLE_ID: ${{ needs.upload.outputs.bundle_id }}
       BUILD_NUMBER: ${{ needs.upload.outputs.final_build_number }}
     steps:
       - name: Checkout

@@ -12,12 +12,10 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-### Physical-row text read API (in progress, not yet pushed)
+### Physical-row text read API
 
-- Local branch `cmux/physical-row-read` off `abcf5697d` (the commit still
-  pinned by the parent repo's submodule pointer as of this writing — this
-  branch has not been pushed to `manaflow-ai/ghostty`, has no PR, and the
-  parent submodule pointer has deliberately not been advanced to it).
+- Pull request: https://github.com/manaflow-ai/ghostty/pull/197 (open,
+  not yet merged as of this writing).
 - New C API: `ghostty_surface_read_text_physical_rows(surface, selection,
   result)`. Same shape as `ghostty_surface_read_text`, but does not unwrap
   soft-wrapped row boundaries into one logical line — every physical screen
@@ -57,15 +55,124 @@ When we change the fork, update this document and the parent submodule SHA.
   a wide character at the wrap boundary, and a combining mark at the wrap
   boundary (`zig build test -Dtest-filter="Screen:"`, all green).
 
-The submodule pinned by this branch is `36a46414a`, the fork-main merge of
-https://github.com/manaflow-ai/ghostty/pull/172. It combines the hidden-renderer
-reclamation and retry-deadline line through `4d6f0014f` with the resolved
-font-binding action callbacks originally ending at `80d7fb35a`.
-https://github.com/manaflow-ai/ghostty/pull/171 reapplied the font callback
-commits on current fork main and clarified the callback's non-reentrant
-contract. PR 172 then recorded the original font branch as ancestry without
-changing the integrated tree, so the final pin descends from both former
-gitlinks (`cd1f8e012` and `80d7fb35a`).
+### External hover host-owned rendering + diagnostics
+
+- Pull request: https://github.com/manaflow-ai/ghostty/pull/197 (same PR
+  as the physical-row read API above — the branch carries both; see
+  "Current pin" below for why).
+- New C API, three parts:
+  - `ghostty_surface_set_external_link_hover(surface, top_row, row_count,
+    text, text_len, ranges, range_count, out_token_bits, host_event_id)` /
+    `ghostty_surface_clear_external_link_hover(surface, token_bits)`: lets
+    the embedding host claim interactive hover rendering for a resolved
+    link over a viewport-relative physical-row range, instead of Ghostty's
+    own regex-based hover. `text` must be the exact physical-row text for
+    that range (read via `ghostty_surface_read_text_physical_rows` over the
+    identical row range) — Ghostty fingerprints and re-validates it every
+    frame, so a stale/mismatched argument only ever fails safe. Every
+    `ghostty_external_hover_cell_range_s` entry must fall within
+    `[top_row, top_row+row_count)` or the call rejects outright.
+  - `ghostty_surface_drain_external_hover_diagnostics(surface, out_entries,
+    out_capacity, out_dropped_count_cumulative)` /
+    `ghostty_external_hover_diag_entry_s`: fixed-size POD hover-lifecycle
+    tracing ring entries (no strings/pointers — `source`/`reason`/`verdict`
+    are enum raw values the host decodes itself, formatting an unrecognized
+    raw value as `"unknown(<raw>)"` rather than crashing, so the ABI can
+    drift ahead of an out-of-date host). `host_event_id` on the setter call
+    is the host's own correlation id, recorded into ring entries but with
+    no effect on accept/reject behavior. Present in all build configurations
+    (Debug/Release/ReleaseFast) with an identical signature; returns 0 and
+    leaves the dropped-count output untouched when the diagnostics gate is
+    off.
+- cmux consumer: `Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/ExternalHover/*`
+  (owner coordinator, work service, dropped-count tracker) and
+  `Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Lifecycle/TerminalSurfaceRuntimeTeardownCoordinator.swift`
+  (diagnostics draining on teardown).
+- Ghostty-side tests: 92 `ExternalHover`-filtered tests green
+  (`zig build test -Dtest-filter="ExternalHover"`).
+
+**Current pin (temporary, pending PR #197):** `0100e59a7`, PR #197's branch
+tip (now the former `cmux/external-hover` branch, which already contained
+`cmux/physical-row-read` as its base) rebased onto fork `main` at
+`f76c132e5` (which itself already includes the Hangul NFC/NFD fix, the VT
+stream-boundary visibility change, the iOS startup locale fix, the
+empty-opener-stderr fix, the theme-picker/semantic-prompt merge, and the
+hidden-renderer/font-binding integration described below — see "Hangul
+NFC/NFD canonical font resolution" onward for that lineage). This is a
+deliberate, temporary exception to this doc's usual "pin the fork-main
+merge commit" pattern: `manaflow-ai/cmux#9868` (the consumer of both APIs
+above) needs a pushed, buildable commit now, before PR #197 has gone
+through review and merge. **Once PR #197 merges, re-pin to the resulting
+fork-main merge commit and update this entry** — do not leave the pin on a
+branch tip indefinitely, since that branch can be rebased or deleted after
+merge.
+
+Note on branch history: an earlier commit on this branch (`e196afa43`,
+the physical-row-read API alone) described the external-hover
+token/mechanism as reviewed-and-rejected, intended to stay host-side only.
+That call did not survive contact with the actual consumer code — cmux's
+already-committed `ExternalHoverWorkService`/`TerminalSurfaceRuntimeTeardownCoordinator`
+genuinely call `ghostty_surface_drain_external_hover_diagnostics` and
+`ghostty_surface_set_external_link_hover`, so both the mechanism and its
+diagnostics are real, in-scope, fork-side additions after all.
+
+### Hangul NFC/NFD canonical font resolution
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/185
+- Commits:
+  - `0316a8de8` (test: NFC and NFD Hangul must resolve the same font face)
+  - `3fbdd078d` (font: resolve NFD Hangul clusters via canonical composition)
+- Files:
+  - `src/font/hangul.zig` (new)
+  - `src/font/main.zig`
+  - `src/font/shaper/run.zig`
+  - `src/font/shaper/coretext.zig` (test)
+- Summary:
+  - Font selection keyed on the raw stored codepoints of a grapheme cluster,
+    so a decomposed Hangul cluster queried the resolver with its leading jamo
+    while the equivalent precomposed syllable queried with the syllable
+    codepoint, selecting different fallback faces (and bypassing
+    `font-codepoint-map` entries for U+AC00-U+D7A3) for canonically
+    equivalent text.
+  - `src/font/hangul.zig` implements the algorithmic Hangul canonical
+    composition from The Unicode Standard ch. 3.12 (L+V, L+V+T, and LV+T
+    clusters over the modern jamo ranges). `RunIterator.indexForCell`
+    resolves the face through the composed codepoint first, so both
+    encodings produce the identical resolver query.
+  - Terminal cell contents and shaper input are unchanged: copy/paste of NFD
+    text still returns the original NFD codepoints, and CoreText/HarfBuzz
+    compose the cluster during shaping when the face carries the precomposed
+    glyph.
+- Conflict note:
+  - Upstream tracks the same defect in
+    https://github.com/ghostty-org/ghostty/discussions/4163. If upstream
+    lands its own cluster-level or normalization-based resolution, prefer
+    the upstream mechanism and drop `src/font/hangul.zig` plus the
+    `indexForCell` hook, keeping the `coretext.zig` regression test to prove
+    the behavior survives the merge.
+- Fixes:
+  - https://github.com/manaflow-ai/cmux/issues/9583
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3fbdd078dfc499134710d3cf9ce2c5e06fa101aa-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `e8ce9217b32486f8070600b673d9a25e7270dcca9f5565781684f92ffb2f7eb5`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### VT stream-boundary visibility
+
+- Commit: `11aa609d7` (Expose safe VT stream snapshot boundary), reapplied
+  on fork main as `9513174f2`
+- Files: `include/ghostty/vt/terminal.h`, `src/terminal/c/terminal.zig`,
+  `src/lib_vt.zig`
+- Summary:
+  - Exposes a read-only libghostty query that reports whether the VT stream
+    parser has no incomplete escape sequence buffered.
+  - Lets cmux cut a distributed terminal snapshot only at a replay-safe byte
+    boundary, while retaining later raw PTY bytes for each smart client.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-11aa609d75dec882ef2f83171e2cbe887aeddbc5-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `1a4acbcc9e0e5b20c0b4dad6660d0c08546a5d36192053834df960144fa8fdb9`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
 
 The renderer line was reviewed in
 https://github.com/manaflow-ai/ghostty/pull/168, following the merged
@@ -83,6 +190,80 @@ The seven PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`,
 `2fc66ed15`, `3c1b75d25`, `c467d389c`, `64d7fca66`, and `4d6f0014f`.
 The final font integration landed in merge commits `23003282d` and
 `36a46414a`.
+
+### iOS startup locale before crash reporting
+
+- Commit: `f0f8273b7` (Initialize locale before crash reporting)
+- File: `src/global.zig`
+- Summary:
+  - Moves `ensureLocale()` and `syncEnviron()` before Ghostty's crash reporting
+    init so Darwin `setlocale` completes before Sentry starts its background
+    initialization thread.
+  - Fixes the cmux INTERNAL TestFlight crash from August 2, 2026, where build
+    `20260801151612` crashed in `ghostty_init + 1388` while the main thread was
+    in `setlocale` from `GhosttyRuntime.init`.
+- Conflict note:
+  - Preserve this ordering during future `global.init` merges: process-wide
+    locale mutation must stay before any Ghostty-owned background thread starts.
+
+### Empty opener stderr diagnostics
+
+- Commits:
+  - `45aec50de` (test: cover spawned open stderr reader log bound)
+  - `19d03fa4d` (os/open: skip empty stderr diagnostics)
+- File: `src/os/open.zig`
+- Summary:
+  - Runs the stderr drain against a real spawned process that writes 40 blank
+    lines and exits, with a one-second timeout proving the reader thread reaches
+    EOF instead of spinning.
+  - Requires fewer than 10 repeated blank-line diagnostics in that capture
+    window.
+  - Continues consuming blank stderr lines so the opener can exit, but does not
+    send content-free `open stderr=` records to macOS unified logging.
+- Conflict note:
+  - Preserve delimiter consumption, the EOF timeout coverage, and draining
+    after the reporting cap. Suppressing a log must never suppress the read
+    that advances the pipe.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-19d03fa4d0161e60e02de2e42601992be0c001c3-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `d2842bb7778a4e8d5a5a5f57ce6a85508630e3184ba46c1ca1ae5cbe1655472f`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Initial cmux theme-picker render
+
+- Commit: `5068b3a37` (fix: render cmux theme picker before input)
+- File: `src/cli/list_themes.zig`
+- Summary:
+  - Initializes the terminal dimensions, renders the theme picker, and flushes
+    the first frame before waiting for input, so the picker does not open blank.
+  - Merges cleanly with the `abcf5697d` Sentry initialization fix; no conflict
+    resolution was required.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-59f2b5d2ec67a5f9dfe9138f6e5a4353b75d238e-crashsubdir-cmux-crash-v1
+  - SHA-256 `3767b7bba0931f9cab359d0c8147885e14a2b6ce420044e5946b4b823fc093da`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Semantic prompt row lifecycle
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/176
+- Commits:
+  - `afcda52a2` (terminal: test prompt mark cleared by output overwrite)
+  - `2d6e944e3` (terminal: clear stale prompt marks on output overwrite)
+- Files:
+  - `src/terminal/Terminal.zig`
+- Summary:
+  - Clears a row's OSC 133 prompt or prompt-continuation mark when printable
+    output actually overwrites that row.
+  - Applies the same invariant to scalar printing and the batched narrow/wide
+    print path, including a wide-character spacer written before wrapping.
+  - Preserves historical prompt metadata unless output replaces content on
+    that row, so prompt navigation remains intact while prompt-aware clear
+    logic cannot mistake repainted TUI output for a live shell prompt.
+  - Conflict note: every printable-output path that writes cells directly must
+    clear stale row-level prompt metadata for each row it mutates. Do not move
+    this responsibility into CSI erase handling or a specific shell protocol
+    transition.
 
 ### Hidden macOS renderer reclamation
 
@@ -238,12 +419,14 @@ The final font integration landed in merge commits `23003282d` and
     callback userdata alive until `ghostty_surface_free` returns, and never
     destroy or otherwise reenter the surface from the synchronous callback.
 
-The pinned `36a46414a` universal ReleaseFast GhosttyKit archive was built with
-Zig 0.16.0. It is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-36a46414a7c5dc122ffbf2992fec6d4a73cf7c65-crashsubdir-cmux-crash-v1
-and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. The published
-asset was downloaded again and matched SHA-256
-`8784a1bd29d3d13250b9557b8982d362054fd326d48b8fc8c0deac56f4f71c0d`.
+The pinned `88357634c4` universal ReleaseFast GhosttyKit archive combines the
+initial theme-picker render and semantic prompt lifecycle fixes. It was built
+with Zig 0.16.0 and is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-88357634c4dbadc87981e2ebb64eb599c53aa012-crashsubdir-cmux-crash-v1
+with its SHA-256 pinned in `scripts/ghosttykit-checksums.txt`. The published
+asset was downloaded again, passed `scripts/validate-xcframework-archive.py`,
+and matched SHA-256
+`0448351c3f8b07fd2698c905260a97d064e4e186d0544766965effb41aedfbd5`.
 
 ### Ordered writes survive transient backpressure
 

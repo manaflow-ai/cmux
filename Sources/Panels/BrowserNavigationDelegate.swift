@@ -1,10 +1,14 @@
 import AppKit
+import CmuxBrowser
 import Foundation
 import WebKit
 
 @MainActor final class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     enum PolicyCancellationKind { case terminal(restoreAttemptID: UUID?) }
     private let subframeDownloadIntents = BrowserSubframeDownloadIntentTracker()
+    private let externalNavigationPolicy = BrowserExternalNavigationPolicy(
+        trustedOrigin: AuthEnvironment.appWebOrigin
+    )
     private var shouldPrintAfterCurrentNavigationFinishes = false
     var didStartProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
     var didCommit: ((WKWebView, WKNavigation?) -> Void)?
@@ -17,6 +21,7 @@ import WebKit
     var didBecomeDownload: ((WKWebView, Bool, UUID?) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
+    var openAppLinkInBrowserSplit: ((URL) -> Bool)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent, ((WKNavigation?) -> Void)?) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
@@ -326,14 +331,38 @@ import WebKit
         )
 #endif
 
+        if navigationAction.navigationType == .linkActivated,
+           navigationAction.targetFrame?.isMainFrame != false,
+           let url = navigationAction.request.url,
+           let appLink = BrowserAppLinkOpenRequest(
+               url: url,
+               webOrigin: AuthEnvironment.appSessionHandoffOrigin
+           ),
+           openAppLinkInBrowserSplit?(appLink.destinationURL) == true {
+            clearAttemptedRequest(discardPendingBypasses: true)
+            let reportTerminalCancellation = terminalPolicyCancellationReporter?(
+                navigationAction,
+                webView
+            ) ?? {}
+            reportTerminalCancellation()
+#if DEBUG
+            cmuxDebugLog(
+                "browser.nav.decidePolicy.action kind=openAppLinkInBrowserSplit " +
+                "url=\(browserNavigationDebugURL(appLink.destinationURL))"
+            )
+#endif
+            decisionHandler(.cancel)
+            return
+        }
+
         if let url = navigationAction.request.url,
-           shouldOpenCheckoutInSystemBrowser(navigationAction, url: url) {
+           shouldOpenInSystemBrowser(navigationAction, url: url) {
             clearAttemptedRequest(discardPendingBypasses: true)
             let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             let opened = NSWorkspace.shared.open(url)
 #if DEBUG
             cmuxDebugLog(
-                "browser.nav.decidePolicy.action kind=openCheckoutInSystemBrowser opened=\(opened ? 1 : 0) " +
+                "browser.nav.decidePolicy.action kind=openExternalIntentInSystemBrowser opened=\(opened ? 1 : 0) " +
                 "url=\(browserNavigationDebugURL(url))"
             )
 #endif
@@ -347,6 +376,10 @@ import WebKit
                 return
             }
             decisionHandler(opened ? .cancel : .allow)
+            return
+        }
+
+        if handleAuthCallbackNavigationAction(navigationAction, webView: webView, decisionHandler: decisionHandler) {
             return
         }
 
@@ -475,6 +508,58 @@ import WebKit
         decisionHandler(.allow)
     }
 
+    let authCallbackNavigationPolicy = BrowserAuthCallbackNavigationPolicy(
+        trustedSourcePageOrigin: AuthEnvironment.appSessionHandoffOrigin,
+        callbackScheme: AuthEnvironment.callbackScheme
+    )
+
+    /// Handles auth-callback-shaped navigation actions. Returns `true` when
+    /// the navigation was consumed (delivered in-app or blocked); the caller
+    /// must stop policy evaluation in that case.
+    private func handleAuthCallbackNavigationAction(
+        _ navigationAction: WKNavigationAction,
+        webView: WKWebView,
+        decisionHandler: (WKNavigationActionPolicy) -> Void
+    ) -> Bool {
+        guard let url = navigationAction.request.url else { return false }
+        let disposition = authCallbackNavigationPolicy.disposition(
+            for: navigationAction,
+            url: url
+        )
+        return authCallbackNavigationPolicy.consume(
+            disposition: disposition,
+            callbackURL: url,
+            sourcePageURL: webView.url,
+            cancelNavigation: { [self] in
+                clearAttemptedRequest(discardPendingBypasses: true)
+                decisionHandler(.cancel)
+            },
+            reportTerminalCancellation: { [self] in
+                let report = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+                report()
+            },
+            deliver: authCallbackNavigationPolicy.deliverAuthCallbackInApp,
+            completion: { [weak self, weak webView] delivered, returnURL in
+                guard let self, let webView else { return }
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.nav.decidePolicy.action kind=deliverNativeAuthCallbackInApp " +
+                    "delivered=\(delivered ? 1 : 0) scheme=\(url.scheme ?? "nil")"
+                )
+#endif
+                BrowserAuthCallbackNavigationPolicy.finishDelivery(
+                    delivered: delivered,
+                    returnURL: returnURL,
+                    in: webView,
+                    prepareReturnRequest: { [weak self] request in
+                        self?.recordAttemptedRequest(request)
+                    },
+                    presentAlert: presentAlert
+                )
+            }
+        )
+    }
+
     private func restartNavigationForUserAgentPolicyIfNeeded(
         _ navigationAction: WKNavigationAction,
         in webView: WKWebView,
@@ -509,20 +594,14 @@ import WebKit
         )
     }
 
-    private func shouldOpenCheckoutInSystemBrowser(_ navigationAction: WKNavigationAction, url: URL) -> Bool {
+    private func shouldOpenInSystemBrowser(_ navigationAction: WKNavigationAction, url: URL) -> Bool {
         guard navigationAction.targetFrame?.isMainFrame != false else { return false }
         guard navigationAction.navigationType == .linkActivated else { return false }
-        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
-            return false
-        }
-        guard url.path == "/api/billing/checkout",
-              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              components.queryItems?.contains(where: {
-                  $0.name == "cmux_external_browser" && $0.value != "0"
-              }) == true else {
-            return false
-        }
-        return true
+        return externalNavigationPolicy.shouldOpenInSystemBrowser(
+            url,
+            sourceURL: navigationAction.sourceFrame.request.url
+                ?? owner?.webView.url
+        )
     }
 
     func canHandleSSLTrustBypassToken(_ token: String) -> Bool {

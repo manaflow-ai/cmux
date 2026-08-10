@@ -37,19 +37,8 @@ extension SurfaceResumeBindingSnapshot {
     private func replacingLaunchFlavor(
         _ launchFlavor: SurfaceResumeLaunchFlavor
     ) -> SurfaceResumeBindingSnapshot {
-        SurfaceResumeBindingSnapshot(
-            name: name,
-            kind: kind,
-            command: command,
-            cwd: cwd,
-            checkpointId: checkpointId,
-            source: source,
-            environment: environment,
-            autoResume: autoResume,
-            approvalPolicy: approvalPolicy,
-            approvalRecordId: approvalRecordId,
-            launchFlavor: launchFlavor,
-            updatedAt: updatedAt
-        )
+        var replaced = self
+        replaced.launchFlavor = launchFlavor
+        return replaced
     }
 }
