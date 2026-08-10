@@ -15,5 +15,6 @@ cmux-pty.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
+anyhow.workspace = true
 libc.workspace = true
 serde_json.workspace = true

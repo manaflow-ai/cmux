@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "b9033b3ee3606b1248dc423e3b26a6b34712cdb5075484d34e563012c288310f",
+  "catalog_sha256": "4e0338c24737217afd5c5b845a50bbd40baaf8c103794aa2a804892dadd9715e",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -174,6 +174,39 @@
     },
     "session.get": {
       "class": "read"
+    },
+    "session.journal.append": {
+      "class": "mutation"
+    },
+    "session.journal.checkpoint.create": {
+      "class": "mutation"
+    },
+    "session.journal.checkpoint.list": {
+      "class": "read"
+    },
+    "session.journal.hook.list": {
+      "class": "read"
+    },
+    "session.journal.hook.put": {
+      "class": "mutation"
+    },
+    "session.journal.producer.list": {
+      "class": "read"
+    },
+    "session.journal.producer.put": {
+      "class": "mutation"
+    },
+    "session.journal.restore.preview": {
+      "class": "read"
+    },
+    "session.journal.segment.list": {
+      "class": "read"
+    },
+    "session.journal.segment.seal": {
+      "class": "mutation"
+    },
+    "session.journal.subscribe": {
+      "class": "stream_open"
     },
     "session.list": {
       "class": "read"
