@@ -556,8 +556,8 @@ struct WorkspaceListView: View {
             TerminalShortcutsSettingsView()
         }
         .sheet(isPresented: settingsPresentation.isPresented, onDismiss: {
-            settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)
             settingsPresentation.didDismiss()
+            settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)
         }) {
             MobileSettingsView(
                 connectedHostName: host,
@@ -937,8 +937,8 @@ struct WorkspaceListView: View {
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
             selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
             renameWorkspace: capabilities.supportsWorkspaceActions ? renameWorkspace : nil,
-            customizeWorkspace: capabilities.supportsWorkspaceActions
-                && capabilities.supportsWorkspaceMetadata ? customizeWorkspace : nil,
+            requestCustomization: capabilities.supportsWorkspaceActions
+                && capabilities.supportsWorkspaceMetadata ? requestWorkspaceCustomization : nil,
             setPinned: capabilities.supportsWorkspaceActions ? setPinned : nil,
             setUnread: capabilities.supportsReadStateActions ? setUnread : nil,
             groupMoveMenu: capabilities.supportsMoveActions ? {

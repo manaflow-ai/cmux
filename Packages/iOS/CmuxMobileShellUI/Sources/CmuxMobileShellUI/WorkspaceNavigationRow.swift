@@ -21,8 +21,8 @@ struct WorkspaceNavigationRow: View {
     /// Rename the workspace on the Mac. When `nil` (e.g. previews) the rename
     /// affordance is hidden.
     var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)? = nil
-    /// Customize the workspace's name, description, color, and pin state on the Mac.
-    var customizeWorkspace: WorkspaceCustomizationAction? = nil
+    /// Requests the list-owned customization sheet for this workspace.
+    var requestCustomization: ((MobileWorkspacePreview.ID) -> Void)? = nil
     /// Pin or unpin the workspace on the Mac. When `nil` the pin affordance is
     /// hidden.
     var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil
@@ -47,18 +47,8 @@ struct WorkspaceNavigationRow: View {
     /// full-swipe can request confirmation without directly closing the row.
     var confirmCloseWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
 
-    @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
     @State private var isRenaming = false
     @State private var renameDraft = ""
-    @State private var isCustomizing = false
-
-    private var customizationPresentation: MobileChildSheetPresentation {
-        childPresentationProvider?.presentation(
-            for: .workspaceList(.customization),
-            fallback: $isCustomizing
-        )
-            ?? MobileChildSheetPresentation(isPresented: $isCustomizing)
-    }
 
     var body: some View {
         rowTarget
@@ -91,9 +81,9 @@ struct WorkspaceNavigationRow: View {
         .accessibilityLabel(rowAccessibilityLabel)
         .accessibilityValue(workspace.accessibilitySummary(connectionStatus: connectionStatus))
         .accessibilityActions {
-            if customizeWorkspace != nil {
+            if let requestCustomization {
                 Button(L10n.string("mobile.workspace.customize.action", defaultValue: "Customize")) {
-                    customizationPresentation.present()
+                    requestCustomization(workspace.id)
                 }
             }
             if renameWorkspace != nil {
@@ -115,14 +105,6 @@ struct WorkspaceNavigationRow: View {
             let trimmed = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
             renameWorkspace?(workspace.id, trimmed)
-        }
-        .sheet(
-            isPresented: customizationPresentation.isPresented,
-            onDismiss: customizationPresentation.didDismiss
-        ) {
-            WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
-                await customizeWorkspace?(workspace.id, initialDraft, submittedDraft) ?? .failure()
-            }
         }
         .confirmationDialog(
             L10n.string("mobile.workspace.delete.confirmTitle", defaultValue: "Delete Workspace?"),
@@ -209,9 +191,9 @@ struct WorkspaceNavigationRow: View {
             }
             .accessibilityIdentifier("MobileWorkspacePinButton-\(workspace.id.rawValue)")
         }
-        if customizeWorkspace != nil {
+        if let requestCustomization {
             Button {
-                customizationPresentation.present()
+                requestCustomization(workspace.id)
             } label: {
                 Label(
                     L10n.string("mobile.workspace.customize.action", defaultValue: "Customize"),

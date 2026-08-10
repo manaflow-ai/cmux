@@ -29,6 +29,18 @@ struct MobileRootPresentationStateTests {
         #expect(state.presentation == nil)
     }
 
+    @Test func continuingWithAutoConnectAcknowledgesAndClearsTheSlot() {
+        var state = MobileRootPresentationState()
+        state.apply(.presentAutoConnectMigrationIfIdle)
+
+        #expect(
+            state.apply(.continueWithAutoConnect) == .acknowledgeAutoConnectMigration
+        )
+        #expect(state.isIdle)
+        #expect(state.apply(.continueWithAutoConnect) == .none)
+        #expect(state.isIdle)
+    }
+
     @Test func pairingPreemptsIntroductionWithoutAcknowledgementAndAllowsReentry() {
         var state = MobileRootPresentationState()
         state.apply(.presentAutoConnectMigrationIfIdle)
