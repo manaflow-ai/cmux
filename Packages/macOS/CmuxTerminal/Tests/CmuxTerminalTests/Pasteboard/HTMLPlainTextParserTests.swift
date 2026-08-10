@@ -102,6 +102,17 @@ struct HTMLPlainTextParserTests {
         #expect(parser.plainText(from: html) == "Visible")
     }
 
+    @Test(
+        "self-closing raw-text elements do not hide later content",
+        arguments: ["script", "style", "iframe"]
+    )
+    func preservesContentAfterSelfClosingRawTextElement(tag: String) {
+        let parser = HTMLPlainTextParser()
+        let html = "<\(tag)/><template>hidden</template><p>Visible</p>"
+
+        #expect(parser.plainText(from: html) == "Visible")
+    }
+
     @Test("keeps template text hidden when an unquoted attribute ends in slash")
     func omitsTemplateWithTrailingSlashInUnquotedAttribute() {
         let parser = HTMLPlainTextParser()
