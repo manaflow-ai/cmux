@@ -2379,6 +2379,43 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testTaskComposerAttachmentLifecycleRemainsCleanAcrossFiveLaunches() throws {
+        for cycle in 1...5 {
+            let app = launchApp(mockData: false, environment: [
+                "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+                "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS": "1",
+            ])
+            defer { app.terminate() }
+            let prompt = app.textFields["MobileTaskComposerPrompt"]
+            XCTAssertTrue(prompt.waitForExistence(timeout: 8), "cycle \(cycle)")
+            try typeText("Lifecycle draft \(cycle)", into: prompt, in: app)
+            let capturedDraft = try XCTUnwrap(prompt.value as? String)
+
+            let cards = app.buttons.matching(
+                NSPredicate(format: "identifier BEGINSWITH %@", "MobileAttachmentCard.")
+            )
+            XCTAssertEqual(cards.count, 2, "cycle \(cycle) must seed exactly two cards")
+            for index in 0..<2 {
+                app.buttons["MobileAttachmentCard.\(index)"].tap()
+                let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
+                XCTAssertTrue(preview.waitForExistence(timeout: 4), "cycle \(cycle), card \(index)")
+                app.buttons["Done"].tap()
+                XCTAssertTrue(preview.waitForNonExistence(timeout: 4), "cycle \(cycle), card \(index)")
+                XCTAssertEqual(prompt.value as? String, capturedDraft)
+            }
+
+            app.buttons["MobileAttachmentRemove.1"].tap()
+            app.buttons["MobileAttachmentRemove.0"].tap()
+            XCTAssertEqual(cards.count, 0, "cycle \(cycle) must remove both cards")
+            XCTAssertEqual(prompt.value as? String, capturedDraft)
+            XCTAssertEqual(app.alerts.count, 0, "cycle \(cycle) must not surface attachment errors")
+            if cycle == 5 {
+                keepScreenshot(named: "task-attachment-lifecycle-cycle-5", app: app)
+            }
+        }
+    }
+
+    @MainActor
     func testAgentChatComposerAttachmentActionsPreserveDraftAndDoNotSend() throws {
         let app = launchAgentChatPreviewApp(environment: [
             "CMUX_UITEST_AGENT_CHAT_ATTACHMENTS": "1",
