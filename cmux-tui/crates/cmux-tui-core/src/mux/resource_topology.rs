@@ -2920,12 +2920,18 @@ impl Mux {
                 "terminal_incarnation_mismatch"
             );
         }
+        let scan_unindexed_host_matches = terminal_placement_indexes_need_repair(
+            self,
+            state,
+            public_id,
+            Some((terminal_id, terminal_incarnation)),
+        );
         let placements = terminal_content_placements(
             self,
             state,
             public_id,
             Some((terminal_id, terminal_incarnation)),
-            true,
+            scan_unindexed_host_matches,
         );
         let changed_screens = unique_screen_ids(
             placements.iter().filter_map(|surface| surface_screen_id(state, *surface)),

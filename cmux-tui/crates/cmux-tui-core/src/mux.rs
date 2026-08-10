@@ -14949,6 +14949,79 @@ fn terminal_host_matches(
         && expected_incarnation.is_none_or(|expected| identity.incarnation == expected)
 }
 
+fn terminal_surface_matches(
+    mux: &Mux,
+    candidate: &Arc<Surface>,
+    terminal_id: &TerminalPublicId,
+    expected_host: Option<(&str, Option<&str>)>,
+) -> bool {
+    let host_matches = expected_host.is_some_and(|(expected_id, expected_incarnation)| {
+        mux.resource_terminal_host_identity(candidate).is_some_and(|identity| {
+            terminal_host_matches(&identity, expected_id, expected_incarnation)
+        })
+    });
+    match candidate.terminal_public_id() {
+        Some(candidate_id) => {
+            candidate_id == terminal_id && (expected_host.is_none() || host_matches)
+        }
+        None => host_matches,
+    }
+}
+
+/// Decide whether terminal-specific reverse indexes can serve a close without
+/// an application-wide repair scan. This check is proportional only to the
+/// affected terminal's durable and live placement sets.
+fn terminal_placement_indexes_need_repair(
+    mux: &Mux,
+    state: &State,
+    terminal_id: &TerminalPublicId,
+    expected_host: Option<(&str, Option<&str>)>,
+) -> bool {
+    let Some(runtime) = state.terminal_catalog.get(terminal_id) else {
+        return true;
+    };
+    let Some(runtime_id) = runtime.terminal_runtime_id() else {
+        return true;
+    };
+    if state.terminal_catalog_by_runtime.get(&runtime_id) != Some(terminal_id) {
+        return true;
+    }
+
+    let content_id = ContentPublicId::Terminal(terminal_id.clone());
+    let durable = state.placements_of_content(&content_id);
+    let Some(indexed) = state.terminal_placements_by_runtime.get(&runtime_id) else {
+        return state.surfaces.contains_key(&runtime.id)
+            || durable.iter().any(|placement| {
+                state.resource_indexes.content_ids.get(placement) != Some(&content_id)
+                    || state.surfaces.contains_key(placement)
+            });
+    };
+
+    if indexed.iter().any(|placement| {
+        state.resource_indexes.content_ids.get(placement) != Some(&content_id)
+            || !state.surfaces.get(placement).is_some_and(|candidate| {
+                terminal_surface_matches(mux, candidate, terminal_id, expected_host)
+            })
+    }) {
+        return true;
+    }
+    if durable.iter().any(|placement| {
+        if state.resource_indexes.content_ids.get(placement) != Some(&content_id) {
+            return true;
+        }
+        state.surfaces.get(placement).is_some_and(|candidate| {
+            !terminal_surface_matches(mux, candidate, terminal_id, expected_host)
+                || !indexed.contains(placement)
+        })
+    }) {
+        return true;
+    }
+    state.surfaces.get(&runtime.id).is_some_and(|candidate| {
+        terminal_surface_matches(mux, candidate, terminal_id, expected_host)
+            && !indexed.contains(&runtime.id)
+    })
+}
+
 /// Discover every durable or live view by terminal identity. The runtime
 /// binding and live surface can be absent while restored topology is adopted.
 fn terminal_content_placements(
@@ -14960,17 +15033,7 @@ fn terminal_content_placements(
 ) -> Vec<SurfaceId> {
     let content_id = ContentPublicId::Terminal(terminal_id.clone());
     let matches_live_surface = |candidate: &Arc<Surface>| {
-        let host_matches = expected_host.is_some_and(|(expected_id, expected_incarnation)| {
-            mux.resource_terminal_host_identity(candidate).is_some_and(|identity| {
-                terminal_host_matches(&identity, expected_id, expected_incarnation)
-            })
-        });
-        match candidate.terminal_public_id() {
-            Some(candidate_id) => {
-                candidate_id == terminal_id && (expected_host.is_none() || host_matches)
-            }
-            None => host_matches,
-        }
+        terminal_surface_matches(mux, candidate, terminal_id, expected_host)
     };
     let mut targets = state
         .placements_of_content(&content_id)
