@@ -2203,7 +2203,7 @@ mod tests {
         queue_full_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
 
         let shutdown_sender = sender.clone();
-        let (shutdown_completed, shutdown_completion) = sync_channel(1);
+        let (shutdown_completion, shutdown_completed) = sync_channel(1);
         let shutdown = std::thread::spawn(move || {
             shutdown_completion
                 .send(
