@@ -308,14 +308,14 @@ fn run_pair(
         TargetKind::Baseline => {
             let baseline = baseline.run(recorder).context("run baseline")?;
             let candidate = candidate.run(recorder).context("run candidate")?;
-            Ok((baseline, candidate))
+            (baseline, candidate)
         }
         TargetKind::Candidate => {
             let candidate = candidate.run(recorder).context("run candidate")?;
             let baseline = baseline.run(recorder).context("run baseline")?;
-            Ok((baseline, candidate))
+            (baseline, candidate)
         }
-    }?;
+    };
     recorder.record_pair(
         baseline.scenario,
         kind,
