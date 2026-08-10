@@ -1446,11 +1446,32 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "解決済み: %@" } }
       }
     },
+    "mobile.agentFeed.card.routeUnavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "利用不可" } }
+      }
+    },
+    "mobile.agentFeed.card.surfaceID" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Surface ID: %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーフェスID: %@" } }
+      }
+    },
     "mobile.agentFeed.card.unknown" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Unknown status" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "不明な状態" } }
+      }
+    },
+    "mobile.agentFeed.card.workspaceID" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspace ID: %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペースID: %@" } }
       }
     },
     "mobile.agentFeed.empty.message" : {
@@ -1542,6 +1563,20 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "%d new activities" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "新しいアクティビティ %d件" } }
+      }
+    },
+    "mobile.agentFeed.history.loadOlder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Load Older" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "以前の履歴を読み込む" } }
+      }
+    },
+    "mobile.agentFeed.history.loadingOlder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Loading older activity…" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "以前のアクティビティを読み込み中…" } }
       }
     },
     "mobile.agentFeed.permission.all" : {

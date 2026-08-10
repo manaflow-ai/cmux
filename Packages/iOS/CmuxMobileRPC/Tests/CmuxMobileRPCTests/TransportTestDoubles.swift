@@ -73,6 +73,7 @@ struct RecordedRPCRequest: Sendable {
     var workspaceID: String?
     var terminalID: String?
     var text: String?
+    var cursor: String?
     var hasAuth: Bool
     var attachToken: String?
     var stackAccessToken: String?
@@ -88,6 +89,7 @@ func recordedRPCRequest(from payload: Data) throws -> RecordedRPCRequest {
         workspaceID: params["workspace_id"] as? String,
         terminalID: params["terminal_id"] as? String ?? params["surface_id"] as? String,
         text: params["text"] as? String,
+        cursor: params["cursor"] as? String,
         hasAuth: auth != nil,
         attachToken: auth?["attach_token"] as? String,
         stackAccessToken: auth?["stack_access_token"] as? String

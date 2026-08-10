@@ -296,6 +296,8 @@ struct AgentFeedRow: View, Equatable {
             item.macDisplayName,
             item.connectionStatus.label,
             item.wire.workstreamID,
+            AgentFeedCopy.workspaceRouteLabel(item.wire.workspaceID),
+            AgentFeedCopy.surfaceRouteLabel(item.wire.surfaceID),
             item.wire.title,
             AgentFeedCopy.payloadSummary(item.wire.payload),
             AgentFeedCopy.resolutionLabel(item.wire.status),
@@ -400,12 +402,50 @@ private struct AgentFeedContext: View {
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                     .fixedSize(horizontal: false, vertical: dynamicTypeSize.isAccessibilitySize)
             }
+            Text(AgentFeedCopy.workspaceRouteLabel(item.wire.workspaceID))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+            Text(AgentFeedCopy.surfaceRouteLabel(item.wire.surfaceID))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 private struct AgentFeedCopy {
+    static func workspaceRouteLabel(_ workspaceID: String?) -> String {
+        String(
+            format: AgentFeedL10n.string(
+                "mobile.agentFeed.card.workspaceID",
+                defaultValue: "Workspace ID: %@"
+            ),
+            routeValue(workspaceID)
+        )
+    }
+
+    static func surfaceRouteLabel(_ surfaceID: String?) -> String {
+        String(
+            format: AgentFeedL10n.string(
+                "mobile.agentFeed.card.surfaceID",
+                defaultValue: "Surface ID: %@"
+            ),
+            routeValue(surfaceID)
+        )
+    }
+
+    private static func routeValue(_ value: String?) -> String {
+        guard let value, !value.isEmpty else {
+            return AgentFeedL10n.string(
+                "mobile.agentFeed.card.routeUnavailable",
+                defaultValue: "Unavailable"
+            )
+        }
+        return value
+    }
+
     static func statusLabel(_ status: MobileWorkstreamFeedStatus) -> String {
         switch status {
         case .pending: AgentFeedL10n.string("mobile.agentFeed.card.pending", defaultValue: "Needs input")

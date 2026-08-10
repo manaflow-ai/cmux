@@ -14242,7 +14242,7 @@ class TerminalController {
         case "notification.feed.mark_all_read":
             result = v2MobileNotificationFeedMarkAllRead(params: request.params)
         case "workstream.feed.list":
-            result = v2MobileWorkstreamFeedList(params: request.params)
+            result = await v2MobileWorkstreamFeedList(params: request.params)
         case "workstream.feed.action":
             result = v2MobileWorkstreamFeedAction(params: request.params)
         case "workstream.feed.reply":
@@ -14269,20 +14269,37 @@ class TerminalController {
     }
 
     /// Authenticated, authoritative coding-agent Feed snapshot for iOS.
-    private func v2MobileWorkstreamFeedList(params: [String: Any]) -> V2CallResult {
-        let snapshot = FeedCoordinator.shared.mobileSnapshot(pendingOnly: false)
-        let items = snapshot.items.map { item -> [String: Any] in
+    private func v2MobileWorkstreamFeedList(params: [String: Any]) async -> V2CallResult {
+        let cursor = params["cursor"] as? String
+        let history: (revision: UInt64, page: WorkstreamStore.HistoryPage)
+        do {
+            history = try await FeedCoordinator.shared.mobileHistoryPage(
+                endingBefore: cursor,
+                limit: WorkstreamDefaultHistoryPageSize
+            )
+        } catch WorkstreamHistoryError.invalidCursor {
+            return .err(code: "invalid_params", message: "Unknown Feed history cursor", data: nil)
+        } catch {
+            return .err(code: "internal_error", message: "Unable to load Feed history", data: nil)
+        }
+        let items = history.page.items.map { item -> [String: Any] in
             var payload = FeedSocketEncoding.itemDict(item)
-            if let target = FeedCoordinator.shared.target(for: item.workstreamId) {
-                payload["workspace_id"] = target.workspaceId
-                payload["surface_id"] = target.surfaceId
+            let liveTarget = FeedCoordinator.shared.target(for: item.workstreamId)
+            if let workspaceID = liveTarget?.workspaceId ?? item.workspaceId {
+                payload["workspace_id"] = workspaceID
+            }
+            if let surfaceID = liveTarget?.surfaceId ?? item.surfaceId {
+                payload["surface_id"] = surfaceID
             }
             return payload
         }
-        return .ok([
-            "revision": snapshot.revision,
+        var response: [String: Any] = [
+            "revision": history.revision,
             "items": items,
-        ])
+            "has_more": history.page.hasMore,
+        ]
+        if let nextCursor = history.page.nextCursor { response["next_cursor"] = nextCursor }
+        return .ok(response)
     }
 
     /// Resolves one exact pending item. The item id and request id must name the

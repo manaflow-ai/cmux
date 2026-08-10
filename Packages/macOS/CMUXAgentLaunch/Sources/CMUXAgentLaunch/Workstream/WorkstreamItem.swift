@@ -44,6 +44,10 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
     public var updatedAt: Date
     public var cwd: String?
     public var title: String?
+    /// Exact workspace route captured when the event entered Feed.
+    public var workspaceId: String?
+    /// Exact surface route captured when the event entered Feed.
+    public var surfaceId: String?
     public var status: WorkstreamStatus
     public var payload: WorkstreamPayload
     public var context: WorkstreamContext?
@@ -64,6 +68,8 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
         updatedAt: Date? = nil,
         cwd: String? = nil,
         title: String? = nil,
+        workspaceId: String? = nil,
+        surfaceId: String? = nil,
         status: WorkstreamStatus? = nil,
         payload: WorkstreamPayload,
         context: WorkstreamContext? = nil,
@@ -78,6 +84,8 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
         self.updatedAt = updatedAt ?? createdAt
         self.cwd = cwd
         self.title = title
+        self.workspaceId = workspaceId
+        self.surfaceId = surfaceId
         let resolvedStatus = status ?? (kind.isActionable ? .pending : .telemetry)
         self.status = kind.isActionable ? resolvedStatus : .telemetry
         self.payload = payload

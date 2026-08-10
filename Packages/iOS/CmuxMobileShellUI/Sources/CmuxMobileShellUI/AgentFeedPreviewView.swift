@@ -15,7 +15,7 @@ public struct AgentFeedPreviewView: View {
     @State private var drafts: [MobileAgentFeedItemID: String] = [:]
     @State private var mutationStates: [MobileAgentFeedItemID: MobileAgentFeedMutationState] = [:]
     @State private var openedItem: MobileAgentFeedItem?
-    @State private var loadedOlderPage = false
+    @State private var performanceProbe = AgentFeedPerformanceProbe()
 
     public init() {
         let configuration = AgentFeedPreviewConfiguration.current()
@@ -64,6 +64,13 @@ public struct AgentFeedPreviewView: View {
             scenarioMarker
             feed
             fixtureControls
+            if scenario == .newActivity {
+                Color.clear
+                    .frame(height: 1)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityIdentifier("AgentFeedPerformanceMetrics")
+                    .accessibilityValue(performanceProbe.markerValue)
+            }
         }
     }
 
@@ -83,7 +90,11 @@ public struct AgentFeedPreviewView: View {
                 .accessibilityIdentifier("AgentFeedFixtureCompleteFirstLoad")
         case .newActivity:
             Button("Inject 100-event burst") {
-                items.insert(contentsOf: AgentFeedPreviewConfiguration.injectedActivityBurst(), at: 0)
+                performanceProbe.start(
+                    burst: AgentFeedPreviewConfiguration.injectedActivityBurst()
+                ) { item in
+                    items.insert(item, at: 0)
+                }
             }
             .accessibilityIdentifier("AgentFeedFixtureInjectNewActivity")
         case .reply:
@@ -100,12 +111,6 @@ public struct AgentFeedPreviewView: View {
                 status = .ready
             }
             .accessibilityIdentifier("AgentFeedFixtureFinishReconciliation")
-        case .stress:
-            Button(loadedOlderPage ? "Older page loaded" : "Load older page") {
-                loadedOlderPage = true
-            }
-            .disabled(loadedOlderPage)
-            .accessibilityIdentifier("AgentFeedFixtureLoadOlderPage")
         default:
             EmptyView()
         }
@@ -118,14 +123,27 @@ public struct AgentFeedPreviewView: View {
             filter: $filter,
             drafts: drafts,
             mutationStates: mutationStates,
+            hasMoreItems: (scenario == .stress && items.count < AgentFeedPreviewConfiguration.stressItems.count)
+                || scenario == .offline,
+            canLoadOlder: scenario == .stress && status == .ready,
+            isLoadingOlder: false,
             actions: AgentFeedActions(
                 setDraft: { id, value in drafts[id] = value },
                 reply: { item in mutationStates[item.id] = .sending },
                 decide: { item, action in resolve(item, action: action) },
                 open: { item in openedItem = item },
-                refresh: { status = .loading }
+                refresh: { status = .loading },
+                loadOlder: loadOlder,
+                recordTopRowAppearance: performanceProbe.recordTopRowAppearance
             )
         )
+    }
+
+    private func loadOlder() {
+        guard scenario == .stress else { return }
+        let allItems = AgentFeedPreviewConfiguration.stressItems
+        let end = min(items.count + 300, allItems.count)
+        items = Array(allItems.prefix(end))
     }
 
     private func resolve(_ item: MobileAgentFeedItem, action: MobileAgentFeedAction) {

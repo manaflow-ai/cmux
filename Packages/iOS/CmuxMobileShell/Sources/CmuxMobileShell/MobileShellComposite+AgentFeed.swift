@@ -43,6 +43,29 @@ extension MobileShellComposite {
         agentFeedStatus = resolvedAgentFeedStatus()
     }
 
+    /// Loads one persisted 300-item history page from every eligible Mac.
+    public func loadOlderAgentFeed() async {
+        guard !agentFeedIsLoadingOlder else { return }
+        let targets = agentFeedTargets().filter { target in
+            agentFeedSnapshotsByMac[target.ownerKey]?.hasMore == true
+                && agentFeedSnapshotsByMac[target.ownerKey]?.nextCursor != nil
+        }
+        guard !targets.isEmpty else {
+            recomputeAgentFeedPagingState()
+            return
+        }
+        agentFeedIsLoadingOlder = true
+        defer {
+            agentFeedIsLoadingOlder = false
+            recomputeAgentFeedPagingState()
+        }
+        for target in targets {
+            guard let cursor = agentFeedSnapshotsByMac[target.ownerKey]?.nextCursor else { continue }
+            await fetchAgentFeed(target, cursor: cursor, appending: true, staleRetryBudget: 0)
+        }
+        agentFeedStatus = resolvedAgentFeedStatus()
+    }
+
     /// Coalesces invalidations per Mac onto one list request.
     func handleAgentFeedChangedEvent(
         _ event: MobileEventEnvelope,
@@ -174,6 +197,7 @@ extension MobileShellComposite {
                 wire: item.wire
             )
         }
+        recomputeAgentFeedPagingState()
     }
 
     func resetAgentFeed() {
@@ -187,8 +211,7 @@ extension MobileShellComposite {
     /// Drops old-team in-memory rows without deleting that team's scoped cache,
     /// so switching back can restore it while the new team never sees it.
     func resetAgentFeedForScopeChange() {
-        for task in agentFeedRefreshTasksByMac.values { task.cancel() }
-        agentFeedRefreshTasksByMac = [:]
+        agentFeedRefreshTasks.cancelAll()
         agentFeedSnapshotsByMac = [:]
         agentFeedKnownRevisionsByMac = [:]
         agentFeedFailedOwnerKeys = []
@@ -196,29 +219,46 @@ extension MobileShellComposite {
         agentFeedDrafts = [:]
         agentFeedMutationStates = [:]
         agentFeedStatus = .idle
+        agentFeedHasMoreItems = false
+        agentFeedCanLoadOlder = false
+        agentFeedIsLoadingOlder = false
         agentFeedCacheScopeKey = nil
     }
 
     private func scheduleAgentFeedRefresh(_ target: AgentFeedTarget) -> Task<Void, Never> {
-        if let existing = agentFeedRefreshTasksByMac[target.ownerKey] { return existing }
-        let task = Task { @MainActor [weak self] in
+        agentFeedRefreshTasks.schedule(ownerKey: target.ownerKey) { @MainActor [weak self] in
             guard let self else { return }
             await self.fetchAgentFeed(target)
-            self.agentFeedRefreshTasksByMac[target.ownerKey] = nil
             self.agentFeedStatus = self.resolvedAgentFeedStatus()
         }
-        agentFeedRefreshTasksByMac[target.ownerKey] = task
-        return task
     }
 
-    private func fetchAgentFeed(_ target: AgentFeedTarget, staleRetryBudget: Int = 1) async {
+    private func fetchAgentFeed(
+        _ target: AgentFeedTarget,
+        cursor: String? = nil,
+        appending: Bool = false,
+        staleRetryBudget: Int = 1
+    ) async {
         do {
-            let request = try MobileCoreRPCClient.requestData(method: "workstream.feed.list", params: [:])
+            var params: [String: Any] = [:]
+            if let cursor { params["cursor"] = cursor }
+            let request = try MobileCoreRPCClient.requestData(method: "workstream.feed.list", params: params)
             let data = try await target.client.sendRequest(request)
             let response = try MobileWorkstreamFeedListResponse.decode(data)
             guard agentFeedClient(for: target.ownerKey) === target.client else { return }
             let invalidatedRevision = agentFeedKnownRevisionsByMac[target.ownerKey] ?? 0
-            let rows = response.items.prefix(MobileAgentFeedAggregation.maxItemCount).map { wire in
+            var pages: MobileAgentFeedPageAccumulator
+            if var existing = agentFeedSnapshotsByMac[target.ownerKey]?.pages {
+                if appending {
+                    existing.append(response)
+                } else {
+                    existing.applyFirstPage(response)
+                }
+                pages = existing
+            } else {
+                pages = MobileAgentFeedPageAccumulator(response: response)
+            }
+            let rows = pages.items.map { wire in
                 MobileAgentFeedItem(
                     macDeviceID: target.macDeviceID,
                     macInstanceTag: target.instanceTag,
@@ -228,7 +268,7 @@ extension MobileShellComposite {
                 )
             }
             agentFeedSnapshotsByMac[target.ownerKey] = AgentFeedMacSnapshot(
-                revision: response.revision,
+                pages: pages,
                 items: rows
             )
             // A Mac process relaunch resets its revision namespace. The list is
@@ -237,8 +277,10 @@ extension MobileShellComposite {
             agentFeedKnownRevisionsByMac[target.ownerKey] = response.revision
             agentFeedFailedOwnerKeys.remove(target.ownerKey)
             recomputeAgentFeedItems()
-            await persistAgentFeedSnapshot(Self.sanitizedAgentFeedCacheData(data), target: target)
-            if response.revision < invalidatedRevision, staleRetryBudget > 0 {
+            if !appending {
+                await persistAgentFeedSnapshot(Self.sanitizedAgentFeedCacheData(data), target: target)
+            }
+            if !appending, response.revision < invalidatedRevision, staleRetryBudget > 0 {
                 await fetchAgentFeed(target, staleRetryBudget: staleRetryBudget - 1)
             }
         } catch {
@@ -269,7 +311,7 @@ extension MobileShellComposite {
                 )
             }
             agentFeedSnapshotsByMac[snapshot.ownerKey] = AgentFeedMacSnapshot(
-                revision: response.revision,
+                pages: MobileAgentFeedPageAccumulator(response: response),
                 items: rows
             )
             agentFeedKnownRevisionsByMac[snapshot.ownerKey] = response.revision
@@ -312,6 +354,14 @@ extension MobileShellComposite {
 
     private var connectedAgentFeedMacCount: Int {
         (remoteClient == nil ? 0 : 1) + secondaryMacSubscriptions.count
+    }
+
+    private func recomputeAgentFeedPagingState() {
+        agentFeedHasMoreItems = agentFeedSnapshotsByMac.values.contains { $0.hasMore }
+        let eligibleOwnerKeys = Set(agentFeedTargets().map(\.ownerKey))
+        agentFeedCanLoadOlder = agentFeedSnapshotsByMac.contains { ownerKey, snapshot in
+            eligibleOwnerKeys.contains(ownerKey) && snapshot.hasMore && snapshot.nextCursor != nil
+        }
     }
 
     private func resolvedAgentFeedStatus() -> MobileAgentFeedStatus {

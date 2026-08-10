@@ -73,6 +73,95 @@ struct WorkstreamStoreTests {
         #expect(!store.hasMorePersistedItems)
     }
 
+    @Test("mobile history pages persisted rows by stable item cursor")
+    func mobilePersistedHistoryPages() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-mobile-page-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        var ids: [UUID] = []
+        for index in 0..<650 {
+            let id = UUID()
+            ids.append(id)
+            try await persistence.append(WorkstreamItem(
+                id: id,
+                workstreamId: "session-\(index)",
+                source: .codex,
+                kind: .assistantMessage,
+                workspaceId: "workspace-\(index)",
+                surfaceId: "surface-\(index)",
+                payload: .assistantMessage(text: "event \(index)")
+            ))
+        }
+        let store = WorkstreamStore(persistence: persistence, ringCapacity: 2_000)
+        let readsBefore = await persistence.loadPageCallCount
+
+        let first = try await store.historyPage(endingBefore: nil, limit: 300)
+        let second = try await store.historyPage(endingBefore: first.nextCursor, limit: 300)
+        let third = try await store.historyPage(endingBefore: second.nextCursor, limit: 300)
+
+        #expect(first.items.map(\.id) == Array(ids[350..<650]))
+        #expect(second.items.map(\.id) == Array(ids[50..<350]))
+        #expect(third.items.map(\.id) == Array(ids[0..<50]))
+        #expect(Set(first.items.map(\.id)).isDisjoint(with: second.items.map(\.id)))
+        #expect(Set(second.items.map(\.id)).isDisjoint(with: third.items.map(\.id)))
+        #expect(first.hasMore && second.hasMore && !third.hasMore)
+        #expect(first.items.first?.workspaceId == "workspace-350")
+        #expect(first.items.first?.surfaceId == "surface-350")
+        let readsAfter = await persistence.loadPageCallCount
+        #expect(readsAfter - readsBefore == 3)
+    }
+
+    @Test("mobile persisted history rejects a cursor whose offset names another row")
+    func mobilePersistedHistoryRejectsTamperedOffset() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-mobile-cursor-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        for index in 0..<4 {
+            try await persistence.append(WorkstreamItem(
+                workstreamId: "session-\(index)",
+                source: .codex,
+                kind: .assistantMessage,
+                payload: .assistantMessage(text: "event \(index)")
+            ))
+        }
+        let store = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        let first = try await store.historyPage(endingBefore: nil, limit: 2)
+        let cursor = try #require(first.nextCursor)
+        let data = try #require(Data(base64Encoded: cursor))
+        let raw = try #require(String(data: data, encoding: .utf8))
+        let parts = raw.split(separator: ":", omittingEmptySubsequences: false)
+        let tampered = Data("p1:0:\(parts[2])".utf8).base64EncodedString()
+
+        await #expect(throws: WorkstreamHistoryError.invalidCursor) {
+            try await store.historyPage(endingBefore: tampered, limit: 2)
+        }
+    }
+
+    @Test("mobile in-memory history rejects a cursor invalidated by ring eviction")
+    func mobileInMemoryHistoryRejectsEvictedCursor() async throws {
+        let store = WorkstreamStore(ringCapacity: 4)
+        for index in 0..<4 {
+            store.ingest(WorkstreamEvent(
+                sessionId: "session-\(index)",
+                hookEventName: .notification,
+                source: "codex"
+            ))
+        }
+        let first = try await store.historyPage(endingBefore: nil, limit: 2)
+        let cursor = try #require(first.nextCursor)
+        store.ingest(WorkstreamEvent(
+            sessionId: "session-4",
+            hookEventName: .notification,
+            source: "codex"
+        ))
+
+        await #expect(throws: WorkstreamHistoryError.invalidCursor) {
+            try await store.historyPage(endingBefore: cursor, limit: 2)
+        }
+    }
+
     @Test("expireAbandonedItems expires items whose agent PID is dead")
     func expireAbandoned() {
         let clock = TestClock(initial: Date(timeIntervalSince1970: 0))

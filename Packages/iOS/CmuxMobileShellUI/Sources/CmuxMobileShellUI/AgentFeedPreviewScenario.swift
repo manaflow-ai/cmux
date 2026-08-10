@@ -80,7 +80,7 @@ struct AgentFeedPreviewConfiguration {
         case .stress:
             return Self(
                 scenario: scenario,
-                items: MobileAgentFeedAggregation().items(from: stressSnapshots),
+                items: Array(stressItems.prefix(300)),
                 status: .ready,
                 filter: .allActivity,
                 hostEventCount: 2_400
@@ -231,7 +231,8 @@ struct AgentFeedPreviewConfiguration {
             kind: "futureEvent",
             title: "Unknown agent event",
             status: .telemetry,
-            payload: .unknown(kind: "futureEvent")
+            payload: .unknown(kind: "futureEvent"),
+            routeAvailable: false
         ),
         item(
             id: 110,
@@ -293,6 +294,10 @@ struct AgentFeedPreviewConfiguration {
         }
     }
 
+    static var stressItems: [MobileAgentFeedItem] {
+        MobileAgentFeedAggregation().items(from: stressSnapshots)
+    }
+
     static func injectedActivityBurst() -> [MobileAgentFeedItem] {
         (0..<100).map { index in
             item(
@@ -341,7 +346,8 @@ struct AgentFeedPreviewConfiguration {
         connectionStatus: MobileMacConnectionStatus = .connected,
         macDisplayName: String? = nil,
         workstreamID: String? = nil,
-        cwd: String? = "/cmux/worktrees/agent-feed"
+        cwd: String? = "/cmux/worktrees/agent-feed",
+        routeAvailable: Bool = true
     ) -> MobileAgentFeedItem {
         let date = Date(timeIntervalSince1970: 1_800_000_000 - minutesAgo * 60)
         let uuid = UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", id))!
@@ -369,8 +375,8 @@ struct AgentFeedPreviewConfiguration {
                 updatedAt: date,
                 cwd: cwd,
                 title: title,
-                workspaceID: "workspace-\(macIndex + 1)",
-                surfaceID: "surface-\(id)",
+                workspaceID: routeAvailable ? "workspace-\(macIndex + 1)" : nil,
+                surfaceID: routeAvailable ? "surface-\(id)" : nil,
                 status: status,
                 payload: payload
             )

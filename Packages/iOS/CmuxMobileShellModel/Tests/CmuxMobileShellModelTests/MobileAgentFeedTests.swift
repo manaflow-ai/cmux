@@ -42,6 +42,26 @@ struct MobileAgentFeedTests {
         ))
     }
 
+    @Test func rowPreservesExactWorkspaceAndSurfaceRoute() throws {
+        let row = try decodeRow(
+            id: "00000000-0000-0000-0000-000000000006",
+            extra: "\"text\":\"working\",\"workspace_id\":\"workspace-exact\",\"surface_id\":\"surface-exact\""
+        )
+
+        #expect(row.workspaceID == "workspace-exact")
+        #expect(row.surfaceID == "surface-exact")
+    }
+
+    @Test func legacyListResponseDefaultsToNoOlderHistory() throws {
+        let data = Data("""
+        {"revision":1,"items":[]}
+        """.utf8)
+        let response = try MobileWorkstreamFeedListResponse.decode(data)
+
+        #expect(!response.hasMore)
+        #expect(response.nextCursor == nil)
+    }
+
     @Test func aggregationIsStableBoundedAndDeduplicated() throws {
         let oldest = try item(id: 1, mac: "mac-a", createdAt: "2026-08-09T10:00:00Z")
         let newest = try item(id: 2, mac: "mac-b", createdAt: "2026-08-09T12:00:00Z")
@@ -81,6 +101,78 @@ struct MobileAgentFeedTests {
         #expect(Set(rows.map(\.macDeviceID)).count == 10)
     }
 
+    @Test func perMacPagingMergesTwoPagesWithoutDuplicatesAndExhaustsIndependently() throws {
+        let macAFirst = try response(ids: 301...600, revision: 1, cursor: "a-301", hasMore: true)
+        let macASecond = try response(ids: 1...301, revision: 1, cursor: nil, hasMore: false)
+        let macBFirst = try response(ids: 901...1_200, revision: 7, cursor: "b-901", hasMore: true)
+        let macBSecond = try response(ids: 601...901, revision: 7, cursor: nil, hasMore: false)
+        var macA = MobileAgentFeedPageAccumulator(response: macAFirst)
+        var macB = MobileAgentFeedPageAccumulator(response: macBFirst)
+
+        macA.append(macASecond)
+        macB.append(macBSecond)
+
+        #expect(macA.items.count == 600)
+        #expect(macB.items.count == 600)
+        #expect(Set(macA.items.map(\.id)).count == 600)
+        #expect(Set(macB.items.map(\.id)).count == 600)
+        #expect(!macA.hasMore && macA.nextCursor == nil)
+        #expect(!macB.hasMore && macB.nextCursor == nil)
+
+        let aggregated = MobileAgentFeedAggregation().items(from: [
+            macA.items.map { mobileItem($0, mac: "mac-a") },
+            macB.items.map { mobileItem($0, mac: "mac-b") },
+        ])
+        #expect(aggregated.count == 1_200)
+        #expect(Set(aggregated.map(\.id)).count == 1_200)
+        #expect(Set(aggregated.map(\.macDeviceID)) == ["mac-a", "mac-b"])
+    }
+
+    @Test func firstPageRefreshPreservesAlreadyLoadedOlderRows() throws {
+        var pages = MobileAgentFeedPageAccumulator(
+            response: try response(ids: 301...600, revision: 1, cursor: "301", hasMore: true)
+        )
+        pages.append(try response(ids: 1...301, revision: 1, cursor: nil, hasMore: false))
+        pages.applyFirstPage(try response(ids: 302...601, revision: 2, cursor: "302", hasMore: true))
+
+        #expect(pages.items.count == 601)
+        #expect(Set(pages.items.map(\.id)).count == 601)
+        #expect(!pages.hasMore)
+        #expect(pages.nextCursor == nil)
+    }
+
+    @MainActor
+    @Test func repeatedInvalidationsCoalesceAndLeaveNoRefreshTasks() async {
+        let coalescer = MobileAgentFeedRefreshTaskCoalescer()
+        var tasks: [Task<Void, Never>] = []
+        for _ in 0..<100 {
+            tasks.append(coalescer.schedule(ownerKey: "mac-a") {})
+        }
+        for task in tasks { await task.value }
+
+        #expect(coalescer.activeCount == 0)
+    }
+
+    @Test func aggregationBenchmarkReportsIncreasingInputSizes() throws {
+        for size in [300, 1_200, 2_400, 4_800] {
+            var snapshots = Array(repeating: [MobileAgentFeedItem](), count: 12)
+            for index in 0..<size {
+                snapshots[index % snapshots.count].append(
+                    try item(id: 20_000 + index, mac: "mac-\(index % snapshots.count)")
+                )
+            }
+            let clock = ContinuousClock()
+            let started = clock.now
+            let output = MobileAgentFeedAggregation().items(from: snapshots)
+            let elapsed = started.duration(to: clock.now)
+            let components = elapsed.components
+            let milliseconds = Double(components.seconds) * 1_000
+                + Double(components.attoseconds) / 1_000_000_000_000_000
+            print("AGENT_FEED_AGGREGATION_BENCHMARK n=\(size) ms=\(milliseconds) output=\(output.count)")
+            #expect(output.count == min(size, MobileAgentFeedAggregation.maxItemCount))
+        }
+    }
+
     private func item(
         id: Int,
         mac: String,
@@ -104,6 +196,36 @@ struct MobileAgentFeedTests {
             macDisplayName: mac,
             connectionStatus: .connected,
             wire: row
+        )
+    }
+
+    private func response(
+        ids: ClosedRange<Int>,
+        revision: UInt64,
+        cursor: String?,
+        hasMore: Bool
+    ) throws -> MobileWorkstreamFeedListResponse {
+        try MobileWorkstreamFeedListResponse(
+            revision: revision,
+            items: ids.map { index in
+                try decodeRow(
+                    id: String(format: "00000000-0000-0000-0000-%012d", index),
+                    createdAt: "2026-08-09T11:\(String(format: "%02d", index % 60)):00Z",
+                    updatedAt: "2026-08-09T11:\(String(format: "%02d", index % 60)):00Z"
+                )
+            },
+            nextCursor: cursor,
+            hasMore: hasMore
+        )
+    }
+
+    private func mobileItem(_ wire: MobileWorkstreamFeedListItem, mac: String) -> MobileAgentFeedItem {
+        MobileAgentFeedItem(
+            macDeviceID: mac,
+            macInstanceTag: "dev",
+            macDisplayName: mac,
+            connectionStatus: .connected,
+            wire: wire
         )
     }
 

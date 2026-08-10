@@ -35,9 +35,14 @@ import Testing
             ticket: ticket,
             allowsStackAuthFallback: true
         )
-        let params: [String: Any] = ["notification.feed.mark_read", "notification.feed.mark_unread"].contains(method)
-            ? ["notification_ids": ["notification"]]
-            : [:]
+        let params: [String: Any]
+        if ["notification.feed.mark_read", "notification.feed.mark_unread"].contains(method) {
+            params = ["notification_ids": ["notification"]]
+        } else if method == "workstream.feed.list" {
+            params = ["cursor": "00000000-0000-0000-0000-000000000300"]
+        } else {
+            params = [:]
+        }
         let request = try MobileCoreRPCClient.requestData(method: method, params: params)
 
         let task = Task { try await client.sendRequest(request) }
@@ -50,5 +55,8 @@ import Testing
         #expect(frame.attachToken == nil)
         #expect(frame.stackAccessToken == "test-stack-token")
         #expect(frame.hasAuth)
+        if method == "workstream.feed.list" {
+            #expect(frame.cursor == "00000000-0000-0000-0000-000000000300")
+        }
     }
 }

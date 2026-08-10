@@ -390,6 +390,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Count shown on the Feed tab badge. Telemetry and resolved rows never count.
     public private(set) var agentFeedNeedsInputCount: Int = 0
     public internal(set) var agentFeedStatus: MobileAgentFeedStatus = .idle
+    /// True when at least one Mac reports older persisted Feed history.
+    public internal(set) var agentFeedHasMoreItems = false
+    /// True when an online, capable Mac can service the next history page.
+    public internal(set) var agentFeedCanLoadOlder = false
+    public internal(set) var agentFeedIsLoadingOlder = false
     /// Drafts are keyed by stable item identity so list insertion/filtering never
     /// attaches text to another card.
     public var agentFeedDrafts: [MobileAgentFeedItemID: String] = [:]
@@ -1144,7 +1149,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     let notificationFeedAggregation = MobileNotificationFeedAggregation()
     @ObservationIgnored var agentFeedSnapshotsByMac: [String: AgentFeedMacSnapshot] = [:]
     @ObservationIgnored var agentFeedKnownRevisionsByMac: [String: UInt64] = [:]
-    @ObservationIgnored var agentFeedRefreshTasksByMac: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored let agentFeedRefreshTasks = MobileAgentFeedRefreshTaskCoalescer()
     @ObservationIgnored var agentFeedFailedOwnerKeys: Set<String> = []
     @ObservationIgnored var agentFeedCacheScopeKey: String?
     let agentFeedCacheStore = AgentFeedCacheStore()

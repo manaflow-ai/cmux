@@ -9,6 +9,8 @@ struct AgentFeedActions {
     let decide: @MainActor (MobileAgentFeedItem, MobileAgentFeedAction) -> Void
     let open: @MainActor (MobileAgentFeedItem) -> Void
     let refresh: @MainActor () -> Void
+    let loadOlder: @MainActor () -> Void
+    let recordTopRowAppearance: @MainActor (MobileAgentFeedItemID) -> Void
 }
 
 struct AgentFeedView: View {
@@ -17,6 +19,9 @@ struct AgentFeedView: View {
     @Binding var filter: MobileAgentFeedFilter
     let drafts: [MobileAgentFeedItemID: String]
     let mutationStates: [MobileAgentFeedItemID: MobileAgentFeedMutationState]
+    let hasMoreItems: Bool
+    let canLoadOlder: Bool
+    let isLoadingOlder: Bool
     let actions: AgentFeedActions
     @State private var expandedIDs: Set<MobileAgentFeedItemID> = []
     @State private var planFeedback: [MobileAgentFeedItemID: String] = [:]
@@ -71,8 +76,9 @@ struct AgentFeedView: View {
                             .frame(minHeight: 44)
                             .accessibilityIdentifier("MobileAgentFeedNewActivity")
                         }
-                        List(visibleItems) { item in
-                            AgentFeedRow(
+                        List {
+                            ForEach(visibleItems) { item in
+                                AgentFeedRow(
                                 item: item,
                                 isExpanded: expandedIDs.contains(item.id),
                                 draft: drafts[item.id] ?? "",
@@ -96,15 +102,20 @@ struct AgentFeedView: View {
                                     open: { actions.open(item) }
                                 )
                             )
-                            .equatable()
-                            .onAppear {
-                                guard item.id == visibleItems.first?.id else { return }
-                                newestItemIsVisible = true
-                                unseenItemCount = 0
+                                .equatable()
+                                .onAppear {
+                                    guard item.id == visibleItems.first?.id else { return }
+                                    newestItemIsVisible = true
+                                    unseenItemCount = 0
+                                    actions.recordTopRowAppearance(item.id)
+                                }
+                                .onDisappear {
+                                    guard item.id == visibleItems.first?.id else { return }
+                                    newestItemIsVisible = false
+                                }
                             }
-                            .onDisappear {
-                                guard item.id == visibleItems.first?.id else { return }
-                                newestItemIsVisible = false
+                            if hasMoreItems {
+                                loadOlderControl
                             }
                         }
                         .listStyle(.plain)
@@ -123,6 +134,27 @@ struct AgentFeedView: View {
             }
             knownItemIDs = current
         }
+    }
+
+    private var loadOlderControl: some View {
+        Button(action: actions.loadOlder) {
+            HStack {
+                if isLoadingOlder { ProgressView() }
+                Text(isLoadingOlder
+                    ? AgentFeedL10n.string(
+                        "mobile.agentFeed.history.loadingOlder",
+                        defaultValue: "Loading older activity…"
+                    )
+                    : AgentFeedL10n.string(
+                        "mobile.agentFeed.history.loadOlder",
+                        defaultValue: "Load Older"
+                    ))
+                Spacer()
+            }
+            .frame(minHeight: 44)
+        }
+        .disabled(!canLoadOlder || isLoadingOlder)
+        .accessibilityIdentifier("MobileAgentFeedLoadOlder")
     }
 
     private func setExpanded(_ isExpanded: Bool, id: MobileAgentFeedItemID) {

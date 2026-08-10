@@ -76,23 +76,60 @@ final class AgentFeedUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentFeedBurstPublishesRealFrameAndVisibilityMetrics() throws {
+        let app = launchFixture(scenario: "new-activity")
+        defer { app.terminate() }
+
+        let metrics = app.descendants(matching: .any)["AgentFeedPerformanceMetrics"]
+        XCTAssertTrue(metrics.waitForExistence(timeout: 8))
+        let inject = app.buttons["AgentFeedFixtureInjectNewActivity"]
+        XCTAssertTrue(inject.exists)
+        XCTAssertTrue(inject.isHittable)
+        inject.tap()
+        let complete = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value CONTAINS %@", "state=complete"),
+            object: metrics
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [complete], timeout: 8), .completed)
+        let value = try XCTUnwrap(metrics.value as? String)
+        XCTAssertTrue(value.contains("frames=130"))
+        XCTAssertFalse(value.contains("visibility=0;"))
+    }
+
+    @MainActor
     func testAgentFeedDeterministicStressAndOfflineScenarios() throws {
         var app = launchFixture(scenario: "stress")
         var marker = app.descendants(matching: .any)["AgentFeedScenario-stress"]
         XCTAssertTrue(marker.waitForExistence(timeout: 8))
-        XCTAssertTrue(marker.value as? String == "2400/2000")
+        XCTAssertTrue(marker.value as? String == "2400/300")
+        let loadOlder = app.buttons["MobileAgentFeedLoadOlder"]
+        makeHittable(loadOlder, in: app, attempts: 40)
+        loadOlder.tap()
+        let pageLoaded = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "2400/600"),
+            object: marker
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [pageLoaded], timeout: 3), .completed)
         app.terminate()
 
         app = launchFixture(scenario: "offline")
         marker = app.descendants(matching: .any)["AgentFeedScenario-offline"]
         XCTAssertTrue(marker.waitForExistence(timeout: 8))
         XCTAssertTrue(app.descendants(matching: .any)["MobileAgentFeedStatusOffline"].exists)
+        let offlineLoadOlder = app.buttons["MobileAgentFeedLoadOlder"]
+        XCTAssertTrue(offlineLoadOlder.exists)
+        XCTAssertFalse(offlineLoadOlder.isEnabled)
         let expand = app.buttons["MobileAgentFeedExpand-macbook-00000000-0000-0000-0000-000000000107"]
         makeHittable(expand, in: app)
         expand.tap()
         let action = app.buttons["MobileAgentFeedPermission-once-macbook-00000000-0000-0000-0000-000000000107"]
         XCTAssertTrue(action.waitForExistence(timeout: 3))
         XCTAssertFalse(action.isEnabled)
+        app.terminate()
+
+        app = launchFixture(scenario: "capability-gap")
+        XCTAssertTrue(app.descendants(matching: .any)["MobileAgentFeedStatusUpdateMac"].waitForExistence(timeout: 8))
+        XCTAssertFalse(app.buttons["MobileAgentFeedLoadOlder"].exists)
         app.terminate()
     }
 
@@ -104,6 +141,11 @@ final class AgentFeedUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["入力が必要"].exists)
         XCTAssertTrue(app.staticTexts["Codexが権限をリクエストしています"].exists)
         XCTAssertTrue(app.buttons["エージェントを開く"].exists)
+        let japaneseExpand = app.buttons[
+            "MobileAgentFeedExpand-macbook-00000000-0000-0000-0000-000000000111"
+        ]
+        XCTAssertTrue(japaneseExpand.label.contains("ワークスペースID: workspace-1"))
+        XCTAssertTrue(japaneseExpand.label.contains("サーフェスID: surface-111"))
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'japanese' OR label CONTAINS 'host='")).firstMatch.exists)
         app.terminate()
 
@@ -123,6 +165,8 @@ final class AgentFeedUITests: XCTestCase {
         XCTAssertEqual(app.buttons.matching(identifier: expandID).count, 1)
         XCTAssertTrue(expand.exists)
         XCTAssertTrue(expand.isHittable)
+        XCTAssertTrue(expand.label.contains("Workspace ID: workspace-1"))
+        XCTAssertTrue(expand.label.contains("Surface ID: surface-101"))
         expand.tap()
         let denyID = "MobileAgentFeedPermission-deny-\(suffix)"
         let deny = app.buttons[denyID]
@@ -134,6 +178,16 @@ final class AgentFeedUITests: XCTestCase {
         XCTAssertEqual(app.buttons.matching(identifier: expandID).count, 1)
         XCTAssertTrue(resolvedExpand.label.contains("Resolved: Deny"))
         XCTAssertFalse(app.descendants(matching: .any)["MobileAgentFeedPreviewAgentDestination"].exists)
+        app.terminate()
+
+        app = launchFixture(scenario: "malformed")
+        let unavailable = app.buttons[
+            "MobileAgentFeedExpand-macbook-00000000-0000-0000-0000-000000000109"
+        ]
+        XCTAssertTrue(unavailable.waitForExistence(timeout: 8))
+        XCTAssertTrue(unavailable.label.contains("Workspace ID: Unavailable"))
+        XCTAssertTrue(unavailable.label.contains("Surface ID: Unavailable"))
+        XCTAssertTrue(app.staticTexts["Agent location unavailable"].exists)
         app.terminate()
     }
 
@@ -152,8 +206,12 @@ final class AgentFeedUITests: XCTestCase {
     }
 
     @MainActor
-    private func makeHittable(_ element: XCUIElement, in app: XCUIApplication) {
-        for _ in 0..<8 where !element.isHittable {
+    private func makeHittable(
+        _ element: XCUIElement,
+        in app: XCUIApplication,
+        attempts: Int = 8
+    ) {
+        for _ in 0..<attempts where !element.isHittable {
             app.swipeUp()
         }
         XCTAssertTrue(element.isHittable)

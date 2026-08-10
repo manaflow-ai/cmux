@@ -631,6 +631,18 @@ final class FeedCoordinator: @unchecked Sendable {
         return (revision, snapshot(pendingOnly: pendingOnly))
     }
 
+    /// Returns one stable page from persisted Feed history for authenticated mobile clients.
+    @MainActor
+    func mobileHistoryPage(endingBefore cursor: String?, limit: Int) async throws
+        -> (revision: UInt64, page: WorkstreamStore.HistoryPage)
+    {
+        guard let store else { throw WorkstreamHistoryError.invalidCursor }
+        waiterLock.lock()
+        let revision = mobileRevision
+        waiterLock.unlock()
+        return (revision, try await store.historyPage(endingBefore: cursor, limit: limit))
+    }
+
     /// Returns the current route without changing focus. Mobile list rows pin
     /// this target so later selection changes cannot reroute an action.
     func target(for workstreamId: String) -> FeedJumpResolver.Target? {

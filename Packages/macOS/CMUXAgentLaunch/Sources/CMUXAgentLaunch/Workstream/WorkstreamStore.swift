@@ -21,6 +21,23 @@ public let WorkstreamDefaultHistoryPageSize = 300
 @MainActor
 @Observable
 public final class WorkstreamStore {
+    /// One page of immutable Feed history for mobile clients.
+    public struct HistoryPage: Sendable, Equatable {
+        /// Items in oldest-first order.
+        public let items: [WorkstreamItem]
+        /// Opaque cursor for the next older page.
+        public let nextCursor: String?
+        /// Whether persisted history exists before this page.
+        public let hasMore: Bool
+
+        /// Creates a mobile history page.
+        public init(items: [WorkstreamItem], nextCursor: String?, hasMore: Bool) {
+            self.items = items
+            self.nextCursor = nextCursor
+            self.hasMore = hasMore
+        }
+    }
+
     public private(set) var items: [WorkstreamItem] = []
     public private(set) var hasMorePersistedItems = false
     public private(set) var isLoadingOlderItems = false
@@ -125,6 +142,79 @@ public final class WorkstreamStore {
         rebuildContextIndex()
     }
 
+    /// Loads one immutable persisted-history page for authenticated mobile Feed.
+    /// The item cursor is stable while newer JSONL rows are appended.
+    public func historyPage(endingBefore cursor: String?, limit: Int) async throws -> HistoryPage {
+        let boundedLimit = min(max(limit, 1), WorkstreamDefaultHistoryPageSize)
+        guard let persistence else {
+            let end: Int
+            if let cursor {
+                let decoded = try Self.decodeHistoryCursor(cursor, expectedVersion: "m1")
+                guard decoded.position < UInt64(items.count),
+                      items[Int(decoded.position)].id == decoded.itemID else {
+                    throw WorkstreamHistoryError.invalidCursor
+                }
+                end = Int(decoded.position)
+            } else {
+                end = items.count
+            }
+            let start = max(0, end - boundedLimit)
+            let pageItems = Array(items[start..<end])
+            return HistoryPage(
+                items: pageItems,
+                nextCursor: start > 0 ? pageItems.first.map { Self.historyCursor(version: "m1", position: UInt64(start), itemID: $0.id) } : nil,
+                hasMore: start > 0
+            )
+        }
+        let endOffset: UInt64?
+        if let cursor {
+            let decoded = try Self.decodeHistoryCursor(cursor, expectedVersion: "p1")
+            guard try await persistence.itemID(startingAt: decoded.position) == decoded.itemID else {
+                throw WorkstreamHistoryError.invalidCursor
+            }
+            endOffset = decoded.position
+        } else {
+            endOffset = nil
+        }
+        let page = try await persistence.loadPage(endingBefore: endOffset, limit: boundedLimit)
+        let currentByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+        let pageItems = page.items.map { currentByID[$0.id] ?? $0 }
+        let nextCursor = page.hasMoreBefore
+            ? pageItems.first.flatMap { item in
+                page.itemStartOffsets.first.map {
+                    Self.historyCursor(version: "p1", position: $0, itemID: item.id)
+                }
+            }
+            : nil
+        return HistoryPage(
+            items: pageItems,
+            nextCursor: nextCursor,
+            hasMore: page.hasMoreBefore
+        )
+    }
+
+    private static func historyCursor(version: String, position: UInt64, itemID: UUID) -> String {
+        Data("\(version):\(position):\(itemID.uuidString)".utf8).base64EncodedString()
+    }
+
+    private static func decodeHistoryCursor(
+        _ cursor: String,
+        expectedVersion: String
+    ) throws -> (position: UInt64, itemID: UUID) {
+        guard let data = Data(base64Encoded: cursor),
+              let raw = String(data: data, encoding: .utf8) else {
+            throw WorkstreamHistoryError.invalidCursor
+        }
+        let parts = raw.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              parts[0] == Substring(expectedVersion),
+              let position = UInt64(parts[1]),
+              let itemID = UUID(uuidString: String(parts[2])) else {
+            throw WorkstreamHistoryError.invalidCursor
+        }
+        return (position, itemID)
+    }
+
     // MARK: - Ingest
 
     /// Applies an inbound wire frame. Creates or updates a
@@ -220,6 +310,8 @@ public final class WorkstreamStore {
             updatedAt: event.receivedAt,
             cwd: event.cwd,
             title: defaultTitle(for: event),
+            workspaceId: event.workspaceId,
+            surfaceId: event.surfaceId,
             status: status,
             payload: payload,
             context: context(for: event, payload: payload),
@@ -473,4 +565,10 @@ public final class WorkstreamStore {
             )
         }
     }
+}
+
+/// Failure to resolve an immutable Feed history page.
+public enum WorkstreamHistoryError: Error, Sendable, Equatable {
+    /// The cursor is malformed, stale, or does not identify its claimed row.
+    case invalidCursor
 }
