@@ -12,6 +12,39 @@ import Testing
 
 @MainActor
 @Suite struct RemoteTmuxWindowMirrorFocusSeedTests {
+    @Test func restoredPanelTransfersIntoAlwaysOnMirror() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let adopted = try #require(workspace.makeRemoteTmuxPanePanel(
+            remotePaneId: 4,
+            onInput: { _ in }
+        ))
+        var createdPaneIDs: [Int] = []
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "work"
+        )
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 1,
+            panelId: adopted.id,
+            connection: connection,
+            layout: Self.twoPaneLayout(left: 4, right: 5),
+            appearance: .default,
+            adoptedPanes: [(4, adopted)],
+            makePanel: { paneID in
+                createdPaneIDs.append(paneID)
+                return workspace.makeRemoteTmuxPanePanel(
+                    remotePaneId: paneID,
+                    onInput: { _ in }
+                )
+            }
+        )
+        defer { mirror.teardown() }
+
+        #expect(mirror.panel(forPane: 4) === adopted)
+        #expect(createdPaneIDs == [5])
+    }
+
     @Test func activePaneSeedsFromTmuxOnMirrorCreation() {
         let connection = RemoteTmuxControlConnection(host: RemoteTmuxHost(destination: "user@host"), sessionName: "work")
         connection.handleMessageForTesting(.windowPaneChanged(windowId: 1, paneId: 5))

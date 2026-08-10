@@ -112,6 +112,9 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     private var defaultClosed = false
     var panelIdByWindow: [Int: UUID] = [:]
     private var outerSurfacePaneIdByWindow: [Int: Int] = [:]
+    /// Persistent workspace-tab panels that can transfer into the current-main
+    /// always-on window mirror without replacing their restored terminal runtime.
+    var persistentOuterPanelIdByPane: [Int: UUID] = [:]
     var windowIdByPanel: [UUID: Int] = [:]
     var windowIdByPane: [Int: Int] = [:]
     var controlPaneIdByPane: [Int: Bonsplit.PaneID] = [:]
@@ -217,7 +220,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             panelIdByWindow[windowID] = surface.surfaceID.rawValue
             outerSurfacePaneIdByWindow[windowID] = paneID
             windowIdByPanel[surface.surfaceID.rawValue] = windowID
-            panelIdByPane[paneID] = surface.surfaceID.rawValue
+            persistentOuterPanelIdByPane[paneID] = surface.surfaceID.rawValue
         }
         for surface in restoredSurfaces {
             guard let paneID = Int(exactly: surface.provenance.tmuxPaneID) else { continue }
@@ -377,6 +380,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             mirror.teardown()
         }
         windowMirrorByWindowId.removeAll()
+        persistentOuterPanelIdByPane.removeAll()
         windowIdByPanel.removeAll()
         windowIdByPane.removeAll()
     }
@@ -410,18 +414,37 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 workspace.updateRemoteTmuxTabTitle(panelId: existing, title: title)
                 panelId = existing
             } else {
+                let initialLeaf = window.layout.leavesByPaneID[firstPaneId]
+                guard let onInput = makePaneInputHandler(toPane: firstPaneId) else { continue }
                 guard let panel = workspace.addRemoteTmuxDisplayPane(
                     remotePaneId: firstPaneId,
                     title: title,
                     focus: false,
-                    // The workspace panel is only the stable window container.
-                    // Its runtime is retired as soon as the window mirror below
-                    // creates the real pane surface, even for a one-pane window.
-                    onInput: { _ in }
+                    // The local workspace panel is only a stable window container.
+                    // A persistent backend panel transfers into the mirror so its
+                    // restored runtime remains the pane surface.
+                    onInput: onInput,
+                    keyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value },
+                    backendSendKeys: { [weak connection] data in
+                        connection?.sendKeys(paneId: firstPaneId, data: data) ?? false
+                    },
+                    onRequestSeed: { [weak connection] in
+                        connection?.seedPane(paneId: firstPaneId)
+                    },
+                    backendProvenance: backendProvenance(
+                        windowID: windowId,
+                        paneID: firstPaneId,
+                        role: .workspaceTab
+                    ),
+                    initialColumns: initialLeaf?.width ?? window.width,
+                    initialRows: initialLeaf?.height ?? window.height
                 ) else { continue }
                 panelIdByWindow[windowId] = panel.id
                 outerSurfacePaneIdByWindow[windowId] = firstPaneId
                 windowIdByPanel[panel.id] = windowId
+                if workspace.terminalClientComposition.remoteTmuxSurfaceRegistry != nil {
+                    persistentOuterPanelIdByPane[firstPaneId] = panel.id
+                }
                 panelId = panel.id
             }
             reconcileWindowMirror(
@@ -440,7 +463,8 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 mirror.teardown()
                 windowMirrorByWindowId[windowId] = nil
             }
-            for (paneID, mappedPanelID) in panelIdByPane where mappedPanelID == panelId {
+            for (paneID, mappedPanelID) in persistentOuterPanelIdByPane
+            where mappedPanelID == panelId {
                 workspace.terminalClientComposition.remoteTmuxSurfaceRegistry?
                     .retire(workspaceID: workspace.id, tmuxPaneID: paneID)
             }
@@ -451,6 +475,9 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             _ = workspace.removeRemoteTmuxDisplayPane(panelId)
             panelIdByWindow[windowId] = nil
             windowIdByPanel[panelId] = nil
+            persistentOuterPanelIdByPane = persistentOuterPanelIdByPane.filter {
+                $0.value != panelId
+            }
         }
         // Belt for a mirror that outlived its panel bookkeeping: a mirror
         // whose window tmux no longer lists must die even if the
@@ -470,6 +497,9 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         connection.retainWindowSizeClaims(for: liveWindows)
         // Drop cached directories for panes tmux no longer reports, so the cache
         // stays bounded across window/pane churn (tmux pane ids never recur).
+        persistentOuterPanelIdByPane = persistentOuterPanelIdByPane.filter {
+            livePanes.contains($0.key)
+        }
         cwdByPane = cwdByPane.filter { livePanes.contains($0.key) }
         titleFilters = titleFilters.filter { livePanes.contains($0.key) }
         noReflowByPane = noReflowByPane.filter { livePanes.contains($0.key) }

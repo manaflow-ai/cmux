@@ -28,16 +28,9 @@ extension RemoteTmuxSessionMirror {
             )
             return
         }
-        let registry = workspace.terminalClientComposition.remoteTmuxSurfaceRegistry
-        guard window.paneIDsInOrder.count > 1
-                || registry?.requiresNestedPresentation(
-                    workspaceID: workspace.id,
-                    tmuxWindowID: windowId
-                ) == true else { return }
         let adoptedPanes: [RemoteTmuxWindowMirror.AdoptedPane] = window.paneIDsInOrder.compactMap {
             tmuxPaneId in
-            guard (!displayPanelWasCreated || registry != nil),
-                  panelIdByPane[tmuxPaneId] == panelId,
+            guard persistentOuterPanelIdByPane[tmuxPaneId] == panelId,
                   let panel = workspace.panels[panelId] as? TerminalPanel else { return nil }
             return (tmuxPaneId, panel)
         }
@@ -100,6 +93,9 @@ extension RemoteTmuxSessionMirror {
         mirror.apply(window: window)
         windowMirrorByWindowId[windowId] = mirror
         workspace.setRemoteTmuxWindowMirror(mirror, forPanelId: panelId)
+        for adoptedPane in adoptedPanes {
+            persistentOuterPanelIdByPane[adoptedPane.tmuxPaneId] = nil
+        }
         retireContainerPanelIfNeeded(
             panelId: panelId,
             mirror: mirror,
@@ -119,6 +115,7 @@ extension RemoteTmuxSessionMirror {
     ) {
         guard wasEmptyBeforeReconcile,
               !mirror.panelsByPaneId.isEmpty,
+              !mirror.panelsByPaneId.values.contains(where: { $0.id == panelId }),
               let panel = workspace.panels[panelId] as? TerminalPanel else { return }
         panel.surface.onManualSizeApplied = nil
         panel.surface.onRuntimeReady = nil
