@@ -60,6 +60,7 @@ private actor FailingChatEventSource: ChatEventSource {
 private actor AttachmentRetryIdentityEventSource: ChatEventSource {
     struct SendError: Error {}
     private var attempts: [[UUID]] = []
+    private var operationAttempts: [[UUID]] = []
 
     func history(sessionID: String, beforeSeq: Int?, limit: Int) async throws -> ChatHistoryPage {
         ChatHistoryPage(messages: [], hasMore: false)
@@ -71,10 +72,12 @@ private actor AttachmentRetryIdentityEventSource: ChatEventSource {
 
     func send(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {
         attempts.append(attachments.map(\.uploadID))
+        operationAttempts.append(attachments.map(\.operationID))
         if attempts.count == 1 { throw SendError() }
     }
 
     func recordedAttempts() -> [[UUID]] { attempts }
+    func recordedOperationAttempts() -> [[UUID]] { operationAttempts }
     func interrupt(sessionID: String, hard: Bool) async throws {}
     func answer(optionIndex: Int, sessionID: String) async throws {}
 }
@@ -492,9 +495,12 @@ struct ChatConversationStoreTests {
         await store.retry(pendingID: pending.id)
 
         let attempts = await source.recordedAttempts()
+        let operationAttempts = await source.recordedOperationAttempts()
         #expect(attempts.count == 2)
         #expect(attempts[0] == [attachment.uploadID])
         #expect(attempts[1] == attempts[0])
+        #expect(operationAttempts.count == 2)
+        #expect(operationAttempts[1] == operationAttempts[0])
     }
 
     @Test("retry while the agent is working re-queues instead of delivering")
