@@ -1,0 +1,4 @@
+[target.x86_64-pc-windows-gnu]
+# GNU Binutils 2.47 can finalize Rust stack-probe relocations before it selects
+# the libgcc archive member that defines this compiler runtime symbol.
+rustflags = ["-C", "link-arg=-Wl,--undefined=___chkstk_ms"]
