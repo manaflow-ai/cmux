@@ -408,9 +408,10 @@ final class CMUXOpenCommandTests: XCTestCase {
         let listenerFD = try bindUnixSocket(at: socketPath)
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let locationFileURL = rootURL.appendingPathComponent("main.swift")
+        let sourceURL = rootURL.appendingPathComponent("src", isDirectory: true)
+        let locationFileURL = sourceURL.appendingPathComponent("main.swift")
         let fileURL = rootURL.appendingPathComponent("notes.txt")
-        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sourceURL, withIntermediateDirectories: true)
         try "print(\"hello\")\n".write(to: locationFileURL, atomically: true, encoding: .utf8)
         try "notes\n".write(to: fileURL, atomically: true, encoding: .utf8)
         let state = MockSocketServerState()
@@ -440,7 +441,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         let result = runCLI(
             cliPath: cliPath,
             socketPath: socketPath,
-            arguments: ["open", "\(locationFileURL.path):42", fileURL.absoluteString]
+            arguments: ["open", "src/main.swift:42", fileURL.absoluteString],
+            currentDirectoryURL: rootURL
         )
 
         wait(for: [serverHandled], timeout: 5)

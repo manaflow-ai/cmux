@@ -1,6 +1,7 @@
 import AppKit
 import CmuxTerminalCore
 import CmuxTestSupport
+import CmuxWorkspaces
 import Foundation
 
 /// Owns terminal-link policy and routes the resulting action through whichever
@@ -10,12 +11,14 @@ struct TerminalLinkOpenCoordinator {
     private let defaults: UserDefaults
     private let containerResolver: @MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?
     private let externalOpen: @MainActor @Sendable (URL) -> Bool
+    private let preferredEditorOpen: @MainActor (URL, Int?, Int?) -> Void
     private let deferOperation: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
 
     init(
         defaults: UserDefaults = .standard,
         containerResolver: @escaping @MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)? = Self.resolveContainer,
         externalOpen: @escaping @MainActor @Sendable (URL) -> Bool = { NSWorkspace.shared.open($0) },
+        preferredEditorOpen: (@MainActor (URL, Int?, Int?) -> Void)? = nil,
         deferOperation: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void = { operation in
             Task { @MainActor in operation() }
         }
@@ -23,6 +26,9 @@ struct TerminalLinkOpenCoordinator {
         self.defaults = defaults
         self.containerResolver = containerResolver
         self.externalOpen = externalOpen
+        self.preferredEditorOpen = preferredEditorOpen ?? { url, line, column in
+            PreferredEditorService(defaults: defaults).open(url, line: line, column: column)
+        }
         self.deferOperation = deferOperation
     }
 
@@ -42,16 +48,31 @@ struct TerminalLinkOpenCoordinator {
         }
         if !trimmed.isEmpty,
            canResolveLocalFilePath,
-           let resolvedPath = TerminalPathResolver().resolveOpenURLFilePath(
+           let reference = TerminalPathResolver().resolveOpenURLFileReference(
                trimmed,
                cwd: resolvedWorkingDirectory(request: request, container: container)
            ) {
-            let fileURL = URL(fileURLWithPath: resolvedPath)
-            if CommandClickFileOpenRouter.shouldRouteInCmux(
-                path: resolvedPath,
-                defaults: defaults
-            ) {
-                log("link.openURL resolvedAsFilePath=\(resolvedPath)")
+            if let line = reference.line {
+                log(
+                    "link.openURL resolvedAsFileLocation=\(reference.path):\(line)" +
+                    (reference.column.map { ":\($0)" } ?? "")
+                )
+                preferredEditorOpen(
+                    URL(fileURLWithPath: reference.path),
+                    reference.line,
+                    reference.column
+                )
+                return true
+            }
+
+            let isExplicitLocalFileURL = isExplicitFileURL(trimmed)
+            if !isExplicitLocalFileURL,
+               CommandClickFileOpenRouter.shouldRouteInCmux(
+                   path: reference.path,
+                   defaults: defaults
+               ) {
+                let fileURL = URL(fileURLWithPath: reference.path)
+                log("link.openURL resolvedAsFilePath=\(reference.path)")
                 return routeLocalFile(
                     fileURL,
                     request: request,
@@ -59,7 +80,9 @@ struct TerminalLinkOpenCoordinator {
                     unavailableReason: "file route unavailable"
                 )
             }
-            normalizedOpenURLString = resolvedPath
+            if !isExplicitLocalFileURL {
+                normalizedOpenURLString = reference.path
+            }
         }
 
         guard let target = resolveTerminalOpenURLTarget(normalizedOpenURLString) else {
@@ -257,6 +280,10 @@ struct TerminalLinkOpenCoordinator {
     private func openExternally(_ url: URL, reason: String) -> Bool {
         log("link.openURL opening externally reason=\(reason) url=\(url)")
         return externalOpen(url)
+    }
+
+    private func isExplicitFileURL(_ rawValue: String) -> Bool {
+        URL(string: rawValue)?.scheme?.caseInsensitiveCompare("file") == .orderedSame
     }
 
     private static func resolveContainer(
