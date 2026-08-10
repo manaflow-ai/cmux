@@ -27,9 +27,6 @@ extension TerminalPasteboardService: TerminalClipboardReading {
                 if parsedHTMLOutcome.confirmsNoVisibleText {
                     return nil
                 }
-                if parsedHTMLOutcome == .rejected, let plainText {
-                    return plainText
-                }
             }
         } else {
             parsedHTMLOutcome = nil
@@ -40,6 +37,9 @@ extension TerminalPasteboardService: TerminalClipboardReading {
                 from: pasteboard,
                 precomputedHTMLOutcome: parsedHTMLOutcome
             ) else {
+                if parsedHTMLOutcome == .rejected {
+                    return plainText
+                }
                 return nil
             }
             if let plainText,
