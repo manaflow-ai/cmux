@@ -15007,7 +15007,10 @@ mod tests {
                 "session":"current",
                 "stream_id":second_stream,
                 "cursor":cursor,
-                "filter":{"kinds":["workspace.rename"]},
+                "filter":{
+                    "kinds":["workspace.rename"],
+                    "max_sensitivity":"sensitive",
+                },
             }),
             None,
         );
