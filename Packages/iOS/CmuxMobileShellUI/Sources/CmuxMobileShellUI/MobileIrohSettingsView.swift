@@ -118,7 +118,20 @@ struct MobileIrohSettingsView: View {
                     showsPrivatePathEditor = true
                 },
                 add: {
-                    editedPrivatePathMacDeviceID = nil
+                    // With every known Mac already configured, adding another
+                    // address means appending to an existing configuration,
+                    // so route to the edit sheet instead of a dead button.
+                    let configuredIDs = Set(
+                        model.snapshot.customPrivateNetworks.map(\.macDeviceID)
+                    )
+                    let hasUnconfiguredMac = model.snapshot.privateNetworkMacs
+                        .contains { !configuredIDs.contains($0.id) }
+                    if !hasUnconfiguredMac,
+                       let first = model.snapshot.customPrivateNetworks.first {
+                        editedPrivatePathMacDeviceID = first.macDeviceID
+                    } else {
+                        editedPrivatePathMacDeviceID = nil
+                    }
                     showsPrivatePathEditor = true
                 },
                 setEnabled: { configuration, isEnabled in

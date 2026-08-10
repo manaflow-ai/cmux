@@ -2286,9 +2286,13 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             Optional<Set<String>>.none
         }
         let privatePathSnapshot: CmxIrohCustomPrivatePathSnapshot
-        if let activeAccountID {
+        // Fall back to the observed account like the settings mutations do:
+        // activeAccountID is nil while a transport-mode change restarts the
+        // runtime, and snapshots published mid-restart must not drop the
+        // persisted private-address configurations from Settings.
+        if let accountID = observedAccountID ?? activeAccountID {
             privatePathSnapshot = await customPrivatePaths.availableSnapshot(
-                accountID: activeAccountID
+                accountID: accountID
             )
         } else {
             privatePathSnapshot = .unavailable

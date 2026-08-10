@@ -77,7 +77,9 @@ struct MobileIrohPrivateNetworksSection: View {
                         systemImage: "plus"
                     )
                 }
-                .disabled(unconfiguredMacs.isEmpty)
+                // With all Macs configured the action appends to an existing
+                // configuration, so it only disables when no Mac is known.
+                .disabled(unconfiguredMacs.isEmpty && configurations.isEmpty)
                 .accessibilityIdentifier("MobileIrohAddCustomPrivatePath")
             } label: {
                 Text(L10n.string(
