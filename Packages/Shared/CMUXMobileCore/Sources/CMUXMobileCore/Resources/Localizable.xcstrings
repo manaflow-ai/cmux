@@ -173,6 +173,40 @@
         }
       }
     },
+    "diagnostics.dialLeg.privateFallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private fallback"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートフォールバック"
+          }
+        }
+      }
+    },
+    "diagnostics.dialLeg.public": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Public paths"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "公開経路"
+          }
+        }
+      }
+    },
     "diagnostics.duration.fractionalSeconds": {
       "extractionState": "manual",
       "localizations": {
@@ -633,6 +667,23 @@
         }
       }
     },
+    "diagnostics.event.lanPublicationState": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LAN advertisement state changed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LANアドバタイズ状態が変化しました"
+          }
+        }
+      }
+    },
     "diagnostics.event.livenessResubscribe": {
       "extractionState": "manual",
       "localizations": {
@@ -1007,6 +1058,57 @@
         }
       }
     },
+    "diagnostics.event.transportDialLegFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct dial leg failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直接ダイヤル経路が失敗しました"
+          }
+        }
+      }
+    },
+    "diagnostics.event.transportDialLegSucceeded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct dial leg connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直接ダイヤル経路が接続しました"
+          }
+        }
+      }
+    },
+    "diagnostics.event.transportDialPlanBuilt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct dial plan assembled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直接ダイヤルプランを作成しました"
+          }
+        }
+      }
+    },
     "diagnostics.event.transportDialStarted": {
       "extractionState": "manual",
       "localizations": {
@@ -1024,6 +1126,23 @@
         }
       }
     },
+    "diagnostics.event.transportLANDiscovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LAN discovery resolved"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LAN探索が完了しました"
+          }
+        }
+      }
+    },
     "diagnostics.event.transportPathEvent": {
       "extractionState": "manual",
       "localizations": {
@@ -1037,6 +1156,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "トランスポート経路が変更されました"
+          }
+        }
+      }
+    },
+    "diagnostics.event.transportPrivateAddressJoin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private addresses joined broker port"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートアドレスをブローカーのポートと結合しました"
           }
         }
       }
@@ -2182,6 +2318,193 @@
         }
       }
     },
+    "diagnostics.lanDiscovery.found": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advertisement found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アドバタイズを発見しました"
+          }
+        }
+      }
+    },
+    "diagnostics.lanDiscovery.noAuthority": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No broker LAN authority"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブローカーのLAN権限がありません"
+          }
+        }
+      }
+    },
+    "diagnostics.lanDiscovery.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advertisement not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アドバタイズが見つかりません"
+          }
+        }
+      }
+    },
+    "diagnostics.lanDiscovery.policyDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Network permission denied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルネットワーク権限が拒否されました"
+          }
+        }
+      }
+    },
+    "diagnostics.lanPublication.active": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advertising"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アドバタイズ中"
+          }
+        }
+      }
+    },
+    "diagnostics.lanPublication.inactive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中"
+          }
+        }
+      }
+    },
+    "diagnostics.lanPublication.policyDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Network permission denied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルネットワーク権限が拒否されました"
+          }
+        }
+      }
+    },
+    "diagnostics.lanPublication.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registration failing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登録に失敗しています"
+          }
+        }
+      }
+    },
+    "diagnostics.lanPublicationReason.applied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings applied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定を適用しました"
+          }
+        }
+      }
+    },
+    "diagnostics.lanPublicationReason.listenerDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listener setting disabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リスナー設定が無効です"
+          }
+        }
+      }
+    },
+    "diagnostics.lanPublicationReason.noContext": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Runtime context unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ランタイムコンテキストが利用できません"
+          }
+        }
+      }
+    },
     "diagnostics.path.direct": {
       "extractionState": "manual",
       "localizations": {
@@ -2382,6 +2705,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "非アクティブ"
+          }
+        }
+      }
+    },
+    "diagnostics.privateJoin.joined": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Joined broker port"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブローカーのポートと結合済み"
+          }
+        }
+      }
+    },
+    "diagnostics.privateJoin.notConfigured": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None configured"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未設定"
+          }
+        }
+      }
+    },
+    "diagnostics.privateJoin.stalePorts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Broker ports missing or stale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブローカーのポートが欠落または期限切れ"
           }
         }
       }
@@ -3338,6 +3712,23 @@
         }
       }
     },
+    "diagnostics.unknown.dialLeg": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown leg (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な経路（%lld）"
+          }
+        }
+      }
+    },
     "diagnostics.unknown.failure": {
       "extractionState": "manual",
       "localizations": {
@@ -3351,6 +3742,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "不明なエラー（%lld）"
+          }
+        }
+      }
+    },
+    "diagnostics.unknown.lanDiscovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown discovery outcome (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な探索結果（%lld）"
+          }
+        }
+      }
+    },
+    "diagnostics.unknown.lanPublication": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown publication state (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な公開状態（%lld）"
+          }
+        }
+      }
+    },
+    "diagnostics.unknown.lanPublicationReason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown reason (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な理由（%lld）"
           }
         }
       }
@@ -3402,6 +3844,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "不明な経路操作（%lld）"
+          }
+        }
+      }
+    },
+    "diagnostics.unknown.privateJoin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown join state (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な結合状態（%lld）"
           }
         }
       }

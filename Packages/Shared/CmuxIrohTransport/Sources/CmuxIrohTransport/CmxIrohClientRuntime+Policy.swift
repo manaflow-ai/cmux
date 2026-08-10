@@ -278,6 +278,7 @@ extension CmxIrohClientRuntime {
                 offlinePolicy: offlinePolicy,
                 lanFallback: lanFallback,
                 customPrivateFallback: customPrivateFallback,
+                diagnostics: diagnosticLog,
                 verifiedDiscovery: policy.discovery,
                 now: now
             )

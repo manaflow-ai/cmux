@@ -181,6 +181,60 @@ public enum DiagnosticPathKind: Int, Sendable, Codable, CaseIterable {
     }
 }
 
+/// The dial leg attempted while establishing a direct Iroh connection.
+///
+/// Raw values are stable export vocabulary; never renumber.
+public enum DiagnosticDirectDialLeg: Int, Sendable, Codable, CaseIterable {
+    /// Broker-published public path hints.
+    case publicPaths = 0
+    /// Profile-gated private fallback hints (manual, LAN, or VPN sourced).
+    case privateFallback = 1
+}
+
+/// Whether configured private addresses became dialable hints for one dial.
+///
+/// Raw values are stable export vocabulary. The cases carry only the join
+/// outcome, never an address, port, or identity.
+public enum DiagnosticPrivateAddressJoinState: Int, Sendable, Codable, CaseIterable {
+    /// No enabled private address is configured for the target Mac.
+    case notConfigured = 0
+    /// At least one configured address joined a fresh broker UDP port.
+    case joined = 1
+    /// Addresses are configured but the target's broker-registered ports
+    /// were missing or older than the private-hint TTL, so none joined.
+    case brokerPortsStale = 2
+}
+
+/// The outcome of account-private LAN discovery for one dial.
+///
+/// Raw values are stable export vocabulary; the cases carry no peer,
+/// address, or service identity.
+public enum DiagnosticLANDiscoveryOutcome: Int, Sendable, Codable, CaseIterable {
+    /// No broker-issued LAN authority exists for the target, so no browse ran.
+    case noAuthority = 0
+    /// The target Mac's advertisement resolved to dialable hints.
+    case found = 1
+    /// The browse completed without resolving the target's advertisement.
+    case notFound = 2
+    /// The system denied Bonjour browsing (Local Network permission).
+    case policyDenied = 3
+}
+
+/// The Mac-side account-private Bonjour publication state.
+///
+/// Raw values are stable export vocabulary mirroring the publisher's
+/// lifecycle without exposing any advertised name, address, or port.
+public enum DiagnosticLANPublicationState: Int, Sendable, Codable, CaseIterable {
+    /// Publication is stopped.
+    case inactive = 0
+    /// Advertisements are registered on at least one interface.
+    case active = 1
+    /// Registration is wanted but currently failing.
+    case unavailable = 2
+    /// The system denied Bonjour publication (Local Network policy).
+    case policyDenied = 3
+}
+
 /// Why an admitted transport session entered or left its local pool.
 ///
 /// Raw values are stable export vocabulary. The cases identify only local

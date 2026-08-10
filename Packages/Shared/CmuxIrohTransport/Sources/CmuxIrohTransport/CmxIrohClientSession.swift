@@ -13,6 +13,7 @@ public actor CmxIrohClientSession {
     private let privateFallbackValidator: (any CmxIrohPrivateFallbackValidating)?
     private let privateFallbackContextProvider: PrivateFallbackContextProvider?
     private let protocolConfiguration: CmxIrohProtocolConfiguration
+    private let diagnostics: DiagnosticLog?
     private let headerCodec: CmxIrohStreamHeaderCodec
     private let admissionCodec = CmxIrohAdmissionAckCodec()
     private var connectionTask: Task<CmxIrohConnectedControl, any Error>?
@@ -44,7 +45,8 @@ public actor CmxIrohClientSession {
         privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization? = nil,
         privateFallbackValidator: (any CmxIrohPrivateFallbackValidating)? = nil,
         privateFallbackContextProvider: PrivateFallbackContextProvider? = nil,
-        protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1
+        protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1,
+        diagnostics: DiagnosticLog? = nil
     ) throws {
         self.endpoint = endpoint
         self.targetIdentity = targetIdentity
@@ -54,6 +56,7 @@ public actor CmxIrohClientSession {
         self.privateFallbackValidator = privateFallbackValidator
         self.privateFallbackContextProvider = privateFallbackContextProvider
         self.protocolConfiguration = protocolConfiguration
+        self.diagnostics = diagnostics
         headerCodec = try CmxIrohStreamHeaderCodec(configuration: protocolConfiguration)
     }
 
@@ -281,6 +284,11 @@ public actor CmxIrohClientSession {
     private func establishConnection() async throws -> CmxIrohConnectedControl {
         var establishedConnection: (any CmxIrohConnection)?
         var publicConnectionError: (any Error)?
+        diagnostics?.record(DiagnosticEvent(
+            .transportDialPlanBuilt,
+            a: dialPlan.publicPaths.count,
+            b: dialPlan.privateFallbackPaths.count
+        ))
         if !dialPlan.publicPaths.isEmpty {
             do {
                 establishedConnection = try await endpoint.connect(
@@ -290,7 +298,16 @@ public actor CmxIrohClientSession {
                     ),
                     alpn: protocolConfiguration.alpn
                 )
+                diagnostics?.record(DiagnosticEvent(
+                    .transportDialLegSucceeded,
+                    a: DiagnosticDirectDialLeg.publicPaths.rawValue
+                ))
             } catch {
+                diagnostics?.record(DiagnosticEvent(
+                    .transportDialLegFailed,
+                    a: DiagnosticDirectDialLeg.publicPaths.rawValue,
+                    b: DiagnosticFailureKind.classify(error).rawValue
+                ))
                 try Task.checkCancellation()
                 publicConnectionError = error
             }
@@ -312,6 +329,13 @@ public actor CmxIrohClientSession {
             }
             let fallbackPaths = fallbackContext.dialPlan.privateFallbackPaths
             guard !fallbackPaths.isEmpty else {
+                // The fallback leg had zero dialable hints, so this attempt
+                // never sent a packet on the private leg.
+                diagnostics?.record(DiagnosticEvent(
+                    .transportDialLegFailed,
+                    a: DiagnosticDirectDialLeg.privateFallback.rawValue,
+                    b: DiagnosticFailureKind.noRoute.rawValue
+                ))
                 if let publicConnectionError { throw publicConnectionError }
                 throw CmxIrohRegistryContextError.dialPlanUnavailable
             }
@@ -326,13 +350,26 @@ public actor CmxIrohClientSession {
                 authorization
             )
             try Task.checkCancellation()
-            establishedConnection = try await endpoint.connect(
-                to: CmxIrohEndpointAddress(
-                    identity: targetIdentity,
-                    pathHints: fallbackPaths
-                ),
-                alpn: protocolConfiguration.alpn
-            )
+            do {
+                establishedConnection = try await endpoint.connect(
+                    to: CmxIrohEndpointAddress(
+                        identity: targetIdentity,
+                        pathHints: fallbackPaths
+                    ),
+                    alpn: protocolConfiguration.alpn
+                )
+                diagnostics?.record(DiagnosticEvent(
+                    .transportDialLegSucceeded,
+                    a: DiagnosticDirectDialLeg.privateFallback.rawValue
+                ))
+            } catch {
+                diagnostics?.record(DiagnosticEvent(
+                    .transportDialLegFailed,
+                    a: DiagnosticDirectDialLeg.privateFallback.rawValue,
+                    b: DiagnosticFailureKind.classify(error).rawValue
+                ))
+                throw error
+            }
         }
         guard let establishedConnection else {
             throw CmxIrohRegistryContextError.dialPlanUnavailable
