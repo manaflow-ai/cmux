@@ -382,6 +382,8 @@ jobs:
     name: windows experimental (x86_64-gnu)
     runs-on: windows-latest
     timeout-minutes: 40
+    env:
+      CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=lld
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -405,6 +407,10 @@ jobs:
         run: |
           rustup target add x86_64-pc-windows-gnu
           printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
+
+      - name: Verify LLVM GNU linker
+        shell: bash
+        run: ld.lld --version
 
       - name: Build libghostty-vt for Windows GNU
         shell: bash
