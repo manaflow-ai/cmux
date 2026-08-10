@@ -236,5 +236,5 @@ not restored.
 The canonical model uses typed public IDs, resource revisions, connection
 controls, request idempotency keys, and typed cursor-gap errors. It replaces
 the protected batch-create, explicit split-lease, delegation, receipt-ack, and
-private renderer-worker command surfaces. SDK generation continues from
+private renderer-worker command interfaces. SDK generation continues from
 `resource-operations-v2.json`; no deleted legacy SDK file is an input.
