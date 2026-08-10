@@ -15,6 +15,7 @@ import time
 
 
 TESTABLE_TARGET_KINDS = frozenset({"lib", "bin", "test", "example"})
+ALLOWED_EMPTY_TEST_TARGETS = frozenset({("cmux-tui", "bin")})
 PROCESS_CLEANUP_GRACE_SECONDS = 1.0
 
 
@@ -189,7 +190,16 @@ def main() -> int:
     for binary in binaries:
         tests = tests_in(binary)
         if not tests:
-            print(f"No tests in {binary.target_name}; skipping its empty harness")
+            allowed_empty = any(
+                (binary.target_name, target_kind) in ALLOWED_EMPTY_TEST_TARGETS
+                for target_kind in binary.target_kinds
+            )
+            if not allowed_empty:
+                kinds = ",".join(sorted(binary.target_kinds))
+                raise SystemExit(
+                    f"{binary.target_name} ({kinds}) unexpectedly listed no tests"
+                )
+            print(f"No tests in known empty target {binary.target_name}; skipping its harness")
             continue
         print(
             f"Running {len(tests)} tests from {binary.target_name} "
