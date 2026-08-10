@@ -67,6 +67,54 @@ func TestIDsSelectorsAndDecimals(t *testing.T) {
 	}
 }
 
+func TestSessionJournalOptionsValidation(t *testing.T) {
+	tail := JournalStartTail
+	invalidStart := JournalStart("latest")
+	secret := JournalSensitivitySecret
+	invalidSensitivity := JournalSensitivity("private")
+	invalidClass := JournalClass("transition")
+	emptyRegex := &JournalRegexFilter{}
+	invalidFieldRegex := &JournalRegexFilter{
+		Pattern: "agent\\.",
+		Field:   JournalRegexField("unknown"),
+	}
+	tests := map[string]SessionJournalOptions{
+		"cursor and start": {
+			Cursor: &Cursor{Generation: "generation", Revision: Decimal(1)},
+			Start:  &tail,
+		},
+		"invalid start": {Start: &invalidStart},
+		"secret sensitivity": {
+			Filter: &JournalFilter{MaxSensitivity: &secret},
+		},
+		"invalid sensitivity": {
+			Filter: &JournalFilter{MaxSensitivity: &invalidSensitivity},
+		},
+		"invalid class": {
+			Filter: &JournalFilter{Classes: []JournalClass{invalidClass}},
+		},
+		"empty subject": {
+			Filter: &JournalFilter{Subjects: []JournalSubjectFilter{{}}},
+		},
+		"empty regex": {
+			Filter: &JournalFilter{Regex: emptyRegex},
+		},
+		"invalid regex field": {
+			Filter: &JournalFilter{Regex: invalidFieldRegex},
+		},
+	}
+	for name, options := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := options.validate(); !errors.Is(err, ErrInvalidArgument) {
+				t.Fatalf("validate() error = %v, want ErrInvalidArgument", err)
+			}
+		})
+	}
+	if err := (SessionJournalOptions{}).validate(); err != nil {
+		t.Fatalf("zero-value options rejected: %v", err)
+	}
+}
+
 func TestIdempotencyKeysMatchDurableIdentifierContract(t *testing.T) {
 	for name, value := range map[string]string{
 		"empty":           "",
@@ -247,34 +295,46 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	); !errors.Is(err, ErrProtocol) {
 		t.Fatalf("invalid copy mode error = %T %v", err, err)
 	}
-	legacyTerminal, err := decodeValue[TerminalSnapshot](
+	legacyAttached, err := decodeValue[TerminalSnapshot](
 		json.RawMessage(
 			`{"id":"term_00000000000000000000000000000007",`+
 				`"tab_id":"tab_00000000000000000000000000000006",`+
 				`"title":"legacy","cols":80,"rows":24,"running":true,`+
 				`"lifecycle":"running"}`,
 		),
-		"legacy terminal snapshot",
+		"legacy attached terminal snapshot",
 	)
-	if err != nil || legacyTerminal.TabID == nil || len(legacyTerminal.TabIDs) != 1 ||
-		legacyTerminal.TabIDs[0] != *legacyTerminal.TabID {
-		t.Fatalf("legacy terminal snapshot = %#v, %v", legacyTerminal, err)
+	if err != nil || len(legacyAttached.TabIDs) != 1 {
+		t.Fatalf("legacy attached terminal = %#v, %v", legacyAttached, err)
 	}
 	legacyDetached, err := decodeValue[TerminalSnapshot](
 		json.RawMessage(
 			`{"id":"term_00000000000000000000000000000007",`+
-				`"tab_id":null,"title":"legacy","cols":80,"rows":24,`+
+				`"tab_id":null,`+
+				`"title":"legacy","cols":80,"rows":24,`+
 				`"running":true,"lifecycle":"running"}`,
 		),
 		"legacy detached terminal snapshot",
 	)
-	if err != nil || legacyDetached.TabID != nil || len(legacyDetached.TabIDs) != 0 {
-		t.Fatalf("legacy detached terminal snapshot = %#v, %v", legacyDetached, err)
+	if err != nil || legacyDetached.TabIDs == nil || len(legacyDetached.TabIDs) != 0 {
+		t.Fatalf("legacy detached terminal = %#v, %v", legacyDetached, err)
+	}
+	dualPlacement, err := decodeValue[TerminalSnapshot](
+		json.RawMessage(
+			`{"id":"term_00000000000000000000000000000007",`+
+				`"tab_id":"tab_00000000000000000000000000000006",`+
+				`"tab_ids":["tab_00000000000000000000000000000006"],`+
+				`"title":"dual","cols":80,"rows":24,"running":true,`+
+				`"lifecycle":"running"}`,
+		),
+		"dual terminal placement",
+	)
+	if err != nil || len(dualPlacement.TabIDs) != 1 {
+		t.Fatalf("dual terminal placement = %#v, %v", dualPlacement, err)
 	}
 	terminal, err := decodeValue[TerminalSnapshot](
 		json.RawMessage(
 			`{"id":"term_00000000000000000000000000000007",`+
-				`"tab_id":"tab_00000000000000000000000000000006",`+
 				`"tab_ids":["tab_00000000000000000000000000000006"],`+
 				`"title":"job","cols":80,"rows":24,"running":false,`+
 				`"lifecycle":"exited","exit":{`+
@@ -297,7 +357,6 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	if _, err := decodeValue[TerminalSnapshot](
 		json.RawMessage(
 			`{"id":"term_00000000000000000000000000000007",`+
-				`"tab_id":"tab_00000000000000000000000000000006",`+
 				`"tab_ids":["tab_00000000000000000000000000000006"],`+
 				`"title":"job","cols":80,"rows":24,"running":true,`+
 				`"lifecycle":"exited","exit":{`+
@@ -422,10 +481,15 @@ func TestTerminalSnapshotsRejectMalformedTabIdentities(t *testing.T) {
 		omitTabIDs bool
 	}{
 		{name: "missing legacy and multiview identities", omitTabID: true, omitTabIDs: true},
-		{name: "missing compatibility alias", projected: []any{}, omitTabID: true},
 		{name: "empty legacy compatibility alias", selected: "", omitTabIDs: true},
 		{name: "empty selected identity", selected: "", projected: []any{""}},
 		{name: "empty projected identity", selected: tabID, projected: []any{tabID, ""}},
+		{name: "null multiview identities", selected: tabID, projected: nil},
+		{
+			name:      "inconsistent legacy alias",
+			selected:  "tab_11111111111111111111111111111111",
+			projected: []any{tabID},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -1248,6 +1312,30 @@ func TestCommandsRemainExactAndShellIsServerSide(t *testing.T) {
 	}
 }
 
+func TestPaneSplitEncodesViewportWidth(t *testing.T) {
+	client, requests := pipeClient(t, nil, 1)
+	defer client.Close(context.Background()) //nolint:errcheck
+	pane := client.Machine(SelectID(testMachineID)).
+		Session(SelectID(testSessionID)).
+		Workspace(SelectID(testWorkspaceID)).
+		Screen(SelectID(testScreenID)).
+		Pane(SelectID(testPaneID))
+	width := 0.5
+
+	if _, err := pane.Split(context.Background(), PaneSplitOptions{
+		Direction:     DirectionRight,
+		ViewportWidth: &width,
+	}); err != nil {
+		t.Fatalf("split pane: %v", err)
+	}
+	request := <-requests
+	if request["operation"] != "pane.split" {
+		t.Fatalf("split operation = %#v", request["operation"])
+	}
+	requireParam(t, request, "direction", string(DirectionRight))
+	requireParam(t, request, "viewport_width", width)
+}
+
 func TestScreenLayoutUndoEncodesConfirmationToken(t *testing.T) {
 	client, requests := pipeClient(t, nil, 1)
 	defer client.Close(context.Background()) //nolint:errcheck
@@ -1499,6 +1587,68 @@ func TestStreamRecvDeadlineIsOperationScoped(t *testing.T) {
 	if err := stream.Cancel(context.Background()); err != nil {
 		t.Fatalf("cancel stream: %v", err)
 	}
+}
+
+func TestJournalRecordSequenceMatchesEnvelopeCursor(t *testing.T) {
+	clientSide, serverSide := net.Pipe()
+	release := make(chan struct{})
+	go func() {
+		defer serverSide.Close()
+		reader := bufio.NewReader(serverSide)
+		open := readRequest(t, reader)
+		streamID := requestParams(t, open)["stream_id"]
+		writeSuccess(t, serverSide, open["id"], map[string]any{"stream_id": streamID})
+		writeEnvelope(t, serverSide, map[string]any{
+			"protocol":  "cmux.protocol/2",
+			"type":      "stream_item",
+			"stream_id": streamID,
+			"sequence":  "1",
+			"cursor": map[string]any{
+				"generation": string(testSessionID),
+				"revision":   "1",
+			},
+			"item": map[string]any{
+				"sequence":                   "2",
+				"event_id":                   "event_mismatched_cursor",
+				"schema_version":             1,
+				"kind":                       "agent.turn.completed",
+				"class":                      "observation",
+				"replay":                     "advisory",
+				"occurred_at_ms":             "1",
+				"committed_at_ms":            "2",
+				"producer":                   map[string]any{"kind": "agent_adapter", "id": "cmux_agents"},
+				"authority":                  nil,
+				"causation_id":               nil,
+				"correlation_id":             nil,
+				"causation_depth":            0,
+				"subjects":                   []any{},
+				"sensitivity":                "metadata",
+				"payload":                    map[string]any{},
+				"resource_revision":          nil,
+				"previous_resource_revision": nil,
+			},
+		})
+		<-release
+	}()
+	client, err := NewClient(context.Background(), ClientOptions{
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			return clientSide, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background()) //nolint:errcheck
+	stream, err := client.Machine(SelectID(testMachineID)).Session(SelectID(testSessionID)).
+		Journal(context.Background(), SessionJournalOptions{})
+	if err != nil {
+		t.Fatalf("open journal: %v", err)
+	}
+	_, err = stream.Recv(context.Background())
+	if !errors.Is(err, ErrProtocol) || !strings.Contains(err.Error(), "journal sequence must match") {
+		t.Fatalf("mismatched journal cursor error = %T %v", err, err)
+	}
+	close(release)
 }
 
 func TestAcknowledgedStreamOutlivesSetupContextAndRequestTimeout(t *testing.T) {
@@ -4207,7 +4357,7 @@ func pipeClient(
 			requests <- request
 			result := map[string]any{}
 			switch request["operation"] {
-			case "workspace.run":
+			case "workspace.run", "pane.split":
 				result = createdPathResult()
 			case "browser.input.mouse", "browser.input.wheel":
 				result = map[string]any{

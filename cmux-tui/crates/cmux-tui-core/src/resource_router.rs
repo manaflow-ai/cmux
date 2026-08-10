@@ -644,6 +644,14 @@ fn validate_operation_constraints(
                 ],
             )?;
         }
+        ResourceOperation::SessionJournalSubscribe
+            if supplied.contains_key("cursor") && supplied.contains_key("start") =>
+        {
+            return Err(validation_error(
+                "journal cursor and start are mutually exclusive",
+                json!({"operation":operation_name(operation),"parameters":["cursor","start"]}),
+            ));
+        }
         ResourceOperation::PaneSplitRatioSet | ResourceOperation::PaneSplit => {
             if let Some(ratio) = fields.get("ratio").and_then(Value::as_f64)
                 && !(0.0 < ratio && ratio < 1.0)
@@ -989,6 +997,17 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::SidebarViewResize
         | ResourceOperation::SidebarViewReload => OperationOwner::Auxiliary,
         ResourceOperation::SessionEvents
+        | ResourceOperation::SessionJournalSubscribe
+        | ResourceOperation::SessionJournalProducerList
+        | ResourceOperation::SessionJournalProducerPut
+        | ResourceOperation::SessionJournalAppend
+        | ResourceOperation::SessionJournalHookList
+        | ResourceOperation::SessionJournalHookPut
+        | ResourceOperation::SessionJournalCheckpointCreate
+        | ResourceOperation::SessionJournalCheckpointList
+        | ResourceOperation::SessionJournalRestorePreview
+        | ResourceOperation::SessionJournalSegmentList
+        | ResourceOperation::SessionJournalSegmentSeal
         | ResourceOperation::SessionShutdown
         | ResourceOperation::PairingRequestList
         | ResourceOperation::PairingRequestResolve
@@ -1464,6 +1483,14 @@ pub(super) fn resource_operation_error(error: anyhow::Error) -> ResourceError {
     if let Some(resource) = error.downcast_ref::<ResourceError>() {
         return resource.clone();
     }
+    if let Some(failure) = error.downcast_ref::<crate::terminal_host_protocol::HostLaunchFailure>()
+    {
+        return ResourceError::operation_failed(
+            "terminal.launch",
+            failure.message.clone(),
+            json!({"reason_code":failure.kind.reason_code()}),
+        );
+    }
     let message = error.to_string();
     if message.starts_with("idempotency.conflict:") {
         let fields = message.split_whitespace().collect::<Vec<_>>();
@@ -1503,6 +1530,18 @@ pub(super) fn validation_error(message: &str, details: Value) -> ResourceError {
 mod tests {
     use super::*;
     use crate::SurfaceOptions;
+
+    #[test]
+    fn terminal_host_launch_failures_keep_their_machine_readable_reason() {
+        let failure = crate::terminal_host_protocol::HostLaunchFailure::bounded(
+            crate::terminal_host_protocol::HostLaunchFailureKind::PtyCapacityExhausted,
+            "terminal launch failed: PTY capacity exhausted".into(),
+        );
+        let error = resource_operation_error(anyhow::Error::new(failure));
+        assert_eq!(error.code, "operation.failed");
+        assert_eq!(error.details["operation"], "terminal.launch");
+        assert_eq!(error.details["extra"]["reason_code"], "pty_capacity_exhausted");
+    }
 
     fn catalog_fixture(descriptor: &Value, parameters: &HashMap<String, Value>) -> Value {
         match descriptor["kind"].as_str().expect("fixture descriptor kind") {
@@ -1594,7 +1633,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_has_one_concrete_owner() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 113);
+        assert_eq!(operations.len(), 124);
         for name in operations.keys() {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();
@@ -1613,7 +1652,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_accepts_its_result_and_declared_error_fixtures() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 113);
+        assert_eq!(operations.len(), 124);
         for (name, descriptor) in operations {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();

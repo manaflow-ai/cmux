@@ -193,6 +193,13 @@ class JsonLineConnection:
             remaining_bytes = remaining_bytes[sent:]
 
     def recv(self) -> dict[str, Any]:
+        return self._recv()
+
+    def _recv(
+        self,
+        *,
+        before_wait: Optional[Callable[[], None]] = None,
+    ) -> dict[str, Any]:
         with self._recv_lock:
             try:
                 while True:
@@ -213,6 +220,8 @@ class JsonLineConnection:
                         )
                     if self._closed:
                         raise CmuxConnectionError("session socket is closed")
+                    if before_wait is not None:
+                        before_wait()
                     try:
                         readable, _, _ = select.select(
                             [self._socket, self._wake_read],
