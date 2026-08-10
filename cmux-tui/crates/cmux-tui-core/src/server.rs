@@ -16355,7 +16355,7 @@ mod tests {
             json!({"machine":"current","session":"current","force":true}),
             Some("forced-shutdown"),
         );
-        assert!(!handle_connection_message(
+        assert!(handle_connection_message(
             &mux,
             local,
             &forced_request,
@@ -16366,7 +16366,7 @@ mod tests {
         // before the owning loop was asked to exit.
         assert!(mux.daemon_shutdown_requested());
         assert!(mux.control_clients.daemon_handoff_pending());
-        assert!(!mux.control_clients.contains(local));
+        assert!(mux.control_clients.contains(local));
         let accepted = pop_json(&local_outbound);
         assert_eq!(accepted["ok"], true);
         assert_eq!(accepted["result"]["value"]["accepted"], true);
@@ -16454,10 +16454,10 @@ mod tests {
         let client = reopened.control_clients.register(ClientTransport::Unix, writer.clone());
         let scheduler =
             Arc::new(ConnectionSurfaceScheduler::new(reopened.surface_operation_admission.clone()));
-        assert!(!handle_connection_message(&reopened, client, &request, &writer, &scheduler,));
+        assert!(handle_connection_message(&reopened, client, &request, &writer, &scheduler,));
         assert!(reopened.daemon_shutdown_requested());
         assert!(reopened.control_clients.daemon_handoff_pending());
-        assert!(!reopened.control_clients.contains(client));
+        assert!(reopened.control_clients.contains(client));
         let replay = pop_json(&outbound);
         assert_eq!(replay["ok"], true);
         assert_eq!(replay["result"]["value"]["accepted"], true);
@@ -19373,7 +19373,7 @@ mod tests {
             accepted.control_clients.register(ClientTransport::Unix, accepted_writer.clone());
         let interactive = accepted.control_clients.register(ClientTransport::Unix, test_writer());
         let (_, generation) = accepted.registry_identity();
-        assert!(!handle_message(
+        assert!(handle_message(
             &accepted,
             local,
             &json!({
@@ -19395,7 +19395,7 @@ mod tests {
         assert_eq!(response["data"]["accepted"], true);
         assert_eq!(response["data"]["pid"], std::process::id());
         assert_eq!(response["data"]["generation"], generation);
-        assert!(!accepted.control_clients.contains(local));
+        assert!(accepted.control_clients.contains(local));
         assert!(!accepted.control_clients.contains(interactive));
     }
 
@@ -19425,13 +19425,55 @@ mod tests {
         assert!(mux.control_clients.contains(interactive));
 
         release_flush.send(()).unwrap();
-        assert!(!worker.join().unwrap());
+        assert!(worker.join().unwrap());
         assert!(mux.daemon_shutdown_requested());
-        assert!(!mux.control_clients.contains(requester));
+        assert!(mux.control_clients.contains(requester));
         assert!(!mux.control_clients.contains(interactive));
         let response = pop_json(&outbound);
         assert_eq!(response["ok"], true);
         assert_eq!(response["data"]["accepted"], true);
+    }
+
+    #[test]
+    fn shutdown_requester_waits_for_owner_eof_and_rejects_pipelined_mutations() {
+        let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
+        let (writer, outbound) = captured_writer();
+        let requester = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let (_, generation) = mux.registry_identity();
+        let shutdown = json!({
+            "id": 98,
+            "cmd": "shutdown-daemon",
+            "pid": std::process::id(),
+            "generation": generation,
+        })
+        .to_string();
+
+        assert!(handle_connection_message(&mux, requester, &shutdown, &writer, &scheduler));
+        assert!(mux.daemon_shutdown_requested());
+        assert!(mux.control_clients.contains(requester));
+        assert!(writer.is_open());
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], true);
+
+        let workspace_count = mux.with_state(|state| state.workspaces.len());
+        let pipelined = json!({
+            "id": 99,
+            "cmd": "new-workspace",
+            "name": "must-not-exist",
+        })
+        .to_string();
+        assert!(!handle_connection_message(
+            &mux,
+            requester,
+            &pipelined,
+            &writer,
+            &scheduler,
+        ));
+        assert_eq!(mux.with_state(|state| state.workspaces.len()), workspace_count);
+        assert!(outbound.try_pop().is_none());
     }
 
     #[test]
@@ -19474,7 +19516,7 @@ mod tests {
         assert!(rejected["error"].as_str().unwrap().contains("generation changed"));
         assert!(!mux.daemon_shutdown_requested());
 
-        assert!(!handle_message(
+        assert!(handle_message(
             &mux,
             requester,
             &json!({
