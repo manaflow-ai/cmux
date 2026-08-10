@@ -5015,6 +5015,62 @@ fn journal_agent_projection_cursor_advances_and_replays_only_a_suffix() {
 }
 
 #[test]
+fn journal_agent_legacy_upgrade_reads_only_indexed_agent_events() {
+    let root = temp_root("journal-agent-indexed-upgrade");
+    let session = "journal-agent-indexed-upgrade";
+    let database = root.join(session_storage_component(session)).join(WORKSPACE_REGISTRY_FILE);
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        commit_terminal_topology(&mut registry, "journal-agent-indexed-upgrade-topology");
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            Some(terminal_id.as_str()),
+            json!({"context":{"session_id":"indexed-upgrade-session"}}),
+        )
+        .unwrap();
+        let validated = crate::journal_kernel::ValidatedJournalIngress {
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Advisory,
+            sensitivity: JournalSensitivity::Sensitive,
+        };
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_indexed_upgrade",
+                "journal_agent_indexed_upgrade",
+            )
+            .unwrap();
+    }
+
+    Connection::open(&database)
+        .unwrap()
+        .execute_batch(
+            "DROP TRIGGER session_journal_reject_update;
+             UPDATE session_journal
+             SET producer_json = '{}'
+             WHERE event_id = 'event_resource_00000000000000000001';
+             CREATE TRIGGER session_journal_reject_update
+             BEFORE UPDATE ON session_journal
+             BEGIN SELECT RAISE(ABORT, 'session journal is append-only'); END;
+             DELETE FROM resource_agent_projections;
+             DELETE FROM meta WHERE key = 'agent_projection_journal_sequence_v1';",
+        )
+        .unwrap();
+
+    let reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    let agents = reopened.public_projections().unwrap().agents;
+    assert_eq!(agents.len(), 1);
+    assert_eq!(agents[0].terminal_id, terminal_id);
+    assert_eq!(agents[0].state, "working");
+    assert_eq!(agents[0].source_session.as_deref(), Some("indexed-upgrade-session"));
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn journal_agent_append_applies_a_contiguous_projection_prefix() {
     let root = temp_root("journal-agent-contiguous-projection");
     let session = "journal-agent-contiguous-projection";
@@ -5311,6 +5367,45 @@ fn journal_agent_tool_start_resumes_blocked_terminal_owner() {
 }
 
 #[test]
+fn journal_agent_late_or_unidentified_event_keeps_active_session_identity() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-active-session-identity").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-active-session-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    for (idempotency_key, event, source_session) in [
+        ("journal_agent_session_a_start", "SessionStart", Some("session-a")),
+        ("journal_agent_session_b_start", "SessionStart", Some("session-b")),
+        ("journal_agent_session_a_late_end", "AgentEnd", Some("session-a")),
+        ("journal_agent_unidentified_late_end", "AgentEnd", None),
+    ] {
+        let native = source_session.map_or_else(|| json!({}), |session| json!({"session_id":session}));
+        let ingress = crate::agent_hook_journal_ingress(
+            "codex",
+            event,
+            Some(terminal_id.as_str()),
+            native,
+        )
+        .unwrap();
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_active_session",
+                idempotency_key,
+            )
+            .unwrap();
+    }
+    let agent = registry.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "idle");
+    assert_eq!(agent.source_session.as_deref(), Some("session-b"));
+    assert_eq!(agent.source, "hook");
+}
+
+#[test]
 fn journal_agent_plugin_report_cannot_write_projection() {
     let root = temp_root("journal-agent-untrusted-report");
     let session = "journal-agent-untrusted-report";
@@ -5476,6 +5571,13 @@ fn journal_agent_prejournal_projection_migrates_once_and_survives_reopen() {
                    terminal_id, result_json, committed_revision
                  ) VALUES(?1, ?2, 1)",
                 params![terminal_id.as_str(), value],
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute(
+                "DELETE FROM meta WHERE key = 'agent_projection_journal_sequence_v1'",
+                [],
             )
             .unwrap();
         value
