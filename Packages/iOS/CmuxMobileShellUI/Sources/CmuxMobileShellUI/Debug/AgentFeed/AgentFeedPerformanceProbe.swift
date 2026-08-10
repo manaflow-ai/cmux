@@ -48,7 +48,6 @@ final class AgentFeedPerformanceProbe: NSObject {
     func recordTopRowAppearance(_ id: MobileAgentFeedItemID) {
         guard let injectedAt = injectionTimes.removeValue(forKey: id) else { return }
         visibilityLatencies.append(CACurrentMediaTime() - injectedAt)
-        updateMarker(state: "running")
     }
 
     @objc private func frameTick(_ link: CADisplayLink) {
@@ -74,8 +73,6 @@ final class AgentFeedPerformanceProbe: NSObject {
             displayLink = nil
             inject = nil
             updateMarker(state: "complete")
-        } else {
-            updateMarker(state: "running")
         }
     }
 

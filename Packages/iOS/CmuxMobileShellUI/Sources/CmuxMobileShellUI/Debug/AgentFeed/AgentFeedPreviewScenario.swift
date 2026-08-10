@@ -32,7 +32,10 @@ enum AgentFeedPreviewScenario: String, CaseIterable {
         let flagValue = flagIndex.flatMap { index in
             arguments.indices.contains(index + 1) ? arguments[index + 1] : nil
         }
-        return Self(rawValue: environmentValue ?? assignmentValue ?? flagValue ?? "mixed") ?? .mixed
+        // XCUITest can relaunch the same application identity several times in
+        // one method. Prefer the per-launch argument so a prior process's
+        // inherited environment cannot select the next fixture.
+        return Self(rawValue: flagValue ?? assignmentValue ?? environmentValue ?? "mixed") ?? .mixed
     }
 }
 

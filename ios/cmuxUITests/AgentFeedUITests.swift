@@ -177,7 +177,7 @@ final class AgentFeedUITests: XCTestCase {
         XCTAssertTrue(status.exists)
         XCTAssertEqual(source.label, "Codex")
         XCTAssertEqual(status.label, "Needs input")
-        let filter = app.buttons["MobileAgentFeedFilter"]
+        let filter = app.descendants(matching: .any)["MobileAgentFeedFilter"]
         XCTAssertTrue(filter.waitForExistence(timeout: 3))
         XCTAssertTrue(filter.isHittable)
         let suffix = "macbook-00000000-0000-0000-0000-000000000101"
@@ -219,7 +219,11 @@ final class AgentFeedUITests: XCTestCase {
         locale: String = "en_US"
     ) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-AppleLanguages", "(\(language))", "-AppleLocale", locale]
+        app.launchArguments = [
+            "-AppleLanguages", "(\(language))",
+            "-AppleLocale", locale,
+            "--agent-feed-scenario", scenario,
+        ]
         app.launchEnvironment["CMUX_UITEST_AGENT_FEED_PREVIEW"] = "1"
         app.launchEnvironment["CMUX_UITEST_AGENT_FEED_SCENARIO"] = scenario
         app.launch()
