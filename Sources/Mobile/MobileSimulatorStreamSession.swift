@@ -17,8 +17,7 @@ final class MobileSimulatorStreamSession {
     private let wireEncoder = MobileSimulatorWireEncoder()
 
     private var cachedFrame: MobileSimulatorFrameEvent?
-    private var reader: SimulatorMobileFrameReader?
-    private var observedFrameTransportName: String?
+    private var readerAttachment = MobileSimulatorReaderAttachment<SimulatorMobileFrameReader>()
     private var lastSentSequence: UInt64?
     private var isStopped = false
     private var isSendingFrame = false
@@ -79,8 +78,7 @@ final class MobileSimulatorStreamSession {
             NotificationCenter.default.removeObserver(subscriptionObserver)
             self.subscriptionObserver = nil
         }
-        _ = reader?.setFramePublicationHandler(nil)
-        reader = nil
+        _ = readerAttachment.detach()?.setFramePublicationHandler(nil)
         panel.setVisibleInUI(false, hostID: id)
         if sendClosed,
            let payload = wireEncoder.object(MobileSimulatorClosedEvent(panelID: panelID.uuidString)) {
@@ -133,10 +131,13 @@ final class MobileSimulatorStreamSession {
                 }
                 guard !self.isStopped, !Task.isCancelled else { return }
                 self.emitState()
-                // Only retry frames when a reader exists; a panel without a
-                // frame transport would otherwise log a readerMissing
-                // diagnostic on every keepalive tick.
-                if self.reader != nil {
+                // Reader construction can fail while coordinator metadata or
+                // shared memory is still settling. Reuse the keepalive cadence
+                // to retry without introducing a second timer.
+                if self.readerAttachment.reader == nil {
+                    self.refreshReader()
+                }
+                if self.readerAttachment.reader != nil {
                     self.requestFrameSend()
                 }
             }
@@ -162,20 +163,20 @@ final class MobileSimulatorStreamSession {
     }
 
     private func refreshReader() {
-        let transportName = panel.coordinator.frameTransport?.sharedMemoryName
-        guard transportName != observedFrameTransportName else { return }
-        _ = reader?.setFramePublicationHandler(nil)
-        reader = nil
-        observedFrameTransportName = transportName
-        guard transportName != nil else {
-            MobileSimulatorDiagnostics.recordFrame(panelID: panelID, state: .readerMissing)
+        let readiness = MobileSimulatorReaderReadiness(
+            transportName: panel.coordinator.frameTransport?.sharedMemoryName,
+            displayScale: panel.coordinator.display?.scale
+        )
+        let refresh = readerAttachment.refresh(for: readiness) {
+            panel.coordinator.makeMobileFrameReader()
+        }
+        _ = refresh.detachedReader?.setFramePublicationHandler(nil)
+        guard let reader = refresh.attachedReader else {
+            if refresh.isMissing {
+                MobileSimulatorDiagnostics.recordFrame(panelID: panelID, state: .readerMissing)
+            }
             return
         }
-        guard let reader = panel.coordinator.makeMobileFrameReader() else {
-            MobileSimulatorDiagnostics.recordFrame(panelID: panelID, state: .readerMissing)
-            return
-        }
-        self.reader = reader
         MobileSimulatorDiagnostics.recordFrame(panelID: panelID, state: .readerAttached)
         _ = reader.setFramePublicationHandler { [weak self] in
             Task { @MainActor [weak self] in
@@ -253,7 +254,7 @@ final class MobileSimulatorStreamSession {
     }
 
     private func nextFrameEvent(allowCachedReplay: Bool = false) async -> MobileSimulatorFrameEvent? {
-        guard let reader else {
+        guard let reader = readerAttachment.reader else {
             if allowCachedReplay { return cachedFrame }
             MobileSimulatorDiagnostics.recordFrame(panelID: panelID, state: .readerMissing)
             return nil
