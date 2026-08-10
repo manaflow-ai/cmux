@@ -7087,22 +7087,36 @@ mod unix {
             prepare_private_dir(endpoint.parent().unwrap()).unwrap();
             let _ = fs::remove_file(&endpoint);
             let listener = UnixListener::bind(&endpoint).unwrap();
+            let (accepted_tx, accepted_rx) = mpsc_channel();
+            let (release_tx, release_rx) = mpsc_channel();
             let stalled = thread::spawn(move || {
                 let (_stream, _) = listener.accept().unwrap();
-                thread::sleep(Duration::from_millis(200));
+                accepted_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
             });
 
-            let started = Instant::now();
-            assert!(
-                connect_record_with_timeout(
-                    record.clone(),
-                    record_path.clone(),
+            let (result_tx, result_rx) = mpsc_channel();
+            let connecting_record = record.clone();
+            let connecting_path = record_path.clone();
+            let connecting = thread::spawn(move || {
+                let failed = connect_record_with_timeout(
+                    connecting_record,
+                    connecting_path,
                     Duration::from_millis(30),
                 )
-                .is_err()
-            );
-            assert!(started.elapsed() < Duration::from_secs(1));
+                .is_err();
+                result_tx.send(failed).unwrap();
+            });
+            accepted_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            let result = result_rx.recv_timeout(Duration::from_secs(5));
+            release_tx.send(()).unwrap();
+            connecting.join().unwrap();
             stalled.join().unwrap();
+            assert!(
+                result.expect(
+                    "terminal-host connection did not honor its handshake and retry deadlines",
+                )
+            );
             let _ = fs::remove_file(endpoint);
             drop(lease);
             assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
