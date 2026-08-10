@@ -1673,7 +1673,7 @@ mod tests {
             ),
         )
         .unwrap();
-        let keeper_tab = keeper["value"]["id"].as_str().unwrap().to_string();
+        let keeper_tab = keeper["value"]["tab_id"].as_str().unwrap().to_string();
 
         let destination = public_session_snapshot(&mux).unwrap();
         let workspace_id = destination["workspaces"][0]["id"].as_str().unwrap();
