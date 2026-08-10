@@ -14957,8 +14957,10 @@ fn terminal_content_placements(
         targets.push(runtime.id);
     }
     if scan_unindexed_host_matches {
-        // Protocol repair and catalog-missing adoption are bounded to one
-        // terminal. Steady-state exit fanout stays on the reverse indexes.
+        // Protocol close, catalog-missing adoption, and terminal teardown
+        // repair are bounded to one exact terminal identity. The repair scan
+        // runs before catalog removal so an incomplete reverse index cannot
+        // leave a projected view alive.
         targets.extend(state.surfaces.iter().filter_map(|(placement, candidate)| {
             matches_live_surface(candidate).then_some(*placement)
         }));
@@ -20074,6 +20076,13 @@ mod tests {
                 .map(|surface| state.resource_indexes.tab_ids[surface].clone())
                 .collect::<Vec<_>>()
         });
+        {
+            let mut state = mux.state.lock().unwrap();
+            state
+                .resource_indexes
+                .content_placements
+                .insert(ContentPublicId::Terminal(terminal_id.clone()), vec![source.id]);
+        }
         let before_revision = mux.workspace_registry.lock().unwrap().resource_revision().unwrap();
         let events = mux.subscribe();
 
@@ -20094,6 +20103,8 @@ mod tests {
                 !state.terminal_catalog_by_runtime.contains_key(&runtime_id),
                 "an exited runtime retained its reverse catalog entry"
             );
+            assert!(!state.surfaces.contains_key(&source.id));
+            assert!(!state.surfaces.contains_key(&projected.id));
         });
         let resolved = mux.resolve_terminal(&host.terminal_id).unwrap().unwrap();
         assert_eq!(resolved.surface, None);

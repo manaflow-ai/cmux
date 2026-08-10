@@ -2484,7 +2484,7 @@ impl Mux {
             state,
             terminal_public_id,
             Some((terminal_id, None)),
-            !has_runtime,
+            true,
         );
         if targets.is_empty() && !has_runtime {
             return Ok(None);
