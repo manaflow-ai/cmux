@@ -6359,6 +6359,8 @@ pub struct App {
     /// The local mux owned by this process. Unlike `session`, this does not
     /// change when the machine controller replaces the presented session.
     owner_mux: Option<Arc<Mux>>,
+    /// The machine-catalog key that presents `owner_mux`, when machine mode is active.
+    owner_machine: Option<MachineKey>,
     owner_reload_worker: Option<OwnerReloadWorker>,
     session_event_worker: Option<SessionEventWorker>,
     session_generation: u64,
@@ -7825,9 +7827,13 @@ fn run_with_machine_updates_inner(
         .or_else(|| machine_ui.as_ref().and_then(|machine| machine.notice.clone()));
     let machine_selection_intent = machine_ui.as_ref().and_then(|machine| machine.snapshot.active);
     let machine_presented = machine_ui.as_ref().and_then(|machine| machine.snapshot.active);
+    let owner_machine = owner_mux
+        .as_ref()
+        .and_then(|_| machine_ui.as_ref().and_then(|machine| machine.snapshot.active));
     let mut app = App {
         session,
         owner_mux,
+        owner_machine,
         owner_reload_worker,
         session_event_worker: Some(session_event_worker),
         session_generation,
@@ -8369,6 +8375,16 @@ fn should_claim_clear_history_shortcut(
 impl App {
     pub fn is_surface_only(&self) -> bool {
         self.surface_only.is_some()
+    }
+
+    fn presenting_owner_session(&self) -> bool {
+        if self.owner_mux.is_none() {
+            return false;
+        }
+        match self.owner_machine {
+            Some(owner) => self.machine_presented == Some(owner),
+            None => self.machine_ui.is_none(),
+        }
     }
 
     fn owner_shutdown_requested(&self) -> bool {
@@ -12747,6 +12763,9 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::ConfigReloadRequested) => {
+                if self.presenting_owner_session() {
+                    return Ok(RenderAction::None);
+                }
                 self.reload_config();
                 Ok(RenderAction::Draw)
             }
@@ -38969,6 +38988,7 @@ mod tests {
         let app = App {
             session,
             owner_mux: None,
+            owner_machine: None,
             owner_reload_worker: None,
             session_event_worker: None,
             session_generation: 1,

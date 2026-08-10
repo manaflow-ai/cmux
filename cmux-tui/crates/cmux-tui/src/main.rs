@@ -438,6 +438,13 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
 }
 
 fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
+    let args = args.into_iter().collect::<Vec<_>>();
+    if has_inline_relay_ticket_argument(&args) {
+        return Err(localization::catalog()
+            .remote_client
+            .inline_relay_ticket_rejected
+            .to_string());
+    }
     let mut out = Args {
         attach: false,
         session: "main".to_string(),
@@ -1082,7 +1089,7 @@ fn rewrite_server_start(args: &mut Vec<String>) {
             "-h" | "--help" => return,
             "server" if args.get(index + 1).map(String::as_str) == Some("start") => {
                 let start_args = &args[index + 2..];
-                if (output_mode && !server_start_has_inline_relay_ticket(start_args))
+                if (output_mode && !has_inline_relay_ticket_argument(start_args))
                     || server_start_has_cli_routing_flag(start_args)
                 {
                     return;
@@ -1096,7 +1103,7 @@ fn rewrite_server_start(args: &mut Vec<String>) {
     }
 }
 
-fn server_start_has_inline_relay_ticket(args: &[String]) -> bool {
+fn has_inline_relay_ticket_argument(args: &[String]) -> bool {
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
@@ -1142,7 +1149,7 @@ fn server_start_has_inline_relay_ticket(args: &[String]) -> bool {
 }
 
 fn server_start_has_cli_routing_flag(args: &[String]) -> bool {
-    if server_start_has_inline_relay_ticket(args) {
+    if has_inline_relay_ticket_argument(args) {
         return false;
     }
     let mut index = 0;
