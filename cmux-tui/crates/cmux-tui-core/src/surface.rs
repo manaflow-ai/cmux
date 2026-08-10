@@ -4111,9 +4111,7 @@ impl Surface {
     }
 
     pub(crate) fn finish_terminal_reader(&self, deadline: Instant) -> Option<TerminalJournalGap> {
-        let Some(pty) = self.as_pty() else {
-            return None;
-        };
+        let pty = self.as_pty()?;
         if let Some(reader) = pty.reader_thread.lock().unwrap().take() {
             if pty.reader_completion.wait_until(deadline) {
                 if reader.join().is_err() {

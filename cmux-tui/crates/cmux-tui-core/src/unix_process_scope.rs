@@ -20,7 +20,8 @@ use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::process::Command;
-use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, mpsc};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 const CLEANUP_DEADLINE: Duration = Duration::from_millis(250);
@@ -125,6 +126,85 @@ pub struct UnixProcessScope {
     tracked_changed: Arc<Condvar>,
     tracker: Option<ScopeTracker>,
     terminated: bool,
+}
+
+/// A signal from the kernel that an owned child is waitable. The observer
+/// uses `waitid(WNOWAIT)`, so checking for exit does not release the child's
+/// PID or process group before its process scope is terminated.
+pub struct UnixChildExitSignal {
+    result: mpsc::Receiver<io::Result<()>>,
+    observer: Option<JoinHandle<()>>,
+}
+
+impl UnixChildExitSignal {
+    /// Start one blocking kernel wait for an owned child without reaping it.
+    pub fn observe(pid: u32) -> io::Result<Self> {
+        let pid = libc::pid_t::try_from(pid)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "child pid is out of range"))?;
+        let (sender, result) = mpsc::sync_channel(1);
+        let observer = std::thread::Builder::new()
+            .name("cmux-child-exit".into())
+            .spawn(move || {
+                let _ = sender.send(wait_for_child_exit_without_reaping(pid));
+            })?;
+        Ok(Self { result, observer: Some(observer) })
+    }
+
+    /// Return true when the child is waitable without releasing its PID.
+    pub fn try_waitable(&self) -> io::Result<bool> {
+        match self.result.try_recv() {
+            Ok(result) => result.map(|()| true),
+            Err(mpsc::TryRecvError::Empty) => Ok(false),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                Err(io::Error::other("child exit observer stopped without a result"))
+            }
+        }
+    }
+
+    /// Wait through an absolute deadline for the child to become waitable.
+    pub fn wait_until(&self, deadline: Instant) -> io::Result<bool> {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Ok(false);
+        }
+        match self.result.recv_timeout(remaining) {
+            Ok(result) => result.map(|()| true),
+            Err(mpsc::RecvTimeoutError::Timeout) => Ok(false),
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                Err(io::Error::other("child exit observer stopped without a result"))
+            }
+        }
+    }
+
+    /// Join the observer after the child is waitable or has been killed.
+    pub fn finish(mut self) {
+        if let Some(observer) = self.observer.take() {
+            let _ = observer.join();
+        }
+    }
+}
+
+fn wait_for_child_exit_without_reaping(pid: libc::pid_t) -> io::Result<()> {
+    loop {
+        let mut status = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
+        // SAFETY: status points to writable siginfo storage. WNOWAIT observes
+        // this owned child becoming waitable without releasing its PID/PGID.
+        let result = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                pid as libc::id_t,
+                status.as_mut_ptr(),
+                libc::WEXITED | libc::WNOWAIT,
+            )
+        };
+        if result == 0 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
 }
 
 impl UnixProcessScope {
@@ -325,7 +405,25 @@ impl UnixProcessScope {
         let _ = pidfd_send_signal(pidfd, libc::SIGKILL);
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    fn terminate_root_group(&self) {
+        let Some(root) = self.root else { return };
+        // A live root is stopped through its audit token before the numeric
+        // process-group operation. A waitable root cannot accept SIGSTOP, but
+        // the caller keeps it unreaped until this scope operation completes,
+        // so its PID/PGID is still reserved while the group is signaled.
+        if !signal_process_with(root, libc::SIGSTOP) && process_identity(root.pid) != Some(root) {
+            return;
+        }
+        if let Ok(group) = libc::pid_t::try_from(root.pid) {
+            unsafe {
+                libc::kill(-group, libc::SIGKILL);
+            }
+        }
+        let _ = signal_process_with(root, libc::SIGKILL);
+    }
+
+    #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
     fn terminate_root_group(&self) {
         let Some(root) = self.root else { return };
         if process_identity(root.pid) != Some(root) {
@@ -360,15 +458,6 @@ impl ProcessScopeTracker {
         state.revision = state.revision.wrapping_add(1);
         self.changed.notify_one();
         Ok(registration)
-    }
-
-    fn unregister(&self, registration: u64) {
-        let mut state = self.state.lock().unwrap();
-        if state.scopes.remove(&registration).is_some() {
-            state.finalizing.remove(&registration);
-            state.revision = state.revision.wrapping_add(1);
-            self.changed.notify_all();
-        }
     }
 
     /// Ask the shared tracker to own one final complete scan while this scope
@@ -610,7 +699,23 @@ fn pidfd_send_signal(pidfd: &OwnedFd, signal: libc::c_int) -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
+fn signal_process(identity: ProcessIdentity) {
+    let _ = signal_process_with(identity, libc::SIGKILL);
+}
+
+#[cfg(target_os = "macos")]
+fn signal_process_with(identity: ProcessIdentity, signal: libc::c_int) -> bool {
+    let mut token = MacAuditToken { val: [u32::MAX; 8] };
+    token.val[5] = identity.pid;
+    token.val[7] = identity.started as u32;
+    // SAFETY: proc_signal_with_audittoken validates the PID and PID version
+    // together in the kernel. It either signals this exact process instance
+    // or returns ESRCH after PID reuse.
+    unsafe { proc_signal_with_audittoken(&mut token, signal) == 0 }
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
 fn signal_process(identity: ProcessIdentity) {
     if process_identity(identity.pid) != Some(identity) {
         return;
@@ -715,17 +820,19 @@ fn scan_registered_processes(
         .collect::<Vec<_>>();
     pids.sort_unstable();
     let mut remaining_file_descriptors = MAX_SCAN_FILE_DESCRIPTORS;
-    let mut inspected_processes = 0_usize;
     let mut last_completed_pid = cursor.after_pid;
     let resumed_pid = cursor.file_descriptors.map(|(pid, _)| pid);
-    for pid in pids.into_iter().filter(|pid| *pid > cursor.after_pid || resumed_pid == Some(*pid)) {
+    for (inspected_processes, pid) in pids
+        .into_iter()
+        .filter(|pid| *pid > cursor.after_pid || resumed_pid == Some(*pid))
+        .enumerate()
+    {
         if inspected_processes >= MAX_SCAN_PROCESSES {
             result.next =
                 Some(ProcessScanCursor { after_pid: last_completed_pid, file_descriptors: None });
             include_lineage_matches(scopes, &result.snapshots, &mut result.matches);
             return result;
         }
-        inspected_processes += 1;
         let process = std::path::PathBuf::from(format!("/proc/{pid}"));
         let Some(snapshot) = std::fs::read_to_string(process.join("stat"))
             .ok()
@@ -862,17 +969,19 @@ fn scan_registered_processes(
     pids.sort_unstable();
     pids.dedup();
     let mut remaining_file_descriptors = MAX_SCAN_FILE_DESCRIPTORS;
-    let mut inspected_processes = 0_usize;
     let mut last_completed_pid = cursor.after_pid;
     let resumed_pid = cursor.file_descriptors.map(|(pid, _)| pid);
-    for pid in pids.into_iter().filter(|pid| *pid > cursor.after_pid || resumed_pid == Some(*pid)) {
+    for (inspected_processes, pid) in pids
+        .into_iter()
+        .filter(|pid| *pid > cursor.after_pid || resumed_pid == Some(*pid))
+        .enumerate()
+    {
         if inspected_processes >= MAX_SCAN_PROCESSES {
             result.next =
                 Some(ProcessScanCursor { after_pid: last_completed_pid, file_descriptors: None });
             include_lineage_matches(scopes, &result.snapshots, &mut result.matches);
             return result;
         }
-        inspected_processes += 1;
         let Some(snapshot) = mac_process_snapshot(pid) else {
             last_completed_pid = pid;
             continue;
@@ -923,6 +1032,37 @@ struct ProcFileInfo {
     _offset: libc::off_t,
     _file_type: i32,
     _guard_flags: u32,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct MacProcessUniqueInfo {
+    _uuid: [u8; 16],
+    _unique_id: u64,
+    _parent_unique_id: u64,
+    id_version: i32,
+    _original_parent_id_version: i32,
+    _reserved2: u64,
+    _reserved3: u64,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct MacBsdInfoWithUniqueId {
+    bsd: libc::proc_bsdinfo,
+    unique: MacProcessUniqueInfo,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct MacAuditToken {
+    val: [u32; 8],
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn proc_signal_with_audittoken(token: *mut MacAuditToken, signal: libc::c_int) -> libc::c_int;
 }
 
 #[cfg(target_os = "macos")]
@@ -1080,19 +1220,33 @@ fn process_identity(pid: u32) -> Option<ProcessIdentity> {
 
 #[cfg(target_os = "macos")]
 fn mac_process_snapshot(pid: u32) -> Option<ProcessSnapshot> {
+    const PROC_PIDT_BSDINFOWITHUNIQID: libc::c_int = 18;
     let pid_int = libc::c_int::try_from(pid).ok()?;
-    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
-    let size = libc::c_int::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
+    let mut info = std::mem::MaybeUninit::<MacBsdInfoWithUniqueId>::zeroed();
+    let size = libc::c_int::try_from(size_of::<MacBsdInfoWithUniqueId>()).ok()?;
     let written = unsafe {
-        libc::proc_pidinfo(pid_int, libc::PROC_PIDTBSDINFO, 0, info.as_mut_ptr().cast(), size)
+        libc::proc_pidinfo(
+            pid_int,
+            PROC_PIDT_BSDINFOWITHUNIQID,
+            0,
+            info.as_mut_ptr().cast(),
+            size,
+        )
     };
     if written != size {
         return None;
     }
     // SAFETY: proc_pidinfo initialized the full structure.
     let info = unsafe { info.assume_init() };
-    let started = (u128::from(info.pbi_start_tvsec) << 64) | u128::from(info.pbi_start_tvusec);
-    Some(ProcessSnapshot { identity: ProcessIdentity { pid, started }, parent: info.pbi_ppid })
+    // Keep chronological start time in the high bits for scan filtering and
+    // the kernel PID version in the low bits for race-free signal delivery.
+    let started = (u128::from(info.bsd.pbi_start_tvsec) << 64)
+        | (u128::from(info.bsd.pbi_start_tvusec) << 32)
+        | u128::from(info.unique.id_version as u32);
+    Some(ProcessSnapshot {
+        identity: ProcessIdentity { pid, started },
+        parent: info.bsd.pbi_ppid,
+    })
 }
 
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]

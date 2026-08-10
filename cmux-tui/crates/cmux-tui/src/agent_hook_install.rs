@@ -14,8 +14,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
 #[cfg(unix)]
-use cmux_tui_core::unix_process_scope::UnixProcessScope;
+use cmux_tui_core::unix_process_scope::{UnixChildExitSignal, UnixProcessScope};
 use serde_json::{Map, Value, json};
+#[cfg(not(unix))]
 use wait_timeout::ChildExt;
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
@@ -707,10 +708,21 @@ fn run_hermes_command_with_timeout(
     let mut child = command.spawn().with_context(|| format!("run {}", binary.display()))?;
     #[cfg(unix)]
     if let Err(error) = tree.bind(child.id()) {
+        tree.terminate_until(deadline);
         let _ = child.kill();
         let _ = child.wait();
         return Err(error).context("track Hermes process scope");
     }
+    #[cfg(unix)]
+    let mut child_exit = match UnixChildExitSignal::observe(child.id()) {
+        Ok(child_exit) => Some(child_exit),
+        Err(error) => {
+            tree.terminate_until(deadline);
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error).context("observe Hermes process exit");
+        }
+    };
     #[cfg(windows)]
     let job = match HermesWindowsJob::assign_and_resume(&child) {
         Ok(job) => job,
@@ -728,10 +740,30 @@ fn run_hermes_command_with_timeout(
     let stderr = std::thread::Builder::new()
         .name("hermes-command-stderr".into())
         .spawn(move || read_hermes_output(stderr, deadline))?;
-    let remaining = deadline.saturating_duration_since(Instant::now());
-    let status = if remaining.is_zero() { None } else { child.wait_timeout(remaining)? };
     #[cfg(unix)]
-    tree.terminate_until(deadline);
+    let status = match child_exit.as_ref().expect("Unix child exit observer").wait_until(deadline) {
+        Ok(true) => {
+            tree.terminate_until(deadline);
+            child_exit.take().expect("Unix child exit observer").finish();
+            Some(child.wait()?)
+        }
+        Ok(false) => {
+            tree.terminate_until(deadline);
+            None
+        }
+        Err(error) => {
+            tree.terminate_until(deadline);
+            let _ = child.kill();
+            child_exit.take().expect("Unix child exit observer").finish();
+            let _ = child.wait();
+            return Err(error).context("wait for Hermes process exit");
+        }
+    };
+    #[cfg(not(unix))]
+    let status = {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() { None } else { child.wait_timeout(remaining)? }
+    };
     #[cfg(windows)]
     job.terminate();
     let timed_out = status.is_none();
@@ -741,6 +773,8 @@ fn run_hermes_command_with_timeout(
         // process scope or Windows job has already issued exact termination;
         // a detached reaper owns the blocking wait.
         let _ = std::thread::Builder::new().name("hermes-command-reaper".into()).spawn(move || {
+            #[cfg(unix)]
+            child_exit.take().expect("Unix child exit observer").finish();
             let _ = child.wait();
         });
     }

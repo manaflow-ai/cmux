@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 
 use regex::bytes::{Regex, RegexBuilder};
 use serde_json::json;
+#[cfg(windows)]
 use wait_timeout::ChildExt;
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
@@ -38,7 +39,7 @@ use windows_sys::Win32::System::Threading::{
 
 use crate::journal_kernel::{JournalDocument, SharedJournalRead};
 #[cfg(unix)]
-use crate::unix_process_scope::UnixProcessScope;
+use crate::unix_process_scope::{UnixChildExitSignal, UnixProcessScope};
 use crate::workspace_registry::{
     JournalHookAttempt, JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan,
     JournalHookState, SessionJournalReader,
@@ -909,10 +910,19 @@ fn execute_delivery_with_shutdown(
     };
     #[cfg(unix)]
     if let Err(error) = tree.bind(child.id()) {
-        terminate_hook_child(&mut child);
         tree.terminate();
+        terminate_hook_child(&mut child);
         return (None, Some(format!("track hook process scope: {error}")));
     }
+    #[cfg(unix)]
+    let child_exit = match UnixChildExitSignal::observe(child.id()) {
+        Ok(child_exit) => child_exit,
+        Err(error) => {
+            tree.terminate();
+            terminate_hook_child(&mut child);
+            return (None, Some(format!("observe hook process exit: {error}")));
+        }
+    };
     #[cfg(windows)]
     let job = match WindowsHookJob::assign(&child) {
         Ok(job) => job,
@@ -930,8 +940,10 @@ fn execute_delivery_with_shutdown(
     let Some(stdin) = child.stdin.take() else {
         #[cfg(unix)]
         {
-            terminate_hook_child(&mut child);
             tree.terminate();
+            let _ = child.kill();
+            child_exit.finish();
+            let _ = child.wait();
         }
         #[cfg(windows)]
         job.terminate_and_wait(&mut child);
@@ -940,10 +952,20 @@ fn execute_delivery_with_shutdown(
     let timeout = Duration::from_millis(delivery.manifest.exec.timeout_ms);
     #[cfg(unix)]
     {
-        let result =
-            execute_hook_child_unix(&mut child, stdin, &input, process_group, timeout, cancelled);
+        let completion = execute_hook_child_unix(stdin, &input, timeout, cancelled, &child_exit);
         tree.terminate();
-        result
+        if completion.is_err() {
+            let _ = child.kill();
+        }
+        child_exit.finish();
+        let status = child.wait();
+        match completion {
+            Ok(()) => match status {
+                Ok(status) => hook_exit_result(status, process_group),
+                Err(error) => (None, Some(format!("wait for hook executable: {error}"))),
+            },
+            Err(result) => result,
+        }
     }
     #[cfg(windows)]
     execute_hook_child_portable(&mut child, stdin, &input, process_group, timeout, &job, cancelled)
@@ -963,50 +985,46 @@ fn hook_shutdown_result() -> (Option<i32>, Option<String>) {
 
 #[cfg(unix)]
 fn execute_hook_child_unix(
-    child: &mut std::process::Child,
     mut stdin: std::process::ChildStdin,
     input: &[u8],
-    process_group: u32,
     timeout: Duration,
     cancelled: &AtomicBool,
-) -> (Option<i32>, Option<String>) {
+    child_exit: &UnixChildExitSignal,
+) -> Result<(), (Option<i32>, Option<String>)> {
     let fd = stdin.as_raw_fd();
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
     if flags < 0 {
         let error = std::io::Error::last_os_error();
-        terminate_hook_child(child);
-        return (None, Some(format!("configure hook stdin: {error}")));
+        return Err((None, Some(format!("configure hook stdin: {error}"))));
     }
     if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
         let error = std::io::Error::last_os_error();
-        terminate_hook_child(child);
-        return (None, Some(format!("configure hook stdin: {error}")));
+        return Err((None, Some(format!("configure hook stdin: {error}"))));
     }
     let deadline = Instant::now() + timeout;
     let mut offset = 0;
     while offset < input.len() {
         if cancelled.load(Ordering::Acquire) {
-            terminate_hook_child(child);
-            return hook_shutdown_result();
+            return Err(hook_shutdown_result());
         }
-        match child.try_wait() {
-            Ok(Some(status)) => return hook_exit_result(status, process_group),
-            Ok(None) => {}
+        match child_exit.try_waitable() {
+            Ok(true) => return Ok(()),
+            Ok(false) => {}
             Err(error) => {
-                terminate_hook_child(child);
-                return (None, Some(format!("wait for hook executable: {error}")));
+                return Err((None, Some(format!("wait for hook executable: {error}"))));
             }
         }
         let now = Instant::now();
         if now >= deadline {
-            terminate_hook_child(child);
-            return (None, Some(format!("hook timed out after {} ms", timeout.as_millis())));
+            return Err((
+                None,
+                Some(format!("hook timed out after {} ms", timeout.as_millis())),
+            ));
         }
         match stdin.write(&input[offset..]) {
             Ok(0) => {
                 return hook_stdin_closed_result(
-                    child,
-                    process_group,
+                    child_exit,
                     deadline,
                     "hook stdin closed before accepting its event",
                 );
@@ -1014,18 +1032,16 @@ fn execute_hook_child_unix(
             Ok(written) => offset += written,
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 if let Err(error) = wait_hook_stdin_writable(fd, deadline, cancelled) {
-                    terminate_hook_child(child);
                     if cancelled.load(Ordering::Acquire) {
-                        return hook_shutdown_result();
+                        return Err(hook_shutdown_result());
                     }
-                    return (None, Some(format!("write hook event: {error}")));
+                    return Err((None, Some(format!("write hook event: {error}"))));
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
             Err(error) => {
                 return hook_stdin_closed_result(
-                    child,
-                    process_group,
+                    child_exit,
                     deadline,
                     &format!("write hook event: {error}"),
                 );
@@ -1033,23 +1049,20 @@ fn execute_hook_child_unix(
         }
     }
     drop(stdin);
-    wait_for_hook_exit(child, process_group, deadline, timeout, cancelled)
+    wait_for_hook_exit(child_exit, deadline, timeout, cancelled)
 }
 
 #[cfg(unix)]
 fn hook_stdin_closed_result(
-    child: &mut std::process::Child,
-    process_group: u32,
+    child_exit: &UnixChildExitSignal,
     deadline: Instant,
     fallback_error: &str,
-) -> (Option<i32>, Option<String>) {
-    let wait = deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(50));
-    match child.wait_timeout(wait) {
-        Ok(Some(status)) => hook_exit_result(status, process_group),
-        Ok(None) | Err(_) => {
-            terminate_hook_child(child);
-            (None, Some(fallback_error.into()))
-        }
+) -> Result<(), (Option<i32>, Option<String>)> {
+    let wait_deadline = Instant::now()
+        + deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(50));
+    match child_exit.wait_until(wait_deadline) {
+        Ok(true) => Ok(()),
+        Ok(false) | Err(_) => Err((None, Some(fallback_error.into()))),
     }
 }
 
@@ -1198,28 +1211,28 @@ fn wait_for_hook_exit_windows(
 
 #[cfg(unix)]
 fn wait_for_hook_exit(
-    child: &mut std::process::Child,
-    process_group: u32,
+    child_exit: &UnixChildExitSignal,
     deadline: Instant,
     timeout: Duration,
     cancelled: &AtomicBool,
-) -> (Option<i32>, Option<String>) {
+) -> Result<(), (Option<i32>, Option<String>)> {
     loop {
         if cancelled.load(Ordering::Acquire) {
-            terminate_hook_child(child);
-            return hook_shutdown_result();
+            return Err(hook_shutdown_result());
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
-            terminate_hook_child(child);
-            return (None, Some(format!("hook timed out after {} ms", timeout.as_millis())));
+            return Err((
+                None,
+                Some(format!("hook timed out after {} ms", timeout.as_millis())),
+            ));
         }
-        match child.wait_timeout(remaining.min(Duration::from_millis(50))) {
-            Ok(Some(status)) => return hook_exit_result(status, process_group),
-            Ok(None) => {}
+        let wait_deadline = Instant::now() + remaining.min(Duration::from_millis(50));
+        match child_exit.wait_until(wait_deadline) {
+            Ok(true) => return Ok(()),
+            Ok(false) => {}
             Err(error) => {
-                terminate_hook_child(child);
-                return (None, Some(format!("wait for hook executable: {error}")));
+                return Err((None, Some(format!("wait for hook executable: {error}"))));
             }
         }
     }
