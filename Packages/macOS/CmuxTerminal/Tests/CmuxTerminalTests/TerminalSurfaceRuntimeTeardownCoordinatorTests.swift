@@ -743,6 +743,52 @@ private func requireTeardownTicket(
         #expect(admission.debugOwnerCount == 0)
     }
 
+    @MainActor
+    @Test func recoveryQueueRejectsNewIDsAtOwnershipCapacity() async throws {
+        let admission = TerminalSurfaceRuntimeOwnershipAdmission(
+            maximumOwnerCount: 2
+        )
+        let firstOwner = try #require(admission.reserve())
+        let secondOwner = try #require(admission.reserve())
+        let recoveries = AsyncStream<Int>.makeStream(
+            bufferingPolicy: .bufferingNewest(2)
+        )
+        var thirdRecoveryRan = false
+
+        for index in 0..<3 {
+            let reservation = admission.reserve(
+                recoveryID: UUID(),
+                onRecovery: { reservation in
+                    if index == 2 {
+                        thirdRecoveryRan = true
+                    }
+                    admission.release(reservation)
+                    if index < 2 {
+                        recoveries.continuation.yield(index)
+                        if index == 1 {
+                            recoveries.continuation.finish()
+                        }
+                    }
+                }
+            )
+            #expect(reservation == nil)
+        }
+
+        admission.release(firstOwner)
+        var recoveryIterator = recoveries.stream.makeAsyncIterator()
+        #expect(await recoveryIterator.next() == 0)
+        #expect(await recoveryIterator.next() == 1)
+        #expect(
+            admission.debugOwnerCount == 1,
+            "a third recovery reservation exceeded the bounded owner count"
+        )
+        #expect(
+            !thirdRecoveryRan,
+            "a recovery request beyond the owner capacity was retained"
+        )
+        admission.release(secondOwner)
+    }
+
     @Test func stuckHibernationFreeDoesNotStrandAnotherAdmissionOrClose() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let isolatedSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
