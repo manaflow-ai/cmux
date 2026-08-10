@@ -13,14 +13,14 @@ struct NotificationFeedPermissionControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            decisionCaption(
-                L10n.string("mobile.notificationFeed.permission.caption", defaultValue: "Permission required"),
+            NotificationFeedDecisionCaption(
+                title: L10n.string("mobile.notificationFeed.permission.caption", defaultValue: "Permission required"),
                 design: design
             )
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(MobileFeedPermissionMode.allCases, id: \.rawValue) { mode in
-                        Button(permissionLabel(mode)) { submit(mode) }
+                        Button(mode.localizedFeedLabel) { submit(mode) }
                             .buttonStyle(.bordered)
                             .tint(mode == .deny ? .red : .accentColor)
                             .disabled(pendingMode != nil)
@@ -28,7 +28,7 @@ struct NotificationFeedPermissionControls: View {
                     }
                 }
             }
-            decisionFailure(failed)
+            NotificationFeedDecisionFailure(failed: failed)
         }
     }
 
@@ -70,8 +70,8 @@ struct NotificationFeedExitPlanControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            decisionCaption(
-                L10n.string("mobile.notificationFeed.exitPlan.caption", defaultValue: "Plan ready"),
+            NotificationFeedDecisionCaption(
+                title: L10n.string("mobile.notificationFeed.exitPlan.caption", defaultValue: "Plan ready"),
                 design: design
             )
             Picker(
@@ -79,7 +79,7 @@ struct NotificationFeedExitPlanControls: View {
                 selection: $selectedMode
             ) {
                 ForEach(MobileFeedExitPlanMode.allCases, id: \.rawValue) { mode in
-                    Text(exitPlanLabel(mode)).tag(mode)
+                    Text(mode.localizedFeedLabel).tag(mode)
                 }
             }
             .pickerStyle(.menu)
@@ -110,7 +110,7 @@ struct NotificationFeedExitPlanControls: View {
             .buttonStyle(.borderedProminent)
             .disabled(isSending)
             .accessibilityIdentifier("MobileNotificationFeedExitPlanSubmit")
-            decisionFailure(failed)
+            NotificationFeedDecisionFailure(failed: failed)
         }
     }
 
@@ -140,8 +140,8 @@ struct NotificationFeedQuestionControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            decisionCaption(
-                L10n.string("mobile.notificationFeed.question.caption", defaultValue: "Agent question"),
+            NotificationFeedDecisionCaption(
+                title: L10n.string("mobile.notificationFeed.question.caption", defaultValue: "Agent question"),
                 design: design
             )
             ForEach(Array(prompts.enumerated()), id: \.offset) { index, prompt in
@@ -209,7 +209,7 @@ struct NotificationFeedQuestionControls: View {
             .buttonStyle(.borderedProminent)
             .disabled(isSending || !canSubmit)
             .accessibilityIdentifier("MobileNotificationFeedQuestionSubmit")
-            decisionFailure(failed)
+            NotificationFeedDecisionFailure(failed: failed)
         }
     }
 
@@ -254,42 +254,53 @@ struct NotificationFeedQuestionControls: View {
     }
 }
 
-@ViewBuilder
-private func decisionCaption(_ title: String, design: MobileNotificationFeedDesign) -> some View {
-    Label(title, systemImage: design == .commandCenter ? "bolt.fill" : "hand.tap.fill")
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(design == .commandCenter ? .orange : .secondary)
-}
+private struct NotificationFeedDecisionCaption: View {
+    let title: String
+    let design: MobileNotificationFeedDesign
 
-@ViewBuilder
-private func decisionFailure(_ failed: Bool) -> some View {
-    if failed {
-        Text(L10n.string(
-            "mobile.notificationFeed.decision.failed",
-            defaultValue: "The decision wasn't delivered. Check the Mac connection and try again."
-        ))
-        .font(.caption)
-        .foregroundStyle(.red)
+    var body: some View {
+        Label(title, systemImage: design == .commandCenter ? "bolt.fill" : "hand.tap.fill")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(design == .commandCenter ? .orange : .secondary)
     }
 }
 
-private func permissionLabel(_ mode: MobileFeedPermissionMode) -> String {
-    switch mode {
-    case .once: L10n.string("mobile.notificationFeed.permission.once", defaultValue: "Allow Once")
-    case .always: L10n.string("mobile.notificationFeed.permission.always", defaultValue: "Always Allow")
-    case .all: L10n.string("mobile.notificationFeed.permission.all", defaultValue: "Allow All")
-    case .bypass: L10n.string("mobile.notificationFeed.permission.bypass", defaultValue: "Bypass")
-    case .deny: L10n.string("mobile.notificationFeed.permission.deny", defaultValue: "Deny")
+private struct NotificationFeedDecisionFailure: View {
+    let failed: Bool
+
+    var body: some View {
+        if failed {
+            Text(L10n.string(
+                "mobile.notificationFeed.decision.failed",
+                defaultValue: "The decision wasn't delivered. Check the Mac connection and try again."
+            ))
+            .font(.caption)
+            .foregroundStyle(.red)
+        }
     }
 }
 
-private func exitPlanLabel(_ mode: MobileFeedExitPlanMode) -> String {
-    switch mode {
-    case .ultraplan: L10n.string("mobile.notificationFeed.exitPlan.ultraplan", defaultValue: "Ultraplan")
-    case .bypassPermissions: L10n.string("mobile.notificationFeed.exitPlan.bypass", defaultValue: "Bypass Permissions")
-    case .autoAccept: L10n.string("mobile.notificationFeed.exitPlan.autoAccept", defaultValue: "Auto Accept")
-    case .manual: L10n.string("mobile.notificationFeed.exitPlan.manual", defaultValue: "Manual")
-    case .deny: L10n.string("mobile.notificationFeed.exitPlan.deny", defaultValue: "Reject")
+private extension MobileFeedPermissionMode {
+    var localizedFeedLabel: String {
+        switch self {
+        case .once: L10n.string("mobile.notificationFeed.permission.once", defaultValue: "Allow Once")
+        case .always: L10n.string("mobile.notificationFeed.permission.always", defaultValue: "Always Allow")
+        case .all: L10n.string("mobile.notificationFeed.permission.all", defaultValue: "Allow All")
+        case .bypass: L10n.string("mobile.notificationFeed.permission.bypass", defaultValue: "Bypass")
+        case .deny: L10n.string("mobile.notificationFeed.permission.deny", defaultValue: "Deny")
+        }
+    }
+}
+
+private extension MobileFeedExitPlanMode {
+    var localizedFeedLabel: String {
+        switch self {
+        case .ultraplan: L10n.string("mobile.notificationFeed.exitPlan.ultraplan", defaultValue: "Ultraplan")
+        case .bypassPermissions: L10n.string("mobile.notificationFeed.exitPlan.bypass", defaultValue: "Bypass Permissions")
+        case .autoAccept: L10n.string("mobile.notificationFeed.exitPlan.autoAccept", defaultValue: "Auto Accept")
+        case .manual: L10n.string("mobile.notificationFeed.exitPlan.manual", defaultValue: "Manual")
+        case .deny: L10n.string("mobile.notificationFeed.exitPlan.deny", defaultValue: "Reject")
+        }
     }
 }
 #endif
