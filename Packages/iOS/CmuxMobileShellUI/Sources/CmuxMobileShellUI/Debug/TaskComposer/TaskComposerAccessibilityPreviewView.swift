@@ -141,6 +141,9 @@ public struct TaskComposerAccessibilityPreviewView: View {
                             Self.backupPreviewMac,
                         ],
                         initialAttachments: attachmentFixtures,
+                        taskAttachmentCapabilityPredicate: attachmentFixtures.isEmpty
+                            ? nil
+                            : { _, _ in true },
                         submitTaskComposer: { macDeviceID, _, spec, willStartCreate in
                             let attemptNumber = submissionAttempts.count + 1
                             submittedMacDeviceID = macDeviceID

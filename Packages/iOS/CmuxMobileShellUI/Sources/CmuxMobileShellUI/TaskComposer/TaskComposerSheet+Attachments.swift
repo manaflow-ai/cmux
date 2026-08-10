@@ -13,9 +13,9 @@ extension TaskComposerSheet {
               !selectedMacDeviceID.isEmpty else {
             return false
         }
-        return store.supportsTaskAttachments(
-            macDeviceID: selectedMacDeviceID,
-            instanceTag: selectedMacInstanceTag
+        return taskAttachmentCapabilityPredicate(
+            selectedMacDeviceID,
+            selectedMacInstanceTag
         )
     }
 

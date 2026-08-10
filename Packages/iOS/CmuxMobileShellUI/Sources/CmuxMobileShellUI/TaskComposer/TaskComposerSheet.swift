@@ -44,6 +44,10 @@ struct TaskComposerSheet: View {
     @State var attachmentAlertMessage: String?
 
     let sessionGeneration: Int
+    let taskAttachmentCapabilityPredicate: @MainActor (
+        _ macDeviceID: String,
+        _ instanceTag: String?
+    ) -> Bool
     private let availableMachines: [MobilePairedMac]?
     let submitTaskComposer: @MainActor (
         _ macDeviceID: String,
@@ -71,6 +75,10 @@ struct TaskComposerSheet: View {
         store: CMUXMobileShellStore,
         availableMachines: [MobilePairedMac]? = nil,
         initialAttachments: [TaskComposerAttachment] = [],
+        taskAttachmentCapabilityPredicate: (@MainActor (
+            _ macDeviceID: String,
+            _ instanceTag: String?
+        ) -> Bool)? = nil,
         submitTaskComposer: (@MainActor (
             _ macDeviceID: String,
             _ instanceTag: String?,
@@ -93,6 +101,14 @@ struct TaskComposerSheet: View {
         _attachments = State(initialValue: initialAttachments)
         self.availableMachines = availableMachines
         self.sessionGeneration = store.currentSessionGeneration
+        self.taskAttachmentCapabilityPredicate = taskAttachmentCapabilityPredicate ?? {
+            macDeviceID,
+            instanceTag in
+            store.supportsTaskAttachments(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+        }
         self.searchTaskDirectories = searchTaskDirectories
         self.listTaskDirectories = listTaskDirectories
         self.submitTaskComposer = submitTaskComposer ?? {
