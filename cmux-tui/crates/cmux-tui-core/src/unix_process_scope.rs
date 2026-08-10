@@ -271,7 +271,7 @@ impl UnixProcessScope {
     pub fn suspended_command(program: impl AsRef<OsStr>) -> Command {
         let program = program.as_ref();
         #[cfg(target_os = "macos")]
-        let mut command = {
+        let command = {
             let mut command = Command::new("/usr/bin/sandbox-exec");
             command
                 .args([

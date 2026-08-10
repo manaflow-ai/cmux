@@ -1120,7 +1120,8 @@ mod tests {
             .unwrap();
         let surface = mux.surface(surface_id).unwrap();
         {
-            let _pending_output = surface.begin_terminal_journal_update_for_test().unwrap();
+            let mut pending_output = surface.begin_terminal_journal_update_for_test().unwrap();
+            assert!(pending_output.activate(), "terminal journal update must be active");
             let error = match capture(&mux) {
                 Ok(_) => panic!("checkpoint accepted unsettled terminal output"),
                 Err(error) => error,
