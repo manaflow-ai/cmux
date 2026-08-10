@@ -6386,6 +6386,8 @@ pub struct App {
     durable_notice_ack_failures: u8,
     durable_notice_ack_retry_at: Option<Instant>,
     pub config: Config,
+    #[cfg(test)]
+    config_reload_applications: usize,
     pub chrome: ChromeTheme,
     default_colors: cmux_tui_core::DefaultColors,
     pub tree: TreeView,
@@ -7853,6 +7855,8 @@ fn run_with_machine_updates_inner(
         durable_notice_ack_failures: 0,
         durable_notice_ack_retry_at: None,
         config,
+        #[cfg(test)]
+        config_reload_applications: 0,
         chrome,
         default_colors,
         tree: TreeView::default(),
@@ -11635,6 +11639,10 @@ impl App {
     }
 
     fn reload_config(&mut self) {
+        #[cfg(test)]
+        {
+            self.config_reload_applications += 1;
+        }
         let focused_projection_id = match self.focus {
             FocusTarget::ProjectionRail(index) => {
                 self.config.sidebar.views.get(index).map(|view| view.id.clone())
@@ -38877,6 +38885,19 @@ mod tests {
     }
 
     #[test]
+    fn presented_local_owner_applies_one_reload_for_both_event_paths() {
+        let owner = Mux::new("owner-reload-deduplication", SurfaceOptions::default());
+        let session = crate::session::test_remote_session_with_browser_pointer_range(7, 1, 1);
+        let (mut app, _) = test_app_with_events(session);
+        app.owner_mux = Some(owner);
+
+        app.handle(AppEvent::Mux(MuxEvent::ConfigReloadRequested)).unwrap();
+        app.handle(AppEvent::OwnerConfigReloadRequested).unwrap();
+
+        assert_eq!(app.config_reload_applications, 1);
+    }
+
+    #[test]
     fn local_owner_shutdown_survives_machine_session_replacement() {
         let owner = Mux::new("owner-shutdown-source", SurfaceOptions::default());
         let initial = crate::session::test_remote_session_with_browser_pointer_range(7, 1, 1);
@@ -38975,6 +38996,7 @@ mod tests {
             durable_notice_ack_failures: 0,
             durable_notice_ack_retry_at: None,
             config: Config::default(),
+            config_reload_applications: 0,
             chrome: ChromeTheme::dark(),
             default_colors: cmux_tui_core::DefaultColors::default(),
             tree: TreeView::default(),
