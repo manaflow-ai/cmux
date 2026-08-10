@@ -2428,9 +2428,7 @@ impl Mux {
                 surface: None,
                 terminal_id: terminal_id.to_string(),
                 terminal_incarnation: closed_incarnation,
-                already_closed: terminal_commit.result["already_closed"]
-                    .as_bool()
-                    .unwrap_or(true),
+                already_closed: terminal_commit.result["already_closed"].as_bool().unwrap_or(true),
                 terminal_revision: terminal_commit.revision,
             });
         }
