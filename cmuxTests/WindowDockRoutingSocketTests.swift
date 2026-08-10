@@ -135,6 +135,7 @@ struct WindowDockRoutingSocketTests {
                 #expect(surfaceEnvelope["ok"] as? Bool == false)
                 let surfaceError = try #require(surfaceEnvelope["error"] as? [String: Any])
                 #expect(surfaceError["code"] as? String == "unavailable")
+                #expect(surfaceError["message"] as? String == "Dock could not be revealed")
                 #expect(dock.focusedPanelId == firstSurfaceID)
 
                 let paneEnvelope = try v2Envelope(method: "pane.focus", params: [
@@ -144,6 +145,7 @@ struct WindowDockRoutingSocketTests {
                 #expect(paneEnvelope["ok"] as? Bool == false)
                 let paneError = try #require(paneEnvelope["error"] as? [String: Any])
                 #expect(paneError["code"] as? String == "unavailable")
+                #expect(paneError["message"] as? String == "Dock could not be revealed")
                 #expect(dock.bonsplitController.focusedPaneId == firstPane)
             }
         }
