@@ -4,6 +4,38 @@ import Foundation
 
 @MainActor
 extension MobileShellComposite {
+    /// Reconciles a workspace's selected Simulator stream through one
+    /// composite-owned latest-intent drain.
+    public func transitionMobileSimulatorStreamSelection(
+        from previousPanelID: String?,
+        to targetPanelID: String?,
+        workspaceID: String
+    ) {
+        if mobileSimulatorStreamSelectionCoordinator == nil {
+            mobileSimulatorStreamSelectionCoordinator =
+                MobileSimulatorStreamSelectionCoordinator { [weak self] operation in
+                    guard let self else { return }
+                    switch operation {
+                    case .start(let panelID, let workspaceID):
+                        await self.startMobileSimulatorStream(
+                            panelID: panelID,
+                            workspaceID: workspaceID
+                        )
+                    case .stop(let panelID, let workspaceID):
+                        await self.stopMobileSimulatorStream(
+                            panelID: panelID,
+                            workspaceID: workspaceID
+                        )
+                    }
+                }
+        }
+        mobileSimulatorStreamSelectionCoordinator?.requestTransition(
+            from: previousPanelID,
+            to: targetPanelID,
+            workspaceID: workspaceID
+        )
+    }
+
     /// Serializes start/stop transitions per panel through the composite-owned
     /// operation chain, so a foreground restart cannot overlap a still-running
     /// background stop against the Mac's single-controller ownership.
@@ -148,6 +180,7 @@ extension MobileShellComposite {
     /// staleness watchdogs disarm with them: once disconnected, the connection
     /// layer owns the pane's truth (reconnecting/disconnected overlays).
     func cancelMobileSimulatorStreamOperations() {
+        mobileSimulatorStreamSelectionCoordinator?.cancel()
         for task in mobileSimulatorStreamOperationsByPanel.values {
             task.cancel()
         }

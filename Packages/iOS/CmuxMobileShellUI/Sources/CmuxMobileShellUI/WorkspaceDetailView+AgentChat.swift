@@ -130,7 +130,7 @@ extension WorkspaceDetailView {
                     .frame(width: 44, height: 44)
                     .transition(.scale(scale: 0.82, anchor: .trailing).combined(with: .opacity))
             }
-            terminalPickerToolbarButton
+            terminalPickerToolbarButton(simulatorPicker: simulatorPicker)
                 .frame(width: 44, height: 44)
         }
         .frame(

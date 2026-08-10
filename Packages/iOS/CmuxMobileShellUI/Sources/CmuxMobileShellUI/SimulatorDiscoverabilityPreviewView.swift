@@ -2,6 +2,9 @@ import CMUXMobileCore
 import CmuxMobileBrowser
 import CmuxMobileBrowserStream
 import CmuxMobileShell
+#if DEBUG
+import CmuxMobileShellDebugSupport
+#endif
 import CmuxMobileShellModel
 import SwiftUI
 

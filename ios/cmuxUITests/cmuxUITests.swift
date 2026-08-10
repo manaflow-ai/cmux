@@ -7678,9 +7678,25 @@ final class cmuxUITests: XCTestCase {
 }
 
 final class SimulatorDiscoverabilityUITests: XCTestCase {
+    private var priorOrientation: UIDeviceOrientation?
+    private var launchedApplications: [XCUIApplication] = []
+
     override func setUpWithError() throws {
         continueAfterFailure = false
+        priorOrientation = XCUIDevice.shared.orientation
         XCUIDevice.shared.orientation = .portrait
+    }
+
+    override func tearDownWithError() throws {
+        launchedApplications.forEach { $0.terminate() }
+        launchedApplications.removeAll()
+        defer {
+            if let priorOrientation {
+                XCUIDevice.shared.orientation = priorOrientation
+            }
+            priorOrientation = nil
+        }
+        try super.tearDownWithError()
     }
 
     @MainActor
@@ -7748,6 +7764,7 @@ final class SimulatorDiscoverabilityUITests: XCTestCase {
             "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
         ]
         app.launch()
+        launchedApplications.append(app)
         return app
     }
 }

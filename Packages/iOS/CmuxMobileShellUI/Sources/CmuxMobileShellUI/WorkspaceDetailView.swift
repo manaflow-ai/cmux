@@ -584,8 +584,9 @@ struct WorkspaceDetailView: View {
 
     @ViewBuilder
     private var terminalToolbarButtons: some View {
+        let simulatorPicker = simulatorPickerValue
         newWorkspaceToolbarButton
-        terminalPickerToolbarButton
+        terminalPickerToolbarButton(simulatorPicker: simulatorPicker)
     }
 
     #if os(iOS)
@@ -615,7 +616,9 @@ struct WorkspaceDetailView: View {
 
     // Native menu keeps press-drag-release selection and routes through
     // `selectTerminalFromPicker`; keyboard-dismiss-on-open is unavailable.
-    var terminalPickerToolbarButton: some View {
+    func terminalPickerToolbarButton(
+        simulatorPicker: SimulatorPickerMenuValue
+    ) -> some View {
         TerminalPickerMenu(
             value: TerminalPickerMenuValue(
                 liveTerminals: workspace.terminals,
@@ -627,9 +630,9 @@ struct WorkspaceDetailView: View {
                 browserStreamRows: browserStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(BrowserStreamPickerRow.init),
                 supportsBrowserStream: store.supportsBrowserStream,
                 activeBrowserStreamPanelID: activeBrowserStream?.id,
-                simulatorStreamRows: simulatorStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(SimulatorStreamPickerRow.init),
+                simulatorStreamRows: simulatorPicker.rows,
                 supportsSimulatorStream: store.supportsSimulatorStream,
-                activeSimulatorStreamPanelID: activeSimulatorStream?.id
+                activeSimulatorStreamPanelID: simulatorPicker.activePanelID
             ),
             actions: TerminalPickerMenuActions(
                 selectTerminal: selectTerminalFromPicker,
@@ -655,10 +658,13 @@ struct WorkspaceDetailView: View {
     }
 
     var simulatorPickerValue: SimulatorPickerMenuValue {
+        let supportsSimulatorStream = store.supportsSimulatorStream
         SimulatorPickerMenuValue(
-            supportsSimulatorStream: store.supportsSimulatorStream,
-            rows: simulatorStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue)
-                .map(SimulatorStreamPickerRow.init),
+            supportsSimulatorStream: supportsSimulatorStream,
+            rows: supportsSimulatorStream
+                ? simulatorStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue)
+                    .map(SimulatorStreamPickerRow.init)
+                : [],
             activePanelID: activeSimulatorStream?.id
         )
     }
@@ -953,21 +959,11 @@ struct WorkspaceDetailView: View {
             simulatorStreamStore.deactivate(panelID: previousPanelID, in: workspaceID)
         }
         _ = simulatorStreamStore.activate(panelID: panelID, in: workspaceID)
-        // One task, stop awaited before start: two independent tasks have no
-        // ordering guarantee, and the reversed order would tear down the new
-        // stream (or churn host sessions) right after it started.
-        Task {
-            if let previousPanelID {
-                await store.stopMobileSimulatorStream(
-                    panelID: previousPanelID,
-                    workspaceID: workspaceID
-                )
-            }
-            await store.startMobileSimulatorStream(
-                panelID: panelID,
-                workspaceID: workspaceID
-            )
-        }
+        store.transitionMobileSimulatorStreamSelection(
+            from: previousPanelID,
+            to: panelID,
+            workspaceID: workspaceID
+        )
     }
 
     private func stopActiveBrowserStream() {
@@ -978,13 +974,13 @@ struct WorkspaceDetailView: View {
 
     private func stopActiveSimulatorStream() {
         guard let stream = activeSimulatorStream else { return }
-        simulatorStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
-        Task {
-            await store.stopMobileSimulatorStream(
-                panelID: stream.id,
-                workspaceID: workspace.rpcWorkspaceID.rawValue
-            )
-        }
+        let workspaceID = workspace.rpcWorkspaceID.rawValue
+        simulatorStreamStore.deactivate(in: workspaceID)
+        store.transitionMobileSimulatorStreamSelection(
+            from: stream.id,
+            to: nil,
+            workspaceID: workspaceID
+        )
     }
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {

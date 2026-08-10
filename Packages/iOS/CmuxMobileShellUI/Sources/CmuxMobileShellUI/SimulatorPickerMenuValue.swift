@@ -9,7 +9,7 @@ struct SimulatorPickerMenuValue: Equatable {
         activePanelID: String?
     ) {
         self.rows = supportsSimulatorStream ? rows : []
-        self.activePanelID = rows.contains(where: { $0.id == activePanelID })
+        self.activePanelID = self.rows.contains(where: { $0.id == activePanelID })
             ? activePanelID
             : nil
     }

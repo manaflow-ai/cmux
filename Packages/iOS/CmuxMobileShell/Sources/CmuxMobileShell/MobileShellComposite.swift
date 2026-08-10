@@ -467,7 +467,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
-    public internal(set) var supportedHostCapabilities: Set<String> = [] {
+    public package(set) var supportedHostCapabilities: Set<String> = [] {
         didSet {
             guard oldValue != supportedHostCapabilities else { return }
             if workspaceChangesCapable {
@@ -518,6 +518,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// restart can never interleave against the Mac's single-controller
     /// ownership. Entries self-remove when their chain drains.
     @ObservationIgnored var mobileSimulatorStreamOperationsByPanel: [String: Task<Void, Never>] = [:]
+    /// One caller-owned drain for cross-panel selection transitions. Unlike
+    /// the per-panel operation chains, this prevents an older panel start from
+    /// overtaking a newer selection on another panel.
+    @ObservationIgnored var mobileSimulatorStreamSelectionCoordinator:
+        MobileSimulatorStreamSelectionCoordinator?
     /// Clock behind the simulator stream staleness watchdog; injectable so
     /// tests drive the threshold deterministically.
     @ObservationIgnored let simulatorStreamStalenessClock: any Clock<Duration>
@@ -1663,6 +1668,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     isolated deinit {
+        mobileSimulatorStreamSelectionCoordinator?.cancel()
         connectionRecoveryOwner.cancel()
         automaticReconnectRetryTask?.cancel()
         presenceTask?.cancel()
