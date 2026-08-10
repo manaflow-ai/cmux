@@ -5169,6 +5169,48 @@ fn journal_agent_projection_rebuild_continues_in_owned_mux_worker() {
 }
 
 #[test]
+fn journal_agent_projection_rebuild_keeps_live_terminal_projection_visible() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-live-during-rebuild").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-live-during-rebuild-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let ingress = crate::agent_hook_journal_ingress(
+        "pi",
+        "AgentStart",
+        Some(terminal_id.as_str()),
+        json!({"session_id":"live-during-rebuild"}),
+    )
+    .unwrap();
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    registry
+        .append_journal_ingress(
+            &ingress,
+            &validated,
+            "client_live_during_rebuild",
+            "journal_agent_live_during_rebuild",
+        )
+        .unwrap();
+    registry
+        .connection
+        .execute(
+            "INSERT INTO meta(key, value)
+             VALUES ('agent_projection_journal_rebuild_target_sequence_v1', '999999')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [],
+        )
+        .unwrap();
+
+    assert!(registry.public_projections().unwrap().agents.is_empty());
+    let agents = registry.public_agent_projections(Some(&terminal_id), None).unwrap();
+    assert_eq!(agents.len(), 1);
+    assert_eq!(agents[0].state, "working");
+    assert_eq!(agents[0].source, "hook");
+}
+
+#[test]
 fn journal_agent_legacy_upgrade_without_candidate_replays_hook_events() {
     let root = temp_root("journal-agent-upgrade-without-candidate");
     let session = "journal-agent-upgrade-without-candidate";
@@ -5831,7 +5873,7 @@ fn journal_agent_final_socket_report_overrides_same_session_hook_state() {
 }
 
 #[test]
-fn journal_agent_final_socket_without_provider_overrides_same_session_hook_state() {
+fn journal_agent_final_socket_without_provider_preserves_hook_state() {
     let mut registry =
         WorkspaceRegistry::in_memory("journal-agent-final-providerless-socket").unwrap();
     commit_terminal_topology(&mut registry, "journal-agent-final-providerless-socket-topology");
@@ -5879,8 +5921,8 @@ fn journal_agent_final_socket_without_provider_overrides_same_session_hook_state
         .unwrap();
 
     let agent = registry.public_projections().unwrap().agents.remove(0);
-    assert_eq!(agent.state, "done");
-    assert_eq!(agent.source, "socket");
+    assert_eq!(agent.state, "working");
+    assert_eq!(agent.source, "hook");
     assert_eq!(agent.source_session.as_deref(), Some("shared-session"));
 }
 
