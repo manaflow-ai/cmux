@@ -17,17 +17,25 @@ typealias TerminalSurfaceRuntimeOwnershipRecovery =
 /// from growing an unbounded retained teardown backlog.
 final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
     private let maximumOwnerCount: Int
+    private let recoveryRescanScheduler:
+        TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler
     private let state = OSAllocatedUnfairLock(
         initialState: TerminalSurfaceRuntimeOwnershipAdmissionState()
     )
 
-    init(maximumOwnerCount: Int) {
+    init(
+        maximumOwnerCount: Int,
+        recoveryRescanScheduler:
+            TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler =
+                TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler()
+    ) {
         precondition(
             maximumOwnerCount >= TerminalSurfaceRuntimeTeardownCoordinator
                 .maximumConcurrentCloseTeardownCount,
             "native surface ownership must cover every close worker"
         )
         self.maximumOwnerCount = maximumOwnerCount
+        self.recoveryRescanScheduler = recoveryRescanScheduler
     }
 
     func reserve() -> TerminalSurfaceRuntimeOwnershipReservation? {
@@ -43,29 +51,75 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
 
     func reserve(
         recoveryID: UUID,
-        onRecovery: @escaping TerminalSurfaceRuntimeOwnershipRecovery
+        onRecovery: @escaping TerminalSurfaceRuntimeOwnershipRecovery,
+        capacityReservation:
+            TerminalSurfaceRuntimeOwnershipRecoveryCapacityReservation? = nil
     ) -> TerminalSurfaceRuntimeOwnershipRecoveryAdmissionResult {
-        state.withLock { state in
+        let output: (
+            result: TerminalSurfaceRuntimeOwnershipRecoveryAdmissionResult,
+            requestRescan: Bool
+        ) = state.withLock { state in
+            let claimedCapacity: Bool
+            if let capacityReservation {
+                guard state.recoveryCapacityReservationIDs.remove(
+                    capacityReservation.id
+                ) != nil else {
+                    return (.rejected, false)
+                }
+                claimedCapacity = true
+            } else {
+                claimedCapacity = false
+            }
             if !state.closeTeardownDegraded,
                 state.reservationIDs.count < maximumOwnerCount,
                 state.ingressReservationIDs.count < maximumOwnerCount
             {
                 _ = removeRecoveryAction(recoveryID, from: &state)
-                return .reserved(reserveOwnershipAndIngress(in: &state))
+                return (
+                    .reserved(reserveOwnershipAndIngress(in: &state)),
+                    takeRecoveryRescanRequest(from: &state) || claimedCapacity
+                )
             }
             if state.recoveryEntriesByID[recoveryID] != nil {
                 state.recoveryEntriesByID[recoveryID]?.action = onRecovery
-                return .deferred
+                return (.deferred, claimedCapacity)
             }
-            guard state.recoveryEntriesByID.count < maximumOwnerCount else {
-                return .rejected
+            guard claimedCapacity || recoveryCapacityIsOpen(in: state) else {
+                return (.rejected, false)
             }
             enqueueRecoveryAction(
                 onRecovery,
                 id: recoveryID,
                 in: &state
             )
-            return .deferred
+            return (.deferred, false)
+        }
+        if output.requestRescan {
+            recoveryRescanScheduler.requestRescan()
+        }
+        return output.result
+    }
+
+    func claimRecoveryCapacity()
+        -> TerminalSurfaceRuntimeOwnershipRecoveryCapacityReservation? {
+        state.withLock { state in
+            guard recoveryCapacityIsOpen(in: state) else { return nil }
+            let reservation =
+                TerminalSurfaceRuntimeOwnershipRecoveryCapacityReservation()
+            state.recoveryCapacityReservationIDs.insert(reservation.id)
+            return reservation
+        }
+    }
+
+    func releaseRecoveryCapacity(
+        _ reservation:
+            TerminalSurfaceRuntimeOwnershipRecoveryCapacityReservation
+    ) {
+        let released = state.withLock { state in
+            state.recoveryCapacityReservationIDs.remove(reservation.id) != nil
+        }
+        if released {
+            recoveryRescanScheduler.requestRescan()
         }
     }
 
@@ -93,33 +147,45 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
         -> TerminalSurfaceRuntimeTeardownIngressReservation? {
         let result: (
             TerminalSurfaceRuntimeTeardownIngressReservation?,
-            TerminalSurfaceRuntimeOwnershipRecoveryGrant?
+            TerminalSurfaceRuntimeOwnershipRecoveryGrant?,
+            Bool
         ) = state.withLock { state in
             if let recoveryGrant = takeNextRecoveryGrant(from: &state) {
-                return (nil, recoveryGrant)
+                return (
+                    nil,
+                    recoveryGrant,
+                    takeRecoveryRescanRequest(from: &state)
+                )
             }
             guard state.ingressReservationIDs.count < maximumOwnerCount else {
-                return (nil, nil)
+                return (nil, nil, false)
             }
             let reservation = TerminalSurfaceRuntimeTeardownIngressReservation()
             state.ingressReservationIDs.insert(reservation.id)
-            return (reservation, nil)
+            return (reservation, nil, false)
         }
         schedule(result.1)
+        if result.2 {
+            recoveryRescanScheduler.requestRescan()
+        }
         return result.0
     }
 
     func releaseIngress(
         _ reservation: TerminalSurfaceRuntimeTeardownIngressReservation
     ) {
-        let recoveryGrant = state.withLock { state in
+        let output = state.withLock { state in
             _ = state.ingressReservationIDs.remove(reservation.id)
             _ = state.unclaimedOwnershipIngressReservationIDs.remove(
                 reservation.id
             )
-            return takeNextRecoveryGrant(from: &state)
+            let grant = takeNextRecoveryGrant(from: &state)
+            return (grant, takeRecoveryRescanRequest(from: &state))
         }
-        schedule(recoveryGrant)
+        schedule(output.0)
+        if output.1 {
+            recoveryRescanScheduler.requestRescan()
+        }
     }
 
     func releaseFailedSubmission(
@@ -127,41 +193,57 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
         ingress ingressReservation:
             TerminalSurfaceRuntimeTeardownIngressReservation
     ) {
-        let recoveryGrant = state.withLock { state in
+        let output = state.withLock { state in
             _ = state.reservationIDs.remove(reservation.id)
             _ = state.ingressReservationIDs.remove(ingressReservation.id)
             _ = state.unclaimedOwnershipIngressReservationIDs.remove(
                 reservation.id
             )
-            return takeNextRecoveryGrant(from: &state)
+            let grant = takeNextRecoveryGrant(from: &state)
+            return (grant, takeRecoveryRescanRequest(from: &state))
         }
-        schedule(recoveryGrant)
+        schedule(output.0)
+        if output.1 {
+            recoveryRescanScheduler.requestRescan()
+        }
     }
 
     func release(_ reservation: TerminalSurfaceRuntimeOwnershipReservation) {
-        let recoveryGrant = state.withLock { state in
+        let output = state.withLock { state in
             _ = state.reservationIDs.remove(reservation.id)
             if state.unclaimedOwnershipIngressReservationIDs.remove(
                 reservation.id
             ) != nil {
                 _ = state.ingressReservationIDs.remove(reservation.id)
             }
-            return takeNextRecoveryGrant(from: &state)
+            let grant = takeNextRecoveryGrant(from: &state)
+            return (grant, takeRecoveryRescanRequest(from: &state))
         }
-        schedule(recoveryGrant)
+        schedule(output.0)
+        if output.1 {
+            recoveryRescanScheduler.requestRescan()
+        }
     }
 
     func setCloseTeardownDegraded(_ degraded: Bool) {
-        let recoveryGrant = state.withLock { state in
+        let output = state.withLock { state in
             state.closeTeardownDegraded = degraded
-            return takeNextRecoveryGrant(from: &state)
+            let grant = takeNextRecoveryGrant(from: &state)
+            return (grant, takeRecoveryRescanRequest(from: &state))
         }
-        schedule(recoveryGrant)
+        schedule(output.0)
+        if output.1 {
+            recoveryRescanScheduler.requestRescan()
+        }
     }
 
     func cancelRecovery(_ recoveryID: UUID) {
-        state.withLock { state in
+        let requestRescan = state.withLock { state in
             _ = removeRecoveryAction(recoveryID, from: &state)
+            return takeRecoveryRescanRequest(from: &state)
+        }
+        if requestRescan {
+            recoveryRescanScheduler.requestRescan()
         }
     }
 
@@ -174,6 +256,7 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
         ) else {
             return nil
         }
+        state.recoveryRescanRequested = true
         if let previousID = entry.previousID {
             state.recoveryEntriesByID[previousID]?.nextID = entry.nextID
         } else {
@@ -205,6 +288,22 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
             state.recoveryHeadID = recoveryID
         }
         state.recoveryTailID = recoveryID
+    }
+
+    private func recoveryCapacityIsOpen(
+        in state: TerminalSurfaceRuntimeOwnershipAdmissionState
+    ) -> Bool {
+        state.recoveryEntriesByID.count
+            + state.recoveryCapacityReservationIDs.count
+            < maximumOwnerCount
+    }
+
+    private func takeRecoveryRescanRequest(
+        from state: inout TerminalSurfaceRuntimeOwnershipAdmissionState
+    ) -> Bool {
+        let requested = state.recoveryRescanRequested
+        state.recoveryRescanRequested = false
+        return requested
     }
 
     private func reserveOwnershipAndIngress(
@@ -250,11 +349,15 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
     }
 
     private func recoveryGrantDidComplete() {
-        let recoveryGrant = state.withLock { state in
+        let output = state.withLock { state in
             state.recoveryGrantIsScheduled = false
-            return takeNextRecoveryGrant(from: &state)
+            let grant = takeNextRecoveryGrant(from: &state)
+            return (grant, takeRecoveryRescanRequest(from: &state))
         }
-        schedule(recoveryGrant)
+        schedule(output.0)
+        if output.1 {
+            recoveryRescanScheduler.requestRescan()
+        }
     }
 
 #if DEBUG

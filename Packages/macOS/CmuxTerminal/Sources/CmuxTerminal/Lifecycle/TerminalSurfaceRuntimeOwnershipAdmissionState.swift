@@ -9,7 +9,9 @@ struct TerminalSurfaceRuntimeOwnershipAdmissionState {
     var closeTeardownDegraded = false
     var recoveryEntriesByID:
         [UUID: TerminalSurfaceRuntimeOwnershipRecoveryEntry] = [:]
+    var recoveryCapacityReservationIDs: Set<UUID> = []
     var recoveryHeadID: UUID?
     var recoveryTailID: UUID?
     var recoveryGrantIsScheduled = false
+    var recoveryRescanRequested = false
 }

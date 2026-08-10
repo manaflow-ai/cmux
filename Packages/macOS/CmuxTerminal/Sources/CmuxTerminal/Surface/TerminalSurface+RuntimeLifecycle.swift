@@ -745,6 +745,23 @@ extension TerminalSurface {
     }
 
     @MainActor
+    private func runtimeSurfaceOwnershipRecovery(
+        teardownCoordinator: TerminalSurfaceRuntimeTeardownCoordinator
+    ) -> TerminalSurfaceRuntimeOwnershipRecovery {
+        { [weak self, teardownCoordinator] reservation in
+            guard let self else {
+                teardownCoordinator.cancelRuntimeSurfaceOwnership(
+                    reservation
+                )
+                return
+            }
+            self.resumeRuntimeSurfaceCreationAfterAdmissionRecovery(
+                reservation: reservation
+            )
+        }
+    }
+
+    @MainActor
     private func reserveRuntimeSurfaceOwnershipForCreation(
         view: any TerminalSurfaceNativeViewing,
         source: RuntimeSurfaceCreationSource
@@ -759,29 +776,72 @@ extension TerminalSurface {
         let admissionResult =
             teardownCoordinator.reserveRuntimeSurfaceOwnership(
                 recoveryID: id,
-                onRecovery: { [weak self, teardownCoordinator] reservation in
-                    guard let self else {
-                        teardownCoordinator.cancelRuntimeSurfaceOwnership(
-                            reservation
-                        )
-                        return
-                    }
-                    self.resumeRuntimeSurfaceCreationAfterAdmissionRecovery(
-                        reservation: reservation
-                    )
-                }
+                onRecovery: runtimeSurfaceOwnershipRecovery(
+                    teardownCoordinator: teardownCoordinator
+                )
             )
         switch admissionResult {
         case .reserved(let reservation):
+            runtimeSurfaceAdmissionOverflowSequence = nil
             runtimeSurfaceAdmissionDeferredCreationSource = nil
             runtimeSurfaceAdmissionDeferredCreationView = nil
             return reservation
         case .deferred:
+            runtimeSurfaceAdmissionOverflowSequence = nil
             return nil
         case .rejected:
+            if runtimeSurfaceAdmissionOverflowSequence == nil {
+                runtimeSurfaceAdmissionOverflowSequence =
+                    teardownCoordinator
+                        .registerRuntimeSurfaceOwnershipRecoveryOverflow(
+                            registry: registry
+                        )
+            } else {
+                teardownCoordinator
+                    .requestRuntimeSurfaceOwnershipRecoveryRescan()
+            }
+            return nil
+        }
+    }
+
+    @MainActor
+    func retryRuntimeSurfaceCreationAfterAdmissionOverflow(
+        capacityReservation:
+            TerminalSurfaceRuntimeOwnershipRecoveryCapacityReservation
+    ) {
+        guard runtimeSurfaceAdmissionOverflowSequence != nil,
+              allowsRuntimeSurfaceCreation(),
+              surface == nil,
+              runtimeSurfaceAdmissionDeferredCreationSource != nil else {
+            runtimeSurfaceAdmissionOverflowSequence = nil
             runtimeSurfaceAdmissionDeferredCreationSource = nil
             runtimeSurfaceAdmissionDeferredCreationView = nil
-            return nil
+            runtimeTeardown
+                .cancelRuntimeSurfaceOwnershipRecoveryCapacity(
+                    capacityReservation
+                )
+            return
+        }
+        let teardownCoordinator = runtimeTeardown
+        let admissionResult =
+            teardownCoordinator.reserveRuntimeSurfaceOwnership(
+                recoveryID: id,
+                onRecovery: runtimeSurfaceOwnershipRecovery(
+                    teardownCoordinator: teardownCoordinator
+                ),
+                capacityReservation: capacityReservation
+            )
+        switch admissionResult {
+        case .reserved(let reservation):
+            runtimeSurfaceAdmissionOverflowSequence = nil
+            resumeRuntimeSurfaceCreationAfterAdmissionRecovery(
+                reservation: reservation
+            )
+        case .deferred:
+            runtimeSurfaceAdmissionOverflowSequence = nil
+        case .rejected:
+            teardownCoordinator
+                .requestRuntimeSurfaceOwnershipRecoveryRescan()
         }
     }
 
@@ -815,6 +875,7 @@ extension TerminalSurface {
 
     private func cancelRuntimeSurfaceCreationAfterAdmissionRecovery() {
         runtimeTeardown.cancelRuntimeSurfaceOwnershipRecovery(id)
+        runtimeSurfaceAdmissionOverflowSequence = nil
         runtimeSurfaceAdmissionDeferredCreationSource = nil
         runtimeSurfaceAdmissionDeferredCreationView = nil
     }

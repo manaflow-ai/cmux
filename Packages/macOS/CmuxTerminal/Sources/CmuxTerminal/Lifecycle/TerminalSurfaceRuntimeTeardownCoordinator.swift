@@ -30,6 +30,8 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
 
     private nonisolated let submissionDrain:
         TerminalSurfaceRuntimeTeardownSubmissionDrain
+    private nonisolated let recoveryRescanScheduler:
+        TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler
 #if DEBUG
     // Readable at internal scope in DEBUG so the debug-only extension in
     // TerminalSurfaceRuntimeTeardownCoordinator+Debug.swift can report the
@@ -60,26 +62,34 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
 
     /// Creates the process's teardown coordinator.
     public init() {
+        let recoveryRescanScheduler =
+            TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler()
         submissionDrain = TerminalSurfaceRuntimeTeardownSubmissionDrain(
             maximumBufferedOperationCount:
                 Self.maximumRuntimeSurfaceOwnerCount
         )
         runtimeOwnershipAdmission = TerminalSurfaceRuntimeOwnershipAdmission(
-            maximumOwnerCount: Self.maximumRuntimeSurfaceOwnerCount
+            maximumOwnerCount: Self.maximumRuntimeSurfaceOwnerCount,
+            recoveryRescanScheduler: recoveryRescanScheduler
         )
+        self.recoveryRescanScheduler = recoveryRescanScheduler
         availableCloseExecutionSlots = Set(
             0..<Self.maximumConcurrentCloseTeardownCount
         )
     }
 
     init(maximumRuntimeSurfaceOwnerCount: Int) {
+        let recoveryRescanScheduler =
+            TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler()
         submissionDrain = TerminalSurfaceRuntimeTeardownSubmissionDrain(
             maximumBufferedOperationCount:
                 maximumRuntimeSurfaceOwnerCount
         )
         runtimeOwnershipAdmission = TerminalSurfaceRuntimeOwnershipAdmission(
-            maximumOwnerCount: maximumRuntimeSurfaceOwnerCount
+            maximumOwnerCount: maximumRuntimeSurfaceOwnerCount,
+            recoveryRescanScheduler: recoveryRescanScheduler
         )
+        self.recoveryRescanScheduler = recoveryRescanScheduler
         availableCloseExecutionSlots = Set(
             0..<Self.maximumConcurrentCloseTeardownCount
         )
@@ -101,12 +111,37 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
 
     nonisolated func reserveRuntimeSurfaceOwnership(
         recoveryID: UUID,
-        onRecovery: @escaping TerminalSurfaceRuntimeOwnershipRecovery
+        onRecovery: @escaping TerminalSurfaceRuntimeOwnershipRecovery,
+        capacityReservation:
+            TerminalSurfaceRuntimeOwnershipRecoveryCapacityReservation? = nil
     ) -> TerminalSurfaceRuntimeOwnershipRecoveryAdmissionResult {
         runtimeOwnershipAdmission.reserve(
             recoveryID: recoveryID,
-            onRecovery: onRecovery
+            onRecovery: onRecovery,
+            capacityReservation: capacityReservation
         )
+    }
+
+    nonisolated func registerRuntimeSurfaceOwnershipRecoveryOverflow(
+        registry: any TerminalSurfaceRegistering
+    ) -> UInt64 {
+        recoveryRescanScheduler.registerOverflow(registry: registry)
+    }
+
+    nonisolated func requestRuntimeSurfaceOwnershipRecoveryRescan() {
+        recoveryRescanScheduler.requestRescan()
+    }
+
+    nonisolated func claimRuntimeSurfaceOwnershipRecoveryCapacity()
+        -> TerminalSurfaceRuntimeOwnershipRecoveryCapacityReservation? {
+        runtimeOwnershipAdmission.claimRecoveryCapacity()
+    }
+
+    nonisolated func cancelRuntimeSurfaceOwnershipRecoveryCapacity(
+        _ reservation:
+            TerminalSurfaceRuntimeOwnershipRecoveryCapacityReservation
+    ) {
+        runtimeOwnershipAdmission.releaseRecoveryCapacity(reservation)
     }
 
     nonisolated func cancelRuntimeSurfaceOwnershipRecovery(_ recoveryID: UUID) {
