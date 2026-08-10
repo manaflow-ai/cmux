@@ -9428,7 +9428,7 @@ impl Mux {
         let terminal_host_records = {
             let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
             let capacity = self.shutdown_owner_capacity();
-            let (required, surface_owner_keys) = {
+            let (required, runtime_owner_keys) = {
                 let state = self.state.lock().unwrap();
                 let required = state
                     .surfaces
@@ -9436,9 +9436,8 @@ impl Mux {
                     .filter(|surface| !surface.is_dead())
                     .filter_map(|surface| surface.terminal_host_identity())
                     .collect::<Vec<_>>();
-                let surface_owner_keys = state
-                    .surfaces
-                    .values()
+                let runtime_owner_keys = unique_surface_runtimes(&state)
+                    .into_iter()
                     .filter_map(|surface| match surface.shutdown_owner_identity()? {
                         SurfaceShutdownOwnerIdentity::Surface => {
                             Some(ShutdownOwnerKey::Surface(surface.id))
@@ -9448,7 +9447,7 @@ impl Mux {
                         }
                     })
                     .collect::<Vec<_>>();
-                (required, surface_owner_keys)
+                (required, runtime_owner_keys)
             };
             let mut owner_keys = self
                 .shutdown_owners
@@ -9456,7 +9455,7 @@ impl Mux {
                 .into_iter()
                 .map(|(key, _)| key)
                 .collect::<HashSet<_>>();
-            owner_keys.extend(surface_owner_keys);
+            owner_keys.extend(runtime_owner_keys);
             let records = match root {
                 Some(root) => {
                     let records = self
@@ -9501,7 +9500,7 @@ impl Mux {
             records
         };
 
-        let (surfaces, retained_count, tree_changed, closed_public_ids) = {
+        let (owners, closed_count, tree_changed, closed_public_ids) = {
             let mutation = WorkspaceMutation::local("cmux-tui-shutdown");
             let operation = "server.stop";
             let fingerprint = serde_json::json!({"operation":operation});
@@ -9530,12 +9529,15 @@ impl Mux {
             let result = (|| -> anyhow::Result<_> {
                 let mut state = self.state.lock().unwrap();
                 let retained_count = self.shutdown_owners.len();
+                let closed_count = state.surfaces.len() + retained_count;
                 let tree_changed = !state.surfaces.is_empty()
                     || !state.panes.is_empty()
                     || state.workspaces.iter().any(|workspace| !workspace.screens.is_empty());
-                let surfaces = state.surfaces.values().cloned().collect::<Vec<_>>();
+                let owners = unique_surface_runtimes(&state);
                 let mut projected = state.clone();
                 projected.surfaces.clear();
+                projected.terminal_catalog.clear();
+                projected.terminal_catalog_by_runtime.clear();
                 for workspace in &mut projected.workspaces {
                     workspace.screens.clear();
                     workspace.active_screen = 0;
@@ -9545,6 +9547,7 @@ impl Mux {
                 }
                 projected.panes.clear();
                 projected.split_screens.clear();
+                projected.rebuild_resource_indexes();
                 let projection = self.resource_effect_projection_locked(
                     &registry,
                     &mut projected,
@@ -9561,13 +9564,13 @@ impl Mux {
                     None,
                 )?;
                 projected.resource_revision = close.resource.revision;
-                for surface in &surfaces {
+                for surface in &owners {
                     let _ = self.shutdown_owners.stage_surface(surface);
                 }
                 *state = projected;
-                Ok((surfaces, retained_count, tree_changed, close.terminal_batch))
+                Ok((owners, closed_count, tree_changed, close.terminal_batch))
             })();
-            let (surfaces, retained_count, tree_changed, terminal_batch) = match result {
+            let (owners, closed_count, tree_changed, terminal_batch) = match result {
                 Ok(result) => result,
                 Err(error) => {
                     let _ = registry.mark_resource_effect_indeterminate(&mutation.id);
@@ -9578,7 +9581,7 @@ impl Mux {
             if terminal_batch.closed != 0 {
                 self.emit_terminal_registry_changed(&registry, terminal_batch.revision);
             }
-            (surfaces, retained_count, tree_changed, closed_public_ids)
+            (owners, closed_count, tree_changed, closed_public_ids)
         };
         self.notify_terminal_exit_waiters(closed_public_ids);
         self.publish_resource_event();
@@ -9590,8 +9593,7 @@ impl Mux {
             self.emit(MuxEvent::TreeChanged);
         }
 
-        let closed_count = surfaces.len() + retained_count;
-        drop(surfaces);
+        drop(owners);
         #[cfg(unix)]
         for (record_path, record) in terminal_host_records {
             let owner = SurfaceShutdownOwner::hosted(record, record_path);

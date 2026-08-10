@@ -493,9 +493,6 @@ fn wait_for_pid_file(path: &std::path::Path, timeout: Duration) -> u32 {
         fs::read_to_string(path).ok()?.trim().parse().ok()
     }
 
-    if let Some(pid) = read_pid(path) {
-        return pid;
-    }
     let deadline = Instant::now() + timeout;
 
     #[cfg(target_os = "linux")]
