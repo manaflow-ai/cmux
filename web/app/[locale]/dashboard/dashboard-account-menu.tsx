@@ -2,11 +2,13 @@
 
 import { Menu } from "@base-ui-components/react/menu";
 import {
-  SelectedTeamSwitcher,
+  TeamSwitcher,
   UserAvatar,
   useUser,
 } from "@stackframe/stack";
+import { useQuery } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { Link } from "@/i18n/navigation";
@@ -18,6 +20,7 @@ export function DashboardAccountMenu() {
   const t = useTranslations("dashboard.accountMenu");
   const nav = useTranslations("dashboard.nav");
   const locale = useLocale();
+  const router = useRouter();
   const user = useUser({ or: "return-null" });
   const [signOutPending, setSignOutPending] = useState(false);
   const [signOutError, setSignOutError] = useState(false);
@@ -63,12 +66,7 @@ export function DashboardAccountMenu() {
               <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">
                 {nav("team")}
               </div>
-              <SelectedTeamSwitcher
-                triggerClassName="min-h-9 w-full border border-border bg-background px-2 text-left text-sm hover:bg-code-bg"
-                urlMap={(team) =>
-                  `/dashboard/coderouter?organization=${encodeURIComponent(team.id)}`
-                }
-              />
+              <DashboardOrganizationSwitcher />
             </div>
             <Menu.Item render={<Link href="/dashboard/team" />} className={menuItemClass}>
               <SettingsIcon />
@@ -89,7 +87,8 @@ export function DashboardAccountMenu() {
                 setSignOutError(false);
                 try {
                   await user.signOut();
-                  window.location.assign(`/${locale}`);
+                  router.replace(`/${locale}`);
+                  router.refresh();
                 } catch {
                   setSignOutPending(false);
                   setSignOutError(true);
@@ -109,6 +108,84 @@ export function DashboardAccountMenu() {
       </Menu.Portal>
     </Menu.Root>
   );
+}
+
+type OrganizationCatalog = {
+  readonly selectedTeamId: string | null;
+  readonly teams: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly personal: boolean;
+  }[];
+};
+
+function DashboardOrganizationSwitcher() {
+  const user = useUser({ or: "throw" });
+  const teams = user.useTeams();
+  const router = useRouter();
+  const { data } = useQuery({
+    queryKey: ["coderouter-organizations"],
+    queryFn: loadOrganizationCatalog,
+    staleTime: 60_000,
+  });
+
+  if (!data) {
+    return <div aria-hidden="true" className="h-9 w-full animate-pulse bg-code-bg" />;
+  }
+
+  const authorizedIds = new Set(data.teams.map((team) => team.id));
+  const selectableTeams = teams.filter((team) => authorizedIds.has(team.id));
+  const personal = data.teams.find((team) => team.personal);
+  const selectedTeamId = data.selectedTeamId ?? data.teams[0]?.id;
+  const switchOrganization = async (
+    team: (typeof selectableTeams)[number] | null,
+  ) => {
+    const organizationId = team?.id ?? personal?.id;
+    if (!organizationId) return;
+    await user.setSelectedTeam(team);
+    router.push(
+      `/dashboard/coderouter?organization=${
+        encodeURIComponent(organizationId)
+      }`,
+    );
+    router.refresh();
+  };
+  const shared = {
+    teams: selectableTeams,
+    teamId: personal?.id === selectedTeamId ? undefined : selectedTeamId,
+    triggerClassName:
+      "min-h-9 w-full border border-border bg-background px-2 text-left text-sm hover:bg-code-bg",
+  };
+
+  return personal
+    ? (
+      <TeamSwitcher
+        {...shared}
+        allowNull
+        nullLabel={personal.name}
+        onChange={switchOrganization}
+      />
+    )
+    : <TeamSwitcher {...shared} onChange={switchOrganization} />;
+}
+
+async function loadOrganizationCatalog(): Promise<OrganizationCatalog> {
+  const response = await fetch("/api/coderouter/organizations", {
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error("Could not load CodeRouter organizations");
+  }
+  const body: unknown = await response.json();
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("teams" in body) ||
+    !Array.isArray(body.teams)
+  ) {
+    throw new Error("Invalid CodeRouter organization response");
+  }
+  return body as OrganizationCatalog;
 }
 
 function ChevronsUpDown() {
