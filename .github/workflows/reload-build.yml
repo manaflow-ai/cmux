@@ -173,10 +173,7 @@ jobs:
             EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            SWIFT_OPTIMIZATION_LEVEL=-O \
-            SWIFT_COMPILATION_MODE=wholemodule \
-            GCC_OPTIMIZATION_LEVEL=s
+            CODE_SIGN_IDENTITY=""
           [ -d "$archive" ] || { echo "archive not produced: $archive" >&2; exit 1; }
 
           # Keep Blacksmith device reloads equivalent to the fleet path: one
@@ -197,10 +194,7 @@ jobs:
             EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            SWIFT_OPTIMIZATION_LEVEL=-O \
-            SWIFT_COMPILATION_MODE=wholemodule \
-            GCC_OPTIMIZATION_LEVEL=s
+            CODE_SIGN_IDENTITY=""
           sim_app="$RUNNER_TEMP/cmux-ios-dd/Build/Products/Debug-iphonesimulator/cmux.app"
           [ -d "$sim_app" ] || { echo "simulator app not produced: $sim_app" >&2; exit 1; }
 
