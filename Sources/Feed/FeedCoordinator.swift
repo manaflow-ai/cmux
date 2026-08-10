@@ -645,9 +645,7 @@ final class FeedCoordinator: @unchecked Sendable {
         -> (revision: UInt64, page: WorkstreamStore.HistoryPage)
     {
         guard let store else { throw WorkstreamHistoryError.invalidCursor }
-        waiterLock.lock()
-        let revision = mobileRevision
-        waiterLock.unlock()
+        let revision = waiterLock.withLock { mobileRevision }
         return (revision, try await store.historyPage(endingBefore: cursor, limit: limit))
     }
 
