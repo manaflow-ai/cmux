@@ -17,6 +17,8 @@ import Testing
     /// visibility is not selection intent, so removing the view hierarchy must
     /// leave the store selection available for composite-owned wire recovery.
     @Test func transientUnmountKeepsSelectedSimulatorActive() async throws {
+        let lifecycle = SimulatorStreamTestLifecycle()
+        var lifecycleEvents = lifecycle.events.makeAsyncIterator()
         let workspaceID = "workspace-1"
         let descriptor = simulatorDescriptor(workspaceID: workspaceID)
         let simulatorStore = MobileSimulatorStreamStore()
@@ -56,20 +58,82 @@ import Testing
         .environment(simulatorStore)
         .environment(MobileDisplaySettings(defaults: defaults, environment: [:]))
         .environment(ToastCenter(defaults: defaults))
+        .onAppear { lifecycle.record(.appeared) }
+        .onDisappear { lifecycle.record(.disappeared) }
         let controller = UIHostingController(rootView: root)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
 
         window.rootViewController = controller
         window.makeKeyAndVisible()
         controller.view.layoutIfNeeded()
-        await Task.yield()
+        let appeared = await lifecycleEvents.next()
+        #expect(appeared == .appeared)
         #expect(simulatorStore.activeState(in: workspaceID)?.id == descriptor.panelID)
 
         window.rootViewController = UIViewController()
-        await Task.yield()
+        let disappeared = await lifecycleEvents.next()
+        #expect(disappeared == .disappeared)
 
         #expect(simulatorStore.activeState(in: workspaceID)?.id == descriptor.panelID)
         window.isHidden = true
+    }
+
+    /// The route owner, not a child pane callback, distinguishes a transient
+    /// remount from navigation away or to another workspace.
+    @Test func visibleWorkspaceRouteFollowsNavigationState() {
+        let workspaceA = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        let workspaceB = MobileWorkspacePreview.ID(rawValue: "workspace-b")
+
+        #expect(WorkspaceSimulatorStreamRouteVisibility.visibleWorkspaceID(
+            selectedPrimaryTab: .workspaces,
+            searchScope: .workspaces,
+            usesCompactStack: true,
+            selectedWorkspaceID: workspaceA,
+            compactNavigationPath: [workspaceA],
+            notificationNavigationPath: [],
+            workspaceSearchNavigationPath: [],
+            notificationSearchNavigationPath: []
+        ) == workspaceA)
+        #expect(WorkspaceSimulatorStreamRouteVisibility.visibleWorkspaceID(
+            selectedPrimaryTab: .workspaces,
+            searchScope: .workspaces,
+            usesCompactStack: true,
+            selectedWorkspaceID: workspaceA,
+            compactNavigationPath: [],
+            notificationNavigationPath: [],
+            workspaceSearchNavigationPath: [],
+            notificationSearchNavigationPath: []
+        ) == nil)
+        #expect(WorkspaceSimulatorStreamRouteVisibility.visibleWorkspaceID(
+            selectedPrimaryTab: .workspaces,
+            searchScope: .workspaces,
+            usesCompactStack: false,
+            selectedWorkspaceID: workspaceB,
+            compactNavigationPath: [],
+            notificationNavigationPath: [],
+            workspaceSearchNavigationPath: [],
+            notificationSearchNavigationPath: []
+        ) == workspaceB)
+        #expect(WorkspaceSimulatorStreamRouteVisibility.visibleWorkspaceID(
+            selectedPrimaryTab: .notifications,
+            searchScope: .workspaces,
+            usesCompactStack: true,
+            selectedWorkspaceID: workspaceA,
+            compactNavigationPath: [workspaceA],
+            notificationNavigationPath: [workspaceB],
+            workspaceSearchNavigationPath: [],
+            notificationSearchNavigationPath: []
+        ) == workspaceB)
+        #expect(WorkspaceSimulatorStreamRouteVisibility.visibleWorkspaceID(
+            selectedPrimaryTab: .search,
+            searchScope: .workspaces,
+            usesCompactStack: true,
+            selectedWorkspaceID: workspaceB,
+            compactNavigationPath: [],
+            notificationNavigationPath: [],
+            workspaceSearchNavigationPath: [workspaceA],
+            notificationSearchNavigationPath: [workspaceB]
+        ) == workspaceA)
     }
 
     private func simulatorDescriptor(workspaceID: String) -> MobileSimulatorPanelDescriptor {
@@ -88,6 +152,25 @@ import Testing
             ownerConnectionID: "phone",
             isOwnedByCurrentConnection: true
         )
+    }
+}
+
+@MainActor
+private final class SimulatorStreamTestLifecycle {
+    enum Event: Equatable {
+        case appeared
+        case disappeared
+    }
+
+    let events: AsyncStream<Event>
+    private let continuation: AsyncStream<Event>.Continuation
+
+    init() {
+        (events, continuation) = AsyncStream.makeStream(of: Event.self)
+    }
+
+    func record(_ event: Event) {
+        continuation.yield(event)
     }
 }
 #endif
