@@ -4155,11 +4155,7 @@ fn close_terminal_in_transaction(
              FROM terminal_close_reservations WHERE terminal_id = ?1",
             [terminal_id],
             |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
             },
         )
         .optional()?;
