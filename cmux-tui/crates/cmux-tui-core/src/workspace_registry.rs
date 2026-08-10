@@ -362,10 +362,7 @@ pub struct TerminalRegistryCommit {
 /// reconcile only the revision owned by that receipt.
 pub(crate) enum TerminalResourceCloseCommit {
     TerminalReplay(TerminalRegistryCommit),
-    ResourceReplay {
-        terminal: TerminalRegistryCommit,
-        resource: ResourcePatchCommit,
-    },
+    ResourceReplay { terminal: TerminalRegistryCommit, resource: ResourcePatchCommit },
     Committed { terminal: TerminalRegistryCommit, resource: ResourcePatchCommit },
 }
 
