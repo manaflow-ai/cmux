@@ -2146,13 +2146,19 @@ final class cmuxUITests: XCTestCase {
                 thenHoldForDuration: 0.05
             )
         }
-        let planFeedback = app.descendants(matching: .any)[
-            "MobileNotificationFeedExitPlanFeedback"
-        ].firstMatch
-        for _ in 0..<12 where !planFeedback.isHittable {
-            dragFeed(up: true)
+        func hittableFeedElement(_ identifier: String) -> XCUIElement? {
+            app.descendants(matching: .any)
+                .matching(identifier: identifier)
+                .allElementsBoundByIndex
+                .first(where: { $0.isHittable })
         }
-        XCTAssertTrue(planFeedback.isHittable)
+
+        var planFeedback = hittableFeedElement("MobileNotificationFeedExitPlanFeedback")
+        for _ in 0..<12 where planFeedback == nil {
+            dragFeed(up: true)
+            planFeedback = hittableFeedElement("MobileNotificationFeedExitPlanFeedback")
+        }
+        let planFeedback = try XCTUnwrap(planFeedback)
         planFeedback.tap()
         planFeedback.typeText("Keep the inline controls concise")
         let planSubmit = app.buttons["MobileNotificationFeedExitPlanSubmit"]
@@ -2164,13 +2170,12 @@ final class cmuxUITests: XCTestCase {
             "MobileNotificationFeedRow-studio-agent-question"
         ].firstMatch
         XCTAssertTrue(questionRow.waitForExistence(timeout: 3))
-        let notes = app.descendants(matching: .any)[
-            "MobileNotificationFeedQuestionCustom-1"
-        ].firstMatch
-        for _ in 0..<12 where !notes.isHittable {
+        var notes = hittableFeedElement("MobileNotificationFeedQuestionCustom-1")
+        for _ in 0..<12 where notes == nil {
             dragFeed(up: true)
+            notes = hittableFeedElement("MobileNotificationFeedQuestionCustom-1")
         }
-        XCTAssertTrue(notes.isHittable)
+        let notes = try XCTUnwrap(notes)
         notes.tap()
         notes.typeText("Show every pending question")
         let questionSubmit = app.buttons["MobileNotificationFeedQuestionSubmit"]
@@ -2202,10 +2207,9 @@ final class cmuxUITests: XCTestCase {
         let reply = app.buttons["MobileNotificationFeedReply-macbook-agent-finished"]
         XCTAssertTrue(reply.waitForExistence(timeout: 3))
         reply.tap()
-        let replyField = app.descendants(matching: .any)[
-            "MobileNotificationFeedReplyField-macbook-agent-finished"
-        ].firstMatch
-        XCTAssertTrue(replyField.waitForExistence(timeout: 3))
+        let replyField = try XCTUnwrap(
+            hittableFeedElement("MobileNotificationFeedReplyField-macbook-agent-finished")
+        )
         replyField.tap()
         replyField.typeText("Please prepare the handoff")
         let send = app.buttons["MobileNotificationFeedReplySend-macbook-agent-finished"]
