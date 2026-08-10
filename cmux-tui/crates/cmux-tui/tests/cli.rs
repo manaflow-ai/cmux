@@ -6,6 +6,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
+use wait_timeout::ChildExt;
 
 fn register_test_tui(writer: &mut impl Write, reader: &mut impl BufRead) {
     let client_uuid = uuid::Uuid::new_v4();
@@ -76,14 +77,10 @@ impl HeadlessServer {
     }
 
     fn wait_for_exit(&mut self) -> std::process::ExitStatus {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while Instant::now() < deadline {
-            if let Some(status) = self.child.try_wait().unwrap() {
-                return status;
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-        panic!("headless server did not exit after a fatal persistence failure");
+        self.child
+            .wait_timeout(Duration::from_secs(10))
+            .unwrap()
+            .expect("headless server did not exit after a fatal persistence failure")
     }
 
     fn read_stderr(&mut self) -> String {
@@ -437,6 +434,8 @@ fn assert_subscribe_topology_reports_revisioned_delta(server: &HeadlessServer) {
     let daemon = snapshot["daemon_instance_id"].as_str().unwrap();
     let session = snapshot["session_id"].as_str().unwrap();
     let revision = snapshot["revision"].as_u64().unwrap();
+    assert!(revision > 0, "topology replay requires a prior revision");
+    let replay_revision = revision - 1;
     let mut child = Command::new(bin())
         .args(["--socket"])
         .arg(&server.socket)
@@ -447,7 +446,7 @@ fn assert_subscribe_topology_reports_revisioned_delta(server: &HeadlessServer) {
             "--session-id",
             session,
             "--revision",
-            &revision.to_string(),
+            &replay_revision.to_string(),
         ])
         .env_remove("CMUX_TUI_SOCKET")
         .stdout(Stdio::piped())
@@ -465,28 +464,27 @@ fn assert_subscribe_topology_reports_revisioned_delta(server: &HeadlessServer) {
         }
     });
 
-    std::thread::sleep(Duration::from_millis(200));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let replay = rx
+        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .expect("subscribe-topology did not replay the prior topology delta");
+    let replay: serde_json::Value = serde_json::from_str(&replay).unwrap();
+    assert_eq!(replay["event"], "topology-delta");
+    assert_eq!(replay["base_revision"].as_u64(), Some(replay_revision));
+    assert_eq!(replay["revision"].as_u64(), Some(revision));
+
     assert_success(&cli(server, &["new-tab"]));
 
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let mut lines = Vec::new();
-    while Instant::now() < deadline {
-        if let Ok(line) = rx.recv_timeout(Duration::from_millis(250)) {
-            lines.push(line.clone());
-            let value: serde_json::Value = serde_json::from_str(&line).unwrap();
-            if value["event"] == "topology-delta" {
-                assert_eq!(value["base_revision"].as_u64(), Some(revision));
-                assert_eq!(value["revision"].as_u64(), Some(revision + 1));
-                assert!(value["replacement"]["workspaces"].is_array());
-                let _ = child.kill();
-                let _ = child.wait();
-                return;
-            }
-        }
-    }
+    let line = rx
+        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .expect("subscribe-topology did not print the new topology delta");
+    let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(value["event"], "topology-delta");
+    assert_eq!(value["base_revision"].as_u64(), Some(revision));
+    assert_eq!(value["revision"].as_u64(), Some(revision + 1));
+    assert!(value["replacement"]["workspaces"].is_array());
     let _ = child.kill();
     let _ = child.wait();
-    panic!("subscribe-topology did not print a topology delta; lines={lines:?}");
 }
 
 #[test]

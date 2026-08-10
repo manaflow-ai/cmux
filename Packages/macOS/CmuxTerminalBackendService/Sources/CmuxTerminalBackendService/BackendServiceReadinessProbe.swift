@@ -18,6 +18,7 @@ public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sen
     private let trustVerifierOverride: (any BackendPeerTrustVerifying)?
     private let trustVerificationScopeID: UUID
     private let transportFactory: @Sendable () -> any BackendPeerIdentityTransport
+    private let clock: any Clock<Duration>
 
     /// Creates a protocol readiness probe for one app-scoped backend.
     ///
@@ -34,6 +35,7 @@ public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sen
     ///     `nil` to use the current process identifier.
     ///   - trustVerifier: An injectable live-process code-signing verifier.
     ///   - transportFactory: An injectable credential-bearing transport factory.
+    ///   - clock: The cancellable monotonic clock used for deadlines and retries.
     public init(
         descriptor: BackendServiceDescriptor,
         runtimePaths: BackendServiceRuntimePaths,
@@ -43,7 +45,8 @@ public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sen
         expectedUserID: UInt32? = nil,
         clientProcessID: UInt32? = nil,
         trustVerifier: (any BackendPeerTrustVerifying)? = nil,
-        transportFactory: (@Sendable () -> any BackendPeerIdentityTransport)? = nil
+        transportFactory: (@Sendable () -> any BackendPeerIdentityTransport)? = nil,
+        clock: any Clock<Duration> = ContinuousClock()
     ) {
         precondition(timeout > .zero)
         expectedSession = descriptor.sessionName
@@ -57,6 +60,7 @@ public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sen
         self.transportFactory = transportFactory ?? {
             UnixBackendTransport(path: runtimePaths.socketURL.path)
         }
+        self.clock = clock
     }
 
     /// Connects, validates the negotiated authority, and closes the probe connection.
@@ -70,7 +74,14 @@ public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sen
     public func checkReadiness(
         trustedPair: BackendServiceInstalledPair
     ) async throws -> BackendServiceReadiness {
-        let clock = ContinuousClock()
+        let clock = clock
+        return try await checkReadiness(trustedPair: trustedPair, clock: clock)
+    }
+
+    private func checkReadiness<C: Clock>(
+        trustedPair: BackendServiceInstalledPair,
+        clock: C
+    ) async throws -> BackendServiceReadiness where C.Duration == Duration {
         let absoluteDeadline = clock.now.advanced(by: timeout)
         var retryDelay = retryPolicy.initialDelay
 
@@ -98,7 +109,7 @@ public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sen
                 }
 
                 let retryAt = min(clock.now.advanced(by: retryDelay), absoluteDeadline)
-                try await clock.sleep(until: retryAt)
+                try await clock.sleep(until: retryAt, tolerance: nil)
                 guard clock.now < absoluteDeadline else {
                     throw BackendServiceReadinessError.timedOut
                 }
@@ -107,12 +118,12 @@ public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sen
         }
     }
 
-    private func runAttempt(
+    private func runAttempt<C: Clock>(
         transport: any BackendPeerIdentityTransport,
         trustedPair: BackendServiceInstalledPair,
-        clock: ContinuousClock,
-        absoluteDeadline: ContinuousClock.Instant
-    ) async throws -> BackendServiceReadiness {
+        clock: C,
+        absoluteDeadline: C.Instant
+    ) async throws -> BackendServiceReadiness where C.Duration == Duration {
         let client = BackendProtocolClient(transport: transport)
         let deadline = BackendServiceReadinessDeadline()
 
@@ -195,7 +206,7 @@ public struct BackendServiceReadinessProbe: BackendServiceReadinessChecking, Sen
                 }
             }
             group.addTask {
-                try await clock.sleep(until: absoluteDeadline)
+                try await clock.sleep(until: absoluteDeadline, tolerance: nil)
                 guard await deadline.expire() else {
                     // The handshake already claimed success before the
                     // deadline. Its connection close may still be suspended,
