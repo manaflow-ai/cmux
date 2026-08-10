@@ -35056,6 +35056,74 @@
         }
       }
     },
+    "cli.browser.error.diffViewerAllowlistInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid trusted diff viewer allowlist"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼済み差分ビューアの許可リストが無効です"
+          }
+        }
+      }
+    },
+    "cli.browser.error.diffViewerAllowlistMissingOrInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid trusted diff viewer allowlist"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼済み差分ビューアの許可リストがないか、無効です"
+          }
+        }
+      }
+    },
+    "cli.browser.error.diffViewerSessionInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid trusted diff viewer session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼済み差分ビューアのセッションが無効です"
+          }
+        }
+      }
+    },
+    "cli.browser.error.diffViewerSessionMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing trusted diff viewer session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼済み差分ビューアのセッションがありません"
+          }
+        }
+      }
+    },
     "cli.browser.error.operationFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -98804,6 +98872,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "This page cannot use diff comments."
+          }
+        }
+      }
+    },
+    "diffViewer.error.allowlistTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff viewer allowlist is too large"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分ビューアの許可リストが大きすぎます"
           }
         }
       }
