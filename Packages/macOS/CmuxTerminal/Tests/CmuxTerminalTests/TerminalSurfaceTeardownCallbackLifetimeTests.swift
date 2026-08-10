@@ -77,6 +77,36 @@ import Testing
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
     }
 
+    @Test func agentHibernationEndsCurrentTerminalProcessGeneration() {
+        let registry = TerminalSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let originalLifecycleID = surface.terminalLifecycleId
+
+        #expect(registry.isCurrentSurface(
+            id: surface.id,
+            terminalLifecycleID: originalLifecycleID
+        ))
+        #expect(surface.suspendRuntimeSurfaceForAgentHibernation(
+            reason: "test.lifecycle"
+        ))
+
+        let replacementLifecycleID = surface.terminalLifecycleId
+        #expect(replacementLifecycleID != originalLifecycleID)
+        #expect(!registry.isCurrentSurface(
+            id: surface.id,
+            terminalLifecycleID: originalLifecycleID
+        ))
+        #expect(registry.isCurrentSurface(
+            id: surface.id,
+            terminalLifecycleID: replacementLifecycleID
+        ))
+        #expect(
+            surface.startupEnvironmentValue(
+                "CMUX_TERMINAL_LIFECYCLE_ID"
+            ) == replacementLifecycleID.uuidString
+        )
+    }
+
     @Test func agentHibernationResumeWaitsForNativeFreeCompletion() async {
         let registry = TerminalSurfaceRegistry()
         let surface = makeSurface(registry: registry)
