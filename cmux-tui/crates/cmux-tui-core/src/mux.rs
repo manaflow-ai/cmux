@@ -15204,15 +15204,9 @@ fn remove_terminal_catalogs_and_targets_from_state(
     }
 
     for (index, terminal_id) in terminal_ids.iter().enumerate() {
-        // Each catalog ID can own a restored tab before its live view exists.
-        let mut current_targets = terminal_content_placements(mux, state, terminal_id, None);
-        if index == 0 {
-            current_targets.extend_from_slice(targets);
-            current_targets.sort_unstable();
-            current_targets.dedup();
-        }
+        let current_targets = if index == 0 { targets } else { &[] };
         let (candidate, mut terminal_views, changed) =
-            remove_terminal_content_from_state(mux, state, terminal_id, &current_targets);
+            remove_terminal_content_from_state(mux, state, terminal_id, current_targets);
         split_index_dirty |= changed;
         removed.append(&mut terminal_views);
         if let Some(candidate) = candidate {
