@@ -27,14 +27,16 @@ struct AgentFeedView: View {
     @State private var planFeedback: [MobileAgentFeedItemID: String] = [:]
     @State private var questionSelections: [MobileAgentFeedItemID: [String: Set<String>]] = [:]
     @State private var otherAnswers: [MobileAgentFeedItemID: [String: String]] = [:]
-    @State private var knownItemIDs: Set<MobileAgentFeedItemID> = []
+    @State private var renderedItems: [MobileAgentFeedItem]?
+    @State private var pendingViewportAnchor: MobileAgentFeedItemID?
     @State private var visibilityTracker = AgentFeedVisibilityTracker()
     @State private var unseenItemCount = 0
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.agentFeedLocalizer) private var localizer
 
     var body: some View {
-        let visibleItems = filter.apply(to: items)
+        let source = AgentFeedSourceSnapshot(items: items, filter: filter)
+        let visibleItems = renderedItems ?? source.visibleItems
         VStack(spacing: 0) {
             AgentFeedStatusBanner(status: status, retry: actions.refresh, localizer: localizer)
             filterControl
@@ -124,24 +126,37 @@ struct AgentFeedView: View {
                             .background(.regularMaterial, in: Capsule())
                         }
                     }
-                    .onChange(of: visibleItems.map(\.id), initial: true) { oldIDs, newIDs in
-                        let allCurrentIDs = Set(items.map(\.id))
-                        let genuinelyNewIDs = allCurrentIDs.subtracting(knownItemIDs)
-                        defer { knownItemIDs = allCurrentIDs }
-                        guard !oldIDs.isEmpty,
-                              !genuinelyNewIDs.isEmpty,
-                              let oldNewestID = oldIDs.first,
-                              !visibilityTracker.visibleIDs.contains(oldNewestID) else {
-                            return
+                    .onChange(of: source, initial: true) { oldSource, newSource in
+                        let oldVisibleItems = renderedItems ?? oldSource.visibleItems
+                        let oldIDs = oldVisibleItems.map(\.id)
+                        let newVisibleItems = newSource.visibleItems
+                        let newIDs = newVisibleItems.map(\.id)
+                        let genuinelyNewIDs = Set(newSource.items.map(\.id))
+                            .subtracting(oldSource.items.map(\.id))
+                        let oldNewestID = oldIDs.first
+                        let anchorID = visibilityTracker.topVisibleID(orderedBy: oldIDs)
+                        let insertedBeforeOldNewest: Set<MobileAgentFeedItemID>
+                        if let oldNewestID,
+                           let oldNewestIndex = newIDs.firstIndex(of: oldNewestID) {
+                            insertedBeforeOldNewest = Set(newIDs[..<oldNewestIndex])
+                        } else {
+                            insertedBeforeOldNewest = []
                         }
-                        let insertedVisibleCount = Set(newIDs)
-                            .subtracting(oldIDs)
+                        let insertedVisibleCount = insertedBeforeOldNewest
                             .intersection(genuinelyNewIDs)
                             .count
-                        guard insertedVisibleCount > 0 else { return }
-                        let anchorID = visibilityTracker.topVisibleID(orderedBy: oldIDs)
-                        unseenItemCount += insertedVisibleCount
-                        guard let anchorID else { return }
+                        if !oldIDs.isEmpty,
+                           let oldNewestID,
+                           !visibilityTracker.visibleIDs.contains(oldNewestID),
+                           insertedVisibleCount > 0 {
+                            unseenItemCount += insertedVisibleCount
+                            pendingViewportAnchor = anchorID
+                        }
+                        renderedItems = newVisibleItems
+                    }
+                    .onChange(of: visibleItems.map(\.id)) { _, _ in
+                        guard let anchorID = pendingViewportAnchor else { return }
+                        pendingViewportAnchor = nil
                         var transaction = Transaction()
                         transaction.disablesAnimations = true
                         withTransaction(transaction) {
@@ -216,6 +231,15 @@ struct AgentFeedView: View {
                 .tag(MobileAgentFeedFilter.allActivity)
         }
         .accessibilityIdentifier("MobileAgentFeedFilter")
+    }
+}
+
+private struct AgentFeedSourceSnapshot: Equatable {
+    let items: [MobileAgentFeedItem]
+    let filter: MobileAgentFeedFilter
+
+    var visibleItems: [MobileAgentFeedItem] {
+        filter.apply(to: items)
     }
 }
 
