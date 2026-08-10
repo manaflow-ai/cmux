@@ -1,11 +1,11 @@
+use std::ffi::CString;
 use std::fmt;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::thread;
-use std::time::Duration;
 
 use cmux_tui_machine_agent_protocol::{MachineSecret, OpaqueId, SessionName};
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,6 @@ use zeroize::Zeroize;
 
 const STATE_VERSION: u16 = 1;
 const MAX_STATE_BYTES: u64 = 4096;
-const CONCURRENT_CREATE_RETRY_DELAY: Duration = Duration::from_millis(10);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct MachineIdentity {
@@ -56,7 +55,7 @@ pub(super) fn load_or_create(path: &Path) -> anyhow::Result<MachineIdentity> {
     match fs::symlink_metadata(path) {
         Ok(_) => {
             remove_orphaned_temporary_links(path)?;
-            load_with_link_retry(path)
+            load(path)
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => create(path),
         Err(error) => Err(error.into()),
@@ -127,18 +126,6 @@ fn load(path: &Path) -> anyhow::Result<MachineIdentity> {
     Ok(MachineIdentity { machine_id: stored.machine_id, secret: stored.secret })
 }
 
-fn load_with_link_retry(path: &Path) -> anyhow::Result<MachineIdentity> {
-    match load(path) {
-        Err(error)
-            if error.downcast_ref::<UnexpectedLinkCount>().is_some_and(|error| error.0 == 2) =>
-        {
-            thread::sleep(CONCURRENT_CREATE_RETRY_DELAY);
-            load(path)
-        }
-        result => result,
-    }
-}
-
 fn create(path: &Path) -> anyhow::Result<MachineIdentity> {
     let parent = state_parent(path)?;
     let identity = MachineIdentity {
@@ -163,14 +150,9 @@ fn create(path: &Path) -> anyhow::Result<MachineIdentity> {
         verify_private_file(&file, "temporary machine-agent state")?;
         file.write_all(&encoded)?;
         file.sync_all()?;
-        match fs::hard_link(&temporary, path) {
+        match atomic_rename_noreplace(&temporary, path) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => return Ok(false),
-            Err(error) => return Err(error.into()),
-        }
-        match fs::remove_file(&temporary) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
         }
         sync_directory(parent)?;
@@ -187,8 +169,46 @@ fn create(path: &Path) -> anyhow::Result<MachineIdentity> {
         }
         Ok(loaded)
     } else {
-        load_with_link_retry(path)
+        load(path)
     }
+}
+
+fn atomic_rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
+    let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| {
+        io::Error::new(io::ErrorKind::InvalidInput, "source path contains a NUL byte")
+    })?;
+    let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| {
+        io::Error::new(io::ErrorKind::InvalidInput, "target path contains a NUL byte")
+    })?;
+    #[cfg(target_vendor = "apple")]
+    let result = unsafe {
+        libc::renameatx_np(
+            libc::AT_FDCWD,
+            from.as_ptr(),
+            libc::AT_FDCWD,
+            to.as_ptr(),
+            libc::RENAME_EXCL,
+        )
+    };
+    #[cfg(target_os = "linux")]
+    let result = unsafe {
+        libc::syscall(
+            libc::SYS_renameat2,
+            libc::AT_FDCWD,
+            from.as_ptr(),
+            libc::AT_FDCWD,
+            to.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    #[cfg(not(any(target_vendor = "apple", target_os = "linux")))]
+    let result = {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "atomic no-replace rename is unavailable on this platform",
+        ));
+    };
+    if result == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
 }
 
 fn open_no_follow(path: &Path, write: bool) -> io::Result<File> {
@@ -407,18 +427,21 @@ mod tests {
     }
 
     #[test]
-    fn identity_retries_the_live_two_link_creation_window_once() {
-        let state = test_state("live-creation-link");
-        let identity = load_or_create(&state.path).unwrap();
-        let temporary = state.directory.join(".identity.json.live.tmp");
-        fs::hard_link(&state.path, &temporary).unwrap();
-        let remover = thread::spawn(move || {
-            thread::sleep(Duration::from_millis(1));
-            fs::remove_file(temporary).unwrap();
-        });
+    fn identity_creation_loser_preserves_atomic_winner_with_one_link() {
+        let state = test_state("concurrent-creation-loser");
+        let winner = create(&state.path).unwrap();
+        let loser = create(&state.path).unwrap();
 
-        assert_eq!(load_with_link_retry(&state.path).unwrap(), identity);
-        remover.join().unwrap();
+        assert_eq!(loser, winner);
+        assert_eq!(load(&state.path).unwrap(), winner);
+        assert_eq!(fs::metadata(&state.path).unwrap().nlink(), 1);
+        let temporary_prefix = ".identity.json.";
+        let temporary_suffix = ".tmp";
+        assert!(!fs::read_dir(&state.directory).unwrap().any(|entry| {
+            let name = entry.unwrap().file_name();
+            let name = name.to_string_lossy();
+            name.starts_with(temporary_prefix) && name.ends_with(temporary_suffix)
+        }));
     }
 
     #[test]

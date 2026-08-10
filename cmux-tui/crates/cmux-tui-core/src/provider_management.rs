@@ -9,8 +9,10 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 #[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(any(target_os = "linux", test))]
+use std::sync::mpsc;
 #[cfg(target_os = "linux")]
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex};
 #[cfg(target_os = "linux")]
 use std::time::{Duration, Instant};
 
@@ -228,8 +230,8 @@ pub struct ProviderManagementServer {
 
 #[cfg(all(test, target_os = "linux"))]
 struct ProviderPeerTestHook {
-    entered: std::sync::mpsc::SyncSender<()>,
-    release: Mutex<std::sync::mpsc::Receiver<()>>,
+    entered: mpsc::SyncSender<()>,
+    release: Mutex<mpsc::Receiver<()>>,
 }
 
 #[cfg(all(test, target_os = "linux"))]
@@ -490,9 +492,9 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     impl ProviderPeerTestHookGuard {
-        fn install() -> (Self, std::sync::mpsc::Receiver<()>, std::sync::mpsc::SyncSender<()>) {
-            let (entered, entered_rx) = std::sync::mpsc::sync_channel(1);
-            let (release, release_rx) = std::sync::mpsc::sync_channel(1);
+        fn install() -> (Self, mpsc::Receiver<()>, mpsc::SyncSender<()>) {
+            let (entered, entered_rx) = mpsc::sync_channel(1);
+            let (release, release_rx) = mpsc::sync_channel(1);
             let previous =
                 PROVIDER_PEER_TEST_HOOK.lock().unwrap().replace(Arc::new(ProviderPeerTestHook {
                     entered,
@@ -541,7 +543,7 @@ mod tests {
             assert!(Instant::now() < deadline, "peer thread did not finish");
             std::thread::yield_now();
         }
-        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
         let active = std::thread::spawn(move || release_rx.recv().unwrap());
         let mut peers = vec![completed, active];
 
@@ -568,7 +570,7 @@ mod tests {
         let server = serve(listener, mux()).unwrap();
         let client = UnixStream::connect(&socket).unwrap();
         let peer_entered = entered.recv_timeout(Duration::from_secs(1)).is_ok();
-        let (dropped, drop_result) = std::sync::mpsc::sync_channel(1);
+        let (dropped, drop_result) = mpsc::sync_channel(1);
         let dropper = std::thread::spawn(move || {
             drop(server);
             let _ = dropped.send(());
