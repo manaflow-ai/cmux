@@ -36,6 +36,49 @@ private final class FreedSurfaceRecorder: @unchecked Sendable {
     }
 }
 
+/// Holds preferred-executor jobs until a test opens the gate.
+private final class GatedTaskExecutor: TaskExecutor, @unchecked Sendable {
+    private struct State {
+        var isOpen = true
+        var jobs: [UnownedJob] = []
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    func enqueue(_ job: consuming ExecutorJob) {
+        let job = UnownedJob(job)
+        let shouldRun = state.withLock { state in
+            guard !state.isOpen else { return true }
+            state.jobs.append(job)
+            return false
+        }
+        if shouldRun {
+            job.runSynchronously(on: asUnownedTaskExecutor())
+        }
+    }
+
+    func close() {
+        state.withLock { state in
+            precondition(state.isOpen)
+            precondition(state.jobs.isEmpty)
+            state.isOpen = false
+        }
+    }
+
+    func open() {
+        let jobs = state.withLock { state in
+            guard !state.isOpen else { return [UnownedJob]() }
+            state.isOpen = true
+            let jobs = state.jobs
+            state.jobs.removeAll(keepingCapacity: true)
+            return jobs
+        }
+        for job in jobs {
+            job.runSynchronously(on: asUnownedTaskExecutor())
+        }
+    }
+}
+
 private final class TeardownLifetimeRecorder: @unchecked Sendable {
     let events: AsyncStream<String>
     private let continuation: AsyncStream<String>.Continuation
@@ -83,6 +126,57 @@ private func requireTeardownTicket(
         await completion.finish()
 
         #expect(await ticket.wait(timeout: nil))
+    }
+
+    @Test func acceptedTeardownRetainsCoordinatorUntilTicketCompletion() async throws {
+        let executor = GatedTaskExecutor()
+        defer { executor.open() }
+        let recorder = FreedSurfaceRecorder()
+        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+
+        var accepted = try await withTaskExecutorPreference(executor) {
+            executor.close()
+            let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+            let runtimeReservation = try #require(
+                coordinator.reserveRuntimeSurfaceOwnership()
+            )
+            let ticket = try requireTeardownTicket(
+                coordinator.enqueueRuntimeTeardown(
+                    id: UUID(),
+                    workspaceId: UUID(),
+                    reason: "test.acceptedCoordinatorLifetime",
+                    surface: surface,
+                    callbackContext: nil,
+                    manualIOContext: nil,
+                    byteTeeLease: nil,
+                    runtimeOwnershipReservation: runtimeReservation,
+                    freeSurface: { pointer in
+                        recorder.record(UInt(bitPattern: pointer))
+                    }
+                )
+            )
+            return (coordinator: Optional(coordinator), ticket: ticket)
+        }
+        weak var weakCoordinator = accepted.coordinator
+
+        accepted.coordinator = nil
+
+        try #require(weakCoordinator != nil)
+        executor.open()
+        await recorder.waitForFreeCount(1)
+        #expect(await accepted.ticket.wait(timeout: nil))
+        #expect(recorder.freed == [UInt(bitPattern: surface)])
+    }
+
+    @Test func idleCoordinatorDoesNotRetainItself() {
+        var coordinator: TerminalSurfaceRuntimeTeardownCoordinator? =
+            TerminalSurfaceRuntimeTeardownCoordinator()
+        weak var weakCoordinator = coordinator
+
+        coordinator = nil
+
+        #expect(weakCoordinator == nil)
     }
 
     @Test func enqueuedTeardownInvokesInjectedFreeWithTheSamePointer() async throws {
