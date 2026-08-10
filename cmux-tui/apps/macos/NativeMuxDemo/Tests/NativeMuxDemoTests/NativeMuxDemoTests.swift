@@ -181,9 +181,11 @@ func focusMutationTrackerRejectsStaleRollback() {
     let first = tracker.begin(workspaceID: nil, screenID: nil)
     let second = tracker.begin(workspaceID: "workspace-a", screenID: "screen-a")
 
-    #expect(!tracker.finish(first))
+    let staleFinish = tracker.finish(first)
+    #expect(!staleFinish)
     #expect(tracker.owns(second))
-    #expect(tracker.rollback(first) == nil)
+    let staleRollback = tracker.rollback(first)
+    #expect(staleRollback == nil)
     let rollback = tracker.rollback(second)
     #expect(rollback?.workspaceID == "workspace-a")
     #expect(rollback?.screenID == "screen-a")
