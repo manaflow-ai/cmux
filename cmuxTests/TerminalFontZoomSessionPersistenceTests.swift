@@ -466,7 +466,7 @@ struct TerminalFontZoomSessionPersistenceTests {
         )
         #expect(firstWorkspace.closePanel(firstPanelID, force: true))
 
-        let secondWorkspace = manager.addTab(select: false)
+        let secondWorkspace = manager.addLocalTab(select: false)
         let secondPanelID = try #require(secondWorkspace.focusedPanelId)
         let secondPaneID = try #require(
             secondWorkspace.bonsplitController.focusedPaneId
@@ -577,7 +577,7 @@ struct TerminalFontZoomSessionPersistenceTests {
             )
         )
 
-        let secondWorkspace = manager.addTab(select: false)
+        let secondWorkspace = manager.addLocalTab(select: false)
         let secondPanelID = try #require(secondWorkspace.focusedPanelId)
         let secondPaneID = try #require(
             secondWorkspace.bonsplitController.focusedPaneId
