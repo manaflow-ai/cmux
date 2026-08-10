@@ -26,28 +26,44 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
         self.maximumOwnerCount = maximumOwnerCount
     }
 
-    func reserve(
-        recoveryID: UUID? = nil,
-        onRecovery: TerminalSurfaceRuntimeOwnershipRecovery? = nil
-    ) -> TerminalSurfaceRuntimeOwnershipReservation? {
+    func reserve() -> TerminalSurfaceRuntimeOwnershipReservation? {
         state.withLock { state in
             guard !state.closeTeardownDegraded,
                   state.reservationIDs.count < maximumOwnerCount else {
-                if let recoveryID, let onRecovery {
-                    enqueueRecoveryAction(
-                        onRecovery,
-                        id: recoveryID,
-                        in: &state
-                    )
-                }
                 return nil
-            }
-            if let recoveryID {
-                _ = removeRecoveryAction(recoveryID, from: &state)
             }
             let reservation = TerminalSurfaceRuntimeOwnershipReservation()
             state.reservationIDs.insert(reservation.id)
             return reservation
+        }
+    }
+
+    func reserve(
+        recoveryID: UUID,
+        onRecovery: @escaping TerminalSurfaceRuntimeOwnershipRecovery
+    ) -> TerminalSurfaceRuntimeOwnershipRecoveryAdmissionResult {
+        state.withLock { state in
+            if !state.closeTeardownDegraded,
+                state.reservationIDs.count < maximumOwnerCount
+            {
+                _ = removeRecoveryAction(recoveryID, from: &state)
+                let reservation = TerminalSurfaceRuntimeOwnershipReservation()
+                state.reservationIDs.insert(reservation.id)
+                return .reserved(reservation)
+            }
+            if state.recoveryEntriesByID[recoveryID] != nil {
+                state.recoveryEntriesByID[recoveryID]?.action = onRecovery
+                return .deferred
+            }
+            guard state.recoveryEntriesByID.count < maximumOwnerCount else {
+                return .rejected
+            }
+            enqueueRecoveryAction(
+                onRecovery,
+                id: recoveryID,
+                in: &state
+            )
+            return .deferred
         }
     }
 
@@ -104,10 +120,6 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
         id recoveryID: UUID,
         in state: inout TerminalSurfaceRuntimeOwnershipAdmissionState
     ) {
-        if state.recoveryEntriesByID[recoveryID] != nil {
-            state.recoveryEntriesByID[recoveryID]?.action = action
-            return
-        }
         let previousID = state.recoveryTailID
         state.recoveryEntriesByID[recoveryID] =
             TerminalSurfaceRuntimeOwnershipRecoveryEntry(

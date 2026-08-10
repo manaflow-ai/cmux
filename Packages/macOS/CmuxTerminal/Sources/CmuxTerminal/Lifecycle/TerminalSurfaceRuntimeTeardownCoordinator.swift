@@ -145,7 +145,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     nonisolated func reserveRuntimeSurfaceOwnership(
         recoveryID: UUID,
         onRecovery: @escaping TerminalSurfaceRuntimeOwnershipRecovery
-    ) -> TerminalSurfaceRuntimeOwnershipReservation? {
+    ) -> TerminalSurfaceRuntimeOwnershipRecoveryAdmissionResult {
         runtimeOwnershipAdmission.reserve(
             recoveryID: recoveryID,
             onRecovery: onRecovery

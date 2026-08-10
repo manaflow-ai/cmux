@@ -756,26 +756,33 @@ extension TerminalSurface {
             ).promoted(with: source)
         runtimeSurfaceAdmissionDeferredCreationView = view
         let teardownCoordinator = runtimeTeardown
-        guard let reservation =
-                teardownCoordinator.reserveRuntimeSurfaceOwnership(
-                    recoveryID: id,
-                    onRecovery: { [weak self, teardownCoordinator] reservation in
-                        guard let self else {
-                            teardownCoordinator.cancelRuntimeSurfaceOwnership(
-                                reservation
-                            )
-                            return
-                        }
-                        self.resumeRuntimeSurfaceCreationAfterAdmissionRecovery(
-                            reservation: reservation
+        let admissionResult =
+            teardownCoordinator.reserveRuntimeSurfaceOwnership(
+                recoveryID: id,
+                onRecovery: { [weak self, teardownCoordinator] reservation in
+                    guard let self else {
+                        teardownCoordinator.cancelRuntimeSurfaceOwnership(
+                            reservation
                         )
+                        return
                     }
-                ) else {
+                    self.resumeRuntimeSurfaceCreationAfterAdmissionRecovery(
+                        reservation: reservation
+                    )
+                }
+            )
+        switch admissionResult {
+        case .reserved(let reservation):
+            runtimeSurfaceAdmissionDeferredCreationSource = nil
+            runtimeSurfaceAdmissionDeferredCreationView = nil
+            return reservation
+        case .deferred:
+            return nil
+        case .rejected:
+            runtimeSurfaceAdmissionDeferredCreationSource = nil
+            runtimeSurfaceAdmissionDeferredCreationView = nil
             return nil
         }
-        runtimeSurfaceAdmissionDeferredCreationSource = nil
-        runtimeSurfaceAdmissionDeferredCreationView = nil
-        return reservation
     }
 
     @MainActor

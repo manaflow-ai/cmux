@@ -626,7 +626,7 @@ private func requireTeardownTicket(
                     recovery.continuation.yield(reservation)
                     recovery.continuation.finish()
                 }
-            ) == nil
+            ) == .deferred
         )
 
         releaseFrees.signal()
@@ -670,7 +670,7 @@ private func requireTeardownTicket(
             bufferingPolicy: .bufferingNewest(1)
         )
 
-        let staleReservation = admission.reserve(
+        let staleResult = admission.reserve(
             recoveryID: staleRecoveryID,
             onRecovery: { [weak staleProbe] reservation in
                 guard staleProbe != nil else {
@@ -681,7 +681,7 @@ private func requireTeardownTicket(
                 admission.release(reservation)
             }
         )
-        let nextReservation = admission.reserve(
+        let nextResult = admission.reserve(
             recoveryID: nextRecoveryID,
             onRecovery: { reservation in
                 nextRecoveryRan = true
@@ -690,8 +690,8 @@ private func requireTeardownTicket(
                 admission.release(reservation)
             }
         )
-        #expect(staleReservation == nil)
-        #expect(nextReservation == nil)
+        #expect(staleResult == .deferred)
+        #expect(nextResult == .deferred)
 
         admission.release(firstOwner)
         staleProbe = nil
@@ -718,7 +718,7 @@ private func requireTeardownTicket(
         let recoveries = AsyncStream<Void>.makeStream()
 
         for _ in 0..<3 {
-            let reservation = admission.reserve(
+            let result = admission.reserve(
                 recoveryID: UUID(),
                 onRecovery: { reservation in
                     recoveredCount += 1
@@ -726,7 +726,7 @@ private func requireTeardownTicket(
                     admission.release(reservation)
                 }
             )
-            #expect(reservation == nil)
+            #expect(result == .deferred)
         }
 
         admission.setCloseTeardownDegraded(false)
@@ -744,6 +744,91 @@ private func requireTeardownTicket(
     }
 
     @MainActor
+    @Test func recoveryAdmissionReservesImmediatelyWhenCapacityIsAvailable() {
+        let admission = TerminalSurfaceRuntimeOwnershipAdmission(
+            maximumOwnerCount: 2
+        )
+        var recoveryRan = false
+
+        let result = admission.reserve(
+            recoveryID: UUID(),
+            onRecovery: { _ in recoveryRan = true }
+        )
+        let reservation: TerminalSurfaceRuntimeOwnershipReservation
+        switch result {
+        case .reserved(let admittedReservation):
+            reservation = admittedReservation
+        case .deferred, .rejected:
+            Issue.record("available ownership did not reserve immediately")
+            return
+        }
+
+        #expect(admission.contains(reservation))
+        #expect(admission.debugOwnerCount == 1)
+        #expect(!recoveryRan)
+        admission.release(reservation)
+        #expect(admission.debugOwnerCount == 0)
+    }
+
+    @MainActor
+    @Test func queuedRecoveryRetryReservesImmediatelyWhenCapacityIsAvailable() async throws {
+        let admission = TerminalSurfaceRuntimeOwnershipAdmission(
+            maximumOwnerCount: 2
+        )
+        let firstOwner = try #require(admission.reserve())
+        let secondOwner = try #require(admission.reserve())
+        let leadingRecovery = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let recoveryID = UUID()
+        var queuedRecoveryRan = false
+        var retryRecoveryRan = false
+
+        #expect(
+            admission.reserve(
+                recoveryID: UUID(),
+                onRecovery: { reservation in
+                    admission.release(reservation)
+                    leadingRecovery.continuation.yield()
+                    leadingRecovery.continuation.finish()
+                }
+            ) == .deferred
+        )
+        #expect(
+            admission.reserve(
+                recoveryID: recoveryID,
+                onRecovery: { reservation in
+                    queuedRecoveryRan = true
+                    admission.release(reservation)
+                }
+            ) == .deferred
+        )
+
+        admission.release(firstOwner)
+        admission.release(secondOwner)
+        let retryResult = admission.reserve(
+            recoveryID: recoveryID,
+            onRecovery: { _ in retryRecoveryRan = true }
+        )
+        let retryReservation: TerminalSurfaceRuntimeOwnershipReservation
+        switch retryResult {
+        case .reserved(let reservation):
+            retryReservation = reservation
+        case .deferred, .rejected:
+            Issue.record("available same-ID retry did not reserve immediately")
+            return
+        }
+
+        #expect(admission.contains(retryReservation))
+        #expect(!queuedRecoveryRan)
+        #expect(!retryRecoveryRan)
+        admission.release(retryReservation)
+        var leadingRecoveryIterator = leadingRecovery.stream.makeAsyncIterator()
+        _ = await leadingRecoveryIterator.next()
+        #expect(admission.debugOwnerCount == 0)
+    }
+
+    @MainActor
     @Test func recoveryQueueRejectsNewIDsAtOwnershipCapacity() async throws {
         let admission = TerminalSurfaceRuntimeOwnershipAdmission(
             maximumOwnerCount: 2
@@ -753,26 +838,41 @@ private func requireTeardownTicket(
         let recoveries = AsyncStream<Int>.makeStream(
             bufferingPolicy: .bufferingNewest(2)
         )
+        let firstRecoveryID = UUID()
+        let secondRecoveryID = UUID()
+        var replacedRecoveryRan = false
         var thirdRecoveryRan = false
 
-        for index in 0..<3 {
-            let reservation = admission.reserve(
-                recoveryID: UUID(),
-                onRecovery: { reservation in
-                    if index == 2 {
-                        thirdRecoveryRan = true
-                    }
-                    admission.release(reservation)
-                    if index < 2 {
-                        recoveries.continuation.yield(index)
-                        if index == 1 {
-                            recoveries.continuation.finish()
-                        }
-                    }
-                }
-            )
-            #expect(reservation == nil)
-        }
+        let firstResult = admission.reserve(
+            recoveryID: firstRecoveryID,
+            onRecovery: { _ in replacedRecoveryRan = true }
+        )
+        #expect(firstResult == .deferred)
+        let replacementResult = admission.reserve(
+            recoveryID: firstRecoveryID,
+            onRecovery: { reservation in
+                admission.release(reservation)
+                recoveries.continuation.yield(0)
+            }
+        )
+        #expect(replacementResult == .deferred)
+        let secondResult = admission.reserve(
+            recoveryID: secondRecoveryID,
+            onRecovery: { reservation in
+                admission.release(reservation)
+                recoveries.continuation.yield(1)
+                recoveries.continuation.finish()
+            }
+        )
+        #expect(secondResult == .deferred)
+        let thirdResult = admission.reserve(
+            recoveryID: UUID(),
+            onRecovery: { reservation in
+                thirdRecoveryRan = true
+                admission.release(reservation)
+            }
+        )
+        #expect(thirdResult == .rejected)
 
         admission.release(firstOwner)
         var recoveryIterator = recoveries.stream.makeAsyncIterator()
@@ -781,6 +881,10 @@ private func requireTeardownTicket(
         #expect(
             admission.debugOwnerCount == 1,
             "a third recovery reservation exceeded the bounded owner count"
+        )
+        #expect(
+            !replacedRecoveryRan,
+            "same-ID recovery replacement retained the prior action"
         )
         #expect(
             !thirdRecoveryRan,
