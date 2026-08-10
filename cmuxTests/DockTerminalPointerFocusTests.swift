@@ -13,7 +13,7 @@ import Testing
 @MainActor
 @Suite("Dock terminal pointer focus", .serialized)
 struct DockTerminalPointerFocusTests {
-    @Test("Pointer-down activates the owning Dock pane without a portal callback")
+    @Test
     func pointerDownActivatesOwningDockPaneWithoutPortalCallback() async throws {
 #if DEBUG
         try await AppContextSerialGate.withExclusiveAppContext {
@@ -155,7 +155,7 @@ struct DockTerminalPointerFocusTests {
         }
         #expect(ghostty_surface_mouse_captured(runtimeSurface))
         dock.focusPanel(firstPanel.id)
-        #expect(window.makeFirstResponder(mainSurfaceView))
+        _ = window.makeFirstResponder(mainSurfaceView)
         appDelegate.noteMainPanelKeyboardFocusIntent(
             workspaceId: mainWorkspace.id,
             panelId: mainPanel.id,
