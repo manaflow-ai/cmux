@@ -483,6 +483,12 @@ jobs:
           python cmux-tui/scripts/smoke-windows-long-state-path.py \
             --binary cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe
 
+      - name: Verify Windows terminal process exit
+        shell: bash
+        run: |
+          python cmux-tui/scripts/smoke-windows-process-wait.py \
+            --binary cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe
+
       - name: Verify remote commands fail clearly on Windows
         shell: bash
         run: |
