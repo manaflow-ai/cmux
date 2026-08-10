@@ -130,11 +130,18 @@ public struct BackendTerminalLaunch: Equatable, Sendable {
             field: "initialInput",
             maximumBytes: Self.maximumInitialInputBytes
         )
-        let aggregateBytes = (workingDirectory?.utf8.count ?? 0)
-            + (command?.utf8.count ?? 0)
-            + (arguments ?? []).reduce(0) { $0 + $1.utf8.count }
-            + environment.reduce(0) { $0 + $1.key.utf8.count + $1.value.utf8.count }
-            + (initialInput?.utf8.count ?? 0)
+        let workingDirectoryBytes = workingDirectory?.utf8.count ?? 0
+        let commandBytes = command?.utf8.count ?? 0
+        let argumentBytes = (arguments ?? []).reduce(0) { $0 + $1.utf8.count }
+        let environmentBytes = environment.reduce(0) {
+            $0 + $1.key.utf8.count + $1.value.utf8.count
+        }
+        let initialInputBytes = initialInput?.utf8.count ?? 0
+        let aggregateBytes = workingDirectoryBytes
+            + commandBytes
+            + argumentBytes
+            + environmentBytes
+            + initialInputBytes
         guard aggregateBytes <= Self.maximumAggregateBytes else {
             throw BackendTerminalLaunchValidationError.aggregatePayloadTooLarge
         }
