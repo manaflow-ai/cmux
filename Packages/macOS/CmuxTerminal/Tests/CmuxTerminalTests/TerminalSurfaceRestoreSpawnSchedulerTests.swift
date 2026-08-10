@@ -453,6 +453,204 @@ import CmuxTerminalCore
         #expect(registry.allSurfacesCallCount == 0)
     }
 
+    @Test func overflowCancellationChurnEmptiesIndexAndLinkedOrder() {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: 1
+        )
+        let fixture = makeSurfaceFixture(
+            registry: FakeSurfaceRegistry(),
+            scheduler: RecordingRestoreSpawnScheduler(),
+            runtimeTeardown: coordinator
+        )
+        var previousSequence: UInt64 = 0
+
+        for _ in 0..<(32 * 2 + 1) {
+            let surfaceID = UUID()
+            let sequence = coordinator
+                .registerRuntimeSurfaceOwnershipRecoveryOverflow(
+                    surfaceID: surfaceID,
+                    surface: fixture.surface
+                )
+            #expect(sequence > previousSequence)
+            previousSequence = sequence
+            coordinator.cancelRuntimeSurfaceOwnershipRecoveryOverflow(
+                surfaceID: surfaceID
+            )
+        }
+
+        let emptySnapshot =
+            coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
+        #expect(emptySnapshot.entryCount == 0)
+        #expect(emptySnapshot.linkedNodeCount == 0)
+        #expect(emptySnapshot.headID == nil)
+        #expect(emptySnapshot.tailID == nil)
+
+        let repeatedID = UUID()
+        let firstSequence = coordinator
+            .registerRuntimeSurfaceOwnershipRecoveryOverflow(
+                surfaceID: repeatedID,
+                surface: fixture.surface
+            )
+        let updatedSequence = coordinator
+            .registerRuntimeSurfaceOwnershipRecoveryOverflow(
+                surfaceID: repeatedID,
+                surface: fixture.surface
+            )
+        let updatedSnapshot =
+            coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
+        #expect(updatedSequence == firstSequence)
+        #expect(updatedSnapshot.entryCount == 1)
+        #expect(updatedSnapshot.linkedNodeCount == 1)
+        #expect(updatedSnapshot.headID == repeatedID)
+        #expect(updatedSnapshot.tailID == repeatedID)
+
+        coordinator.cancelRuntimeSurfaceOwnershipRecoveryOverflow(
+            surfaceID: repeatedID
+        )
+        let replacementSequence = coordinator
+            .registerRuntimeSurfaceOwnershipRecoveryOverflow(
+                surfaceID: repeatedID,
+                surface: fixture.surface
+            )
+        #expect(replacementSequence > firstSequence)
+        coordinator.cancelRuntimeSurfaceOwnershipRecoveryOverflow(
+            surfaceID: repeatedID
+        )
+
+        let finalSnapshot =
+            coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
+        #expect(finalSnapshot.entryCount == 0)
+        #expect(finalSnapshot.linkedNodeCount == 0)
+        #expect(finalSnapshot.headID == nil)
+        #expect(finalSnapshot.tailID == nil)
+    }
+
+    @Test func lifecycleCancellationSynchronouslyRemovesOverflowEntries() throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: 1
+        )
+        let saturation = try saturateRuntimeOwnershipRecovery(
+            coordinator,
+            count: 1
+        )
+        defer {
+            releaseRuntimeOwnershipSaturation(saturation, from: coordinator)
+        }
+        let registry = FakeSurfaceRegistry()
+        let scheduler = RecordingRestoreSpawnScheduler()
+
+        let closing = makeSurfaceFixture(
+            registry: registry,
+            scheduler: scheduler,
+            runtimeTeardown: coordinator
+        )
+        closing.surface.createSurface(for: closing.nativeView)
+        scheduler.runScheduledOperation(at: 0)
+        #expect(
+            coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
+                .entryCount == 1
+        )
+        closing.surface.beginPortalCloseLifecycle(reason: "test.overflowClose")
+        assertOverflowStorageIsEmpty(coordinator)
+
+        let hibernating = makeSurfaceFixture(
+            registry: registry,
+            scheduler: scheduler,
+            runtimeTeardown: coordinator
+        )
+        hibernating.surface.createSurface(for: hibernating.nativeView)
+        scheduler.runScheduledOperation(at: 1)
+        #expect(
+            coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
+                .entryCount == 1
+        )
+        #expect(
+            hibernating.surface.suspendRuntimeSurfaceForAgentHibernation(
+                reason: "test.overflowHibernate"
+            )
+        )
+        assertOverflowStorageIsEmpty(coordinator)
+
+        let deinitView = FakeTerminalSurfaceNativeView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        var deinitializing: TerminalSurface? = makeSurface(
+            scheduler: scheduler,
+            nativeView: deinitView,
+            paneHost: FakeTerminalSurfacePaneHost(surfaceView: deinitView),
+            registry: registry,
+            runtimeTeardown: coordinator
+        )
+        deinitializing?.agentCommandShimInstallCompleted = true
+        deinitializing?.createSurface(for: deinitView)
+        scheduler.runScheduledOperation(at: 2)
+        #expect(
+            coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
+                .entryCount == 1
+        )
+        weak var weakDeinitializing = deinitializing
+        deinitializing = nil
+        #expect(weakDeinitializing == nil)
+        assertOverflowStorageIsEmpty(coordinator)
+    }
+
+    @Test func overflowCancelAfterCapacitySignalLeavesOnlyLiveFIFOHead() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: 1
+        )
+        let saturation = try saturateRuntimeOwnershipRecovery(
+            coordinator,
+            count: 1
+        )
+        defer {
+            releaseRuntimeOwnershipSaturation(saturation, from: coordinator)
+        }
+        let registry = FakeSurfaceRegistry()
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let cancelled = makeSurfaceFixture(
+            registry: registry,
+            scheduler: scheduler,
+            runtimeTeardown: coordinator
+        )
+        let sentinel = makeSurfaceFixture(
+            registry: registry,
+            scheduler: scheduler,
+            runtimeTeardown: coordinator
+        )
+
+        for (index, fixture) in [cancelled, sentinel].enumerated() {
+            fixture.surface.createSurface(for: fixture.nativeView)
+            scheduler.runScheduledOperation(at: index)
+        }
+        let queuedSnapshot =
+            coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
+        #expect(queuedSnapshot.entryCount == 2)
+        #expect(queuedSnapshot.linkedNodeCount == 2)
+        #expect(queuedSnapshot.headID == cancelled.surface.id)
+        #expect(queuedSnapshot.tailID == sentinel.surface.id)
+
+        coordinator.cancelRuntimeSurfaceOwnership(saturation.owners[0])
+        cancelled.surface.beginPortalCloseLifecycle(
+            reason: "test.cancelAfterCapacitySignal"
+        )
+        let cancelledSnapshot =
+            coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
+        #expect(cancelledSnapshot.entryCount == 1)
+        #expect(cancelledSnapshot.linkedNodeCount == 1)
+        #expect(cancelledSnapshot.headID == sentinel.surface.id)
+        #expect(cancelledSnapshot.tailID == sentinel.surface.id)
+
+        await scheduler.waitForScheduledCount(3)
+        #expect(
+            scheduler.scheduledSurfaceIds == [
+                cancelled.surface.id,
+                sentinel.surface.id,
+                sentinel.surface.id,
+            ]
+        )
+        assertOverflowStorageIsEmpty(coordinator)
+    }
+
     @Test func overflowStoreSurvivesImmediateRecoveryCapacityRelease() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
             maximumRuntimeSurfaceOwnerCount: 2
@@ -941,5 +1139,16 @@ import CmuxTerminalCore
         for owner in saturation.owners {
             coordinator.cancelRuntimeSurfaceOwnership(owner)
         }
+    }
+
+    private func assertOverflowStorageIsEmpty(
+        _ coordinator: TerminalSurfaceRuntimeTeardownCoordinator
+    ) {
+        let snapshot =
+            coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
+        #expect(snapshot.entryCount == 0)
+        #expect(snapshot.linkedNodeCount == 0)
+        #expect(snapshot.headID == nil)
+        #expect(snapshot.tailID == nil)
     }
 }

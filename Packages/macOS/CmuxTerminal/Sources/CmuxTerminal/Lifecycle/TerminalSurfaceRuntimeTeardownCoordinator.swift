@@ -142,6 +142,17 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         recoveryRescanScheduler.requestRescan()
     }
 
+#if DEBUG
+    nonisolated var debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot: (
+        entryCount: Int,
+        linkedNodeCount: Int,
+        headID: UUID?,
+        tailID: UUID?
+    ) {
+        recoveryRescanScheduler.debugSnapshot
+    }
+#endif
+
     nonisolated func claimRuntimeSurfaceOwnershipRecoveryCapacity()
         -> TerminalSurfaceRuntimeOwnershipRecoveryCapacityReservation? {
         runtimeOwnershipAdmission.claimRecoveryCapacity()

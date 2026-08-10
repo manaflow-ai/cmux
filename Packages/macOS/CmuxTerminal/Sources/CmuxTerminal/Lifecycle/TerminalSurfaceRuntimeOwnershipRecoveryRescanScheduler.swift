@@ -32,6 +32,8 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
 
   private struct State {
     var nextSequence: UInt64 = 0
+    // Every indexed entry is one linked FIFO node. Synchronous cancellation
+    // removes both views under this lock, so no weak tombstone survives.
     var entriesByID: [UUID: OverflowEntry] = [:]
     var headID: UUID?
     var tailID: UUID?
@@ -40,6 +42,31 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
   }
 
   private let state = OSAllocatedUnfairLock(initialState: State())
+
+  #if DEBUG
+    internal var debugSnapshot:
+      (
+        entryCount: Int,
+        linkedNodeCount: Int,
+        headID: UUID?,
+        tailID: UUID?
+      )
+    {
+      state.withLock { state in
+        var linkedIDs = Set<UUID>()
+        var currentID = state.headID
+        while let nodeID = currentID, linkedIDs.insert(nodeID).inserted {
+          currentID = state.entriesByID[nodeID]?.nextID
+        }
+        return (
+          entryCount: state.entriesByID.count,
+          linkedNodeCount: linkedIDs.count,
+          headID: state.headID,
+          tailID: state.tailID
+        )
+      }
+    }
+  #endif
 
   internal func registerOverflow(
     surfaceID: UUID,
