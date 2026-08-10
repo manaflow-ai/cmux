@@ -4,6 +4,7 @@ mod process;
 mod report;
 
 use std::str::FromStr;
+use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
 use serde::Serialize;
@@ -15,6 +16,51 @@ pub use report::{
     ComparisonReport, HostMetadata, Pair, ProfileReport, SampleSet, ScenarioReport, SignedSummary,
     TargetMetadata, now_unix_ms,
 };
+
+#[derive(Debug, Clone, Copy)]
+pub struct SuiteDeadline {
+    expires_at: Option<Instant>,
+}
+
+impl SuiteDeadline {
+    pub fn at(expires_at: Instant) -> Self {
+        Self { expires_at: Some(expires_at) }
+    }
+
+    pub fn unbounded() -> Self {
+        // This removes only the suite cap. Each operation still supplies its
+        // fixed local limit, which bounds failure cleanup.
+        Self { expires_at: None }
+    }
+
+    pub fn ensure(self, operation: &str) -> Result<()> {
+        self.timeout(Duration::MAX, operation).map(|_| ())
+    }
+
+    pub fn timeout(self, maximum: Duration, operation: &str) -> Result<Duration> {
+        self.timeout_at(Instant::now(), maximum, operation)
+    }
+
+    pub fn instant(self, maximum: Duration, operation: &str) -> Result<Instant> {
+        self.instant_at(Instant::now(), maximum, operation)
+    }
+
+    fn instant_at(self, now: Instant, maximum: Duration, operation: &str) -> Result<Instant> {
+        now.checked_add(self.timeout_at(now, maximum, operation)?)
+            .ok_or_else(|| anyhow::anyhow!("{operation} deadline overflow"))
+    }
+
+    fn timeout_at(self, now: Instant, maximum: Duration, operation: &str) -> Result<Duration> {
+        let Some(expires_at) = self.expires_at else {
+            return Ok(maximum);
+        };
+        let remaining = expires_at.checked_duration_since(now).filter(|value| !value.is_zero());
+        match remaining {
+            Some(remaining) => Ok(remaining.min(maximum)),
+            None => bail!("benchmark suite deadline expired while {operation}"),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -182,4 +228,41 @@ pub struct RunResult {
 
 fn duration_ns(duration: std::time::Duration) -> Result<u64> {
     u64::try_from(duration.as_nanos()).map_err(Into::into)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn suite_deadline_caps_each_blocking_wait_to_remaining_time() {
+        let now = Instant::now();
+        let deadline = SuiteDeadline::at(now + Duration::from_secs(7));
+
+        assert_eq!(
+            deadline.timeout_at(now, Duration::from_secs(30), "test wait").unwrap(),
+            Duration::from_secs(7)
+        );
+        assert_eq!(
+            deadline.timeout_at(now, Duration::from_secs(3), "test wait").unwrap(),
+            Duration::from_secs(3)
+        );
+        assert_eq!(
+            deadline.instant_at(now, Duration::from_secs(30), "test wait").unwrap(),
+            now + Duration::from_secs(7)
+        );
+        assert!(
+            deadline.timeout_at(now + Duration::from_secs(7), Duration::MAX, "test wait").is_err()
+        );
+    }
+
+    #[test]
+    fn unbounded_deadline_preserves_the_operation_cleanup_limit() {
+        assert_eq!(
+            SuiteDeadline::unbounded()
+                .timeout_at(Instant::now(), Duration::from_secs(30), "cleanup")
+                .unwrap(),
+            Duration::from_secs(30)
+        );
+    }
 }

@@ -9,7 +9,7 @@ use anyhow::{Context, Result, bail};
 use startup_benchmark_support::{
     Args, ComparisonReport, Evidence, Fixture, HostMetadata, LifecycleRecorder, Pair, PhaseMetric,
     ProfileReport, RunPhases, SampleKind, SampleSet, Scenario, ScenarioReport, SignedSummary,
-    Target, TargetKind, TargetMetadata, now_unix_ms, run_sample,
+    SuiteDeadline, Target, TargetKind, TargetMetadata, now_unix_ms, run_sample,
 };
 
 fn main() {
@@ -66,11 +66,13 @@ fn run_profile(args: &Args, target: Target, scenario: Scenario) -> Result<()> {
     let mut lifecycle =
         LifecycleRecorder::new(args.fixture_parent.clone(), args.output_dir.clone())?;
     let prepare_started = std::time::Instant::now();
-    let mut fixture = Fixture::new(target.clone(), scenario, true, lifecycle.fixture_parent())
-        .with_context(|| format!("prepare {} {scenario:?} profile", target.kind.as_str()))?;
+    let deadline = SuiteDeadline::unbounded();
+    let mut fixture =
+        Fixture::new(target.clone(), scenario, true, lifecycle.fixture_parent(), deadline)
+            .with_context(|| format!("prepare {} {scenario:?} profile", target.kind.as_str()))?;
     let prepare = PhaseMetric::completed(prepare_started.elapsed())?;
     let mut evidence = fixture.setup_evidence();
-    let mut result = run_sample(&mut fixture)
+    let mut result = run_sample(&mut fixture, deadline)
         .with_context(|| format!("run {} {scenario:?} profile", target.kind.as_str()))?;
     evidence.add(&result.evidence);
     evidence.samples_completed += 1;
@@ -107,9 +109,11 @@ fn run_comparison(args: Args, baseline: Target, candidate: Target) -> Result<()>
     let candidate_metadata = TargetMetadata::collect(&candidate)?;
     let mut lifecycle =
         LifecycleRecorder::new(args.fixture_parent.clone(), args.output_dir.clone())?;
-    let suite_deadline = Instant::now()
-        .checked_add(Duration::from_secs(u64::try_from(args.suite_deadline_seconds)?))
-        .context("benchmark suite deadline overflow")?;
+    let suite_deadline = SuiteDeadline::at(
+        Instant::now()
+            .checked_add(Duration::from_secs(u64::try_from(args.suite_deadline_seconds)?))
+            .context("benchmark suite deadline overflow")?,
+    );
     let mut scenarios = Vec::new();
     for scenario in Scenario::ALL {
         scenarios.push(
@@ -148,17 +152,25 @@ fn compare_scenario(
     baseline: Target,
     candidate: Target,
     scenario: Scenario,
-    suite_deadline: Instant,
+    suite_deadline: SuiteDeadline,
     lifecycle: &mut LifecycleRecorder,
 ) -> Result<ScenarioReport> {
-    let mut baseline = ScenarioTarget::new(baseline, scenario, lifecycle)?;
-    let mut candidate = ScenarioTarget::new(candidate, scenario, lifecycle)?;
+    let mut baseline = ScenarioTarget::new(baseline, scenario, lifecycle, suite_deadline)?;
+    let mut candidate = ScenarioTarget::new(candidate, scenario, lifecycle, suite_deadline)?;
 
     for index in 0..args.warmups {
         ensure_suite_deadline(suite_deadline, scenario, SampleKind::Warmup, index)?;
         let first = if index % 2 == 0 { TargetKind::Baseline } else { TargetKind::Candidate };
-        run_pair(first, SampleKind::Warmup, index, &mut baseline, &mut candidate, lifecycle)
-            .with_context(|| format!("warmup pair {index}"))?;
+        run_pair(
+            first,
+            SampleKind::Warmup,
+            index,
+            &mut baseline,
+            &mut candidate,
+            lifecycle,
+            suite_deadline,
+        )
+        .with_context(|| format!("warmup pair {index}"))?;
         ensure_suite_deadline(suite_deadline, scenario, SampleKind::Warmup, index)?;
         baseline.evidence.warmups_completed += 1;
         candidate.evidence.warmups_completed += 1;
@@ -170,9 +182,16 @@ fn compare_scenario(
     for index in 0..args.samples {
         ensure_suite_deadline(suite_deadline, scenario, SampleKind::Measured, index)?;
         let first = if index % 2 == 0 { TargetKind::Baseline } else { TargetKind::Candidate };
-        let (baseline_result, candidate_result) =
-            run_pair(first, SampleKind::Measured, index, &mut baseline, &mut candidate, lifecycle)
-                .with_context(|| format!("measured pair {index}"))?;
+        let (baseline_result, candidate_result) = run_pair(
+            first,
+            SampleKind::Measured,
+            index,
+            &mut baseline,
+            &mut candidate,
+            lifecycle,
+            suite_deadline,
+        )
+        .with_context(|| format!("measured pair {index}"))?;
         ensure_suite_deadline(suite_deadline, scenario, SampleKind::Measured, index)?;
         baseline.evidence.samples_completed += 1;
         candidate.evidence.samples_completed += 1;
@@ -208,19 +227,16 @@ fn compare_scenario(
 }
 
 fn ensure_suite_deadline(
-    deadline: Instant,
+    deadline: SuiteDeadline,
     scenario: Scenario,
     kind: SampleKind,
     index: usize,
 ) -> Result<()> {
-    if Instant::now() >= deadline {
-        bail!(
-            "benchmark suite deadline expired at the boundary of {} {} pair {index}",
-            scenario.as_str(),
-            kind.as_str(),
-        );
-    }
-    Ok(())
+    deadline.ensure(&format!(
+        "checking the boundary of {} {} pair {index}",
+        scenario.as_str(),
+        kind.as_str(),
+    ))
 }
 
 struct ScenarioTarget {
@@ -231,11 +247,24 @@ struct ScenarioTarget {
 }
 
 impl ScenarioTarget {
-    fn new(target: Target, scenario: Scenario, lifecycle: &mut LifecycleRecorder) -> Result<Self> {
+    fn new(
+        target: Target,
+        scenario: Scenario,
+        lifecycle: &mut LifecycleRecorder,
+        deadline: SuiteDeadline,
+    ) -> Result<Self> {
         let prepare_started = std::time::Instant::now();
         let fixture =
             matches!(scenario, Scenario::Warm | Scenario::Restored | Scenario::Incompatible)
-                .then(|| Fixture::new(target.clone(), scenario, false, lifecycle.fixture_parent()))
+                .then(|| {
+                    Fixture::new(
+                        target.clone(),
+                        scenario,
+                        false,
+                        lifecycle.fixture_parent(),
+                        deadline,
+                    )
+                })
                 .transpose()?;
         if fixture.is_some() {
             lifecycle.record_fixture(
@@ -255,19 +284,25 @@ impl ScenarioTarget {
     fn run(
         &mut self,
         recorder: &mut LifecycleRecorder,
+        deadline: SuiteDeadline,
     ) -> Result<startup_benchmark_support::RunResult> {
         if let Some(fixture) = self.fixture.as_mut() {
-            let result = run_sample(fixture)?;
+            let result = run_sample(fixture, deadline)?;
             self.evidence.add(&result.evidence);
             return Ok(result);
         }
 
         let prepare_started = std::time::Instant::now();
-        let mut fixture =
-            Fixture::new(self.target.clone(), self.scenario, false, recorder.fixture_parent())?;
+        let mut fixture = Fixture::new(
+            self.target.clone(),
+            self.scenario,
+            false,
+            recorder.fixture_parent(),
+            deadline,
+        )?;
         let prepare = PhaseMetric::completed(prepare_started.elapsed())?;
         self.evidence.add(&fixture.setup_evidence());
-        let result = run_sample(&mut fixture);
+        let result = run_sample(&mut fixture, deadline);
         let cleanup_started = std::time::Instant::now();
         let cleanup = fixture.cleanup();
         let cleanup_duration = cleanup_started.elapsed();
@@ -320,16 +355,17 @@ fn run_pair(
     baseline: &mut ScenarioTarget,
     candidate: &mut ScenarioTarget,
     recorder: &mut LifecycleRecorder,
+    deadline: SuiteDeadline,
 ) -> Result<(startup_benchmark_support::RunResult, startup_benchmark_support::RunResult)> {
     let (baseline_result, candidate_result) = match first {
         TargetKind::Baseline => {
-            let baseline = baseline.run(recorder).context("run baseline")?;
-            let candidate = candidate.run(recorder).context("run candidate")?;
+            let baseline = baseline.run(recorder, deadline).context("run baseline")?;
+            let candidate = candidate.run(recorder, deadline).context("run candidate")?;
             (baseline, candidate)
         }
         TargetKind::Candidate => {
-            let candidate = candidate.run(recorder).context("run candidate")?;
-            let baseline = baseline.run(recorder).context("run baseline")?;
+            let candidate = candidate.run(recorder, deadline).context("run candidate")?;
+            let baseline = baseline.run(recorder, deadline).context("run baseline")?;
             (baseline, candidate)
         }
     };

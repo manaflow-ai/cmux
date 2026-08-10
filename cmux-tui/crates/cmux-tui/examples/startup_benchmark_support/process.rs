@@ -18,8 +18,8 @@ use wait_timeout::ChildExt;
 
 use super::lifecycle::FixtureRoot;
 use super::{
-    Evidence, LifecycleRecorder, PhaseMetric, RunPhases, RunResult, Scenario, TargetKind,
-    duration_ns,
+    Evidence, LifecycleRecorder, PhaseMetric, RunPhases, RunResult, Scenario, SuiteDeadline,
+    TargetKind, duration_ns,
 };
 
 const EVENT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -104,7 +104,9 @@ impl Fixture {
         scenario: Scenario,
         wrap_measured_process: bool,
         fixture_parent: &Path,
+        deadline: SuiteDeadline,
     ) -> Result<Self> {
+        deadline.ensure("preparing a startup fixture")?;
         let mut common = Common::new(target, scenario, wrap_measured_process, fixture_parent)?;
         match scenario {
             Scenario::Cold => Ok(Self::Cold(common)),
@@ -113,9 +115,9 @@ impl Fixture {
                 let socket = common.path("warm.sock");
                 let session = common.session_name("warm");
                 let args = headless_args(&session, &socket, None);
-                let mut server = RunningHeadless::start(&common, args, &socket, false)?;
-                server.wait_ready()?;
-                assert_ping(&common, &socket)?;
+                let mut server = RunningHeadless::start(&common, args, &socket, false, deadline)?;
+                server.wait_ready(deadline)?;
+                assert_ping(&common, &socket, deadline)?;
                 common.setup_evidence.readiness_lines += 1;
                 common.setup_evidence.socket_rpcs += 1;
                 Ok(Self::Warm { common, server })
@@ -126,21 +128,22 @@ impl Fixture {
                 let socket = common.path("restored-setup.sock");
                 let session = common.session_name("restored");
                 let args = headless_args(&session, &socket, Some(&state));
-                let mut server = RunningHeadless::start(&common, args, &socket, false)?;
-                server.wait_ready()?;
-                assert_ping(&common, &socket)?;
+                let mut server = RunningHeadless::start(&common, args, &socket, false, deadline)?;
+                server.wait_ready(deadline)?;
+                assert_ping(&common, &socket, deadline)?;
                 let created = json_cli(
                     &common,
                     &socket,
                     &["workspace", "create", "--name", "bench-restored"],
+                    deadline,
                 )?;
                 let terminal_id = find_key_string(&created, "terminal_id")
                     .context("workspace create did not return a terminal_id")?;
-                let topology = json_cli(&common, &socket, &["terminal", "list"])?;
+                let topology = json_cli(&common, &socket, &["terminal", "list"], deadline)?;
                 if !terminal_list_contains_id(&topology, &terminal_id) {
                     bail!("restored fixture terminal list omitted {terminal_id}");
                 }
-                server.shutdown_and_wait(&common)?;
+                server.shutdown_and_wait(&common, deadline)?;
                 common.setup_evidence.readiness_lines += 1;
                 common.setup_evidence.socket_rpcs += 4;
                 common.setup_evidence.process_exits += 1;
@@ -152,10 +155,10 @@ impl Fixture {
                 let socket = common.path("incompatible-setup.sock");
                 let session = common.session_name("incompatible");
                 let args = headless_args(&session, &socket, Some(&state));
-                let mut server = RunningHeadless::start(&common, args, &socket, false)?;
-                server.wait_ready()?;
-                assert_ping(&common, &socket)?;
-                server.shutdown_and_wait(&common)?;
+                let mut server = RunningHeadless::start(&common, args, &socket, false, deadline)?;
+                server.wait_ready(deadline)?;
+                assert_ping(&common, &socket, deadline)?;
+                server.shutdown_and_wait(&common, deadline)?;
                 let database = find_named_file(&state, "workspace-registry.sqlite3")?
                     .context("valid state did not create workspace-registry.sqlite3")?;
                 let connection = Connection::open(&database)?;
@@ -194,10 +197,11 @@ impl Fixture {
     }
 
     pub fn cleanup(&mut self) -> Result<Evidence> {
+        let deadline = SuiteDeadline::unbounded();
         let mut evidence = Evidence::default();
         match self {
             Self::Warm { common, server } => {
-                server.shutdown_and_wait(common)?;
+                server.shutdown_and_wait(common, deadline)?;
                 evidence.socket_rpcs += 1;
                 evidence.process_exits += 1;
             }
@@ -205,10 +209,10 @@ impl Fixture {
                 let socket = common.path("restored-cleanup.sock");
                 let session = common.session_name("restored");
                 let args = headless_args(&session, &socket, Some(state));
-                let mut server = RunningHeadless::start(common, args, &socket, false)?;
-                server.wait_ready()?;
-                json_cli(common, &socket, &["terminal", terminal_id, "close"])?;
-                server.shutdown_and_wait(common)?;
+                let mut server = RunningHeadless::start(common, args, &socket, false, deadline)?;
+                server.wait_ready(deadline)?;
+                json_cli(common, &socket, &["terminal", terminal_id, "close"], deadline)?;
+                server.shutdown_and_wait(common, deadline)?;
                 evidence.readiness_lines += 1;
                 evidence.socket_rpcs += 2;
                 evidence.process_exits += 1;
@@ -242,16 +246,17 @@ impl Fixture {
     }
 }
 
-pub fn run_sample(fixture: &mut Fixture) -> Result<RunResult> {
+pub fn run_sample(fixture: &mut Fixture, deadline: SuiteDeadline) -> Result<RunResult> {
+    deadline.ensure("starting a startup sample")?;
     match fixture {
-        Fixture::Cold(common) => run_cold(common),
-        Fixture::Warm { common, server } => run_warm(common, server),
-        Fixture::Headless(common) => run_headless(common),
+        Fixture::Cold(common) => run_cold(common, deadline),
+        Fixture::Warm { common, server } => run_warm(common, server, deadline),
+        Fixture::Headless(common) => run_headless(common, deadline),
         Fixture::Restored { common, state, terminal_id } => {
-            run_restored(common, state, terminal_id)
+            run_restored(common, state, terminal_id, deadline)
         }
         Fixture::Incompatible { common, state, database, expected } => {
-            run_incompatible(common, state, database, expected)
+            run_incompatible(common, state, database, expected, deadline)
         }
     }
 }
@@ -389,7 +394,7 @@ fn copy_base_environment(mut set: impl FnMut(String, String)) {
     }
 }
 
-fn run_cold(common: &mut Common) -> Result<RunResult> {
+fn run_cold(common: &mut Common, deadline: SuiteDeadline) -> Result<RunResult> {
     let (run, id) = common.next_path()?;
     let socket = run.join("mux.sock");
     let session = format!("{}-{id:020}", common.session_name("cold"));
@@ -401,10 +406,14 @@ fn run_cold(common: &mut Common) -> Result<RunResult> {
         "--socket".into(),
         socket.to_string_lossy().into_owned(),
     ];
-    run_pty(common, args, marker, Some(&socket))
+    run_pty(common, args, marker, Some(&socket), deadline)
 }
 
-fn run_warm(common: &mut Common, _server: &mut RunningHeadless) -> Result<RunResult> {
+fn run_warm(
+    common: &mut Common,
+    _server: &mut RunningHeadless,
+    deadline: SuiteDeadline,
+) -> Result<RunResult> {
     let session = common.session_name("warm");
     let marker = format!("[{session}] ");
     let socket = common.path("warm.sock");
@@ -415,7 +424,7 @@ fn run_warm(common: &mut Common, _server: &mut RunningHeadless) -> Result<RunRes
         "--socket".into(),
         socket.to_string_lossy().into_owned(),
     ];
-    run_pty(common, args, marker, None)
+    run_pty(common, args, marker, None, deadline)
 }
 
 fn run_pty(
@@ -423,7 +432,9 @@ fn run_pty(
     args: Vec<String>,
     marker: String,
     ping_socket: Option<&Path>,
+    deadline: SuiteDeadline,
 ) -> Result<RunResult> {
+    deadline.ensure("spawning an interactive startup process")?;
     let pair = cmux_pty::open(PtySize { rows: 24, cols: 80, pixel_width: 640, pixel_height: 384 })?;
     let command = common.pty_command(&args, common.wrap_measured_process)?;
     let started = Instant::now();
@@ -484,10 +495,14 @@ fn run_pty(
         reader_cancelled,
     };
 
-    let observed_at = match event_receiver.recv_timeout(EVENT_TIMEOUT) {
+    let event_timeout = match deadline.timeout(EVENT_TIMEOUT, "waiting for the PTY render event") {
+        Ok(timeout) => timeout,
+        Err(error) => return runtime.fail(error),
+    };
+    let observed_at = match event_receiver.recv_timeout(event_timeout) {
         Ok(PtyEvent::Marker(at)) => at,
         Ok(PtyEvent::Ended) => {
-            let (_, reader, _) = runtime.finish(false, PROCESS_TIMEOUT)?;
+            let (_, reader, _) = runtime.finish(false, SuiteDeadline::unbounded())?;
             return Err(runtime.failure_with_diagnostic(anyhow!(
                 "PTY ended before render marker: {}",
                 String::from_utf8_lossy(&reader.output)
@@ -498,7 +513,7 @@ fn run_pty(
         }
         Ok(PtyEvent::Exited) => {
             let failure = anyhow!("interactive process exited before render marker");
-            return match runtime.finish(false, PROCESS_TIMEOUT) {
+            return match runtime.finish(false, SuiteDeadline::unbounded()) {
                 Ok((status, reader, _)) => {
                     Err(runtime.failure_with_diagnostic(failure.context(format!(
                         "status {status}; PTY output: {}",
@@ -516,7 +531,7 @@ fn run_pty(
     };
     let validation = if let Some(socket) = ping_socket {
         let validation_started = Instant::now();
-        if let Err(error) = assert_ping(common, socket) {
+        if let Err(error) = assert_ping(common, socket, deadline) {
             return runtime.fail(error.context("validate interactive process socket readiness"));
         }
         PhaseMetric::completed(validation_started.elapsed())?
@@ -527,7 +542,7 @@ fn run_pty(
     if let Err(error) = detach {
         return runtime.fail(error.context("detach interactive benchmark process"));
     }
-    let (status, reader, completion) = runtime.finish(false, PROCESS_TIMEOUT)?;
+    let (status, reader, completion) = runtime.finish(false, deadline)?;
     if !status.success() {
         bail!(
             "interactive process exited with {status}: {}",
@@ -591,18 +606,19 @@ fn run_pty(
     })
 }
 
-fn run_headless(common: &mut Common) -> Result<RunResult> {
+fn run_headless(common: &mut Common, deadline: SuiteDeadline) -> Result<RunResult> {
     let (run, id) = common.next_path()?;
     let socket = run.join("mux.sock");
     let session = format!("{}-{id:020}", common.session_name("headless"));
     let args = headless_args(&session, &socket, None);
-    let mut server = RunningHeadless::start(common, args, &socket, common.wrap_measured_process)?;
-    server.wait_ready()?;
+    let mut server =
+        RunningHeadless::start(common, args, &socket, common.wrap_measured_process, deadline)?;
+    server.wait_ready(deadline)?;
     let validation_started = Instant::now();
-    assert_ping(common, &socket)?;
+    assert_ping(common, &socket, deadline)?;
     let validation = validation_started.elapsed();
     let duration = server.started.elapsed();
-    let completion = server.shutdown_and_wait(common)?;
+    let completion = server.shutdown_and_wait(common, deadline)?;
     Ok(RunResult {
         duration_ns: duration_ns(duration)?,
         evidence: Evidence {
@@ -621,21 +637,27 @@ fn run_headless(common: &mut Common) -> Result<RunResult> {
     })
 }
 
-fn run_restored(common: &mut Common, state: &Path, terminal_id: &str) -> Result<RunResult> {
+fn run_restored(
+    common: &mut Common,
+    state: &Path,
+    terminal_id: &str,
+    deadline: SuiteDeadline,
+) -> Result<RunResult> {
     let (run, _) = common.next_path()?;
     let socket = run.join("mux.sock");
     let session = common.session_name("restored");
     let args = headless_args(&session, &socket, Some(state));
-    let mut server = RunningHeadless::start(common, args, &socket, common.wrap_measured_process)?;
-    server.wait_ready()?;
+    let mut server =
+        RunningHeadless::start(common, args, &socket, common.wrap_measured_process, deadline)?;
+    server.wait_ready(deadline)?;
     let validation_started = Instant::now();
-    let topology = json_cli(common, &socket, &["terminal", "list"])?;
+    let topology = json_cli(common, &socket, &["terminal", "list"], deadline)?;
     if !terminal_list_contains_id(&topology, terminal_id) {
         bail!("restored terminal list omitted saved terminal {terminal_id}");
     }
     let validation = validation_started.elapsed();
     let duration = server.started.elapsed();
-    let completion = server.shutdown_and_wait(common)?;
+    let completion = server.shutdown_and_wait(common, deadline)?;
     Ok(RunResult {
         duration_ns: duration_ns(duration)?,
         evidence: Evidence {
@@ -660,13 +682,14 @@ fn run_incompatible(
     state: &Path,
     database: &Path,
     expected: &str,
+    deadline: SuiteDeadline,
 ) -> Result<RunResult> {
     let (run, _) = common.next_path()?;
     let socket = run.join("mux.sock");
     let session = common.session_name("incompatible");
     let args = headless_args(&session, &socket, Some(state));
     let command = common.std_command(&args, common.wrap_measured_process)?;
-    let captured = run_captured(command)?;
+    let captured = run_captured(command, deadline)?;
     if captured.status.success() {
         bail!("incompatible state unexpectedly started successfully");
     }
@@ -739,7 +762,14 @@ struct CompletionTimings {
 }
 
 impl RunningHeadless {
-    fn start(common: &Common, args: Vec<String>, socket: &Path, wrapped: bool) -> Result<Self> {
+    fn start(
+        common: &Common,
+        args: Vec<String>,
+        socket: &Path,
+        wrapped: bool,
+        deadline: SuiteDeadline,
+    ) -> Result<Self> {
+        deadline.ensure("spawning a headless startup process")?;
         let mut command = common.std_command(&args, wrapped)?;
         #[cfg(unix)]
         {
@@ -784,8 +814,12 @@ impl RunningHeadless {
         })
     }
 
-    fn wait_ready(&mut self) -> Result<Instant> {
-        match self.events.recv_timeout(EVENT_TIMEOUT) {
+    fn wait_ready(&mut self, deadline: SuiteDeadline) -> Result<Instant> {
+        let timeout = match deadline.timeout(EVENT_TIMEOUT, "waiting for headless readiness") {
+            Ok(timeout) => timeout,
+            Err(error) => return self.fail(error),
+        };
+        match self.events.recv_timeout(timeout) {
             Ok(StreamEvent::Found(at)) => Ok(at),
             Ok(StreamEvent::Ended) => {
                 self.fail(anyhow!("headless process exited before readiness"))
@@ -797,14 +831,25 @@ impl RunningHeadless {
         }
     }
 
-    fn shutdown_and_wait(&mut self, common: &Common) -> Result<CompletionTimings> {
+    fn shutdown_and_wait(
+        &mut self,
+        common: &Common,
+        deadline: SuiteDeadline,
+    ) -> Result<CompletionTimings> {
         let exit_started = Instant::now();
-        json_cli(common, &self.socket, &["session", "current", "shutdown"])?;
-        let status = self.wait_for_exit()?;
+        if let Err(error) =
+            json_cli(common, &self.socket, &["session", "current", "shutdown"], deadline)
+        {
+            return self.fail(error.context("request headless shutdown"));
+        }
+        let status = match self.wait_for_exit(deadline) {
+            Ok(status) => status,
+            Err(error) => return self.fail(error),
+        };
         let process_exit = exit_started.elapsed();
         self.child = None;
         let join_started = Instant::now();
-        let output = self.finish_reader(PROCESS_TIMEOUT)?;
+        let output = self.finish_reader(deadline)?;
         let thread_join = join_started.elapsed();
         if !status.success() {
             bail!("headless process exited with {status}: {}", String::from_utf8_lossy(&output));
@@ -812,24 +857,16 @@ impl RunningHeadless {
         Ok(CompletionTimings { process_exit, thread_join })
     }
 
-    fn wait_for_exit(&mut self) -> Result<ExitStatus> {
+    fn wait_for_exit(&mut self, deadline: SuiteDeadline) -> Result<ExitStatus> {
+        let timeout = deadline.timeout(PROCESS_TIMEOUT, "waiting for headless process exit")?;
         let child = self.child.as_mut().context("headless process already reaped")?;
-        if let Some(status) = child.wait_timeout(PROCESS_TIMEOUT)? {
+        if let Some(status) = child.wait_timeout(timeout)? {
             return Ok(status);
         }
-        let tree_error = self.process_tree.terminate().err();
-        let kill_error = if tree_error.is_some() { child.kill().err() } else { None };
-        let status = child
-            .wait_timeout(PROCESS_TIMEOUT)?
-            .context("headless process did not exit after full-tree termination")?;
-        let mut error = anyhow!("headless process exceeded {PROCESS_TIMEOUT:?} and was killed");
-        if let Some(tree_error) = tree_error {
-            error = error.context(format!("process-tree termination also failed: {tree_error}"));
+        if let Err(error) = deadline.ensure("waiting for headless process exit") {
+            return Err(error);
         }
-        if let Some(kill_error) = kill_error {
-            error = error.context(format!("direct child kill also failed: {kill_error}"));
-        }
-        Err(error.context(format!("killed process status was {status}")))
+        bail!("headless process exceeded {timeout:?}")
     }
 
     fn cancel_reader(&self) -> io::Result<()> {
@@ -840,10 +877,21 @@ impl RunningHeadless {
         cancel_blocking_reader(reader, &self.reader_cancelled)
     }
 
-    fn finish_reader(&mut self, timeout: Duration) -> Result<Vec<u8>> {
+    fn finish_reader(&mut self, deadline: SuiteDeadline) -> Result<Vec<u8>> {
+        let mut wait_error = None;
+        let timeout = match deadline.timeout(PROCESS_TIMEOUT, "waiting for headless stderr") {
+            Ok(timeout) => timeout,
+            Err(error) => {
+                wait_error = Some(error);
+                Duration::ZERO
+            }
+        };
         let result = match self.reader_receiver.recv_timeout(timeout) {
             Ok(result) => result,
             Err(mpsc::RecvTimeoutError::Timeout) => {
+                if wait_error.is_none() {
+                    wait_error = Some(anyhow!("headless stderr reader exceeded {timeout:?}"));
+                }
                 let tree_error = self.process_tree.terminate_after_exit().err();
                 let cancel_error = self.cancel_reader().err();
                 let recovery = self
@@ -876,7 +924,13 @@ impl RunningHeadless {
             .context("headless stderr reader already joined")?
             .join()
             .map_err(|_| anyhow!("headless stderr reader panicked"))?;
-        result.context("read headless stderr")
+        let output = result.context("read headless stderr")?;
+        if let Some(error) = wait_error {
+            return Err(
+                error.context(format!("headless stderr: {}", String::from_utf8_lossy(&output)))
+            );
+        }
+        Ok(output)
     }
 
     fn terminate_and_read(&mut self) -> Result<Vec<u8>> {
@@ -901,7 +955,7 @@ impl RunningHeadless {
         }
         self.child = None;
         self.cancel_reader()?;
-        let output = self.finish_reader(PROCESS_TIMEOUT)?;
+        let output = self.finish_reader(SuiteDeadline::unbounded())?;
         if let Some(error) = process_error {
             return Err(
                 error.context(format!("headless stderr: {}", String::from_utf8_lossy(&output)))
@@ -1059,7 +1113,7 @@ impl PtyRuntime {
     fn finish(
         &mut self,
         terminate: bool,
-        timeout: Duration,
+        deadline: SuiteDeadline,
     ) -> Result<(cmux_pty::ExitStatus, PtyReadResult, CompletionTimings)> {
         // Close the harness writer before waiting. A full-tree termination then
         // closes every slave handle and makes reader completion observable.
@@ -1068,7 +1122,15 @@ impl PtyRuntime {
         let mut kill_error = if terminate { self.terminate_tree().err() } else { None };
         let mut tree_termination_attempted = terminate;
         let mut timed_out = false;
-        let status = match self.status_receiver.recv_timeout(timeout) {
+        let mut suite_error = None;
+        let exit_timeout = match deadline.timeout(PROCESS_TIMEOUT, "waiting for PTY process exit") {
+            Ok(timeout) => timeout,
+            Err(error) => {
+                suite_error = Some(error);
+                Duration::ZERO
+            }
+        };
+        let status = match self.status_receiver.recv_timeout(exit_timeout) {
             Ok(status) => status,
             Err(mpsc::RecvTimeoutError::Timeout) if !terminate => {
                 timed_out = true;
@@ -1114,7 +1176,15 @@ impl PtyRuntime {
             kill_error = Some(error);
         }
         let mut reader_timed_out = false;
-        let reader = match self.reader_receiver.recv_timeout(PROCESS_TIMEOUT) {
+        let reader_timeout =
+            match deadline.timeout(PROCESS_TIMEOUT, "waiting for the PTY reader to finish") {
+                Ok(timeout) => timeout,
+                Err(error) => {
+                    suite_error = Some(error);
+                    Duration::ZERO
+                }
+            };
+        let reader = match self.reader_receiver.recv_timeout(reader_timeout) {
             Ok(reader) => reader,
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 reader_timed_out = true;
@@ -1142,8 +1212,11 @@ impl PtyRuntime {
         if let Some(error) = kill_error {
             return Err(error).context("kill interactive process during cleanup");
         }
+        if let Some(error) = suite_error {
+            return Err(error);
+        }
         if timed_out {
-            bail!("interactive process exceeded {timeout:?} after detach and was killed");
+            bail!("interactive process exceeded {exit_timeout:?} after detach and was killed");
         }
         if reader_timed_out {
             bail!("PTY reader exceeded {PROCESS_TIMEOUT:?} and required full-tree termination");
@@ -1156,7 +1229,7 @@ impl PtyRuntime {
     }
 
     fn fail<T>(&mut self, error: anyhow::Error) -> Result<T> {
-        let cleanup = self.finish(true, PROCESS_TIMEOUT);
+        let cleanup = self.finish(true, SuiteDeadline::unbounded());
         let error = match cleanup {
             Ok(_) => error,
             Err(cleanup) => error.context(format!("PTY cleanup also failed: {cleanup:#}")),
@@ -1507,7 +1580,8 @@ struct Captured {
     duration: Duration,
 }
 
-fn run_captured(mut command: Command) -> Result<Captured> {
+fn run_captured(mut command: Command, deadline: SuiteDeadline) -> Result<Captured> {
+    deadline.ensure("spawning a captured process")?;
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -1554,20 +1628,50 @@ fn run_captured(mut command: Command) -> Result<Captured> {
     };
     let mut lifecycle_error = None;
     let mut status = None;
-    if let Some(completed) = child.wait_timeout(PROCESS_TIMEOUT)? {
+    let process_timeout = match deadline.timeout(PROCESS_TIMEOUT, "waiting for captured process") {
+        Ok(timeout) => timeout,
+        Err(error) => {
+            lifecycle_error = Some(error);
+            Duration::ZERO
+        }
+    };
+    let initial_status = match child.wait_timeout(process_timeout) {
+        Ok(status) => status,
+        Err(error) => {
+            record_lifecycle_error(
+                &mut lifecycle_error,
+                anyhow!(error).context("wait for captured process"),
+            );
+            None
+        }
+    };
+    if let Some(completed) = initial_status {
         status = Some(completed);
     } else {
         let tree_error = process_tree.terminate().err();
         let kill_error = if tree_error.is_some() { child.kill().err() } else { None };
-        status = child.wait_timeout(PROCESS_TIMEOUT)?;
-        let mut error = status
-            .as_ref()
-            .map(|status| {
-                anyhow!("process exceeded {PROCESS_TIMEOUT:?} and was killed with {status}")
+        let recovery = child.wait_timeout(PROCESS_TIMEOUT);
+        match recovery {
+            Ok(recovered) => status = recovered,
+            Err(error) => record_lifecycle_error(
+                &mut lifecycle_error,
+                anyhow!(error).context("reap captured process after termination"),
+            ),
+        }
+        let mut error = lifecycle_error.take().unwrap_or_else(|| {
+            deadline.ensure("waiting for captured process").err().unwrap_or_else(|| {
+                status
+                    .as_ref()
+                    .map(|status| {
+                        anyhow!("process exceeded {process_timeout:?} and was killed with {status}")
+                    })
+                    .unwrap_or_else(|| {
+                        anyhow!(
+                            "process exceeded {process_timeout:?} and did not exit after termination"
+                        )
+                    })
             })
-            .unwrap_or_else(|| {
-                anyhow!("process exceeded {PROCESS_TIMEOUT:?} and did not exit after termination")
-            });
+        });
         if let Some(tree_error) = tree_error {
             error = error.context(format!("process-tree termination also failed: {tree_error}"));
         }
@@ -1579,11 +1683,19 @@ fn run_captured(mut command: Command) -> Result<Captured> {
     let duration = started.elapsed();
     let mut stdout_result = None;
     let mut stderr_result = None;
+    let capture_deadline =
+        match deadline.instant(PROCESS_TIMEOUT, "waiting for captured process output readers") {
+            Ok(deadline) => deadline,
+            Err(error) => {
+                record_lifecycle_error(&mut lifecycle_error, error);
+                Instant::now()
+            }
+        };
     let capture = collect_capture_results(
         &capture_receiver,
         &mut stdout_result,
         &mut stderr_result,
-        Instant::now() + PROCESS_TIMEOUT,
+        capture_deadline,
     );
     if let Err(error) = capture {
         let tree_error = process_tree.terminate_after_exit().err();
@@ -1606,7 +1718,7 @@ fn run_captured(mut command: Command) -> Result<Captured> {
             error = error.context(format!("capture-reader recovery also failed: {recovery:#}"));
             return Err(error);
         }
-        lifecycle_error = Some(error);
+        record_lifecycle_error(&mut lifecycle_error, error);
     }
     let stdout_join = stdout.join();
     let stderr_join = stderr.join();
@@ -1620,6 +1732,13 @@ fn run_captured(mut command: Command) -> Result<Captured> {
     let stdout = stdout_result.context("stdout reader returned no result")??;
     let stderr = stderr_result.context("stderr reader returned no result")??;
     Ok(Captured { status, stdout, stderr, duration })
+}
+
+fn record_lifecycle_error(current: &mut Option<anyhow::Error>, error: anyhow::Error) {
+    *current = Some(match current.take() {
+        Some(current) => current.context(format!("additional lifecycle failure: {error:#}")),
+        None => error,
+    });
 }
 
 #[derive(Clone, Copy)]
@@ -1786,8 +1905,8 @@ fn wait_child(child: &mut Child, timeout: Duration) -> Result<ExitStatus> {
     bail!("process exceeded {timeout:?} and was killed with {status}")
 }
 
-fn assert_ping(common: &Common, socket: &Path) -> Result<()> {
-    let value = json_cli(common, socket, &["session", "current", "ping"])?;
+fn assert_ping(common: &Common, socket: &Path, deadline: SuiteDeadline) -> Result<()> {
+    let value = json_cli(common, socket, &["session", "current", "ping"], deadline)?;
     if value.get("alive").and_then(Value::as_bool) != Some(true) {
         bail!("session ping did not return alive=true: {value}");
     }
@@ -1797,8 +1916,8 @@ fn assert_ping(common: &Common, socket: &Path) -> Result<()> {
 fn git_sha(path: &Path) -> Result<String> {
     let mut command = Command::new("git");
     command.arg("-C").arg(path).args(["rev-parse", "HEAD"]);
-    let captured =
-        run_captured(command).with_context(|| format!("run git in {}", path.display()))?;
+    let captured = run_captured(command, SuiteDeadline::unbounded())
+        .with_context(|| format!("run git in {}", path.display()))?;
     if !captured.status.success() {
         bail!(
             "git rev-parse failed in {}: {}",
@@ -1812,8 +1931,8 @@ fn git_sha(path: &Path) -> Result<String> {
 fn binary_version(binary: &Path) -> Result<String> {
     let mut command = Command::new(binary);
     command.arg("--version");
-    let captured =
-        run_captured(command).with_context(|| format!("read version from {}", binary.display()))?;
+    let captured = run_captured(command, SuiteDeadline::unbounded())
+        .with_context(|| format!("read version from {}", binary.display()))?;
     if !captured.status.success() {
         bail!(
             "{} --version failed: {}",
@@ -1901,7 +2020,7 @@ fn source_rust_toolchain(source: &Path) -> Result<String> {
     let cmux_tui = source.join("cmux-tui");
     let mut command = Command::new("rustup");
     command.args(["show", "active-toolchain"]).current_dir(&cmux_tui);
-    let captured = run_captured(command)
+    let captured = run_captured(command, SuiteDeadline::unbounded())
         .with_context(|| format!("resolve Rust toolchain in {}", cmux_tui.display()))?;
     if !captured.status.success() {
         bail!(
@@ -1918,14 +2037,19 @@ fn source_rust_toolchain(source: &Path) -> Result<String> {
         .with_context(|| format!("rustup returned no active toolchain in {}", cmux_tui.display()))
 }
 
-fn json_cli(common: &Common, socket: &Path, args: &[&str]) -> Result<Value> {
+fn json_cli(
+    common: &Common,
+    socket: &Path,
+    args: &[&str],
+    deadline: SuiteDeadline,
+) -> Result<Value> {
     // These noun-first requests use cmux_tui_core::platform::transport. Windows provides the
     // local transport through uds_windows; the Unix-only remote-daemon command family is separate.
     let mut command = common.std_command(&[], false)?;
     command.args(["--json", "--socket"]);
     command.arg(socket);
     command.args(args);
-    let captured = run_captured(command)?;
+    let captured = run_captured(command, deadline)?;
     if !captured.status.success() {
         bail!(
             "socket RPC {:?} failed with {}: {}",
