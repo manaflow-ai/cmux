@@ -570,6 +570,7 @@ struct MobileSettingsView: View {
         .accessibilityIdentifier("MobileSettingsView")
     }
 
+    /// Reuses one Connection Method section at its focused or ordinary position.
     @ViewBuilder
     private var connectionMethodSettingsSection: some View {
         if let connectionMethodStore {

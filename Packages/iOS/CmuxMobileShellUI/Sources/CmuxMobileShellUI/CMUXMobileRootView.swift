@@ -16,20 +16,6 @@ import AppKit
 struct CMUXMobileRootView: View {
     private static let startupRestoringGateSeconds: Double = 6
 
-    #if os(iOS)
-    /// One stable sheet item owns both the introduction and its Settings route.
-    private enum AutoConnectMigrationPresentation: Identifiable {
-        case active
-
-        var id: String { "auto-connect-migration" }
-    }
-
-    private enum AutoConnectMigrationDestination: Equatable {
-        case introduction
-        case connectionSettings
-    }
-    #endif
-
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
@@ -49,15 +35,16 @@ struct CMUXMobileRootView: View {
     @Bindable private var onboardingStore: MobileOnboardingStore
     @State private var isAwaitingOnboardingReconnectStart = false
     @State private var onboardingMacDiscoveryKeepAlive = OnboardingMacDiscoveryKeepAlive()
-    @State private var autoConnectMigrationPresentation: AutoConnectMigrationPresentation?
-    @State private var autoConnectMigrationDestination: AutoConnectMigrationDestination = .introduction
-    @State private var pendingPairingPresentationAfterMigration: PairingPresentation?
+    /// The only iOS root-sheet state, shared by migration, Settings, and pairing.
+    @State private var rootPresentation = MobileRootPresentationState()
     #endif
     @State private var pendingAttachURL: String?
     @State private var didAuthenticateWithAttachTicket = false
     @State private var didExceedStartupRestoringGate = false
+    #if os(macOS)
     @State private var isShowingAddDeviceSheet = false
     @State private var pairingPresentation: PairingPresentation = .manual
+    #endif
     @State private var injectedAttachTask: Task<Void, Never>?
     @State private var injectedAttachTaskAttempt: MobileStartupConnectionCoordinator.Attempt?
     #if os(iOS)
@@ -217,19 +204,16 @@ struct CMUXMobileRootView: View {
         rootContent
         #if os(iOS)
         .sheet(
-            item: autoConnectMigrationPresentationBinding,
-            onDismiss: autoConnectMigrationPresentationDidDismiss
-        ) { _ in
-            autoConnectMigrationPresentationContent
+            isPresented: rootPresentationBinding,
+            onDismiss: rootPresentationDidDismiss
+        ) {
+            rootPresentationContent
+        }
+        #else
+        .sheet(isPresented: addDeviceSheetBinding) {
+            pairingSheet(initialPresentation: pairingPresentation)
         }
         #endif
-        .sheet(isPresented: addDeviceSheetBinding, onDismiss: {
-            #if os(iOS)
-            presentAutoConnectMigrationIfEligible()
-            #endif
-        }) {
-            pairingSheet
-        }
         .animation(.snappy(duration: 0.18), value: isAuthenticated)
         .animation(.snappy(duration: 0.18), value: store.phase)
         .onAppear {
@@ -330,7 +314,11 @@ struct CMUXMobileRootView: View {
         }
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
+                #if os(iOS)
+                handleRootPresentation(.dismissPairing)
+                #else
                 isShowingAddDeviceSheet = false
+                #endif
             } else {
                 clearAttachTicketAuthenticationIfNeeded()
             }
@@ -431,6 +419,8 @@ struct CMUXMobileRootView: View {
         }
     }
 
+    #if os(macOS)
+    /// Preserves the existing macOS pairing presenter independently of iOS routing.
     private var addDeviceSheetBinding: Binding<Bool> {
         Binding(
             get: { isShowingAddDeviceSheet },
@@ -443,12 +433,13 @@ struct CMUXMobileRootView: View {
             }
         )
     }
+    #endif
 
-    @ViewBuilder
-    private var pairingSheet: some View {
+    /// Builds the shared pairing flow for either platform's root presenter.
+    private func pairingSheet(initialPresentation: PairingPresentation) -> some View {
         PairingView(
             pairingCode: $store.pairingCode,
-            initialPresentation: pairingPresentation,
+            initialPresentation: initialPresentation,
             connectionError: store.connectionError,
             connectionErrorGuidance: store.connectionErrorGuidance,
             versionWarning: store.pairingVersionWarning,
@@ -475,46 +466,42 @@ struct CMUXMobileRootView: View {
     }
 
     #if os(iOS)
-    /// Intercepts only an interactive dismissal of the introduction. Programmatic
-    /// preemption writes the backing state directly, leaving the notice pending.
-    private var autoConnectMigrationPresentationBinding:
-        Binding<AutoConnectMigrationPresentation?> {
+    /// Drives one stable sheet host from the root presentation state.
+    private var rootPresentationBinding: Binding<Bool> {
         Binding(
-            get: { autoConnectMigrationPresentation },
-            set: { presentation in
-                let dismissedIntroduction = presentation == nil
-                    && autoConnectMigrationPresentation != nil
-                    && autoConnectMigrationDestination == .introduction
-                if dismissedIntroduction {
-                    autoConnectMigrationStore?.acknowledge()
-                }
-                autoConnectMigrationPresentation = presentation
+            get: { rootPresentation.isPresented },
+            set: { isPresented in
+                guard !isPresented else { return }
+                handleRootPresentation(.sheetDidRequestDismissal)
             }
         )
     }
 
+    /// Resolves the current enum case inside the one root sheet host.
     @ViewBuilder
-    private var autoConnectMigrationPresentationContent: some View {
-        switch autoConnectMigrationDestination {
-        case .introduction:
+    private var rootPresentationContent: some View {
+        switch rootPresentation.presentation {
+        case .autoConnectMigrationIntroduction:
             MobileAutoConnectMigrationSheet(
                 continueWithAutoConnect: {
-                    autoConnectMigrationStore?.acknowledge()
-                    autoConnectMigrationPresentation = nil
+                    handleRootPresentation(.continueWithAutoConnect)
                 },
                 openConnectionSettings: {
-                    autoConnectMigrationStore?.acknowledge()
-                    autoConnectMigrationDestination = .connectionSettings
+                    handleRootPresentation(.openConnectionSettings)
                 }
             )
         case .connectionSettings:
             MobileSettingsView(
                 connectedHostName: store.connectedHostName,
-                startPairingScanner: requestPairingScannerAfterMigrationSettings,
+                startPairingScanner: showPairingScanner,
                 signOut: signOut,
                 store: store,
                 initialFocus: .connectionMethod
             )
+        case let .pairing(pairingPresentation):
+            pairingSheet(initialPresentation: pairingPresentation)
+        case nil:
+            EmptyView()
         }
     }
 
@@ -527,28 +514,27 @@ struct CMUXMobileRootView: View {
               !authManager.isRestoringSession,
               scenePhase == .active,
               !hasInjectedAttachLaunchRoute,
-              !isShowingAddDeviceSheet,
-              pendingPairingPresentationAfterMigration == nil,
-              autoConnectMigrationPresentation == nil else {
+              !rootPresentation.isPresented else {
             return
         }
-        autoConnectMigrationDestination = .introduction
-        autoConnectMigrationPresentation = .active
+        handleRootPresentation(.presentAutoConnectMigrationIfIdle)
     }
 
-    private func requestPairingScannerAfterMigrationSettings() {
-        pendingPairingPresentationAfterMigration = .scanner(entry: .settingsReplay)
-        autoConnectMigrationPresentation = nil
-    }
-
-    private func autoConnectMigrationPresentationDidDismiss() {
-        autoConnectMigrationDestination = .introduction
-        guard let pendingPairingPresentationAfterMigration else {
-            presentAutoConnectMigrationIfEligible()
-            return
+    /// Applies one root presentation action and performs its domain side effect.
+    private func handleRootPresentation(_ action: MobileRootPresentationState.Action) {
+        switch rootPresentation.apply(action) {
+        case .none:
+            break
+        case .acknowledgeAutoConnectMigration:
+            autoConnectMigrationStore?.acknowledge()
+        case .finishPairing:
+            finishPairingPresentation()
         }
-        self.pendingPairingPresentationAfterMigration = nil
-        presentAddDevice(pendingPairingPresentationAfterMigration)
+    }
+
+    /// Re-evaluates a pending migration after the one root sheet leaves screen.
+    private func rootPresentationDidDismiss() {
+        presentAutoConnectMigrationIfEligible()
     }
     #endif
 
@@ -782,24 +768,20 @@ struct CMUXMobileRootView: View {
         presentAddDevice(.scanner(entry: .onboardingFallback))
     }
 
+    /// Routes every add-device entrypoint through the platform's root presenter.
     private func presentAddDevice(_ presentation: PairingPresentation) {
         #if os(iOS)
-        if autoConnectMigrationPresentation != nil {
-            pendingPairingPresentationAfterMigration = presentation
-            autoConnectMigrationPresentation = nil
-            return
-        }
-        #endif
+        addDeviceSheetDetent = .large
+        handleRootPresentation(.presentPairing(presentation))
+        #else
         if isShowingAddDeviceSheet {
             guard pairingPresentation != presentation else { return }
             pairingPresentation = presentation
             return
         }
         pairingPresentation = presentation
-        #if os(iOS)
-        addDeviceSheetDetent = .large
-        #endif
         isShowingAddDeviceSheet = true
+        #endif
     }
 
     private func connectAttachURL(_ rawURL: String) {
@@ -851,9 +833,19 @@ struct CMUXMobileRootView: View {
         clearAttachTicketAuthenticationIfNeeded()
     }
 
+    /// Dismisses pairing only when pairing owns the root presentation.
     private func dismissAddDeviceSheet() {
+        #if os(iOS)
+        handleRootPresentation(.dismissPairing)
+        #else
         isShowingAddDeviceSheet = false
         pairingPresentation = .manual
+        finishPairingPresentation()
+        #endif
+    }
+
+    /// Clears pairing-only warning and attach-ticket state after dismissal.
+    private func finishPairingPresentation() {
         if store.pairingVersionWarning != nil {
             cancelPairing()
         } else {
