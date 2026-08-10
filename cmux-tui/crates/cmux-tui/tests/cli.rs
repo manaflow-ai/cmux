@@ -324,6 +324,9 @@ fn wait_for_socket_path(path: &std::path::Path) {
 fn lifecycle_cli(args: &[&str]) -> Output {
     Command::new(bin())
         .args(args)
+        .env("LC_ALL", "C")
+        .env("LC_MESSAGES", "C")
+        .env("LANG", "C")
         .env_remove("CMUX_TUI_SOCKET")
         .env_remove("CMUX_MUX_SOCKET")
         .output()
@@ -873,7 +876,7 @@ fn lifecycle_errors_do_not_expose_raw_server_failures() {
     let socket = dir.join("owned.sock");
     let listener = UnixListener::bind(&socket).unwrap();
     let thread = std::thread::spawn(move || {
-        let (stream, _) = listener.accept().unwrap();
+        let stream = accept_with_timeout(&listener, Duration::from_secs(5)).unwrap();
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         let mut writer = stream;
         let mut request = String::new();
@@ -932,7 +935,7 @@ fn lifecycle_errors_do_not_expose_raw_server_failures() {
 #[test]
 fn server_stop_uses_identify_fence_and_refuses_cross_session_targeting() {
     fn fake_server(listener: UnixListener, identified_session: &'static str, expect_stop: bool) {
-        let (stream, _) = listener.accept().unwrap();
+        let stream = accept_with_timeout(&listener, Duration::from_secs(5)).unwrap();
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         let mut writer = stream;
         let mut request = String::new();

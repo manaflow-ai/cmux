@@ -11936,6 +11936,10 @@ mod tests {
         fn close(&self) {
             self.outbound.close();
         }
+
+        fn abort(&self) {
+            self.outbound.abort();
+        }
     }
 
     struct TimedOutFlushSink {
@@ -11984,6 +11988,10 @@ mod tests {
 
         fn close(&self) {
             self.outbound.close();
+        }
+
+        fn abort(&self) {
+            self.outbound.abort();
         }
     }
 
