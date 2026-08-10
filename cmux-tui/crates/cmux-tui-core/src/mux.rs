@@ -14955,17 +14955,12 @@ fn terminal_surface_matches(
     terminal_id: &TerminalPublicId,
     expected_host: Option<(&str, Option<&str>)>,
 ) -> bool {
-    let host_matches = expected_host.is_some_and(|(expected_id, expected_incarnation)| {
-        mux.resource_terminal_host_identity(candidate).is_some_and(|identity| {
+    if let Some((expected_id, expected_incarnation)) = expected_host {
+        return mux.resource_terminal_host_identity(candidate).is_some_and(|identity| {
             terminal_host_matches(&identity, expected_id, expected_incarnation)
-        })
-    });
-    match candidate.terminal_public_id() {
-        Some(candidate_id) => {
-            candidate_id == terminal_id && (expected_host.is_none() || host_matches)
-        }
-        None => host_matches,
+        });
     }
+    candidate.terminal_public_id() == Some(terminal_id)
 }
 
 /// Decide whether terminal-specific reverse indexes can serve a close without
