@@ -52,9 +52,9 @@ struct AgentFeedRow: View, Equatable {
                     AgentFeedContext(item: item, isExpanded: isExpanded)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("MobileAgentFeedExpand-\(suffix)")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityIdentifier("MobileAgentFeedExpand-\(suffix)")
 
             footer
         }
