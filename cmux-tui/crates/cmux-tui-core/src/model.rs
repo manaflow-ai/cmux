@@ -80,12 +80,7 @@ impl Node {
                 let old = Node::Leaf(*id);
                 let new = Node::Leaf(new_pane);
                 let (a, b) = if insert_first { (new, old) } else { (old, new) };
-                *self = Node::Split {
-                    dir,
-                    ratio,
-                    a: Box::new(a),
-                    b: Box::new(b),
-                };
+                *self = Node::Split { dir, ratio, a: Box::new(a), b: Box::new(b) };
                 true
             }
             Node::Leaf(_) => false,
@@ -201,8 +196,7 @@ impl Node {
             }
         }
 
-        let (_, matched, changed) =
-            walk(self, target, dir, target_in_first, new_ratio);
+        let (_, matched, changed) = walk(self, target, dir, target_in_first, new_ratio);
         match (matched, changed) {
             (false, _) => ChangeState::Missing,
             (true, false) => ChangeState::Unchanged,
