@@ -5165,7 +5165,7 @@ fn disconnect_client(mux: &Arc<Mux>, client: u64, send_detached: bool) -> bool {
 }
 
 fn complete_daemon_shutdown_after_ack(
-    mux: &Mux,
+    mux: &Arc<Mux>,
     requesting_client: u64,
     writer: &MessageWriter,
 ) -> bool {
