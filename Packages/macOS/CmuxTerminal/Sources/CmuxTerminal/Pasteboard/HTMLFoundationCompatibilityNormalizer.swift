@@ -90,7 +90,7 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
                 }
             } else {
                 output.append(contentsOf: source[index..<tag.endIndex])
-                if !tag.isClosing {
+                if !tag.isClosing, tag.selfClosingSlashIndex == nil {
                     rawTextElementName = matchingRawTextElementName(
                         in: source,
                         range: tag.nameRange
