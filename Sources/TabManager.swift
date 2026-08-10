@@ -2098,10 +2098,10 @@ class TabManager: ObservableObject {
         let previousIDs = tabs.map(\.id)
         guard updated.map(\.id) != previousIDs else { return }
         tabs = updated
-        let updatedIndexes = Dictionary(
+        let updatedIndexes: [UUID: Int] = Dictionary(
             uniqueKeysWithValues: updated.enumerated().map { ($0.element.id, $0.offset) }
         )
-        let movedIDs = updated.compactMap { workspace in
+        let movedIDs: [UUID] = updated.compactMap { workspace -> UUID? in
             guard let oldIndex = previousIDs.firstIndex(of: workspace.id),
                   updatedIndexes[workspace.id] != oldIndex else {
                 return nil
@@ -2114,10 +2114,11 @@ class TabManager: ObservableObject {
     private func desiredWorkspaceOrderMovingToTierFront(_ tabIDs: Set<UUID>) -> [UUID] {
         let selected = tabs.filter { tabIDs.contains($0.id) }
         let remaining = tabs.filter { !tabIDs.contains($0.id) }
-        return selected.filter(\.isPinned).map(\.id)
-            + remaining.filter(\.isPinned).map(\.id)
-            + selected.filter { !$0.isPinned }.map(\.id)
-            + remaining.filter { !$0.isPinned }.map(\.id)
+        let selectedPinned = selected.filter(\.isPinned).map(\.id)
+        let remainingPinned = remaining.filter(\.isPinned).map(\.id)
+        let selectedUnpinned = selected.filter { !$0.isPinned }.map(\.id)
+        let remainingUnpinned = remaining.filter { !$0.isPinned }.map(\.id)
+        return selectedPinned + remainingPinned + selectedUnpinned + remainingUnpinned
     }
 
     /// Converts a row-space reorder into a complete canonical order without
@@ -3645,7 +3646,7 @@ class TabManager: ObservableObject {
                   workspace.terminalPanel(for: surfaceId)?.surface === runtimeSurface else {
                 return
             }
-            _ = workspace.respawnTerminalSurface(
+            _ = workspace.requestRespawnTerminalSurface(
                 panelId: surfaceId,
                 command: nil,
                 focus: true,

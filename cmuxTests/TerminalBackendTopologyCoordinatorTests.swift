@@ -2430,6 +2430,54 @@ struct TerminalBackendTopologyCoordinatorTests {
         ) == .projected(placement.receipt))
     }
 
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func loginShellRespawnUsesCanonicalBackendWithoutReplacingPanel() async throws {
+        let authority = makeAuthority()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let placement = try makeSurfacePlacement(
+            authority: authority,
+            revision: 2,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
+        let recorder = RespawnTopologyRecorder()
+        let mutationCoordinator = TerminalBackendTopologyMutationCoordinator(
+            mutator: RejectingTopologyMutator(
+                respawnPlacement: placement,
+                respawnRecorder: recorder
+            )
+        )
+        let composition = TerminalClientComposition(
+            terminalPanelFactory: EmbeddedTerminalPanelFactory(
+                dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
+            ),
+            terminalBackendTopologyMutationCoordinator: mutationCoordinator
+        )
+        let workspace = Workspace(
+            id: workspaceID,
+            terminalClientComposition: composition,
+            initialTerminalSurfaceID: surfaceID
+        )
+        defer { workspace.teardownAllPanels() }
+        let originalPanel = try #require(workspace.terminalPanel(for: surfaceID))
+
+        let outcome = workspace.requestRespawnTerminalSurface(
+            panelId: surfaceID,
+            command: nil,
+            focus: true
+        )
+        guard case .submittedToBackend(let submission) = outcome else {
+            Issue.record("Expected login-shell respawn to enter the backend mutation queue")
+            return
+        }
+        let launch = await recorder.nextLaunch()
+
+        #expect(submission.surfaceID == surfaceID)
+        #expect(launch.command == nil)
+        #expect(workspace.terminalPanel(for: surfaceID) === originalPanel)
+    }
+
     @Test @MainActor
     func projectionUsesCanonicalWorkspaceAndSurfaceIDsAcrossWorkspaceMove() throws {
         let composition = makeProjectionComposition()
@@ -4529,11 +4577,41 @@ private actor NativeBrowserRecoveryCounter {
     }
 }
 
+private actor RespawnTopologyRecorder {
+    private var launches: [BackendTerminalLaunch] = []
+    private var waiters: [CheckedContinuation<BackendTerminalLaunch, Never>] = []
+
+    func record(_ launch: BackendTerminalLaunch) {
+        if !waiters.isEmpty {
+            waiters.removeFirst().resume(returning: launch)
+        } else {
+            launches.append(launch)
+        }
+    }
+
+    func nextLaunch() async -> BackendTerminalLaunch {
+        if !launches.isEmpty {
+            return launches.removeFirst()
+        }
+        return await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+}
+
 private struct RejectingTopologyMutator: TerminalBackendTopologyMutating {
     let createWorkspacePlacement: BackendSurfacePlacement?
+    let respawnPlacement: BackendSurfacePlacement?
+    let respawnRecorder: RespawnTopologyRecorder?
 
-    init(createWorkspacePlacement: BackendSurfacePlacement? = nil) {
+    init(
+        createWorkspacePlacement: BackendSurfacePlacement? = nil,
+        respawnPlacement: BackendSurfacePlacement? = nil,
+        respawnRecorder: RespawnTopologyRecorder? = nil
+    ) {
         self.createWorkspacePlacement = createWorkspacePlacement
+        self.respawnPlacement = respawnPlacement
+        self.respawnRecorder = respawnRecorder
     }
 
     private func reject<T>() throws -> T {
@@ -4577,7 +4655,13 @@ private struct RejectingTopologyMutator: TerminalBackendTopologyMutating {
     func respawnTerminal(
         requestID: UUID, surfaceID: SurfaceID, launch: BackendTerminalLaunch,
         columns: UInt16?, rows: UInt16?
-    ) async throws -> BackendSurfacePlacement { try reject() }
+    ) async throws -> BackendSurfacePlacement {
+        if let respawnPlacement {
+            await respawnRecorder?.record(launch)
+            return respawnPlacement
+        }
+        return try reject()
+    }
 
     func newExternalWorkspace(
         requestID: UUID, workspaceID: WorkspaceID, surfaceID: SurfaceID,

@@ -8786,7 +8786,7 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func requestRespawnTerminalSurface(
         panelId: UUID,
-        command: String,
+        command: String?,
         workingDirectory: String? = nil,
         tmuxStartCommand: String? = nil,
         focus: Bool? = nil,
@@ -8802,9 +8802,9 @@ final class Workspace: Identifiable, ObservableObject {
               let paneId = paneId(forPanelId: panelId) else {
             return .failed
         }
-        let trimmedCommand = command
+        let trimmedCommand = command?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedCommand.isEmpty else { return .failed }
+        if command != nil, trimmedCommand?.isEmpty != false { return .failed }
         guard let mutationCoordinator = terminalClientComposition
             .terminalBackendTopologyMutationCoordinator else {
             guard let panel = respawnLocalTerminalSurface(
