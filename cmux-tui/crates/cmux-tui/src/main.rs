@@ -2538,13 +2538,9 @@ mod remote_args_tests {
 
     #[test]
     fn inline_relay_ticket_scanner_preserves_command_argument_literals() {
-        let args = [
-            "--relay-ticket-command",
-            "helper",
-            "--relay-ticket-command-arg",
-            "--relay-ticket",
-        ]
-        .map(str::to_string);
+        let args =
+            ["--relay-ticket-command", "helper", "--relay-ticket-command-arg", "--relay-ticket"]
+                .map(str::to_string);
 
         assert!(!has_inline_relay_ticket_argument(&args));
     }
