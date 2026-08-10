@@ -7637,13 +7637,87 @@ impl Mux {
         if let Some(incarnation) = terminal_incarnation {
             validate_terminal_hex(incarnation, "invalid_terminal_incarnation")?;
         }
-        self.close_terminal_with_protocol_mutation(
+        if let Some(result) = self.commit_legacy_terminal_close(
             terminal_id,
             terminal_incarnation,
             expected_generation,
             expected_revision,
             mutation,
-        )
+        )? {
+            return Ok(result);
+        }
+        let (commit, terminal_incarnation, notify_public_id) = {
+            let mut registry = self.workspace_registry.lock().unwrap();
+            let public_id = registry.terminal_resource_id(terminal_id)?;
+            let commit = registry.close_terminal(
+                mutation,
+                expected_generation,
+                expected_revision,
+                terminal_id,
+                terminal_incarnation,
+            )?;
+            let newly_closed =
+                !commit.replayed && !commit.result["already_closed"].as_bool().unwrap_or(false);
+            if newly_closed {
+                self.emit_terminal_registry_changed(&registry, commit.revision);
+            }
+            let incarnation =
+                registry.terminal_record(terminal_id)?.and_then(|terminal| terminal.incarnation);
+            (commit, incarnation, newly_closed.then_some(public_id).flatten())
+        };
+        self.notify_terminal_exit_waiters(notify_public_id);
+        let (target, removed, runtime, changed_screens, empty_revision) = {
+            let mut state = self.state.lock().unwrap();
+            let catalog_public_ids = terminal_catalog_public_ids_by_host(
+                self,
+                &state,
+                terminal_id,
+                terminal_incarnation.as_deref(),
+            );
+            let targets = terminal_host_placements(
+                self,
+                &state,
+                terminal_id,
+                terminal_incarnation.as_deref(),
+            );
+            let target = targets.first().copied();
+            let changed_screens = unique_screen_ids(
+                targets.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
+            );
+            let (runtime, removed, _) = remove_terminal_catalogs_and_targets_from_state(
+                self,
+                &mut state,
+                &catalog_public_ids,
+                &targets,
+            );
+            let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
+            (target, removed, runtime, changed_screens, empty_revision)
+        };
+        for surface in removed {
+            self.purge_surface_side_tables(surface.id);
+        }
+        let had_runtime = runtime.is_some();
+        if let Some(runtime) = runtime {
+            self.purge_terminal_runtime_side_tables(&runtime);
+            self.terminate_terminal_runtime(&runtime);
+        }
+        if target.is_some() {
+            self.emit(MuxEvent::TreeChanged);
+        }
+        for screen in changed_screens {
+            self.emit(MuxEvent::LayoutChanged(screen));
+        }
+        if !had_runtime {
+            self.terminate_discovered_terminal_host(terminal_id, terminal_incarnation.as_deref());
+        }
+        self.emit_empty_if_current(empty_revision);
+        Ok(TerminalCloseResult {
+            surface: target,
+            terminal_id: terminal_id.to_string(),
+            terminal_incarnation,
+            already_closed: commit.result["already_closed"].as_bool().unwrap_or(commit.replayed),
+            terminal_revision: commit.revision,
+        })
     }
 
     /// A host can become Running before its topology binding is built. Keep
@@ -21227,7 +21301,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn replayed_terminal_close_removes_every_host_matched_stale_view() {
+    fn replayed_terminal_close_does_not_acquire_stale_view_cleanup() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();
         let second = projected_terminal_view(&mux, &first);
@@ -21259,13 +21333,13 @@ mod tests {
         )
         .unwrap();
 
-        assert!(mux.surface(first.id).is_none());
-        assert!(mux.surface(second.id).is_none());
+        assert!(mux.surface(first.id).is_some());
+        assert!(mux.surface(second.id).is_some());
     }
 
     #[cfg(unix)]
     #[test]
-    fn terminal_only_close_replay_repairs_resource_state_and_memory() {
+    fn terminal_only_close_replay_is_effect_free() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let host = mux.resource_terminal_host_identity(&surface).unwrap();
@@ -21281,7 +21355,7 @@ mod tests {
         assert!(!terminal.replayed);
         assert!(mux.surface(surface.id).is_some());
 
-        let repaired = mux
+        let replay = mux
             .close_terminal_with_mutation(
                 &host.terminal_id,
                 Some(&host.incarnation),
@@ -21291,17 +21365,17 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(terminal.revision, repaired.terminal_revision);
-        assert!(repaired.surface.is_some());
-        assert!(mux.surface(surface.id).is_none());
-        assert_eq!(mux.with_state(|state| state.resource_revision), resource_revision + 1);
+        assert_eq!(terminal.revision, replay.terminal_revision);
+        assert!(replay.surface.is_none());
+        assert!(mux.surface(surface.id).is_some());
+        assert_eq!(mux.with_state(|state| state.resource_revision), resource_revision);
         let terminal = mux.resolve_terminal(&host.terminal_id).unwrap().unwrap().terminal;
         assert_eq!(terminal.lifecycle, TerminalLifecycle::Tombstoned);
     }
 
     #[cfg(unix)]
     #[test]
-    fn terminal_only_close_replay_does_not_remove_a_newer_incarnation() {
+    fn terminal_only_close_replay_is_effect_free_for_a_newer_incarnation() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let host = mux.resource_terminal_host_identity(&surface).unwrap();
@@ -21339,11 +21413,11 @@ mod tests {
         let new_surface_id = new_surface.id;
         insert_surface_checked(&mux, &mut mux.state.lock().unwrap(), new_surface).unwrap();
 
-        let error = mux
+        let replay = mux
             .close_terminal_with_mutation(&host.terminal_id, None, None, None, &mutation)
-            .unwrap_err();
+            .unwrap();
 
-        assert!(error.to_string().contains("terminal_incarnation_mismatch"));
+        assert!(replay.surface.is_none());
         assert!(mux.surface(new_surface_id).is_some());
         assert_eq!(mux.with_state(|state| state.resource_revision), resource_revision);
     }
@@ -21432,6 +21506,118 @@ mod tests {
 
         assert_eq!(placements, vec![stale.id]);
         stale.kill();
+    }
+
+    #[test]
+    fn replayed_host_close_does_not_acquire_public_resource_effects() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let host = mux
+            .resource_terminal_host_identity(&surface)
+            .expect("test terminal has a host identity");
+        let public_id = match &surface.resource_identity().unwrap().content_id {
+            ContentPublicId::Terminal(public_id) => public_id.clone(),
+            ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+        };
+        let mutation = WorkspaceMutation::new("lost-host-close-reply", "legacy-client").unwrap();
+        let resource_revision = mux.with_state(|state| state.resource_revision);
+
+        let host_close = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .close_terminal(&mutation, None, None, &host.terminal_id, Some(&host.incarnation))
+            .unwrap();
+        assert!(!host_close.replayed);
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(&host.terminal_id).unwrap(),
+            Some(public_id.clone())
+        );
+
+        let retry = mux
+            .close_terminal_with_mutation(
+                &host.terminal_id,
+                Some(&host.incarnation),
+                None,
+                None,
+                &mutation,
+            )
+            .unwrap();
+
+        assert_eq!(retry.terminal_revision, host_close.revision);
+        assert_eq!(mux.with_state(|state| state.resource_revision), resource_revision);
+        assert!(mux.surface(surface.id).is_some());
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(&host.terminal_id).unwrap(),
+            Some(public_id)
+        );
+    }
+
+    #[test]
+    fn replayed_resource_close_does_not_acquire_terminal_effects() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let host = mux
+            .resource_terminal_host_identity(&surface)
+            .expect("test terminal has a host identity");
+        let public_id = match &surface.resource_identity().unwrap().content_id {
+            ContentPublicId::Terminal(public_id) => public_id.clone(),
+            ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+        };
+        let host_close = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .close_terminal(
+                &WorkspaceMutation::new("closed-host", "legacy-client").unwrap(),
+                None,
+                None,
+                &host.terminal_id,
+                Some(&host.incarnation),
+            )
+            .unwrap();
+        let mutation =
+            WorkspaceMutation::new("lost-resource-close-reply", "resource-client").unwrap();
+        let fingerprint = serde_json::json!({
+            "op":"close-terminal",
+            "terminal_id":host.terminal_id,
+            "incarnation":host.incarnation,
+        });
+        let resource_revision = mux.with_state(|state| state.resource_revision);
+        let resource_close = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .commit_resource_patch(
+                &mutation,
+                "terminal.close",
+                &fingerprint,
+                None,
+                Some(resource_revision),
+                &ResourcePatch { changes: Vec::new() },
+                &serde_json::json!({}),
+                &serde_json::json!([]),
+            )
+            .unwrap();
+
+        let retry = mux
+            .close_terminal_with_mutation(
+                &host.terminal_id,
+                Some(&host.incarnation),
+                None,
+                None,
+                &mutation,
+            )
+            .unwrap();
+
+        assert!(retry.already_closed);
+        assert_eq!(retry.terminal_revision, host_close.revision);
+        assert_eq!(mux.with_state(|state| state.resource_revision), resource_close.revision);
+        assert!(mux.surface(surface.id).is_some());
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(&host.terminal_id).unwrap(),
+            Some(public_id)
+        );
     }
 
     #[test]

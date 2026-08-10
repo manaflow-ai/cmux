@@ -358,10 +358,11 @@ pub struct TerminalRegistryCommit {
     pub replayed: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct TerminalResourceCloseCommit {
-    pub terminal: TerminalRegistryCommit,
-    pub resource: Option<ResourcePatchCommit>,
+/// A host mutation replay cannot acquire a public-resource side effect that
+/// was not part of its original transaction.
+pub(crate) enum TerminalResourceCloseCommit {
+    Replay(TerminalRegistryCommit),
+    Committed { terminal: TerminalRegistryCommit, resource: ResourcePatchCommit },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2935,95 +2936,137 @@ impl WorkspaceRegistry {
         terminal_id: &str,
         expected_incarnation: Option<&str>,
     ) -> anyhow::Result<TerminalRegistryCommit> {
-        validate_identifier("mutation id", &mutation.id)?;
-        validate_identifier("mutation origin", &mutation.origin)?;
-        validate_terminal_identity("terminal id", terminal_id)?;
-        if let Some(incarnation) = expected_incarnation {
-            validate_terminal_identity("terminal incarnation", incarnation)?;
-        }
-        let fingerprint_value = serde_json::json!({
-            "op": "close-terminal",
-            "terminal_id": terminal_id,
-            "incarnation": expected_incarnation,
-        });
-        let fingerprint = canonical_json(&fingerprint_value)?;
+        let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
         let tx = self.connection.transaction()?;
         let commit = close_terminal_in_transaction(
             &tx,
             &self.generation,
             mutation,
+            &fingerprint,
             expected_generation,
             expected_revision,
             terminal_id,
             expected_incarnation,
-            &fingerprint,
         )?;
         tx.commit()?;
         Ok(commit)
     }
 
-    /// Atomically closes a protocol terminal and its public resource
-    /// projection. A failed resource write leaves the terminal live, so no
-    /// reader can observe a resource terminal whose host is already gone.
+    pub(crate) fn replay_terminal_close(
+        &self,
+        mutation: &WorkspaceMutation,
+        terminal_id: &str,
+        expected_incarnation: Option<&str>,
+    ) -> anyhow::Result<Option<TerminalRegistryCommit>> {
+        let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
+        terminal_replay(&self.connection, mutation, &fingerprint)
+    }
+
+    /// Commit the legacy host close and its public resource tombstone in one
+    /// SQLite transaction. The mux installs the matching runtime projection
+    /// only after this method returns successfully.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn close_terminal_with_resource_patch(
         &mut self,
         mutation: &WorkspaceMutation,
         expected_generation: Option<&str>,
         expected_terminal_revision: Option<u64>,
-        expected_resource_revision: Option<u64>,
+        expected_resource_revision: u64,
         terminal_id: &str,
         expected_incarnation: Option<&str>,
-        patch: Option<&ResourcePatch>,
-        result: &Value,
-        deltas: &Value,
+        patch: &ResourcePatch,
+        resource_result: &Value,
+        resource_deltas: &Value,
     ) -> anyhow::Result<TerminalResourceCloseCommit> {
-        validate_identifier("mutation id", &mutation.id)?;
-        validate_identifier("mutation origin", &mutation.origin)?;
-        validate_terminal_identity("terminal id", terminal_id)?;
-        if let Some(incarnation) = expected_incarnation {
-            validate_terminal_identity("terminal incarnation", incarnation)?;
-        }
-        if let Some(patch) = patch {
-            resource_store::validate_resource_patch(patch)?;
-        }
-        let fingerprint_value = serde_json::json!({
-            "op": "close-terminal",
-            "terminal_id": terminal_id,
-            "incarnation": expected_incarnation,
-        });
-        let fingerprint = canonical_json(&fingerprint_value)?;
-        let result_json = canonical_json(result)?;
+        const OPERATION: &str = "terminal.close";
+
+        validate_identifier("resource operation", OPERATION)?;
+        resource_store::validate_resource_patch(patch)?;
+        let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
+        let resource_result_json = canonical_json(resource_result)?;
         let tx = self.connection.transaction()?;
+        if let Some(terminal) = terminal_replay(&tx, mutation, &fingerprint)? {
+            tx.commit()?;
+            return Ok(TerminalResourceCloseCommit::Replay(terminal));
+        }
+        if resource_store::resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)?.is_some()
+        {
+            let terminal =
+                read_terminal(&tx, terminal_id)?.context("terminal close state is unavailable")?;
+            anyhow::ensure!(
+                terminal.lifecycle == TerminalLifecycle::Tombstoned,
+                "terminal close state is unavailable"
+            );
+            let revision = transaction_terminal_revision(&tx)?;
+            let result = serde_json::json!({
+                "terminal_id": terminal_id,
+                "incarnation": terminal.incarnation,
+                "closed": true,
+                "already_closed": true,
+            });
+            tx.commit()?;
+            return Ok(TerminalResourceCloseCommit::Replay(TerminalRegistryCommit {
+                revision,
+                result,
+                replayed: true,
+            }));
+        }
         let terminal = close_terminal_in_transaction(
             &tx,
             &self.generation,
             mutation,
+            &fingerprint,
             expected_generation,
             expected_terminal_revision,
             terminal_id,
             expected_incarnation,
-            &fingerprint,
         )?;
-        let resource = patch
-            .map(|patch| {
-                commit_resource_patch_in_transaction(
-                    &tx,
-                    &self.generation,
-                    mutation,
-                    "terminal.close",
-                    &fingerprint,
-                    expected_generation,
-                    expected_resource_revision,
-                    patch,
-                    result,
-                    deltas,
-                    &result_json,
-                )
-            })
-            .transpose()?;
+        debug_assert!(!terminal.replayed);
+        let previous_revision = transaction_resource_revision(&tx)?;
+        anyhow::ensure!(
+            previous_revision == expected_resource_revision,
+            "resource revision conflict: expected {expected_resource_revision}, current {previous_revision}"
+        );
+        let revision = previous_revision
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
+        let sqlite_revision =
+            i64::try_from(revision).context("resource revision exceeds SQLite range")?;
+        apply_resource_patch(&tx, patch, sqlite_revision)?;
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [revision.to_string()],
+        )?;
+        tx.execute(
+            "INSERT INTO resource_mutations(
+                   origin, idempotency_key, operation, fingerprint, result_json,
+                   committed_revision
+                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                mutation.origin,
+                mutation.id,
+                OPERATION,
+                fingerprint,
+                resource_result_json,
+                sqlite_revision,
+            ],
+        )?;
+        append_resource_journal_record(
+            &tx,
+            revision,
+            previous_revision,
+            &mutation.origin,
+            &mutation.id,
+            OPERATION,
+            Some(patch),
+            resource_result,
+            resource_deltas,
+        )?;
+        resource_store::prune_resource_mutations(&tx)?;
+        let resource =
+            ResourcePatchCommit { revision, result: resource_result.clone(), replayed: false };
         tx.commit()?;
-        Ok(TerminalResourceCloseCommit { terminal, resource })
+        Ok(TerminalResourceCloseCommit::Committed { terminal, resource })
     }
 
     /// Tombstone every hosted tab in one pane/screen as one SQLite unit. All
@@ -4194,24 +4237,22 @@ fn normalized_workspace_resource_deltas(
     Ok(Value::Array(deltas))
 }
 
-fn validate_terminal_batch_close(
+fn terminal_close_fingerprint(
     mutation: &WorkspaceMutation,
-    terminals: &[(String, Option<String>)],
-) -> anyhow::Result<()> {
+    terminal_id: &str,
+    expected_incarnation: Option<&str>,
+) -> anyhow::Result<String> {
     validate_identifier("mutation id", &mutation.id)?;
     validate_identifier("mutation origin", &mutation.origin)?;
-    let mut unique = HashSet::with_capacity(terminals.len());
-    for (terminal_id, incarnation) in terminals {
-        validate_terminal_identity("terminal id", terminal_id)?;
-        if let Some(incarnation) = incarnation {
-            validate_terminal_identity("terminal incarnation", incarnation)?;
-        }
-        anyhow::ensure!(
-            unique.insert(terminal_id.as_str()),
-            "duplicate terminal in batch close: {terminal_id}"
-        );
+    validate_terminal_identity("terminal id", terminal_id)?;
+    if let Some(incarnation) = expected_incarnation {
+        validate_terminal_identity("terminal incarnation", incarnation)?;
     }
-    Ok(())
+    canonical_json(&serde_json::json!({
+        "op": "close-terminal",
+        "terminal_id": terminal_id,
+        "incarnation": expected_incarnation,
+    }))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -4219,11 +4260,11 @@ fn close_terminal_in_transaction(
     transaction: &Transaction<'_>,
     generation: &str,
     mutation: &WorkspaceMutation,
+    fingerprint: &str,
     expected_generation: Option<&str>,
     expected_revision: Option<u64>,
     terminal_id: &str,
     expected_incarnation: Option<&str>,
-    fingerprint: &str,
 ) -> anyhow::Result<TerminalRegistryCommit> {
     if let Some(replay) = terminal_replay(transaction, mutation, fingerprint)? {
         return Ok(replay);
@@ -4316,6 +4357,26 @@ fn close_terminal_in_transaction(
         ],
     )?;
     Ok(TerminalRegistryCommit { revision, result, replayed: false })
+}
+
+fn validate_terminal_batch_close(
+    mutation: &WorkspaceMutation,
+    terminals: &[(String, Option<String>)],
+) -> anyhow::Result<()> {
+    validate_identifier("mutation id", &mutation.id)?;
+    validate_identifier("mutation origin", &mutation.origin)?;
+    let mut unique = HashSet::with_capacity(terminals.len());
+    for (terminal_id, incarnation) in terminals {
+        validate_terminal_identity("terminal id", terminal_id)?;
+        if let Some(incarnation) = incarnation {
+            validate_terminal_identity("terminal incarnation", incarnation)?;
+        }
+        anyhow::ensure!(
+            unique.insert(terminal_id.as_str()),
+            "duplicate terminal in batch close: {terminal_id}"
+        );
+    }
+    Ok(())
 }
 
 fn close_terminals_in_transaction(
@@ -5114,8 +5175,7 @@ fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<Resource
                 .with_context(|| format!("write resource receipt pepper {}", path.display()))?;
             file.sync_all()
                 .with_context(|| format!("sync resource receipt pepper {}", path.display()))?;
-            File::open(root)
-                .and_then(|directory| directory.sync_all())
+            platform::sync_directory(root)
                 .with_context(|| format!("sync state root {}", root.display()))?;
             Ok(pepper)
         }
@@ -5194,8 +5254,7 @@ fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
                 .and_then(|()| file.write_all(b"\n"))
                 .with_context(|| format!("write machine identity {}", path.display()))?;
             file.sync_all().with_context(|| format!("sync machine identity {}", path.display()))?;
-            File::open(root)
-                .and_then(|directory| directory.sync_all())
+            platform::sync_directory(root)
                 .with_context(|| format!("sync state root {}", root.display()))?;
             Ok(id)
         }
