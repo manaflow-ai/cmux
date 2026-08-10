@@ -135,26 +135,21 @@ fn replay_agent_projection_journal_page(
              ORDER BY sequence ASC
              LIMIT ?3",
         )?;
-        let rows = statement
-            .query_map(
-                params![
-                    i64::try_from(sequence).context("agent rebuild cursor exceeds SQLite range")?,
-                    i64::try_from(target_sequence)
-                        .context("agent rebuild target exceeds SQLite range")?,
-                    i64::try_from(AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE)
-                        .context("agent rebuild page size exceeds SQLite range")?,
-                ],
-                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
-            )?;
-        rows
-            .map(|row| {
-                let (sequence, event_id) = row?;
-                Ok((
-                    u64::try_from(sequence).context("agent rebuild sequence is negative")?,
-                    event_id,
-                ))
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?
+        let rows = statement.query_map(
+            params![
+                i64::try_from(sequence).context("agent rebuild cursor exceeds SQLite range")?,
+                i64::try_from(target_sequence)
+                    .context("agent rebuild target exceeds SQLite range")?,
+                i64::try_from(AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE)
+                    .context("agent rebuild page size exceeds SQLite range")?,
+            ],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        )?;
+        rows.map(|row| {
+            let (sequence, event_id) = row?;
+            Ok((u64::try_from(sequence).context("agent rebuild sequence is negative")?, event_id))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?
     };
     let last_sequence = scanned.last().map(|(sequence, _)| *sequence);
     let agent_sequences = scanned
@@ -213,9 +208,7 @@ fn agent_projection_journal_candidate(connection: &Connection) -> anyhow::Result
         .transpose()
 }
 
-fn agent_projection_journal_rebuild_target(
-    connection: &Connection,
-) -> anyhow::Result<Option<u64>> {
+fn agent_projection_journal_rebuild_target(connection: &Connection) -> anyhow::Result<Option<u64>> {
     connection
         .query_row(
             "SELECT value FROM meta WHERE key = ?1",
