@@ -37,6 +37,7 @@ type DashboardTeam = {
   readonly name: string;
   readonly use: boolean;
   readonly manageAccounts: boolean;
+  readonly personal: boolean;
 };
 
 type AccountState =
@@ -142,6 +143,7 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
       name: candidate.teamName,
       use: candidate.use,
       manageAccounts: candidate.manageAccounts,
+      personal: candidate.personal,
     }));
   if (teams.length === 0) {
     redirect("/dashboard");
@@ -461,6 +463,9 @@ function selectTeam(
   if (selectedTeamId) {
     const selected = teams.find((team) => team.id === selectedTeamId);
     if (selected) return selected;
+  } else {
+    const personal = teams.find((team) => team.personal);
+    if (personal) return personal;
   }
   return teams[0];
 }

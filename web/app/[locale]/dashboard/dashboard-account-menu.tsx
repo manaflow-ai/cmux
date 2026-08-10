@@ -161,12 +161,14 @@ function DashboardOrganizationSwitcher() {
   const selectableTeams = teams.filter((team) => permittedIds.has(team.id));
   const personal = permittedCatalogTeams.find((team) => team.personal);
   const requestedTeamId = searchParams.get("team");
-  // Match the CodeRouter page: an explicit deep link wins, then the
-  // server-authoritative selected team, then a deterministic permitted team.
+  // Match the CodeRouter page: an explicit deep link wins, then Stack's live
+  // selected team (where null means personal), then a permitted fallback.
   const selectedTeamId = requestedTeamId && permittedIds.has(requestedTeamId)
     ? requestedTeamId
-    : data.selectedTeamId && permittedIds.has(data.selectedTeamId)
-    ? data.selectedTeamId
+    : user.selectedTeam && permittedIds.has(user.selectedTeam.id)
+    ? user.selectedTeam.id
+    : user.selectedTeam === null && personal
+    ? personal.id
     : permittedCatalogTeams[0]?.id;
   const switchOrganization = async (
     team: (typeof selectableTeams)[number] | null,
