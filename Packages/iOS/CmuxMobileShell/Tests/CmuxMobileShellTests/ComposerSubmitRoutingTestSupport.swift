@@ -420,6 +420,18 @@ actor RoutingHostRouter {
                   !isLast || offset + chunk.count == totalBytes else {
                 return try? Self.errorFrame(id: id, message: "invalid upload chunk")
             }
+            // Production treats its completion record as authoritative before
+            // inspecting chunk state. A delivery retry starts again at offset
+            // zero with the same identities and receives the completed receipt
+            // immediately, without rewriting the finalized bytes.
+            if let completed = completedUploads.first(where: {
+                $0.uploadID == uploadID && $0.operationID == operationID
+            }) {
+                return try? Self.resultFrame(id: id, result: [
+                    "received_bytes": completed.bytes.count,
+                    "path": "/tmp/\(uploadID)/\(completed.fileName)",
+                ])
+            }
             if uploadOffsets[uploadID] != nil {
                 guard uploadFileNames[uploadID] == fileName,
                       uploadOperationIDs[uploadID] == operationID,

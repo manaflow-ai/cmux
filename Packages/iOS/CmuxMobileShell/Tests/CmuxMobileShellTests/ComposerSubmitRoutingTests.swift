@@ -275,6 +275,40 @@ import Testing
         #expect(store.terminalInputText == "keep me")
     }
 
+    @Test func retryRecognizesCompletedMultiChunkUploadAfterDeliveryFailure() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: router)
+        let terminalID = RoutingHostRouter.terminalA
+        store.selectTerminal(MobileTerminalPreview.ID(rawValue: terminalID))
+        let bytes = Data(repeating: 0xA7, count: 3 * 1024 * 1024 + 17)
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-multichunk-retry-\(UUID()).bin")
+        try bytes.write(to: fileURL, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let attachment = MobileStagedAttachment(
+            kind: .file,
+            fileName: "large-retry.bin",
+            localFileURL: fileURL,
+            byteCount: bytes.count
+        )
+        #expect(store.addPendingAttachment(attachment, forTerminalID: terminalID) != nil)
+
+        await router.setRejectPasteImage(true)
+        #expect(await store.submitComposer() == false)
+        #expect(store.pendingAttachments(forTerminalID: terminalID).count == 1)
+        var uploads = await router.recordedUploads()
+        #expect(uploads.count == 1)
+        #expect(uploads.first?.bytes == bytes)
+
+        await router.setRejectPasteImage(false)
+        #expect(await store.submitComposer() == true)
+        uploads = await router.recordedUploads()
+        #expect(uploads.count == 1, "the completed upload must not be rewritten")
+        #expect(uploads.first?.bytes == bytes)
+        #expect(await router.recordedPasteImages().count == 2)
+        #expect(store.pendingAttachments(forTerminalID: terminalID).isEmpty)
+    }
+
     /// A chip the user deletes WHILE an earlier image's send is in flight must not
     /// upload: submitComposer iterates a snapshot taken before the awaits, but it
     /// re-checks each attachment is still staged for the captured terminal before
