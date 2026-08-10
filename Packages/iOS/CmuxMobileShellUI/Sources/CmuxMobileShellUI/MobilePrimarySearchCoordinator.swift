@@ -21,6 +21,7 @@ final class MobilePrimarySearchCoordinator {
     private var platformSearchingScope: MobilePrimarySearchScope?
     private var workspaceNativeSearchText = ""
     private var notificationNativeSearchText = ""
+    private var pendingRestoredQueryScope: MobilePrimarySearchScope?
     private let searchQueryBounds = MobileSearchQueryBounds()
 
     init(initialScope: MobilePrimarySearchScope = .workspaces) {
@@ -43,6 +44,18 @@ final class MobilePrimarySearchCoordinator {
         if presented {
             activate(scope: scope)
         }
+    }
+
+    /// Re-presents the search field carrying the scope's committed query, for
+    /// restoring a session that was ended around a pushed detail. The fresh
+    /// field of a programmatic presentation pushes one initial empty value
+    /// through the text binding with a valid generation; restoration swallows
+    /// exactly that one write and re-syncs the query, so a later empty write
+    /// (the user clearing the field) behaves normally.
+    func restorePresentation(for scope: MobilePrimarySearchScope) {
+        self.scope = scope
+        pendingRestoredQueryScope = committedSearchText(for: scope).isEmpty ? nil : scope
+        setPresentation(true)
     }
 
     func commitSubmit() -> MobilePrimaryTab {
@@ -93,6 +106,13 @@ final class MobilePrimarySearchCoordinator {
                 syncNativeSearchText(fromCommittedQueryFor: scope)
             }
             return
+        }
+        if pendingRestoredQueryScope == scope {
+            pendingRestoredQueryScope = nil
+            if value.isEmpty {
+                syncNativeSearchText(fromCommittedQueryFor: scope)
+                return
+            }
         }
         setNativeSearchText(value, for: scope)
     }
@@ -187,6 +207,7 @@ final class MobilePrimarySearchCoordinator {
     private func beginDeactivation(for scope: MobilePrimarySearchScope) {
         phase = .deactivating(scope)
         platformSearchingScope = nil
+        pendingRestoredQueryScope = nil
         syncNativeSearchText(fromCommittedQueryFor: scope)
     }
 

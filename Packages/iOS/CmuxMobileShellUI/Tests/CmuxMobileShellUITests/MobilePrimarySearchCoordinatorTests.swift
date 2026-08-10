@@ -3,6 +3,74 @@ import Testing
 
 @MainActor
 @Suite struct MobilePrimarySearchCoordinatorTests {
+    @Test func restorePresentationSurvivesTheInitialEmptyPlatformWrite() {
+        let coordinator = MobilePrimarySearchCoordinator()
+        coordinator.synchronizeSelection(.workspaces)
+        coordinator.setPresentation(true)
+        coordinator.updateNativeSearchText(
+            "docs",
+            for: .workspaces,
+            activationGeneration: coordinator.activationGeneration
+        )
+        // Selecting a result ends the session, committing the draft.
+        coordinator.deactivateCurrentSearch()
+        #expect(coordinator.workspaces == "docs")
+
+        coordinator.restorePresentation(for: .workspaces)
+        // The fresh field of a programmatic presentation pushes one initial
+        // empty value with a valid generation; it must not wipe the query.
+        coordinator.updateNativeSearchText(
+            "",
+            for: .workspaces,
+            activationGeneration: coordinator.activationGeneration
+        )
+        #expect(coordinator.activeNativeSearchText() == "docs")
+        #expect(coordinator.searchDestinationText(for: .workspaces) == "docs")
+
+        // A second empty write is the user clearing the field and behaves
+        // normally.
+        coordinator.updateNativeSearchText(
+            "",
+            for: .workspaces,
+            activationGeneration: coordinator.activationGeneration
+        )
+        #expect(coordinator.activeNativeSearchText() == "")
+    }
+
+    @Test func restorePresentationAcceptsAnImmediateNonEmptyEdit() {
+        let coordinator = MobilePrimarySearchCoordinator()
+        coordinator.synchronizeSelection(.workspaces)
+        coordinator.setPresentation(true)
+        coordinator.updateNativeSearchText(
+            "docs",
+            for: .workspaces,
+            activationGeneration: coordinator.activationGeneration
+        )
+        coordinator.deactivateCurrentSearch()
+
+        coordinator.restorePresentation(for: .workspaces)
+        coordinator.updateNativeSearchText(
+            "docs2",
+            for: .workspaces,
+            activationGeneration: coordinator.activationGeneration
+        )
+        #expect(coordinator.activeNativeSearchText() == "docs2")
+    }
+
+    @Test func restorePresentationWithEmptyCommittedQueryActsLikePlainPresentation() {
+        let coordinator = MobilePrimarySearchCoordinator()
+        coordinator.synchronizeSelection(.workspaces)
+        coordinator.deactivateCurrentSearch()
+
+        coordinator.restorePresentation(for: .workspaces)
+        coordinator.updateNativeSearchText(
+            "",
+            for: .workspaces,
+            activationGeneration: coordinator.activationGeneration
+        )
+        #expect(coordinator.activeNativeSearchText() == "")
+    }
+
     @Test func activePresentedSearchAcceptsExplicitClear() {
         let coordinator = MobilePrimarySearchCoordinator()
         coordinator.synchronizeSelection(.workspaces)

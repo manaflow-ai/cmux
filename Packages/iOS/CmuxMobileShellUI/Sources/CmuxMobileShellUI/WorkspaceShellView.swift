@@ -406,7 +406,7 @@ struct WorkspaceShellView: View {
                         searchSelectionRestoresSearchOnPop = false
                         guard selectedPrimaryTab == .search,
                               workspaceSearchNavigationPath.isEmpty else { return }
-                        primarySearchCoordinator.setPresentation(true)
+                        primarySearchCoordinator.restorePresentation(for: .workspaces)
                     }
                 }
             }

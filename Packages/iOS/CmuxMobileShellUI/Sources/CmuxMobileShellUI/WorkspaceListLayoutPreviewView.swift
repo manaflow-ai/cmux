@@ -584,7 +584,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                                         searchSelectionRestoresSearchOnPop = false
                                         guard selectedPrimaryTab == .search,
                                               searchFixturePath.isEmpty else { return }
-                                        primarySearchCoordinator.setPresentation(true)
+                                        primarySearchCoordinator.restorePresentation(for: .workspaces)
                                     }
                             }
                         }
