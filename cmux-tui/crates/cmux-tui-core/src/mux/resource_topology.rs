@@ -86,6 +86,10 @@ struct ResourceCloseEffects {
     empty_revision: Option<u64>,
 }
 
+fn terminal_close_state_error(detail: impl Into<String>) -> anyhow::Error {
+    anyhow::Error::msg(detail.into()).context("terminal close state is unavailable")
+}
+
 enum ResourceCloseTreePublication {
     PendingDelta(TreeDelta),
     PendingSnapshot,
@@ -2247,18 +2251,22 @@ impl Mux {
             return Ok(None);
         };
         let mut state = self.state.lock().unwrap();
-        let durable_host = registry
-            .terminal_host_id(&public_id)?
-            .with_context(|| format!("terminal {public_id} has no durable host"))?;
-        anyhow::ensure!(durable_host == terminal_id, "terminal resource changed hosts");
+        let durable_host = registry.terminal_host_id(&public_id)?.ok_or_else(|| {
+            terminal_close_state_error(format!("terminal {public_id} has no durable host"))
+        })?;
+        if durable_host != terminal_id {
+            return Err(terminal_close_state_error("terminal resource changed hosts"));
+        }
         let content_id = ContentPublicId::Terminal(public_id.clone());
         let (target, mut plan) = if let Some(runtime) =
             state.terminal_catalog.get(&public_id).cloned()
         {
-            let host = self
-                .resource_terminal_host_identity(&runtime)
-                .context("terminal runtime omitted its durable host identity")?;
-            anyhow::ensure!(host.terminal_id == terminal_id, "terminal resource changed hosts");
+            let host = self.resource_terminal_host_identity(&runtime).ok_or_else(|| {
+                terminal_close_state_error("terminal runtime omitted its durable host identity")
+            })?;
+            if host.terminal_id != terminal_id {
+                return Err(terminal_close_state_error("terminal resource changed hosts"));
+            }
             if let Some(expected) = expected_incarnation {
                 anyhow::ensure!(host.incarnation == expected, "terminal_incarnation_mismatch");
             }
@@ -2272,10 +2280,11 @@ impl Mux {
             )?;
             (target, plan)
         } else {
-            anyhow::ensure!(
-                state.placements_of_content(&content_id).is_empty(),
-                "live terminal resource {public_id} has views but no runtime owner"
-            );
+            if !state.placements_of_content(&content_id).is_empty() {
+                return Err(terminal_close_state_error(format!(
+                    "live terminal resource {public_id} has views but no runtime owner"
+                )));
+            }
             (
                 None,
                 ResourceClosePlan {
@@ -2293,14 +2302,17 @@ impl Mux {
         };
         let projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
-        anyhow::ensure!(
-            projection.patch.changes.iter().any(|change| matches!(
+        if !projection.patch.changes.iter().any(|change| {
+            matches!(
                 change,
                 ResourceChange::TombstoneTerminal { public_id: closing, .. }
                     if closing == &public_id
-            )),
-            "terminal close projection omitted {public_id}"
-        );
+            )
+        }) {
+            return Err(terminal_close_state_error(format!(
+                "terminal close projection omitted {public_id}"
+            )));
+        }
         #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
