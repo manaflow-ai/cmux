@@ -44,6 +44,26 @@ import Testing
         #expect(composite.pendingAttachments(forTerminalID: "term-a").isEmpty)
     }
 
+    @Test func fileBackedZeroByteAttachmentIsVisibleAndSendable() throws {
+        let composite = Self.makeComposite()
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("empty-attachment-\(UUID()).txt")
+        try Data().write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let attachment = MobileStagedAttachment(
+            kind: .file,
+            fileName: "empty.txt",
+            localFileURL: url,
+            byteCount: 0
+        )
+
+        let id = composite.addPendingAttachment(attachment, forTerminalID: "term-a")
+
+        #expect(id == attachment.id)
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").count == 1)
+        #expect(composite.composerCanSend(forTerminalID: "term-a"))
+    }
+
     @Test func removeDropsOnlyTheTargetedAttachment() {
         let composite = Self.makeComposite()
         composite.addPendingAttachment(Self.bytes("one"), format: "png", forTerminalID: "term-a")
