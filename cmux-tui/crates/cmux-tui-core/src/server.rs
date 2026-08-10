@@ -4805,9 +4805,11 @@ fn serve_websocket_with_tracking_cloner(
             }
             let Some(permit) = claim_connection(&thread_active_connections) else { continue };
             let id = next_connection.fetch_add(1, Ordering::Relaxed);
-            if let Ok(tracked) = tracking_cloner(&stream) {
-                thread_connections.lock().unwrap().insert(id, tracked);
-            }
+            let tracked = match tracking_cloner(&stream) {
+                Ok(tracked) => tracked,
+                Err(_) => continue,
+            };
+            thread_connections.lock().unwrap().insert(id, tracked);
             let mux = mux.clone();
             let token = token.clone();
             let render_service = render_service.clone();

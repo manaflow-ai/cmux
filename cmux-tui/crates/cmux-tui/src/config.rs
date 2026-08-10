@@ -3272,7 +3272,7 @@ fn ghostty_defaults_from_helper_command(
     mut command: Command,
     parent_deadline: Duration,
 ) -> GhosttyHelperDefaults {
-    let Ok(mut child) = command.spawn() else {
+    let Ok(mut child) = cmux_tui_process::spawn(&mut command) else {
         return GhosttyHelperDefaults::Unavailable;
     };
     let Some(stdout) = child.stdout.take() else {

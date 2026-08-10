@@ -448,13 +448,12 @@ impl SshBootstrapper {
             command.arg("-p").arg(port.to_string());
         }
         command.args(&self.config.extra_args).arg(&self.config.destination).arg(remote_command);
-        let mut child = command
+        command
             .stdin(Stdio::from(source))
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(BootstrapError::Io)?;
+            .kill_on_drop(true);
+        let mut child = crate::process_creation::spawn(&mut command).map_err(BootstrapError::Io)?;
         let stdout = match child.stdout.take() {
             Some(stdout) => stdout,
             None => {
