@@ -1211,7 +1211,6 @@ fn has_inline_relay_ticket_argument(args: &[String]) -> bool {
             | "--relay-slot"
             | "--relay-ticket-file"
             | "--relay-ticket-command"
-            | "--relay-ticket-command-arg"
             | "--advertise"
             | "--term" => {
                 if args.get(index + 1).is_some_and(|value| {
@@ -1221,6 +1220,7 @@ fn has_inline_relay_ticket_argument(args: &[String]) -> bool {
                 }
                 index += 2;
             }
+            "--relay-ticket-command-arg" => index += 2,
             "--machine-provider-command" => {
                 index += 1;
                 while index < args.len() && args[index] != "--" {
