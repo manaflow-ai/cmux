@@ -90,6 +90,10 @@ extension TerminalController {
         String(localized: "dock.error.unavailable", defaultValue: "Dock placement is disabled")
     }
 
+    func dockFocusUnavailableMessage() -> String {
+        String(localized: "dock.error.focusUnavailable", defaultValue: "Dock could not be revealed")
+    }
+
     func dockConflictingRoutingSelectorsMessage() -> String {
         String(localized: "dock.error.conflictingRoutingSelectors", defaultValue: "Conflicting Dock routing selectors")
     }

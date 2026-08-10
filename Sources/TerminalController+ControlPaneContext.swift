@@ -99,7 +99,7 @@ extension TerminalController: ControlPaneContext {
                 return .paneNotFound(paneID)
             }
             guard focusAndRevealWindowDock(for: dock, fallback: tabManager) else {
-                return .dockUnavailable(message: dockUnavailableMessage())
+                return .dockUnavailable(message: dockFocusUnavailableMessage())
             }
             dock.bonsplitController.focusPane(paneId)
             return .focused(windowID: dockResultWindowId(for: dock, tabManager: tabManager), workspaceID: dock.workspaceId, paneID: paneId.id)

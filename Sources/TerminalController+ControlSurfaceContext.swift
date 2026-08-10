@@ -267,7 +267,7 @@ extension TerminalController: ControlSurfaceContext {
                 return .surfaceNotFound(surfaceID)
             }
             guard focusAndRevealWindowDock(for: windowDock, fallback: tabManager) else {
-                return .dockUnavailable(message: dockUnavailableMessage())
+                return .dockUnavailable(message: dockFocusUnavailableMessage())
             }
             windowDock.focusPanel(surfaceID)
             return .focused(
