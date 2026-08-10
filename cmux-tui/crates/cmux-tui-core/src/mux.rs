@@ -8399,6 +8399,25 @@ impl Mux {
     }
 
     #[cfg(test)]
+    fn wait_for_kitty_image_budget_worker_stopped_for_test(&self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let mut budget = self.kitty_image_budget.lock().unwrap();
+        while budget.worker_running {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            let (next, timed_out) =
+                self.kitty_image_budget_changed.wait_timeout(budget, remaining).unwrap();
+            budget = next;
+            if timed_out.timed_out() && Instant::now() >= deadline {
+                return false;
+            }
+        }
+        true
+    }
+
+    #[cfg(test)]
     fn wait_for_kitty_image_budget_idle_for_test(&self, timeout: Duration) -> bool {
         let deadline = Instant::now() + timeout;
         let mut budget = self.kitty_image_budget.lock().unwrap();
@@ -18455,11 +18474,9 @@ mod tests {
 
         close_terminal_runtime_for_test(&mux, &second);
         started_receiver.recv_timeout(Duration::from_secs(2)).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(4);
-        while mux.kitty_image_budget.lock().unwrap().worker_running && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        let stopped = !mux.kitty_image_budget.lock().unwrap().worker_running;
+        let stopped = mux.wait_for_kitty_image_budget_worker_stopped_for_test(
+            crate::terminal_host_runtime::CONTROL_RESPONSE_TIMEOUT.saturating_mul(15),
+        );
         {
             let (released, changed) = &*gate;
             *released.lock().unwrap() = true;
